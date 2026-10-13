@@ -54,7 +54,9 @@ fn unsupported_retired_and_claimed_backends_fail_state_admission() {
         let proof = ProofBox::new(backend.to_owned(), vec![1, 2, 3, 4]);
         for active in [false, true] {
             assert_eq!(
-                transaction.preverify_proof(&proof, None, 0, None, None, active),
+                transaction
+                    .preverify_proof(&proof, None, 0, None, None, active)
+                    .expect("preverification must complete for this semantic fixture"),
                 PreverifyResult::UnsupportedBackend,
                 "backend admission must precede key activity: {backend}, active={active}"
             );
@@ -76,7 +78,9 @@ fn stark_fri_profile_labels_require_enveloped_state_preverify_metadata() {
     let commitment = crate::zk::hash_vk(&vk);
     let raw = ProofBox::new(backend.to_owned(), vec![1, 2, 3, 4]);
     assert_eq!(
-        transaction.preverify_proof(&raw, Some(&vk), 0, Some(commitment), Some(commitment), true),
+        transaction
+            .preverify_proof(&raw, Some(&vk), 0, Some(commitment), Some(commitment), true)
+            .expect("preverification must complete for this semantic fixture"),
         PreverifyResult::MalformedProof
     );
     assert_unseen(&transaction, &raw, commitment);
@@ -93,25 +97,29 @@ fn stark_fri_profile_labels_require_enveloped_state_preverify_metadata() {
         norito::encode_canonical(&envelope).unwrap(),
     );
     assert_eq!(
-        transaction.preverify_proof(
-            &proof,
-            Some(&vk),
-            0,
-            Some(commitment),
-            Some(commitment),
-            true
-        ),
+        transaction
+            .preverify_proof(
+                &proof,
+                Some(&vk),
+                0,
+                Some(commitment),
+                Some(commitment),
+                true
+            )
+            .expect("preverification must complete for this semantic fixture"),
         PreverifyResult::Accepted
     );
     assert_eq!(
-        transaction.preverify_proof(
-            &proof,
-            Some(&vk),
-            0,
-            Some(commitment),
-            Some(commitment),
-            true
-        ),
+        transaction
+            .preverify_proof(
+                &proof,
+                Some(&vk),
+                0,
+                Some(commitment),
+                Some(commitment),
+                true
+            )
+            .expect("preverification must complete for this semantic fixture"),
         PreverifyResult::Duplicate
     );
 }
@@ -119,11 +127,10 @@ fn stark_fri_profile_labels_require_enveloped_state_preverify_metadata() {
 #[test]
 fn native_compiled_descriptor_refusal_preserves_key_admission_and_original_retry() {
     let (proof, key) = native_originals();
-    assert!(crate::zk::verify_backend(
-        &proof.backend,
-        &proof,
-        Some(&key)
-    ));
+    assert!(
+        crate::zk::verify_backend(&proof.backend, &proof, Some(&key))
+            .expect("completed native verification")
+    );
     let envelope: OpenVerifyEnvelope = norito::decode_canonical(&proof.bytes).unwrap();
     let original: crate::zk::native_pipa_r::CompiledVerifyingKeyV1 =
         norito::decode_canonical(&key.bytes).unwrap();
@@ -176,46 +183,54 @@ fn native_compiled_descriptor_refusal_preserves_key_admission_and_original_retry
         // The original CoreZK metadata preflight accepts these consistently
         // bound originals. HC146 therefore really removes the only State
         // compiled-material check, rather than exercising another refusal.
-        assert_eq!(
-            crate::zk::preverify_with_budget(
-                &original_foreign,
-                Some(&foreign),
-                &mut crate::zk::DedupCache::new(),
-                0,
-                Some(commitment),
-                Some(commitment),
-                true,
-            ),
-            PreverifyResult::Accepted,
-            "metadata preflight for {case}"
-        );
-        assert_eq!(
-            transaction.preverify_proof(
-                &original_foreign,
-                Some(&foreign),
-                0,
-                Some(commitment),
-                Some(commitment),
-                false,
-            ),
-            PreverifyResult::VerifyingKeyInactive,
-            "inactive-key order for {case}"
-        );
-        assert_eq!(
-            transaction.preverify_proof(&original_foreign, Some(&foreign), 0, None, None, true),
-            PreverifyResult::VerifyingKeyMissing,
-            "bound-key admission order for {case}"
-        );
-        for _ in 0..2 {
-            assert_eq!(
-                transaction.preverify_proof(
+        assert!(
+            matches!(
+                crate::zk::preverify_with_budget(
                     &original_foreign,
                     Some(&foreign),
+                    &mut crate::zk::DedupCache::new(),
                     0,
                     Some(commitment),
                     Some(commitment),
                     true,
                 ),
+                Ok(PreverifyResult::Accepted)
+            ),
+            "metadata preflight for {case}"
+        );
+        assert_eq!(
+            transaction
+                .preverify_proof(
+                    &original_foreign,
+                    Some(&foreign),
+                    0,
+                    Some(commitment),
+                    Some(commitment),
+                    false,
+                )
+                .expect("preverification must complete for this semantic fixture"),
+            PreverifyResult::VerifyingKeyInactive,
+            "inactive-key order for {case}"
+        );
+        assert_eq!(
+            transaction
+                .preverify_proof(&original_foreign, Some(&foreign), 0, None, None, true)
+                .expect("preverification must complete for this semantic fixture"),
+            PreverifyResult::VerifyingKeyMissing,
+            "bound-key admission order for {case}"
+        );
+        for _ in 0..2 {
+            assert_eq!(
+                transaction
+                    .preverify_proof(
+                        &original_foreign,
+                        Some(&foreign),
+                        0,
+                        Some(commitment),
+                        Some(commitment),
+                        true,
+                    )
+                    .expect("preverification must complete for this semantic fixture"),
                 PreverifyResult::VerifyingKeyMismatch,
                 "compiled original refusal for {case}"
             );
@@ -224,31 +239,37 @@ fn native_compiled_descriptor_refusal_preserves_key_admission_and_original_retry
     }
     let commitment = crate::zk::hash_vk(&key);
     assert_eq!(
-        transaction.preverify_proof(
-            &proof,
-            Some(&key),
-            0,
-            Some(commitment),
-            Some(commitment),
-            true
-        ),
+        transaction
+            .preverify_proof(
+                &proof,
+                Some(&key),
+                0,
+                Some(commitment),
+                Some(commitment),
+                true
+            )
+            .expect("preverification must complete for this semantic fixture"),
         PreverifyResult::Accepted,
         "the exact original compiled key remains admitted"
     );
     assert_eq!(
-        transaction.preverify_proof(&proof, Some(&key), 0, None, Some(commitment), true),
+        transaction
+            .preverify_proof(&proof, Some(&key), 0, None, Some(commitment), true)
+            .expect("preverification must complete for this semantic fixture"),
         PreverifyResult::Duplicate,
         "resolved and supplied bound commitments have the identical dedup preimage"
     );
     assert_eq!(
-        transaction.preverify_proof(
-            &proof,
-            Some(&key),
-            0,
-            Some(commitment),
-            Some(commitment),
-            false
-        ),
+        transaction
+            .preverify_proof(
+                &proof,
+                Some(&key),
+                0,
+                Some(commitment),
+                Some(commitment),
+                false
+            )
+            .expect("preverification must complete for this semantic fixture"),
         PreverifyResult::VerifyingKeyInactive,
         "already cached originals must still recheck key activity"
     );
@@ -263,20 +284,24 @@ fn native_state_payload_caps_commitments_and_metadata_precede_dedup_publication(
     let mut transaction = block.transaction();
     let empty = ProofBox::new(proof.backend.clone(), Vec::new());
     assert_eq!(
-        transaction.preverify_proof(&empty, Some(&key), 0, None, None, false),
+        transaction
+            .preverify_proof(&empty, Some(&key), 0, None, None, false)
+            .expect("preverification must complete for this semantic fixture"),
         PreverifyResult::MalformedProof,
         "empty State payload refusal remains first"
     );
     transaction.zk.preverify_max_bytes = proof.bytes.len() - 1;
     assert_eq!(
-        transaction.preverify_proof(
-            &proof,
-            Some(&key),
-            0,
-            Some(commitment),
-            Some(commitment),
-            false
-        ),
+        transaction
+            .preverify_proof(
+                &proof,
+                Some(&key),
+                0,
+                Some(commitment),
+                Some(commitment),
+                false
+            )
+            .expect("preverification must complete for this semantic fixture"),
         PreverifyResult::ProofTooBig,
         "State payload cap precedes key activity"
     );
@@ -284,14 +309,16 @@ fn native_state_payload_caps_commitments_and_metadata_precede_dedup_publication(
     transaction.zk.preverify_max_bytes = proof.bytes.len();
     transaction.zk.preverify_budget_bytes = (proof.bytes.len() - 1) as u64;
     assert_eq!(
-        transaction.preverify_proof(
-            &proof,
-            Some(&key),
-            0,
-            Some(commitment),
-            Some(commitment),
-            false
-        ),
+        transaction
+            .preverify_proof(
+                &proof,
+                Some(&key),
+                0,
+                Some(commitment),
+                Some(commitment),
+                false
+            )
+            .expect("preverification must complete for this semantic fixture"),
         PreverifyResult::PreverifyBudgetExceeded,
         "State byte budget precedes key activity"
     );
@@ -316,7 +343,9 @@ fn native_state_payload_caps_commitments_and_metadata_precede_dedup_publication(
         ),
     ] {
         assert_eq!(
-            transaction.preverify_proof(&proof, Some(&key), 0, supplied, expected, true),
+            transaction
+                .preverify_proof(&proof, Some(&key), 0, supplied, expected, true)
+                .expect("preverification must complete for this semantic fixture"),
             refusal
         );
         assert_unseen(&transaction, &proof, commitment);
@@ -336,43 +365,51 @@ fn native_state_payload_caps_commitments_and_metadata_precede_dedup_publication(
         // Metadata growth remains inside the test's explicit State payload cap.
         transaction.zk.preverify_max_bytes = changed.bytes.len().max(proof.bytes.len());
         assert_eq!(
-            transaction.preverify_proof(
-                &changed,
-                Some(&key),
-                0,
-                Some(commitment),
-                Some(commitment),
-                false
-            ),
+            transaction
+                .preverify_proof(
+                    &changed,
+                    Some(&key),
+                    0,
+                    Some(commitment),
+                    Some(commitment),
+                    false
+                )
+                .expect("preverification must complete for this semantic fixture"),
             PreverifyResult::VerifyingKeyInactive
         );
         assert_eq!(
-            transaction.preverify_proof(
-                &changed,
-                Some(&key),
-                0,
-                Some(commitment),
-                Some(commitment),
-                true
-            ),
+            transaction
+                .preverify_proof(
+                    &changed,
+                    Some(&key),
+                    0,
+                    Some(commitment),
+                    Some(commitment),
+                    true
+                )
+                .expect("preverification must complete for this semantic fixture"),
             PreverifyResult::MalformedProof
         );
         assert_unseen(&transaction, &changed, commitment);
     }
     transaction.zk.preverify_budget_bytes = proof.bytes.len() as u64;
     assert_eq!(
-        transaction.preverify_proof(&proof, Some(&key), 0, None, Some(commitment), true),
+        transaction
+            .preverify_proof(&proof, Some(&key), 0, None, Some(commitment), true)
+            .expect("preverification must complete for this semantic fixture"),
         PreverifyResult::Accepted
     );
     assert_eq!(
-        transaction.preverify_proof(
-            &proof,
-            Some(&key),
-            0,
-            Some(commitment),
-            Some(commitment),
-            true
-        ),
+        transaction
+            .preverify_proof(
+                &proof,
+                Some(&key),
+                0,
+                Some(commitment),
+                Some(commitment),
+                true
+            )
+            .expect("preverification must complete for this semantic fixture"),
         PreverifyResult::Duplicate
     );
 }
@@ -384,47 +421,58 @@ fn genuine_stark_originals_preserve_independent_admission_and_key_activity() {
     let backend = crate::zk::ZK_BACKEND_STARK_FRI_V1;
     let proof = fixture.proof_box(backend);
     let key = fixture.vk_box(backend).unwrap();
-    assert!(crate::zk::verify_backend(backend, &proof, Some(&key)));
+    assert!(
+        crate::zk::verify_backend(backend, &proof, Some(&key))
+            .expect("completed STARK verification")
+    );
     let commitment = crate::zk::hash_vk(&key);
     let state = test_state();
     let mut block = state.block(header());
     let mut transaction = block.transaction();
     assert_eq!(
-        transaction.preverify_proof(
-            &proof,
-            Some(&key),
-            0,
-            Some(commitment),
-            Some(commitment),
-            false
-        ),
+        transaction
+            .preverify_proof(
+                &proof,
+                Some(&key),
+                0,
+                Some(commitment),
+                Some(commitment),
+                false
+            )
+            .expect("preverification must complete for this semantic fixture"),
         PreverifyResult::VerifyingKeyInactive
     );
     assert_unseen(&transaction, &proof, commitment);
     assert_eq!(
-        transaction.preverify_proof(&proof, Some(&key), 0, None, Some(commitment), true),
+        transaction
+            .preverify_proof(&proof, Some(&key), 0, None, Some(commitment), true)
+            .expect("preverification must complete for this semantic fixture"),
         PreverifyResult::Accepted
     );
     assert_eq!(
-        transaction.preverify_proof(
-            &proof,
-            Some(&key),
-            0,
-            Some(commitment),
-            Some(commitment),
-            true
-        ),
+        transaction
+            .preverify_proof(
+                &proof,
+                Some(&key),
+                0,
+                Some(commitment),
+                Some(commitment),
+                true
+            )
+            .expect("preverification must complete for this semantic fixture"),
         PreverifyResult::Duplicate
     );
     assert_eq!(
-        transaction.preverify_proof(
-            &proof,
-            Some(&key),
-            0,
-            Some(commitment),
-            Some(commitment),
-            false
-        ),
+        transaction
+            .preverify_proof(
+                &proof,
+                Some(&key),
+                0,
+                Some(commitment),
+                Some(commitment),
+                false
+            )
+            .expect("preverification must complete for this semantic fixture"),
         PreverifyResult::VerifyingKeyInactive
     );
 }
@@ -439,14 +487,9 @@ fn retired_ipa_profile_labels_refuse_even_native_envelope() {
     let proof = ProofBox::new("halo2/ipa:ivm-replay-binding-v1".into(), original.bytes);
     for active in [false, true] {
         assert_eq!(
-            transaction.preverify_proof(
-                &proof,
-                None,
-                0,
-                Some(commitment),
-                Some(commitment),
-                active
-            ),
+            transaction
+                .preverify_proof(&proof, None, 0, Some(commitment), Some(commitment), active)
+                .expect("preverification must complete for this semantic fixture"),
             PreverifyResult::UnsupportedBackend,
             "an exact native envelope cannot authorize a retired backend alias"
         );
@@ -468,50 +511,147 @@ fn native_and_stark_key_refusals_preserve_original_dedup_for_retry() {
         let vk = VerifyingKeyBox::new(backend.to_owned(), vec![0xA5, 0x5A, 0xC3]);
         let commitment = crate::zk::hash_vk(&vk);
         assert_eq!(
-            transaction.preverify_proof(&proof, None, 0, None, None, true),
+            transaction
+                .preverify_proof(&proof, None, 0, None, None, true)
+                .expect("preverification must complete for this semantic fixture"),
             PreverifyResult::VerifyingKeyMissing,
         );
         assert_unseen(&transaction, &proof, commitment);
         assert_eq!(
-            transaction.preverify_proof(
-                &proof,
-                Some(&vk),
-                0,
-                Some(commitment),
-                Some(commitment),
-                false
-            ),
+            transaction
+                .preverify_proof(
+                    &proof,
+                    Some(&vk),
+                    0,
+                    Some(commitment),
+                    Some(commitment),
+                    false
+                )
+                .expect("preverification must complete for this semantic fixture"),
             PreverifyResult::VerifyingKeyInactive,
         );
         assert_unseen(&transaction, &proof, commitment);
         let mut foreign_commitment = commitment;
         foreign_commitment[0] ^= 1;
         assert_eq!(
-            transaction.preverify_proof(
-                &proof,
-                Some(&vk),
-                0,
-                Some(commitment),
-                Some(foreign_commitment),
-                true
-            ),
+            transaction
+                .preverify_proof(
+                    &proof,
+                    Some(&vk),
+                    0,
+                    Some(commitment),
+                    Some(foreign_commitment),
+                    true
+                )
+                .expect("preverification must complete for this semantic fixture"),
             PreverifyResult::VerifyingKeyMismatch,
         );
         assert_unseen(&transaction, &proof, commitment);
         for _ in 0..2 {
             assert_eq!(
-                transaction.preverify_proof(
-                    &proof,
-                    Some(&vk),
-                    0,
-                    Some(commitment),
-                    Some(commitment),
-                    true
-                ),
+                transaction
+                    .preverify_proof(
+                        &proof,
+                        Some(&vk),
+                        0,
+                        Some(commitment),
+                        Some(commitment),
+                        true
+                    )
+                    .expect("preverification must complete for this semantic fixture"),
                 PreverifyResult::MalformedProof,
                 "{backend} must recheck the unchanged original envelope on retry",
             );
             assert_unseen(&transaction, &proof, commitment);
         }
     }
+}
+
+#[test]
+fn original_state_preverify_refusal_does_not_publish_dedup_and_retries() {
+    let (proof, key) = native_originals();
+    let bytes = proof.bytes.clone();
+    let commitment = crate::zk::hash_vk(&key);
+    let state = test_state();
+    let mut block = state.block(header());
+    let mut transaction = block.transaction();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    let original = norito::with_decode_limits_scope(limits, || {
+        transaction.preverify_proof(
+            &proof,
+            Some(&key),
+            0,
+            Some(commitment),
+            Some(commitment),
+            true,
+        )
+    })
+    .unwrap_err();
+    let captured = original.decode_refusal().unwrap().clone();
+    assert_unseen(&transaction, &proof, commitment);
+    norito::with_decode_limits_scope(limits, || {
+        assert_eq!(original.decode_refusal(), Some(&captured))
+    });
+    assert_eq!(
+        transaction
+            .preverify_proof(
+                &proof,
+                Some(&key),
+                0,
+                Some(commitment),
+                Some(commitment),
+                true
+            )
+            .unwrap(),
+        PreverifyResult::Accepted
+    );
+    assert_eq!(
+        transaction
+            .preverify_proof(
+                &proof,
+                Some(&key),
+                0,
+                Some(commitment),
+                Some(commitment),
+                true
+            )
+            .unwrap(),
+        PreverifyResult::Duplicate
+    );
+    assert_eq!(proof.bytes, bytes);
+}
+
+#[test]
+fn proof_quota_preflight_is_nonmutating_and_registration_preserves_limits() {
+    let state = test_state();
+    let mut block = state.block(header());
+    let mut tx = block.transaction();
+    tx.zk.max_verify_calls_per_tx = 1;
+    tx.check_confidential_proof(16).unwrap();
+    assert_eq!(
+        (
+            tx.zk_confidential_ops_in_tx,
+            tx.zk_verify_calls_in_tx,
+            tx.zk_proof_bytes_in_tx
+        ),
+        (0, 0, 0)
+    );
+    tx.register_confidential_proof(16).unwrap();
+    let completed = (
+        tx.zk_confidential_ops_in_tx,
+        tx.zk_verify_calls_in_tx,
+        tx.zk_proof_bytes_in_tx,
+    );
+    assert_eq!(completed, (1, 1, 16));
+    let before = tx.check_confidential_proof(1).unwrap_err();
+    let during = tx.register_confidential_proof(1).unwrap_err();
+    assert_eq!(before, during);
+    assert_eq!(
+        (
+            tx.zk_confidential_ops_in_tx,
+            tx.zk_verify_calls_in_tx,
+            tx.zk_proof_bytes_in_tx
+        ),
+        completed
+    );
 }

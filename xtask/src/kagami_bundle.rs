@@ -22,6 +22,18 @@ use std::{
 };
 use walkdir::WalkDir;
 
+/// Inject a publication-boundary check while retaining all original file owners.
+pub(crate) type PublicationHook<'a> = dyn FnMut(&Path) -> Result<(), Box<dyn Error>> + 'a;
+type BeforePublicationHook<'a> = dyn FnMut() -> Result<(), Box<dyn Error>> + 'a;
+
+/// A copied program with its exact closed-writer image and optional native writer anchor.
+pub(crate) struct CopiedProgram {
+    pub(crate) file: RetainedFile,
+    pub(crate) snapshot: FileSnapshot,
+    pub(crate) hash: String,
+    pub(crate) created: Option<fs::File>,
+}
+
 const PROGRAMS: [&str; 3] = ["iroha", "kagami", "iroha3d"];
 
 pub(crate) fn validate_profile(profile: &str) -> Result<(), &'static str> {
@@ -393,7 +405,7 @@ pub(crate) fn copy_program(
     source_snapshot: FileSnapshot,
     expected_hash: &str,
     destination: &Path,
-) -> Result<(RetainedFile, FileSnapshot, String, Option<fs::File>), Box<dyn Error>> {
+) -> Result<CopiedProgram, Box<dyn Error>> {
     let expected_size = source.length()?;
     if source.snapshot()? != source_snapshot {
         return Err("CLI artifact changed before copying".into());
@@ -446,7 +458,12 @@ pub(crate) fn copy_program(
     let created = Some(created);
     #[cfg(windows)]
     let created = None;
-    Ok((copied, copied_snapshot, copied_hash, created))
+    Ok(CopiedProgram {
+        file: copied,
+        snapshot: copied_snapshot,
+        hash: copied_hash,
+        created,
+    })
 }
 
 // Only the successful exact Cargo artifact set enters the build-input role. The strict
@@ -498,8 +515,8 @@ fn publish_checked(
     package: &Path,
     profile: &str,
     profiles: Option<&network_profiles::Selection>,
-    before_publication: &mut dyn FnMut() -> Result<(), Box<dyn Error>>,
-    after_publication: &mut dyn FnMut(&Path) -> Result<(), Box<dyn Error>>,
+    before_publication: &mut BeforePublicationHook<'_>,
+    after_publication: &mut PublicationHook<'_>,
 ) -> Result<(), Box<dyn Error>> {
     publish_inputs(
         source,
@@ -518,8 +535,8 @@ fn publish_inputs(
     profile: &str,
     profiles: Option<&network_profiles::Selection>,
     kind: ProgramKind,
-    before_publication: &mut dyn FnMut() -> Result<(), Box<dyn Error>>,
-    after_publication: &mut dyn FnMut(&Path) -> Result<(), Box<dyn Error>>,
+    before_publication: &mut BeforePublicationHook<'_>,
+    after_publication: &mut PublicationHook<'_>,
 ) -> Result<(), Box<dyn Error>> {
     validate_profile(profile)?;
     network_profiles::require_for_profile(profile, profiles)?;
@@ -552,7 +569,12 @@ fn publish_inputs(
     let mut retained_outputs = Vec::new();
     let mut created_outputs = Vec::new();
     for (filename, file, snapshot, hash) in &mut programs {
-        let (copied, copied_snapshot, copied_hash, created) = copy_program(
+        let CopiedProgram {
+            file: copied,
+            snapshot: copied_snapshot,
+            hash: copied_hash,
+            created,
+        } = copy_program(
             file,
             *snapshot,
             hash,
@@ -616,10 +638,10 @@ fn publish_inputs(
         }
     }
     for (created, snapshot) in &created_outputs {
-        if let Some(created) = created {
-            if FileSnapshot::of(created, false)? != *snapshot {
-                return Err("created CLI program changed before atomic publication".into());
-            }
+        if let Some(created) = created
+            && FileSnapshot::of(created, false)? != *snapshot
+        {
+            return Err("created CLI program changed before atomic publication".into());
         }
     }
     if let Some(profiles) = profiles {
@@ -657,10 +679,10 @@ fn publish_inputs(
         }
     }
     for (created, snapshot) in &created_outputs {
-        if let Some(created) = created {
-            if FileSnapshot::of(created, false)? != *snapshot {
-                return Err("created CLI program changed after atomic publication".into());
-            }
+        if let Some(created) = created
+            && FileSnapshot::of(created, false)? != *snapshot
+        {
+            return Err("created CLI program changed after atomic publication".into());
         }
     }
     if let Some(profiles) = profiles {

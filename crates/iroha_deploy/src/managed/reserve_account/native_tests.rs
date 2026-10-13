@@ -113,7 +113,7 @@ fn generated_native_registration_retains_exact_reserve_operator_wallet_and_disti
     let policy_proof = native.policy_proof(&manager.account);
     let selected_policy = policy_proof
         .verify(
-            &manager.chain.to_string(),
+            manager.chain.as_ref(),
             manager.network_id,
             &manager.account,
             &policy,

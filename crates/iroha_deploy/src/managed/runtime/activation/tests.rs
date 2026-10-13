@@ -52,7 +52,7 @@ fn generated_preparation_retains_one_original_without_http_or_bootstrap_executio
         "one actual cold capture feeds both typed owners"
     );
     let original = iroha_fs::read_private(
-        &root.join("runtime/service-operations/network/service-bootstrap/initial/original.nrt"),
+        root.join("runtime/service-operations/network/service-bootstrap/initial/original.nrt"),
         512 * 1024,
     )
     .unwrap();
@@ -72,7 +72,7 @@ fn generated_preparation_retains_one_original_without_http_or_bootstrap_executio
     );
     assert_eq!(
         iroha_fs::read_private(
-            &root.join("runtime/service-operations/network/service-bootstrap/initial/original.nrt"),
+            root.join("runtime/service-operations/network/service-bootstrap/initial/original.nrt"),
             512 * 1024
         )
         .unwrap()
@@ -123,7 +123,9 @@ fn standard_selection_is_lazy_and_cancelled_or_expired_generated_selection_creat
         matches!(prepare(&generated, &cancelled), Err(failure) if failure == cancelled.progress.cancelled())
     );
     let expired = Budget {
-        started: Instant::now() - Duration::from_secs(121),
+        started: Instant::now()
+            .checked_sub(Duration::from_secs(121))
+            .unwrap(),
         ..budget()
     };
     assert!(
@@ -192,7 +194,14 @@ fn observation_uses_both_clocks_and_never_renews_on_wall_clock_rollback() {
     assert!(!selected.current_at(observed_at + Duration::from_secs(10), utc - 1));
     assert!(!selected.current_at(observed_at, utc + 10_000));
     assert!(ReadinessExpiry::select(utc, observed_at, utc).is_err());
-    assert!(ReadinessExpiry::select(utc + 1, observed_at - Duration::from_secs(1), utc).is_err());
+    assert!(
+        ReadinessExpiry::select(
+            utc + 1,
+            observed_at.checked_sub(Duration::from_secs(1)).unwrap(),
+            utc
+        )
+        .is_err()
+    );
 }
 
 #[test]

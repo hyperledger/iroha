@@ -2,36 +2,41 @@
 //! and control pages, recent messages, light-client detail and checkpoint cover, governance
 //! proposal detail and history paths.
 //!
-//! TODO: Torii work package (TT-A2): report `provable` on a recorded outbound state and on a
-//! control once a covering active certificate exists (§6).
+//! `provable` records whether the original committed native tip covers the record height.
+//! It conveys no certificate authority; destination proof verification remains mandatory.
 
+#[cfg(test)]
+use super::SccpReadError;
 use super::{
-    SccpReadError,
     history::funded::{SccpHistoryNodeCache, SccpHistoryReadError},
     store,
 };
 use crate::state::{StateReadOnly, WorldReadOnly};
+#[cfg(test)]
 use core::{cmp::Reverse, ops::Bound};
 use iroha_allocation::{AllocationBudget, AllocationCharge};
-use iroha_data_model::{
-    bridge::SccpNetworkV1,
-    sccp::{control::SccpLeafRefV1, outbound::SccpOutboundMessageRecordV1},
+#[cfg(test)]
+use iroha_data_model::sccp::control::SccpLeafRefV1;
+use iroha_data_model::{bridge::SccpNetworkV1, sccp::outbound::SccpOutboundMessageRecordV1};
+#[cfg(test)]
+use iroha_sccp::{
+    api::{
+        MAX_CONTROLS_PAGE, MAX_OUTBOUND_PAGE, MAX_RECENT_MESSAGES, SccpControlPageV1,
+        SccpControlViewV1, SccpGovernanceProposalDetailV1, SccpGovernanceProposalPhaseV1,
+        SccpInboundMessageViewV1, SccpLcCheckpointCoverV1, SccpLcCheckpointEntryV1,
+        SccpLcCheckpointsSummaryV1, SccpLcSetsSummaryV1, SccpLightClientDetailV1,
+        SccpMessageStatusV1, SccpOutboundMessageViewV1, SccpOutboundPageV1, SccpRecentMessagesV1,
+    },
+    light_client::{profile::SccpLcProfileCatalogV1, state::is_permanent_checkpoint},
 };
 use iroha_sccp::{
     api::{
-        MAX_CONTROLS_PAGE, MAX_OUTBOUND_PAGE, MAX_RECENT_MESSAGES, SccpBlockRefV1,
-        SccpChainProfileViewV1, SccpControlPageV1, SccpControlViewV1,
-        SccpGovernanceProposalDetailV1, SccpGovernanceProposalPhaseV1, SccpHistoryPathViewV1,
-        SccpInboundMessageViewV1, SccpLcCheckpointCoverV1, SccpLcCheckpointEntryV1,
-        SccpLcCheckpointsSummaryV1, SccpLcSetsSummaryV1, SccpLightClientDetailV1,
-        SccpMessageStatusV1, SccpOutboundMessageViewV1, SccpOutboundPageV1, SccpOutboundStateV1,
-        SccpRecentMessagesV1, SccpRecordedStateV1,
+        SccpBlockRefV1, SccpChainProfileViewV1, SccpHistoryPathViewV1, SccpOutboundStateV1,
+        SccpRecordedStateV1,
     },
-    light_client::{
-        profile::{SccpChainProfilesV1, SccpLcProfileCatalogV1},
-        state::is_permanent_checkpoint,
-    },
+    light_client::profile::SccpChainProfilesV1,
 };
+#[cfg(test)]
 use std::collections::BinaryHeap;
 
 /// Most leaves one `recent` page scans (the network filter may skip most of them).
@@ -66,8 +71,21 @@ impl SccpDirectionV1 {
 // Outbound state
 // ---------------------------------------------------------------------------------------------
 
+/// Original native tip covers committed records only, including while observing a child overlay.
+pub(super) fn committed_height(view: &(impl StateReadOnly + ?Sized)) -> Option<u64> {
+    let tip = view.native_execution_tip()?;
+    if tip.root_scope() != iroha_data_model::block::consensus::SumeragiRootScope::Global {
+        return None;
+    }
+    let index = usize::try_from(tip.height().checked_sub(1)?).ok()?;
+    (view.block_hashes().get(index) == Some(&tip.iroha_hash())).then_some(tip.height())
+}
+
 /// Wallet-facing state of `record`: its stored status, with the deadline of a recorded message.
-fn outbound_state(record: &SccpOutboundMessageRecordV1) -> SccpOutboundStateV1 {
+pub(super) fn outbound_state(
+    record: &SccpOutboundMessageRecordV1,
+    committed: Option<u64>,
+) -> SccpOutboundStateV1 {
     use iroha_data_model::sccp::outbound::SccpOutboundStatusV1 as Stored;
     match record.status {
         Stored::Voided(void) => SccpOutboundStateV1::Voided(void),
@@ -75,18 +93,21 @@ fn outbound_state(record: &SccpOutboundMessageRecordV1) -> SccpOutboundStateV1 {
         Stored::Stranded(height) => SccpOutboundStateV1::Stranded(height),
         Stored::Recorded => SccpOutboundStateV1::Recorded(SccpRecordedStateV1 {
             deadline_ms: record.deadline_ms,
+            provable: committed.is_some_and(|tip| record.height != 0 && record.height <= tip),
         }),
     }
 }
 
+#[cfg(test)]
 fn outbound_view(
     message_id: [u8; 32],
     record: &SccpOutboundMessageRecordV1,
+    committed: Option<u64>,
 ) -> SccpOutboundMessageViewV1 {
     SccpOutboundMessageViewV1 {
         message_id,
         record: record.clone(),
-        state: outbound_state(record),
+        state: outbound_state(record, committed),
     }
 }
 
@@ -97,12 +118,15 @@ fn outbound_view(
 /// Assemble `GET /v1/sccp/messages/{message_id}` (§6): the outbound or inbound record with its
 /// state, or `unknown`.
 #[must_use]
+#[cfg(test)]
 pub fn message_status(
-    world: &(impl WorldReadOnly + ?Sized),
+    view: &(impl StateReadOnly + ?Sized),
     message_id: &[u8; 32],
 ) -> SccpMessageStatusV1 {
+    let world = view.world();
+    let committed = committed_height(view);
     if let Some(record) = store::outbound_messages::get(world, message_id) {
-        return SccpMessageStatusV1::Outbound(outbound_view(*message_id, record));
+        return SccpMessageStatusV1::Outbound(outbound_view(*message_id, record, committed));
     }
     store::inbound_messages::get(world, message_id).map_or(SccpMessageStatusV1::Unknown, |record| {
         SccpMessageStatusV1::Inbound(SccpInboundMessageViewV1 {
@@ -118,13 +142,16 @@ pub fn message_status(
 /// # Errors
 ///
 /// [`SccpReadError::NotFound`] when the route revision does not exist.
+#[cfg(test)]
 pub fn outbound_page(
-    world: &(impl WorldReadOnly + ?Sized),
+    view: &(impl StateReadOnly + ?Sized),
     network: SccpNetworkV1,
     revision: u32,
     from_nonce: u64,
     limit: usize,
 ) -> Result<SccpOutboundPageV1, SccpReadError> {
+    let world = view.world();
+    let committed = committed_height(view);
     let next_outbound_nonce = store::routes::get(world, &network)
         .and_then(|route| route.revisions.get(&revision))
         .map(|record| record.next_outbound_nonce)
@@ -145,7 +172,7 @@ pub fn outbound_page(
         let record = store::outbound_messages::get(world, message_id).ok_or_else(|| {
             SccpReadError::NotFound(format!("the record of outbound nonce {nonce}"))
         })?;
-        records.push(outbound_view(*message_id, record));
+        records.push(outbound_view(*message_id, record, committed));
     }
     Ok(SccpOutboundPageV1 {
         network,
@@ -156,11 +183,13 @@ pub fn outbound_page(
     })
 }
 
+#[cfg(test)]
 fn parse_cursor(text: &str) -> Option<(u64, &str)> {
     let (height, rest) = text.split_once(':')?;
     Some((height.parse().ok()?, rest))
 }
 
+#[cfg(test)]
 fn invalid_cursor() -> SccpReadError {
     SccpReadError::Invalid(
         "`before` is `<height>:<index>` (outbound) or `<height>:<message id hex>` (inbound)".into(),
@@ -168,11 +197,13 @@ fn invalid_cursor() -> SccpReadError {
 }
 
 /// Newest outbound records strictly before the `(height, commitment_index)` cursor.
+#[cfg(test)]
 fn recent_outbound(
     world: &(impl WorldReadOnly + ?Sized),
     network: Option<SccpNetworkV1>,
     before: Option<(u64, u32)>,
     limit: usize,
+    committed: Option<u64>,
 ) -> SccpRecentMessagesV1 {
     let upper = before.map_or(Bound::Unbounded, Bound::Excluded);
     let leaves = store::block_leaves::range(world, (Bound::Unbounded, upper));
@@ -196,6 +227,7 @@ fn recent_outbound(
         messages.push(SccpMessageStatusV1::Outbound(outbound_view(
             transfer.message_id,
             record,
+            committed,
         )));
     }
     SccpRecentMessagesV1 {
@@ -206,8 +238,11 @@ fn recent_outbound(
 
 /// Newest inbound records strictly before the `(proven_at_height, message_id)` cursor.
 ///
-/// TODO(ws35): index inbound records by proven height in state; this scans every inbound
-/// record (keeping only the newest `limit` in a bounded heap).
+/// Test-only owned codec reference. The production borrowed producer in
+/// `native::message_metadata::recent` scans the original inbound owner using fixed
+/// bounded scratch and request deadline checks, so scan cost grows with the retained
+/// source while response ownership stays bounded. This helper is not a serving path.
+#[cfg(test)]
 fn recent_inbound(
     world: &(impl WorldReadOnly + ?Sized),
     network: Option<SccpNetworkV1>,
@@ -260,13 +295,16 @@ fn recent_inbound(
 /// # Errors
 ///
 /// [`SccpReadError::Invalid`] for a malformed `before` cursor.
+#[cfg(test)]
 pub fn recent_messages(
-    world: &(impl WorldReadOnly + ?Sized),
+    view: &(impl StateReadOnly + ?Sized),
     direction: SccpDirectionV1,
     network: Option<SccpNetworkV1>,
     before: Option<&str>,
     limit: usize,
 ) -> Result<SccpRecentMessagesV1, SccpReadError> {
+    let world = view.world();
+    let committed = committed_height(view);
     let limit = limit.clamp(1, MAX_RECENT_MESSAGES);
     match direction {
         SccpDirectionV1::Outbound => {
@@ -277,7 +315,7 @@ pub fn recent_messages(
                         .ok_or_else(invalid_cursor)
                 })
                 .transpose()?;
-            Ok(recent_outbound(world, network, before, limit))
+            Ok(recent_outbound(world, network, before, limit, committed))
         }
         SccpDirectionV1::Inbound => {
             let before = before
@@ -305,13 +343,16 @@ pub fn recent_messages(
 /// # Errors
 ///
 /// [`SccpReadError::NotFound`] when the route revision does not exist.
+#[cfg(test)]
 pub fn controls_page(
-    world: &(impl WorldReadOnly + ?Sized),
+    view: &(impl StateReadOnly + ?Sized),
     network: SccpNetworkV1,
     revision: u32,
     after_nonce: u64,
     limit: usize,
 ) -> Result<SccpControlPageV1, SccpReadError> {
+    let world = view.world();
+    let committed = committed_height(view);
     let next_control_nonce = store::routes::get(world, &network)
         .and_then(|route| route.revisions.get(&revision))
         .map(|record| record.next_control_nonce)
@@ -337,6 +378,7 @@ pub fn controls_page(
         controls.push(SccpControlViewV1 {
             control_nonce: *control_nonce,
             record: *record,
+            provable: committed.is_some_and(|tip| record.height != 0 && record.height <= tip),
         });
     }
     Ok(SccpControlPageV1 {
@@ -379,6 +421,7 @@ pub fn compiled_profiles() -> Vec<SccpChainProfileViewV1> {
 }
 
 /// Lowest checkpoint height of the stride bucket of `height`, if indexed.
+#[cfg(test)]
 fn lowest_in_bucket(
     world: &(impl WorldReadOnly + ?Sized),
     network: SccpNetworkV1,
@@ -394,6 +437,7 @@ fn lowest_in_bucket(
 /// This release's compiled profiles with the version of `network` active at the next block (over
 /// the genesis versions of the other networks), the profile the light client's next verification
 /// runs under (§4.13.2); `None` when the release does not compile that version.
+#[cfg(test)]
 fn next_block_profiles(
     view: &(impl StateReadOnly + ?Sized),
     network: SccpNetworkV1,
@@ -417,6 +461,7 @@ fn next_block_profiles(
 /// # Errors
 ///
 /// [`SccpReadError::NotFound`] when no light client of `network` is installed.
+#[cfg(test)]
 pub fn light_client_detail(
     view: &(impl StateReadOnly + ?Sized),
     network: SccpNetworkV1,
@@ -473,6 +518,7 @@ pub fn light_client_detail(
 /// [`SccpReadError::NotFound`] when no light client is installed or its head is below
 /// `covering` (not finalized on Taira yet); [`SccpReadError::Pruned`] when the head covers it
 /// but no checkpoint at or above it is retained.
+#[cfg(test)]
 pub fn checkpoint_cover(
     world: &(impl WorldReadOnly + ?Sized),
     network: SccpNetworkV1,
@@ -528,7 +574,7 @@ pub fn checkpoint_cover(
                 .find(|lowest| *lowest >= covering)
             })
             .and_then(|height| store::light_client_checkpoints::get(world, &(network, height)))
-            .map(|checkpoint| entry(checkpoint))
+            .map(entry)
             .filter(|candidate| candidate.permanent);
         let bound = by_stride.map(|candidate| candidate.checkpoint.data.source_height);
         retained
@@ -558,6 +604,7 @@ pub fn checkpoint_cover(
 /// # Errors
 ///
 /// [`SccpReadError::NotFound`] when no SCCP proposal has this content id.
+#[cfg(test)]
 pub fn governance_proposal(
     world: &(impl WorldReadOnly + ?Sized),
     content_id: [u8; 32],
@@ -580,6 +627,19 @@ pub fn governance_proposal(
             .map_while(|attempt_id| world.parliament_attempts().get(&attempt_id))
             .last()
             .map(|attempt| *attempt.attempt());
+    let mut activation_diff = Vec::with_capacity(sccp.proposal.actions.len() * 2);
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let control = super::native::SccpNativeReadControl {
+        deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
+        stop: &stop,
+    };
+    super::native::governance_metadata::diagnostics::activation_diff(
+        world,
+        &sccp.proposal,
+        &mut activation_diff,
+        control,
+    )
+    .expect("test-only owned view");
     Ok(SccpGovernanceProposalDetailV1 {
         content_id: content,
         proposer: record.proposer.clone(),
@@ -594,6 +654,14 @@ pub fn governance_proposal(
         proposal: (*sccp.proposal).clone(),
         admissible: super::super::governance::preflight_attempt_in(world, &sccp.proposal).is_ok(),
         latest_attempt,
+        attempts: super::native::governance_metadata::diagnostics::attempts(world, content)
+            .map(super::native::governance_metadata::diagnostics::attempt_view)
+            .collect(),
+        parameters_before: super::native::governance_metadata::diagnostics::parameters_before(
+            world,
+            &sccp.proposal,
+        ),
+        activation_diff,
     })
 }
 
@@ -769,6 +837,133 @@ mod tests {
     }
 
     #[test]
+    fn funded_message_metadata_matches_canonical_pages_and_retains_request_custody() {
+        use super::super::native::{
+            SccpNativeReadControl, SccpNativeReadError, message_metadata as funded,
+        };
+        use std::{
+            sync::atomic::AtomicBool,
+            time::{Duration, Instant},
+        };
+        fn equivalent<
+            T: norito::core::NoritoSerialize + norito::json::JsonSerialize,
+            U: norito::core::NoritoSerialize + norito::json::JsonSerialize,
+        >(
+            offered: &T,
+            expected: &U,
+        ) {
+            assert_eq!(
+                norito::to_bytes(offered).unwrap(),
+                norito::to_bytes(expected).unwrap()
+            );
+            assert_eq!(
+                norito::json::to_value(offered).unwrap(),
+                norito::json::to_value(expected).unwrap()
+            );
+        }
+        let state = blank_state();
+        let mut block = state.block(header(100));
+        let mut stx = block.transaction();
+        route_with_nonces(&mut stx, ETH, 5);
+        for nonce in 0..5 {
+            outbound(&mut stx, ETH, nonce, nonce + 5, 0);
+        }
+        for seed in 20..=90 {
+            inbound(&mut stx, seed, BSC, u64::from(seed % 13));
+        }
+        let budget = AllocationBudget::new(256_000);
+        let stop = AtomicBool::new(false);
+        let control = SccpNativeReadControl {
+            deadline: Instant::now() + Duration::from_secs(10),
+            stop: &stop,
+        };
+        for id in [[1; 32], [20; 32], [200; 32]] {
+            let offered = funded::message(&stx, id, &budget, control).unwrap();
+            equivalent(offered.data(), &message_status(&stx, &id));
+            assert_eq!(
+                offered.data().is_final(),
+                message_status(&stx, &id).is_final()
+            );
+            assert!(budget.reserved_bytes() > 0);
+            drop(offered);
+            assert_eq!(budget.reserved_bytes(), 0);
+        }
+        for from in [0, 2, 4, 8] {
+            let offered = funded::outbound_page(&stx, ETH, 1, from, 2, &budget, control).unwrap();
+            equivalent(
+                offered.data(),
+                &outbound_page(&stx, ETH, 1, from, 2).unwrap(),
+            );
+        }
+        let offered = funded::controls_page(&stx, ETH, 1, 0, 2, &budget, control).unwrap();
+        equivalent(offered.data(), &controls_page(&stx, ETH, 1, 0, 2).unwrap());
+        drop(offered);
+        for direction in [SccpDirectionV1::Outbound, SccpDirectionV1::Inbound] {
+            for limit in [1, 2, 50] {
+                let expected = recent_messages(&stx, direction, None, None, limit).unwrap();
+                let offered =
+                    funded::recent(&stx, direction, None, None, limit, &budget, control).unwrap();
+                equivalent(offered.data(), &expected);
+                if let Some(cursor) = expected.next_before {
+                    let parsed = funded::recent_cursor(direction, &cursor).unwrap();
+                    let offered = funded::recent(
+                        &stx,
+                        direction,
+                        None,
+                        Some(parsed),
+                        limit,
+                        &budget,
+                        control,
+                    )
+                    .unwrap();
+                    equivalent(
+                        offered.data(),
+                        &recent_messages(&stx, direction, None, Some(&cursor), limit).unwrap(),
+                    );
+                }
+            }
+        }
+        assert_eq!(budget.reserved_bytes(), 0);
+        assert!(matches!(
+            funded::message(&stx, [1; 32], &AllocationBudget::new(0), control),
+            Err(SccpNativeReadError::Allocation(_))
+        ));
+        let stopped = AtomicBool::new(true);
+        assert!(matches!(
+            funded::recent(
+                &stx,
+                SccpDirectionV1::Inbound,
+                None,
+                None,
+                50,
+                &budget,
+                SccpNativeReadControl {
+                    stop: &stopped,
+                    ..control
+                }
+            ),
+            Err(SccpNativeReadError::Cancelled)
+        ));
+        assert!(funded::recent_cursor(SccpDirectionV1::Inbound, "1:xyz").is_err());
+        assert!(matches!(
+            funded::outbound_page(
+                &stx,
+                ETH,
+                1,
+                0,
+                2,
+                &budget,
+                SccpNativeReadControl {
+                    deadline: Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
+                    ..control
+                }
+            ),
+            Err(SccpNativeReadError::Deadline)
+        ));
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+
+    #[test]
     fn directions_parse() {
         assert_eq!(
             SccpDirectionV1::parse("outbound"),
@@ -782,21 +977,67 @@ mod tests {
     }
 
     #[test]
+    fn provable_uses_original_committed_tip_and_never_an_overlay_height() {
+        use crate::{
+            state::World,
+            sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
+        };
+        let mut chain =
+            CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+        chain.commit_at(2_000, Vec::new());
+        assert_eq!(committed_height(&chain.state().view()), Some(2));
+        let mut block = chain.state().block(header(3));
+        let mut tx = block.transaction();
+        route_with_nonces(&mut tx, ETH, 2);
+        let previous = outbound(&mut tx, ETH, 0, 2, 0);
+        let proposed = outbound(&mut tx, ETH, 1, 3, 0);
+        assert_eq!(committed_height(&tx), Some(2));
+        for (id, expected) in [(previous, true), (proposed, false)] {
+            let status = message_status(&tx, &id);
+            assert!(
+                matches!(status.outbound().unwrap().state, SccpOutboundStateV1::Recorded(SccpRecordedStateV1 { provable, .. }) if provable == expected)
+            );
+        }
+        for (nonce, height) in [(1, 2), (2, 3)] {
+            store::control_messages::insert(
+                &mut tx,
+                (ETH, 1, nonce),
+                SccpControlRecordV1 {
+                    track: 1,
+                    parliament_paused: true,
+                    fast_pause_until_ms: 0,
+                    height,
+                    commitment_index: 1,
+                    leaf: [1; 32],
+                    certificate_id: [2; 32],
+                    effect_hash: [3; 32],
+                },
+            )
+            .unwrap();
+        }
+        let page = controls_page(&tx, ETH, 1, 0, 2).unwrap();
+        assert_eq!(
+            page.controls
+                .iter()
+                .map(|row| row.provable)
+                .collect::<Vec<_>>(),
+            [true, false]
+        );
+    }
+
+    #[test]
     fn message_status_covers_outbound_inbound_and_unknown_ids() {
         let state = blank_state();
         let mut block = state.block(header(40));
         let mut stx = block.transaction();
-        let world = &*stx.world;
-        assert_eq!(
-            message_status(world, &[9; 32]),
-            SccpMessageStatusV1::Unknown
-        );
+        assert_eq!(message_status(&stx, &[9; 32]), SccpMessageStatusV1::Unknown);
         let id = outbound(&mut stx, ETH, 0, 10, 0);
-        let status = message_status(&*stx.world, &id);
+        let status = message_status(&stx, &id);
         assert_eq!(
             status.outbound().map(|view| view.state),
             Some(SccpOutboundStateV1::Recorded(SccpRecordedStateV1 {
-                deadline_ms: 1_000
+                deadline_ms: 1_000,
+                provable: false
             }))
         );
         // Voided and refunded records report their stored state.
@@ -806,11 +1047,13 @@ mod tests {
         let void = SccpVoidStatusV1 {
             kind: SccpVoidKindV1::Expired,
             proven_at_height: 20,
-            refund_pending: true,
+            refund_pending: Some(
+                iroha_data_model::sccp::inbound::SccpPendingReasonV1::RefundDeferred,
+            ),
         };
         record.status = SccpOutboundStatusV1::Voided(void);
         store::outbound_messages::insert(&mut stx, id, record.clone()).expect("void");
-        let status = message_status(&*stx.world, &id);
+        let status = message_status(&stx, &id);
         assert_eq!(
             status.outbound().map(|view| view.state),
             Some(SccpOutboundStateV1::Voided(void))
@@ -818,10 +1061,10 @@ mod tests {
         assert!(!status.is_final());
         record.status = SccpOutboundStatusV1::Refunded(SccpStatusHeightV1 { height: 21 });
         store::outbound_messages::insert(&mut stx, id, record).expect("refund");
-        assert!(message_status(&*stx.world, &id).is_final());
+        assert!(message_status(&stx, &id).is_final());
         // Inbound ids report the inbound record and its status.
         inbound(&mut stx, 0x44, BSC, 30);
-        let status = message_status(&*stx.world, &[0x44; 32]);
+        let status = message_status(&stx, &[0x44; 32]);
         let view = status.inbound().expect("inbound");
         assert_eq!(
             view.record.status,
@@ -831,9 +1074,10 @@ mod tests {
         let mut bounced = view.record.clone();
         bounced.status = SccpInboundStatusV1::Bounced(SccpBounceStatusV1 {
             bounce_message_id: [0x45; 32],
+            payout: 1,
         });
         store::inbound_messages::insert(&mut stx, [0x44; 32], bounced).expect("bounce");
-        assert!(message_status(&*stx.world, &[0x44; 32]).is_final());
+        assert!(message_status(&stx, &[0x44; 32]).is_final());
     }
 
     #[test]
@@ -842,14 +1086,14 @@ mod tests {
         let mut block = state.block(header(40));
         let mut stx = block.transaction();
         assert!(matches!(
-            outbound_page(&*stx.world, ETH, 1, 0, 10),
+            outbound_page(&stx, ETH, 1, 0, 10),
             Err(SccpReadError::NotFound(_))
         ));
         route_with_nonces(&mut stx, ETH, 5);
         for nonce in 0..5 {
             outbound(&mut stx, ETH, nonce, 10 + nonce, 0);
         }
-        let first = outbound_page(&*stx.world, ETH, 1, 0, 2).expect("page");
+        let first = outbound_page(&stx, ETH, 1, 0, 2).expect("page");
         assert_eq!(first.next_outbound_nonce, 5);
         assert_eq!(
             first
@@ -860,17 +1104,17 @@ mod tests {
             vec![0, 1]
         );
         assert_eq!(first.next_from_nonce, Some(2));
-        let last = outbound_page(&*stx.world, ETH, 1, 4, 2).expect("page");
+        let last = outbound_page(&stx, ETH, 1, 4, 2).expect("page");
         assert_eq!(last.records.len(), 1);
         assert_eq!(last.next_from_nonce, None);
         assert!(
-            outbound_page(&*stx.world, ETH, 1, 9, 2)
+            outbound_page(&stx, ETH, 1, 9, 2)
                 .expect("page")
                 .records
                 .is_empty()
         );
         assert!(matches!(
-            outbound_page(&*stx.world, ETH, 2, 0, 2),
+            outbound_page(&stx, ETH, 2, 0, 2),
             Err(SccpReadError::NotFound(_))
         ));
     }
@@ -899,22 +1143,21 @@ mod tests {
                 .map(|status| status.outbound().expect("outbound").record.nonce)
                 .collect::<Vec<_>>()
         };
-        let world = &*stx.world;
-        let all = recent_messages(world, SccpDirectionV1::Outbound, None, None, 50).expect("all");
+        let all = recent_messages(&stx, SccpDirectionV1::Outbound, None, None, 50).expect("all");
         assert_eq!(nonces(&all), vec![2, 1, 0]);
         assert_eq!(all.next_before, None);
-        let first = recent_messages(world, SccpDirectionV1::Outbound, None, None, 2).expect("page");
+        let first = recent_messages(&stx, SccpDirectionV1::Outbound, None, None, 2).expect("page");
         assert_eq!(nonces(&first), vec![2, 1]);
         let cursor = first.next_before.expect("more");
-        let second = recent_messages(world, SccpDirectionV1::Outbound, None, Some(&cursor), 2)
-            .expect("page");
+        let second =
+            recent_messages(&stx, SccpDirectionV1::Outbound, None, Some(&cursor), 2).expect("page");
         assert_eq!(nonces(&second), vec![0]);
         let eth =
-            recent_messages(world, SccpDirectionV1::Outbound, Some(ETH), None, 50).expect("eth");
+            recent_messages(&stx, SccpDirectionV1::Outbound, Some(ETH), None, 50).expect("eth");
         assert_eq!(nonces(&eth), vec![2, 0]);
         for bad in ["10", "x:1", "10:y"] {
             assert!(matches!(
-                recent_messages(world, SccpDirectionV1::Outbound, None, Some(bad), 2),
+                recent_messages(&stx, SccpDirectionV1::Outbound, None, Some(bad), 2),
                 Err(SccpReadError::Invalid(_))
             ));
         }
@@ -934,20 +1177,19 @@ mod tests {
                 .map(|status| status.inbound().expect("inbound").message_id[0])
                 .collect::<Vec<_>>()
         };
-        let world = &*stx.world;
-        let first = recent_messages(world, SccpDirectionV1::Inbound, None, None, 2).expect("page");
+        let first = recent_messages(&stx, SccpDirectionV1::Inbound, None, None, 2).expect("page");
         assert_eq!(ids(&first), vec![3, 2]);
         let cursor = first.next_before.expect("more");
         assert_eq!(cursor, format!("12:{}", hex::encode([2_u8; 32])));
         let second =
-            recent_messages(world, SccpDirectionV1::Inbound, None, Some(&cursor), 2).expect("page");
+            recent_messages(&stx, SccpDirectionV1::Inbound, None, Some(&cursor), 2).expect("page");
         assert_eq!(ids(&second), vec![1]);
         assert_eq!(second.next_before, None);
         let eth =
-            recent_messages(world, SccpDirectionV1::Inbound, Some(ETH), None, 50).expect("eth");
+            recent_messages(&stx, SccpDirectionV1::Inbound, Some(ETH), None, 50).expect("eth");
         assert_eq!(ids(&eth), vec![3, 1]);
         assert!(matches!(
-            recent_messages(world, SccpDirectionV1::Inbound, None, Some("12:abcd"), 2),
+            recent_messages(&stx, SccpDirectionV1::Inbound, None, Some("12:abcd"), 2),
             Err(SccpReadError::Invalid(_))
         ));
     }
@@ -958,7 +1200,7 @@ mod tests {
         let mut block = state.block(header(40));
         let mut stx = block.transaction();
         assert!(matches!(
-            controls_page(&*stx.world, ETH, 1, 0, 10),
+            controls_page(&stx, ETH, 1, 0, 10),
             Err(SccpReadError::NotFound(_))
         ));
         route_with_nonces(&mut stx, ETH, 3);
@@ -979,7 +1221,7 @@ mod tests {
             )
             .expect("control");
         }
-        let page = controls_page(&*stx.world, ETH, 1, 0, 2).expect("page");
+        let page = controls_page(&stx, ETH, 1, 0, 2).expect("page");
         assert_eq!(page.next_control_nonce, 4);
         assert_eq!(page.next_after_nonce, Some(2));
         assert_eq!(
@@ -993,12 +1235,12 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![(1, true, 10), (2, false, 11)]
         );
-        let rest = controls_page(&*stx.world, ETH, 1, 2, 2).expect("page");
+        let rest = controls_page(&stx, ETH, 1, 2, 2).expect("page");
         assert_eq!(rest.controls.len(), 1);
         assert_eq!(rest.controls[0].control_nonce, 3);
         assert_eq!(rest.next_after_nonce, None);
         assert!(
-            controls_page(&*stx.world, ETH, 1, u64::MAX, 2)
+            controls_page(&stx, ETH, 1, u64::MAX, 2)
                 .expect("page")
                 .controls
                 .is_empty(),
@@ -1118,6 +1360,163 @@ mod tests {
             permanent_height(checkpoint_cover(&*stx.world, ETH, stride + 21).expect("installed")),
             Some(stride + 40)
         );
+    }
+
+    #[test]
+    fn funded_light_client_metadata_preserves_wire_and_original_graph_custody() {
+        use super::super::native::{
+            SccpNativeReadControl, SccpNativeReadError, light_client_metadata as funded,
+        };
+        use iroha_data_model::sccp::light_client::SccpLcConsensusSetV1;
+        use std::{
+            sync::atomic::{AtomicBool, Ordering},
+            time::{Duration, Instant},
+        };
+        fn equivalent<
+            T: norito::core::NoritoSerialize + norito::json::JsonSerialize,
+            U: norito::core::NoritoSerialize + norito::json::JsonSerialize,
+        >(
+            offered: &T,
+            expected: &U,
+        ) {
+            assert_eq!(
+                norito::to_bytes(offered).unwrap(),
+                norito::to_bytes(expected).unwrap()
+            );
+            assert_eq!(
+                norito::json::to_value(offered).unwrap(),
+                norito::json::to_value(expected).unwrap()
+            );
+        }
+        let state = blank_state();
+        let mut block = state.block(header(40));
+        let mut stx = block.transaction();
+        let budget = AllocationBudget::new(128_000);
+        let stop = AtomicBool::new(false);
+        let control = SccpNativeReadControl {
+            deadline: Instant::now() + Duration::from_secs(10),
+            stop: &stop,
+        };
+        assert!(matches!(
+            funded::detail(&stx, ETH, &budget, control),
+            Err(SccpNativeReadError::NotFound(_))
+        ));
+        assert!(matches!(
+            funded::checkpoints(&stx, ETH, 1, &budget, control),
+            Err(SccpNativeReadError::NotFound(_))
+        ));
+        store::light_clients::insert(&mut stx, ETH, light_client(100_000)).unwrap();
+        for (network, set_id) in [(ETH, 2), (ETH, 1), (BSC, 3)] {
+            let model = SccpLcConsensusSetV1 {
+                set_id,
+                valid_from_source_height: set_id * 100,
+                superseded_at_source_ms: (set_id == 1).then_some(200),
+                set_bytes: vec![u8::try_from(set_id).unwrap(); 97],
+            };
+            crate::smartcontracts::isi::sccp::light_clients::insert_consensus_set(
+                &mut stx,
+                network,
+                (&model).into(),
+            )
+            .unwrap();
+        }
+        checkpoint(&mut stx, 9_000, SccpLcCheckpointOriginV1::Advance);
+        checkpoint(&mut stx, 9_100, SccpLcCheckpointOriginV1::Proof);
+        checkpoint(&mut stx, 9_200, SccpLcCheckpointOriginV1::Parliament);
+        {
+            let data = funded::clients(&stx, &budget, control).unwrap();
+            equivalent(data.data(), &super::super::light_clients(stx.world()));
+            assert!(budget.reserved_bytes() > 0);
+        }
+        assert_eq!(budget.reserved_bytes(), 0);
+        {
+            let data = funded::sets(&stx, ETH, &budget, control).unwrap();
+            equivalent(
+                data.data(),
+                &super::super::light_client_sets(stx.world(), ETH),
+            );
+            assert_eq!(
+                data.data().iter().map(|set| set.set_id).collect::<Vec<_>>(),
+                vec![1, 2]
+            );
+            for set in data.data() {
+                let original =
+                    store::light_client_sets::get(stx.world(), &(ETH, set.set_id)).unwrap();
+                assert_eq!(
+                    set.bytes().as_ptr(),
+                    original.bytes().as_ptr(),
+                    "response must share original charged bytes"
+                );
+            }
+            assert_eq!(
+                budget.reserved_bytes(),
+                2 * core::mem::size_of::<
+                    crate::smartcontracts::isi::sccp::light_client_set::RetainedSccpLcSet,
+                >()
+            );
+        }
+        assert_eq!(budget.reserved_bytes(), 0);
+        {
+            let data = funded::detail(&stx, ETH, &budget, control).unwrap();
+            equivalent(data.data(), &light_client_detail(&stx, ETH).unwrap());
+            assert!(budget.reserved_bytes() > 0);
+        }
+        for covering in [0, 9_000, 9_001, 9_100, 9_101, 9_200] {
+            let data = funded::checkpoints(&stx, ETH, covering, &budget, control).unwrap();
+            equivalent(
+                data.data(),
+                &checkpoint_cover(stx.world(), ETH, covering).unwrap(),
+            );
+        }
+        assert_eq!(budget.reserved_bytes(), 0);
+        assert!(matches!(
+            funded::checkpoints(&stx, ETH, 9_201, &budget, control),
+            Err(SccpNativeReadError::Pruned(_))
+        ));
+        assert!(matches!(
+            funded::checkpoints(&stx, ETH, 100_001, &budget, control),
+            Err(SccpNativeReadError::NotFound(_))
+        ));
+        let zero = AllocationBudget::new(0);
+        assert!(matches!(
+            funded::clients(&stx, &zero, control),
+            Err(SccpNativeReadError::Allocation(_))
+        ));
+        assert!(matches!(
+            funded::sets(&stx, ETH, &zero, control),
+            Err(SccpNativeReadError::Allocation(_))
+        ));
+        assert!(matches!(
+            funded::detail(&stx, ETH, &zero, control),
+            Err(SccpNativeReadError::Allocation(_))
+        ));
+        assert!(matches!(
+            funded::checkpoints(&stx, ETH, 9_000, &zero, control),
+            Err(SccpNativeReadError::Allocation(_))
+        ));
+        stop.store(true, Ordering::Relaxed);
+        assert!(matches!(
+            funded::clients(&stx, &budget, control),
+            Err(SccpNativeReadError::Cancelled)
+        ));
+        assert!(matches!(
+            funded::sets(&stx, ETH, &budget, control),
+            Err(SccpNativeReadError::Cancelled)
+        ));
+        stop.store(false, Ordering::Relaxed);
+        let expired = SccpNativeReadControl {
+            deadline: Instant::now(),
+            stop: &stop,
+        };
+        assert!(matches!(
+            funded::detail(&stx, ETH, &budget, expired),
+            Err(SccpNativeReadError::Deadline)
+        ));
+        assert!(matches!(
+            funded::checkpoints(&stx, ETH, 9_000, &budget, expired),
+            Err(SccpNativeReadError::Deadline)
+        ));
+        assert_eq!(budget.reserved_bytes(), 0);
     }
 
     #[test]

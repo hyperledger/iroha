@@ -4,8 +4,7 @@
 use super::*;
 use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
 use iroha_data_model::{
-    NetworkId,
-    account::AccountId,
+    AccountId, NetworkId,
     isi::{InstructionBox, musubi::AdvanceMusubiPinOutboxV1, sorafs::RegisterPinManifest},
     transaction::{FeeChargeKind, FeeChargeLimit, FeePaymentIntent, TransactionBuilder},
 };
@@ -57,7 +56,7 @@ fn make_request(
     store: &Store,
     operation: &Operation,
     kind: SlotKind,
-    action: InstructionBox,
+    action: &InstructionBox,
 ) -> SlotRequest {
     SlotRequest {
         network: store.original.network,
@@ -66,7 +65,7 @@ fn make_request(
         operation: operation.id,
         kind,
         pin_selected_at_unix_ms: matches!(kind, SlotKind::Pin).then_some(1_000),
-        instruction: slot::encode_frame(&action).unwrap(),
+        instruction: slot::encode_frame(action).unwrap(),
         authorization: operation.authorization.clone(),
     }
 }
@@ -99,7 +98,7 @@ fn pin(store: &Store, operation: &Operation) -> (SlotRequest, TransactionPayload
         .unwrap();
     let action: InstructionBox =
         RegisterPinManifest::new(manifest.encode().unwrap(), None, None).into();
-    let request = make_request(store, operation, SlotKind::Pin, action.clone());
+    let request = make_request(store, operation, SlotKind::Pin, &action);
     let payload = TransactionBuilder::new_with_time_source(
         store.original.network,
         store.original.authority.clone(),
@@ -181,7 +180,7 @@ fn complete_signed_inventory_reconstructs_only_exact_predecessor_and_reserves_or
         inventory_digest: complete.digest,
     }
     .into();
-    let request = make_request(&store, &operation, SlotKind::Advance, advance.clone());
+    let request = make_request(&store, &operation, SlotKind::Advance, &advance);
     let control = store.create_slot(&operation, request).unwrap();
     let payload = TransactionBuilder::new_with_time_source(
         store.original.network,
@@ -256,7 +255,7 @@ fn payload_admission_binds_held_slot_directory_and_each_sibling_purpose() {
     let wrong_path = store.slot_path(&operation, SlotKind::Advance).unwrap();
     let misplaced = Slot::create(
         &wrong_path,
-        make_request(&store, &operation, SlotKind::Initialize, control),
+        make_request(&store, &operation, SlotKind::Initialize, &control),
     )
     .unwrap();
     drop(misplaced);

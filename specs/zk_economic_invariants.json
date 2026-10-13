@@ -1490,7 +1490,7 @@
       {
        "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
        "symbol": "let key = verified_fee_sponsor_vault_allocation_state_key(",
-       "within": "impl Execute for nexus::RegisterVerifiedFeeSponsorVaultAllocation"
+       "within": "fn apply_verified_fee_sponsor_vault_allocation("
       }
      ]
     },
@@ -1501,7 +1501,7 @@
       {
        "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
        "symbol": "let locked = locked_fee_sponsor_vault_capacity(",
-       "within": "impl Execute for nexus::RegisterVerifiedFeeSponsorVaultAllocation"
+       "within": "fn apply_verified_fee_sponsor_vault_allocation("
       },
       {
        "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
@@ -1579,7 +1579,7 @@
     }
    },
    "effects": ["axt.anchored_spend", "axt.fee_sponsor_vault_allocation"],
-   "defects": ["D-AXT-ANCHORED-SPEND-NOT-CONNECTED", "D-FEE-SPONSOR-CAPACITY-UNTESTED", "D-FEE-SPONSOR-NO-VERIFIER-FAULT-TEST"],
+   "defects": ["D-AXT-ANCHORED-SPEND-NOT-CONNECTED"],
    "owner_tasks": ["A.1", "A.3"]
   },
   {
@@ -4990,7 +4990,35 @@
       }
      ],
      "does_not_establish": ["proof_soundness", "hidden_conservation"],
-     "defects": ["D-FEE-SPONSOR-CAPACITY-UNTESTED"]
+     "defects": [],
+     "tests": [
+      {
+       "path": "crates/iroha_core/src/smartcontracts/isi/world_fee_sponsor_ledger_effect_tests.rs",
+       "test": "faulty_verifier_fee_sponsor_capacity_is_exact_and_identical_replay_adds_no_lock",
+       "status": "added",
+       "verifier_fault": true,
+       "shows": "A faulty-verifier record locks six plus four units of a ten-unit vault, refuses one more unit without writes, and exact replay adds no lock or balance movement.",
+       "exercises": ["apply_verified_fee_sponsor_vault_allocation"],
+       "harness": {
+        "path": "crates/iroha_core/src/smartcontracts/isi/world_fee_sponsor_ledger_effect_tests.rs",
+        "symbol": "fn fee_sponsor_faulty_effect_fixture()",
+        "included_by": {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "include!(\"world_fee_sponsor_ledger_effect_tests.rs\");"}
+       }
+      },
+      {
+       "path": "crates/iroha_core/src/smartcontracts/isi/world_fee_sponsor_ledger_effect_tests.rs",
+       "test": "faulty_verifier_fee_sponsor_cannot_rebind_a_lease_or_overlap_a_live_route",
+       "status": "added",
+       "verifier_fault": true,
+       "shows": "A faulty-verifier record cannot rebind an existing lease or overlap one live route, even where the vault has spare capacity.",
+       "exercises": ["apply_verified_fee_sponsor_vault_allocation"],
+       "harness": {
+        "path": "crates/iroha_core/src/smartcontracts/isi/world_fee_sponsor_ledger_effect_tests.rs",
+        "symbol": "fn fee_sponsor_faulty_effect_fixture()",
+        "included_by": {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "include!(\"world_fee_sponsor_ledger_effect_tests.rs\");"}
+       }
+      }
+     ]
     },
     {
      "kind": "ledger_derived_successor",
@@ -5051,6 +5079,19 @@
        "test": "verified_fee_sponsor_registration_rejects_wrong_policy_da_and_expiry",
        "status": "existing",
        "shows": "A wrong policy, a DA commitment and a wrong expiry are refused."
+      },
+      {
+       "path": "crates/iroha_core/src/smartcontracts/isi/world_fee_sponsor_ledger_effect_tests.rs",
+       "test": "faulty_verifier_fee_sponsor_respects_current_height_and_scheduled_revision",
+       "status": "added",
+       "verifier_fault": true,
+       "shows": "The apply boundary requires the original execution height and a lease ending strictly before the scheduled revision activation height.",
+       "exercises": ["apply_verified_fee_sponsor_vault_allocation"],
+       "harness": {
+        "path": "crates/iroha_core/src/smartcontracts/isi/world_fee_sponsor_ledger_effect_tests.rs",
+        "symbol": "fn fee_sponsor_faulty_effect_fixture()",
+        "included_by": {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "include!(\"world_fee_sponsor_ledger_effect_tests.rs\");"}
+       }
       }
      ]
     }
@@ -5076,9 +5117,64 @@
      "test": "fee_sponsor_vault_allocation_rejects_future_source_height",
      "status": "existing",
      "shows": "An allocation that names a future source height is refused."
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/world_fee_sponsor_ledger_effect_tests.rs",
+     "test": "faulty_verifier_fee_sponsor_capacity_is_exact_and_identical_replay_adds_no_lock",
+     "status": "added",
+     "verifier_fault": true,
+     "shows": "A faulty-verifier record locks six plus four units of a ten-unit vault, refuses one more unit without writes, and exact replay adds no lock or balance movement.",
+     "exercises": ["apply_verified_fee_sponsor_vault_allocation"],
+     "harness": {
+      "path": "crates/iroha_core/src/smartcontracts/isi/world_fee_sponsor_ledger_effect_tests.rs",
+      "symbol": "fn fee_sponsor_faulty_effect_fixture()",
+      "included_by": {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "include!(\"world_fee_sponsor_ledger_effect_tests.rs\");"}
+     }
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/world_fee_sponsor_ledger_effect_tests.rs",
+     "test": "faulty_verifier_fee_sponsor_cannot_rebind_a_lease_or_overlap_a_live_route",
+     "status": "added",
+     "verifier_fault": true,
+     "shows": "A faulty-verifier record cannot rebind an existing lease or overlap one live route, even where the vault has spare capacity.",
+     "exercises": ["apply_verified_fee_sponsor_vault_allocation"],
+     "harness": {
+      "path": "crates/iroha_core/src/smartcontracts/isi/world_fee_sponsor_ledger_effect_tests.rs",
+      "symbol": "fn fee_sponsor_faulty_effect_fixture()",
+      "included_by": {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "include!(\"world_fee_sponsor_ledger_effect_tests.rs\");"}
+     }
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/world_fee_sponsor_ledger_effect_tests.rs",
+     "test": "faulty_verifier_fee_sponsor_respects_current_height_and_scheduled_revision",
+     "status": "added",
+     "verifier_fault": true,
+     "shows": "The apply boundary requires the original execution height and a lease ending strictly before the scheduled revision activation height.",
+     "exercises": ["apply_verified_fee_sponsor_vault_allocation"],
+     "harness": {
+      "path": "crates/iroha_core/src/smartcontracts/isi/world_fee_sponsor_ledger_effect_tests.rs",
+      "symbol": "fn fee_sponsor_faulty_effect_fixture()",
+      "included_by": {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "include!(\"world_fee_sponsor_ledger_effect_tests.rs\");"}
+     }
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/world_fee_sponsor_ledger_effect_tests.rs",
+     "test": "faulty_verifier_fee_sponsor_failed_batch_discards_earlier_allocation",
+     "status": "added",
+     "verifier_fault": true,
+     "shows": "Dropping the actual StateTransaction after a successful first helper call and a capacity-failing second call discards the first allocation. This is transaction rollback evidence, not full public instruction-batch execution.",
+     "exercises": ["apply_verified_fee_sponsor_vault_allocation"],
+     "harness": {
+      "path": "crates/iroha_core/src/smartcontracts/isi/world_fee_sponsor_ledger_effect_tests.rs",
+      "symbol": "fn fee_sponsor_faulty_effect_fixture()",
+      "included_by": {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "include!(\"world_fee_sponsor_ledger_effect_tests.rs\");"}
+     }
     }
    ],
-   "defects": ["D-FEE-SPONSOR-CAPACITY-UNTESTED", "D-FEE-SPONSOR-NO-VERIFIER-FAULT-TEST"]
+   "defects": [],
+   "apply_sites": [
+    {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "fn apply_verified_fee_sponsor_vault_allocation("}
+   ]
   },
   {
    "id": "axt.anchored_spend",
@@ -6019,27 +6115,6 @@
    "required": "A.1 binds the finalized source and the current issuer; A.3 delivers the spend with its replay reservation, issuer budget and exact effective amount."
   },
   {
-   "id": "D-FEE-SPONSOR-CAPACITY-UNTESTED",
-   "kind": "enforcement_untested",
-   "owner": ["A.3", "P.3"],
-   "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
-   "symbol": "\"verified fee sponsor vault allocations exceed source capacity: requires {required}, available {}\"",
-   "line": 15947,
-   "summary": "The capacity check of a verified fee-sponsor allocation (locked plus requested must not exceed the vault balance) runs after the FASTPQ verifier and no test reaches it; so do the lease-conflict checks before it.",
-   "required": "A test that registers allocations up to and one over the vault balance, and a test-only entry after the verifier so the check can be shown with verification forced to succeed."
-  },
-  {
-   "id": "D-FEE-SPONSOR-NO-VERIFIER-FAULT-TEST",
-   "kind": "harness_seam_missing",
-   "owner": ["A.3", "P.3"],
-   "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
-   "symbol": "let verified_fastpq = fastpq_prover::verify_axt_proof_envelope_with_outer_metadata(",
-   "within": "impl Execute for nexus::RegisterVerifiedFeeSponsorVaultAllocation",
-   "line": 15844,
-   "summary": "The lease-conflict and capacity checks of a fee-sponsor allocation run after the FASTPQ verifier call inside one handler. No test-only entry applies an allocation with verification forced to succeed, and the accepting tests need a real FASTPQ AXT proof (about 48 minutes in a debug build).",
-   "required": "Split the handler into verification and an apply function over the verified claim so the capacity bound can be shown independently of the proof."
-  },
-  {
    "id": "D-GAME-SETTLEMENT-NO-PROOF-TEST",
    "kind": "mutation_test_missing",
    "owner": ["B.3"],
@@ -6089,9 +6164,9 @@
   },
   "effects_by_status": {"implemented": 3, "gated": 20, "unreachable": 3, "absent": 3},
   "invariants_by_status": {"enforced": 70, "enforced_by_absence": 6, "not_enforced": 13, "not_applicable": 1},
-  "cited_tests": 58,
-  "added_tests": 5,
-  "defects": 22,
+  "cited_tests": 62,
+  "added_tests": 9,
+  "defects": 20,
   "suspension_switches": 5
  }
 }

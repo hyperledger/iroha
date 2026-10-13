@@ -164,7 +164,7 @@ fn retained_enacted_validation_fee_asset_reference_matching(
 ) -> Option<([u8; 32], &'static str, AssetDefinitionId)> {
     retained_enacted_validation_fee_proposals(state_transaction).find_map(
         |(proposal_id, proposal_kind)| {
-            let matched = match proposal_kind {
+            let matching_asset = match proposal_kind {
                 ProposalKind::ValidationFeePolicy(payload) => {
                     if matches(&payload.policy.ds_asset_id) {
                         Some((
@@ -192,7 +192,7 @@ fn retained_enacted_validation_fee_asset_reference_matching(
                 }
                 _ => None,
             }?;
-            Some((proposal_id, matched.0, matched.1))
+            Some((proposal_id, matching_asset.0, matching_asset.1))
         },
     )
 }
@@ -965,10 +965,10 @@ fn validate_treasury_payout_contract_subject(
                     treasury_account_id: custody.treasury_account_id.to_string(),
                 }
             })?;
-    if record.contract_subject != custody.treasury_account_id
-        || record.contract_address != custody.contract_address
-        || custody.treasury_account_id != policy.treasury_account_id
-        || custody.ds_asset_id != policy.ds_asset_id
+    if (&record.contract_subject, &record.contract_address)
+        != (&custody.treasury_account_id, &custody.contract_address)
+        || (&custody.treasury_account_id, &custody.ds_asset_id)
+            != (&policy.treasury_account_id, &policy.ds_asset_id)
     {
         return Err(
             ValidationFeeAdmissionError::TreasuryPayoutRuntimeBindingMismatch {
@@ -1041,8 +1041,8 @@ fn validate_treasury_payout_binding_contract_subject(
             .into(),
         );
     };
-    if record.contract_address != binding.contract_address
-        || record.contract_subject != binding.treasury_account_id
+    if (&record.contract_address, &record.contract_subject)
+        != (&binding.contract_address, &binding.treasury_account_id)
     {
         return Err(
             ValidationFeeAdmissionError::TreasuryPayoutRuntimeBindingMismatch {
@@ -1203,8 +1203,8 @@ fn runtime_origin_matches_payout_binding(
         }
     };
     Ok(record.is_some_and(|record| {
-        record.contract_address == binding.contract_address
-            && record.contract_subject == binding.treasury_account_id
+        (&record.contract_address, &record.contract_subject)
+            == (&binding.contract_address, &binding.treasury_account_id)
             && <[u8; 32]>::from(ivm::contract_code_hash(&record.code_bytes)) == binding.code_hash
             && record.code_bytes.as_slice() == origin.code_bytes
     }))

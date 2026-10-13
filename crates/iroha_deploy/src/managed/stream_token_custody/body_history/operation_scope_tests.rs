@@ -203,10 +203,15 @@ fn operation_trios_with_original_reads() {
     for tree in [None, Some(&reopened)] {
         let run = |original| {
             counted(original, None, || {
-                History::test_operation_records(|| match tree {
-                    Some(directory) => directory
-                        .read_tree_scope(|tree| native.test_current_local_in_tree(Some(tree))),
-                    None => native.test_current_local_in_tree(None),
+                History::test_operation_records(|| {
+                    tree.map_or_else(
+                        || native.test_current_local_in_tree(None),
+                        |directory| {
+                            directory.read_tree_scope(|tree| {
+                                native.test_current_local_in_tree(Some(tree))
+                            })
+                        },
+                    )
                 })
             })
         };

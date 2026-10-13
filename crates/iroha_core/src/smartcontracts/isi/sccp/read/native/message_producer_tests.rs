@@ -3,6 +3,7 @@
 //! Route/generation preconditions are installed in the existing pristine State fixture seam
 //! before genesis execution. This qualifies the proof producer, not route establishment:
 //! RegisterRoute remains fail-closed. No State writes occur after native certification.
+//! The adversarial branch control changes only durable certificate bytes after that cut.
 
 use super::*;
 use crate::{
@@ -539,6 +540,60 @@ fn native_message_selects_its_own_genuine_branch_with_the_same_history_and_insta
             foreign.commit_qc().unwrap().block_hash.0
         );
         drop(proof);
+        assert_eq!(pool.reserved_bytes(), before);
+
+        // A foreign certificate remains genuinely signed by the same committee and has
+        // the same SCCP/history roots. Replace only those bytes in this source's durable
+        // frame: ordinary source selection must now reject the crossed execution join.
+        chain.kura().replace_native_certificate_for_test(
+            std::num::NonZeroUsize::new(3).unwrap(),
+            foreign.block().commit_certificate().unwrap().clone(),
+        );
+        let acquired = read_commit_certificate(
+            &view,
+            NonZeroU64::new(3).unwrap(),
+            &pool,
+            super::tests::control(&stop).deadline,
+        )
+        .unwrap();
+        assert_eq!(
+            acquired.certificate().commit_qc,
+            foreign.certificate().unwrap().commit_qc()
+        );
+        drop(acquired);
+        let error = message_proof(
+            &view,
+            id,
+            SccpNativeProofAt::Height(NonZeroU64::new(original.height()).unwrap()),
+            &pool,
+            super::tests::control(&stop),
+        )
+        .err()
+        .expect("genuine foreign certificate cannot replace this executed source");
+        assert_eq!(
+            error.to_string(),
+            "invalid native SCCP data: signed execution differs from the original stored frame"
+        );
+        assert_eq!(pool.reserved_bytes(), before);
+        chain.kura().replace_native_certificate_for_test(
+            std::num::NonZeroUsize::new(3).unwrap(),
+            original.block().commit_certificate().unwrap().clone(),
+        );
+        let restored = message_proof(
+            &view,
+            id,
+            SccpNativeProofAt::Height(NonZeroU64::new(original.height()).unwrap()),
+            &pool,
+            super::tests::control(&stop),
+        )
+        .unwrap();
+        assert_eq!(
+            QcFixedV1::parse(&restored.data().certificate.qc)
+                .unwrap()
+                .block_hash,
+            original.commit_qc().unwrap().block_hash.0
+        );
+        drop(restored);
         assert_eq!(pool.reserved_bytes(), before);
     });
 }

@@ -50,7 +50,7 @@ pub struct PeerConfigDto {
     pub network_tx_gossip_period: Option<ExplorerDurationDto>,
 }
 #[derive(Clone, Debug, Default)]
-pub(crate) struct PeerConfigSnapshot {
+pub struct PeerConfigSnapshot {
     pub public_key: Option<PublicKey>,
     pub queue_capacity: Option<u32>,
     pub network_block_gossip_size: Option<u32>,
@@ -190,50 +190,48 @@ async fn supervise_peer_monitor_workers(
     shutdown_signal: &ShutdownSignal,
     mut workers: JoinSet<crate::ToriiCriticalWorkerExit>,
 ) -> crate::ToriiCriticalWorkerExit {
-    loop {
-        tokio::select! {
-            biased;
-            () = shutdown_signal.receive() => {
+    tokio::select! {
+        biased;
+        () = shutdown_signal.receive() => {
+            let failed = drain_peer_monitor_workers(&mut workers).await;
+            if failed {
+                crate::ToriiCriticalWorkerExit::UnexpectedExit
+            } else {
+                crate::ToriiCriticalWorkerExit::StoppedByShutdown
+            }
+        }
+        result = workers.join_next() => match result {
+            Some(Ok(crate::ToriiCriticalWorkerExit::StoppedByShutdown))
+                if shutdown_signal.is_sent() =>
+            {
                 let failed = drain_peer_monitor_workers(&mut workers).await;
-                return if failed {
+                if failed {
                     crate::ToriiCriticalWorkerExit::UnexpectedExit
                 } else {
                     crate::ToriiCriticalWorkerExit::StoppedByShutdown
-                };
+                }
             }
-            result = workers.join_next() => match result {
-                Some(Ok(crate::ToriiCriticalWorkerExit::StoppedByShutdown))
-                    if shutdown_signal.is_sent() =>
-                {
-                    let failed = drain_peer_monitor_workers(&mut workers).await;
-                    return if failed {
-                        crate::ToriiCriticalWorkerExit::UnexpectedExit
-                    } else {
-                        crate::ToriiCriticalWorkerExit::StoppedByShutdown
-                    };
-                }
-                Some(Ok(crate::ToriiCriticalWorkerExit::StoppedByShutdown)) => {
-                    abort_peer_monitor_workers(&mut workers).await;
-                    return crate::ToriiCriticalWorkerExit::UnexpectedExit;
-                }
-                Some(Ok(crate::ToriiCriticalWorkerExit::UnexpectedExit)) => {
-                    abort_peer_monitor_workers(&mut workers).await;
-                    return crate::ToriiCriticalWorkerExit::UnexpectedExit;
-                }
-                Some(Err(error)) => {
-                    iroha_logger::error!(
-                        ?error,
-                        "peer telemetry worker failed before shutdown"
-                    );
-                    abort_peer_monitor_workers(&mut workers).await;
-                    return crate::ToriiCriticalWorkerExit::UnexpectedExit;
-                }
-                None if shutdown_signal.is_sent() => {
-                    return crate::ToriiCriticalWorkerExit::StoppedByShutdown;
-                }
-                None => return crate::ToriiCriticalWorkerExit::UnexpectedExit,
-            },
-        }
+            Some(Ok(crate::ToriiCriticalWorkerExit::StoppedByShutdown)) => {
+                abort_peer_monitor_workers(&mut workers).await;
+                crate::ToriiCriticalWorkerExit::UnexpectedExit
+            }
+            Some(Ok(crate::ToriiCriticalWorkerExit::UnexpectedExit)) => {
+                abort_peer_monitor_workers(&mut workers).await;
+                crate::ToriiCriticalWorkerExit::UnexpectedExit
+            }
+            Some(Err(error)) => {
+                iroha_logger::error!(
+                    ?error,
+                    "peer telemetry worker failed before shutdown"
+                );
+                abort_peer_monitor_workers(&mut workers).await;
+                crate::ToriiCriticalWorkerExit::UnexpectedExit
+            }
+            None if shutdown_signal.is_sent() => {
+                crate::ToriiCriticalWorkerExit::StoppedByShutdown
+            }
+            None => crate::ToriiCriticalWorkerExit::UnexpectedExit,
+        },
     }
 }
 
@@ -703,11 +701,11 @@ impl PeerConfigDto {
             network_block_gossip_size: cfg.network_block_gossip_size,
             network_block_gossip_period: cfg
                 .network_block_gossip_period_ms
-                .map(|ms| ExplorerDurationDto { ms: ms.into() }),
+                .map(|ms| ExplorerDurationDto { ms }),
             network_tx_gossip_size: cfg.network_tx_gossip_size,
             network_tx_gossip_period: cfg
                 .network_tx_gossip_period_ms
-                .map(|ms| ExplorerDurationDto { ms: ms.into() }),
+                .map(|ms| ExplorerDurationDto { ms }),
         }
     }
 }

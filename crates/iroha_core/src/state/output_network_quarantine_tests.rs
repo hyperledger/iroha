@@ -631,7 +631,11 @@ fn sealed_reveal_quota_uses_actual_pending_commitments_and_outer_source_hashes()
         // worker, advancing the authentic successor schedule for reveal height 3.
         drop(committing);
         drop(committing_recording);
-        let committed = chain.commit_proposal(source.clone(), Signers::Quorum, Default::default());
+        let committed = chain.commit_proposal(
+            source.clone(),
+            Signers::Quorum,
+            iroha_sumeragi::types::ControlWitness::default(),
+        );
         assert_eq!(committed.height(), 2);
         assert_eq!(chain.height(), 2);
         let native_rows = committed
@@ -794,7 +798,8 @@ fn real_nexus_fee_is_not_charged_for_quota_refusal_before_business_execution() {
                     gas_used: crate::gas::meter_instructions(
                         &[write_quarantine("paid_quarantine_effect", 1)],
                         &crate::gas::DEFAULT_ZK_GAS,
-                    ),
+                    )
+                    .expect("gas quote must complete for this fixture"),
                     base_fee: Quantity::from(1_u32),
                     per_byte_fee: Quantity::zero(),
                     per_instruction_fee: Quantity::zero(),

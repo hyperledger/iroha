@@ -30,7 +30,7 @@ fn all_statuses_and_inactive_or_withdrawn_missing_key_rows_keep_their_inverse() 
     {
         let key = VerifyingKeyId::new("unvalidated backend", format!("key-{ordinal}"));
         let mut value = record();
-        value.version = ordinal as u32;
+        value.version = u32::try_from(ordinal).expect("fixture value fits u32");
         value.status = status;
         value.key = None;
         value.activation_height = Some(100);

@@ -161,7 +161,6 @@ fn decode_material_kind(raw: &str) -> Result<MaterialKind, Error> {
     let raw = material.ok_or_else(|| json::Error::missing_field("evidence"))?;
     // The selected exact decoder validates the whole source; this pass stops at
     // the discriminator so later fields cannot pre-empt earlier semantic errors.
-    drop(map);
     let mut p = Parser::new(raw);
     let mut map = MapVisitor::new(&mut p)?;
     let mut kind = None;
@@ -367,10 +366,11 @@ pub(crate) fn prepare_claim(
     let offender_layout = Layout::array::<SccpForgeryOffenderV1>(count).map_err(|_| overflow())?;
     let attribution_layout = Layout::array::<EvidenceOffender>(count).map_err(|_| overflow())?;
     let (mut ledger_count, mut bytes, mut overflowed) = (
-        count.checked_add(2).ok_or_else(overflow)?,
+        count.checked_add(3).ok_or_else(overflow)?,
         offender_layout
             .size()
             .checked_add(attribution_layout.size())
+            .and_then(|bytes| bytes.checked_add(Layout::new::<SccpForgeryRecordV1>().size()))
             .ok_or_else(overflow)?,
         false,
     );
@@ -412,6 +412,7 @@ pub(crate) fn prepare_claim(
     let mut ledger =
         ChargedBuffer::from_reservation(ledger_count, &mut original).map_err(prepaid)?;
     let shell = ChargedShared::reserve_from(&mut original).map_err(shared)?;
+    let mut material = ChargedBuffer::from_reservation(1, &mut original).map_err(prepaid)?;
     let mut offenders = ChargedBuffer::from_reservation(count, &mut original).map_err(prepaid)?;
     let mut peers = ChargedBuffer::from_reservation(count, &mut original).map_err(prepaid)?;
     for (signer, key, member) in candidate.signers() {
@@ -459,14 +460,24 @@ pub(crate) fn prepare_claim(
     let (peers, charge) = unsafe { peers.into_allocation_parts() };
     ledger.push_reserved(charge);
     let generation = candidate.generation();
+    material.push_reserved(SccpForgeryRecordV1 {
+        evidence: candidate.evidence().clone(),
+        rule: candidate.rule(),
+        generation: generation.generation,
+        start_height: generation.start_height,
+        offenders,
+    });
+    // SAFETY: exactly one initialized record and capacity one use the same size,
+    // alignment and global allocator as Box. The original box charge joins the
+    // retained ledger; no fallible operation separates the backing from its owner.
+    #[allow(unsafe_code)]
+    let (material, material_charge) = unsafe { material.into_allocation_parts() };
+    ledger.push_reserved(material_charge);
+    let mut material = ManuallyDrop::new(material);
+    #[allow(unsafe_code)]
+    let material = unsafe { Box::from_raw(material.as_mut_ptr()) };
     let fields = EvidenceRecordBodyFields {
-        evidence: RecordedEvidenceV1::SccpForgery(SccpForgeryRecordV1 {
-            evidence: candidate.evidence().clone(),
-            rule: candidate.rule(),
-            generation: generation.generation,
-            start_height: generation.start_height,
-            offenders,
-        }),
+        evidence: RecordedEvidenceV1::SccpForgery(material),
         attribution: EvidenceAttribution {
             scope: EvidenceScope::SccpGeneration {
                 generation: generation.generation,
@@ -480,8 +491,8 @@ pub(crate) fn prepare_claim(
             safety_violation: true,
         },
     };
-    // SAFETY: both exact Vec backings, every account clone and compact peer key have
-    // their original charges in the ledger; fields have no other owned allocations.
+    // SAFETY: the exact record Box, both Vec backings, every account clone and compact
+    // peer key have original charges in the ledger; fields own no other allocations.
     #[allow(unsafe_code)]
     let fields = unsafe { RetainedPayload::try_new(fields, ledger, budget) }.map_err(
         |(fields, ledger, _)| {

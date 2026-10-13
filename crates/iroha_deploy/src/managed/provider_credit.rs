@@ -147,7 +147,7 @@ impl ManagedInitialProviderCredit {
             self.validate_original(&original)?;
             return Ok(original);
         }
-        attempts::metadata::require_unselected(&directory)?;
+        attempts::metadata::require_unselected(directory)?;
         let (verifier, current) = self.observe(&intent.policy, deadline)?;
         if !matches_predecessor(current.current(), current.credit(), &intent.partition) {
             return Err(invalid(
@@ -213,13 +213,15 @@ impl ManagedInitialProviderCredit {
             .map_err(|_| invalid("cannot open funding wallet"))?;
         let account = authorization.bind_account(account)?;
         attempts::generated(
-            &directory,
-            purpose,
-            original.digest()?,
-            &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
-            authorization,
-            deadline,
-            None,
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: &directory,
+                purpose,
+                semantic: original.digest()?,
+                scope: &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+                authorization,
+                deadline,
+                body_expiry: None,
+            },
             |attempt| {
                 account
                     .inspect_provider_credit_upsert_preparation_in_parent(
@@ -347,18 +349,19 @@ impl ManagedInitialProviderCredit {
                         std::ffi::OsStr::new("transaction"),
                         &intent.request(attempt.terms(), deadline),
                     )
-                    .map_err(|_error| {
+                    .map_err(|error| {
                         #[cfg(test)]
                         {
                             use std::io::Write as _;
                             let mut output = std::io::stderr().lock();
-                            for (index, cause) in _error.chain().enumerate() {
+                            for (index, cause) in error.chain().enumerate() {
                                 let _ = writeln!(
                                     output,
                                     "retained funding wallet inspection: purpose=FundingCredit; cause[{index}]={cause}",
                                 );
                             }
                         }
+                        drop(error);
                         invalid("retained funding attempt history changed")
                     })
             })
@@ -387,7 +390,7 @@ impl ManagedInitialProviderCredit {
         };
         let needs_prepare = retained.is_none();
         if let Some(transaction) = &retained
-            && let Some(finalized) = self.authority.retained_finality(&directory, transaction)?
+            && let Some(finalized) = self.authority.retained_finality(directory, transaction)?
         {
             self.validate_carrier(&original, &finalized)?;
             let current = if observe_current {
@@ -464,7 +467,7 @@ impl ManagedInitialProviderCredit {
         }
         let transaction = match retained {
             Some(transaction) => transaction,
-            None => self.verify_wallet(&directory, &original, deadline)?,
+            None => self.verify_wallet(directory, &original, deadline)?,
         };
         let request = original.request(deadline);
         let mut report = account
@@ -499,7 +502,7 @@ impl ManagedInitialProviderCredit {
         let finalized = if report.status == OperationStatus::Applied {
             if let Some(observed) = &observed {
                 self.authority.advance_carrier(
-                    &directory,
+                    directory,
                     &original.checkpoint,
                     &transaction,
                     &report,
@@ -594,7 +597,7 @@ impl ManagedInitialProviderCredit {
             .map_err(|_| invalid("invalid original initial provider credit checkpoint"))?
             .verify_global_scope(
                 self.authority.config.network_id,
-                &self.authority.config.chain.to_string(),
+                self.authority.config.chain.as_ref(),
             )
             .map_err(|_| {
                 invalid("original initial credit checkpoint is not the selected Global root")

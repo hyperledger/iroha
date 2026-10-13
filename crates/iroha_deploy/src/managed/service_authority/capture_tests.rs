@@ -23,7 +23,7 @@ fn retained_service_plans_parse_once_and_refuse_original_byte_drift_on_every_acc
             ServiceAuthority::open_provider(&prepared, provider, ProviderPurpose::Custody).unwrap()
         });
     assert_eq!(parses, 1);
-    let (_, parses) = crate::localnet::service_authorities::count_profile_validations(|| {
+    let ((), parses) = crate::localnet::service_authorities::count_profile_validations(|| {
         for _ in 0..3 {
             authority.validate_profile().unwrap();
             assert!(authority.provider_plans().is_err());
@@ -186,7 +186,7 @@ fn retained_network_plans_refuse_complete_input_and_native_custody_drift_without
         assert!(authority.gateway_compliance_plan(provider).is_err());
         assert!(authority.publication_plan().is_err());
     };
-    let (_, parses) = crate::localnet::service_authorities::count_profile_validations(|| {
+    let ((), parses) = crate::localnet::service_authorities::count_profile_validations(|| {
         accept();
         let original = generation.read("peer3.toml", 1024 * 1024).unwrap();
         let mut changed = original.clone();
@@ -249,7 +249,7 @@ fn retained_network_plans_refuse_complete_input_and_native_custody_drift_without
         #[cfg(windows)]
         {
             // Native sharing denies replacement while the original lock is held.
-            let original = iroha_fs::FileIdentity::of(&authority._lock).unwrap();
+            let original = iroha_fs::FileIdentity::of(&authority.lock).unwrap();
             assert!(
                 authority
                     .directory
@@ -257,7 +257,7 @@ fn retained_network_plans_refuse_complete_input_and_native_custody_drift_without
                     .is_err()
             );
             assert_eq!(
-                iroha_fs::FileIdentity::of(&authority._lock).unwrap(),
+                iroha_fs::FileIdentity::of(&authority.lock).unwrap(),
                 original
             );
             assert_eq!(

@@ -216,15 +216,6 @@ impl Original {
 }
 
 impl Selected<Original> {
-    pub fn matches(
-        &self,
-        intent: &ManagedReserveTopUpApprovalIntent,
-        utc: u64,
-        options: &BoundedTransactionOptions,
-    ) -> Result<()> {
-        self.matches_intent(intent)?;
-        self.terms.matches(utc, options)
-    }
     pub fn request(&self, deadline: Instant) -> ReserveMovementDecisionRequest {
         Original::request(self, &self.terms, deadline)
     }

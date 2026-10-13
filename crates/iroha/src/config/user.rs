@@ -90,6 +90,9 @@ pub struct Root {
     #[config(nested)]
     /// Optional Musubi production-publication platform bindings.
     pub musubi: Musubi,
+    /// File-only SCCP wallet endpoint, journal and deployment preferences.
+    #[config(nested)]
+    pub sccp: super::sccp::SccpClientConfigUser,
 }
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 /// Errors found while validating or parsing user configuration.
@@ -389,6 +392,7 @@ impl Root {
                     nonce: tx_add_nonce,
                 },
             sorafs,
+            sccp: _,
             musubi:
                 Musubi {
                     publication: musubi_publication,
@@ -822,6 +826,7 @@ mod tests {
             },
             sorafs: Sorafs::default(),
             musubi: Musubi::default(),
+            sccp: super::super::sccp::SccpClientConfigUser::default(),
         }
     }
     #[test]

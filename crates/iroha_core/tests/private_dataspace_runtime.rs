@@ -249,10 +249,12 @@ fn runtime_private_dataspace_executes_concrete_work_after_certified_activation()
         ],
     )
     .expect("baseline catalog");
-    let mut nexus = actual::Nexus::default();
-    nexus.configured_lane_catalog = baseline.clone();
-    nexus.lane_catalog = baseline.clone();
-    nexus.lane_config = actual::LaneConfig::from_catalog(&baseline);
+    let nexus = actual::Nexus {
+        configured_lane_catalog: baseline.clone(),
+        lane_catalog: baseline.clone(),
+        lane_config: actual::LaneConfig::from_catalog(&baseline),
+        ..Default::default()
+    };
     config.nexus = Some(nexus);
     let mut chain = CertifiedTestChain::start(config).expect("certified genesis");
     {

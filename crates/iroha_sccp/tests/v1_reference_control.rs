@@ -456,9 +456,10 @@ fn control_fields(
     }
 }
 
-/// One Taira route to the EVM destination at `0x22…22`, with generation 5 (`K0`, test keys
+/// One Taira route to the selected destination, with generation 5 (`K0`, test keys
 /// 40 to 43) pinned at height 1000 and time `T0`, and the certificate pool of the file.
 struct Env {
+    target: SccpNetworkV1,
     k0: Committee,
     sim: TairaSim,
     pool: Rc<RefCell<CertificatePool>>,
@@ -466,15 +467,15 @@ struct Env {
 
 impl Env {
     fn new() -> Self {
+        Self::for_target(SccpNetworkV1::EthereumMainnet)
+    }
+
+    fn for_target(target: SccpNetworkV1) -> Self {
         let k0 = Committee::new("K0", 40..44);
-        let mut sim = TairaSim::new(
-            NETWORK_ID,
-            INSTANCE,
-            SccpNetworkV1::EthereumMainnet,
-            destination_word(SccpNetworkV1::EthereumMainnet),
-        );
+        let mut sim = TairaSim::new(NETWORK_ID, INSTANCE, target, destination_word(target));
         sim.start(PIN_GENERATION, k0.clone(), PIN_START, T0, VALIDITY);
         Self {
+            target,
             k0,
             sim,
             pool: Rc::default(),
@@ -485,11 +486,15 @@ impl Env {
     /// deployment carries the pinned keys for reference; an EVM destination stores none.
     fn deployment(&self) -> DeploymentV1 {
         DeploymentV1 {
-            flavor: DestinationFlavor::Evm,
+            flavor: if self.target == SccpNetworkV1::TonMainnet {
+                DestinationFlavor::Ton
+            } else {
+                DestinationFlavor::Evm
+            },
             taira_network_id: NETWORK_ID,
             consensus_instance: INSTANCE,
-            network: SccpNetworkV1::EthereumMainnet,
-            destination_word: destination_word(SccpNetworkV1::EthereumMainnet),
+            network: self.target,
+            destination_word: destination_word(self.target),
             route_revision: 1,
             max_wrapped_supply: SUPPLY_CAP,
             pin_generation: PIN_GENERATION,
@@ -503,8 +508,13 @@ impl Env {
     /// A scenario on a fresh destination of the route. Every call must give the outcome its
     /// author wrote.
     fn scenario(&self, name: &str, description: &str) -> Run {
+        let name = if self.target == SccpNetworkV1::TonMainnet {
+            format!("ton_control_{name}")
+        } else {
+            name.to_owned()
+        };
         Run(Scenario::new(
-            name,
+            &name,
             description,
             self.deployment(),
             &self.pool,
@@ -533,7 +543,13 @@ impl Env {
 
     /// A transfer of `amount` to [`RECIPIENT`].
     fn transfer(&self, nonce: u64, amount: u128, deadline_ms: u64) -> LeafItem {
-        self.sim.transfer(nonce, amount, deadline_ms, &RECIPIENT)
+        if self.target == SccpNetworkV1::TonMainnet {
+            let mut recipient = [0x44; 36];
+            recipient[..4].fill(0);
+            self.sim.transfer(nonce, amount, deadline_ms, &recipient)
+        } else {
+            self.sim.transfer(nonce, amount, deadline_ms, &RECIPIENT)
+        }
     }
 
     /// The block at `height` with `leaves`, certified by the pinned generation.
@@ -708,15 +724,19 @@ fn produce_blocks(env: &mut Env) {
 /// destination word), a leaf of the route's own fields with `track = 3`, which Taira would
 /// not record, and a transfer.
 fn foreign_and_malformed_leaves(env: &Env) -> Vec<LeafItem> {
-    let ethereum = SccpNetworkV1::EthereumMainnet;
-    let word = destination_word(ethereum);
+    let target = env.target;
+    let word = destination_word(target);
     let pause = |id| control_fields(1, TRACK_PARLIAMENT, 1, 0, id);
     let bsc = TairaSim::new(NETWORK_ID, INSTANCE, SccpNetworkV1::BscMainnet, word);
-    let other_network = TairaSim::new([0x12; 32], INSTANCE, ethereum, word);
-    let mut other_revision = TairaSim::new(NETWORK_ID, INSTANCE, ethereum, word);
+    let other_network = TairaSim::new([0x12; 32], INSTANCE, target, word);
+    let mut other_revision = TairaSim::new(NETWORK_ID, INSTANCE, target, word);
     other_revision.route_revision = 2;
-    let other_destination =
-        TairaSim::new(NETWORK_ID, INSTANCE, ethereum, word_address(&[0x23; 20]));
+    let other_word = if target == SccpNetworkV1::TonMainnet {
+        [0x36; 32]
+    } else {
+        word_address(&[0x23; 20])
+    };
+    let other_destination = TairaSim::new(NETWORK_ID, INSTANCE, target, other_word);
     vec![
         bsc.control(&pause(71), true),
         other_network.control(&pause(72), true),
@@ -749,7 +769,11 @@ const SCENARIOS: [fn(&Env) -> Run; 10] = [
 
 /// The blocks and the scenarios over them, in file order.
 fn destination_effects() -> (Env, Vec<Scenario>) {
-    let mut env = Env::new();
+    destination_effects_for(SccpNetworkV1::EthereumMainnet)
+}
+
+fn destination_effects_for(target: SccpNetworkV1) -> (Env, Vec<Scenario>) {
+    let mut env = Env::for_target(target);
     produce_blocks(&mut env);
     let scenarios = SCENARIOS.iter().map(|scenario| scenario(&env).0).collect();
     (env, scenarios)
@@ -1057,6 +1081,7 @@ fn control_document() -> Value {
     assert_eq!(topic, TOPIC_CONTROL_APPLIED);
     assert_eq!(MAX_FAST_PAUSE_MS, 30 * DAY, "§3.9");
     let (env, scenarios) = destination_effects();
+    let (ton_env, ton_scenarios) = destination_effects_for(SccpNetworkV1::TonMainnet);
     let mut destination_words = obj([]);
     for target in TARGETS {
         insert(
@@ -1111,14 +1136,10 @@ fn control_document() -> Value {
             "destination_effects",
             list(scenarios.iter().map(Scenario::as_json)),
         ),
+        ("ton_certificates", ton_env.pool.borrow().as_json()),
         (
-            "todo",
-            list([text(
-                "TODO(TON contract work package): TON destination-effect rows (minter account \
-                 id as destination word) once the Acton harness pins its minter address; \
-                 committee_transitions_v1.json carries the TON control rows that the \
-                 placeholder word allows",
-            )]),
+            "ton_destination_effects",
+            list(ton_scenarios.iter().map(Scenario::as_json)),
         ),
     ])
 }
@@ -1531,6 +1552,62 @@ fn every_effect_step_uses_the_destination_clock_and_a_named_error() {
             "UnknownCheckpoint",
         ])
     );
+}
+
+/// TON rows exercise the same ten scenarios using their own lane-bound payloads and
+/// certificates, including native mint and void completion effects.
+#[test]
+fn ton_effects_cover_every_control_scenario_with_original_certificates() {
+    let evm = rows("destination_effects");
+    let ton = rows("ton_destination_effects");
+    assert_eq!(ton.len(), SCENARIOS.len());
+    let certificates = DOCUMENT["ton_certificates"].as_object().unwrap();
+    assert_eq!(
+        certificates.len(),
+        DOCUMENT["certificates"].as_object().unwrap().len()
+    );
+    let mut finalized = 0;
+    let mut voided = 0;
+    for (evm, ton) in evm.iter().zip(ton) {
+        assert_eq!(
+            ton["name"],
+            text(&format!("ton_control_{}", evm["name"].as_str().unwrap()))
+        );
+        assert_eq!(ton["flavor"], text("ton"));
+        assert_eq!(ton["deployment"]["destination_word"], hx(&TON_ACCOUNT_ID));
+        assert_eq!(check_scenario_clock(ton), check_scenario_clock(evm));
+        assert_eq!(check_scenario_outcomes(ton), check_scenario_outcomes(evm));
+        for (a, b) in steps_of(evm).iter().zip(steps_of(ton)) {
+            assert_eq!(a["now_ms"], b["now_ms"]);
+            assert_eq!(a["state_after"]["pause"], b["state_after"]["pause"]);
+            assert_eq!(a["state_after"]["op_count"], b["state_after"]["op_count"]);
+            if b["call"] != text("views") {
+                assert!(b["call"].as_str().unwrap().starts_with("sccp_"));
+            }
+            for id in b["certificates"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .chain(b.get("certificate"))
+            {
+                let id = id.as_str().unwrap();
+                let original = &certificates[id];
+                assert_ne!(original["ton"], DOCUMENT["certificates"][id]["ton"]);
+                assert_eq!(original["signed_by"], text("K0"));
+            }
+            for event in b["expected"]["events"].as_array().into_iter().flatten() {
+                match event["event"].as_str() {
+                    Some("SccpFinalized") => {
+                        finalized += 1;
+                        assert_eq!(bytes_of(event, "recipient").len(), 36);
+                    }
+                    Some("SccpVoided") => voided += 1,
+                    _ => {}
+                }
+            }
+        }
+    }
+    assert_eq!((finalized, voided), (3, 1));
 }
 
 /// The effective pause is `parliamentPaused ∨ now_ms < fastPauseUntilMs` on every step, a

@@ -1279,7 +1279,9 @@ pub fn f31(seed: u64) -> Scenario {
     let mut sc = sized("F31", seed, n);
     sc.instances = if seed.is_multiple_of(2) { 3 } else { 4 };
     sc.clock_guard = Some(crate::sim::scenario::ClockGuard {
-        max_clock_drift_ms: 500, due_work_max_lag_ms: 5_000, ..Default::default()
+        max_clock_drift_ms: 500,
+        due_work_max_lag_ms: 5_000,
+        ..Default::default()
     });
     sc.amx = Some(super::amx::AmxConfig {
         forger: Some(n - 1),

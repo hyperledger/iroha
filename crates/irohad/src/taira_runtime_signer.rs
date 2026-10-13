@@ -152,17 +152,7 @@ fn validate_taira_launcher_profile_v1(
         );
     }
     let inrou = &runtime.inrou;
-    if !inrou.enabled {
-        if inrou.portable_vm_uid.is_some()
-            || inrou.portable_vm_gid.is_some()
-            || inrou.trusted_guest_artifact.is_some()
-        {
-            return Err(
-                "disabled Taira Inrou hosting cannot retain a PortableVM identity or trusted guest artifact"
-                    .to_owned(),
-            );
-        }
-    } else {
+    if inrou.enabled {
         let uid = inrou
             .portable_vm_uid
             .ok_or_else(|| "enabled Taira Inrou hosting requires portable_vm_uid".to_owned())?
@@ -190,6 +180,14 @@ fn validate_taira_launcher_profile_v1(
         {
             return Err("Taira launcher requires the exact V1 Inrou lifecycle graces".to_owned());
         }
+    } else if inrou.portable_vm_uid.is_some()
+        || inrou.portable_vm_gid.is_some()
+        || inrou.trusted_guest_artifact.is_some()
+    {
+        return Err(
+            "disabled Taira Inrou hosting cannot retain a PortableVM identity or trusted guest artifact"
+                .to_owned(),
+        );
     }
     let egress = &runtime.egress;
     if egress.default_allow
@@ -264,18 +262,18 @@ fn validate_taira_launcher_config_v1(config: &Config) -> Result<(), String> {
             .nexus
             .storage
             .local_budget_bytes
-            .map(|bytes| bytes.get()),
+            .map(iroha_config_base::util::Bytes::get),
         config
             .nexus
             .storage
             .effective_local_budget_bytes
-            .map(|bytes| bytes.get()),
+            .map(iroha_config_base::util::Bytes::get),
         config.nexus.storage.disk_budget_weights,
         config
             .nexus
             .storage
             .configured_sorafs_max_capacity_bytes()
-            .map(|bytes| bytes.get()),
+            .map(iroha_config_base::util::Bytes::get),
         config.torii.sorafs_storage.enabled,
         config.torii.sorafs_storage.max_capacity_bytes.get(),
     )
@@ -741,16 +739,18 @@ mod tests {
     };
 
     fn canonical_runtime_profile() -> SoracloudRuntime {
-        let mut runtime = SoracloudRuntime::default();
-        runtime.production_mode = true;
-        runtime.hydration_concurrency = std::num::NonZeroUsize::new(
-            iroha_config::parameters::defaults::taira::HYDRATION_CONCURRENCY,
-        )
-        .expect("nonzero Taira worker capacity");
-        runtime.prepared_runtime_cache_capacity = std::num::NonZeroUsize::new(
-            iroha_config::parameters::defaults::taira::PREPARED_RUNTIME_CACHE_CAPACITY,
-        )
-        .expect("nonzero Taira worker capacity");
+        let mut runtime = SoracloudRuntime {
+            production_mode: true,
+            hydration_concurrency: std::num::NonZeroUsize::new(
+                iroha_config::parameters::defaults::taira::HYDRATION_CONCURRENCY,
+            )
+            .expect("nonzero Taira worker capacity"),
+            prepared_runtime_cache_capacity: std::num::NonZeroUsize::new(
+                iroha_config::parameters::defaults::taira::PREPARED_RUNTIME_CACHE_CAPACITY,
+            )
+            .expect("nonzero Taira worker capacity"),
+            ..SoracloudRuntime::default()
+        };
         runtime.inrou.enabled = true;
         runtime.inrou.portable_vm_uid = NonZeroU32::new(70_000);
         runtime.inrou.portable_vm_gid = NonZeroU32::new(70_000);
@@ -775,7 +775,7 @@ mod tests {
     fn canonical_core_runtime_profile() -> SoracloudRuntime {
         let mut runtime = canonical_runtime_profile();
         // Core testnet has no Inrou table; its disabled limits use the typed defaults.
-        runtime.inrou = Default::default();
+        runtime.inrou = iroha_config::parameters::actual::SoracloudRuntimeInrou::default();
         runtime
     }
 
@@ -888,9 +888,9 @@ mod tests {
         stale_uid.inrou.portable_vm_uid = NonZeroU32::new(70_000);
         assert_rejected(&stale_uid);
 
-        let mut stale_gid = runtime.clone();
-        stale_gid.inrou.portable_vm_gid = NonZeroU32::new(70_000);
-        assert_rejected(&stale_gid);
+        let mut invalid_group_id = runtime.clone();
+        invalid_group_id.inrou.portable_vm_gid = NonZeroU32::new(70_000);
+        assert_rejected(&invalid_group_id);
 
         let mut stale_guest = runtime;
         stale_guest.inrou.trusted_guest_artifact = Some(
@@ -1499,11 +1499,14 @@ mod tests {
             beacon.map(|b| b.handle().to_owned());
         config
             .sumeragi
-            .global_beacon_partial_signer_provider_revision = beacon.and_then(|b| b.revision());
+            .global_beacon_partial_signer_provider_revision = beacon.and_then(
+            super::super::runtime_provider_registry::IrohaRuntimeProviderBindingV1::revision,
+        );
         config
             .sumeragi
-            .global_beacon_partial_signer_provider_policy_digest =
-            beacon.and_then(|b| b.policy_digest());
+            .global_beacon_partial_signer_provider_policy_digest = beacon.and_then(
+            super::super::runtime_provider_registry::IrohaRuntimeProviderBindingV1::policy_digest,
+        );
         config
     }
 

@@ -73,9 +73,11 @@ fn execute_instruction_rejects_retired_blob_carriers_without_register_mutation()
             .unwrap_or_else(|error| panic!("allocate {label} Blob carrier: {error:?}"));
         vm.set_register(10, pointer);
         vm.set_register(11, 0);
-        assert_eq!(
-            host.syscall(syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm,),
-            Err(ivm::VMError::NoritoInvalid),
+        assert!(
+            matches!(
+                host.syscall(syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm,),
+                Err(ivm::VMError::NoritoInvalid)
+            ),
             "{label} Blob carrier must be rejected before instruction dispatch"
         );
         assert_eq!(vm.register(10), pointer);
@@ -240,10 +242,12 @@ fn register_contract_bytes_enforces_tlv_provenance_type_hash_and_payload() {
         vm.store_bytes(pointer, &tlv)
             .unwrap_or_else(|error| panic!("store {label} fixture: {error:?}"));
         vm.set_register(10, pointer);
-        assert_eq!(
-            local_contract_debug_host(authority.clone())
-                .syscall(syscalls::SYSCALL_REGISTER_SMART_CONTRACT_BYTES, &mut vm),
-            Err(ivm::VMError::NoritoInvalid),
+        assert!(
+            matches!(
+                local_contract_debug_host(authority.clone())
+                    .syscall(syscalls::SYSCALL_REGISTER_SMART_CONTRACT_BYTES, &mut vm),
+                Err(ivm::VMError::NoritoInvalid)
+            ),
             "{label} must fail provenance validation"
         );
     }
@@ -255,12 +259,14 @@ fn register_contract_bytes_enforces_tlv_provenance_type_hash_and_payload() {
         .load_code(&code)
         .expect("load non-literal code bytes");
     code_vm.set_register(10, code_pointer);
-    assert_eq!(
-        local_contract_debug_host(authority.clone()).syscall(
-            syscalls::SYSCALL_REGISTER_SMART_CONTRACT_BYTES,
-            &mut code_vm,
+    assert!(
+        matches!(
+            local_contract_debug_host(authority.clone()).syscall(
+                syscalls::SYSCALL_REGISTER_SMART_CONTRACT_BYTES,
+                &mut code_vm,
+            ),
+            Err(ivm::VMError::NoritoInvalid)
         ),
-        Err(ivm::VMError::NoritoInvalid),
         "an arbitrary code offset is not a loader-authenticated literal"
     );
     let mut partial_vm = IVM::new(1_000);
@@ -275,12 +281,14 @@ fn register_contract_bytes_enforces_tlv_provenance_type_hash_and_payload() {
         .store_bytes(partial_pointer, &tlv)
         .expect("store bytes beyond the owned HEAP range");
     partial_vm.set_register(10, partial_pointer);
-    assert_eq!(
-        local_contract_debug_host(authority.clone()).syscall(
-            syscalls::SYSCALL_REGISTER_SMART_CONTRACT_BYTES,
-            &mut partial_vm,
+    assert!(
+        matches!(
+            local_contract_debug_host(authority.clone()).syscall(
+                syscalls::SYSCALL_REGISTER_SMART_CONTRACT_BYTES,
+                &mut partial_vm,
+            ),
+            Err(ivm::VMError::NoritoInvalid)
         ),
-        Err(ivm::VMError::NoritoInvalid),
         "the complete envelope must be inside one owned HEAP allocation"
     );
     let mut corrupted = tlv.clone();
@@ -307,10 +315,16 @@ fn register_contract_bytes_enforces_tlv_provenance_type_hash_and_payload() {
             .alloc_host_tlv(&envelope)
             .unwrap_or_else(|error| panic!("allocate {label} fixture: {error:?}"));
         vm.set_register(10, pointer);
-        assert_eq!(
-            local_contract_debug_host(authority.clone())
-                .syscall(syscalls::SYSCALL_REGISTER_SMART_CONTRACT_BYTES, &mut vm),
-            Err(expected),
+        let actual = local_contract_debug_host(authority.clone())
+            .syscall(syscalls::SYSCALL_REGISTER_SMART_CONTRACT_BYTES, &mut vm);
+        assert!(
+            matches!(
+                (actual, expected),
+                (
+                    Err(ivm::VMError::NoritoInvalid),
+                    ivm::VMError::NoritoInvalid
+                ) | (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError)
+            ),
             "{label} must fail closed"
         );
     }

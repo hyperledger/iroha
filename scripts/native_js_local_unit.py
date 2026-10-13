@@ -151,7 +151,7 @@ def build_directory(root, target, output):
 
 def expected_build(root, target):
     return [str(root / "scripts/cargo_fast.sh"), "--target-dir", str(target),
-            "--stable-local-metadata", "--incremental", "--jobs", "2", "--", "build", "--locked", "--offline",
+            "--stable-local-metadata", "--no-incremental", "--zero-debug", "--jobs", "1", "--", "build", "--locked", "--offline",
             "-p", PACKAGE, "--lib", "--message-format=json"]
 
 

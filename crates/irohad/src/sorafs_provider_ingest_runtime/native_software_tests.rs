@@ -258,7 +258,9 @@ fn native_checkpoint_fifo_refuses_without_a_writer() {
         let release = fs::OpenOptions::new()
             .read(true)
             .write(true)
-            .custom_flags(rustix::fs::OFlags::NONBLOCK.bits() as i32)
+            .custom_flags(i32::from_ne_bytes(
+                rustix::fs::OFlags::NONBLOCK.bits().to_ne_bytes(),
+            ))
             .open(&fifo)
             .unwrap();
         drop(release);

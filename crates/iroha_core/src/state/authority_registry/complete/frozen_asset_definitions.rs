@@ -63,8 +63,11 @@ impl<'frozen> Original<'frozen> {
             transitions.belongs_to(&fields.state_ref.world.confidential_policy_transition_index);
         let counts_owned =
             counts.belongs_to(&fields.state_ref.world.confidential_policy_transition_counts);
-        if !homes.belongs_to(&fields.state_ref.world.asset_definition_direct_homes)
-            || !incarnations.belongs_to(&fields.state_ref.world.axt_asset_incarnations)
+        let homes_owned = homes.belongs_to(&fields.state_ref.world.asset_definition_direct_homes);
+        let incarnations_owned =
+            incarnations.belongs_to(&fields.state_ref.world.axt_asset_incarnations);
+        if !homes_owned
+            || !incarnations_owned
             || rows.mode() != homes.mode()
             || rows.mode() != incarnations.mode()
             || !rows_owned
@@ -175,8 +178,8 @@ mod direct_home_admission_tests {
             max_tables: 1,
             max_rows: 64,
             max_payload_bytes: 65536,
-            max_ordered_table_bytes: 131072,
-            max_streamed_value_bytes: 131072,
+            max_ordered_table_bytes: 131_072,
+            max_streamed_value_bytes: 131_072,
         };
         pool.set_limit_bytes(0);
         // Direct-home rows need no extra backing; the leaf encoder refuses the empty pool.

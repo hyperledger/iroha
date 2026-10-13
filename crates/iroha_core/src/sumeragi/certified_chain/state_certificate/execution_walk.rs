@@ -161,13 +161,15 @@ where
         // authenticated H2 successor in the same iterator before yielding the original H1.
         self.successor = Some(self.read_successor(view, 2)?);
         let committed = self.parent.take().unwrap();
-        let certificate_len = norito::canonical_frame_len(
-            committed
-                .block()
-                .commit_certificate()
-                .ok_or_else(|| invalid("original genesis result certificate is absent"))?,
-        )
-        .map_err(|error| verification_attempt_failure(verification_codec_error(1, error)))?;
+        let certificate = committed
+            .block()
+            .commit_certificate()
+            .ok_or_else(|| invalid("original genesis result certificate is absent"))?;
+        let certificate_len =
+            norito::core::classify_decode_attempt(|| norito::canonical_frame_len(certificate))
+                .map_err(|error| {
+                    verification_attempt_failure(verification_codec_error(1, error))
+                })?;
         Ok(CertifiedBlock {
             committed,
             commit_qc: None,

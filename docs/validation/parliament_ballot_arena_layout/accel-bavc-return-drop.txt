@@ -1,0 +1,37 @@
+
+/tmp/parliament-resource-contract/resource-accel:	file format mach-o arm64
+
+Disassembly of section __TEXT,__text:
+
+000000010001d824 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..bavc..Reconstruction$GT$17hda85822917a497efE>:
+10001d824:     	stp	x20, x19, [sp, #-0x20]!
+10001d828:     	stp	x29, x30, [sp, #0x10]
+10001d82c:     	add	x29, sp, #0x10
+10001d830:     	mov	x19, x0
+10001d834:     	ldr	x8, [x0]
+10001d838:     	cbz	x8, 0x10001d84c <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..bavc..Reconstruction$GT$17hda85822917a497efE+0x28>
+10001d83c:     	ldr	x0, [x19, #0x8]
+10001d840:     	lsl	x1, x8, #3
+10001d844:     	mov	w2, #0x8                ; =8
+10001d848:     	bl	0x10000143c <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+10001d84c:     	ldr	x1, [x19, #0x18]
+10001d850:     	cbz	x1, 0x10001d860 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..bavc..Reconstruction$GT$17hda85822917a497efE+0x3c>
+10001d854:     	ldr	x0, [x19, #0x20]
+10001d858:     	mov	w2, #0x1                ; =1
+10001d85c:     	bl	0x10000143c <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+10001d860:     	ldr	x1, [x19, #0x30]
+10001d864:     	cbz	x1, 0x10001d874 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..bavc..Reconstruction$GT$17hda85822917a497efE+0x50>
+10001d868:     	ldr	x0, [x19, #0x38]
+10001d86c:     	mov	w2, #0x1                ; =1
+10001d870:     	bl	0x10000143c <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+10001d874:     	ldr	x8, [x19, #0x48]
+10001d878:     	cbz	x8, 0x10001d894 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..bavc..Reconstruction$GT$17hda85822917a497efE+0x70>
+10001d87c:     	ldr	x0, [x19, #0x50]
+10001d880:     	lsl	x1, x8, #1
+10001d884:     	mov	w2, #0x2                ; =2
+10001d888:     	ldp	x29, x30, [sp, #0x10]
+10001d88c:     	ldp	x20, x19, [sp], #0x20
+10001d890:     	b	0x10000143c <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+10001d894:     	ldp	x29, x30, [sp, #0x10]
+10001d898:     	ldp	x20, x19, [sp], #0x20
+10001d89c:     	ret

@@ -59,10 +59,10 @@ impl FinalitySource for Counted<'_> {
             return Err(io::Error::other("selected source unavailable"));
         }
         let result = self.native.latest_attestation(peer, challenge);
-        if self.reads.challenges.borrow().len() == 1 {
-            if let Some(after) = self.after {
-                after();
-            }
+        if self.reads.challenges.borrow().len() == 1
+            && let Some(after) = self.after
+        {
+            after();
         }
         result
     }

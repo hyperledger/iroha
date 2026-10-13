@@ -28,7 +28,7 @@ use iroha_plonk_recursion::{FoldConfig, obligation::ledger::Variant, verifier::V
 use std::{fs, path::Path};
 
 /// Build the first-Load state/map witness from the exact supplied receipt terms.
-pub(super) fn monetary(
+pub fn monetary(
     before: &iroha_kagemusha_proof::admin_sigma::BootstrapWitness,
     receipt: &[u8; 282],
 ) -> (LoadWitness, IndexedInsert<Fp>) {

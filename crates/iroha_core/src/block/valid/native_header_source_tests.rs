@@ -167,7 +167,7 @@ fn native_local_refusal_after_source_publication_retains_original_capacity() {
     let rejected: WithEvents<Result<(ValidBlock, Box<StateBlock<'_>>), Error>> =
         WithEvents::new(Err((
             Box::new(proposal),
-            Box::new(BlockValidationError::ExecutionDeferred(local.clone())),
+            Box::new(BlockValidationError::ExecutionDeferred(local)),
         )));
     let mut events = Vec::new();
     let (retained, error) = rejected
@@ -178,7 +178,13 @@ fn native_local_refusal_after_source_publication_retains_original_capacity() {
     let BlockValidationError::ExecutionDeferred(original) = error.as_ref() else {
         panic!("source-cut observation must preserve an already unfinished original: {error}");
     };
-    assert_eq!(original, &local);
+    assert_eq!(
+        original.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    assert!(original.decode_refusal().is_none());
+    assert!(original.verification_refusal().is_none());
+    assert!(original.phase().is_none());
     assert_eq!(original.allocation_refusal(), Some(&refusal));
     assert!(events.is_empty());
     assert_eq!(retained.encode_wire().unwrap(), payload);

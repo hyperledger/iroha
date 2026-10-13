@@ -665,7 +665,7 @@ fn exact_managed_setup_replays_policy_restores_missing_grants_and_recovers_origi
                 )
                 .is_err()
         );
-        let mut changed_label = label.to_vec();
+        let mut changed_label = label.clone();
         changed_label[0].push_str("-changed");
         let changed = super::tests::reputation(&recorder.inner.authority, &changed_label);
         assert!(

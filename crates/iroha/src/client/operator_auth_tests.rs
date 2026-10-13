@@ -179,6 +179,10 @@ fn assert_status_listener_and_signature(
 ) {
     use base64::Engine as _;
     let network = client.network_id;
+    let expected_url = super::join_torii_url(
+        &client.torii_url,
+        iroha_torii_shared::route_catalog::sumeragi::STATUS.path(),
+    );
     let operator = client
         .operator_key_pair
         .as_ref()
@@ -201,6 +205,7 @@ fn assert_status_listener_and_signature(
                 values[0].1.as_str()
             };
             assert_eq!(request.method, HttpMethod::GET);
+            assert_eq!(request.url, expected_url, "exact rebound origin and target");
             assert_eq!(request.url.path(), "/v1/sumeragi/status");
             assert!(request.url.query().is_none());
             assert!(request.body.is_empty());
@@ -376,4 +381,118 @@ fn configured_listener_token_cannot_replace_missing_operator_signer() {
             .contains("operator signing key is required before request dispatch")
     );
     assert!(snapshots.lock().unwrap().is_empty());
+}
+
+fn assert_ordinary_listener_dispatch(client: super::Client, expected_token: Option<&'static str>) {
+    let url = super::join_torii_url(&client.torii_url, "/status");
+    let expected_url = url.clone();
+    let snapshots: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+    let captured = Arc::clone(&snapshots);
+    let response = with_mock_http(
+        move |request| {
+            assert_eq!(request.method, HttpMethod::GET);
+            assert_eq!(
+                request.url, expected_url,
+                "ordinary dispatch binds the rebound origin"
+            );
+            let tokens = request
+                .headers
+                .iter()
+                .filter(|(name, _)| name.eq_ignore_ascii_case("x-api-token"))
+                .map(|(_, value)| value.as_str())
+                .collect::<Vec<_>>();
+            match expected_token {
+                Some(token) => assert_eq!(tokens, [token], "only the chosen listener credential"),
+                None => assert!(
+                    tokens.is_empty(),
+                    "cleared listener credential must not be sent"
+                ),
+            }
+            assert!(
+                request
+                    .headers
+                    .iter()
+                    .all(|(name, _)| !name.eq_ignore_ascii_case(HEADER_OPERATOR_SIGNATURE))
+            );
+            captured.lock().unwrap().push(request);
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(Vec::new())
+                .unwrap())
+        },
+        |transport| {
+            let client = client.with_test_http_transport(transport);
+            client.send_builder(client.default_request(HttpMethod::GET, url))
+        },
+    )
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(snapshots.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn operator_listener_token_can_be_cleared_for_a_different_origin() {
+    let original = configured_listener_builder().build().unwrap();
+    let original_url = original.torii_url.clone();
+    let mut builder = original.to_builder();
+    builder.torii_url = "http://cleared.mock.local/".parse().unwrap();
+    builder.headers.clear();
+    builder
+        .headers
+        .insert("X-Api-Token".into(), "ambient-old-token".into());
+    builder
+        .headers
+        .insert("x-API-token".into(), "ambient-duplicate".into());
+    let rebound = builder.api_token(None).build().unwrap();
+    assert_ne!(rebound.torii_url.origin(), original_url.origin());
+    assert!(
+        rebound
+            .headers
+            .keys()
+            .all(|name| !name.eq_ignore_ascii_case("x-api-token"))
+    );
+    assert_ordinary_listener_dispatch(rebound.clone(), None);
+    assert_status_listener_and_signature(rebound.clone(), None);
+    assert_status_listener_and_signature(rebound.to_builder().build().unwrap(), None);
+    // Changing the new builder does not clear the original immutable context.
+    assert_status_listener_and_signature(original, Some("configured-listener-owner-test-token"));
+}
+
+#[test]
+fn operator_listener_token_can_be_replaced_for_a_different_origin() {
+    let original = configured_listener_builder().build().unwrap();
+    let original_url = original.torii_url.clone();
+    let mut builder = original.to_builder();
+    builder.torii_url = "http://replacement.mock.local/".parse().unwrap();
+    builder
+        .headers
+        .insert("X-API-TOKEN".into(), "ambient-old-token".into());
+    builder
+        .headers
+        .insert("x-api-token".into(), "ambient-duplicate".into());
+    let rebound = builder
+        .api_token(Some(crate::secrecy::SecretString::new(
+            "replacement-listener-owner-test-token".into(),
+        )))
+        .build()
+        .unwrap();
+    assert_ne!(rebound.torii_url.origin(), original_url.origin());
+    assert_eq!(
+        rebound.headers.get("x-api-token").map(String::as_str),
+        Some("replacement-listener-owner-test-token")
+    );
+    assert!(!format!("{rebound:?}").contains("replacement-listener-owner-test-token"));
+    assert_ordinary_listener_dispatch(
+        rebound.clone(),
+        Some("replacement-listener-owner-test-token"),
+    );
+    assert_status_listener_and_signature(
+        rebound.clone(),
+        Some("replacement-listener-owner-test-token"),
+    );
+    assert_status_listener_and_signature(
+        rebound.to_builder().build().unwrap(),
+        Some("replacement-listener-owner-test-token"),
+    );
+    assert_status_listener_and_signature(original, Some("configured-listener-owner-test-token"));
 }

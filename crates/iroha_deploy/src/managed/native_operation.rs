@@ -25,7 +25,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-pub(crate) const MAX_CHECKPOINT_BYTES: usize = 32 * 1024 * 1024;
+pub const MAX_CHECKPOINT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_REPLAY_SUCCESSORS: u64 = 16;
 
 #[path = "native_operation/attempts.rs"]
@@ -78,7 +78,7 @@ impl Fees {
 
 #[derive(Clone, PartialEq, Eq, Encode, Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_deploy::managed::native_operation::Terms")]
-pub(crate) struct Terms {
+pub struct Terms {
     pub requested_deadline_unix_ms: u64,
     pub signing_deadline_unix_ms: u64,
     pub(super) fees: Fees,
@@ -185,7 +185,7 @@ pub(super) fn encode<T: norito::NoritoSerialize>(value: &T, maximum: usize) -> R
     }
     norito::encode_canonical(value).map_err(|_| invalid("cannot encode native operation record"))
 }
-pub(crate) fn read_optional(
+pub fn read_optional(
     directory: &PrivateDirectory,
     name: &str,
     maximum: usize,
@@ -245,14 +245,14 @@ impl ServiceAuthority {
         };
         let result = source(verifier.checkpoint().height(), deadline).and_then(|source| {
             let observation = verifier.observe(&source, &rand::random());
-            let verified = observation.as_ref().map_or(0, AttestationQuorum::verified);
+            let attested_height = observation.as_ref().map_or(0, AttestationQuorum::verified);
             if let Some(seed) = &seed {
                 self.validate_profile()?;
                 seed.revalidate()?;
                 require_deadline(deadline)?;
             }
             retain_observation(&self.directory, &mut verifier, observation)?;
-            Ok(verified)
+            Ok(attested_height)
         });
         // Close source custody on every ordinary result, including source construction refusal.
         // A certificate never substitutes for an available source or a fresh attestation quorum.
@@ -261,8 +261,8 @@ impl ServiceAuthority {
             seed.revalidate()?;
             require_deadline(deadline)?;
         }
-        let verified = result?;
-        Ok((verifier, verified))
+        let attested_height = result?;
+        Ok((verifier, attested_height))
     }
 
     pub(super) fn source(&self, height: u64, deadline: Instant) -> Result<HttpFinalitySource> {
@@ -417,6 +417,7 @@ impl ServiceAuthority {
 
 // The observed owner is supplied only by the same post-Apply fresh quorum. A numeric frontier
 // remains sufficient for renewal/recovery, which always keep their independent replay.
+#[derive(Clone, Copy)]
 pub(super) struct CarrierTarget<'a> {
     pub(super) height: u64,
     pub(super) observed_height: u64,
@@ -465,7 +466,7 @@ fn retain_observed_carrier(
 
 /// Retain a bounded verified replay from the sole finality-source abstraction. Test sources
 /// execute the original generated native chain; no decoded report supplies successful inclusion.
-pub(crate) fn retain_carrier_progress<S: FinalitySource + ?Sized>(
+pub fn retain_carrier_progress<S: FinalitySource + ?Sized>(
     directory: &PrivateDirectory,
     transaction: &SignedTransaction,
     verifier: &mut FinalityVerifier,
@@ -478,12 +479,12 @@ pub(crate) fn retain_carrier_progress<S: FinalitySource + ?Sized>(
 
 /// Historical exact transaction outcome. This conveys no permission or current registry fact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct NativeTransactionExecution {
+pub struct NativeTransactionExecution {
     pub(crate) finality: ManagedTransactionFinality,
     pub(crate) applied: bool,
 }
 
-pub(crate) fn retain_carrier_execution_progress<S: FinalitySource + ?Sized>(
+pub fn retain_carrier_execution_progress<S: FinalitySource + ?Sized>(
     directory: &PrivateDirectory,
     transaction: &SignedTransaction,
     verifier: &mut FinalityVerifier,
@@ -524,7 +525,7 @@ fn retain_verified_carrier(
     Ok(Some(finalized))
 }
 
-pub(crate) fn retained_carrier_execution(
+pub fn retained_carrier_execution(
     directory: &PrivateDirectory,
     network: iroha_data_model::NetworkId,
     chain: &str,
@@ -576,7 +577,7 @@ pub(super) fn read_selected_peers<T>(
     ))
 }
 
-pub(crate) fn decode_checkpoint(
+pub fn decode_checkpoint(
     bytes: &[u8],
     network: iroha_data_model::NetworkId,
     chain: &str,
@@ -607,7 +608,7 @@ pub(super) fn decode_checkpoint_with_validation(
 }
 
 #[cfg(test)]
-pub(crate) fn retained_carrier(
+pub fn retained_carrier(
     directory: &PrivateDirectory,
     network: iroha_data_model::NetworkId,
     chain: &str,
@@ -630,7 +631,7 @@ pub(super) fn retained_carrier_using(
         .transpose()
 }
 
-pub(crate) fn retain_observation(
+pub fn retain_observation(
     directory: &PrivateDirectory,
     verifier: &mut FinalityVerifier,
     observation: std::result::Result<AttestationQuorum, FinalityError>,
@@ -662,7 +663,7 @@ pub(crate) fn retain_observation(
     })
 }
 
-pub(crate) fn replay_start(
+pub fn replay_start(
     original: FinalityVerifier,
     progress: Option<FinalityVerifier>,
     hint: u64,
@@ -688,7 +689,7 @@ pub(crate) fn replay_start(
     Ok(original)
 }
 
-pub(crate) fn verify_carrier(
+pub fn verify_carrier(
     verifier: &FinalityVerifier,
     transaction: &SignedTransaction,
 ) -> Result<ManagedTransactionFinality> {
@@ -700,10 +701,10 @@ fn verify_carrier_execution(
     transaction: &SignedTransaction,
     require_success: bool,
 ) -> Result<NativeTransactionExecution> {
-    let verified = verifier
+    let certified_tip = verifier
         .verified_tip_ref()
         .map_err(|_| invalid("invalid original native operation carrier"))?;
-    verified
+    certified_tip
         .verify_global_scope(
             verifier.checkpoint().network_id(),
             verifier.checkpoint().chain_id(),
@@ -721,7 +722,7 @@ fn verify_carrier_execution(
         .encode_wire_v1()
         .map_err(|_| invalid("invalid original native operation wire"))?;
     let mut found = None;
-    for (index, entrypoint) in verified.block().network_entrypoints().enumerate() {
+    for (index, entrypoint) in certified_tip.block().network_entrypoints().enumerate() {
         let TransactionEntrypoint::External(candidate) = entrypoint else {
             continue;
         };
@@ -740,7 +741,7 @@ fn verify_carrier_execution(
                 "native operation carrier lacks exact successful original execution",
             ));
         }
-        let output = verified
+        let output = certified_tip
             .block()
             .network_output_at(input_index)
             .ok_or_else(|| {
@@ -763,14 +764,14 @@ fn verify_carrier_execution(
         applied,
         finality: ManagedTransactionFinality {
             transaction_hash: transaction.hash(),
-            height: verified.height(),
-            block_hash: verified.header().hash(),
-            block_time_ms: verified.header().creation_time_ms,
+            height: certified_tip.height(),
+            block_hash: certified_tip.header().hash(),
+            block_time_ms: certified_tip.header().creation_time_ms,
         },
     })
 }
 
-pub(crate) fn checkpoint_bytes(verifier: &FinalityVerifier) -> Result<Vec<u8>> {
+pub fn checkpoint_bytes(verifier: &FinalityVerifier) -> Result<Vec<u8>> {
     let bytes = verifier
         .checkpoint()
         .encode_canonical()
@@ -785,9 +786,10 @@ pub(crate) fn checkpoint_bytes(verifier: &FinalityVerifier) -> Result<Vec<u8>> {
 pub(in crate::managed) fn require_retained_material<T>(value: Result<T>) -> Result<T> {
     value.map_err(|error| match error {
         Error::Bootstrap(_) | Error::NativeDeadline => error,
-        _error => {
+        error => {
             #[cfg(test)]
-            deadline_diagnostics::retained_error(&_error);
+            deadline_diagnostics::retained_error(&error);
+            drop(error);
             super::ManagedBootstrapFailure::RetainedMaterial.into()
         }
     })
@@ -804,7 +806,7 @@ pub(super) fn require_deadline(deadline: Instant) -> Result<()> {
     }
     Ok(())
 }
-pub(crate) fn now_ms() -> Result<u64> {
+pub fn now_ms() -> Result<u64> {
     u64::try_from(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -816,7 +818,7 @@ pub(crate) fn now_ms() -> Result<u64> {
 
 #[cfg(test)]
 #[path = "native_operation/test_support.rs"]
-pub(crate) mod test_support;
+pub mod test_support;
 
 #[cfg(test)]
 #[path = "native_operation/deadline_diagnostics.rs"]

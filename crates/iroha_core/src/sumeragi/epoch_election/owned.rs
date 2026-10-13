@@ -115,6 +115,10 @@ impl FrozenEpochBoundary {
         unsafe_code,
         reason = "audited exact canonical allocation transfer with retained original-pool custody"
     )]
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the pulse is transferred into the retained native execution inputs"
+    )]
     pub(crate) fn into_execution_inputs(
         self,
         after_next_params: crate::sumeragi::schedule::ChainParamsRecord,

@@ -303,7 +303,7 @@ fn staking_configuration_and_reward_custody_reject_registered_xor_lookalike() {
     for configured in [&committed_xor, &lookalike] {
         stx.nexus.staking.stake_asset_id = configured.to_string();
         stx.nexus.fees.fee_asset_id = configured.to_string();
-        let stake = stake_context(
+        let stake_result = stake_context(
             &stx.world,
             &stx.nexus.dataspace_catalog,
             &stx.nexus.staking,
@@ -312,11 +312,11 @@ fn staking_configuration_and_reward_custody_reject_registered_xor_lookalike() {
         );
         let rewards = crate::state::validate_network_xor_asset(&stx.world, configured);
         if configured == &committed_xor {
-            assert_eq!(stake.unwrap().asset_definition, committed_xor);
+            assert_eq!(stake_result.unwrap().asset_definition, committed_xor);
             rewards.unwrap();
         } else {
             for error in [
-                crate::execution_attempt::expect_completed_rejection(stake.unwrap_err()),
+                crate::execution_attempt::expect_completed_rejection(stake_result.unwrap_err()),
                 crate::execution_attempt::expect_completed_rejection(rewards.unwrap_err()),
             ] {
                 assert!(error.to_string().contains("committed network XOR"));

@@ -2497,6 +2497,12 @@ impl ParliamentAttemptStateV1 {
             .map(|certificate| certificate.enact_at_height)
     }
 
+    /// Return the original compare-and-set head frozen into this attempt.
+    #[must_use]
+    pub(crate) const fn expected_head(&self) -> GovernanceExpectedHeadV1 {
+        self.expected_head
+    }
+
     /// Return the committed height of a terminal enactment outcome.
     #[must_use]
     pub const fn terminal_height(&self) -> Option<u64> {

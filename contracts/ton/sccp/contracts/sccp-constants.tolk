@@ -151,11 +151,6 @@ const SCCP_MAX_DEPLOY_BUCKETS_PER_CALL = 16
 const SCCP_CONSUME_KIND_MINT = 0
 const SCCP_CONSUME_KIND_VOID = 1
 
-/// Kinds of the minter's `retries` entries (§5.3.4): an `sccp_unconsume` of
-/// the key nonce, or the activation of the bucket whose first nonce is the key.
-const SCCP_RETRY_UNCONSUME = 1
-const SCCP_RETRY_ACTIVATE = 2
-
 /// Jetton metadata (§5.3.1): 9 decimals everywhere.
 const SCCP_JETTON_DECIMALS = 9
 

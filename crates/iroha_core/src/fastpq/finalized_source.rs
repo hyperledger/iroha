@@ -117,10 +117,24 @@ impl FinalizedFastpqSource {
         self.witness.pool()
     }
     /// Complete mandatory D7 manifest carried by the authenticated ordinary write.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect durable complete-effect artifact admission before dispatch; retain the authenticated original witness and its admitted archive"
+        )
+    )]
     pub(crate) fn manifest(&self) -> &FastpqOrdinarySourceStatementManifestV1 {
         self.witness.manifest()
     }
     /// Every original source position, including empty and rejected entries.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect durable complete-effect artifact admission before dispatch; retain the authenticated original witness and its admitted archive"
+        )
+    )]
     pub(crate) fn entries(&self) -> &[FastpqSourceExecutionEntryV1] {
         self.witness.source_entries()
     }
@@ -131,6 +145,13 @@ impl FinalizedFastpqSource {
     /// Select the exact original borrowed tape, leaf and pool for complete-effect work.
     /// Caller-provided expected effects, routes, permission roots or transaction sets
     /// cannot replace these original fields. Physical work admission remains explicit.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect durable complete-effect artifact admission before dispatch; retain the authenticated original witness and its admitted archive"
+        )
+    )]
     pub(crate) fn entry(
         &self,
         statement_index: usize,
@@ -166,6 +187,13 @@ impl AdmittedFinalizedFastpqSource {
     pub(crate) fn native(&self) -> &AuthenticatedExecutionBlock {
         self.original.native()
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect durable complete-effect artifact admission before dispatch; retain the authenticated original witness and its admitted archive"
+        )
+    )]
     pub(crate) fn pool(&self) -> &AllocationBudget {
         self.original.pool()
     }

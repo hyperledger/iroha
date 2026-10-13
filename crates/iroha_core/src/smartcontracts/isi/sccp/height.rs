@@ -329,7 +329,9 @@ mod tests {
             .iter()
             .map(|member| member.validator.clone())
             .collect::<Vec<_>>();
-        let params = ChainParamsRecord::from_parameters(&Default::default());
+        let params = ChainParamsRecord::from_parameters(
+            &iroha_data_model::parameter::system::SumeragiParameters::default(),
+        );
         let graph = ConsensusSchedule::from_owned_entries(vec![
             ScheduledSlot::Ready(ScheduledConfig {
                 height: 4,
@@ -416,7 +418,9 @@ mod tests {
             .unwrap()
             .into_parts()
             .0;
-        let params = ChainParamsRecord::from_parameters(&Default::default());
+        let params = ChainParamsRecord::from_parameters(
+            &iroha_data_model::parameter::system::SumeragiParameters::default(),
+        );
         ConsensusSchedule::from_owned_entries(
             (1..=3)
                 .map(|height| {
@@ -660,7 +664,9 @@ mod tests {
             .into_parts()
             .0;
         assert_eq!(epoch.authorization.last_height, u64::MAX);
-        let params = ChainParamsRecord::from_parameters(&Default::default());
+        let params = ChainParamsRecord::from_parameters(
+            &iroha_data_model::parameter::system::SumeragiParameters::default(),
+        );
         let graph = ConsensusSchedule::from_owned_entries(
             (u64::MAX - 2..=u64::MAX)
                 .map(|height| {
@@ -698,7 +704,7 @@ mod tests {
                 ready.epoch.authorization.last_height
             );
             for (borrowed, member) in inputs.roster.iter().zip(&ready.epoch.committee) {
-                assert!(std::ptr::eq(borrowed, &member.validator));
+                assert!(std::ptr::eq(borrowed, &raw const member.validator));
             }
             assert_eq!(inputs.roster.iter().count(), ready.epoch.committee.len());
             assert!(inputs.next_roster.is_none());

@@ -64,7 +64,7 @@ fn dataspace_bootstrap_grant(
         })
 }
 /// Deterministic conflict or validation failure produced while classifying an alias intent.
-#[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[derive(Debug, Error)]
 #[error("{code}: {message}")]
 pub struct AliasSetupError {
     code: &'static str,
@@ -84,6 +84,23 @@ impl AliasSetupError {
     /// Borrow the original local refusal; code/message never recreate this owner.
     pub fn deferral(&self) -> Option<&crate::execution_attempt::ExecutionDeferred> {
         self.deferred.as_ref()
+    }
+
+    /// Consume the original local refusal, returning this completed error unchanged otherwise.
+    pub(crate) fn into_deferral(self) -> Result<crate::execution_attempt::ExecutionDeferred, Self> {
+        let Self {
+            code,
+            message,
+            deferred,
+        } = self;
+        match deferred {
+            Some(original) => Ok(original),
+            None => Err(Self {
+                code,
+                message,
+                deferred: None,
+            }),
+        }
     }
 
     fn from_sns_with_code(code: &'static str, error: crate::sns::SnsError) -> Self {
@@ -137,6 +154,11 @@ fn sns_error(error: crate::sns::SnsError) -> AliasSetupError {
     AliasSetupError::new(code, text)
 }
 /// Build the canonical SNS selector for a resolved target without consulting a static catalog.
+///
+/// # Errors
+///
+/// Returns an error if the target name cannot form a valid SNS selector or
+/// its account alias is not canonical.
 pub fn selector_for_resolved_alias_target(
     target: &AliasTargetV1,
 ) -> Result<NameSelectorV1, AliasSetupError> {
@@ -617,15 +639,16 @@ pub fn classify_alias_auto_renew(
     if let Some(config) = operation.config.as_ref() {
         validate_alias_auto_renew_config(world, &operation.target, config)?;
     }
-    let exact_clean_state = current
-        .as_ref()
-        .map_or(operation.config.is_none(), |current| {
+    let exact_clean_state = current.as_ref().map_or_else(
+        || operation.config.is_none(),
+        |current| {
             current.owner == record.owner
                 && current.config == operation.config
                 && current.failure_count == 0
                 && current.next_retry_at_ms.is_none()
                 && current.suspended_reason.is_none()
-        });
+        },
+    );
     if exact_clean_state {
         return Ok(AliasLifecyclePlanDispositionV1::NoOp);
     }
@@ -1232,10 +1255,7 @@ mod tests {
     fn world_with_accounts(accounts: &[AccountId]) -> World {
         World::with(
             [],
-            accounts
-                .iter()
-                .cloned()
-                .map(|id| Account::new(id.clone()).build(&id)),
+            accounts.iter().map(|id| Account::new(id.clone()).build(id)),
             [],
         )
     }

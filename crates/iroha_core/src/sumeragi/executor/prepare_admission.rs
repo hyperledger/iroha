@@ -10,7 +10,6 @@ use iroha_sumeragi::{
 
 /// Fixed local facts extracted only from the exact original captured execution witness.
 /// No wire decoder, public constructor or caller-supplied sensitivity policy exists.
-#[derive(Debug)]
 pub(super) struct NativePrepareAdmission {
     instance: Hash32,
     epoch: iroha_sumeragi::types::EpochId,
@@ -21,6 +20,16 @@ pub(super) struct NativePrepareAdmission {
     max_lag_ms: u64,
     sensitive: bool,
     time_source: iroha_primitives::time::TimeSource,
+    progress_clock: Option<crate::smartcontracts::isi::sccp::keepalive::ProgressClock>,
+}
+impl core::fmt::Debug for NativePrepareAdmission {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("NativePrepareAdmission")
+            .field("block_hash", &self.block_hash)
+            .field("result", &self.result)
+            .finish_non_exhaustive()
+    }
 }
 impl NativePrepareAdmission {
     pub(super) fn capture(
@@ -55,6 +64,7 @@ impl NativePrepareAdmission {
             max_lag_ms: original.due_work_max_lag_ms,
             sensitive,
             time_source: time_source.clone(),
+            progress_clock: original.progress_clock,
         };
         let mut reservation = original
             .witness
@@ -83,22 +93,30 @@ impl NativePrepareAdmission {
                 observed_ms,
                 max_lag_ms,
             }),
+            SigningError::Refused => PublicationError::Retryable("StaleDueWork".into()),
             _ => PublicationError::RecoveryRequired(error.to_string()),
         })
     }
 
     fn freshness(&self, certified: bool) -> Result<(), SigningError> {
-        if certified || !self.sensitive {
+        if certified {
             return Ok(());
         }
         let observed_ms = u64::try_from(self.time_source.now().as_millis())
             .map_err(|_| SigningError::InvalidInput)?;
-        if observed_ms.saturating_sub(self.block_time_ms) > self.max_lag_ms {
+        if self.sensitive && observed_ms.saturating_sub(self.block_time_ms) > self.max_lag_ms {
             return Err(SigningError::StaleExecution {
                 block_time_ms: self.block_time_ms,
                 observed_ms,
                 max_lag_ms: self.max_lag_ms,
             });
+        }
+        if self
+            .progress_clock
+            .as_ref()
+            .is_some_and(|clock| clock.is_stale(observed_ms, false).unwrap_or(true))
+        {
+            return Err(SigningError::Refused);
         }
         Ok(())
     }
@@ -108,7 +126,7 @@ impl PrepareAdmission for NativePrepareAdmission {
         self.result
     }
     fn check(&self, request: &PrepareSigningRequest) -> Result<(), SigningError> {
-        if !cfg!(all(test, sumeragi_core_mutation = "HC281"))
+        if !cfg!(all(test, sumeragi_core_mutation = "HC336"))
             && (request.instance() != self.instance
                 || request.epoch() != self.epoch
                 || request.height() != self.height
@@ -117,7 +135,7 @@ impl PrepareAdmission for NativePrepareAdmission {
         {
             return Err(SigningError::InvalidInput);
         }
-        if cfg!(all(test, sumeragi_core_mutation = "HC282")) {
+        if cfg!(all(test, sumeragi_core_mutation = "HC337")) {
             return Ok(());
         }
         self.freshness(request.certified())

@@ -24,7 +24,7 @@ fn now_ms() -> Result<u64, StatusCode> {
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
-pub(crate) async fn read_chunk(
+pub async fn read_chunk(
     State(state): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     body: Bytes,

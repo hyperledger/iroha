@@ -93,7 +93,7 @@ impl FastJsonWrite for BorrowedMcpJson<'_> {
 
 fn encode_mcp_json_body<T: FastJsonWrite>(value: &T, context: &str) -> Result<Vec<u8>, String> {
     json::to_json_bounded_boxed(value, usize::MAX)
-        .map(|bytes| bytes.into_vec())
+        .map(<[u8]>::into_vec)
         .map_err(|error| format!("{context}: {error}"))
 }
 
@@ -644,7 +644,7 @@ mod service_depth_tests {
         source.write_json(&mut expected);
         audit(&expected, |sink| source.write_json_to(sink));
         assert!(
-            matches!(&source.entries[0].1, BorrowedMcpJson::Value(value) if std::ptr::eq(*value, &leaf))
+            matches!(&source.entries[0].1, BorrowedMcpJson::Value(value) if std::ptr::eq(*value, &raw const leaf))
         );
     }
 }

@@ -366,8 +366,7 @@ fn restore_preserves_original_pool_refusal_release_and_same_source_retry() {
         chain.kura(),
         &pool,
     )
-    .err()
-    .expect("the actual original native source must refuse its full pool");
+    .expect_err("the actual original native source must refuse its full pool");
     let ExecutionAttemptError::Deferred(original) = original else {
         panic!("fixture must obtain the original source's typed local refusal: {original:?}");
     };
@@ -397,12 +396,12 @@ fn restore_preserves_original_pool_refusal_release_and_same_source_retry() {
     let reads = chain.kura().canonical_query_reads_for_test();
     let pending = registration.poll_wait(&release, &mut Context::from_waker(Waker::noop()));
     drop(blocker);
-    let ready = registration.poll_wait(&release, &mut Context::from_waker(Waker::noop()));
+    let poll_outcome = registration.poll_wait(&release, &mut Context::from_waker(Waker::noop()));
     // Retire contention before any assertion, including the causal before-fix assertion.
     assert_eq!(occupied, pool.limit_bytes());
     assert_eq!(reads, (0, 0), "refused backing never reads a native body");
     assert!(pending.is_pending());
-    assert!(ready.is_ready());
+    assert!(poll_outcome.is_ready());
     let error = refused
         .err()
         .expect("full original pool must refuse restore");
@@ -411,16 +410,25 @@ fn restore_preserves_original_pool_refusal_release_and_same_source_retry() {
             "native tip restore must preserve the original pool refusal as ExecutionDeferred: {error:?}"
         );
     };
+    assert_eq!(actual.reason(), original.reason());
+    assert_eq!(actual.phase(), original.phase());
     assert_eq!(
-        actual, original,
-        "original release and all refusal fields survive restore"
+        actual.allocation_refusal(),
+        original.allocation_refusal(),
+        "original release and every allocation field survive restore"
     );
+    assert!(actual.decode_refusal().is_none());
+    assert!(actual.verification_refusal().is_none());
     let crate::snapshot::TryReadError::StateExecutionDeferred(exported) =
         crate::snapshot::TryReadError::from(StateRestoreError::ExecutionDeferred(actual))
     else {
         panic!("the snapshot boundary must preserve the typed original refusal");
     };
-    assert_eq!(exported, original);
+    assert_eq!(exported.reason(), original.reason());
+    assert_eq!(exported.phase(), original.phase());
+    assert_eq!(exported.allocation_refusal(), original.allocation_refusal());
+    assert!(exported.decode_refusal().is_none());
+    assert!(exported.verification_refusal().is_none());
     assert_eq!(pool.reserved_bytes(), reserved);
     let restored = retry_claim
         .restore(
@@ -540,8 +548,7 @@ fn restore_preserves_cumulative_prefix_decode_refusal_and_same_source_retry() {
             .walk(2, 3)
             .next()
             .unwrap()
-            .err()
-            .expect("next actual prefix decode must refuse")
+            .expect_err("next actual prefix decode must refuse")
     });
     let ExecutionAttemptError::Deferred(original) = original else {
         panic!("fixture must obtain a typed original prefix refusal: {original:?}");
@@ -589,7 +596,43 @@ fn restore_preserves_cumulative_prefix_decode_refusal_and_same_source_retry() {
             "native tip restore must preserve the cumulative prefix decode refusal as ExecutionDeferred: {error:?}"
         );
     };
-    assert_eq!(actual, original);
+    // Independent invocations own different scopes; compare every resource fact,
+    // then require each captured identity to stay distinct.
+    assert_eq!(actual.reason(), original.reason());
+    assert_eq!(actual.phase(), original.phase());
+    assert!(actual.allocation_refusal().is_none());
+    assert!(actual.verification_refusal().is_none());
+    let actual_decode = actual
+        .decode_refusal()
+        .expect("actual captured decoder owner");
+    let reference_decode = original
+        .decode_refusal()
+        .expect("reference captured decoder owner");
+    assert_eq!(
+        actual_decode.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
+    );
+    assert_eq!(actual_decode.kind(), reference_decode.kind());
+    assert!(
+        matches!(actual_decode.resource_error(), norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit } if attempted > limit && limit == u64::try_from(constructor_bytes).unwrap())
+    );
+    assert!(actual.allocator_refusal().is_none());
+    assert!(original.allocator_refusal().is_none());
+    assert_eq!(
+        actual_decode.resource_error(),
+        reference_decode.resource_error()
+    );
+    assert_ne!(
+        actual_decode, reference_decode,
+        "fresh attempts never share scoped identity"
+    );
+    let captured = actual.decode_refusal().unwrap().clone();
+    let crate::snapshot::TryReadError::StateExecutionDeferred(exported) =
+        crate::snapshot::TryReadError::from(StateRestoreError::ExecutionDeferred(actual))
+    else {
+        panic!("snapshot boundary retains original decoder owner")
+    };
+    assert_eq!(exported.decode_refusal(), Some(&captured));
     let restored = retry_claim
         .restore(
             &pool,
@@ -612,9 +655,14 @@ fn restore_preserves_cumulative_prefix_decode_refusal_and_same_source_retry() {
         .sum::<usize>();
     assert_eq!(pool.reserved_bytes(), reserved + retired);
     drop(counter);
+    // Captured refusals retain both original funded counter controls after their
+    // contexts retire; the snapshot adapter moves the same physical owner.
+    assert_eq!(pool.reserved_bytes(), reserved + retired);
+    assert_eq!(exported.decode_refusal(), Some(&captured));
+    drop((exported, captured, original));
     assert_eq!(pool.reserved_bytes(), baseline + retired);
     drop(view);
-    drop((chain, actual, original));
+    drop(chain);
     collect_retired_restore_owners(&pool);
 }
 

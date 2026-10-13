@@ -152,6 +152,7 @@ pub struct NativePaymentRecovery {
 }
 
 /// Why a payment call could not return a verified successful business outcome.
+/// Original error and journal graphs move into error-owned boxes to keep the result shell small.
 #[derive(Debug, thiserror::Error)]
 pub enum NativePaymentError {
     /// No retained original carrier or verified successful business receipt exists.
@@ -159,7 +160,7 @@ pub enum NativePaymentError {
     #[error("new payment attempt requires explicit submission authorization")]
     NewAttemptAuthorizationRequired {
         /// Original local progress, if a journal exists without a signed carrier.
-        progress: Option<WorkflowProgressV1>,
+        progress: Option<Box<WorkflowProgressV1>>,
     },
     /// The independently supplied request or account context is unsupported.
     #[error("invalid native payment request: {0}")]
@@ -172,21 +173,21 @@ pub enum NativePaymentError {
     Observation {
         /// Original typed transport, decoder, proof or local-resource failure.
         #[source]
-        cause: NativePaymentObservationError,
+        cause: Box<NativePaymentObservationError>,
         /// Current independently loaded carrier journal progress, when available.
-        progress: Option<WorkflowProgressV1>,
+        progress: Option<Box<WorkflowProgressV1>>,
     },
     /// The call established no successful payment; no fresh identity was authorized.
     #[error("native payment success has not yet been independently verified")]
     Unresolved {
         /// Exact durable carrier progress.
-        progress: Option<WorkflowProgressV1>,
+        progress: Option<Box<WorkflowProgressV1>>,
     },
 }
 impl From<NativePaymentObservationError> for NativePaymentError {
     fn from(cause: NativePaymentObservationError) -> Self {
         Self::Observation {
-            cause,
+            cause: Box::new(cause),
             progress: None,
         }
     }
@@ -314,8 +315,8 @@ impl NativePaymentOperation {
 
     fn observation_error(&self, cause: NativePaymentObservationError) -> NativePaymentError {
         NativePaymentError::Observation {
-            cause,
-            progress: self.handle.progress().ok().flatten(),
+            cause: Box::new(cause),
+            progress: self.handle.progress().ok().flatten().map(Box::new),
         }
     }
 
@@ -325,7 +326,7 @@ impl NativePaymentOperation {
     ) -> Result<NativePaymentSettlement, NativePaymentError> {
         let completion = completion(&receipt, self.ledger.request.digest)
             .map_err(|e| self.observation_error(e))?;
-        let carrier = self.handle.record_native_payment_completion(completion)?;
+        let carrier = self.handle.record_native_payment_completion(&completion)?;
         Ok(NativePaymentSettlement { receipt, carrier })
     }
 
@@ -415,7 +416,7 @@ impl NativePaymentOperation {
                 .is_none()
             {
                 return Err(NativePaymentError::NewAttemptAuthorizationRequired {
-                    progress: journal.as_ref().map(|journal| journal.progress()),
+                    progress: journal.as_ref().map(|journal| Box::new(journal.progress())),
                 });
             }
             let mut resume_options = options.workflow;
@@ -439,7 +440,7 @@ impl NativePaymentOperation {
         match result {
             Err(error) => Err(error.into()),
             Ok(progress) => Err(NativePaymentError::Unresolved {
-                progress: Some(progress),
+                progress: Some(Box::new(progress)),
             }),
         }
     }

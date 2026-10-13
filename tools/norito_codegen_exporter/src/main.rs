@@ -135,9 +135,9 @@ struct Args {
 }
 fn main() -> Result<()> {
     let args = Args::parse();
-    run(args)
+    run(&args)
 }
-fn run(args: Args) -> Result<()> {
+fn run(args: &Args) -> Result<()> {
     fs::create_dir_all(&args.out)
         .with_context(|| format!("create output directory {}", args.out.display()))?;
     let registry = instruction_registry::default();
@@ -321,10 +321,10 @@ fn builder_notes(package: &str, builder_name: &str, layout: &Value) -> String {
     } else {
         format!("{package}.{builder_name}")
     };
-    match describe_layout(layout) {
-        Some(summary) => format!("Builder `{fqcn}` — {summary}"),
-        None => format!("Builder `{fqcn}`"),
-    }
+    describe_layout(layout).map_or_else(
+        || format!("Builder `{fqcn}`"),
+        |summary| format!("Builder `{fqcn}` — {summary}"),
+    )
 }
 fn layout_documentation(layout: &Value) -> Option<String> {
     describe_layout(layout).map(|summary| format!("Schema summary: {summary}."))
@@ -338,9 +338,10 @@ fn describe_layout(layout: &Value) -> Option<String> {
         "array" => {
             let ty = layout.get("type").and_then(Value::as_str)?;
             let len = layout.get("len").and_then(Value::as_u64);
-            let descr = len
-                .map(|len| format!("array[{len}] of {ty}"))
-                .unwrap_or_else(|| format!("array of {ty}"));
+            let descr = len.map_or_else(
+                || format!("array of {ty}"),
+                |len| format!("array[{len}] of {ty}"),
+            );
             Some(descr)
         }
         "vec" => layout
@@ -488,19 +489,19 @@ fn layout_for<T: IntoSchema + 'static>() -> Value {
     let schema = T::schema();
     let type_index: TypeIndex = schema.into_iter().collect();
     let type_id = TypeId::of::<T>();
-    let metadata = type_index
-        .get(&type_id)
-        .map(|entry| entry.metadata.clone())
-        .unwrap_or_else(|| {
+    let metadata = type_index.get(&type_id).map_or_else(
+        || {
             panic!(
                 "missing schema metadata for `{}`",
                 std::any::type_name::<T>()
             )
-        });
+        },
+        |entry| entry.metadata.clone(),
+    );
     metadata_to_value(&metadata, &type_index)
 }
 fn base_type_name(full: &str) -> &str {
-    full.split_once('<').map(|(head, _)| head).unwrap_or(full)
+    full.split_once('<').map_or(full, |(head, _)| head)
 }
 fn metadata_to_value(meta: &Metadata, index: &TypeIndex) -> Value {
     match meta {
@@ -525,7 +526,7 @@ fn metadata_to_value(meta: &Metadata, index: &TypeIndex) -> Value {
             ),
             (
                 "decimal_places".into(),
-                Value::Number(Number::U64(meta.decimal_places as u64)),
+                Value::Number(Number::U64(u64::from(meta.decimal_places))),
             ),
         ]),
         Metadata::Array(meta) => array_metadata(meta, index),
@@ -591,13 +592,12 @@ fn enum_metadata(enum_meta: &EnumMeta, index: &TypeIndex) -> Value {
                     .map(|variant| {
                         let payload = variant
                             .ty
-                            .map(|ty| Value::String(lookup_type_name(index, ty)))
-                            .unwrap_or(Value::Null);
+                            .map_or(Value::Null, |ty| Value::String(lookup_type_name(index, ty)));
                         object([
                             ("tag".into(), Value::String(variant.tag.clone())),
                             (
                                 "discriminant".into(),
-                                Value::Number(Number::U64(variant.discriminant as u64)),
+                                Value::Number(Number::U64(u64::from(variant.discriminant))),
                             ),
                             ("payload".into(), payload),
                         ])
@@ -614,7 +614,7 @@ fn array_metadata(meta: &ArrayMeta, index: &TypeIndex) -> Value {
             "type".into(),
             Value::String(lookup_type_name(index, meta.ty)),
         ),
-        ("len".into(), Value::Number(Number::U64(meta.len as u64))),
+        ("len".into(), Value::Number(Number::U128(meta.len))),
     ])
 }
 fn map_metadata(meta: &MapMeta, index: &TypeIndex) -> Value {
@@ -665,18 +665,14 @@ fn bitmap_metadata(meta: &BitmapMeta, index: &TypeIndex) -> Value {
 }
 fn field_value(name: Option<String>, ty: TypeId, index: &TypeIndex) -> Value {
     object([
-        (
-            "name".into(),
-            name.map(Value::String).unwrap_or(Value::Null),
-        ),
+        ("name".into(), name.map_or(Value::Null, Value::String)),
         ("type".into(), Value::String(lookup_type_name(index, ty))),
     ])
 }
 fn lookup_type_name(index: &TypeIndex, ty: TypeId) -> String {
     index
         .get(&ty)
-        .map(|entry| entry.type_name.clone())
-        .unwrap_or_else(|| format!("{ty:?}"))
+        .map_or_else(|| format!("{ty:?}"), |entry| entry.type_name.clone())
 }
 fn object(pairs: impl IntoIterator<Item = (String, Value)>) -> Value {
     let mut map = Map::new();
@@ -706,12 +702,7 @@ fn sanitize_identifier(input: &str) -> String {
     if out.is_empty() {
         return "Instruction".to_owned();
     }
-    if out
-        .chars()
-        .next()
-        .map(|c| c.is_ascii_digit())
-        .unwrap_or(false)
-    {
+    if out.chars().next().is_some_and(|c| c.is_ascii_digit()) {
         out.insert(0, '_');
     }
     out
@@ -730,10 +721,10 @@ fn write_digest_file(path: &Path, data: &[u8]) -> Result<()> {
     hasher.update(data);
     let digest = hasher.finalize();
     let hex = hex_lower(&digest);
-    let file_name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_else(|| "artifact".to_owned());
+    let file_name = path.file_name().map_or_else(
+        || "artifact".to_owned(),
+        |name| name.to_string_lossy().to_string(),
+    );
     let digest_entry = format!("{hex}  {file_name}\n");
     let digest_path = path.with_file_name(format!("{file_name}.sha256"));
     fs::write(&digest_path, digest_entry)

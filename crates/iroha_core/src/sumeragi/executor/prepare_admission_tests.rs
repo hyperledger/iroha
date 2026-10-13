@@ -135,7 +135,7 @@ fn ct5_post_encoding_clock_advance_rolls_back_actual_begin_and_fees_with_origina
         assert!(
             matches!(
                 worker.execute(&block, hash, false),
-                Some(ExecOutcome::Valid { .. })
+                Ok(Some(ExecOutcome::Valid { .. }))
             ),
             "inclusive freshness boundary retries the unchanged original without negative caching"
         );
@@ -152,7 +152,8 @@ fn ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source() {
             .parameters()
             .sumeragi()
             .due_work_max_lag_ms();
-        let Some(ExecOutcome::Valid { result, admission }) = worker.execute(&block, hash, false)
+        let Ok(Some(ExecOutcome::Valid { result, admission })) =
+            worker.execute(&block, hash, false)
         else {
             panic!("actual original Begin must execute at the fresh boundary")
         };
@@ -191,14 +192,14 @@ fn ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source() {
         assert!(
             matches!(
                 worker.execute(&block, hash, false),
-                Some(ExecOutcome::Failed(_))
+                Err(PublicationError::Deferred(_))
             ),
             "cached native Valid cannot bypass a fresh local clock check"
         );
         assert!(worker.live.is_none() && worker.signature_decode.is_some());
         assert!(!worker.results.contains_key(&hash));
         assert!(
-            matches!(worker.execute(&block, hash, true), Some(ExecOutcome::Valid { result: same, .. }) if same == result),
+            matches!(worker.execute(&block, hash, true), Ok(Some(ExecOutcome::Valid { result: same, .. })) if same == result),
             "certified re-execution preserves the identical ledger-time verdict"
         );
     });

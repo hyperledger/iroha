@@ -202,7 +202,7 @@ fn encode_leaf_atom(
 ///
 /// Producers and Torii surface this detail to callers; consensus execution only consumes the
 /// mapped [`VMError`], so the extra text never affects VM behaviour.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct ArgumentDecodeError {
     /// Dotted JSON path of the rejected value, such as `amount`, `order.items[2]` or
     /// `limit.some`. Empty when the complete payload is rejected.
@@ -817,10 +817,13 @@ mod tests {
     use crate::entrypoint::EntrypointArgumentFieldV1;
     #[test]
     fn numeric_argument_atoms_require_canonical_decimal_strings() {
-        assert_eq!(decode_int(&norito::json!("-7")), Ok(BigInt::from_i128(-7)));
         assert_eq!(
-            decode_numeric(&norito::json!("1.25")),
-            Ok(Numeric::new(125, 2))
+            (decode_int(&norito::json!("-7"))).expect("expected successful fixture result"),
+            BigInt::from_i128(-7)
+        );
+        assert_eq!(
+            (decode_numeric(&norito::json!("1.25"))).expect("expected successful fixture result"),
+            Numeric::new(125, 2)
         );
         for value in [
             norito::json!(7),
@@ -829,7 +832,7 @@ mod tests {
             norito::json!("07"),
             norito::json!("-0"),
         ] {
-            assert_eq!(decode_int(&value), Err(VMError::DecodeError));
+            assert!(matches!(decode_int(&value), Err(VMError::DecodeError)));
         }
         for value in [
             norito::json!(1.25),
@@ -838,7 +841,7 @@ mod tests {
             norito::json!("1.250"),
             norito::json!("1e0"),
         ] {
-            assert_eq!(decode_numeric(&value), Err(VMError::DecodeError));
+            assert!(matches!(decode_numeric(&value), Err(VMError::DecodeError)));
         }
     }
     #[test]
@@ -864,10 +867,10 @@ mod tests {
                 }],
             };
             let payload = Json::from(norito::json!({ "value": value }));
-            assert_eq!(
+            assert!(matches!(
                 argument_record_from_json(&schema, &payload),
                 Err(VMError::DecodeError)
-            );
+            ));
         }
     }
 
@@ -902,28 +905,29 @@ mod tests {
         )
         .expect("record bytes");
         assert_eq!(
-            encode_argument_record_from_json(&schema, &payload),
-            Ok(expected)
+            (encode_argument_record_from_json(&schema, &payload))
+                .expect("expected successful fixture result"),
+            expected
         );
         let mut extra: njson::Value = payload.try_into_any_norito().expect("boundary object");
         extra
             .as_object_mut()
             .expect("object")
             .insert("unknown".to_owned(), njson::Value::Bool(true));
-        assert_eq!(
+        assert!(matches!(
             argument_record_from_json(&schema, &Json::from(extra)),
             Err(VMError::DecodeError)
-        );
+        ));
         let mut noncanonical: njson::Value =
             payload.try_into_any_norito().expect("boundary object");
         noncanonical
             .as_object_mut()
             .expect("object")
             .insert("count".to_owned(), njson::Value::String("-0".to_owned()));
-        assert_eq!(
+        assert!(matches!(
             argument_record_from_json(&schema, &Json::from(noncanonical)),
             Err(VMError::DecodeError)
-        );
+        ));
     }
     fn leaf(kind: EntrypointValueKindV1) -> EntrypointValueTypeV1 {
         EntrypointValueTypeV1 {
@@ -947,18 +951,18 @@ mod tests {
         )
         .expect_err("JSON numbers are not int arguments");
         assert_eq!(error.path, "amount");
-        assert_eq!(error.error, VMError::DecodeError);
+        assert!(matches!(error.error, VMError::DecodeError));
         assert!(error.expected.starts_with("int as"), "{}", error.expected);
         assert_eq!(error.found, "JSON number 5");
         assert_eq!(
             error.to_string(),
             "argument `amount` expects int as a canonical decimal integer string such as \"5\", found JSON number 5"
         );
-        assert_eq!(VMError::from(error), VMError::DecodeError);
-        assert_eq!(
+        assert!(matches!(VMError::from(error), VMError::DecodeError));
+        assert!(matches!(
             argument_record_from_json(&schema, &Json::from(norito::json!({ "amount": 5 }))),
             Err(VMError::DecodeError)
-        );
+        ));
         assert!(
             argument_record_from_json_detailed(
                 &schema,
@@ -1040,10 +1044,10 @@ mod tests {
             .expect_err("dataspace ids are JSON integers");
         assert_eq!(error.path, "space");
         assert_eq!(error.found, "string \"7\"");
-        assert_eq!(
+        assert!(matches!(
             encode_argument_record_from_json(&schema, &wrong),
             Err(VMError::DecodeError)
-        );
+        ));
     }
     #[test]
     fn complete_public_record_limit_rejects_an_oversized_canonical_string() {
@@ -1068,9 +1072,9 @@ mod tests {
             .expect("valid canonical string and argument schema");
         let complete = canonical_norito_frame(&record).expect("encode complete argument record");
         assert!(complete.len() > MAX_ENTRYPOINT_ARGUMENT_RECORD_BYTES);
-        assert_eq!(
+        assert!(matches!(
             encode_argument_record_from_json(&schema, &payload),
             Err(VMError::NoritoInvalid)
-        );
+        ));
     }
 }

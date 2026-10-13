@@ -46,7 +46,7 @@ fn materialized_manifest_install_rejects_status_only_without_publication() {
             Kura::blank_kura_for_testing(),
             LiveQueryStore::start_test(),
             #[cfg(feature = "telemetry")]
-            Default::default(),
+            crate::telemetry::StateTelemetry::default(),
         )
         .unwrap();
         let nexus = state.nexus_snapshot();
@@ -483,7 +483,8 @@ fn runtime_catalog_fixture_retains_original_schedule_and_cannot_authorize_by_hea
         // Retain the actual signed parent and all four live participant keys,
         // but corrupt only the schedule being tested. A header cannot replace it.
         let mut world = missing.world.block();
-        *world.consensus_schedule.get_mut() = Default::default();
+        *world.consensus_schedule.get_mut() =
+            crate::sumeragi::schedule::RetainedConsensusSchedule::default();
         world.commit();
         let before = norito::json::to_json(&missing.world).unwrap();
         let mut block = missing.block(catalog_test_header(&missing));

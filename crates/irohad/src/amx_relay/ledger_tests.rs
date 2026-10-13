@@ -312,8 +312,10 @@ async fn relay_durable_restart_retransmits_identical_bytes_and_never_resigns_unk
         }
         fn sleep(&self, duration: Duration) -> WorkflowFuture<'_, ()> {
             Box::pin(async move {
-                self.0
-                    .fetch_add(duration.as_millis() as u64, Ordering::Relaxed);
+                self.0.fetch_add(
+                    u64::try_from(duration.as_millis()).expect("fixture duration fits u64"),
+                    Ordering::Relaxed,
+                );
             })
         }
     }
@@ -371,7 +373,7 @@ async fn relay_durable_restart_retransmits_identical_bytes_and_never_resigns_unk
                     &driver,
                     &WorkflowRunOptions {
                         retransmit_identical_bytes: false,
-                        ..options.clone()
+                        ..options
                     }
                 )
                 .await
@@ -591,11 +593,13 @@ async fn relay_canonical_resumed_payload_cannot_cross_signing_or_dispatch_bounda
         let substituted = TransactionBuilder::from_payload(payload)
             .unwrap()
             .sign(KeyPair::from_seed(vec![signing_seed; 32], Algorithm::Ed25519).private_key());
-        let signed = substituted.encode_wire_v1().unwrap();
-        let substituted_identity = counter.identify(&signed).unwrap();
+        let submission_wire = substituted.encode_wire_v1().unwrap();
+        let substituted_identity = counter.identify(&submission_wire).unwrap();
         assert!(
             matches!(
-                ledger.dispatch(&signed, &substituted_identity).await,
+                ledger
+                    .dispatch(&submission_wire, &substituted_identity)
+                    .await,
                 DispatchOutcome::NotAdmitted {
                     code: WorkflowErrorCode::BindingMismatch,
                     ..
@@ -606,11 +610,11 @@ async fn relay_canonical_resumed_payload_cannot_cross_signing_or_dispatch_bounda
         assert_eq!(counter.signs.load(Ordering::Relaxed), 0, "{mutation}");
         assert_eq!(counter.sends.load(Ordering::Relaxed), 0, "{mutation}");
     }
-    let signed = transaction.encode_wire_v1().unwrap();
+    let submission_wire = transaction.encode_wire_v1().unwrap();
     let mut wrong_identity = identity;
     wrong_identity.entrypoint_hash[0] ^= 1;
     assert!(matches!(
-        ledger.dispatch(&signed, &wrong_identity).await,
+        ledger.dispatch(&submission_wire, &wrong_identity).await,
         DispatchOutcome::NotAdmitted {
             code: WorkflowErrorCode::BindingMismatch,
             ..
@@ -622,7 +626,7 @@ async fn relay_canonical_resumed_payload_cannot_cross_signing_or_dispatch_bounda
         .await
         .unwrap();
     assert_eq!(
-        ledger.dispatch(&signed, &identity).await,
+        ledger.dispatch(&submission_wire, &identity).await,
         DispatchOutcome::Accepted
     );
     assert_eq!(counter.signs.load(Ordering::Relaxed), 1);
@@ -637,7 +641,7 @@ async fn relay_canonical_resumed_payload_cannot_cross_signing_or_dispatch_bounda
         WorkflowErrorCode::BindingMismatch
     );
     assert!(matches!(
-        ledger.dispatch(&signed, &identity).await,
+        ledger.dispatch(&submission_wire, &identity).await,
         DispatchOutcome::NotAdmitted {
             code: WorkflowErrorCode::BindingMismatch,
             ..

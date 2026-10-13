@@ -103,7 +103,7 @@ fn final_key_publication_refusal_keeps_original_state_fence_and_retries() {
     let limit = budget.limit_bytes();
     budget.set_limit_bytes(baseline + demand - 1);
     assert!(matches!(
-        ivm::analysis::analyze_prepared_static_state_accesses(&prepared, Some("write_one"), &budget),
+        ivm::analysis::analyze_prepared_static_state_accesses(&prepared, Some("write_one"), budget),
         Err(ivm::VMError::AllocationDeferred(iroha_allocation::AllocationRefusal::Capacity { requested_bytes, .. }))
         if requested_bytes == output_bytes
     ));
@@ -316,7 +316,7 @@ fn canonical_text_index_refusal_keeps_the_actual_state_fence_and_retries() {
     let limit = budget.limit_bytes();
     budget.set_limit_bytes(baseline + preceding + text_bytes - 1);
     assert!(matches!(
-        ivm::analysis::analyze_prepared_static_state_accesses(&prepared, Some("write_one"), &budget),
+        ivm::analysis::analyze_prepared_static_state_accesses(&prepared, Some("write_one"), budget),
         Err(ivm::VMError::AllocationDeferred(iroha_allocation::AllocationRefusal::Capacity { requested_bytes, .. }))
             if requested_bytes == text_bytes
     ));

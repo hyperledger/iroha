@@ -1,0 +1,23 @@
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-ballot
+[cargo-fast] CARGO_BUILD_JOBS=cargo-default
+[cargo-fast] sccache=not-found
+[cargo-fast] linker=system-default
+[cargo-fast] VERGEN_GIT_SHA=local-fast-build
+[cargo-fast] running: cargo test -p iroha_parliament_ballot_proof --release --test nonminimal_counter -- --nocapture --test-threads=1
+   Compiling iroha_parliament_ballot_proof v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof)
+    Finished `release` profile [optimized] target(s) in 0.84s
+     Running tests/nonminimal_counter.rs (target/cargo-fast/parliament-ballot/release/deps/nonminimal_counter-1e3c9a7693cc72aa)
+
+running 4 tests
+test candidate_registration_accepts_the_second_valid_counter ... Candidate Registration: first=232 later=336 proof_shake256_64=a01b86c27bd82a267f4ab27399ffaccbd4175cb4318eebc47f3eee086ad8bae32c002db72a7cc5d8661e43e773853f5ff9f51cd9bfaaa8f381de6f1258eadb4d
+ok
+test candidate_vote_accepts_the_second_valid_counter ... Candidate Vote: first=296 later=649 proof_shake256_64=1b7a3f3e2a8c1c125a76eed23b41d21746e81580ced1110ed7fa4261995b019d55a6f0341560aab9b8f120116f39058ec3d95702d11a83f7fff48958ae76fe5a
+ok
+test comparator_registration_accepts_the_second_valid_counter ... Comparator Registration: first=279 later=563 proof_shake256_64=4c837932bc7bb787dc0f871d22e5a694c3fb47ca3b2e8eb54259199d0907f8227f992283d7e6c9a67a3242fb795f6d96d60bf3519b626a83c359d141452ed9ca
+ok
+test comparator_vote_accepts_the_second_valid_counter ... Comparator Vote: first=1007 later=1837 proof_shake256_64=192e2eb45251ad4a0ea5290d57aa3c78a67046df1d1743faca5b64e49b78af82ecf4c844abba5bea3b2c8e9f6ead76f6bdddbb8c70710cce84bfd22c634f433c
+ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.48s
+

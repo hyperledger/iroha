@@ -303,7 +303,7 @@ fn adjacent_entries_recheck_every_native_directory_edge_and_original_restoration
     for (directory, label, level) in directories {
         let path = directory.path();
         let identity = directory.identity().unwrap();
-        let saved = fixture._temporary.path().join(format!("displaced-{label}"));
+        let saved = fixture.temporary.path().join(format!("displaced-{label}"));
         std::fs::rename(path, &saved).unwrap();
         // Missing native directory custody must not become optional record absence.
         require_io(attempt.verify_authorization(), std::io::ErrorKind::NotFound);

@@ -1,4 +1,4 @@
-//! Structural/original top_up tests; codec checkpoint bytes never establish native authority.
+//! Structural/original `top_up` tests; codec checkpoint bytes never establish native authority.
 
 use super::*;
 use crate::localnet::service_authorities::LocalnetServiceProfile;

@@ -22,6 +22,7 @@ pub(super) struct EnrollmentValidity {
     pub expires_at_unix_ms: u64,
 }
 impl EnrollmentValidity {
+    #[cfg(test)]
     pub(super) fn from_interval(interval: ManagedCustodyEnrollmentInterval) -> Self {
         Self {
             issued_at_unix_ms: interval.issued_at_unix_ms,
@@ -38,6 +39,10 @@ impl EnrollmentValidity {
 }
 #[derive(Clone, Encode, Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_deploy::managed::stream_token_custody::Action")]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "This canonical journal value is decoded under exact allocation admission; boxing its policy would change those charges"
+)]
 pub(super) enum Action {
     Configure(SignerCustodyPolicyV1),
     Enroll {
@@ -54,6 +59,10 @@ pub(super) struct Original {
     pub action: Action,
     pub checkpoint: Vec<u8>,
 }
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Original wallet requests remain inline during allocation-bounded history inspections"
+)]
 pub(super) enum Request {
     Configure(StreamTokenCustodyConfigureRequest),
     Enroll(StreamTokenCustodyEnrollRequest),
@@ -117,12 +126,13 @@ impl Request {
         }
         .map_err(Self::inspection_error)
     }
-    fn inspection_error(_error: color_eyre::eyre::Report) -> crate::managed::Error {
+    fn inspection_error(error: color_eyre::eyre::Report) -> crate::managed::Error {
         #[cfg(test)]
         crate::managed::native_operation::deadline_diagnostics::wallet_error(
             "wallet preparation inspection",
-            &_error,
+            &error,
         );
+        drop(error);
         invalid("custody wallet preparation differs from original request")
     }
     pub(super) fn retain(
@@ -324,15 +334,6 @@ impl Selected<Original> {
             Action::Configure(_) => Err(invalid("configuration is not an enrollment interval")),
         }
     }
-    pub fn matches_configuration(
-        &self,
-        policy: &SignerCustodyPolicyV1,
-        utc: u64,
-        options: &BoundedTransactionOptions,
-    ) -> Result<()> {
-        Original::matches_configuration(self, policy)?;
-        self.terms.matches(utc, options)
-    }
     pub fn matches_enrollment(
         &self,
         interval: ManagedCustodyEnrollmentInterval,
@@ -370,9 +371,9 @@ pub(super) fn read_intent(directory: &PrivateDirectory) -> Result<Option<Origina
     attempts::metadata::require_published(directory, &bytes)?;
     decode_original(&bytes).map(Some)
 }
-/// BodyHistory owns this directory census and anchored absence; the Original decoder is shared.
+/// `BodyHistory` owns this directory census and anchored absence; the Original decoder is shared.
 /// Return the sole canonical decoded Original with the exact bounded bytes it consumed.
-/// BodyHistory binds its immutable snapshot to this read, never to a later replacement.
+/// `BodyHistory` binds its immutable snapshot to this read, never to a later replacement.
 pub(super) fn read_body_intent(
     directory: &PrivateDirectory,
 ) -> Result<Option<(Original, zeroize::Zeroizing<Vec<u8>>)>> {

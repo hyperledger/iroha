@@ -388,42 +388,6 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         UseOwner::Other(Use::Record, RECORD_IDENTITY),
     ),
     function(
-        "crates/iroha_core/src/smartcontracts/isi/triggers/set_authority_capture.rs",
-        "capture_action_authority_table",
-        1,
-        UseOwner::Roots(&["state_table_substrate"]),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/triggers/set_authority_capture.rs",
-        "capture_by_call_authority_table",
-        1,
-        UseOwner::Roots(&["state_table_substrate"]),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/triggers/set_authority_capture.rs",
-        "capture_contracts_authority_table",
-        1,
-        UseOwner::Roots(&["state_table_substrate"]),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/triggers/set_authority_capture.rs",
-        "capture_data_authority_table",
-        1,
-        UseOwner::Roots(&["state_table_substrate"]),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/triggers/set_authority_capture.rs",
-        "capture_pipeline_authority_table",
-        1,
-        UseOwner::Roots(&["state_table_substrate"]),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/triggers/set_authority_capture.rs",
-        "capture_time_authority_table",
-        1,
-        UseOwner::Roots(&["state_table_substrate"]),
-    ),
-    function(
         "crates/iroha_core/src/smartcontracts/isi/triggers/set_contract_capture.rs",
         "capture_frozen_contracts_authority_table",
         1,

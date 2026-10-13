@@ -34,10 +34,10 @@ mod native_amx_network;
 mod native_escrow;
 #[path = "native_game_sessions.rs"]
 mod native_game_sessions;
-#[path = "native_payment_receipt.rs"]
-mod native_payment_receipt;
 #[path = "native_payment_network.rs"]
 mod native_payment_network;
+#[path = "native_payment_receipt.rs"]
+mod native_payment_receipt;
 #[path = "nft.rs"]
 mod nft;
 #[path = "non_mintable.rs"]

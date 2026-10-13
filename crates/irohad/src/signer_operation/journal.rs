@@ -305,7 +305,7 @@ impl JournalInner {
             .components()
             .filter(|part| matches!(part, Component::Normal(_)))
             .count();
-        let (open_lease, _path_probes) =
+        let (open_lease, path_probes) =
             pool.admit_open(path.as_os_str().as_encoded_bytes().len(), depth)?;
         let names = preflight_journal_path(path, profile)?;
         let lineage_len = names.len() + 1;
@@ -332,7 +332,7 @@ impl JournalInner {
             _open_lease: open_lease,
         });
         inner.verify_lineage()?;
-        drop(_path_probes);
+        drop(path_probes);
         inner.inventory()?;
         Ok(inner)
     }
@@ -420,7 +420,7 @@ impl JournalInner {
                 let fail = || io::Error::other("invalid signer journal inventory");
                 let text = name.to_str().ok_or_else(fail)?;
                 if text == LOCK_NAME {
-                    if lock_seen || metadata.len() != 0 || metadata.is_read_only() {
+                    if lock_seen || !metadata.is_empty() || metadata.is_read_only() {
                         return Err(fail());
                     }
                     lock_seen = true;
@@ -447,7 +447,7 @@ impl JournalInner {
                 let mut operation = [0; 32];
                 hex::decode_to_slice(id, &mut operation).map_err(|_| fail())?;
                 if operation == [0; 32]
-                    || (!in_progress && (!metadata.is_read_only() || metadata.len() == 0))
+                    || (!in_progress && (!metadata.is_read_only() || metadata.is_empty()))
                     || metadata.len() > self.profile.max_record_bytes as u64
                 {
                     return Err(fail());
@@ -486,7 +486,7 @@ impl JournalInner {
         let lease = self
             .pool
             .admit_file(self.profile.max_record_bytes, self.lineage_len)?;
-        let _probes = self.pool.admit_inspection(self.lineage_len, 0)?;
+        let probes = self.pool.admit_inspection(self.lineage_len, 0)?;
         let name = format!("{}{SUFFIX}", hex::encode(operation_id));
         let mut file = self
             .directory
@@ -496,7 +496,7 @@ impl JournalInner {
         // name closed; immutable native operation history independently prevents signing retries.
         file.write_all(bytes).map_err(|_| fail())?;
         let file = file.seal_read_only().map_err(|_| fail())?;
-        drop(_probes);
+        drop(probes);
         self.pin(file, bytes, lease)
     }
 
@@ -569,7 +569,7 @@ impl JournalInner {
         let lease = self
             .pool
             .admit_file(self.profile.max_record_bytes, self.lineage_len)?;
-        let _probes = self
+        let probes = self
             .pool
             .admit_inspection(self.lineage_len, self.profile.max_record_bytes)?;
         let id = hex::encode(operation_id);
@@ -587,7 +587,7 @@ impl JournalInner {
         }
         checkpoint(PendingReserveCheckpoint::SignedBytesDurable).map_err(|_| fail())?;
         let file = file.publish_new_name(&final_name).map_err(|_| fail())?;
-        drop(_probes);
+        drop(probes);
         self.pin(file, bytes, lease)
     }
 
@@ -602,7 +602,7 @@ impl JournalInner {
         let lease = self
             .pool
             .admit_file(self.profile.max_record_bytes, self.lineage_len)?;
-        let _probes = self.pool.admit_inspection(self.lineage_len, 0)?;
+        let probes = self.pool.admit_inspection(self.lineage_len, 0)?;
         self.verify_lineage()?;
         let name = format!("{}{}", hex::encode(operation_id), self.profile.suffix);
         let mut file = self
@@ -610,7 +610,7 @@ impl JournalInner {
             .open_retained_read_only(&name, self.profile.max_record_bytes)
             .map_err(|_| fail())?;
         let bytes = read_stable(&mut file, self.profile)?;
-        drop(_probes);
+        drop(probes);
         let pinned = PinnedReceipt {
             journal: Arc::clone(self),
             file: Mutex::new(file),

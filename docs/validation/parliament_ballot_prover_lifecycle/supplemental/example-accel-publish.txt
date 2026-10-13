@@ -1,0 +1,1 @@
+{"fixture_only":true,"profile_qualified":false,"backend":"accel","row":"candidate","role":"registration","mode":"publish","outcome":"published","released_proof_bytes":160148,"elapsed_ms":226.83045800000002,"cancellation_after_completion":"TooLate","stack_request_bytes":8388608,"whole_secret_erasure_qualified":false}

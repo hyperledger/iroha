@@ -33,25 +33,29 @@ fn admission_rejects_policy_and_size_before_decoding() {
     let mut limits = policy();
     limits.pipa_r_enabled = false;
     assert_eq!(
-        verify_for_relation(ProofRelation::KaigiUsage, &proof, &key, limits),
+        verify_for_relation(ProofRelation::KaigiUsage, &proof, &key, limits)
+            .map_err(expect_rejected),
         Err(ProofVerificationError::BackendDisabled)
     );
     limits.pipa_r_enabled = true;
     limits.pipa_r_max_envelope_bytes = 1;
     assert_eq!(
-        verify_for_relation(ProofRelation::KaigiUsage, &proof, &key, limits),
+        verify_for_relation(ProofRelation::KaigiUsage, &proof, &key, limits)
+            .map_err(expect_rejected),
         Err(ProofVerificationError::EnvelopeTooLarge {
             actual: 2,
             maximum: 1
         })
     );
     assert_eq!(
-        verify_for_relation(ProofRelation::KaigiUsage, &proof, &key, policy()),
+        verify_for_relation(ProofRelation::KaigiUsage, &proof, &key, policy())
+            .map_err(expect_rejected),
         Err(ProofVerificationError::MalformedEnvelope)
     );
     let unsupported = ProofBox::new("not-a-proof-backend".to_owned(), proof.bytes);
     assert_eq!(
-        verify_for_relation(ProofRelation::KaigiUsage, &unsupported, &key, policy()),
+        verify_for_relation(ProofRelation::KaigiUsage, &unsupported, &key, policy())
+            .map_err(expect_rejected),
         Err(ProofVerificationError::UnsupportedBackend)
     );
 }
@@ -111,14 +115,16 @@ fn public_binding_cannot_satisfy_a_confidential_requirement() {
     let proof = ProofBox::new(backend.to_owned(), envelope(BackendTag::Stark, &circuit));
     let key = VerifyingKeyBox::new(backend.to_owned(), Vec::new());
     assert_eq!(
-        verify_for_relation(ProofRelation::ConfidentialTransfer, &proof, &key, policy()),
+        verify_for_relation(ProofRelation::ConfidentialTransfer, &proof, &key, policy())
+            .map_err(expect_rejected),
         Err(ProofVerificationError::RelationMismatch {
             expected: ProofRelation::ConfidentialTransfer,
             actual: ProofRelation::PublicInputBinding,
         })
     );
     assert_eq!(
-        verify_for_relation(ProofRelation::PublicInputBinding, &proof, &key, policy()),
+        verify_for_relation(ProofRelation::PublicInputBinding, &proof, &key, policy())
+            .map_err(expect_rejected),
         Err(ProofVerificationError::VerifyingKeyMismatch)
     );
     let mut decoded: OpenVerifyEnvelope = norito::decode_canonical(&proof.bytes).unwrap();
@@ -129,7 +135,8 @@ fn public_binding_cannot_satisfy_a_confidential_requirement() {
     );
     // Matching a label and key digest is insufficient: native verification must succeed.
     assert_eq!(
-        verify_for_relation(ProofRelation::PublicInputBinding, &proof, &key, policy()),
+        verify_for_relation(ProofRelation::PublicInputBinding, &proof, &key, policy())
+            .map_err(expect_rejected),
         Err(ProofVerificationError::InvalidProof)
     );
     for reserved in [
@@ -157,7 +164,8 @@ fn backend_confusion_and_unknown_circuits_reject_before_crypto() {
         envelope(BackendTag::Stark, "pipa-r/pasta/kaigi-usage-v1"),
     );
     assert_eq!(
-        verify_for_relation(ProofRelation::KaigiUsage, &wrong_backend, &key, policy()),
+        verify_for_relation(ProofRelation::KaigiUsage, &wrong_backend, &key, policy())
+            .map_err(expect_rejected),
         Err(ProofVerificationError::MalformedEnvelope)
     );
     let unknown = ProofBox::new(
@@ -165,7 +173,8 @@ fn backend_confusion_and_unknown_circuits_reject_before_crypto() {
         envelope(BackendTag::NativePipaRPasta, "pipa-r/pasta/unreviewed"),
     );
     assert_eq!(
-        verify_for_relation(ProofRelation::KaigiUsage, &unknown, &key, policy()),
+        verify_for_relation(ProofRelation::KaigiUsage, &unknown, &key, policy())
+            .map_err(expect_rejected),
         Err(ProofVerificationError::UnsupportedRelation)
     );
     let oversized = ProofBox::new(
@@ -175,7 +184,8 @@ fn backend_confusion_and_unknown_circuits_reject_before_crypto() {
     let mut limits = policy();
     limits.pipa_r_max_proof_bytes = 0;
     assert_eq!(
-        verify_for_relation(ProofRelation::KaigiUsage, &oversized, &key, limits),
+        verify_for_relation(ProofRelation::KaigiUsage, &oversized, &key, limits)
+            .map_err(expect_rejected),
         Err(ProofVerificationError::ProofTooLarge {
             actual: 1,
             maximum: 0
@@ -214,7 +224,8 @@ fn retired_ivm_binding_names_cannot_select_any_generic_relation() {
             let key = VerifyingKeyBox::new(backend.to_owned(), Vec::new());
             assert_eq!(compiled_relation(backend, &circuit), None);
             assert_eq!(
-                verify_for_relation(ProofRelation::PublicInputBinding, &proof, &key, policy()),
+                verify_for_relation(ProofRelation::PublicInputBinding, &proof, &key, policy())
+                    .map_err(expect_rejected),
                 Err(expected),
                 "retired IVM binding was admitted: {circuit}",
             );
@@ -236,7 +247,8 @@ fn reserved_ivm_components_cannot_select_a_generic_relation() {
         let proof = ProofBox::new(backend.to_owned(), envelope(BackendTag::Stark, &circuit));
         let key = VerifyingKeyBox::new(backend.to_owned(), Vec::new());
         assert_eq!(
-            verify_for_relation(ProofRelation::PublicInputBinding, &proof, &key, policy()),
+            verify_for_relation(ProofRelation::PublicInputBinding, &proof, &key, policy())
+                .map_err(expect_rejected),
             Err(ProofVerificationError::UnsupportedRelation),
             "identity rejection must precede key/proof validity: {circuit}"
         );
@@ -274,6 +286,7 @@ fn native_public_binding_verifies_only_its_relation_and_rejects_tampering() {
     )
     .expect("native public-input proof");
     let verified = verify_for_relation(ProofRelation::PublicInputBinding, &proof, &key, policy())
+        .map_err(expect_rejected)
         .expect("native public-input proof verifies");
     assert_eq!(verified.relation(), ProofRelation::PublicInputBinding);
     let _ = verified.elapsed();
@@ -284,11 +297,13 @@ fn native_public_binding_verifies_only_its_relation_and_rejects_tampering() {
             &proof,
             &wrong_key,
             policy()
-        ),
+        )
+        .map_err(expect_rejected),
         Err(ProofVerificationError::VerifyingKeyMismatch),
     );
     assert_eq!(
-        verify_for_relation(ProofRelation::ConfidentialTransfer, &proof, &key, policy()),
+        verify_for_relation(ProofRelation::ConfidentialTransfer, &proof, &key, policy())
+            .map_err(expect_rejected),
         Err(ProofVerificationError::RelationMismatch {
             expected: ProofRelation::ConfidentialTransfer,
             actual: ProofRelation::PublicInputBinding,
@@ -333,7 +348,8 @@ fn native_public_binding_verifies_only_its_relation_and_rejects_tampering() {
             norito::encode_canonical(&changed).expect("mutated envelope"),
         );
         assert_eq!(
-            verify_for_relation(ProofRelation::PublicInputBinding, &changed, &key, policy()),
+            verify_for_relation(ProofRelation::PublicInputBinding, &changed, &key, policy())
+                .map_err(expect_rejected),
             Err(expected),
             "{label}"
         );
@@ -345,7 +361,8 @@ fn native_public_binding_verifies_only_its_relation_and_rejects_tampering() {
     ] {
         let changed = ProofBox::new(backend.to_owned(), proof.bytes.clone());
         assert_eq!(
-            verify_for_relation(ProofRelation::PublicInputBinding, &changed, &key, policy()),
+            verify_for_relation(ProofRelation::PublicInputBinding, &changed, &key, policy())
+                .map_err(expect_rejected),
             Err(ProofVerificationError::UnsupportedBackend),
             "{backend}"
         );
@@ -363,13 +380,15 @@ fn native_public_binding_verifies_only_its_relation_and_rejects_tampering() {
             &ProofBox::new(proof.backend.clone(), alternate),
             &key,
             policy(),
-        ),
+        )
+        .map_err(expect_rejected),
         Err(ProofVerificationError::MalformedEnvelope)
     );
     let mut disabled = policy();
     disabled.stark_enabled = false;
     assert_eq!(
-        verify_for_relation(ProofRelation::PublicInputBinding, &proof, &key, disabled),
+        verify_for_relation(ProofRelation::PublicInputBinding, &proof, &key, disabled)
+            .map_err(expect_rejected),
         Err(ProofVerificationError::BackendDisabled)
     );
     let mut envelope_limited = policy();
@@ -380,7 +399,8 @@ fn native_public_binding_verifies_only_its_relation_and_rejects_tampering() {
             &proof,
             &key,
             envelope_limited
-        ),
+        )
+        .map_err(expect_rejected),
         Err(ProofVerificationError::EnvelopeTooLarge {
             actual: proof.bytes.len(),
             maximum: proof.bytes.len() - 1,
@@ -394,7 +414,8 @@ fn native_public_binding_verifies_only_its_relation_and_rejects_tampering() {
             &proof,
             &key,
             proof_limited
-        ),
+        )
+        .map_err(expect_rejected),
         Err(ProofVerificationError::ProofTooLarge {
             actual: original.proof_bytes.len(),
             maximum: original.proof_bytes.len() - 1,
@@ -407,7 +428,8 @@ fn native_public_binding_verifies_only_its_relation_and_rejects_tampering() {
         norito::encode_canonical(&decoded).expect("tampered envelope"),
     );
     assert_eq!(
-        verify_for_relation(ProofRelation::PublicInputBinding, &tampered, &key, policy()),
+        verify_for_relation(ProofRelation::PublicInputBinding, &tampered, &key, policy())
+            .map_err(expect_rejected),
         Err(ProofVerificationError::InvalidProof),
     );
 }

@@ -41,7 +41,7 @@ fn seed_capacity_offer(
         reward_custody: binding.custody(),
     };
     let registry =
-        crate::validation_fee::tests::policy_registry(&[policy.clone()], &[binding.clone()]);
+        crate::validation_fee::tests::policy_registry(std::slice::from_ref(&policy), std::slice::from_ref(binding));
     crate::validation_fee::tests::install_policy_registry_fixture(&registry, &mut stx);
     let period = earning_month(now - 1).unwrap();
     let state = ValidationFeeRewardsState {

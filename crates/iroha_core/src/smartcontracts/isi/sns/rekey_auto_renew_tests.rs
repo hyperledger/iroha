@@ -328,8 +328,8 @@ fn original_rekey_fixture_with_source_policy(
             valid_until_ms: 120_000,
         },
     );
-    let signed = chain.sign(&admin_key, [ensure.into()], 1_020);
-    let accepted = chain.commit(vec![signed]);
+    let signed_payload = chain.sign(&admin_key, [ensure.into()], 1_020);
+    let accepted = chain.commit(vec![signed_payload]);
     assert_eq!(
         accepted,
         vec![true],
@@ -823,7 +823,7 @@ fn signed_rekey_larger_owner_cannot_exceed_committed_native_renewal_allowance() 
     };
     // This invokes the actual original Time producer. The source-only component
     // helper grants neither empty-block production nor publication authority.
-    let (mut block, _recording, outputs, _) =
+    let (mut block, recording, outputs, _) =
         crate::state::run_empty_network_owner_fixture(fixture.chain.state(), &source);
     assert!(outputs.is_empty());
     assert_eq!(
@@ -877,7 +877,7 @@ fn signed_rekey_larger_owner_cannot_exceed_committed_native_renewal_allowance() 
             .is_empty()
     );
     drop(block);
-    drop(_recording);
+    drop(recording);
     // The component attempted no publication; authenticated committed bytes remain.
     assert_eq!(fixture.stored(), configured);
     assert_eq!(fixture.balance(&fixture.current_owner), owner_before);

@@ -140,11 +140,11 @@ impl ProviderIngestGovernedHttpsGrantResolverV1 for FixtureResolver {
     ) -> Result<(), ProviderIngestSourceFetchErrorV1> {
         Err(ProviderIngestSourceFetchErrorV1::Unavailable)
     }
-    fn resolve<'a>(
-        &'a self,
+    fn resolve(
+        &self,
         _: ProviderIngestHttpsGrantRequestV1,
     ) -> ProviderIngestFutureV1<
-        'a,
+        '_,
         Result<ProviderIngestHttpsGrantV1, ProviderIngestSourceFetchErrorV1>,
     > {
         self.resolves.fetch_add(1, Ordering::SeqCst);

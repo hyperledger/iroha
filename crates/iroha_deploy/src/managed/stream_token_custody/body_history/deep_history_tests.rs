@@ -258,7 +258,7 @@ fn populate_deep_history(fixture: &mut Fixture, complete_before: Instant) -> Com
         assert_eq!(history.anchor.active, Some(ordinal));
         assert!(!history.has_pending());
         assert!(
-            history.anchor.completed.is_some() && history.original().unwrap().is_some(),
+            history.anchor.completed.is_some() && history.original().is_some(),
             "body {ordinal} must complete its signed Original before dispatch: selected_at_unix_ms={}, body_expiry_unix_ms={}, now_unix_ms={}, completed={}, original_present={}, inclusive_finish_phases={finish_phases:?}",
             history
                 .bodies
@@ -277,7 +277,7 @@ fn populate_deep_history(fixture: &mut Fixture, complete_before: Instant) -> Com
                 .expires_at_unix_ms,
             now_ms().unwrap(),
             history.anchor.completed.is_some(),
-            history.original().unwrap().is_some(),
+            history.original().is_some(),
         );
         let retention_started = Instant::now();
         let selected = fixture

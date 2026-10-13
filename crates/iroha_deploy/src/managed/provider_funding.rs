@@ -5,13 +5,15 @@
 //! amounts before paid work and never signs, quotes, submits or verifies a transaction itself.
 //! Completion reports the original economic operations, never current funding or service Serving.
 
+#[cfg(test)]
+use super::PreparedLocalnet;
 use super::{
     ManagedHistoricalReserveTopUp, ManagedHistoricalReserveTopUpApproval,
     ManagedInitialProviderCredit, ManagedInitialProviderCreditIntent,
     ManagedInitialProviderCreditProgress, ManagedProviderCapacity, ManagedProviderCapacityProgress,
     ManagedReserveTopUpApproval, ManagedReserveTopUpApprovalIntent,
     ManagedReserveTopUpApprovalProgress, ManagedReserveTopUpIntent, ManagedReserveTopUpProgress,
-    ManagedReserveTopUpRequest, PreparedLocalnet, Result,
+    ManagedReserveTopUpRequest, Result,
     native_operation::{
         Fees, MAX_CHECKPOINT_BYTES, ManagedTransactionFinality, checkpoint_bytes, encode, invalid,
         read_optional, require_deadline, require_empty,
@@ -66,6 +68,21 @@ pub(super) enum ProviderFundingProgress {
         capacity: ManagedTransactionFinality,
     },
 }
+impl ProviderFundingProgress {
+    /// Describe an observed step for diagnostics without treating it as authority.
+    pub(super) fn diagnostic(&self) -> String {
+        let (step, status) = match self {
+            Self::Unprepared { step, status } => (*step, *status),
+            Self::Request(progress) => (FundingStep::Request, progress.transaction_status),
+            Self::Approval(progress) => (FundingStep::Approval, progress.transaction_status),
+            Self::Credit(progress) => (FundingStep::Credit, progress.transaction_status),
+            Self::Capacity(progress) => (FundingStep::Capacity, progress.transaction_status),
+            Self::Complete { .. } => return "complete; awaiting parent aggregation".into(),
+        };
+        format!("{step:?}: {status:?}")
+    }
+}
+
 // Only genuine early Request/Approval reports can leave the first paired phase. Completion
 // proceeds through borrowed history slots, without the impossible later-stage report payload.
 enum RequestApprovalIncomplete {
@@ -108,6 +125,7 @@ pub(super) struct ProviderFundingBootstrap {
     authority: ServiceAuthority,
 }
 impl ProviderFundingBootstrap {
+    #[cfg(test)]
     pub(super) fn open(
         prepared: &PreparedLocalnet,
         provider: iroha_data_model::sorafs::capacity::ProviderId,
@@ -406,30 +424,15 @@ impl ProviderFundingBootstrap {
         approval_history: &mut Option<ManagedHistoricalReserveTopUpApproval>,
         history: &ManagedHistoricalReserveTopUp,
     ) -> Result<Option<RequestApprovalIncomplete>> {
-        let FundingPhase {
-            directory,
-            original,
-            deadline,
-            mode,
-            authorization,
-            ..
-        } = phase;
-        let approval_selection = match self.selected_stage(
-            directory,
-            Stage::Approval,
-            original,
-            *minimum_height,
-            mode,
-            authorization,
-            deadline,
-        )? {
-            Some(value) => value,
-            None => {
-                return self
-                    .unprepared_step(FundingStep::Approval)
-                    .map(|step| Some(RequestApprovalIncomplete::Unprepared(step)));
-            }
-        };
+        let approval_selection =
+            match self.selected_stage(phase, Stage::Approval, *minimum_height)? {
+                Some(value) => value,
+                None => {
+                    return self
+                        .unprepared_step(FundingStep::Approval)
+                        .map(|step| Some(RequestApprovalIncomplete::Unprepared(step)));
+                }
+            };
         self.run_selected_approval(
             phase,
             minimum_height,
@@ -537,22 +540,14 @@ impl ProviderFundingBootstrap {
         approval_history: &mut Option<ManagedHistoricalReserveTopUpApproval>,
     ) -> Result<ProviderFundingProgress> {
         let FundingPhase {
-            directory,
             original,
             provider,
             deadline,
             mode,
             authorization,
+            ..
         } = phase;
-        let credit_selection = match self.selected_stage(
-            directory,
-            Stage::Credit,
-            original,
-            minimum_height,
-            mode,
-            authorization,
-            deadline,
-        )? {
+        let credit_selection = match self.selected_stage(phase, Stage::Credit, minimum_height)? {
             Some(value) => value,
             None => return self.unprepared(FundingStep::Credit),
         };
@@ -680,44 +675,47 @@ impl ProviderFundingBootstrap {
     }
     fn selected_stage(
         &mut self,
-        directory: &iroha_fs::PrivateDirectory,
+        phase: FundingPhase<'_, '_>,
         stage: Stage,
-        original: &Original,
         minimum_height: u64,
-        mode: Mode,
-        authorization: Option<&FundingAuthorization<'_>>,
-        deadline: Instant,
     ) -> Result<Option<SelectedStage>> {
-        let selected = match stage::read(directory, stage, original)? {
-            Some(selected) => selected,
-            None => {
-                let (step, purpose, child) = match stage {
-                    Stage::Approval => (
-                        FundingStep::Approval,
-                        ProviderPurpose::ReserveTopUpApproval,
-                        "approval",
-                    ),
-                    Stage::Credit => (
-                        FundingStep::Credit,
-                        ProviderPurpose::InitialProviderCredit,
-                        "install",
-                    ),
-                };
-                self.require_no_later_material(step)?;
-                self.require_empty_child(purpose, child)?;
-                if !self.may_create(mode, authorization, original, deadline)? {
-                    return Ok(None);
-                }
-                let (verifier, current) = self.observe(&original.policy, deadline)?;
-                let selected =
-                    SelectedStage::select(stage, original, &current, &verifier, minimum_height)?;
-                self.validate_stage(&selected, stage, original, minimum_height)?;
-                authorization
-                    .ok_or_else(|| invalid("funding authorization absent"))?
-                    .validate(&self.authority, deadline)?;
-                stage::publish(directory, stage, original, &selected)?;
-                selected
+        let FundingPhase {
+            directory,
+            original,
+            mode,
+            authorization,
+            deadline,
+            ..
+        } = phase;
+        let selected = if let Some(selected) = stage::read(directory, stage, original)? {
+            selected
+        } else {
+            let (step, purpose, child) = match stage {
+                Stage::Approval => (
+                    FundingStep::Approval,
+                    ProviderPurpose::ReserveTopUpApproval,
+                    "approval",
+                ),
+                Stage::Credit => (
+                    FundingStep::Credit,
+                    ProviderPurpose::InitialProviderCredit,
+                    "install",
+                ),
+            };
+            self.require_no_later_material(step)?;
+            self.require_empty_child(purpose, child)?;
+            if !self.may_create(mode, authorization, original, deadline)? {
+                return Ok(None);
             }
+            let (verifier, current) = self.observe(&original.policy, deadline)?;
+            let selected =
+                SelectedStage::select(stage, original, &current, &verifier, minimum_height)?;
+            self.validate_stage(&selected, stage, original, minimum_height)?;
+            authorization
+                .ok_or_else(|| invalid("funding authorization absent"))?
+                .validate(&self.authority, deadline)?;
+            stage::publish(directory, stage, original, &selected)?;
+            selected
         };
         self.validate_stage(&selected, stage, original, minimum_height)?;
         Ok(Some(selected))
@@ -828,12 +826,12 @@ impl ProviderFundingBootstrap {
                 "later funding purpose contains unknown retained material",
             ));
         }
-        match owner.directory.open_child_optional(child)? {
-            Some(directory) => {
+        owner.directory.open_child_optional(child)?.map_or_else(
+            || Ok(()),
+            |directory| {
                 crate::managed::native_operation::attempts::metadata::require_unselected(&directory)
-            }
-            None => Ok(()),
-        }
+            },
+        )
     }
     fn plan(&self) -> Result<RetainedProviderServicePlan> {
         self.authority.provider_plan()
@@ -875,7 +873,7 @@ impl ProviderFundingBootstrap {
             .map_err(|_| invalid("invalid original funding checkpoint"))?;
         tip.verify_global_scope(
             self.authority.config.network_id,
-            &self.authority.config.chain.to_string(),
+            self.authority.config.chain.as_ref(),
         )
         .map_err(|_| invalid("original funding checkpoint is not selected Global root"))?;
         if tip.header().creation_time_ms != original.observed_block_time_ms {
@@ -899,7 +897,7 @@ impl ProviderFundingBootstrap {
             .map_err(|_| invalid("invalid funding child checkpoint"))?;
         tip.verify_global_scope(
             self.authority.config.network_id,
-            &self.authority.config.chain.to_string(),
+            self.authority.config.chain.as_ref(),
         )
         .map_err(|_| invalid("funding child checkpoint is not selected Global root"))?;
         if tip.height() < minimum_height {

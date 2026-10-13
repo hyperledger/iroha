@@ -92,6 +92,15 @@ no allocation-pool release notification and cannot become metered gas or a
 deterministic fault. Its presence does not qualify other decoder or verifier
 paths that still discard resource causes.
 
+`VerificationDeferred` owns the original native verifier, initializer or canonical
+decoder error. Cancellation, native scratch-budget refusal and unavailable local
+initialization remain distinct diagnostic reasons. They cannot become a proof
+rejection, metered gas or a deterministic fault. Only a cause carrying an actual
+allocation-pool observation may wait on that pool's release. VM and artifact
+errors therefore move through consuming adapters; diagnostics borrow them. Core
+keeps publication blocked even after the original cause has been transferred.
+These ownership guarantees do not establish proof validity or complete coverage.
+
 `run_phases` restates the trap tokens and propagated helpers of the four parts
 of a run outside the dispatch arms. The terminal block also returns results
 without `?` (the recorded contract abort and the shared cycle allowance), so the

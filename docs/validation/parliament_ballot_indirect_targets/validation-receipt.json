@@ -1,0 +1,25 @@
+{
+  "catalog_sha256": "3cad64efdedc92d8dd0a1401ce07a1c81a170554889018a1b80ea581af2be1b9",
+  "command": [
+    "/opt/homebrew/opt/python@3.11/bin/python3.11",
+    "-m",
+    "pytest",
+    "-q",
+    "scripts/tests/parliament_ballot_indirect_targets_test.py"
+  ],
+  "format": "parliament-indirect-target-validation-v1",
+  "no_rebuild_or_worker_execution": true,
+  "observed_at_utc": "2026-10-13T07:22:51.946474+00:00",
+  "returncode": 0,
+  "scope": "Source-conditional backend target catalog and separate scoped graph rerun; no complete stack or workspace certificate.",
+  "source_after": {
+    "scripts/parliament_ballot_indirect_targets.py": "b6f6086f5abd9a3f6b4e099b4a911a264aa168792c230b3981437649e0fa2149",
+    "scripts/tests/parliament_ballot_indirect_targets_test.py": "18e3bb949ed6bda94233f062cc9f352d8d9dfd39d0902d1e45dfbbdeea0efa01"
+  },
+  "source_before": {
+    "scripts/parliament_ballot_indirect_targets.py": "b6f6086f5abd9a3f6b4e099b4a911a264aa168792c230b3981437649e0fa2149",
+    "scripts/tests/parliament_ballot_indirect_targets_test.py": "18e3bb949ed6bda94233f062cc9f352d8d9dfd39d0902d1e45dfbbdeea0efa01"
+  },
+  "source_unchanged": true,
+  "test_output_sha256": "69227a3a28b50fd1a1dc7b6766c8bd59d0b558cef6c38f91817eb39382fdc634"
+}

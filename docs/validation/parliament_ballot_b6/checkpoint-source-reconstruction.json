@@ -1,0 +1,72 @@
+{
+  "checked_at_utc": "2026-10-13T04:43:02.960672+00:00",
+  "source_scopes": [
+    {
+      "source_manifest": "mac-source.sha256",
+      "manifest_sha256": "044ecda041aefe175861344d821d019d88d38004b9c2297e68d6dafb8b8e65cb",
+      "verified_files": 223,
+      "substitutions": [
+        {
+          "path": "Cargo.lock",
+          "reconstruction": "measured-root-Cargo.lock.template"
+        },
+        {
+          "path": "crates/iroha_parliament_ballot_proof/examples/QUALIFICATION.md",
+          "reconstruction": "reversed recorded patches in temporary copy"
+        },
+        {
+          "path": "crates/iroha_parliament_ballot_proof/examples/qualification/mod.rs",
+          "reconstruction": "reversed recorded patches in temporary copy"
+        },
+        {
+          "path": "crates/iroha_parliament_ballot_proof/examples/qualify.rs",
+          "reconstruction": "reversed recorded patches in temporary copy"
+        },
+        {
+          "path": "crates/iroha_parliament_ballot_proof/src/lib.rs",
+          "reconstruction": "reversed recorded patches in temporary copy"
+        },
+        {
+          "path": "crates/iroha_parliament_ballot_proof/src/registration.rs",
+          "reconstruction": "reversed recorded patches in temporary copy"
+        },
+        {
+          "path": "crates/iroha_parliament_ballot_proof/src/vote.rs",
+          "reconstruction": "reversed recorded patches in temporary copy"
+        },
+        {
+          "path": "crates/norito/src/lib.rs",
+          "reconstruction": "qualification-norito-lib.rs.template"
+        }
+      ]
+    },
+    {
+      "source_manifest": "malformed-source.sha256",
+      "manifest_sha256": "7cc9ad79e452fe3cfd58cc0fdc570a7d5b76614f7352d9c13ba9b17be670a409",
+      "verified_files": 225,
+      "substitutions": [
+        {
+          "path": "Cargo.lock",
+          "reconstruction": "qualification-root-Cargo.lock.template"
+        },
+        {
+          "path": "crates/norito/src/lib.rs",
+          "reconstruction": "qualification-norito-lib.rs.template"
+        }
+      ]
+    },
+    {
+      "source_manifest": "nonminimal-counter-source.sha256",
+      "manifest_sha256": "ad76c42230d77f73b57f5903397e4a31ecd54cd8117a4aaf57dca815adee4559",
+      "verified_files": 92,
+      "substitutions": [
+        {
+          "path": "Cargo.lock",
+          "reconstruction": "qualification-root-Cargo.lock.template"
+        }
+      ]
+    }
+  ],
+  "scope": "Every listed byte matches the recorded snapshot using these explicit substitutions. Live sources were read only; this does not validate later concurrent edits. The frozen accounting reconstruction and reports remain independently recorded.",
+  "production_qualified": false
+}

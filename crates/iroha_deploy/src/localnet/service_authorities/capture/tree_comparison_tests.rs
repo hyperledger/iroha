@@ -54,7 +54,7 @@ fn complete_profile_tree_keeps_all_original_inputs_inventories_and_same_source_r
             .sum::<usize>(),
         77
     );
-    let (_, parses) = count_semantic_validations(|| {
+    let ((), parses) = count_semantic_validations(|| {
         image.revalidate().unwrap();
         let generation = &image.directories[GENERATION];
         let input = generation

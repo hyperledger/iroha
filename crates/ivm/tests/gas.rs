@@ -400,7 +400,7 @@ fn unmetered_syscall_error_consumes_the_fail_closed_quote() {
     vm.load_program(&prog).unwrap();
     vm.set_gas_limit(20);
     let result = vm.run_with_host(&mut host);
-    assert_eq!(result, Err(VMError::PermissionDenied));
+    assert!(matches!(result, Err(VMError::PermissionDenied)));
     assert_eq!(host.calls, 1, "the host executes only after quote debit");
     assert_eq!(
         vm.remaining_gas(),

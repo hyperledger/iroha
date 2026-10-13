@@ -36,6 +36,10 @@ impl CapturedExecution {
         unsafe_code,
         reason = "moves the unchanged retained canonical graph and assigns only fixed-size fields"
     )]
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the pulse is transferred into the retained native execution inputs"
+    )]
     fn finish(
         self,
         params: ChainParamsRecord,
@@ -109,6 +113,27 @@ impl ScheduleStep {
         match self {
             Self::Requested { root_scope, .. } => Some(*root_scope),
             Self::Off | Self::Done(_) => None,
+        }
+    }
+    /// Fixed authenticated pulse from this original global execution, before finalization.
+    /// Consensus verifies it at the pre-boundary carrying height; the committee
+    /// boundary itself is one block later. Lanes and absent/completed captures
+    /// cannot grant a panel draw, and ordinary heights carry no verified pulse.
+    pub(crate) fn original_native_pulse(&self) -> Option<FinalizedGlobalThresholdBeaconPulseV1> {
+        match self {
+            Self::Requested {
+                captured,
+                root_scope: iroha_data_model::block::consensus::SumeragiRootScope::Global,
+                pulse,
+            } => {
+                if cfg!(all(test, sumeragi_core_mutation = "HC303"))
+                    && !matches!(captured, CapturedExecution::Boundary(_))
+                {
+                    return None;
+                }
+                pulse.pulse()
+            }
+            _ => None,
         }
     }
     /// Borrow the original signed genesis authority before any transaction effects.
@@ -204,6 +229,10 @@ impl StateBlock<'_> {
     /// Capture the exact authenticated source in the pristine constructor callback, after
     /// source-generation/header validation and before any schedule or execution effect.
     /// Missing mandatory transported beacon work is refused; local aggregation is irrelevant.
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the supplied pulse is validated and transferred into the retained native schedule result"
+    )]
     pub(crate) fn request_sumeragi_schedule(
         &mut self,
         genesis_height: u64,
@@ -497,6 +526,8 @@ pub(crate) fn validate_executed_genesis(
         world.parameters().sumeragi().block_cadence_ms().get(),
     )
     .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
+    crate::smartcontracts::isi::sccp::keepalive::clock_parameters(world)
+        .map_err(|error| ScheduleError::Epoch(error.into()))?;
     crate::resource_coherence::validate_final_policy(world, 1)
         .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
     crate::executor::private_fees::policy(world).map_err(|error| {

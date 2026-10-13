@@ -48,6 +48,308 @@ macro_rules! sccp_event_payload {
     };
 }
 
+/// A canonical panel draw could not seat a replacement.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito(tag = "kind", content = "detail")]
+#[norito_schema(name = "iroha_data_model::sccp::events::SccpPausePanelUnavailableReasonV1")]
+pub enum SccpPausePanelUnavailableReasonV1 {
+    /// Fewer than two complete panels are eligible.
+    #[codec(index = 0)]
+    #[norito(rename = "insufficient_candidates")]
+    InsufficientCandidates,
+    /// The canonical citizen snapshot exceeds its byte ceiling.
+    #[codec(index = 1)]
+    #[norito(rename = "snapshot_too_large")]
+    SnapshotTooLarge,
+}
+
+/// A deterministic certification or enactment recheck failed.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito(tag = "kind", content = "detail")]
+#[norito_schema(name = "iroha_data_model::sccp::events::SccpFastPauseNoResultReasonV1")]
+pub enum SccpFastPauseNoResultReasonV1 {
+    /// The endorsement window has closed.
+    #[codec(index = 0)]
+    #[norito(rename = "expired")]
+    Expired,
+    /// The seated panel no longer matches the round.
+    #[codec(index = 1)]
+    #[norito(rename = "panel_changed")]
+    PanelChanged,
+    /// Too few eligible seat holders still endorse the round.
+    #[codec(index = 2)]
+    #[norito(rename = "insufficient_eligible_endorsements")]
+    InsufficientEligibleEndorsements,
+    /// The `FastHold` head differs from the endorsed head.
+    #[codec(index = 3)]
+    #[norito(rename = "head_changed")]
+    HeadChanged,
+    /// Parliament suspended the emergency pause pipeline.
+    #[codec(index = 4)]
+    #[norito(rename = "suspended")]
+    Suspended,
+    /// An active pause is outside its renewal window.
+    #[codec(index = 5)]
+    #[norito(rename = "renewal_window_closed")]
+    RenewalWindowClosed,
+    /// No route revision still accepts transfer activity.
+    #[codec(index = 6)]
+    #[norito(rename = "no_live_revision")]
+    NoLiveRevision,
+    /// The deterministic block control-leaf capacity is exhausted.
+    #[codec(index = 7)]
+    #[norito(rename = "control_capacity")]
+    ControlCapacity,
+    /// A protocol counter cannot advance.
+    #[codec(index = 8)]
+    #[norito(rename = "counter_exhausted")]
+    CounterExhausted,
+}
+
+/// The approving ballot cannot lift a newer emergency pause.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito(tag = "kind", content = "detail")]
+#[norito_schema(name = "iroha_data_model::sccp::events::SccpFastPauseRetainedReasonV1")]
+pub enum SccpFastPauseRetainedReasonV1 {
+    /// The ballot casting-open anchor does not follow pause enactment.
+    #[codec(index = 0)]
+    #[norito(rename = "ballot_opened_before_or_at_enactment")]
+    BallotOpenedBeforeOrAtEnactment,
+}
+
+/// The authority under which an emergency pause part was removed.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito(tag = "kind", content = "detail")]
+#[norito_schema(name = "iroha_data_model::sccp::events::SccpFastPauseClearedReasonV1")]
+pub enum SccpFastPauseClearedReasonV1 {
+    /// A later Parliament ballot approved lifting this part.
+    #[codec(index = 0)]
+    #[norito(rename = "lifted")]
+    Lifted,
+}
+
+/// One independently liftable part of an emergency pause.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito(tag = "kind", content = "detail")]
+#[norito_schema(name = "iroha_data_model::sccp::events::SccpFastPausePartV1")]
+pub enum SccpFastPausePartV1 {
+    /// The Taira-side transfer hold.
+    #[codec(index = 0)]
+    #[norito(rename = "taira")]
+    Taira,
+    /// The destination hold for one route revision.
+    #[codec(index = 1)]
+    #[norito(rename = "destination")]
+    Destination {
+        /// Route revision whose destination hold is affected.
+        revision: u32,
+    },
+}
+
+sccp_event_payload! {
+    /// A canonical citizen panel was seated.
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpPausePanelSeatedV1")]
+    #[derive(Copy)]
+pub struct SccpPausePanelSeatedV1 {
+        /// Monotone sequence of the seated panel.
+        pub panel_seq: u64,
+        /// Captured epoch-boundary beacon pulse.
+        pub pulse_id: [u8; 32],
+        /// Primary panel identifier.
+        pub primary_id: [u8; 32],
+        /// Backup panel identifier.
+        pub backup_id: [u8; 32],
+        /// Seating block height.
+        pub seated_height: u64,
+        /// Seating block time.
+        pub seated_at_ms: u64,
+        /// End of the initial seat acceptance window.
+        pub accept_until_ms: u64,
+        /// Earliest time a new boundary may draw a replacement.
+        pub term_ends_at_ms: u64,
+        /// Number of drawn citizens including reserve.
+        pub drawn_count: u32,
+    }
+}
+
+sccp_event_payload! {
+    /// A canonical draw retained the previous panel.
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpPausePanelUnavailableV1")]
+    #[derive(Copy)]
+pub struct SccpPausePanelUnavailableV1 {
+        /// Pulse at which the draw was attempted.
+        pub pulse_id: [u8; 32],
+        /// Closed draw refusal reason.
+        pub reason: SccpPausePanelUnavailableReasonV1,
+    }
+}
+
+sccp_event_payload! {
+    /// A drawn citizen accepted the current panel position.
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpPausePanelSeatAcceptedV1")]
+    pub struct SccpPausePanelSeatAcceptedV1 {
+        /// Sequence of the current panel.
+        pub panel_seq: u64,
+        /// Citizen who accepted.
+        pub member: AccountId,
+    }
+}
+
+sccp_event_payload! {
+    /// A current seat holder publicly endorsed an emergency pause.
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpFastPauseEndorsedV1")]
+    pub struct SccpFastPauseEndorsedV1 {
+        /// External network.
+        pub network: SccpNetworkV1,
+        /// Primary or backup panel identifier.
+        pub panel_id: [u8; 32],
+        /// Citizen whose endorsement was accepted.
+        pub endorser: AccountId,
+        /// Public incident digest.
+        pub incident_digest: [u8; 32],
+        /// Current eligible seat-holding endorsement count.
+        pub count: u32,
+    }
+}
+
+sccp_event_payload! {
+    /// An emergency round failed a deterministic recheck.
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpFastPauseNoResultV1")]
+    #[derive(Copy)]
+pub struct SccpFastPauseNoResultV1 {
+        /// External network.
+        pub network: SccpNetworkV1,
+        /// Panel of the concluded round.
+        pub panel_id: [u8; 32],
+        /// Closed failed-recheck reason.
+        pub reason: SccpFastPauseNoResultReasonV1,
+    }
+}
+
+sccp_event_payload! {
+    /// A certified emergency pause was enacted or renewed.
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpFastPauseEnactedV1")]
+    #[derive(Copy)]
+pub struct SccpFastPauseEnactedV1 {
+        /// External network.
+        pub network: SccpNetworkV1,
+        /// Identifier of the exact certified fields.
+        pub certificate_id: super::fast_pause::SccpFastPauseCertificateId,
+        /// Exclusive hold expiry.
+        pub until_ms: u64,
+        /// Whether this replaced an active pause.
+        pub renewal: bool,
+    }
+}
+
+sccp_event_payload! {
+    /// A Parliament resume retained a newer emergency hold.
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpFastPauseRetainedV1")]
+    #[derive(Copy)]
+pub struct SccpFastPauseRetainedV1 {
+        /// External network.
+        pub network: SccpNetworkV1,
+        /// Part whose hold remains.
+        pub part: SccpFastPausePartV1,
+        /// Closed retention reason.
+        pub reason: SccpFastPauseRetainedReasonV1,
+    }
+}
+
+sccp_event_payload! {
+    /// A later Parliament ballot lifted an emergency hold part.
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpFastPauseClearedV1")]
+    #[derive(Copy)]
+pub struct SccpFastPauseClearedV1 {
+        /// External network.
+        pub network: SccpNetworkV1,
+        /// Part whose hold was cleared.
+        pub part: SccpFastPausePartV1,
+        /// Closed lift reason.
+        pub reason: SccpFastPauseClearedReasonV1,
+    }
+}
+
 sccp_event_payload! {
     /// A native generation starts under original committee and liability custody (§4.2 G2).
     #[derive(Copy)]
@@ -629,6 +931,87 @@ sccp_event_payload! {
     }
 }
 
+sccp_event_payload! {
+    /// The sole reconciliation window was opened by Parliament.
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpReconciliationOpenedV1")]
+    pub struct SccpReconciliationOpenedV1 {
+        /// External route network.
+        pub network: SccpNetworkV1,
+        /// Quarantined revision.
+        pub revision: u32,
+        /// Enacting ledger time.
+        pub opened_at_ms: u64,
+        /// Proof deadline and window-end due time.
+        pub closes_at_ms: u64,
+    }
+}
+sccp_event_payload! {
+    /// A distinct finalized forged mint was counted in an open window.
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpForgedMintProvenV1")]
+    pub struct SccpForgedMintProvenV1 {
+        /// External route network.
+        pub network: SccpNetworkV1,
+        /// Quarantined revision.
+        pub revision: u32,
+        /// Payload-bound finalized message id.
+        pub message_id: [u8; 32],
+        /// Authenticated minted face amount.
+        pub amount: u128,
+    }
+}
+sccp_event_payload! {
+    /// A window ended and fixed the immutable pro-rata rate.
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpReconciliationSettledV1")]
+    pub struct SccpReconciliationSettledV1 {
+        /// External route network.
+        pub network: SccpNetworkV1,
+        /// Quarantined revision.
+        pub revision: u32,
+        /// Liability net of pending refunds.
+        pub backing: u128,
+        /// Distinct forged face amount counted in the window.
+        pub forged_supply: u128,
+    }
+}
+sccp_event_payload! {
+    /// A reconciled claim left Pending and consumed its face amount.
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpReconciledClaimSettledV1")]
+    pub struct SccpReconciledClaimSettledV1 {
+        /// External route network.
+        pub network: SccpNetworkV1,
+        /// Quarantined revision.
+        pub revision: u32,
+        /// Inbound claim message id.
+        pub message_id: [u8; 32],
+        /// Claim face amount.
+        pub amount: u128,
+        /// Actual payout; the remainder is void.
+        pub payout: u128,
+    }
+}
+
+sccp_event_payload! {
+    /// An inbound bounce had only a quarantined fallback and moved its payout to stranded.
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpInboundStrandedV1")]
+    pub struct SccpInboundStrandedV1 {
+        /// Inbound claim id.
+        pub message_id: [u8; 32],
+        /// External network.
+        pub network: SccpNetworkV1,
+        /// Source revision.
+        pub revision: u32,
+        /// Actual stranded amount after any reconciliation haircut.
+        pub amount: u128,
+        /// Permanent recipient refusal that selected the bounce path.
+        pub reason: SccpBounceReasonV1,
+    }
+}
+
 /// SCCP data events (§4.17).
 #[derive(
     Debug,
@@ -769,6 +1152,58 @@ pub enum SccpEvent {
     #[codec(index = 28)]
     #[norito(rename = "revision_quarantined")]
     RevisionQuarantined(SccpRevisionQuarantinedV1),
+    /// The sole reconciliation window was opened by Parliament.
+    #[codec(index = 29)]
+    #[norito(rename = "reconciliation_opened")]
+    ReconciliationOpened(SccpReconciliationOpenedV1),
+    /// A distinct finalized forged mint was counted in an open window.
+    #[codec(index = 30)]
+    #[norito(rename = "forged_mint_proven")]
+    ForgedMintProven(SccpForgedMintProvenV1),
+    /// A window ended and fixed the immutable pro-rata rate.
+    #[codec(index = 31)]
+    #[norito(rename = "reconciliation_settled")]
+    ReconciliationSettled(SccpReconciliationSettledV1),
+    /// A reconciled claim left Pending and consumed its face amount.
+    #[codec(index = 32)]
+    #[norito(rename = "reconciled_claim_settled")]
+    ReconciledClaimSettled(SccpReconciledClaimSettledV1),
+    /// Inbound payout moved to stranded because the fallback revision is quarantined.
+    #[codec(index = 33)]
+    #[norito(rename = "inbound_stranded")]
+    InboundStranded(SccpInboundStrandedV1),
+    /// A canonical citizen panel was seated.
+    #[codec(index = 34)]
+    #[norito(rename = "pause_panel_seated")]
+    PausePanelSeated(SccpPausePanelSeatedV1),
+    /// A canonical draw retained the previous panel.
+    #[codec(index = 35)]
+    #[norito(rename = "pause_panel_unavailable")]
+    PausePanelUnavailable(SccpPausePanelUnavailableV1),
+    /// A drawn citizen accepted the current panel position.
+    #[codec(index = 36)]
+    #[norito(rename = "pause_panel_seat_accepted")]
+    PausePanelSeatAccepted(SccpPausePanelSeatAcceptedV1),
+    /// A current seat holder publicly endorsed an emergency pause.
+    #[codec(index = 37)]
+    #[norito(rename = "fast_pause_endorsed")]
+    FastPauseEndorsed(SccpFastPauseEndorsedV1),
+    /// An emergency round failed a deterministic recheck.
+    #[codec(index = 38)]
+    #[norito(rename = "fast_pause_no_result")]
+    FastPauseNoResult(SccpFastPauseNoResultV1),
+    /// A certified emergency pause was enacted or renewed.
+    #[codec(index = 39)]
+    #[norito(rename = "fast_pause_enacted")]
+    FastPauseEnacted(SccpFastPauseEnactedV1),
+    /// A Parliament resume retained a newer emergency hold.
+    #[codec(index = 40)]
+    #[norito(rename = "fast_pause_retained")]
+    FastPauseRetained(SccpFastPauseRetainedV1),
+    /// A later Parliament ballot lifted an emergency hold part.
+    #[codec(index = 41)]
+    #[norito(rename = "fast_pause_cleared")]
+    FastPauseCleared(SccpFastPauseClearedV1),
 }
 
 #[cfg(test)]

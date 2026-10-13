@@ -8,8 +8,9 @@
 //! evidence hashes are well defined. The variant names the source chain and must match the
 //! instruction's network.
 //!
-//! A verified proof yields one [`SccpNormalizedEventV1`]: a `TransferToTaira` burn or a `Void`
-//! of outbound nonces, with the emitter the caller compares to the revision's deployment.
+//! A verified proof yields one [`SccpNormalizedEventV1`]: a `TransferToTaira` burn, a
+//! `Finalized` outbound mint or a `Void` of outbound nonces, with the emitter the caller
+//! compares to the revision's deployment.
 
 use iroha_data_model::{
     bridge::SccpNetworkV1,
@@ -36,6 +37,13 @@ use super::{
     ton::{TonEpochV1, TonLcAdvanceV1, TonLcBootstrapV1, TonLcEvidenceV1, TonSourceProofV1},
 };
 use crate::{ethereum_source::EthereumNativeLightClientBootstrapV1, v1::payload::PayloadAccountV1};
+
+/// Return the chain of a canonically shaped, non-Backfill keeper advance without allocating
+/// a decoded verifier graph. This confers no source validity or advancement authority.
+#[must_use]
+pub fn keeper_advance_network(bytes: &[u8]) -> Option<SccpNetworkV1> {
+    super::shape::keeper_network(bytes)
+}
 
 fn encode_frame<T: norito::NoritoSerialize>(
     value: &T,
@@ -407,7 +415,20 @@ impl SccpSourceEmitterV1 {
 
 /// Source event yielded by a verified proof (§4.12.1 step 4, §4.16).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum SccpNormalizedEventV1 {
+pub enum SccpNormalizedEventV1<Sender = PayloadAccountV1> {
+    /// An outbound mint finalized on the destination, authenticated by its source proof.
+    Finalized {
+        /// Emitting destination contract.
+        emitter: SccpSourceEmitterV1,
+        /// Canonical outbound message identity.
+        message_id: [u8; 32],
+        /// Route outbound nonce.
+        nonce: u64,
+        /// EVM logs carry exact Taira units; TON requires the bound payload preimage.
+        amount: Option<u128>,
+        /// Original event position.
+        locator: SccpSourceLocatorV1,
+    },
     /// A burn on the source chain (`SccpTransferToTaira` and equivalents).
     TransferToTaira {
         /// Emitting contract.
@@ -415,7 +436,7 @@ pub enum SccpNormalizedEventV1 {
         /// Message id the source contract computed.
         message_id: [u8; 32],
         /// Burning account in the payload's sender codec.
-        sender: PayloadAccountV1,
+        sender: Sender,
         /// Source per-sender nonce.
         nonce: u64,
         /// `payload_hash` of the payload the event carries.
@@ -440,12 +461,14 @@ pub enum SccpNormalizedEventV1 {
     },
 }
 
-impl SccpNormalizedEventV1 {
+impl<Sender> SccpNormalizedEventV1<Sender> {
     /// Emitting contract.
     #[must_use]
     pub const fn emitter(&self) -> &SccpSourceEmitterV1 {
         match self {
-            Self::TransferToTaira { emitter, .. } | Self::Void { emitter, .. } => emitter,
+            Self::Finalized { emitter, .. }
+            | Self::TransferToTaira { emitter, .. }
+            | Self::Void { emitter, .. } => emitter,
         }
     }
 
@@ -453,12 +476,14 @@ impl SccpNormalizedEventV1 {
     #[must_use]
     pub const fn locator(&self) -> &SccpSourceLocatorV1 {
         match self {
-            Self::TransferToTaira { locator, .. } | Self::Void { locator, .. } => locator,
+            Self::Finalized { locator, .. }
+            | Self::TransferToTaira { locator, .. }
+            | Self::Void { locator, .. } => locator,
         }
     }
 }
 
-/// Result of an accepted inbound or void proof.
+/// Result of an accepted inbound, finalized-mint or void proof.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SccpVerifiedProofV1 {
     /// Normalized source event.
@@ -576,7 +601,7 @@ mod tests {
         };
         assert_eq!(transfer.emitter(), &SccpSourceEmitterV1::Evm([1; 20]));
         assert_eq!(transfer.locator(), &locator);
-        let void = SccpNormalizedEventV1::Void {
+        let void: SccpNormalizedEventV1 = SccpNormalizedEventV1::Void {
             emitter: SccpSourceEmitterV1::Evm([1; 20]),
             kind: SccpVoidKindV1::Frozen,
             first_nonce: 1,

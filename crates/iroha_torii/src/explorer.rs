@@ -38,10 +38,11 @@ use iroha_torii_shared::qr::{EcLevel, QrCode, QrError};
 use mv::storage::StorageReadOnly;
 use norito::json::{self, Map, Value};
 use sha2::{Digest as _, Sha256};
+#[cfg(test)]
+use std::time::Duration;
 use std::{
     fmt,
     ops::Bound::{Excluded, Unbounded},
-    time::Duration,
 };
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 const ACCOUNT_QR_DIMENSION_PX: u32 = 192;
@@ -447,7 +448,7 @@ pub(crate) fn explorer_history_cursor_meta(
                 position,
             },
         )?),
-        (None, None) | (Some(_), None) => None,
+        (None | Some(_), None) => None,
         (None, Some(_)) => return Err(ExplorerCursorError::InvalidSnapshot),
     };
     Ok(ExplorerHistoryCursorMeta {
@@ -984,6 +985,7 @@ fn instruction_wire_id(instruction: &InstructionBox) -> &str {
     iroha_data_model::isi::instruction_wire_id(instruction)
         .expect("explorer instruction must have a canonical V1 wire identifier")
 }
+#[cfg(test)]
 fn duration_to_rfc3339(duration: Duration) -> String {
     const FALLBACK: &str = "1970-01-01T00:00:00Z";
     let nanos = i128::from(duration.as_secs())
@@ -2138,6 +2140,7 @@ pub(crate) fn rwas_page_for_filters<'world>(
         items: scanned.items,
     })
 }
+#[cfg(test)]
 pub(crate) fn block_created_at(duration: Duration) -> String {
     duration_to_rfc3339(duration)
 }
@@ -2644,7 +2647,7 @@ mod tests {
                 |candidate| *candidate,
                 |_| true,
                 |candidate| *candidate == 1_000,
-                |candidate| Ok(candidate),
+                Ok,
             )
             .expect("bounded visible scan");
             assert!(
@@ -2671,7 +2674,7 @@ mod tests {
             |candidate| *candidate,
             |candidate| *candidate % 2 == 0,
             |_| false,
-            |candidate| Ok(candidate),
+            Ok,
         )
         .expect("bounded authorized page");
         assert_eq!(page.scanned, 8);
@@ -2706,7 +2709,7 @@ mod tests {
             |candidate| *candidate,
             |candidate| *candidate == 0,
             |_| false,
-            |candidate| Ok(candidate),
+            Ok,
         )
         .expect("bounded hidden tail");
         assert!(!hidden_tail.has_more);
@@ -2724,7 +2727,7 @@ mod tests {
                 *candidate == 599
             },
             |_| false,
-            |candidate| Ok(candidate),
+            Ok,
         )
         .expect_err("a visible candidate beyond the raw scan bound must fail closed");
         assert_eq!(error, ExplorerCursorError::ScanLimitExceeded);
@@ -2949,7 +2952,7 @@ mod tests {
                 .and_then(Value::as_str),
             Some("Alice")
         );
-        assert!(std::ptr::eq(dto.metadata, &value.content));
+        assert!(std::ptr::eq(dto.metadata, &raw const value.content));
         assert_explorer_wire(
             &dto,
             norito::json!({
@@ -3005,7 +3008,7 @@ mod tests {
             held_quantity: Quantity::from(2_u32),
         });
         let dto = ExplorerRwaDto::from_entry(Ref::new(&id, &value));
-        assert!(std::ptr::eq(dto.metadata, &value.metadata));
+        assert!(std::ptr::eq(dto.metadata, &raw const value.metadata));
         assert_eq!(dto.parents.0.as_ptr(), value.parents.as_ptr());
         assert_explorer_wire(
             &dto,
@@ -3802,7 +3805,7 @@ mod tests {
         let bytes = norito::json::to_json_bounded_boxed(&dto, 4096)
             .expect("metrics dto should serialize within its finite response");
         let encoded = std::str::from_utf8(&bytes).expect("metrics payload should be utf-8");
-        let payload = norito::json::from_str::<Value>(&encoded)
+        let payload = norito::json::from_str::<Value>(encoded)
             .expect("serialized metrics json must be parseable");
         assert_eq!(payload["block_created_at"].as_str(), Some(timestamp));
         assert_eq!(

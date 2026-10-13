@@ -134,12 +134,12 @@ fn owner_capture(result_words: usize, shift: u64, root_return: bool) -> Value {
             .unwrap();
     }
     let before_failed = observe(&memory, result & !15);
-    assert_eq!(
+    assert!(matches!(
         memory
             .call_frames
             .finish(saved_sp, result, result_words as u64),
         Err(VMError::AssertionFailed)
-    );
+    ));
     assert_eq!(observe(&memory, result & !15), before_failed);
     memory.store_u8(end - 1, 0).unwrap();
     let before_return = observe(&memory, result & !15);

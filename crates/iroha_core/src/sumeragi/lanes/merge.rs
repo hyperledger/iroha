@@ -338,7 +338,7 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
     let Some(policy) = policy else {
         return Err(MergeError::Invalid("the chain has no lane policy".into()));
     };
-    let blocks = load(&section.merges, lanes, &policy, height, source, wait)?;
+    let blocks = load(&section.merges, lanes, policy, height, source, wait)?;
     step.merges.clone_from(&section.merges);
     // Candidates: the transactions of fresh merged blocks, in execution order.
     let candidates = blocks

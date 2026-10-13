@@ -409,7 +409,13 @@ impl Core {
                     view: self.view,
                     block_hash: bh,
                     result,
-                    certified: self.certified_results(bh).contains(&result),
+                    certified: self.certified_results(bh).contains(&result)
+                        || (cfg!(sumeragi_mutation = "MS67")
+                            && self
+                                .safety
+                                .as_ref()
+                                .and_then(|record| record.prepare)
+                                .is_some()),
                 };
                 let signer = self.keys.get(me.slot)?.signer.as_ref()?;
                 let signature = match signer.sign_prepare(&request, &admission) {

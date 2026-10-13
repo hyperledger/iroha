@@ -13,7 +13,7 @@ use iroha_model_base::topology::DataSpaceId;
 
 use super::{
     NativeAmxRecordProofErrorV1 as Error, NativeAmxRecordProofIssuedV1 as Issued,
-    NativeAmxRecordProofPollV1 as Poll,
+    NativeAmxRecordProofPollV1 as Poll, PortableProof,
 };
 use crate::{
     query::{native_context_archive::NativeContextArchiveError, native_receipts::amx_record_proof},
@@ -431,10 +431,10 @@ fn owned_issuer_carries_final_namespace_refusal_without_rebuilding_completed_gra
         matches!(cause, Error::Archive(NativeContextArchiveError::Io(ref error)) if error.kind() == std::io::ErrorKind::Other && error.to_string() == "native context record identity changed")
     );
     assert_eq!(budget.reserved_bytes(), retained);
-    assert_eq!(
-        proof_identity(original.source.portable.as_ref().unwrap().as_ref().unwrap()),
-        observed.get().unwrap()
-    );
+    let PortableProof::Completed(Some(proof)) = &original.source.portable else {
+        panic!("the original completed proof remains funded across namespace refusal");
+    };
+    assert_eq!(proof_identity(proof), observed.get().unwrap());
     drop(read);
     drop(view);
     assert!(matches!(

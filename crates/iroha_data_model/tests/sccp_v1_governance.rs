@@ -207,8 +207,8 @@ fn set_parameters(next: SccpParametersV1) -> SccpGovernanceActionV1 {
     SccpGovernanceActionV1::SetParameters(SccpSetParametersActionV1 { next })
 }
 
-/// One valid action of every kind, in declaration order, with distinct destination words.
-fn every_action() -> Vec<SccpGovernanceActionV1> {
+/// Core lifecycle actions that fit together within one proposal, in declaration order.
+fn lifecycle_actions() -> Vec<SccpGovernanceActionV1> {
     vec![
         register(ETH, evm([0x22; 20])),
         SccpGovernanceActionV1::ActivateRevision(revision(ETH, 1)),
@@ -229,6 +229,58 @@ fn every_action() -> Vec<SccpGovernanceActionV1> {
         set_parameters(SccpParametersV1::taira_default()),
         activate_profile(BSC, 2),
     ]
+}
+
+#[test]
+fn native_accountability_and_pause_actions_keep_exact_wire_tags() {
+    use iroha_data_model::sccp::governance::{
+        SccpAttestDeploymentProgressActionV1, SccpDeploymentProgressV1,
+        SccpOpenReconciliationActionV1, SccpSetFastPauseSuspendedActionV1,
+    };
+    for (index, tag, action) in [
+        (
+            15_u32,
+            "attest_deployment_progress",
+            SccpGovernanceActionV1::AttestSccpDeploymentProgress(
+                SccpAttestDeploymentProgressActionV1 {
+                    network: ETH,
+                    revision: 1,
+                    at: SccpDeploymentProgressV1::Frozen,
+                },
+            ),
+        ),
+        (
+            16,
+            "quarantine_revision",
+            SccpGovernanceActionV1::QuarantineSccpRevision(revision(ETH, 1)),
+        ),
+        (
+            17,
+            "open_reconciliation",
+            SccpGovernanceActionV1::OpenSccpReconciliation(SccpOpenReconciliationActionV1 {
+                network: ETH,
+                revision: 1,
+                window_ms: HOUR_MS,
+            }),
+        ),
+        (
+            18,
+            "set_fast_pause_suspended",
+            SccpGovernanceActionV1::SetFastPauseSuspended(SccpSetFastPauseSuspendedActionV1 {
+                network: ETH,
+                duration_ms: HOUR_MS,
+            }),
+        ),
+    ] {
+        roundtrip(&action);
+        assert!(action.encode().starts_with(&index.encode()));
+        let json = norito::json::to_json(&action).expect("action JSON");
+        assert!(json.contains(&format!("\"action\":\"{tag}\"")), "{json}");
+        assert_rejects_unknown_field(&action, &["payload"]);
+        let proposal = proposal(vec![action]);
+        assert_eq!(proposal.validate_static(&network_id(1)), Ok(()));
+        roundtrip(&proposal);
+    }
 }
 
 /// A proposal bound to `network_id(1)` whose base revisions are exactly `S(P)` at revision 0.
@@ -543,13 +595,14 @@ fn every_type_roundtrips_through_binary_frame_and_json() {
         });
     }
 
-    for action in every_action() {
+    for action in lifecycle_actions() {
         roundtrip(&action);
         match &action {
             SccpGovernanceActionV1::RegisterRoute(inner) => roundtrip(inner),
             SccpGovernanceActionV1::ActivateRevision(inner)
             | SccpGovernanceActionV1::DeactivateOutbound(inner)
             | SccpGovernanceActionV1::RetireRevision(inner)
+            | SccpGovernanceActionV1::QuarantineSccpRevision(inner)
             | SccpGovernanceActionV1::RemoveStaged(inner) => roundtrip(inner),
             SccpGovernanceActionV1::SwitchRevision(inner) => roundtrip(inner),
             SccpGovernanceActionV1::ReleaseStranded(inner) => roundtrip(inner),
@@ -560,13 +613,16 @@ fn every_type_roundtrips_through_binary_frame_and_json() {
             SccpGovernanceActionV1::FreezeLightClient(inner) => roundtrip(inner),
             SccpGovernanceActionV1::SetParameters(inner) => roundtrip(inner),
             SccpGovernanceActionV1::ActivateLightClientProfile(inner) => roundtrip(inner),
+            SccpGovernanceActionV1::AttestSccpDeploymentProgress(inner) => roundtrip(inner),
+            SccpGovernanceActionV1::OpenSccpReconciliation(inner) => roundtrip(inner),
+            SccpGovernanceActionV1::SetFastPauseSuspended(inner) => roundtrip(inner),
         }
     }
     roundtrip(&register(BSC, evm([0x34; 20])));
     roundtrip(&register_with(TON, ton([0x35; 32]), (1 << 96) - 1));
     roundtrip(&release(BSC, u128::MAX, "\u{3042}\u{3044} memo"));
 
-    let mut full = proposal(every_action());
+    let mut full = proposal(lifecycle_actions());
     for (index, entry) in full.base_revisions.iter_mut().enumerate() {
         entry.revision = u64::try_from(index).expect("small index") * 7;
     }
@@ -596,7 +652,7 @@ fn json_tags_are_snake_case() {
         "set_parameters",
         "activate_light_client_profile",
     ];
-    let every = every_action();
+    let every = lifecycle_actions();
     assert_eq!(every.len(), actions.len());
     for (action, tag) in every.iter().zip(actions) {
         assert_eq!(json_tag(action, "action"), tag);
@@ -710,7 +766,7 @@ fn proposal_json_carries_exact_integers_and_decimal_amounts() {
 #[test]
 fn unknown_binary_tags_are_rejected() {
     // 13 was the bridge-key fault clearing and 4 its subject; both stay unassigned.
-    for tag in [13_u32, 15, 16, 255, u32::MAX] {
+    for tag in [13_u32, 19, 20, 255, u32::MAX] {
         let mut encoded = tag.encode();
         encoded.extend_from_slice(&[0x11; 256]);
         assert!(
@@ -718,7 +774,7 @@ fn unknown_binary_tags_are_rejected() {
             "action tag {tag}"
         );
     }
-    for tag in [4_u32, 5, u32::MAX] {
+    for tag in [4_u32, 7, u32::MAX] {
         let mut encoded = tag.encode();
         encoded.extend_from_slice(&[0x11; 64]);
         assert!(
@@ -783,7 +839,7 @@ fn clear_bridge_key_fault_and_its_subject_do_not_decode() {
     assert!(norito::json::from_json::<SccpGovernanceProposalV1>(&renamed).is_err());
 
     // The surviving actions and subjects keep their codec indices; 13 and 4 are holes.
-    let actions = every_action();
+    let actions = lifecycle_actions();
     let indices: [u32; 14] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14];
     assert_eq!(actions.len(), indices.len());
     for (action, index) in actions.iter().zip(indices) {
@@ -804,7 +860,7 @@ fn clear_bridge_key_fault_and_its_subject_do_not_decode() {
 
 #[test]
 fn trailing_bytes_are_rejected() {
-    let mut encoded = proposal(every_action()).encode();
+    let mut encoded = proposal(lifecycle_actions()).encode();
     encoded.push(0);
     assert!(SccpGovernanceProposalV1::decode_all(&mut encoded.as_slice()).is_err());
 }
@@ -1497,8 +1553,8 @@ fn every_action_has_its_spec_subject() {
         SccpGovernanceSubjectV1::Parameters,
         SccpGovernanceSubjectV1::LightClient(BSC),
     ];
-    let actions = every_action();
-    assert_eq!(actions.len(), 14, "one action of every kind");
+    let actions = lifecycle_actions();
+    assert_eq!(actions.len(), 14, "one action of each lifecycle kind");
     assert_eq!(actions.len(), expected.len());
     for (action, subject) in actions.iter().zip(expected) {
         assert_eq!(action.subject(), subject, "{action:?}");
@@ -1558,7 +1614,7 @@ fn subjects_order_by_variant_then_value() {
 #[test]
 fn subject_list_is_sorted_and_deduplicated() {
     assert_eq!(
-        proposal(every_action()).subjects(),
+        proposal(lifecycle_actions()).subjects(),
         vec![
             SccpGovernanceSubjectV1::Route(ETH),
             SccpGovernanceSubjectV1::Route(BSC),
@@ -1609,7 +1665,7 @@ fn subject_list_is_sorted_and_deduplicated() {
 
 #[test]
 fn valid_proposals_pass() {
-    assert_eq!(validate(every_action()), Ok(()));
+    assert_eq!(validate(lifecycle_actions()), Ok(()));
     assert_eq!(
         validate(
             (0..SCCP_GOVERNANCE_MAX_ACTIONS_V1)
@@ -1626,7 +1682,7 @@ fn valid_proposals_pass() {
         ]),
         Ok(())
     );
-    let mut with_revisions = proposal(every_action());
+    let mut with_revisions = proposal(lifecycle_actions());
     for (index, entry) in with_revisions.base_revisions.iter_mut().enumerate() {
         entry.revision = u64::try_from(index).expect("small index") + 1;
     }
@@ -1635,7 +1691,7 @@ fn valid_proposals_pass() {
 
 #[test]
 fn network_id_must_equal_the_live_network() {
-    let proposal = proposal(every_action());
+    let proposal = proposal(lifecycle_actions());
     assert_eq!(proposal.validate_static(&network_id(1)), Ok(()));
     assert_eq!(
         proposal.validate_static(&network_id(2)),
@@ -2040,7 +2096,7 @@ fn set_parameters_applies_every_parameter_rule() {
 #[test]
 fn base_revisions_must_be_exactly_the_sorted_subject_list() {
     let live = network_id(1);
-    let valid = proposal(every_action());
+    let valid = proposal(lifecycle_actions());
     assert_eq!(valid.validate_static(&live), Ok(()));
 
     let mut missing = valid.clone();
@@ -2242,7 +2298,7 @@ fn every_payload_u64_is_bounded_by_two_to_the_fifty_three() {
         assert!(maximum.first_json_u64_violation().is_some(), "{field}");
     }
     // Actions without u64 fields never report a violation.
-    for action in every_action() {
+    for action in lifecycle_actions() {
         assert_eq!(action.first_json_u64_violation(), None, "{action:?}");
     }
 }
@@ -2250,7 +2306,7 @@ fn every_payload_u64_is_bounded_by_two_to_the_fifty_three() {
 #[test]
 fn base_revisions_are_bounded_by_two_to_the_fifty_three() {
     let live = network_id(1);
-    let mut at = proposal(every_action());
+    let mut at = proposal(lifecycle_actions());
     for entry in &mut at.base_revisions {
         entry.revision = JSON_MAX;
     }

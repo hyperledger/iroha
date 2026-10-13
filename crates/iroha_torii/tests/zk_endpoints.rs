@@ -11,7 +11,7 @@ use iroha_core::{
 use iroha_data_model::{NewAccount, prelude::*};
 use iroha_model_base::domain::DomainId;
 use nonzero_ext::nonzero;
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc};
 use tower::ServiceExt as _; // for Router::oneshot
 const ACCOUNT_SIGNATORY: &str =
     "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03";
@@ -109,7 +109,7 @@ fn state_with_registered_asset_definition() -> (Arc<CoreState>, String) {
     }
     transaction.apply();
     block.transactions.insert_block(
-        HashSet::<iroha_crypto::HashOf<iroha_data_model::transaction::TransactionEntrypoint>>::new(
+        BTreeSet::<iroha_crypto::HashOf<iroha_data_model::transaction::TransactionEntrypoint>>::new(
         ),
         nonzero!(1_usize),
     );

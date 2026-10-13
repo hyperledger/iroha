@@ -1797,10 +1797,10 @@ mod tests {
                 vm.set_register(10, schema_pointer);
                 vm.set_register(11, table);
                 vm.set_register(12, 1);
-                assert_eq!(
+                assert!(matches!(
                     encode_state_value(&mut vm, identity_address),
                     Err(VMError::DecodeError)
-                );
+                ));
                 assert_eq!(vm.register(10), schema_pointer);
                 assert_eq!(vm.memory.heap_allocated_len(), heap_before);
             })
@@ -1820,7 +1820,10 @@ mod tests {
                 skip_state_node(&schema.nodes, &mut skipped).expect("skip nested Options");
                 assert_eq!(skipped, DEPTH + 1);
                 let mut counted = 0;
-                assert_eq!(state_node_word_count(&schema.nodes, &mut counted), Ok(1));
+                assert!(matches!(
+                    state_node_word_count(&schema.nodes, &mut counted),
+                    Ok(1)
+                ));
                 assert_eq!(counted, DEPTH + 1);
                 let mut vm = IVM::new(u64::MAX);
                 let schema_pointer = install_schema(&mut vm, &schema);
@@ -1896,10 +1899,10 @@ mod tests {
             }],
         };
         let canonical = encode_canonical_norito(&descriptor).expect("canonical descriptor");
-        assert_eq!(
+        assert!(matches!(
             validate_pointer_payload(StateValueKindV1::AxtDescriptor, &canonical),
             Ok(())
-        );
+        ));
         let alternate_flags =
             norito::core::default_encode_flags() ^ norito::core::header_flags::COMPACT_LEN;
         let alternate = {
@@ -1907,38 +1910,38 @@ mod tests {
             to_bytes(&descriptor).expect("alternate descriptor")
         };
         assert_ne!(alternate, canonical);
-        assert_eq!(
+        assert!(matches!(
             validate_pointer_payload(StateValueKindV1::AxtDescriptor, &alternate),
             Err(VMError::DecodeError)
-        );
+        ));
         let invalid_descriptor = AxtDescriptor {
             dsids: Vec::new(),
             touches: Vec::new(),
         };
-        assert_eq!(
+        assert!(matches!(
             validate_pointer_payload(
                 StateValueKindV1::AxtDescriptor,
                 &encode_canonical_norito(&invalid_descriptor).expect("encode invalid descriptor"),
             ),
             Err(VMError::DecodeError)
-        );
+        ));
         let invalid_proof = ProofBlob {
             payload: Vec::new(),
             expiry_slot: Some(0),
         };
-        assert_eq!(
+        assert!(matches!(
             validate_pointer_payload(
                 StateValueKindV1::ProofBlob,
                 &encode_canonical_norito(&invalid_proof).expect("encode invalid proof"),
             ),
             Err(VMError::DecodeError)
-        );
+        ));
         let _ambient = norito::core::DecodeFlagsGuard::enter(alternate_flags);
         let ambient_before = to_bytes(&descriptor).expect("ambient descriptor");
-        assert_eq!(
+        assert!(matches!(
             validate_pointer_payload(StateValueKindV1::AxtDescriptor, &canonical),
             Ok(())
-        );
+        ));
         assert_eq!(
             to_bytes(&descriptor).expect("ambient descriptor after validation"),
             ambient_before
@@ -1976,7 +1979,15 @@ mod tests {
         vm.set_register(10, schema_pointer);
         vm.set_register(11, table);
         vm.set_register(12, 3);
-        assert_eq!(encode_state_value(&mut vm, identity_address), Err(expected));
+        let actual = encode_state_value(&mut vm, identity_address).unwrap_err();
+        assert!(
+            matches!(
+                (&actual, &expected),
+                (VMError::DecodeError, VMError::DecodeError)
+                    | (VMError::NoritoInvalid, VMError::NoritoInvalid)
+            ),
+            "mixed pointer rejection differs: {actual:?} != {expected:?}"
+        );
         assert_eq!(
             vm.register(10),
             schema_pointer,
@@ -2109,10 +2120,10 @@ mod tests {
         vm.set_register(10, schema_pointer);
         vm.set_register(11, table);
         vm.set_register(12, 2);
-        assert_eq!(
+        assert!(matches!(
             encode_state_value(&mut vm, identity_address),
             Err(VMError::DecodeError)
-        );
+        ));
     }
     #[test]
     fn ordinary_enum_state_roundtrip_keeps_codes_out_of_error_domain() {
@@ -2145,10 +2156,10 @@ mod tests {
             vm.set_register(10, schema_pointer);
             vm.set_register(11, table);
             vm.set_register(12, 1);
-            assert_eq!(
+            assert!(matches!(
                 encode_state_value(&mut vm, identity_address),
                 Err(VMError::DecodeError)
-            );
+            ));
         }
     }
     #[test]
@@ -2296,10 +2307,10 @@ mod tests {
         };
         let record = to_bytes(&record).expect("record bytes");
         let vm = IVM::new(u64::MAX);
-        assert_eq!(
+        assert!(matches!(
             validate_state_value_record(&vm, &schema, &record),
             Err(VMError::DecodeError)
-        );
+        ));
     }
     #[test]
     fn bytes_normalization_does_not_widen_other_pointer_types() {
@@ -2318,10 +2329,10 @@ mod tests {
         vm.set_register(10, bytes_schema_pointer);
         vm.set_register(11, table);
         vm.set_register(12, 1);
-        assert_eq!(
+        assert!(matches!(
             encode_state_value(&mut vm, identity_address),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let string_schema_pointer = install_schema(&mut vm, &string_schema);
         let norito_bytes = install_pointer(&mut vm, PointerType::NoritoBytes, b"text");
         vm.store_u64(table, norito_bytes)
@@ -2329,10 +2340,10 @@ mod tests {
         vm.set_register(10, string_schema_pointer);
         vm.set_register(11, table);
         vm.set_register(12, 1);
-        assert_eq!(
+        assert!(matches!(
             encode_state_value(&mut vm, identity_address),
             Err(VMError::NoritoInvalid)
-        );
+        ));
     }
     #[test]
     fn decode_rejects_schema_mismatch() {
@@ -2398,10 +2409,10 @@ mod tests {
         let record_pointer = vm.alloc_host_tlv(&record).expect("install record");
         vm.set_register(10, schema_pointer);
         vm.set_register(11, record_pointer);
-        assert_eq!(
+        assert!(matches!(
             decode_state_value(&mut vm, identity_address),
             Err(VMError::DecodeError)
-        );
+        ));
     }
     #[test]
     fn missing_record_is_rejected_before_any_output_allocation() {
@@ -2415,10 +2426,10 @@ mod tests {
         let schema_pointer = install_schema(&mut vm, &schema);
         vm.set_register(10, schema_pointer);
         vm.set_register(11, 0);
-        assert_eq!(
+        assert!(matches!(
             decode_state_value(&mut vm, identity_address),
             Err(VMError::DecodeError)
-        );
+        ));
         assert_eq!(vm.register(10), schema_pointer);
     }
     #[test]
@@ -2441,9 +2452,11 @@ mod tests {
         vm.set_register(10, schema_pointer);
         vm.set_register(11, table);
         vm.set_register(12, 1);
-        assert_eq!(
-            encode_state_value(&mut vm, identity_address),
-            Err(VMError::DecodeError),
+        assert!(
+            matches!(
+                encode_state_value(&mut vm, identity_address),
+                Err(VMError::DecodeError)
+            ),
             "an inactive payload word is not part of the V1 value"
         );
         let none = crate::sum::allocate_words(&mut vm, option_layout, 0, &[])
@@ -2465,10 +2478,10 @@ mod tests {
         vm.set_register(10, schema_pointer);
         vm.set_register(11, table);
         vm.set_register(12, 1);
-        assert_eq!(
+        assert!(matches!(
             encode_state_value(&mut vm, identity_address),
             Err(VMError::DecodeError)
-        );
+        ));
     }
     #[test]
     fn typed_pointer_leaf_rejects_a_hash_valid_but_malformed_payload() {
@@ -2486,10 +2499,10 @@ mod tests {
         vm.set_register(10, schema_pointer);
         vm.set_register(11, table);
         vm.set_register(12, 1);
-        assert_eq!(
+        assert!(matches!(
             encode_state_value(&mut vm, identity_address),
             Err(VMError::DecodeError)
-        );
+        ));
     }
     #[test]
     fn mixed_pointer_scalar_record_rejects_missing_stale_and_malformed_dynamic_pointers() {
@@ -2585,10 +2598,10 @@ mod tests {
         vm.set_register(10, schema_pointer);
         vm.set_register(11, overflow_table);
         vm.set_register(12, 1);
-        assert_eq!(
+        assert!(matches!(
             encode_state_value(&mut vm, identity_address),
             Err(VMError::DecodeError)
-        );
+        ));
     }
     #[test]
     fn list_of_nested_option_results_roundtrips_active_only_handles() {

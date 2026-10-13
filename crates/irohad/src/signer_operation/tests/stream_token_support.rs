@@ -275,10 +275,10 @@ impl SignerOperationStateSourceV1 for StreamSource {
         if state.fail_completed_phase == Some(phase) || state.fail_observe {
             return Err(SignerOperationErrorV1::StateUnavailable);
         }
-        if phase == SignerCommittedObservationPhaseV1::BeforeRelease {
-            if let Some(mutation) = state.mutate_at_release.take() {
-                state.mutate(mutation);
-            }
+        if phase == SignerCommittedObservationPhaseV1::BeforeRelease
+            && let Some(mutation) = state.mutate_at_release.take()
+        {
+            state.mutate(mutation);
         }
         let exact = (
             request.check().reservation(),
@@ -524,7 +524,7 @@ impl Harness {
             )
             .unwrap();
         let activated = transition
-            .finish_custody_activation(self.source.base.as_ref(), prepared, audit)
+            .finish_custody_activation(self.source.base.as_ref(), &prepared, audit)
             .unwrap();
         let custody = SignerOperationCustodyV1::from_verified(activated.activation().unwrap());
         (bytes, custody)

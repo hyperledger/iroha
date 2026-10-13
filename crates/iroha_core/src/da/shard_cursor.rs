@@ -914,8 +914,7 @@ impl DaShardCursorJournal {
                 source: io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!(
-                        "DA shard cursor journal exceeds its {}-byte hard limit",
-                        SHARD_CURSOR_JOURNAL_MAX_BYTES
+                        "DA shard cursor journal exceeds its {SHARD_CURSOR_JOURNAL_MAX_BYTES}-byte hard limit"
                     ),
                 ),
             });
@@ -1201,7 +1200,7 @@ impl DaShardCursorJournal {
                     source: err,
                 });
             }
-        };
+        }
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
                 sync_dir(parent).map_err(|source| ShardCursorJournalError::Write {
@@ -1746,7 +1745,7 @@ mod tests {
                 settlement: None,
                 storage: LaneStorageProfile::FullReplica,
                 proof_scheme: DaProofScheme::default(),
-                manifest_policy: Default::default(),
+                manifest_policy: iroha_data_model::nexus::DaManifestPolicy::default(),
                 confidential_compute: None,
                 scheduler: None,
                 settlement_buffer: None,

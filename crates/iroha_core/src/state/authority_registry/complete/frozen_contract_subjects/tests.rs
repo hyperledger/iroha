@@ -116,7 +116,7 @@ fn expected_world() -> World {
     world
         .contract_subject_bindings
         .insert(other_address(), other);
-    *world
+    world
 }
 fn without_allocations<T>(run: impl FnOnce() -> T) -> T {
     let mut value = None;

@@ -81,20 +81,20 @@ pub enum AdvertIngest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdvertWarning {
     /// Provider advert omitted the required `chunk_range_fetch` capability.
-    MissingChunkRangeCapability,
+    ChunkRangeCapability,
     /// Provider advert omitted the required stream budget for range fetch.
-    MissingStreamBudget,
+    StreamBudget,
     /// Provider advert omitted transport hints for range fetch.
-    MissingTransportHints,
+    TransportHints,
 }
 impl AdvertWarning {
     /// Returns the canonical telemetry reason label.
     #[must_use]
     pub fn telemetry_reason(self) -> &'static str {
         match self {
-            AdvertWarning::MissingChunkRangeCapability => "missing_chunk_range",
-            AdvertWarning::MissingStreamBudget => "missing_stream_budget",
-            AdvertWarning::MissingTransportHints => "missing_transport_hints",
+            AdvertWarning::ChunkRangeCapability => "missing_chunk_range",
+            AdvertWarning::StreamBudget => "missing_stream_budget",
+            AdvertWarning::TransportHints => "missing_transport_hints",
         }
     }
     /// Returns a short identifier suitable for JSON responses.
@@ -177,8 +177,12 @@ impl ProviderAdvertValidationPolicy {
             .admission
             .entry(&provider_id)
             .ok_or(AdvertError::AdmissionMissing { provider_id })?;
-        verify_advert_against_envelope(&advert, &admission_entry)
-            .map_err(|error| AdvertError::AdmissionFailed { provider_id, error })?;
+        verify_advert_against_envelope(&advert, &admission_entry).map_err(|error| {
+            AdvertError::AdmissionFailed {
+                provider_id,
+                error: Box::new(error),
+            }
+        })?;
         let warnings = collect_warnings(&advert);
         let fingerprint = fingerprint(&advert)?;
         Ok(PreparedProviderAdvert {
@@ -353,7 +357,7 @@ pub enum AdvertError {
         /// Provider identifier whose admission failed.
         provider_id: [u8; 32],
         /// Reason the admission check rejected the advert.
-        error: ProviderAdmissionAdvertError,
+        error: Box<ProviderAdmissionAdvertError>,
     },
 }
 impl ReplayCheckpointStore {
@@ -1106,8 +1110,12 @@ impl ProviderAdvertCache {
             .admission
             .entry(&provider_id)
             .ok_or(AdvertError::AdmissionMissing { provider_id })?;
-        verify_advert_against_envelope(&advert, &admission_entry)
-            .map_err(|error| AdvertError::AdmissionFailed { provider_id, error })?;
+        verify_advert_against_envelope(&advert, &admission_entry).map_err(|error| {
+            AdvertError::AdmissionFailed {
+                provider_id,
+                error: Box::new(error),
+            }
+        })?;
         let previous = self.by_provider.get(&provider_id).copied();
         if let Some(prev_fp) = previous {
             if prev_fp == fingerprint {
@@ -1321,10 +1329,10 @@ fn collect_warnings(advert: &ProviderAdvertV1) -> Vec<AdvertWarning> {
         .iter()
         .any(|cap| cap.cap_type == CapabilityType::ChunkRangeFetch);
     if !has_chunk_range {
-        warnings.push(AdvertWarning::MissingChunkRangeCapability);
+        warnings.push(AdvertWarning::ChunkRangeCapability);
     } else {
         if advert.body.stream_budget.is_none() {
-            warnings.push(AdvertWarning::MissingStreamBudget);
+            warnings.push(AdvertWarning::StreamBudget);
         }
         if advert
             .body
@@ -1332,7 +1340,7 @@ fn collect_warnings(advert: &ProviderAdvertV1) -> Vec<AdvertWarning> {
             .as_ref()
             .map_or(true, Vec::is_empty)
         {
-            warnings.push(AdvertWarning::MissingTransportHints);
+            warnings.push(AdvertWarning::TransportHints);
         }
     }
     warnings

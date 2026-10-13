@@ -281,11 +281,17 @@ impl CanonicalHost {
 }
 
 /// Validate and canonicalize a host name or IP literal for another Kagami command.
+///
+/// # Errors
+/// Returns an error when the input is not an accepted host name or IP literal.
 pub fn canonical_host(raw: &str, field: &str) -> Result<String> {
     Ok(CanonicalHost::parse(raw, field)?.url_host())
 }
 
 /// Validate a non-zero endpoint and render its canonical socket-address literal.
+///
+/// # Errors
+/// Returns an error for a zero port or an invalid host name or IP literal.
 pub fn canonical_endpoint_literal(raw: &str, field: &str, port: u16) -> Result<String> {
     ensure!(port != 0, "`{field}` port must be greater than zero");
     Ok(CanonicalHost::parse(raw, field)?.addr_literal(port))
@@ -320,7 +326,7 @@ impl SoraProfile {
 pub enum LocalnetPerfProfile {
     /// 10k TPS / 1s finality baseline for permissioned mode.
     Throughput10kPermissioned,
-    /// 10k TPS / 1s finality baseline for NPoS mode.
+    /// 10k TPS / 1s finality baseline for `NPoS` mode.
     Throughput10kNpos,
 }
 #[derive(Debug, Clone, Copy)]
@@ -358,9 +364,6 @@ pub fn consensus_mode_label(mode: SumeragiConsensusMode) -> &'static str {
 /// Default chain label for independently identified disposable localnets.
 pub const DEFAULT_CHAIN_ID: &str = "00000000-0000-0000-0000-000000000000";
 const TAIRA_TESTNET_PEERS: u16 = 4;
-const TAIRA_SORACLOUD_HYDRATION_CONCURRENCY: i64 = taira_defaults::HYDRATION_CONCURRENCY as i64;
-const TAIRA_SORACLOUD_PREPARED_RUNTIME_CACHE_CAPACITY: i64 =
-    taira_defaults::PREPARED_RUNTIME_CACHE_CAPACITY as i64;
 const TAIRA_RUNTIME_SIGNER_SEED_DOMAIN: &[u8] = b"iroha:kagami:taira:runtime-signer:v1|";
 const TAIRA_RUNTIME_SIGNER_REVISION: u64 = 1;
 const TAIRA_RUNTIME_SIGNER_POLICY_DIGEST_DOMAIN: &[u8] =
@@ -486,11 +489,11 @@ const LOCALNET_INTERNAL_API_TRUSTED_CIDRS: [&str; 2] = ["127.0.0.1/32", "::1/128
 const LOCALNET_TELEMETRY_PROFILE: &str = "extended";
 /// Minimum peer count for generated localnets.
 const LOCALNET_MIN_PEERS: u16 = 4;
-/// Divisor applied to derive the localnet NPoS aggregator fallback timeout.
+/// Divisor applied to derive the localnet `NPoS` aggregator fallback timeout.
 /// Keep this at 1 so aggregators do not time out before quorum on fast pipelines.
 /// Default max transactions per block for localnet (targets 10k TPS).
 const LOCALNET_BLOCK_MAX_TRANSACTIONS: u64 = 10_000;
-/// Default stake bonded per localnet validator (raised to meet min_self_bond).
+/// Default stake bonded per localnet validator (raised to meet `min_self_bond`).
 const LOCALNET_STAKE_AMOUNT: u64 = 10_000;
 const LOCALNET_FAUCET_AUTHORITY_BALANCE: u64 = 1_000_000_000;
 const LOCALNET_FEE_SPONSOR_PROGRAM_NAME: &str = "default";
@@ -894,6 +897,9 @@ pub fn localnet_sample_asset_literal() -> String {
     canonical_asset_definition_literal(LOCALNET_SAMPLE_ASSET_DOMAIN, LOCALNET_SAMPLE_ASSET_NAME)
 }
 /// Validate an explicitly requested definition and build its developer bootstrap specification.
+///
+/// # Errors
+/// Returns an error when the supplied asset definition address is empty or invalid.
 pub fn requested_localnet_asset_spec(asset_definition_id: &str) -> Result<AssetSpec> {
     let id = asset_definition_id.trim();
     if id.is_empty() {
@@ -1149,6 +1155,9 @@ fn localnet_client_account_literal(chain_discriminant: Option<u16>) -> String {
 #[allow(clippy::too_many_lines)]
 /// Generate a localnet with an optional canonical chain identity and account-address prefix.
 /// Fixed public chain prefixes reject conflicting explicit values before any output is created.
+///
+/// # Errors
+/// Returns validation, key generation, genesis staging, filesystem, or output errors before a complete network can be generated.
 pub fn generate_localnet_with_chain<T: Write>(
     opts: &LocalnetOptions,
     writer: &mut BufWriter<T>,
@@ -1159,6 +1168,9 @@ pub fn generate_localnet_with_chain<T: Write>(
 }
 
 /// Materialize a native managed localnet without shell launchers or inherited seed descriptors.
+///
+/// # Errors
+/// Returns validation, key generation, genesis staging, or filesystem errors while materializing the managed network.
 pub fn generate_managed_localnet(opts: &LocalnetOptions) -> Result<()> {
     generate_managed_localnet_at(opts, None)
 }
@@ -1365,6 +1377,19 @@ fn generate_localnet_runtime<T: Write>(
         genesis =
             append_localnet_permissioned_support_accounts(genesis, &peers, &gas_account_id, taira)?;
     }
+    // Reset history lives beside network directories, so replacing a network cannot
+    // erase the consumed nonce or final signed identity of an earlier reset.
+    let sccp_reset = if taira {
+        let history = out_dir
+            .parent()
+            .ok_or_else(|| eyre!("Taira output has no parent"))?
+            .join("sccp-reset-history");
+        let nonce = crate::genesis::sccp::fresh_reset_nonce(&history)?;
+        genesis = crate::genesis::sccp::append_profile(genesis, nonce)?;
+        Some((history, nonce))
+    } else {
+        None
+    };
     genesis = apply_localnet_crypto_overrides(genesis)?;
     let alias_setup_request =
         localnet_alias_setup_request(&genesis_account_id, &client_identity.account_id, taira)?;
@@ -1477,7 +1502,7 @@ fn generate_localnet_runtime<T: Write>(
         manifest: &genesis,
         creation_time_ms: service_authorities
             .as_ref()
-            .map(|authorities| authorities.creation_time_ms()),
+            .map(service_authorities::GeneratedAuthorities::creation_time_ms),
         public_key: &genesis_public_key,
         private_key: genesis_private.clone(),
         config: &config,
@@ -1489,6 +1514,13 @@ fn generate_localnet_runtime<T: Write>(
             confidential_policy_hash,
         },
     })?;
+    if let Some((history, nonce)) = &sccp_reset {
+        crate::genesis::sccp::record_network_identity(
+            history,
+            *nonce,
+            genesis_expected_hash.as_ref(),
+        )?;
+    }
     write_and_validate_genesis_expected_hash(
         &genesis_expected_hash_path,
         &genesis_signed_path,
@@ -1586,50 +1618,48 @@ fn generate_localnet_runtime<T: Write>(
                 genesis_expected_hash
             ));
         }
-        if idx == 0 {
-            if let Some(authorities) = service_authorities.as_ref() {
-                ensure!(
-                    hosts.public.url_host() == "127.0.0.1",
-                    "generated publication requires original numeric loopback Torii endpoints"
-                );
-                let signed =
-                    iroha_fs::read_private(&genesis_signed_path, SIGNED_GENESIS_MAX_BYTES_V1)?;
-                // Staging binds new consensus commitments into the published manifest. Project
-                // the exact persisted bound bytes paired with this signed block.
-                let bound_json = iroha_fs::read_private(
-                    &genesis_json_path,
-                    iroha_genesis::GENESIS_MANIFEST_JSON_MAX_BYTES_V1,
-                )?;
-                validate_genesis_manifest_json(&bound_json)?;
-                let bound_manifest = RawGenesisTransaction::from_json_slice_at_path(
-                    &bound_json,
-                    &genesis_json_path,
-                )?;
-                publication_client_selection = Some(authorities.publication_client_selection(
-                    &bound_manifest,
-                    &signed,
-                    &parsed_config,
-                    &out_dir,
-                    &client_identity.account_id,
-                    opts.base_api_port,
-                )?);
-            }
+        if idx == 0
+            && let Some(authorities) = service_authorities.as_ref()
+        {
+            ensure!(
+                hosts.public.url_host() == "127.0.0.1",
+                "generated publication requires original numeric loopback Torii endpoints"
+            );
+            let signed = iroha_fs::read_private(&genesis_signed_path, SIGNED_GENESIS_MAX_BYTES_V1)?;
+            // Staging binds new consensus commitments into the published manifest. Project
+            // the exact persisted bound bytes paired with this signed block.
+            let bound_json = iroha_fs::read_private(
+                &genesis_json_path,
+                iroha_genesis::GENESIS_MANIFEST_JSON_MAX_BYTES_V1,
+            )?;
+            validate_genesis_manifest_json(&bound_json)?;
+            let bound_manifest =
+                RawGenesisTransaction::from_json_slice_at_path(&bound_json, &genesis_json_path)?;
+            publication_client_selection = Some(authorities.publication_client_selection(
+                &bound_manifest,
+                &signed,
+                &parsed_config,
+                &out_dir,
+                &client_identity.account_id,
+                opts.base_api_port,
+            )?);
         }
-        if idx < 3 && managed {
-            if let Some(authorities) = service_authorities.as_ref() {
-                authorities.initialize_native_attestation(
+        if idx < 3
+            && managed
+            && let Some(authorities) = service_authorities.as_ref()
+        {
+            authorities.initialize_native_attestation(
+                &out_dir,
+                &parsed_config.torii.sorafs_storage.data_dir,
+                genesis_expected_hash,
+                idx,
+            )?;
+            if idx == 0 {
+                authorities.initialize_publication(
                     &out_dir,
-                    &parsed_config.torii.sorafs_storage.data_dir,
                     genesis_expected_hash,
-                    idx,
+                    &client_identity.account_id,
                 )?;
-                if idx == 0 {
-                    authorities.initialize_publication(
-                        &out_dir,
-                        genesis_expected_hash,
-                        &client_identity.account_id,
-                    )?;
-                }
             }
         }
         let rendered = match publication_root {
@@ -1711,14 +1741,14 @@ fn generate_localnet_runtime<T: Write>(
     )
     .wrap_err("validate fresh localnet private artifact tree")?;
     writeln!(writer, "out_dir: {}", out_dir.display())?;
-    writeln!(writer, "chain_id: {}", chain_id)?;
+    writeln!(writer, "chain_id: {chain_id}")?;
     writeln!(
         writer,
         "consensus_mode: {}",
         consensus_mode_label(opts.consensus_mode)
     )?;
     writeln!(writer, "peers: {}", opts.peers.get())?;
-    writeln!(writer, "torii_url: {}", primary_torii_url)?;
+    writeln!(writer, "torii_url: {primary_torii_url}")?;
     writeln!(writer, "genesis_json: {}", genesis_json_path.display())?;
     writeln!(writer, "genesis_signed: {}", genesis_signed_path.display())?;
     writeln!(
@@ -1771,7 +1801,7 @@ fn generate_localnet_runtime<T: Write>(
         shell_out_dir,
         localnet_script_command("start.sh")
     )?;
-    writeln!(writer, "next_health: curl -sf {}health", primary_torii_url)?;
+    writeln!(writer, "next_health: curl -sf {primary_torii_url}health")?;
     writeln!(
         writer,
         "next_stop: cd {} && {}",
@@ -2374,6 +2404,9 @@ fn localnet_public_validator_lanes(sora_profile: Option<SoraProfile>, taira: boo
     lanes
 }
 /// Validate a disposable network chain label, refusing public mainnet impersonation.
+///
+/// # Errors
+/// Returns an error for an empty, noncanonical, retired, or public-mainnet chain identity.
 pub fn resolve_localnet_chain_id(configured: Option<&str>) -> Result<String> {
     let chain_id = configured.unwrap_or(DEFAULT_CHAIN_ID);
     if chain_id.is_empty() {
@@ -2534,11 +2567,17 @@ fn render_peer_config(
         soracloud_runtime.insert("production_mode".into(), Value::Boolean(true));
         soracloud_runtime.insert(
             "hydration_concurrency".into(),
-            Value::Integer(TAIRA_SORACLOUD_HYDRATION_CONCURRENCY),
+            Value::Integer(
+                i64::try_from(taira_defaults::HYDRATION_CONCURRENCY)
+                    .expect("Taira hydration concurrency fits TOML integer"),
+            ),
         );
         soracloud_runtime.insert(
             "prepared_runtime_cache_capacity".into(),
-            Value::Integer(TAIRA_SORACLOUD_PREPARED_RUNTIME_CACHE_CAPACITY),
+            Value::Integer(
+                i64::try_from(taira_defaults::PREPARED_RUNTIME_CACHE_CAPACITY)
+                    .expect("Taira runtime cache capacity fits TOML integer"),
+            ),
         );
         let (_, runtime_public_key) = peer
             .runtime_signer_public_key
@@ -2663,6 +2702,19 @@ fn render_peer_config(
         "slash_sink_account_id".into(),
         Value::String(gas_account_id.to_owned()),
     );
+    if taira {
+        staking.insert(
+            "unbonding_delay_ms".into(),
+            Value::Integer(
+                i64::try_from(crate::genesis::sccp::UNBONDING_DELAY_MS)
+                    .expect("SCCP unbonding delay fits TOML integer"),
+            ),
+        );
+        staking.insert(
+            "max_slash_bps".into(),
+            Value::Integer(i64::from(crate::genesis::sccp::MAX_SLASH_BPS)),
+        );
+    }
     nexus.insert("staking".into(), Value::Table(staking));
     if npos_bootstrap || chain_discriminant.is_some() {
         let fee_asset_id = localnet_xor_asset_literal();
@@ -3752,7 +3804,7 @@ fn append_peer_pop(
 /// Sign the native lane policy of a multi-lane Global catalog into the genesis parameters.
 ///
 /// Every non-zero catalog lane becomes a fixed native lane of its catalog dataspace, served by
-/// the complete genesis topology (canonical committee order, genesis PoPs). Only the catalog's
+/// the complete genesis topology (canonical committee order, genesis `PoPs`). Only the catalog's
 /// account-matcher routes are carried over; instruction-only routes are not, and a dataspace
 /// without an account route (the Public BPNG dataspace) routes by target dataspace. Without
 /// this policy a dataspace-targeted transaction has no execution route, and light clients
@@ -3787,7 +3839,11 @@ fn append_localnet_native_lane_policy(
         "generated localnet genesis already sets a native lane policy"
     );
     let mut pops = std::collections::BTreeMap::new();
-    for entry in genesis.transactions().iter().flat_map(|tx| tx.topology()) {
+    for entry in genesis
+        .transactions()
+        .iter()
+        .flat_map(iroha_genesis::RawGenesisTx::topology)
+    {
         let pop = entry.pop_bytes()?.ok_or_else(|| {
             eyre!(
                 "genesis topology peer {} has no proof of possession",
@@ -4397,7 +4453,7 @@ fn append_localnet_npos_bootstrap(
     .build_raw()
 }
 /// Permissioned localnets register the Nexus support accounts and every validator account, but
-/// stake nothing: staking is NPoS-only (the network XOR identity lives in the signed NPoS
+/// stake nothing: staking is NPoS-only (the network XOR identity lives in the signed `NPoS`
 /// parameters), and the committee is the genesis roster (`RegisterPeerWithPop`).
 fn append_localnet_permissioned_support_accounts(
     genesis: RawGenesisTransaction,
@@ -4751,7 +4807,7 @@ fn write_genesis(context: GenesisWriteContext<'_>) -> Result<HashOf<BlockHeader>
     }
     custody::write(signed_path, &framed)?;
     custody::write(
-        &signed_path.with_file_name("nexus-amx-context.v1.bin"),
+        signed_path.with_file_name("nexus-amx-context.v1.bin"),
         &nexus_context,
     )?;
     Ok(expected_hash)
@@ -4913,12 +4969,12 @@ where
                     .to_owned()
                 })
             });
-        if let Some(category) = category {
-            if !categories.contains(&category) {
-                categories.push(category);
-                if categories.len() == 8 {
-                    break;
-                }
+        if let Some(category) = category
+            && !categories.contains(&category)
+        {
+            categories.push(category);
+            if categories.len() == 8 {
+                break;
             }
         }
     }
@@ -5395,7 +5451,12 @@ pub fn validate_beacon_launch(
         let network_id = NetworkId::from_genesis_hash(initial.genesis.expected_hash);
         let genesis_path = network_dir.join("genesis.signed.nrt");
         ensure!(
-            initial.genesis.file.as_ref().map(|file| file.value()) == Some(&genesis_path),
+            initial
+                .genesis
+                .file
+                .as_ref()
+                .map(iroha_config_base::WithOrigin::value)
+                == Some(&genesis_path),
             "private Taira genesis must remain inside this generated network"
         );
         let genesis = read_signed_genesis(&genesis_path)?;
@@ -5442,13 +5503,15 @@ pub fn validate_beacon_launch(
         validate_beacon_credential_seat(
             &credential_budget,
             &credential_bytes,
-            &network_id,
-            handle,
-            revision,
-            digest,
-            initial.common.peer.id(),
-            seat,
-            &expected_session,
+            BeaconCredentialSeat {
+                network_id: &network_id,
+                handle,
+                revision,
+                digest,
+                peer: initial.common.peer.id(),
+                seat,
+                expected_session: &expected_session,
+            },
         )?;
 
         let signer_path = network_dir
@@ -5656,17 +5719,32 @@ fn reserve_private_beacon_listeners(
 }
 
 #[cfg(unix)]
+#[derive(Clone, Copy)]
+struct BeaconCredentialSeat<'a> {
+    network_id: &'a NetworkId,
+    handle: &'a str,
+    revision: u64,
+    digest: [u8; 32],
+    peer: &'a PeerId,
+    seat: u16,
+    expected_session: &'a iroha_data_model::consensus::GlobalThresholdBeaconDkgSessionV1,
+}
+
+#[cfg(unix)]
 fn validate_beacon_credential_seat(
     budget: &iroha_core::state::AllocationBudget,
     bytes: &[u8],
-    network_id: &NetworkId,
-    handle: &str,
-    revision: u64,
-    digest: [u8; 32],
-    peer: &PeerId,
-    seat: u16,
-    expected_session: &iroha_data_model::consensus::GlobalThresholdBeaconDkgSessionV1,
+    expected: BeaconCredentialSeat<'_>,
 ) -> Result<()> {
+    let BeaconCredentialSeat {
+        network_id,
+        handle,
+        revision,
+        digest,
+        peer,
+        seat,
+        expected_session,
+    } = expected;
     let shares =
         iroha_core::beacon::credential::decode_global_beacon_partial_signer_credential_shares_v1(
             bytes, network_id, handle, revision, digest, budget,
@@ -5760,7 +5838,10 @@ fn read_beacon_launch_input(
         metadata.len() > 0 && metadata.len() <= maximum as u64,
         "private launch input exceeds its size bound"
     );
-    let mut bytes = Zeroizing::new(Vec::with_capacity(metadata.len() as usize));
+    let mut bytes = Zeroizing::new(Vec::with_capacity(
+        usize::try_from(metadata.len())
+            .wrap_err("private launch input length exceeds address space")?,
+    ));
     (&mut file)
         .take(maximum as u64 + 1)
         .read_to_end(&mut bytes)?;
@@ -5933,13 +6014,15 @@ mod private_beacon_launch_tests {
                 validate_beacon_credential_seat(
                     &iroha_core::state::AllocationBudget::new(0),
                     bytes,
-                    &network,
-                    "software://iroha/beacon/seat-1",
-                    1,
-                    [2; 32],
-                    &peer,
-                    1,
-                    &expected_session
+                    BeaconCredentialSeat {
+                        network_id: &network,
+                        handle: "software://iroha/beacon/seat-1",
+                        revision: 1,
+                        digest: [2; 32],
+                        peer: &peer,
+                        seat: 1,
+                        expected_session: &expected_session
+                    }
                 )
                 .is_err()
             );
@@ -6202,6 +6285,9 @@ fn resolve_localnet_da_proof_policies(config: &actual::Root) -> DaProofPolicyBun
     iroha_core::da::proof_policy_bundle(&config.nexus.lane_config)
 }
 /// Generate a fresh genesis key or explicitly seeded development key pair.
+///
+/// # Errors
+/// Returns a cryptographic error if seeded derivation or fresh random key generation fails.
 pub fn generate_genesis_key_pair(
     base_seed: Option<&[u8]>,
     extra_seed: &[u8],
@@ -7203,7 +7289,9 @@ fn write_start_script(
         writeln!(start_file, "  SELECTED_PEERS=\"$peer_index\"")?;
         writeln!(start_file, "fi")?;
     }
-    if !taira {
+    if taira {
+        write_taira_pidfd_preflight(&mut start_file)?;
+    } else {
         writeln!(start_file, "pid_is_running() {{")?;
         writeln!(start_file, "  pid=\"$1\"")?;
         writeln!(
@@ -7213,8 +7301,6 @@ fn write_start_script(
         writeln!(start_file, "  command -v ps >/dev/null 2>&1 || return 0")?;
         writeln!(start_file, "  ps -p \"$pid\" -o pid= >/dev/null 2>&1")?;
         writeln!(start_file, "}}")?;
-    } else {
-        write_taira_pidfd_preflight(&mut start_file)?;
     }
     writeln!(
         start_file,
@@ -7756,9 +7842,9 @@ fn managed_node_dir(out_dir: &Path, peer_index: usize) -> PathBuf {
 }
 
 fn prepare_managed_node_directories(out_dir: &Path, peer_count: usize) -> Result<()> {
-    let nodes = iroha_fs::PrivateDirectory::open_or_create(&out_dir.join("nodes"))?;
+    let nodes = iroha_fs::PrivateDirectory::open_or_create(out_dir.join("nodes"))?;
     for index in 0..peer_count {
-        nodes.create_child(&format!("peer{index}"))?;
+        nodes.create_child(format!("peer{index}"))?;
     }
     Ok(())
 }
@@ -7841,9 +7927,21 @@ mod managed_tests {
                 Some(&peer.config_path),
             )
             .unwrap();
-            assert_eq!(table["zk"]["pipa_r"]["enabled"].as_bool(), Some(true));
-            assert!(table["zk"].get("halo2").is_none());
+            // Proof validity is committed chain policy; generated node settings must
+            // neither select a backend nor preserve a retired compatibility setting.
+            let local_zk = table.get("zk").and_then(toml::Value::as_table);
+            assert!(local_zk.is_none_or(|zk| !zk.contains_key("pipa_r")));
+            assert!(local_zk.is_none_or(|zk| !zk.contains_key("halo2")));
             assert!(config.zk.pipa_r.enabled);
+            for enabled in [true, false] {
+                let node_validity = Zeroizing::new(format!(
+                    "{}\n[zk.pipa_r]\nenabled = {enabled}\n",
+                    std::str::from_utf8(&bytes).unwrap(),
+                ));
+                assert!(
+                    parse_localnet_peer_config(&node_validity, Some(&peer.config_path)).is_err()
+                );
+            }
             let retired = Zeroizing::new(format!(
                 "{}\n[zk.halo2]\nenabled = true\n",
                 std::str::from_utf8(&bytes).unwrap()
@@ -7886,7 +7984,7 @@ mod managed_tests {
             assert!(table["sumeragi"].get("mint_finality_seed_fd").is_none());
             assert_eq!(
                 table["nexus"]["storage"]["local_budget_bytes"].as_integer(),
-                Some(LOCALNET_NEXUS_STORAGE_BUDGET_BYTES as i64),
+                Some(i64::try_from(LOCALNET_NEXUS_STORAGE_BUDGET_BYTES).unwrap()),
                 "every managed validator needs its finite developer storage cap"
             );
             let node = iroha_fs::PrivateDirectory::open(node).unwrap();
@@ -8316,9 +8414,9 @@ pub(crate) fn prepare_localnet_at(
         })
         .collect();
     Ok(PreparedLocalnet {
+        service_profile,
         context,
         peers,
-        service_profile,
     })
 }
 

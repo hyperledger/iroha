@@ -84,12 +84,12 @@ fn runtime_capture() -> Value {
         "result_words": (child_callable.result_word_count().unwrap() as u64)});
     vm.registers.set(10, child_result);
     vm.registers.set(11, 1);
-    assert_eq!(vm.finish_call(), Err(VMError::AssertionFailed));
+    assert!(matches!(vm.finish_call(), Err(VMError::AssertionFailed)));
     vm.store_u64(child_result, 1).unwrap();
     vm.registers.set(31, parent_start + 8);
     let before_wrong_sp = observe(&vm.memory, child_result & !15);
     let gas_before_wrong_sp = vm.remaining_gas();
-    assert_eq!(vm.finish_call(), Err(VMError::AssertionFailed));
+    assert!(matches!(vm.finish_call(), Err(VMError::AssertionFailed)));
     let gas_after_wrong_sp = vm.remaining_gas();
     assert!(
         gas_after_wrong_sp < gas_before_wrong_sp,
@@ -110,13 +110,13 @@ fn runtime_capture() -> Value {
     let root_return_operands = operands(&vm);
     vm.finish_call().unwrap();
     let root_after_return = observe(&vm.memory, root_result & !15);
-    assert_eq!(vm.call_result_word_count(), Ok(1));
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.call_result_word_count(), Ok(1)));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
     let mut executed = IVM::new(1_000_000);
     executed.load_program(&code).unwrap();
     executed.select_entrypoint("main").unwrap();
     executed.run().unwrap();
-    assert_eq!(executed.public_call_result_word(0), Ok(1));
+    assert!(matches!(executed.public_call_result_word(0), Ok(1)));
     json!({
         "schema": "ivm.native-call-runtime-equations.v1",
         "scope": "Native call methods on compiler-loaded image plus separate complete native run; no AIR or finalized-state qualification",

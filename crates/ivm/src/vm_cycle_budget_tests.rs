@@ -52,10 +52,10 @@ fn actual_costly_opcodes_match_completed_counter_and_refuse_before_dispatch() {
             runtime.set_register(3, 7);
             runtime.set_register(4, 99);
             let gas_before = runtime.remaining_gas();
-            assert_eq!(
+            assert!(matches!(
                 runtime.run_with_host_and_cycle_budget(&mut DefaultHost::new(), &allowance),
                 Err(VMError::ExceededMaxCycles)
-            );
+            ));
             assert_eq!(runtime.register(4), 99);
             assert_eq!(runtime.get_cycle_count(), 0);
             assert_eq!(allowance.consumed(), 0);
@@ -86,10 +86,10 @@ fn actual_runs_and_warm_template_reuse_share_one_allowance() {
     assert_eq!(allowance.limit(), 6);
     assert_eq!(allowance.remaining(), 0);
     assert!(!allowance.exhausted());
-    assert_eq!(
+    assert!(matches!(
         vm(&[halt()]).run_with_host_and_cycle_budget(&mut DefaultHost::new(), &allowance),
         Err(VMError::ExceededMaxCycles)
-    );
+    ));
     assert_eq!(allowance.consumed(), 6);
     assert!(allowance.exhausted());
     // An independently owned ordinary run (the callback API) does not borrow this allowance.
@@ -126,10 +126,10 @@ fn actual_program_cycle_refusal_does_not_claim_shared_exhaustion() {
     let allowance = budget(10);
     let mut runtime = vm(&[add(), halt()]);
     runtime.set_max_cycles(1);
-    assert_eq!(
+    assert!(matches!(
         runtime.run_with_host_and_cycle_budget(&mut DefaultHost::new(), &allowance),
         Err(VMError::ExceededMaxCycles)
-    );
+    ));
     assert_eq!(allowance.consumed(), 1);
     assert!(!allowance.exhausted());
 }
@@ -229,10 +229,10 @@ fn swallowed_child_refusal_cannot_succeed_after_host_requests_immediate_exit() {
     let mut runtime = vm(&nested_words());
     let mut host = host();
     host.swallow_and_exit = true;
-    assert_eq!(
+    assert!(matches!(
         runtime.run_with_host_and_cycle_budget(&mut host, &allowance),
         Err(VMError::ExceededMaxCycles)
-    );
+    ));
     assert_eq!(runtime.get_cycle_count(), 1);
     assert_eq!(allowance.consumed(), 1);
     assert!(allowance.exhausted());
@@ -260,10 +260,10 @@ fn parent_unwind_keeps_completed_child_work_and_closes_retained_copies_on_owner_
     retained
         .reset()
         .expect("private lifecycle cleanup succeeds");
-    assert_eq!(
+    assert!(matches!(
         retained.run_with_host(&mut DefaultHost::new()),
         Err(VMError::HostUnavailable)
-    );
+    ));
 }
 
 #[test]
@@ -279,18 +279,18 @@ fn retained_runtime_cannot_rebind_a_foreign_allowance_after_an_actual_nested_run
         .reset()
         .expect("private lifecycle cleanup succeeds");
     let foreign = budget(10);
-    assert_eq!(
+    assert!(matches!(
         retained.run_with_host_and_cycle_budget(&mut DefaultHost::new(), &foreign),
         Err(VMError::HostUnavailable)
-    );
+    ));
     assert!(!original.is_open());
     assert!(!foreign.is_open());
     assert!(!original.exhausted());
     assert!(!foreign.exhausted());
     assert_eq!(original.consumed(), 6);
     assert_eq!(foreign.consumed(), 0);
-    assert_eq!(
+    assert!(matches!(
         vm(&[halt()]).run_with_host_and_cycle_budget(&mut DefaultHost::new(), &original),
         Err(VMError::HostUnavailable)
-    );
+    ));
 }

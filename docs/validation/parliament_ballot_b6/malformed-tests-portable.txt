@@ -1,0 +1,28 @@
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-ballot
+[cargo-fast] CARGO_BUILD_JOBS=cargo-default
+[cargo-fast] sccache=disabled
+[cargo-fast] linker=system-default
+[cargo-fast] CARGO_INCREMENTAL=1
+[cargo-fast] running: cargo test --release -p iroha_parliament_ballot_proof --example qualify -- --test-threads=1
+   Compiling iroha_parliament_ballot_proof v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof)
+    Finished `release` profile [optimized] target(s) in 2.37s
+     Running unittests examples/qualify.rs (target/cargo-fast/parliament-ballot/release/examples/qualify-6ca13960b04bcbaf)
+
+running 13 tests
+test qualification::malformed::tests::command_help_and_options_fail_before_proving ... ok
+test qualification::malformed::tests::field_ranges_reject_truncation_trailing_and_oversized_lengths ... ok
+test qualification::malformed::tests::mutation_classes_reject_at_the_declared_boundary_on_all_cases ... ok
+test qualification::malformed::tests::one_honest_setup_produces_only_expected_rejection_observations ... ok
+test qualification::malformed::tests::outcome_and_summary_preserve_rejection_classes_and_extrema ... ok
+test qualification::tests::allocator_metrics_include_retained_input_and_new_output ... ok
+test qualification::tests::counter_extraction_obeys_exact_width_and_limit_on_both_rows ... ok
+test qualification::tests::deterministic_domains_and_proof_digest_are_reproducible ... ok
+test qualification::tests::nearest_rank_keeps_max_and_small_sample_p95_honest ... ok
+test qualification::tests::norito_records_flush_and_round_trip_without_environment_access ... ok
+test qualification::tests::options_bound_work_and_reject_ambiguous_values ... ok
+test qualification::tests::reproducible_inputs_use_maximum_fields_and_bound_list_sizes ... ok
+test qualification::tests::summaries_keep_the_phase_and_retry_sample_counts ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+

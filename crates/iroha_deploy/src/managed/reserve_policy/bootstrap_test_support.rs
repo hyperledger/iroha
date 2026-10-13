@@ -22,7 +22,7 @@ impl ManagedInitialReservePolicy {
         let current = native
             .policy_proof(&self.authority.config.account)
             .verify(
-                &self.authority.config.chain.to_string(),
+                self.authority.config.chain.as_ref(),
                 self.authority.config.network_id,
                 &self.authority.config.account,
                 policy,

@@ -12,6 +12,8 @@ fn ordinary_detachment_retains_original_nodes_without_pinning_writers() {
     let owner = BlockHashes::new(vec![hash(1), hash(2)]);
     let reader = owner.view();
     let mut block = owner.block();
+    assert!((&reader).into_iter().copied().eq([hash(1), hash(2)]));
+    assert!((&block).into_iter().copied().eq([hash(1), hash(2)]));
     assert_eq!(
         std::ptr::from_ref(reader.get(0).unwrap()),
         std::ptr::from_ref(block.get(0).unwrap())
@@ -79,10 +81,12 @@ fn aborted_block_and_read_only_child_preserve_original_identity() {
     {
         let child = block.transaction();
         assert_eq!(values(&child), [hash(1)]);
+        assert!((&child).into_iter().copied().eq([hash(1)]));
     }
     {
         let child = block.transaction();
         assert_eq!(values(&child), [hash(1)]);
+        assert!((&child).into_iter().copied().eq([hash(1)]));
         child.apply();
     }
     let unchanged = block.detach();

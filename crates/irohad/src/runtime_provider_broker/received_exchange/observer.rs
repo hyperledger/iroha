@@ -106,13 +106,12 @@ impl ObservationResponse<'_, '_> {
                     test_hooks::refused(&self, &error);
                     // The original cause remains owned across this finite wait. Protocol
                     // work counters and the original pool permit are never reset/refunded.
-                    let remaining = match self.exchange.deadline.remaining() {
-                        Ok(remaining) => remaining,
-                        Err(_) => {
-                            self.exchange.connection.poison_reason =
-                                Some(self.exchange.transport_failure);
-                            return Err(BrokerError::Unavailable);
-                        }
+                    let remaining = if let Ok(remaining) = self.exchange.deadline.remaining() {
+                        remaining
+                    } else {
+                        self.exchange.connection.poison_reason =
+                            Some(self.exchange.transport_failure);
+                        return Err(BrokerError::Unavailable);
                     };
                     std::thread::sleep(delay.min(remaining));
                     delay = (delay * 2).min(Duration::from_millis(32));

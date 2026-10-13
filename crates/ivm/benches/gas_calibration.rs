@@ -119,9 +119,8 @@ fn bench_numeric_limb_work(c: &mut Criterion) {
             .expect("load numeric entry calibration proof");
         vm.set_host(DefaultHost::new());
         let start_remaining = vm.remaining_gas();
-        assert_eq!(
-            vm.run(),
-            Err(VMError::PointerAbiFault(PointerAbiFaultV1::InvalidAddress)),
+        assert!(
+            matches!(vm.run(), Err(VMError::PointerAbiFault(__actual_error_field)) if __actual_error_field == (PointerAbiFaultV1::InvalidAddress))
         );
         assert_eq!(
             start_remaining - vm.remaining_gas(),

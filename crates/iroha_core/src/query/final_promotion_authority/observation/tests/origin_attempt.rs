@@ -103,12 +103,8 @@ fn direct_final_promotion_origin_quota_clears_token_and_preserves_first_local_re
             assert!(refused.is_err(), "{complete}");
             assert!(tx.current_direct_final_promotion_operation_origin.is_none());
             assert_eq!(
-                tx.execution_deferral(),
-                Some(
-                    prior
-                        .unwrap_or(ExecutionDeferral::ActiveMemoryCapacity)
-                        .into()
-                )
+                tx.borrow_execution_deferral().unwrap().reason(),
+                prior.unwrap_or(ExecutionDeferral::ActiveMemoryCapacity)
             );
             assert_eq!(tx.last_tx_gas_used, 0);
         }
@@ -127,7 +123,7 @@ fn direct_final_promotion_origin_quota_clears_token_and_preserves_first_local_re
             *signed.try_hash_as_entrypoint().unwrap().as_ref()
         );
         assert_eq!(origin.entry_index, 0);
-        assert!(retry.execution_deferral().is_none());
+        assert!(!retry.is_execution_deferred());
         assert_eq!(norito::encode_canonical(&signed).unwrap(), exact);
     }
 }
@@ -160,7 +156,7 @@ fn balance(block: &StateBlock<'_>, asset: &AssetDefinitionId, authority: &Accoun
         .world
         .assets()
         .get(&AssetId::of(asset.clone(), authority.clone()))
-        .map_or(Quantity::zero(), |balance| balance.0.clone())
+        .map_or_else(Quantity::zero, |balance| balance.0.clone())
 }
 
 #[test]
@@ -191,15 +187,14 @@ fn original_final_promotion_quota_refusal_has_no_output_fee_gas_or_overlay_and_r
             block.reserve_ordinary_execution_outputs(&source).unwrap();
             // The whole original Network attempt shares this allowance. The direct-source
             // test above separately pins refusal at capture, including its sticky precedence.
+            // This full attempt first refuses the five-element canonical decode allocation;
+            // retain that actual owner instead of expecting a reason-only deferral.
             let result = norito::with_decode_limits_scope(no_allocation(), || {
                 block.execute_ordinary_output_plan(&source, None)
             });
-            assert_eq!(
-                result,
-                Err(ExecutionOutputAttemptError::Deferred(
-                    ExecutionDeferral::ActiveMemoryCapacity.into()
-                )),
-                "{complete}"
+            assert!(
+                matches!(&(result), Err(ExecutionOutputAttemptError::Deferred(owner)) if owner.reason() == ExecutionDeferral::ActiveMemoryCapacity && owner.phase().is_none() && owner.allocation_refusal().is_none() && owner.decode_refusal().is_some_and(|original| matches!(original.resource_error(), norito::core::DecodeResourceError::TotalAllocationExceeded { attempted: 5, limit: 0 })) && owner.verification_refusal().is_none()),
+                "complete={complete}, actual original output attempt={result:?}"
             );
             assert_eq!(block.gas_used_in_block, 0);
             assert_eq!(block.committed_fragment_count(), fragments);

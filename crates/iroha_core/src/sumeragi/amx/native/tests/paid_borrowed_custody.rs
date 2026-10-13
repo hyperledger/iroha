@@ -6,6 +6,8 @@
 
 #[path = "paid_borrowed_custody/approval_proof.rs"]
 mod approval_proof;
+#[path = "paid_borrowed_custody/read_roles.rs"]
+mod read_roles;
 
 use super::*;
 use crate::{

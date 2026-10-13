@@ -164,10 +164,6 @@ const PRIVATE_SETTLEMENT_LEG_PRIVATE_MATERIAL_DOMAIN_V1: &[u8] =
 const PRIVATE_SETTLEMENT_REIMBURSEMENT_SALT_DOMAIN_V1: &[u8] =
     b"iroha:atomic-private-settlement:release-reimbursement-salt:v1\0";
 
-fn zero_hash() -> Hash {
-    Hash::prehashed([0; Hash::LENGTH])
-}
-
 fn approve_all_audit_material(_: PrivateSettlementAuditEvaluationV1<'_>) -> bool {
     true
 }

@@ -48,11 +48,13 @@ pub enum LaneStep {
     /// Run after execution with this input.
     Requested(LaneStepInput),
     /// The outcome.
-    Done(Result<(), LaneStepError>),
+    Done,
+    /// The original failed outcome moved to its caller; this overlay remains unsealable.
+    FailedOwnerMoved,
 }
 
 /// Why a lane step failed; local custody remains typed and semantic failures are invalid.
-#[derive(Clone, Debug, PartialEq, Eq, Error)]
+#[derive(Debug, Error)]
 pub enum LaneStepError {
     /// Original policy or custody work did not finish; a local owner invariant requires recovery.
     #[error("lane step deferred: {0}")]
@@ -84,7 +86,9 @@ impl From<crate::execution_attempt::ExecutionAttemptError<CustodyViolation>> for
 impl StateBlock<'_> {
     /// Request the lane step of the block this overlay executes next.
     pub(crate) fn request_sumeragi_lanes(&mut self, input: LaneStepInput) {
-        self.sumeragi_lanes_step = LaneStep::Requested(input);
+        if !matches!(self.sumeragi_lanes_step, LaneStep::FailedOwnerMoved) {
+            self.sumeragi_lanes_step = LaneStep::Requested(input);
+        }
     }
 
     /// Run a requested lane step before the output seal completes.
@@ -92,14 +96,27 @@ impl StateBlock<'_> {
     /// # Errors
     /// Retains and returns the real lane outcome; an unfinished transition cannot be sealed.
     pub(crate) fn advance_requested_sumeragi_lanes(&mut self) -> Result<(), LaneStepError> {
-        self.sumeragi_lanes_step = match std::mem::take(&mut self.sumeragi_lanes_step) {
-            LaneStep::Requested(input) => LaneStep::Done(advance(self, &input)),
-            original => original,
+        let outcome = match std::mem::take(&mut self.sumeragi_lanes_step) {
+            LaneStep::Requested(input) => advance(self, &input),
+            LaneStep::Done => Ok(()),
+            LaneStep::Off => return Ok(()),
+            LaneStep::FailedOwnerMoved => {
+                self.sumeragi_lanes_step = LaneStep::FailedOwnerMoved;
+                return Err(crate::execution_attempt::ExecutionDeferred::from(
+                    ivm::error::ExecutionDeferral::LocalInvariantViolation,
+                )
+                .into());
+            }
         };
-        match &self.sumeragi_lanes_step {
-            LaneStep::Done(outcome) => outcome.clone(),
-            LaneStep::Off => Ok(()),
-            LaneStep::Requested(_) => unreachable!("original requested lane step ran"),
+        match outcome {
+            Ok(()) => {
+                self.sumeragi_lanes_step = LaneStep::Done;
+                Ok(())
+            }
+            Err(original) => {
+                self.sumeragi_lanes_step = LaneStep::FailedOwnerMoved;
+                Err(original)
+            }
         }
     }
 
@@ -109,8 +126,15 @@ impl StateBlock<'_> {
     /// The step failed or never ran.
     pub(crate) fn take_sumeragi_lanes(&mut self) -> Result<(), LaneStepError> {
         match std::mem::take(&mut self.sumeragi_lanes_step) {
-            LaneStep::Done(outcome) => outcome,
+            LaneStep::Done => Ok(()),
             LaneStep::Off | LaneStep::Requested(_) => Err(LaneStepError::NotAdvanced),
+            LaneStep::FailedOwnerMoved => {
+                self.sumeragi_lanes_step = LaneStep::FailedOwnerMoved;
+                Err(crate::execution_attempt::ExecutionDeferred::from(
+                    ivm::error::ExecutionDeferral::LocalInvariantViolation,
+                )
+                .into())
+            }
         }
     }
 }
@@ -197,7 +221,7 @@ fn record_sample(
     budget: &iroha_allocation::AllocationBudget,
 ) -> Result<(), LaneStepError> {
     let Some(autoscale) = policy.and_then(|policy| policy.autoscale.as_ref()) else {
-        state.samples = Default::default();
+        state.samples = iroha_data_model::sumeragi_lanes::SumeragiLaneSamples::default();
         return Ok(());
     };
     let policy = policy.expect("autoscale comes from the policy");
@@ -513,7 +537,7 @@ fn rank(incarnation: &[u8; 32], peer: &PeerId) -> [u8; 32] {
     let mut bytes = LANE_COMMITTEE_RANK_TAG.to_vec();
     bytes.extend_from_slice(incarnation);
     let (_, key) = peer.public_key().to_bytes();
-    bytes.extend_from_slice(&key);
+    bytes.extend_from_slice(key);
     chain_hash(&bytes).0
 }
 
@@ -754,9 +778,8 @@ mod tests {
         assert_eq!(state.lane(lane).unwrap().closing, Some(16));
         // A merge naming a lane without a record is an error.
         let mut empty = SumeragiLaneState::default();
-        assert_eq!(
-            apply_merges(&mut empty, &input, 5),
-            Err(LaneStepError::MissingLane(lane))
+        assert!(
+            matches!(apply_merges(&mut empty, &input, 5), Err(LaneStepError::MissingLane(actual)) if actual == lane)
         );
     }
 

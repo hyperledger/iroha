@@ -11,6 +11,22 @@ The design, file formats and phase plan are in
 
 What exists so far:
 
+- `genesis::sccp`: canonical Taira localnets initialize SCCP inside genesis with
+  a fresh OS-random nonce, a minimum one-hour epoch, 21-day unbonding and a
+  10,000-basis-point slash ceiling. Generation one comes from the native signed
+  committee; no route is seeded. Public nonce and signed-network markers live in
+  `sccp-reset-history` beside the network directory and must survive resets.
+  Other NPoS genesis manifests opt in with
+  `kagami genesis generate --sccp-reset-history <directory>`;
+  signing uses `kagami genesis sign --sccp-reset-history <same-directory>`.
+  Each nonce can sign only one identity. Reseating a previously signed draft
+  additionally requires `--fresh-sccp-reset-nonce`; the devnet reset script
+  selects this explicitly. Failed publication can consume a nonce, so retry
+  with a fresh nonce rather than reusing its reservation.
+  An explicit peer configuration must use the same staking profile, which is
+  bound into the signed Nexus policy. Parliament and reconciliation launch
+  gates remain closed.
+
 - `bootstrap::publication`: offline native release production from independently pinned complete
   manifest bytes, signed-genesis key/network and a bounded contiguous current finality-proof prefix. Kagami exposes
   `advanced network-bootstrap prepare`; it derives consensus coordinates, signs the canonical

@@ -77,6 +77,7 @@ impl BlockData {
         }
     }
 
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     fn get_mut(&mut self, index: usize) -> Option<&mut BlockDataEntry> {
         match self {
             Self::Dense(entries) => entries.get_mut(index),
@@ -176,6 +177,7 @@ impl BlockData {
         }
     }
 
+    #[cfg(test)]
     fn truncate(&mut self, len: usize) {
         match self {
             Self::Dense(entries) => entries.truncate(len),
@@ -200,7 +202,7 @@ impl BlockData {
         }
     }
 }
-type BlockHeightIndex = HashMap<HashOf<BlockHeader>, NonZeroUsize>;
+type BlockHeightIndex = BTreeMap<HashOf<BlockHeader>, NonZeroUsize>;
 type TransactionEntrypointHeights = BTreeMap<HashOf<TransactionEntrypoint>, BTreeSet<NonZeroUsize>>;
 type TransactionAuthorityHeights = BTreeMap<AccountId, BTreeSet<NonZeroUsize>>;
 type TransactionTimestampHeights = BTreeMap<u64, BTreeSet<NonZeroUsize>>;

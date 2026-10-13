@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn reservation_child_backing_consumes_parent_credit_without_reacquisition() {
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(137);
     let mut parent = budget.try_reserve_bytes(137).unwrap();
     let mut child = parent.try_partition_bytes(137).unwrap();
@@ -24,7 +24,7 @@ fn reservation_child_backing_consumes_parent_credit_without_reacquisition() {
 
 #[test]
 fn reservation_refusal_never_allocates_and_allocator_failure_refunds_only_split_credit() {
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(113);
     let mut parent = budget.try_reserve_bytes(113).unwrap();
     observe_next(114, false, &budget);

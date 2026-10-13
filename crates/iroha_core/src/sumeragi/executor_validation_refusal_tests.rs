@@ -2,13 +2,32 @@
 
 use super::*;
 
-/// Observe only the actual payload and merge prefix; no production admission is added.
+/// Use the worker's actual source-funded signature decoder for the independent reference.
+/// A convenience payload decode has different accounting and cannot measure this prefix.
+fn original_validation_proposal(worker: &Worker<'_>, block: &AvailableBody) -> SignedBlock {
+    let budget = worker.state.ivm_execution_budget();
+    let source = block
+        .payload()
+        .charged_source(&budget)
+        .expect("original funded source");
+    let mut decoder = iroha_data_model::block::PreparedSignedBlockSignaturesDecode::new(&budget)
+        .expect("original reference decoder control");
+    payload::decode_prepared(source, &mut decoder).expect("original prepared proposal")
+}
+
+/// Observe the actual prepared payload, current-parent and merge prefix.
 fn original_validation_prefix(worker: &Worker<'_>, block: &AvailableBody) -> usize {
     const CEILING: usize = 1 << 28;
     norito::with_decode_limits_scope(
         norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, CEILING, 64),
         || {
-            let proposal = payload::decode(block.payload().as_slice()).unwrap();
+            let proposal = original_validation_proposal(worker, block);
+            worker
+                .state
+                .view()
+                .latest_block()
+                .unwrap()
+                .expect("actual current parent");
             let schedule = worker.scheduled(block.header().height).unwrap();
             let expansion = lanes::merge::expand(
                 worker.state,
@@ -36,7 +55,8 @@ fn original_prepared_certificate_read_refusal_retains_worker_owner_and_funded_ex
     publication_tests::with_worker(|chain, worker, _blocks, events| {
         let block = publication_tests::proposal(chain, worker);
         let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-        let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, hash, false) else {
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, hash, false)
+        else {
             panic!("the actual available body must execute before certification refusal");
         };
         let qc = chain.commit_qc(
@@ -70,15 +90,12 @@ fn original_prepared_certificate_read_refusal_retains_worker_owner_and_funded_ex
             panic!("original certificate authority read must retain its typed refusal: {error:?}");
         };
         assert!(original_refusal.allocation_refusal().is_none());
-        assert!(matches!(
-            norito::with_decode_limits_scope(limits, || worker.prepare(&block, &qc)),
-            Err(PublicationError::Deferred(ref source)) if source.execution() == Some(&original_refusal)
-        ));
-        assert_eq!(
-            worker.routing_refusal.as_ref(),
-            Some(&original_refusal),
-            "the prepared-certificate diagnostic retains the original typed reader owner"
-        );
+        let Err(PublicationError::Deferred(source)) =
+            norito::with_decode_limits_scope(limits, || worker.prepare(&block, &qc))
+        else {
+            panic!("prepared certificate must export its sole original local owner")
+        };
+        assert_execution_refusal_observation(source, &original_refusal);
         let retained = worker.live.as_ref().unwrap();
         assert_eq!(
             std::ptr::from_ref(retained.commitment().get()),
@@ -108,7 +125,7 @@ fn original_prepared_certificate_read_refusal_retains_worker_owner_and_funded_ex
         assert_eq!(block.payload().as_slice().as_ptr(), original_bytes);
         drop(epoch);
         assert_eq!(worker.prepare(&block, &qc).unwrap(), Some(result));
-        assert!(worker.routing_refusal.is_none());
+
         let retained = worker.live.as_ref().unwrap();
         assert_eq!(
             std::ptr::from_ref(retained.commitment().get()),
@@ -138,8 +155,13 @@ fn original_post_merge_validation_refusal_retains_worker_owner_and_exact_availab
         let prefix = original_validation_prefix(worker, &block);
         let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, prefix, 64);
         let error = norito::with_decode_limits_scope(limits, || {
-            let proposal = payload::decode(block.payload().as_slice())
-                .expect("original payload prefix completes");
+            let proposal = original_validation_proposal(worker, &block);
+            worker
+                .state
+                .view()
+                .latest_block()
+                .unwrap()
+                .expect("actual current parent");
             let schedule = worker.scheduled(block.header().height).unwrap();
             let committee = schedule
                 .epoch
@@ -166,6 +188,8 @@ fn original_post_merge_validation_refusal_retains_worker_owner_and_exact_availab
                 block.header(),
                 block.payload().as_slice(),
                 worker.state,
+                None,
+                None,
             )
             .unpack(|_| {})
             .map(|_| ())
@@ -179,15 +203,12 @@ fn original_post_merge_validation_refusal_retains_worker_owner_and_exact_availab
             original.reason(),
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
-        assert!(matches!(
-            norito::with_decode_limits_scope(limits, || worker.execute(&block, hash, false)),
-            Some(ExecOutcome::Failed(_))
-        ));
-        assert_eq!(
-            worker.routing_refusal.as_ref(),
-            Some(&original),
-            "local diagnostic must retain the actual validation owner"
-        );
+        let Err(PublicationError::Deferred(source)) =
+            norito::with_decode_limits_scope(limits, || worker.execute(&block, hash, false))
+        else {
+            panic!("unfinished validation must export the original owner")
+        };
+        assert_execution_refusal_observation(source, &original);
         assert!(!worker.results.contains_key(&hash));
         assert!(worker.quarantine_context.is_none());
         assert!(worker.live.is_none());
@@ -212,7 +233,7 @@ fn original_post_merge_validation_refusal_retains_worker_owner_and_exact_availab
         );
         assert!(matches!(
             worker.execute(&block, hash, false),
-            Some(ExecOutcome::Valid { .. })
+            Ok(Some(ExecOutcome::Valid { .. }))
         ));
         let PublicationPhase::Executed { valid, .. } = &worker.live.as_ref().unwrap().phase else {
             panic!("same original decoded graph completes production validation");
@@ -222,7 +243,7 @@ fn original_post_merge_validation_refusal_retains_worker_owner_and_exact_availab
             original_entries
         );
         assert!(worker.signature_decode.is_none());
-        assert!(worker.routing_refusal.is_none());
+
         assert_eq!(
             worker.state.view().height(),
             height,
@@ -242,7 +263,8 @@ fn prepared_certificate_busy_retries_same_execution_after_original_reader_releas
     publication_tests::with_worker(|chain, worker, _blocks, events| {
         let block = publication_tests::proposal(chain, worker);
         let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-        let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, hash, false) else {
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, hash, false)
+        else {
             panic!("the actual signed body must execute before reader contention");
         };
         let qc = chain.commit_qc(
@@ -550,7 +572,8 @@ fn original_lane_finalizer_refusal_returns_same_graph_before_seal_and_publishes_
                 decoded: None,
                 returned_refusal: None,
                 amx_legs: None,
-                parent_service: Default::default(),
+                parent_service: crate::sumeragi::certified_chain::ParentServicePreparation::default(
+                ),
             };
             let entries = attempt
                 .original_decoded(&budget)
@@ -575,6 +598,14 @@ fn original_lane_finalizer_refusal_returns_same_graph_before_seal_and_publishes_
                     worker.finishing.is_some(),
                     worker.live.is_some(),
                 );
+                if let Some(retained) = worker.finishing.as_ref() {
+                    eprintln!(
+                        "native finalizer retained Finishing: height={}, samples={}, sample_pointer={:p}, original_sample_pointer={sample_ptr:p}",
+                        retained.height,
+                        retained.overlay.world.sumeragi_lanes().samples.len(),
+                        retained.overlay.world.sumeragi_lanes().samples.as_ptr(),
+                    );
+                }
                 let (next_ceiling, at_lane_finalizer) = match &outcome {
                     Err(PublicationError::Deferred(source)) => {
                         let at_lane_finalizer = source.execution().is_some_and(|original| {
@@ -584,20 +615,21 @@ fn original_lane_finalizer_refusal_returns_same_graph_before_seal_and_publishes_
                                 )
                         });
                         if at_lane_finalizer {
-                            assert_eq!(
-                                worker.routing_refusal.as_ref(),
-                                source.execution(),
-                                "the actual finalizer retains its exact refusal through both worker owners"
+                            assert!(
+                                source.execution().unwrap().allocation_refusal().is_some(),
+                                "the sole exported native finalizer owner must retain actual allocation demand"
                             );
                         }
                         if let Some(original) = source.execution() {
                             let requested = match original.allocation_refusal() {
-                                Some(AllocationRefusal::Capacity {
-                                    requested_bytes, ..
-                                })
-                                | Some(AllocationRefusal::ExceedsLimit {
-                                    requested_bytes, ..
-                                }) => *requested_bytes,
+                                Some(
+                                    AllocationRefusal::Capacity {
+                                        requested_bytes, ..
+                                    }
+                                    | AllocationRefusal::ExceedsLimit {
+                                        requested_bytes, ..
+                                    },
+                                ) => *requested_bytes,
                                 other => panic!(
                                     "actual execution capacity refused without demand: {other:?}"
                                 ),
@@ -700,7 +732,7 @@ fn original_lane_finalizer_refusal_returns_same_graph_before_seal_and_publishes_
                 reached_lane_finalizer,
                 "native capacity probes reached the real late lane step"
             );
-            let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, hash, false)
+            let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, hash, false)
             else {
                 panic!("the same original proposal retries after local capacity is restored");
             };
@@ -769,7 +801,8 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
                 decoded: None,
                 returned_refusal: None,
                 amx_legs: None,
-                parent_service: Default::default(),
+                parent_service: crate::sumeragi::certified_chain::ParentServicePreparation::default(
+                ),
             };
             let entries = attempt
                 .original_decoded(&budget)
@@ -805,6 +838,8 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
                 block.header(),
                 block.payload().as_slice(),
                 worker.state,
+                None,
+                None,
             )
             .unpack(|event| recorded_events.push(event.into()))
             .expect("actual available proposal seals its real execution and witness");
@@ -842,6 +877,7 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
                 committee,
                 recorded_events,
                 due_work_max_lag_ms,
+                None, // This isolated handoff does not return an execution verdict.
             );
             if fault == 0 {
                 assert!(outcome.unwrap().is_some());
@@ -857,7 +893,8 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
                 original.witness.verify_source_binding().unwrap();
                 assert!(worker.recovery.is_none());
                 assert!(worker.signature_decode.is_none());
-                let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, hash, false)
+                let Ok(Some(ExecOutcome::Valid { result, .. })) =
+                    worker.execute(&block, hash, false)
                 else {
                     panic!("ordinary witness handoff completes the same actual execution");
                 };
@@ -904,10 +941,9 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
             let original_decode = worker.signature_decode.as_ref().unwrap();
             assert!(original_decode.decoded.is_none());
             let decoder = std::ptr::from_ref(&original_decode.decoder);
-            let expected = PublicationError::RecoveryRequired(reason.clone()).to_string();
             assert!(matches!(
                 worker.execute(&block, hash, false),
-                Some(ExecOutcome::Failed(report)) if report == expected
+                Err(PublicationError::RecoveryRequired(report)) if report == reason
             ));
             assert_eq!(worker.recovery.as_deref(), Some(reason.as_str()));
             assert_eq!(
@@ -973,7 +1009,7 @@ fn prepared_certificate_uses_bounded_signed_root_without_rewalking_execution_his
             assert_eq!(chain.validators().len(), 4);
             let block = publication_tests::proposal(chain, worker);
             let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-            let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, hash, false)
+            let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, hash, false)
             else {
                 panic!("the genuine successor executes under its original native parent");
             };
@@ -1178,4 +1214,42 @@ fn successor_context_uses_original_parent_and_bounded_signed_root_without_histor
             );
         },
     );
+}
+
+/// Independent calls may agree on the same demand but must retain distinct original observers.
+/// The actual worker owner then moves through VM transport once with its exact cause unchanged.
+fn assert_execution_refusal_observation(
+    source: crate::sumeragi::driver::traits::PublicationDeferral,
+    expected: &crate::execution_attempt::ExecutionDeferred,
+) {
+    let crate::sumeragi::driver::traits::PublicationDeferral::Execution(actual) = source else {
+        panic!("the exact worker execution refusal is required: {source:?}");
+    };
+    assert_eq!(actual.reason(), expected.reason());
+    assert_eq!(actual.phase(), expected.phase());
+    assert!(actual.allocation_refusal().is_none());
+    assert!(expected.allocation_refusal().is_none());
+    assert!(actual.allocator_refusal().is_none());
+    assert!(expected.allocator_refusal().is_none());
+    let actual_cause = actual
+        .decode_refusal()
+        .expect("actual worker decoder observer");
+    let expected_cause = expected
+        .decode_refusal()
+        .expect("actual independent decoder observer");
+    assert_eq!(
+        actual_cause.resource_error(),
+        expected_cause.resource_error()
+    );
+    assert_ne!(
+        actual_cause, expected_cause,
+        "independent reads never share one original observation"
+    );
+    assert!(actual.verification_refusal().is_none());
+    assert!(expected.verification_refusal().is_none());
+    let original_observation = actual_cause.clone();
+    let returned =
+        crate::execution_attempt::ExecutionDeferred::try_from_vm_error(actual.into_vm_error())
+            .expect("one actual worker owner survives consuming VM transport");
+    assert_eq!(returned.decode_refusal(), Some(&original_observation));
 }

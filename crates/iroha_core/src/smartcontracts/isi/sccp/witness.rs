@@ -9,7 +9,7 @@
 //! portion of the World execution write set: every written key in canonical order with its new
 //! value or its deletion). Two executions that differ in any SCCP write therefore certify
 //! different roots. Every node starts from the same genesis state, so agreement on every
-//! height's delta is agreement on the complete SCCP state that bridge keys sign statements from.
+//! height's delta is agreement on the complete SCCP state certified by the native committee.
 //!
 //! A height without SCCP writes adds nothing, so blocks of a network without SCCP keep their
 //! exact witness.
@@ -19,13 +19,14 @@ use iroha_data_model::block::consensus::ExecKv;
 
 /// Synthetic execution-witness key of the SCCP state delta of one height.
 ///
-/// Its first byte `0xD8` follows the fixed synthetic keys of
-/// `iroha_data_model::execution_witness::ExecutionWitnessKeyTagV1` (`0xD4..=0xD7`) and is
-/// disjoint from every recorder family and from the lane-context key.
-/// TODO(ws20-followup): reserve `0xD8` as `SccpStateDelta` in `ExecutionWitnessKeyTagV1`
-/// (`crates/iroha_data_model/src/execution_witness.rs`, outside this workstream's paths) so the
-/// registry's compile-time disjointness covers it.
+/// Its first byte is the reserved `SccpStateDelta` tag in the canonical witness-key
+/// registry. The compile-time binding below preserves the existing exact key bytes
+/// while the registry's distinct enum discriminants enforce namespace disjointness.
 pub const SCCP_STATE_DELTA_WITNESS_KEY_V1: &[u8] = b"\xd8iroha:sccp:state-delta:v1";
+const _: () = assert!(
+    SCCP_STATE_DELTA_WITNESS_KEY_V1[0]
+        == iroha_data_model::execution_witness::ExecutionWitnessKeyTagV1::SccpStateDelta as u8
+);
 
 /// Return the synthetic witness write of the SCCP delta `delta` of block `height`, or `None`
 /// when the block changed no SCCP field.
@@ -61,7 +62,6 @@ pub(crate) fn require_exact_delta(
         return Err(norito::Error::NonCanonicalEncoding);
     }
     if let Some(write) = found {
-        let expected = (height, <[u8; 32]>::from(Hash::new(delta)));
         struct Exact<'a>(&'a [u8]);
         impl std::io::Write for Exact<'_> {
             fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -75,6 +75,7 @@ pub(crate) fn require_exact_delta(
                 Ok(())
             }
         }
+        let expected = (height, <[u8; 32]>::from(Hash::new(delta)));
         let mut exact = Exact(&write.value);
         norito::core::write_canonical_to_writer(&expected, &mut exact)?;
         if !exact.0.is_empty() {
@@ -117,7 +118,15 @@ mod tests {
             Tag::ValidationFeePolicy,
             Tag::ParliamentTimedOvnCasting,
             Tag::FastpqOrdinarySourceStatements,
+            Tag::AmxRecord,
+            Tag::FeeSnapshot,
+            Tag::FeeRecord,
+            Tag::RewardExposureArchive,
         ];
+        assert_eq!(
+            SCCP_STATE_DELTA_WITNESS_KEY_V1[0],
+            Tag::SccpStateDelta as u8
+        );
         assert!(
             tags.iter()
                 .all(|tag| *tag as u8 != SCCP_STATE_DELTA_WITNESS_KEY_V1[0])

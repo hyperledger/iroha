@@ -303,8 +303,9 @@ fn syscall_sm2_verify_charges_input_bytes() {
     let expected_gas =
         64 + message.len() as u64 + signature_bytes.len() as u64 + public_key_bytes.len() as u64;
     assert_eq!(
-        host.syscall(ivm::syscalls::SYSCALL_SM2_VERIFY, &mut vm),
-        Ok(expected_gas)
+        (host.syscall(ivm::syscalls::SYSCALL_SM2_VERIFY, &mut vm))
+            .expect("expected successful fixture result"),
+        expected_gas
     );
     assert_eq!(vm.register(10), 1);
     let mut bad_sig = signature_bytes.as_ref().to_vec();
@@ -321,8 +322,9 @@ fn syscall_sm2_verify_charges_input_bytes() {
     let expected_bad_gas =
         64 + message.len() as u64 + bad_sig.len() as u64 + public_key_bytes.len() as u64;
     assert_eq!(
-        host.syscall(ivm::syscalls::SYSCALL_SM2_VERIFY, &mut vm),
-        Ok(expected_bad_gas)
+        (host.syscall(ivm::syscalls::SYSCALL_SM2_VERIFY, &mut vm))
+            .expect("expected successful fixture result"),
+        expected_bad_gas
     );
     assert_eq!(vm.register(10), 0);
 }
@@ -1150,8 +1152,9 @@ fn wsv_host_sm4_gcm_seal_returns_byte_counted_gas_when_enabled() {
     vm.set_register(12, p_aad);
     vm.set_register(13, p_pt);
     assert_eq!(
-        IVMHost::syscall(&mut host, ivm::syscalls::SYSCALL_SM4_GCM_SEAL, &mut vm),
-        Ok(64 + u64::try_from(aad.len() + plaintext.len()).expect("test length"))
+        (IVMHost::syscall(&mut host, ivm::syscalls::SYSCALL_SM4_GCM_SEAL, &mut vm))
+            .expect("expected successful fixture result"),
+        64 + u64::try_from(aad.len() + plaintext.len()).expect("test length")
     );
     let out = vm.memory.validate_tlv(vm.register(10)).expect("sealed tlv");
     assert_eq!(out.type_id, PointerType::Blob);

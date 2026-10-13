@@ -57,7 +57,7 @@ fn leaves() -> Vec<FastpqOrdinarySourceStatementLeafV1> {
             execution_kind: FastpqSourceExecutionKindV1::ExecutionCall,
             route: FastpqSourceRouteV1::Unrouted,
             dataspace_id: DataSpaceId::new(4),
-            effects_digest: [index as u8 + 9; 32],
+            effects_digest: [u8::try_from(index).expect("fixture value fits u8") + 9; 32],
             slot: 19_000_000,
             perm_root: Hash::new(b"synthetic source permission root").into(),
             tx_set_hash: Hash::new(b"synthetic ordered source transactions").into(),

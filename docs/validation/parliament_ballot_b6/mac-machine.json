@@ -1,0 +1,13 @@
+{
+  "recorded_at_utc": "2026-10-13T02:32:20.936628+00:00",
+  "cwd": "/Users/mtakemiya/dev/iroha",
+  "git_head": "7293699d16d465cab551a69e57861226f81834f9",
+  "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)\nbinary: rustc\ncommit-hash: 01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf\ncommit-date: 2026-02-11\nhost: aarch64-apple-darwin\nrelease: 1.93.1\nLLVM version: 21.1.8\n",
+  "cargo": "cargo 1.93.1 (083ac5135 2025-12-15)",
+  "os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0.1\nBuildVersion:\t\t26A434\n",
+  "hardware": "Apple M2 Ultra\n24\n24\n206158430208\n",
+  "source_manifest": "/tmp/ballot-b6-source.sha256",
+  "source_manifest_sha256": "044ecda041aefe175861344d821d019d88d38004b9c2297e68d6dafb8b8e65cb",
+  "scope": "Rust sources and manifests of local normal/build/dev dependencies from cargo tree, wrapper/config/toolchain, qualification runner/docs; registry sources identified through Cargo.lock checksums. Shared dirty checkout; manifest takes precedence over Git HEAD.",
+  "limitations": "Not an isolated machine; other agent tasks may build or run. Requested Rust allocator bytes exclude stack/native heap/RSS; fixed phase order, no coldprocess. Source files checked again after runs."
+}

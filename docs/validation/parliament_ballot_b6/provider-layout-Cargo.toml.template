@@ -1,0 +1,13 @@
+[package]
+name = "parliament-b6-provider-layout"
+version = "0.0.0"
+edition = "2024"
+
+[workspace]
+
+[features]
+default = []
+accel = ["aes/hardware"]
+
+[dependencies]
+aes = { path = "@IROHA_REPO@/vendor/aes", default-features = false, features = ["zeroize"] }

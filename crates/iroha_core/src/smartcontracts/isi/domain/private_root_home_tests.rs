@@ -283,7 +283,7 @@ fn restricted_home_requires_original_private_root_not_global_missing_or_foreign_
             result.is_err(),
             "restricted home requires the original authenticated private root: {root:?}"
         );
-        assert!(tx.execution_deferral().is_none());
+        assert!(!tx.is_execution_deferred());
         assert!(tx.world.asset_definitions().get(&definition()).is_none());
     }
     let state = State::new_with_nexus_for_testing(
@@ -338,7 +338,7 @@ fn original_private_home_requires_both_exact_captured_routes() {
             .is_err(),
             "private home admission must retain both original route coordinates: {state_route:?}/{world_route:?}"
         );
-        assert!(tx.execution_deferral().is_none());
+        assert!(!tx.is_execution_deferred());
         assert!(
             tx.world
                 .assets()
@@ -376,7 +376,7 @@ fn original_private_home_requires_canonical_single_root_geometry() {
             .is_err(),
             "private home admission must validate the exact original physical geometry: variant {variant}"
         );
-        assert!(tx.execution_deferral().is_none());
+        assert!(!tx.is_execution_deferred());
     }
 }
 
@@ -408,7 +408,7 @@ fn original_private_home_root_decode_refusal_remains_local_and_global_policy_sta
                     .is_err()
             );
             assert_eq!(
-                tx.execution_deferral().unwrap().reason(),
+                tx.borrow_execution_deferral().unwrap().reason(),
                 ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
                 "private home admission must retain the original local root decoder refusal"
             );
@@ -446,7 +446,7 @@ fn original_private_home_root_decode_refusal_remains_local_and_global_policy_sta
         home(),
     )
     .unwrap();
-    assert!(retry.execution_deferral().is_none());
+    assert!(!retry.is_execution_deferred());
     let global_error = context
         .with(|| {
             ensure_home_admissible(
@@ -463,7 +463,7 @@ fn original_private_home_root_decode_refusal_remains_local_and_global_policy_sta
             .contains("cannot be registered in restricted dataspace")
     );
     assert!(
-        retry.execution_deferral().is_none(),
+        !retry.is_execution_deferred(),
         "global policy rejection precedes root decoding"
     );
     drop(retry);

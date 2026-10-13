@@ -174,11 +174,13 @@ class DarwinCpuTimebaseTests(unittest.TestCase):
                 return len(encoded)
             reader=object.__new__(observer.DarwinProcessReader)
             reader.native=resource_process
-            reader.reader=SimpleNamespace(_identity=mock.Mock(return_value=info),
-                lib=SimpleNamespace(proc_pid_rusage=usage,proc_pidpath=read_path))
+            reader.reader=object.__new__(resource_process.DarwinProcessReader)
+            reader.reader._identity=mock.Mock(return_value=info)
+            reader.reader.lib=SimpleNamespace(proc_pid_rusage=usage,proc_pidpath=read_path)
             reader.cpu_numer=125;reader.cpu_denom=3
             with observer.ExecutableImage(path,hashlib.sha256(path.read_bytes()).hexdigest()) as image, \
-                    mock.patch.object(resource_process,'_image_uuids',return_value={bytes(16)}):
+                    mock.patch.object(resource_process,'_image_uuids',return_value={bytes(16)}), \
+                    mock.patch.object(resource_process,'darwin_absolute_time',return_value=1):
                 sample=reader.sample(123,image)
             self.assertEqual(sample['cpu_time_ns'],125)
             self.assertEqual(sample['cpu_counter_unit_ns'],42)

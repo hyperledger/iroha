@@ -10,6 +10,7 @@ fn budget_exceeded_for_large_input_vs_budget() {
     let mut d = DedupCache::new();
     let proof = ProofBox::new("halo2/ipa".into(), vec![1u8; 64]);
     // Provide an unrealistically small budget so that we hit the branch deterministically
-    let res = preverify_with_budget(&proof, None, &mut d, 8, None, None, true);
+    let res = preverify_with_budget(&proof, None, &mut d, 8, None, None, true)
+        .expect("verification attempt must complete for this semantic fixture");
     assert!(matches!(res, PreverifyResult::PreverifyBudgetExceeded));
 }

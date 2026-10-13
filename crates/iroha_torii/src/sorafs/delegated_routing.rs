@@ -554,7 +554,7 @@ fn endpoint_multiaddr(endpoint: &AdvertEndpoint) -> Option<String> {
         || raw.len() > MAX_ENDPOINT_BYTES
         || !raw.is_ascii()
         || raw.bytes().any(|byte| byte.is_ascii_control())
-        || raw.contains(|character| matches!(character, '\\' | '%' | '*'))
+        || raw.contains(['\\', '%', '*'])
     {
         return None;
     }

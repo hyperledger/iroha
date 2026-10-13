@@ -94,6 +94,10 @@ pub(in crate::state) fn empty_cell(
     initialize(budget, None, None).map_err(Into::into)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "MV stores an optional native tip with an independent optional undo; unchanged, genesis absence, and a prior tip must remain distinct."
+)]
 fn initialize(
     budget: &AllocationBudget,
     current: Option<NativeExecutionTip>,
@@ -150,6 +154,10 @@ impl From<&str> for TipRestoreError {
 
 impl NativeExecutionTipSnapshot {
     /// Capture the exact original current and undo values without losing nested absence.
+    #[expect(
+        clippy::option_option,
+        reason = "MV stores an optional native tip with an independent optional undo; unchanged, genesis absence, and a prior tip must remain distinct."
+    )]
     pub(crate) fn from_original(
         current: Option<NativeExecutionTip>,
         previous: Option<Option<NativeExecutionTip>>,
@@ -164,6 +172,10 @@ impl NativeExecutionTipSnapshot {
 
     /// Compare serialized claims with the exact originals captured alongside the World.
     /// This grants no restore authority and never constructs an execution owner.
+    #[expect(
+        clippy::option_option,
+        reason = "MV stores an optional native tip with an independent optional undo; unchanged, genesis absence, and a prior tip must remain distinct."
+    )]
     pub(crate) fn matches_original(
         &self,
         current: Option<NativeExecutionTip>,

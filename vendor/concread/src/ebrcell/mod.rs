@@ -972,7 +972,7 @@ mod tests {
     use super::EbrCell;
     use std::thread::scope;
 
-    #[cfg(all(feature = "maps", not(feature = "dhat-heap"), not(miri)))]
+    #[cfg(all(feature = "maps", not(miri)))]
     #[test]
     fn fresh_original_writer_constructors_need_no_cold_acquisition_allocation() {
         use crate::internals::bptree::node::allocation_tests::without_allocations;

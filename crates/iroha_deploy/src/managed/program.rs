@@ -43,7 +43,7 @@ impl NativeProgram {
         #[cfg(test)]
         tests::note_content_hash();
         let mut hasher = blake3::Hasher::new();
-        let mut buffer = [0_u8; 64 * 1024];
+        let mut buffer = vec![0_u8; 64 * 1024].into_boxed_slice();
         let mut offset = 0_u64;
         // Every read has an absolute offset, so the header reader's cursor and Windows
         // seek_read's physical cursor cannot alter this exact original extent.
@@ -57,7 +57,7 @@ impl NativeProgram {
         let mut extra = [0_u8; 1];
         let beyond = loop {
             match iroha_fs::read_at(original.file(), &mut extra, length) {
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
                 outcome => break outcome?,
             }
         };
@@ -306,7 +306,7 @@ mod tests {
             Self(CONTENT_HASHES.with(|slot| slot.replace(Some(0))))
         }
 
-        fn count(&self) -> usize {
+        fn count() -> usize {
             CONTENT_HASHES.with(|slot| slot.get().expect("active content hash probe"))
         }
     }
@@ -390,8 +390,9 @@ mod tests {
 
     #[test]
     fn live_native_selection_and_request_clones_share_the_original_programs() {
-        let _resources = super::super::native_test_guard();
         fn require_send_sync<T: Send + Sync>() {}
+        let _resources = super::super::native_test_guard();
+
         require_send_sync::<NativeProgram>();
         require_send_sync::<super::super::InstalledRuntime>();
         require_send_sync::<super::super::LocalnetRequest>();
@@ -633,11 +634,11 @@ mod tests {
     #[test]
     fn current_program_path_reuses_only_same_native_admission_and_hashes_foreign_paths() {
         let _resources = super::super::native_test_guard();
-        let hashes = ContentHashProbe::begin();
+        let _hashes = ContentHashProbe::begin();
         let current = std::env::current_exe().unwrap();
         let launcher = NativeProgram::capture(&current).unwrap();
         let pin = launcher.pin().unwrap();
-        assert_eq!(hashes.count(), 1);
+        assert_eq!(ContentHashProbe::count(), 1);
         for path in [
             current.clone(),
             current
@@ -649,18 +650,22 @@ mod tests {
             let reused = launcher.pin_for_path(&path).unwrap();
             assert_eq!(reused.path, pin.path);
             assert_eq!(reused.blake3, pin.blake3);
-            assert_eq!(hashes.count(), 1);
+            assert_eq!(ContentHashProbe::count(), 1);
         }
         let (_temporary, foreign_path) = copied_native_program();
         let foreign = launcher.pin_for_path(&foreign_path).unwrap();
         assert_eq!(foreign.path, selected_program_path(&foreign_path).unwrap());
         assert_ne!(foreign.path, pin.path);
         assert_eq!(foreign.blake3, pin.blake3);
-        assert_eq!(hashes.count(), 2, "foreign content must be freshly hashed");
+        assert_eq!(
+            ContentHashProbe::count(),
+            2,
+            "foreign content must be freshly hashed"
+        );
         let daemon = NativeProgram::matching(&foreign).unwrap();
         daemon.validate().unwrap();
         assert_eq!(
-            hashes.count(),
+            ContentHashProbe::count(),
             3,
             "independent daemon admission still hashes"
         );
@@ -669,7 +674,7 @@ mod tests {
             matches!(launcher.pin_for_path(&missing), Err(super::super::Error::Io(error))
             if error.kind() == io::ErrorKind::NotFound)
         );
-        assert_eq!(hashes.count(), 3);
+        assert_eq!(ContentHashProbe::count(), 3);
         launcher.validate().unwrap();
     }
 
@@ -679,7 +684,7 @@ mod tests {
         use std::{io::Write, os::unix::fs::PermissionsExt};
         let _resources = super::super::native_test_guard();
         let (_temporary, path) = copied_native_program();
-        let hashes = ContentHashProbe::begin();
+        let _hashes = ContentHashProbe::begin();
         let launcher = NativeProgram::capture(&path).unwrap();
         let pin = launcher.pin().unwrap();
         let original_identity = launcher.original.identity().unwrap();
@@ -699,7 +704,7 @@ mod tests {
             Err(super::super::Error::Io(_))
         ));
         assert_eq!(
-            hashes.count(),
+            ContentHashProbe::count(),
             1,
             "a changed live object cannot rehash into authority"
         );
@@ -711,10 +716,10 @@ mod tests {
             "restoring bytes does not restore old metadata"
         );
         let restored = NativeProgram::matching(&pin).unwrap();
-        assert_eq!(hashes.count(), 2);
+        assert_eq!(ContentHashProbe::count(), 2);
         assert_eq!(restored.original.identity().unwrap(), original_identity);
         assert_eq!(restored.pin_for_path(&path).unwrap().blake3, pin.blake3);
-        assert_eq!(hashes.count(), 2);
+        assert_eq!(ContentHashProbe::count(), 2);
         let permissions = std::fs::metadata(&path).unwrap().permissions();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         assert!(restored.pin_for_path(&path).is_err());
@@ -722,7 +727,7 @@ mod tests {
         assert!(restored.pin_for_path(&path).is_err());
         let restored = NativeProgram::matching(&pin).unwrap();
         assert_eq!(restored.pin_for_path(&path).unwrap().blake3, pin.blake3);
-        assert_eq!(hashes.count(), 3);
+        assert_eq!(ContentHashProbe::count(), 3);
     }
 
     #[cfg(unix)]
@@ -730,7 +735,7 @@ mod tests {
     fn current_program_path_refuses_leaf_and_ancestor_replacement_and_keeps_original_retry() {
         let _resources = super::super::native_test_guard();
         let (temporary, path) = copied_native_program();
-        let hashes = ContentHashProbe::begin();
+        let _hashes = ContentHashProbe::begin();
         let launcher = NativeProgram::capture(&path).unwrap();
         let pin = launcher.pin().unwrap();
         let displaced = path.with_file_name("original");
@@ -751,7 +756,7 @@ mod tests {
             launcher.pin_for_path(&path).is_err(),
             "equal bytes in a different inode cannot reuse"
         );
-        assert_eq!(hashes.count(), 1);
+        assert_eq!(ContentHashProbe::count(), 1);
         std::fs::remove_file(&path).unwrap();
         std::fs::rename(&displaced, &path).unwrap();
         assert!(
@@ -760,7 +765,7 @@ mod tests {
         );
         let restored = NativeProgram::matching(&pin).unwrap();
         assert_eq!(restored.pin_for_path(&path).unwrap().blake3, pin.blake3);
-        assert_eq!(hashes.count(), 2);
+        assert_eq!(ContentHashProbe::count(), 2);
         let parent = path.parent().unwrap();
         let displaced_parent = temporary.path().join("original-parent");
         std::fs::rename(parent, &displaced_parent).unwrap();
@@ -768,13 +773,13 @@ mod tests {
         std::fs::create_dir(parent).unwrap();
         std::fs::copy(displaced_parent.join(path.file_name().unwrap()), &path).unwrap();
         assert!(restored.pin_for_path(&path).is_err());
-        assert_eq!(hashes.count(), 2);
+        assert_eq!(ContentHashProbe::count(), 2);
         std::fs::remove_file(&path).unwrap();
         std::fs::remove_dir(parent).unwrap();
         std::fs::rename(&displaced_parent, parent).unwrap();
         assert_eq!(restored.pin_for_path(&path).unwrap().blake3, pin.blake3);
         assert_eq!(
-            hashes.count(),
+            ContentHashProbe::count(),
             2,
             "the same unchanged file and ancestor regain custody"
         );
@@ -785,19 +790,19 @@ mod tests {
     fn current_program_path_keeps_native_writer_and_replacement_denial_and_original_retry() {
         let _resources = super::super::native_test_guard();
         let (_temporary, path) = copied_native_program();
-        let hashes = ContentHashProbe::begin();
+        let _hashes = ContentHashProbe::begin();
         let launcher = NativeProgram::capture(&path).unwrap();
         let pin = launcher.pin().unwrap();
         assert!(std::fs::OpenOptions::new().write(true).open(&path).is_err());
         assert!(std::fs::rename(&path, path.with_file_name("displaced.exe")).is_err());
         assert_eq!(launcher.pin_for_path(&path).unwrap().blake3, pin.blake3);
-        assert_eq!(hashes.count(), 1);
+        assert_eq!(ContentHashProbe::count(), 1);
         drop(launcher);
         let displaced = path.with_file_name("displaced.exe");
         std::fs::rename(&path, &displaced).unwrap();
         std::fs::rename(&displaced, &path).unwrap();
         let restored = NativeProgram::matching(&pin).unwrap();
         assert_eq!(restored.pin_for_path(&path).unwrap().blake3, pin.blake3);
-        assert_eq!(hashes.count(), 2);
+        assert_eq!(ContentHashProbe::count(), 2);
     }
 }

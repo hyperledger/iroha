@@ -35,8 +35,8 @@ fn definition(owner: &AccountId, context: bool) -> AssetDefinition {
     .build(owner)
 }
 
-fn fixture(context: bool) -> Box<World> {
-    let mut world = Box::new(World::default());
+fn fixture(context: bool) -> World {
+    let mut world = World::default();
     for owner in [&*ALICE_ID, &*BOB_ID] {
         let (id, account) = Account::new(owner.clone()).build(owner).into_key_value();
         world.accounts.insert(id, account);
@@ -277,7 +277,7 @@ fn every_original_source_and_index_reader_detects_native_publication() {
             5 => world.confidential_policy_transition_index.block().commit(),
             6 => world.confidential_policy_transition_counts.block().commit(),
             _ => unreachable!(),
-        };
+        }
         assert!(!checked.matches_current().unwrap());
     }
 }
@@ -285,7 +285,7 @@ fn every_original_source_and_index_reader_detects_native_publication() {
 #[test]
 fn checked_capture_keeps_original_state_budget_refusal_and_retries() {
     let state = State::new_for_testing(
-        *fixture(true),
+        fixture(true),
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     );
@@ -294,7 +294,7 @@ fn checked_capture_keeps_original_state_budget_refusal_and_retries() {
         max_rows: 16,
         max_payload_bytes: 16384,
         max_ordered_table_bytes: 32768,
-        max_streamed_value_bytes: 131072,
+        max_streamed_value_bytes: 131_072,
     };
     let pool = state.ivm_execution_budget();
     pool.set_limit_bytes(0);
@@ -325,7 +325,7 @@ fn every_asset_original_publication_precedes_success_work_and_semantic_outcomes(
                 5 => world.confidential_policy_transition_index.block().commit(),
                 6 => world.confidential_policy_transition_counts.block().commit(),
                 _ => unreachable!(),
-            };
+            }
             let result = match outcome {
                 0 => Ok(()),
                 1 => Err(GroupedOwnershipError::WorkLimit),

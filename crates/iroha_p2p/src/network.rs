@@ -1634,17 +1634,21 @@ impl ReliableProgressTopology {
     }
     /// Publish one accepted topology transition and cancel only memberships
     /// removed by that transition. Unchanged peers retain their exact token.
-    fn reconcile(
+    fn reconcile<T>(
         &mut self,
-        topology: &HashSet<PeerId>,
+        topology: &T,
         self_id: &PeerId,
-    ) -> Vec<Arc<ReliableProgressMembership>> {
+    ) -> Vec<Arc<ReliableProgressMembership>>
+    where
+        for<'a> &'a T: IntoIterator<Item = &'a PeerId>,
+    {
         let mut expected: Vec<_> = topology
-            .iter()
+            .into_iter()
             .filter(|peer_id| *peer_id != self_id)
             .cloned()
             .collect();
         expected.sort();
+        expected.dedup();
         let current: Vec<_> = self
             .members
             .iter()
@@ -7040,8 +7044,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
         })?;
         #[cfg(feature = "quic")]
         let quic_max_incoming = max_incoming
-            .map(core::num::NonZeroUsize::get)
-            .unwrap_or(max_total_connections)
+            .map_or(max_total_connections, core::num::NonZeroUsize::get)
             .min(max_total_connections);
         #[cfg(feature = "quic")]
         let quic_flow_control = crate::transport::quic::FlowControlConfig {
@@ -11131,7 +11134,7 @@ where
                 };
                 let datagram_ingress = quic_datagrams_enabled.then(|| {
                     crate::peer::QuicDatagramIngress::spawn(
-                        new_conn.clone(),
+                        &new_conn,
                         quic_datagram_max_payload_bytes
                             .min(max_frame_bytes)
                             .min(crate::MAX_ENCRYPTED_FRAME_BYTES),

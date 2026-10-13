@@ -570,7 +570,7 @@ pub(crate) fn resolve_global_route(
         .checked_sub(1)
         .map(|faulty| faulty / 3)
         .and_then(|faulty| u32::try_from(faulty).ok())
-        .ok_or(LaneAuthorityError::UndersizedPool {
+        .ok_or_else(|| LaneAuthorityError::UndersizedPool {
             lane_id: route.lane_id(),
             dataspace_id: route.dataspace_id(),
             authority_height,
@@ -594,11 +594,12 @@ pub(super) fn resolve_from_sources(
     nexus: &iroha_config::parameters::actual::Nexus,
     authority_height: u64,
 ) -> Result<LaneAuthorityCommittee, LaneAuthorityError> {
-    let dataspace = nexus.dataspace_catalog.by_id(route.dataspace_id()).ok_or(
-        LaneAuthorityError::UnknownDataspace {
+    let dataspace = nexus
+        .dataspace_catalog
+        .by_id(route.dataspace_id())
+        .ok_or_else(|| LaneAuthorityError::UnknownDataspace {
             dataspace_id: route.dataspace_id(),
-        },
-    )?;
+        })?;
     if consensus_lane_dataspace_at_height(route.lane_id(), nexus, authority_height)
         != Some(route.dataspace_id())
     {
@@ -609,18 +610,18 @@ pub(super) fn resolve_from_sources(
         });
     }
     let fault_tolerance = dataspace.fault_tolerance;
-    let required = nexus_lane_committee_size(nexus, route.dataspace_id()).ok_or(
+    let required = nexus_lane_committee_size(nexus, route.dataspace_id()).ok_or_else(|| {
         LaneAuthorityError::InvalidGeometry {
             dataspace_id: route.dataspace_id(),
             fault_tolerance,
-        },
-    )?;
+        }
+    })?;
     let validator_mode = nexus
         .staking
         .validator_mode(route.lane_id(), &nexus.lane_catalog);
     let inputs = inputs_from_nexus(route.lane_id(), validator_mode, nexus, authority_height)
         .filter(|inputs| inputs.bounded.dataspace_id == route.dataspace_id())
-        .ok_or(LaneAuthorityError::InvalidAuthoritySource {
+        .ok_or_else(|| LaneAuthorityError::InvalidAuthoritySource {
             lane_id: route.lane_id(),
             dataspace_id: route.dataspace_id(),
             authority_height,

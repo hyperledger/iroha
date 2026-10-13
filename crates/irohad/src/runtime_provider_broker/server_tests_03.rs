@@ -952,7 +952,7 @@ fn stream_token_server_observation_rejects_drift_and_test_markers() {
         {
             panic!("metadata must not submit a native custody check")
         }
-        fn handle(&self) -> &str {
+        fn handle(&self) -> &'static str {
             self.calls.fetch_add(1, Ordering::SeqCst);
             "state://sorafs/stream-token/observer-primary"
         }

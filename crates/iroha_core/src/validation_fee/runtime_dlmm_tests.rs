@@ -76,14 +76,14 @@ pub(super) fn execute_signed_body(
 > {
     use iroha_data_model::transaction::{FeePaymentIntent, TransactionBuilder};
     let authority = AccountId::new(signer.public_key().clone());
-    let signed = TransactionBuilder::new(
+    let signed_payload = TransactionBuilder::new(
         block.network_id,
         authority.clone(),
         FeePaymentIntent::authority(Vec::new(), std::num::NonZeroU64::new(100_000_000)),
     )
     .with_executable(executable)
     .sign(signer.private_key());
-    let call = Hash::from(signed.hash_as_entrypoint());
+    let call = Hash::from(signed_payload.hash_as_entrypoint());
     let fragments_before = block.committed_fragment_count();
     let mut stx = block.transaction_for_fastpq_testing(call);
     stx.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
@@ -93,7 +93,7 @@ pub(super) fn execute_signed_body(
         .execute_transaction(
             &mut stx,
             &authority,
-            signed,
+            signed_payload,
             &mut crate::smartcontracts::ivm::cache::IvmCache::new(),
         )
         .map_err(|error| error.map_rejection(TransactionRejectionReason::Validation))?;

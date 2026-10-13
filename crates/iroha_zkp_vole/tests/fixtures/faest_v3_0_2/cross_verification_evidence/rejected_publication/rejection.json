@@ -1,0 +1,18 @@
+{
+  "completed_case_lines": 24,
+  "current_lock_sha256": "6d8e3d424264d8c934fc1683111659e246d71960cc4b247efa512502235b435c",
+  "drift": "iroha_sccp dependency list gained iroha_allocation; removing only that edge in memory restores the exact build lock SHA-256",
+  "live_lock_modified_by_recovery": false,
+  "old_lock_sha256": "dc55d38cf752be174f1e270b0c3ff7d292bdaed5f7d8297daf2225d4249c1c48",
+  "publication_status": "rejected_by_live_source_guard_after_all_cases_completed",
+  "raw_individual_upstream_return_codes_retained": false,
+  "reason": "live Cargo.lock changed during the run; original report and in-memory upstream-origin signatures were not written",
+  "retained_rust_negative_command_results": 768,
+  "retained_rust_positive_command_results": 48,
+  "rust_binaries_match_build_receipt": true,
+  "rust_signatures_retained": 12,
+  "upstream_library_modified_at_utc": "2026-10-13T03:39:06.242919+00:00",
+  "upstream_library_pre_call_hash_retained": false,
+  "upstream_library_sha256_at_recovery": "268c096ae569acf3492e82b9cbe8d375e56039834305b8a7650840b3601f7b44",
+  "upstream_signatures_retained": 0
+}

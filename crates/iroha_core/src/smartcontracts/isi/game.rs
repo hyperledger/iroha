@@ -317,11 +317,14 @@ fn validate_checkpoint(
     checkpoint: &SignedGameCheckpointV1,
 ) -> Result<(), Error> {
     let cp = &checkpoint.checkpoint;
+    let tick_in_range = (session.next_tick..=session.manifest.max_ticks).contains(&cp.tick);
     if cp.session_id != session.session_id
         || cp.epoch != session.epoch
-        || cp.tick < session.next_tick
-        || cp.tick > session.manifest.max_ticks
-        || (!cp.terminal && cp.tick % u32::from(session.manifest.batch_ticks) != 0)
+        || !tick_in_range
+        || (!cp.terminal
+            && !cp
+                .tick
+                .is_multiple_of(u32::from(session.manifest.batch_ticks)))
     {
         return Err(invalid(
             "session checkpoint has wrong epoch or stale/noncanonical tick",
@@ -345,8 +348,8 @@ fn validate_frontier(
 ) -> Result<(), Error> {
     if frontier.session_id != session.session_id
         || frontier.epoch != session.epoch
-        || frontier.start_tick != checkpoint.tick
-        || frontier.parent_transcript_root != checkpoint.transcript_root
+        || (frontier.start_tick, &frontier.parent_transcript_root)
+            != (checkpoint.tick, &checkpoint.transcript_root)
         || frontier.commitments.len() != session.participants.len()
         || checkpoint.terminal
     {
@@ -390,14 +393,18 @@ impl Execute for OpenGameSessionV1 {
         st: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         if self.manifest.version != 1
-            || !(1..=GAME_MAX_PARTICIPANTS_V1 as u8).contains(&self.manifest.max_participants)
+            || !(1..=GAME_MAX_PARTICIPANTS_V1)
+                .contains(&usize::from(self.manifest.max_participants))
             || self.manifest.min_participants == 0
             || self.manifest.min_participants > self.manifest.max_participants
             || self.manifest.batch_ticks == 0
             || self.manifest.batch_ticks > 256
             || self.manifest.max_ticks == 0
             || self.manifest.max_ticks > 1_000_000
-            || self.manifest.max_ticks % u32::from(self.manifest.batch_ticks) != 0
+            || !self
+                .manifest
+                .max_ticks
+                .is_multiple_of(u32::from(self.manifest.batch_ticks))
             || self.manifest.max_ticks / u32::from(self.manifest.batch_ticks) > 4096
             || u64::from(self.manifest.max_ticks / u32::from(self.manifest.batch_ticks))
                 * u64::from(self.manifest.max_participants)
@@ -617,7 +624,8 @@ impl Execute for StartGameSessionV1 {
         let state_root = crate::execution_proofs::initial_game_state_root_v1(
             &session.network_id,
             &session.manifest,
-            session.participants.len() as u8,
+            u8::try_from(session.participants.len())
+                .map_err(|_| invalid("game participant count exceeds its wire bound"))?,
         )
         .map_err(|e| invalid(format!("initial game state rejected: {e}")))?;
         let transcript_root = game_message_hash_v1(
@@ -849,7 +857,9 @@ fn advance_batch(
                 return Err(invalid("session batch lacks required reveal"));
             }
             session.participants[slot].dnf_at_tick = Some(session.next_tick);
-            dnf_slots.push(slot as u8);
+            dnf_slots.push(
+                u8::try_from(slot).map_err(|_| invalid("game DNF slot exceeds its wire bound"))?,
+            );
         }
     }
     if !dnf_slots.is_empty() {
@@ -1045,8 +1055,10 @@ pub(crate) fn expected_game_awards_v1(
     };
     let slots = if refund {
         (0..session.participants.len())
-            .map(|slot| slot as u8)
-            .collect::<Vec<_>>()
+            .map(|slot| {
+                u8::try_from(slot).map_err(|_| invalid("game refund slot exceeds its wire bound"))
+            })
+            .collect::<Result<Vec<_>, _>>()?
     } else {
         session
             .result
@@ -1110,7 +1122,8 @@ fn payout(
     for (slot, amount) in recipients.iter().zip(amounts) {
         if !amount.is_zero() {
             claims.push(GamePayoutClaimV1 {
-                slot: *slot as u8,
+                slot: u8::try_from(*slot)
+                    .map_err(|_| invalid("game payout slot exceeds its wire bound"))?,
                 amount: amount.clone(),
                 remaining: amount.clone(),
             });
@@ -2131,8 +2144,11 @@ mod tests {
         let signatures = active_slots(session)
             .into_iter()
             .map(|slot| GameSlotSignatureV1 {
-                slot: slot as u8,
-                signature: Signature::new(key(slot as u8).private_key(), digest.as_ref()),
+                slot: u8::try_from(slot).expect("fixture value fits u8"),
+                signature: Signature::new(
+                    key(u8::try_from(slot).expect("fixture value fits u8")).private_key(),
+                    digest.as_ref(),
+                ),
             })
             .collect();
         SignedGameCheckpointV1 {
@@ -3622,7 +3638,7 @@ mod tests {
             amount: Quantity::from(2_u32),
             remaining: Quantity::zero(),
         }];
-        world.assets = Default::default();
+        world.assets = mv::storage::Storage::default();
         world.game_sessions = [(closed.session_id, closed)].into_iter().collect();
         world.rebuild_game_session_indexes().unwrap();
         assert!(world.game_account_references.view().iter().next().is_none());

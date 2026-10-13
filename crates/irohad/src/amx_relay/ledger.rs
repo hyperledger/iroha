@@ -130,7 +130,7 @@ fn locked<T>(owner: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
 impl RelayLedger {
     pub(super) fn new(
         client: Arc<Client>,
-        account: AccountClient,
+        account: &AccountClient,
         dispatch: Arc<dyn WorkflowLedger>,
         verifier: SumeragiFinalityVerifier,
         scope: SumeragiRootScope,
@@ -164,7 +164,7 @@ impl RelayLedger {
     /// Recover an already successful handoff delivered by any authorized carrier. The
     /// retained cursor/locator only saves read work; every positive result is reverified.
     pub(super) async fn recover_handoff(&self, expected: &InstructionBox) -> Result<bool> {
-        if cfg!(all(test, sumeragi_daemon_mutation = "HC276")) {
+        if cfg!(all(test, sumeragi_daemon_mutation = "HC331")) {
             return Ok(false);
         }
         let effect = handoff_effect(expected)?
@@ -381,11 +381,11 @@ impl RelayLedger {
                 (transaction.hash() == hash
                     && Hash::from(transaction.hash_as_entrypoint()).as_ref()
                         == &identity.entrypoint_hash)
-                    .then_some(index as u32)
+                    .then_some(index)
             })
             .ok_or_else(|| eyre!("AMX destination block lacks the exact signed input"))?;
         let TransactionEntrypoint::External(transaction) = block
-            .network_entrypoint_at(index as usize)
+            .network_entrypoint_at(index)
             .ok_or_else(|| eyre!("AMX carrier missing"))?
         else {
             return Err(eyre!("AMX carrier is not externally signed"));
@@ -393,7 +393,9 @@ impl RelayLedger {
         if !cfg!(all(test, sumeragi_daemon_mutation = "HC266")) {
             self.check_payload(transaction.payload())?;
         }
-        let evidence = evidence(block, index)?;
+        let proof_index = u32::try_from(index)
+            .map_err(|_| eyre!("AMX carrier input index exceeds the proof format"))?;
+        let evidence = evidence(block, proof_index)?;
         verified.verify_transaction_execution(&self.network, &evidence)?;
         if evidence.result().is_ok() {
             Ok(CommittedOutcome::Applied {

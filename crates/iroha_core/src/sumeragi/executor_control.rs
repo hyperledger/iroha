@@ -244,11 +244,15 @@ mod tests {
             .expect_err("an empty reservation cannot construct the physical control");
         assert_eq!(original, 17);
         assert!(matches!(error, PrepaidSharedError::Reservation(_)));
+        let expected = error.clone();
         let failure = readiness_failure(NativeBeaconReadinessError::Allocator(error));
         let PublicationError::Deferred(ref retained) = failure else {
             panic!("retain the concrete allocator failure, got {failure:?}");
         };
-        assert_eq!(retained, &PublicationDeferral::SharedControl(error));
+        let PublicationDeferral::SharedControl(actual) = retained else {
+            panic!("retain the exact shared-control error");
+        };
+        assert_eq!(actual, &expected);
         assert!(retained.allocation_refusal().is_none());
         assert!(retained.release_wait().is_none());
         assert!(retained.execution().is_none());

@@ -154,12 +154,12 @@ impl<Admission> DetachedSet<Admission> {
     /// Standalone preparation delegates to the same caller-owned slot engine.
     /// An enclosing aggregate must retain its slot before calling the borrowed method
     /// if its own physical siblings also need to survive a callee unwind.
-    pub(crate) fn try_prepare_publication<'target, Installation, E>(
+    pub(crate) fn try_prepare_publication<Installation, E>(
         self,
-        target: &'target Set,
+        target: &Set,
         admit: impl FnOnce(&Self, &Set) -> Result<Installation, E>,
     ) -> Result<
-        PreparedSet<'target, Admission, Installation>,
+        PreparedSet<'_, Admission, Installation>,
         (Self, SetPublicationError<E>, AbortedSet<Installation>),
     > {
         let mut slot = self.publication_slot(target);

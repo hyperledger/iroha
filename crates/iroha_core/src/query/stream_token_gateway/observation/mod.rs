@@ -746,7 +746,6 @@ impl PendingStreamTokenGatewayCheckV1 {
             {
                 return Err(Error::Authority.into());
             }
-            drop(cut);
             drop(view);
             Ok((
                 generation,
@@ -946,12 +945,12 @@ impl VerifiedStreamTokenGatewayCheckV1 {
                     .expired_at(height, time.latest_unix_ms)
                     .map_err(|_| Error::Authority)?;
                 if !needs_terminal_check {
+                    use mv::storage::StorageReadOnly;
                     let permission: iroha_data_model::permission::Permission =
                     iroha_executor_data_model::permission::sorafs::CanRecordSorafsReputationJournal
                         .into();
                     let world = cut.view().world();
                     let account = &intent.payload.authority;
-                    use mv::storage::StorageReadOnly;
                     if world.accounts().get(account).is_none()
                         || !(world.account_contains_inherent_permission(account, &permission)
                             || world

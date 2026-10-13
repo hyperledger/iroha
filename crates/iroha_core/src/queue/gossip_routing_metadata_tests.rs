@@ -135,9 +135,7 @@ fn temporarily_unroutable_ordinary_input_does_not_fault_the_queue() {
     queue
         .push_with_lane_with_state(tx.clone(), &state)
         .expect("admit signed Ordinary input on the initial route");
-    router.set_error(RoutingResolveError::UnknownDataspace {
-        dataspace_id: DataSpaceId::new(91),
-    });
+    router.set_unknown_dataspace(DataSpaceId::new(91));
     assert!(matches!(
         queue.route_plan_with_state(&tx, &state),
         Err(RoutingResolveError::OrdinaryRouteUnavailable { .. })

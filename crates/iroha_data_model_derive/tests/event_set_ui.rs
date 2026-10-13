@@ -7,4 +7,5 @@ fn event_set_identity_metadata() {
     cases.compile_fail("tests/ui_fail/event_set_identity_missing.rs");
     cases.compile_fail("tests/ui_fail/event_set_identity_duplicate.rs");
     cases.compile_fail("tests/ui_fail/event_set_identity_invalid.rs");
+    cases.compile_fail("tests/ui_fail/event_set_too_many.rs");
 }

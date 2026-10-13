@@ -1104,7 +1104,7 @@ impl Kura {
                     .payload_len()
                     .expect("validated progress intent has a payload length"),
             };
-            if *entry != expected_entry || snapshot.indexed_end != intent.new_data_len {
+            if (*entry, snapshot.indexed_end) != (expected_entry, intent.new_data_len) {
                 warn!(
                     height = intent.height,
                     ?index_path,
@@ -1204,6 +1204,13 @@ impl Kura {
         true
     }
     #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect descriptor-bound progress publication; preserve crash recovery, namespace authentication and exact physical admission"
+        )
+    )]
     fn recover_bound_progress_sidecar_artifacts(
         &self,
         data_path: &Path,
@@ -2712,6 +2719,13 @@ impl Kura {
     /// Account the exact larger journal only for a backward prepend. Ordinary
     /// writes retain their existing fixed envelope. The caller holds sidecar
     /// ownership through this read-only admission and the subsequent write.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect descriptor-bound progress publication; preserve crash recovery, namespace authentication and exact physical admission"
+        )
+    )]
     fn bound_progress_publication_peak_locked(
         &self,
         namespace: &BoundProgressNamespace,
@@ -2805,6 +2819,13 @@ impl Kura {
             })
     }
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect descriptor-bound progress publication; preserve crash recovery, namespace authentication and exact physical admission"
+        )
+    )]
     fn append_indexed_bound_progress_sidecar(
         data_path: &Path,
         index_path: &Path,
@@ -3362,7 +3383,7 @@ impl Kura {
                 .payload_len()
                 .expect("validated progress intent has a payload length"),
         };
-        if *entry != expected_entry || snapshot.indexed_end != intent.new_data_len {
+        if (*entry, snapshot.indexed_end) != (expected_entry, intent.new_data_len) {
             warn!(
                 height = intent.height,
                 ?index_path,
@@ -3396,6 +3417,7 @@ impl Kura {
         Self::progress_mutation_namespace_unchanged(namespace)
     }
     #[allow(clippy::too_many_arguments)]
+    #[cfg(test)]
     fn append_indexed_progress_sidecar(
         data_path: &Path,
         index_path: &Path,
@@ -4090,6 +4112,7 @@ impl Kura {
         )
     }
     #[allow(clippy::too_many_lines)]
+    #[cfg(test)]
     fn read_indexed_sidecar_from_paths_with_recovery<T, F>(
         height: u64,
         data_path: &Path,

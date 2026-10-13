@@ -122,7 +122,7 @@ fn handle_tree_refuses_each_original_native_edge_and_reopened_foreign_fallbacks(
         std::fs::set_permissions(directory.path(), permissions).unwrap();
         history.revalidate_retained_handles().unwrap();
         let displaced = fixture
-            ._temporary
+            .temporary
             .path()
             .join(format!("held-handle-{label}"));
         std::fs::rename(directory.path(), &displaced).unwrap();
@@ -162,8 +162,7 @@ fn handle_tree_refuses_each_original_native_edge_and_reopened_foreign_fallbacks(
     history.revalidate_retained_handles().unwrap();
     replace_first_directory(&mut history, row.retain().unwrap());
     let foreign =
-        PrivateDirectory::open_or_create(fixture._temporary.path().join("foreign-handles"))
-            .unwrap();
+        PrivateDirectory::open_or_create(fixture.temporary.path().join("foreign-handles")).unwrap();
     let foreign_row = foreign.create_child("row").unwrap();
     replace_first_directory(&mut history, foreign_row.retain().unwrap());
     std::fs::set_permissions(foreign.path(), std::fs::Permissions::from_mode(0o755)).unwrap();

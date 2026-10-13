@@ -99,9 +99,11 @@ mod goldilocks {
         );
         record.vk_len = u32::try_from(key.bytes.len()).expect("bounded fixture key");
         record.key = Some(key);
-        assert_eq!(
-            host.set_verifying_keys(BTreeMap::from([(id, record)])),
-            Err(ivm::VMError::NoritoInvalid),
+        assert!(
+            matches!(
+                host.set_verifying_keys(BTreeMap::from([(id, record)])),
+                Err(ivm::VMError::NoritoInvalid)
+            ),
             "retired IVM binding circuit cannot enter the production verifier registry"
         );
     }

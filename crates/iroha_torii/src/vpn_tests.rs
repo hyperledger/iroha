@@ -359,8 +359,7 @@ fn world_with_accounts(accounts: &[AccountId]) -> World {
     );
     let accounts = accounts
         .iter()
-        .cloned()
-        .map(|account_id| Account::new(account_id.clone()).build(&account_id))
+        .map(|account_id| Account::new(account_id.clone()).build(account_id))
         .collect::<Vec<_>>();
     World::with([domain], accounts, [])
 }
@@ -371,15 +370,13 @@ fn vpn_enabled_app_with_operator_unchecked(
     let app = mk_app_state_for_tests_with_world(world);
     let quote_signer = (1_u16..=u16::from(u8::MAX))
         .map(|seed| checked_vpn_ed25519_keypair(seed as u8))
-        .find(|key_pair| account_id_for(key_pair) == *operator_account_id)
+        .find(|keypair| account_id_for(keypair) == *operator_account_id)
         .expect("VPN fixture operator must come from a checked one-byte seed");
     let mut cfg = crate::test_utils::mk_minimal_root_cfg();
     cfg.network.soranet_vpn.enabled = true;
     cfg.network.soranet_vpn.operator_account_id = operator_account_id.clone();
-    let mut inner = match Arc::try_unwrap(app) {
-        Ok(inner) => inner,
-        Err(_) => panic!("test app should be uniquely owned before VPN reconfiguration"),
-    };
+    let mut inner = Arc::try_unwrap(app)
+        .unwrap_or_else(|_| panic!("test app should be uniquely owned before VPN reconfiguration"));
     inner.kiso = KisoHandle::mock(&cfg);
     inner.vpn_operator_signer = Some(quote_signer);
     inner.vpn_relay_trust = Some(Arc::new(test_vpn_relay_trust()));
@@ -563,7 +560,7 @@ async fn create_session_for_quote(
         exit_class: quote.exit_class.clone(),
         quote_id: quote.quote_id.clone(),
         payment_tx_hash: quote.quote_id.clone(),
-        metering_public_key_hex: metering_public_key_hex(&metering_keys),
+        metering_public_key_hex: metering_public_key_hex(metering_keys),
     })
     .expect("session body");
     let headers = signed_app_headers(account, key_pair, &method, &uri, body.as_ref());
@@ -585,8 +582,7 @@ fn sample_session_record(account_id: &AccountId) -> VpnSessionRecord {
     let fee_asset_definition = xor_asset_definition_id();
     let fee_asset_id = fee_asset_definition.to_string();
     let escrow_account_id =
-        vpn_lease_custody_account_id(&network_id, &lease_id, &fee_asset_definition)
-            .expect("fixture protocol custody");
+        vpn_lease_custody_account_id(&network_id, &lease_id, &fee_asset_definition);
     VpnSessionRecord {
         session_id: hex::encode(session_id),
         lease_id,
@@ -642,8 +638,7 @@ fn sample_quote_record(
         derive_vpn_session_id_v1(&network_id, quote_id_bytes, account_id, address_slot);
     let asset_definition = xor_asset_definition_id();
     session.escrow_account_id =
-        vpn_lease_custody_account_id(&network_id, &lease_id, &asset_definition)
-            .expect("fixture custody");
+        vpn_lease_custody_account_id(&network_id, &lease_id, &asset_definition);
     session.tunnel_addresses = derive_vpn_address_plan_v1(address_slot).client_tunnel_addresses;
     let policy = VpnQuotePolicyV1 {
         exit_class: VpnExitClassV1::try_from_label(&session.exit_class).expect("exit class"),
@@ -741,7 +736,7 @@ fn sample_indexed_session_record(
 fn fixture_operator_key(operator_account_id: &AccountId) -> KeyPair {
     (1_u16..=u16::from(u8::MAX))
         .map(|seed| checked_vpn_ed25519_keypair(seed as u8))
-        .find(|key_pair| account_id_for(key_pair) == *operator_account_id)
+        .find(|keypair| account_id_for(keypair) == *operator_account_id)
         .expect("fixture VPN operator must come from a checked one-byte seed")
 }
 fn resign_lease_quote_projection(record: &mut VpnLeaseRecordV1) {
@@ -889,8 +884,7 @@ fn settled_lease_for_account(account: &AccountId, ordinal: u16) -> VpnLeaseRecor
     session.payment_reference = hex::encode(quote_id);
     let asset_definition = xor_asset_definition_id();
     session.escrow_account_id =
-        vpn_lease_custody_account_id(&network_id, &lease_id, &asset_definition)
-            .expect("fixture protocol custody");
+        vpn_lease_custody_account_id(&network_id, &lease_id, &asset_definition);
     session.tunnel_addresses = derive_vpn_address_plan_v1(address_slot).client_tunnel_addresses;
     let settled_at_ms = 10_000_u64 + u64::from(ordinal);
     let active_ms = settled_at_ms - session.connected_at_ms;
@@ -1192,9 +1186,10 @@ where
     let bytes = to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("response bytes");
-    if status == StatusCode::NOT_FOUND {
-        panic!("expected JSON response, got 404");
-    }
+    assert!(
+        status != StatusCode::NOT_FOUND,
+        "expected JSON response, got 404"
+    );
     norito::json::from_slice(bytes.as_ref()).expect("json body")
 }
 #[tokio::test]
@@ -1359,8 +1354,7 @@ async fn create_vpn_quote_derives_protocol_custody() {
         app.state.network_id_ref(),
         &lease_id,
         &xor_asset_definition_id(),
-    )
-    .expect("deterministic protocol custody");
+    );
     assert_eq!(quote.fee_asset_id, xor_asset_definition_id().to_string());
     assert_eq!(quote.escrow_account_id, expected_custody.to_string());
     assert_ne!(quote.escrow_account_id, account.to_string());

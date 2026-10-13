@@ -80,13 +80,13 @@ fn consumed_e5_recovery_requires_its_own_live_eligibility_observation() {
     journal
         .retain_eligibility_request(&mut attempt, &dispatch, &policy, &request, 1_100)
         .unwrap();
-    let signed = response(
+    let signed_payload = response(
         &policy,
         &request,
         KagemushaEligibilityDecisionV1::ApprovedUnfrozen,
     );
     journal
-        .retain_eligibility_response(&mut attempt, &request.nonce, &signed, 1_200)
+        .retain_eligibility_response(&mut attempt, &request.nonce, &signed_payload, 1_200)
         .unwrap();
     journal
         .consume_eligibility(&mut attempt, &dispatch, &policy, &request, 1_200)
@@ -295,16 +295,16 @@ fn changed_current_authority_bank_or_operation_refuses_a_previously_approved_res
             .consume_eligibility(&mut attempt, &routed, &policy, &request, 1200)
             .is_err()
     );
-    let mut changed = request;
-    changed.operation_digest = [99; 32];
+    let mut tampered_value = request;
+    tampered_value.operation_digest = [99; 32];
     assert_eq!(
-        journal.consume_eligibility(&mut attempt, &dispatch, &policy, &changed, 1200),
+        journal.consume_eligibility(&mut attempt, &dispatch, &policy, &tampered_value, 1200),
         Err(Conflict)
     );
-    changed = request;
-    changed.purpose = KagemushaEligibilityPurposeV1::VerifyEvidence;
+    tampered_value = request;
+    tampered_value.purpose = KagemushaEligibilityPurposeV1::VerifyEvidence;
     assert_eq!(
-        journal.consume_eligibility(&mut attempt, &dispatch, &policy, &changed, 1200),
+        journal.consume_eligibility(&mut attempt, &dispatch, &policy, &tampered_value, 1200),
         Err(Conflict)
     );
     assert_eq!(
@@ -366,11 +366,11 @@ fn wrong_scope_bank_actor_phase_and_enrollment_deadline_never_create_a_request()
         |r| r.purpose = KagemushaEligibilityPurposeV1::IssueCredential,
     ];
     for change in changes {
-        let mut changed = request;
-        change(&mut changed);
+        let mut tampered_value = request;
+        change(&mut tampered_value);
         assert!(
             journal
-                .retain_eligibility_request(&mut attempt, &dispatch, &policy, &changed, 1000)
+                .retain_eligibility_request(&mut attempt, &dispatch, &policy, &tampered_value, 1000)
                 .is_err()
         );
     }
@@ -378,19 +378,19 @@ fn wrong_scope_bank_actor_phase_and_enrollment_deadline_never_create_a_request()
     wrong.authority = KagemushaEligibilityAuthorityV1::Bank {
         fi_digest: [99; 32],
     };
-    let mut changed = request;
-    changed.policy_digest = wrong.policy_digest().unwrap();
+    let mut tampered_value = request;
+    tampered_value.policy_digest = wrong.policy_digest().unwrap();
     assert_eq!(
-        journal.retain_eligibility_request(&mut attempt, &dispatch, &wrong, &changed, 1000),
+        journal.retain_eligibility_request(&mut attempt, &dispatch, &wrong, &tampered_value, 1000),
         Err(Conflict)
     );
     wrong = policy;
     wrong.maximum_response_ms = 1_000_000;
-    changed = request;
-    changed.policy_digest = wrong.policy_digest().unwrap();
-    changed.expires_at_ms = attempt.selection().expires_at_ms + 1;
+    tampered_value = request;
+    tampered_value.policy_digest = wrong.policy_digest().unwrap();
+    tampered_value.expires_at_ms = attempt.selection().expires_at_ms + 1;
     assert_eq!(
-        journal.retain_eligibility_request(&mut attempt, &dispatch, &wrong, &changed, 1000),
+        journal.retain_eligibility_request(&mut attempt, &dispatch, &wrong, &tampered_value, 1000),
         Err(Conflict)
     );
     assert!(
@@ -743,7 +743,7 @@ fn retained_issuance_and_delivery_recover_after_e1_expiry_with_fresh_observation
                 request.requested_at_ms,
             )
             .unwrap();
-        let mut signed = KagemushaEligibilityResponseBodyV1 {
+        let mut signed_payload = KagemushaEligibilityResponseBodyV1 {
             version: 1,
             request_digest: request.request_digest(&policy).unwrap(),
             decision: KagemushaEligibilityDecisionV1::ApprovedUnfrozen,
@@ -752,11 +752,14 @@ fn retained_issuance_and_delivery_recover_after_e1_expiry_with_fresh_observation
             valid_until_ms: request.expires_at_ms,
         };
         let original = KagemushaEligibilityResponseV1 {
-            signature: Signature::new(signer().private_key(), &signed.signing_message().unwrap())
-                .payload()
-                .try_into()
-                .unwrap(),
-            body: signed,
+            signature: Signature::new(
+                signer().private_key(),
+                &signed_payload.signing_message().unwrap(),
+            )
+            .payload()
+            .try_into()
+            .unwrap(),
+            body: signed_payload,
         }
         .encode_canonical()
         .unwrap();
@@ -765,7 +768,7 @@ fn retained_issuance_and_delivery_recover_after_e1_expiry_with_fresh_observation
                 &mut attempt,
                 &request.nonce,
                 &original,
-                signed.observed_at_ms,
+                signed_payload.observed_at_ms,
             )
             .unwrap();
         journal
@@ -774,7 +777,7 @@ fn retained_issuance_and_delivery_recover_after_e1_expiry_with_fresh_observation
                 &dispatch,
                 &policy,
                 &request,
-                signed.observed_at_ms + 1,
+                signed_payload.observed_at_ms + 1,
             )
             .unwrap();
         assert_eq!(attempt.phase(), phase);
@@ -807,19 +810,19 @@ fn retained_issuance_and_delivery_recover_after_e1_expiry_with_fresh_observation
             );
         }
         // A new response cannot stretch current policy's lifetime merely because E1 expired.
-        signed.valid_until_ms += 1;
+        signed_payload.valid_until_ms += 1;
         assert!(
             KagemushaEligibilityResponseV1 {
                 signature: Signature::new(
                     signer().private_key(),
-                    &signed.signing_message().unwrap()
+                    &signed_payload.signing_message().unwrap()
                 )
                 .payload()
                 .try_into()
                 .unwrap(),
-                body: signed,
+                body: signed_payload,
             }
-            .verify(&policy, &request, signed.observed_at_ms)
+            .verify(&policy, &request, signed_payload.observed_at_ms)
             .is_err()
         );
     }

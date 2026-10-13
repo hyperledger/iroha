@@ -29,7 +29,7 @@ fn capacity() -> Error {
 
 /// One sorted, allocation-free subset of the actual finite active route catalogue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct FixedRouteScope {
+pub struct FixedRouteScope {
     ids: [DataSpaceId; MAX_ACTIVE_EXECUTION_LANES],
     len: usize,
 }
@@ -72,7 +72,7 @@ struct CapturedControl {
 
 /// The original native shared control and its post-deallocation weighted-pool lease.
 #[derive(Clone)]
-pub(crate) struct StreamControlOwner {
+pub struct StreamControlOwner {
     captured: Shared<CapturedControl, OwnedSemaphorePermit>,
 }
 
@@ -83,7 +83,7 @@ struct ScopeReclaim {
 
 /// A current fixed scope under its own exact native layout, without a BTreeSet copy.
 #[derive(Clone)]
-pub(crate) struct FixedScopeOwner {
+pub struct FixedScopeOwner {
     scope: Shared<FixedRouteScope, ScopeReclaim>,
 }
 
@@ -108,7 +108,7 @@ impl Eq for FixedScopeOwner {}
 
 /// Explorer's persistent reader captures only an exactly paid caller and finite route scope.
 #[derive(Clone)]
-pub(crate) struct ExplorerReadContext {
+pub struct ExplorerReadContext {
     owner: StreamControlOwner,
     #[cfg(test)]
     fixed_visibility: Option<crate::routing::DataspaceReadVisibility>,
@@ -129,9 +129,11 @@ impl ExplorerReadContext {
                 &app.state,
                 app.state.network_id_ref(),
                 headers,
-                method,
-                uri,
-                &[],
+                crate::app_auth::CanonicalRequestParts {
+                    method,
+                    uri,
+                    body: &[],
+                },
                 None,
                 auth.allocation_context(),
             )?;
@@ -345,6 +347,10 @@ fn authorized_scope(
 impl StreamControlOwner {
     /// Transfer an authenticated scope only after its exact caller copy/control layout fit.
     /// The supplied original caller remains owned by the initial query until this copy completes.
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "The fixed scope moves into its admitted shared owner after exact layout reservation."
+    )]
     pub(crate) fn capture(
         app: SharedAppState,
         caller: Option<&AccountId>,
@@ -403,6 +409,10 @@ impl StreamControlOwner {
         self.captured.admitted_height
     }
 
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "The fixed scope moves into its admitted shared owner after exact layout reservation."
+    )]
     pub(crate) fn scope_owner(&self, scope: FixedRouteScope) -> Result<FixedScopeOwner, Error> {
         let layout = Shared::<FixedRouteScope, ScopeReclaim>::layout();
         let permit = self.acquire_layout(layout).map_err(|_| capacity())?;

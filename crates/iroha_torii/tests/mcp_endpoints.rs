@@ -79,7 +79,6 @@ fn build_router(
 }
 #[tokio::test]
 async fn mcp_fixture_has_applied_global_root_authority() {
-    use iroha_core::state::StateReadOnly as _;
     let _data_dir = test_utils::TestDataDirGuard::new();
     let app = build_router(test_utils::mk_minimal_root_cfg());
     assert_eq!(app.state().view().height(), 1);
@@ -105,7 +104,7 @@ fn authenticated_mcp_target_arguments(
     mut arguments: Value,
     authentication: McpTargetAuthentication,
 ) -> Value {
-    use iroha_core::state::{StateReadOnly as _, WorldReadOnly as _};
+    use iroha_core::state::WorldReadOnly as _;
     let account = AccountId::new(key_pair.public_key().clone());
     assert!(
         app.state().view().world().account(&account).is_ok(),

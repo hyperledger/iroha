@@ -11,35 +11,28 @@ use iroha_model_base::chain::ChainId;
 #[group(id = "NativeAmxBootstrapArgs")]
 pub(super) struct Args {
     /// Full global chain label selected for the private root's native AMX participant.
-    #[clap(long, value_name = "CHAIN_ID", requires_all = ["amx_global_genesis", "amx_global_successor"])]
-    amx_global_chain_id: Option<ChainId>,
+    #[clap(long = "amx-global-chain-id", value_name = "CHAIN_ID", requires_all = ["genesis", "successor"])]
+    chain_id: Option<ChainId>,
     /// Complete original signed global genesis in canonical `SignedBlockWire` format.
-    #[clap(long, value_name = "PATH", requires_all = ["amx_global_chain_id", "amx_global_successor"])]
-    amx_global_genesis: Option<PathBuf>,
+    #[clap(long = "amx-global-genesis", value_name = "PATH", requires_all = ["chain_id", "successor"])]
+    genesis: Option<PathBuf>,
     /// Genuine global H2 whose exact quorum authenticates that original genesis result.
-    #[clap(long, value_name = "PATH", requires_all = ["amx_global_chain_id", "amx_global_genesis"])]
-    amx_global_successor: Option<PathBuf>,
+    #[clap(long = "amx-global-successor", value_name = "PATH", requires_all = ["chain_id", "genesis"])]
+    successor: Option<PathBuf>,
 }
 
 impl Args {
     pub(super) fn source_paths(&self) -> impl Iterator<Item = &Path> {
-        [
-            self.amx_global_genesis.as_deref(),
-            self.amx_global_successor.as_deref(),
-        ]
-        .into_iter()
-        .flatten()
+        [self.genesis.as_deref(), self.successor.as_deref()]
+            .into_iter()
+            .flatten()
     }
 
     pub(super) fn append_to(
         self,
         genesis: RawGenesisTransaction,
     ) -> color_eyre::Result<RawGenesisTransaction> {
-        match (
-            self.amx_global_chain_id,
-            self.amx_global_genesis,
-            self.amx_global_successor,
-        ) {
+        match (self.chain_id, self.genesis, self.successor) {
             (None, None, None) => Ok(genesis),
             (Some(chain), Some(g1), Some(h2)) => {
                 let mut g1 = iroha_fs::read_regular(&g1, SIGNED_GENESIS_MAX_BYTES_V1)
@@ -88,9 +81,9 @@ mod tests {
         let original = manifest();
         for selected in 1_u8..7 {
             let args = Args {
-                amx_global_chain_id: (selected & 1 != 0).then(|| ChainId::from("global")),
-                amx_global_genesis: (selected & 2 != 0).then(|| PathBuf::from("never-open-g1")),
-                amx_global_successor: (selected & 4 != 0).then(|| PathBuf::from("never-open-h2")),
+                chain_id: (selected & 1 != 0).then(|| ChainId::from("global")),
+                genesis: (selected & 2 != 0).then(|| PathBuf::from("never-open-g1")),
+                successor: (selected & 4 != 0).then(|| PathBuf::from("never-open-h2")),
             };
             let error = args.append_to(original.clone()).unwrap_err();
             assert!(
@@ -183,9 +176,9 @@ mod tests {
         let g1 = directory.path().join("g1.nrt");
         let h2 = directory.path().join("h2.nrt");
         let args = || Args {
-            amx_global_chain_id: Some(ChainId::from("global")),
-            amx_global_genesis: Some(g1.clone()),
-            amx_global_successor: Some(h2.clone()),
+            chain_id: Some(ChainId::from("global")),
+            genesis: Some(g1.clone()),
+            successor: Some(h2.clone()),
         };
         assert!(args().append_to(manifest()).is_err());
         std::fs::write(&g1, b"not canonical signed genesis").unwrap();

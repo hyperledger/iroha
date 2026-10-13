@@ -78,6 +78,10 @@ impl AppRoutedReadHttpDecoder {
             Self::None | Self::ExactInternalAssetScope => None,
         }
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn preflight_media(self, _headers: &HeaderMap) -> Result<(), Response> {
         match self {
             #[cfg(feature = "app_api")]
@@ -474,7 +478,7 @@ fn app_routed_read_http_endpoint(route_id: &str) -> Option<AppReadHttpRoute> {
     }
     #[cfg(feature = "app_api")]
     {
-        return APP_ROUTED_READ_HTTP_ENDPOINTS_V1
+        APP_ROUTED_READ_HTTP_ENDPOINTS_V1
             .iter()
             .map(|entry| AppReadHttpRoute {
                 endpoint: AppReadHttpIdentity::Routed(entry.endpoint),
@@ -482,7 +486,7 @@ fn app_routed_read_http_endpoint(route_id: &str) -> Option<AppReadHttpRoute> {
                 decoder: entry.decoder,
             })
             .chain(APP_LOCAL_COLLECTION_HTTP_ROUTES_V1.iter().copied())
-            .find(|entry| entry.route.stable_route_id() == route_id);
+            .find(|entry| entry.route.stable_route_id() == route_id)
     }
     #[cfg(not(feature = "app_api"))]
     None
@@ -651,6 +655,10 @@ fn hold_app_routed_read_reservation_if_needed(
         hold_query_fanout_memory_in_response_body(response, reservation)
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn preflight_app_routed_read_content_length(
     headers: &HeaderMap,
     body_limit: usize,
@@ -707,6 +715,10 @@ fn preflight_app_routed_read_content_length(
     }
     Ok(Some(declared))
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn preflight_bodyless_app_routed_read(headers: &HeaderMap) -> Result<Option<usize>, Response> {
     if headers.contains_key(axum::http::header::TRANSFER_ENCODING) {
         return Err(torii_proxy_error_response(

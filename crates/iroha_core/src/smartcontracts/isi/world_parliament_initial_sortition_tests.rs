@@ -412,6 +412,9 @@ fn parliament_sortition_consumes_the_slot_pulse_under_its_retained_session_after
     const ROTATION_HEIGHT: u64 = 10;
     const EXECUTION_HEIGHT: u64 = 12;
 
+    const UNKNOWN: &str = "unknown finalized beacon pulse";
+    const MISMATCH: &str = "does not match the persisted finalized beacon pulse";
+    const UNVERIFIED: &str = "failed public DKG or final-signature verification";
     let state = blank_test_state();
     let block =
         new_dummy_block_at_height(NonZeroU64::new(EXECUTION_HEIGHT).expect("nonzero height"));
@@ -530,7 +533,7 @@ fn parliament_sortition_consumes_the_slot_pulse_under_its_retained_session_after
         crate::beacon::verified_persisted_global_threshold_beacon_governance_seed_v1(
             &state_transaction.world,
             &network_id,
-            pulse,
+            &pulse,
             slot_height,
         ),
         Ok(seed)
@@ -577,9 +580,6 @@ fn parliament_sortition_consumes_the_slot_pulse_under_its_retained_session_after
         );
         assert!(awaiting_pulse(state_transaction));
     };
-    const UNKNOWN: &str = "unknown finalized beacon pulse";
-    const MISMATCH: &str = "does not match the persisted finalized beacon pulse";
-    const UNVERIFIED: &str = "failed public DKG or final-signature verification";
     let store = |state_transaction: &mut StateTransaction<'_, '_>,
                  stored: FinalizedGlobalThresholdBeaconPulseV1| {
         state_transaction

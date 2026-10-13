@@ -1442,13 +1442,20 @@ impl StepRecordV1 {
 /// never a constructor for an opaque verified receipt, nor the current carrier status.
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha::workflow::NativePaymentCompletionV1")]
-pub(crate) struct NativePaymentCompletionV1 {
+pub struct NativePaymentCompletionV1 {
+    /// Genesis-derived network selected by the original request.
     pub network: Digest32,
+    /// Digest of the complete independently retained payment request.
     pub request_digest: Digest32,
+    /// Original successful signed carrier hash.
     pub transaction_hash: Digest32,
+    /// Height of the independently authenticated original block.
     pub block_height: u64,
+    /// Hash of that original block.
     pub block_hash: Digest32,
+    /// Original authenticated execution context identity.
     pub context_id: Digest32,
+    /// Digest of the verified payment receipt.
     pub receipt_digest: Digest32,
 }
 
@@ -1718,8 +1725,8 @@ impl WorkflowJournalV1 {
                 "workflow identifier does not match its identity".to_owned(),
             ));
         }
-        if let Some(completion) = &self.native_payment_completion {
-            if self.identity.kind != WorkflowKindV1::NativePayment
+        if let Some(completion) = &self.native_payment_completion
+            && (self.identity.kind != WorkflowKindV1::NativePayment
                 || completion.block_height < 2
                 || completion.request_digest != self.identity.request_context_digest
                 || self
@@ -1728,12 +1735,11 @@ impl WorkflowJournalV1 {
                     .parse::<iroha_data_model::NetworkId>()
                     .ok()
                     .map(|network| *network.as_bytes())
-                    != Some(completion.network)
-            {
-                return Err(invalid(
-                    "native payment completion differs from its workflow binding".into(),
-                ));
-            }
+                    != Some(completion.network))
+        {
+            return Err(invalid(
+                "native payment completion differs from its workflow binding".into(),
+            ));
         }
         let current = self.current_step();
         for (index, step) in self.steps.iter().enumerate() {

@@ -204,10 +204,40 @@ pub struct Replica {
     /// The builder's latest `BuildPayload` answered `EMPTY` whose `PayloadReady{req}` is still
     /// owed (at most once per request, §12.2).
     pub pending_ready: Option<u64>,
+    /// Original clock-wait request and the earliest admissible wall time of its retained work.
+    clock_ready: Option<(u64, u64)>,
+    /// Latest original build request; superseded completion events cannot publish.
+    build_request: Option<u64>,
+    /// Completed original payload retained while a regressed wall clock catches up.
+    completed_build: Option<(u64, crate::availability::PayloadBytes)>,
+    /// Original fresh authored body withheld immediately before proposal signing.
+    authored_clock: Option<(u64, AvailableBody)>,
 }
 
 /// Time-ordered events of the scheduler.
 enum Ev {
+    BuiltPayload {
+        r: usize,
+        epoch: u64,
+        req: u64,
+        payload: Option<crate::availability::PayloadBytes>,
+    },
+    CompletedClockReady {
+        r: usize,
+        epoch: u64,
+        req: u64,
+    },
+    AuthoredClockReady {
+        r: usize,
+        epoch: u64,
+        req: u64,
+    },
+    ClockReady {
+        r: usize,
+        epoch: u64,
+        req: u64,
+        floor: u64,
+    },
     Arrive {
         r: usize,
         from: PublicKey,
@@ -550,6 +580,10 @@ impl World {
                     max_tick_late: 0,
                     wake_mark: (0, 0),
                     pending_ready: None,
+                    clock_ready: None,
+                    build_request: None,
+                    completed_build: None,
+                    authored_clock: None,
                 };
                 machine.replicas[i] = Some(replicas.len());
                 replicas.push(rep);
@@ -765,6 +799,36 @@ impl World {
 
     fn dispatch(&mut self, ev: Ev) {
         match ev {
+            Ev::BuiltPayload {
+                r,
+                epoch,
+                req,
+                payload,
+            } => {
+                if self.alive(r, epoch) {
+                    self.complete_payload_build(r, req, payload);
+                }
+            }
+            Ev::CompletedClockReady { r, epoch, req } => {
+                if self.alive(r, epoch) {
+                    self.completed_clock_ready(r, req);
+                }
+            }
+            Ev::AuthoredClockReady { r, epoch, req } => {
+                if self.alive(r, epoch) {
+                    self.authored_clock_ready(r, req);
+                }
+            }
+            Ev::ClockReady {
+                r,
+                epoch,
+                req,
+                floor,
+            } => {
+                if self.alive(r, epoch) {
+                    self.clock_payload_ready(r, req, floor);
+                }
+            }
             Ev::Arrive { r, from, msg } => self.arrive(r, from, &msg),
             Ev::Local { r, epoch, event } => {
                 if self.alive(r, epoch) {
@@ -889,6 +953,11 @@ impl World {
             self.refresh(r);
             return;
         };
+        let Some(event) = self.gate_authored_clock(r, event) else {
+            self.refresh(r);
+            return;
+        };
+        let rep = &mut self.replicas[r];
         if matches!(event, Event::Tick) {
             // The deadline became due at `wake`, or when the core first reported it.
             let due = wake.max(rep.wake_mark.1);
@@ -1075,10 +1144,11 @@ impl World {
             Action::DriveApplicationControl { .. } | Action::ReceiveApplicationControl { .. } => {}
             Action::BuildPayload {
                 req,
+                height,
                 max_bytes,
                 exec_budget_ms,
                 ..
-            } => self.build_payload(r, req, max_bytes, exec_budget_ms, at),
+            } => self.build_payload(r, req, height, max_bytes, exec_budget_ms, at),
             #[cfg(not(sumeragi_mutation = "ML14"))]
             Action::PayloadRejected { block_hash, .. } => self.quarantine(r, &block_hash),
             #[cfg(sumeragi_mutation = "ML14")]
@@ -1851,7 +1921,15 @@ impl World {
 
     /// The payload builder (§12.2): it only peeks at the queue; an `EMPTY` answer to `req`
     /// makes it owe one `PayloadReady{req}` when a transaction arrives.
-    fn build_payload(&mut self, r: usize, req: u64, max_bytes: u32, budget_ms: u32, at: Millis) {
+    fn build_payload(
+        &mut self,
+        r: usize,
+        req: u64,
+        height: u64,
+        max_bytes: u32,
+        budget_ms: u32,
+        at: Millis,
+    ) {
         let m = self.replicas[r].machine;
         let epoch = self.machines[m].epoch;
         let profile = self.machines[m].profile;
@@ -1876,30 +1954,54 @@ impl World {
             payload.extend_from_slice(tx);
         }
         let inst = rep.inst;
-        self.stamp_block_time(m, &mut payload);
-        let hash = crate::preimage::payload_hash(&self.hasher, &payload);
-        self.oracle.built.insert((inst, m, hash));
+        self.replicas[r].build_request = Some(req);
+        self.replicas[r].completed_build = None;
+        self.replicas[r].authored_clock = None;
+        self.replicas[r].clock_ready = None;
+        let floor = self.builder_clock_floor(r, height, &payload);
+        let wait = !payload.is_empty()
+            && self.clock_guard.is_some()
+            && !self.machines[m].byz
+            && !cfg!(sumeragi_mutation = "MS68")
+            && floor.is_none_or(|floor| self.wall_ms(m) < i64::try_from(floor).unwrap_or(i64::MAX));
+        if wait {
+            let floor = floor.unwrap_or_else(|| {
+                u64::try_from(self.wall_ms(m))
+                    .unwrap_or(0)
+                    .saturating_add(self.instances[inst].config(height).params.block_time.max(1))
+            });
+            self.replicas[r].clock_ready = Some((req, floor));
+            payload.clear();
+        } else {
+            self.stamp_block_time(m, &mut payload);
+            if !self.machines[m].byz
+                && let Some(floor) = floor
+            {
+                self.raise_block_time_floor(&mut payload, floor);
+            }
+        }
         self.replicas[r].pending_ready = payload.is_empty().then_some(req);
         // Deliver the build result after the selected application latency.
         let latency = self.rng.range(profile.build_min, profile.build_max);
         self.schedule(
             at + latency,
-            Ev::Local {
+            Ev::BuiltPayload {
                 r,
                 epoch,
-                event: Box::new(Event::PayloadBuilt {
-                    req,
-                    payload: if payload.is_empty() {
-                        None
-                    } else {
-                        let mut owned =
-                            crate::availability::PayloadBytes::from_untrusted(payload).unwrap();
-                        owned.admit(&self.replicas[r].budget).unwrap();
-                        Some(owned)
-                    },
-                }),
+                req,
+                payload: if payload.is_empty() {
+                    None
+                } else {
+                    let mut owned =
+                        crate::availability::PayloadBytes::from_untrusted(payload).unwrap();
+                    owned.admit(&self.replicas[r].budget).unwrap();
+                    Some(owned)
+                },
             },
         );
+        if let Some((req, floor)) = self.replicas[r].clock_ready {
+            self.schedule_clock_payload_ready(r, req, floor, at + latency + 1);
+        }
     }
 
     fn quarantine(&mut self, r: usize, bh: &Hash32) {
@@ -1948,13 +2050,24 @@ impl World {
         self.schedule(next, Ev::TxGen(inst));
     }
 
-    pub(super) fn offer_tx(&mut self, r: usize, id: u64, tx: Vec<u8>) {
+    pub(super) fn offer_tx(&mut self, r: usize, id: u64, mut tx: Vec<u8>) {
+        if self.clock_guard.is_some()
+            && let Some((created, _, _)) = self.txs[self.replicas[r].inst].get(&id)
+        {
+            let creation_ms = u64::try_from(crate::sim::driver::CLOCK_BASE)
+                .unwrap()
+                .saturating_add(*created);
+            tx = crate::sim::driver::bind_tx_creation(&tx, creation_ms)
+                .expect("original workload has one immutable transaction creation time");
+        }
         let rep = &mut self.replicas[r];
         if rep.quarantine.contains(&id) {
             return;
         }
         rep.txs.insert(id, tx);
-        if let Some(req) = rep.pending_ready.take() {
+        if rep.clock_ready.is_none()
+            && let Some(req) = rep.pending_ready.take()
+        {
             rep.host.deliver(Event::PayloadReady { req });
             self.refresh(r);
         }
@@ -2194,7 +2307,14 @@ impl World {
                 exec_budget_ms,
             } => {
                 self.replicas[r].exec.prepared = None;
-                self.build_payload(r, req, max_bytes, exec_budget_ms, at);
+                self.build_payload(
+                    r,
+                    req,
+                    self.replicas[r].height,
+                    max_bytes,
+                    exec_budget_ms,
+                    at,
+                );
             }
             Op::Reject { block_hash } => {
                 self.replicas[r].exec.prepared = None;
@@ -2261,6 +2381,10 @@ impl World {
             rep.halted = None;
             rep.last_persisted.clear();
             rep.pending_ready = None;
+            rep.clock_ready = None;
+            rep.build_request = None;
+            rep.completed_build = None;
+            rep.authored_clock = None;
             self.ready[r] = Millis::MAX;
         }
         let durable: Vec<(PublicKey, SafetyRecord)> = self.machines[m]
@@ -2363,6 +2487,11 @@ impl World {
                         rep.height = core.status().height;
                     }
                     rep.busy_until = self.now;
+                    rep.pending_ready = None;
+                    rep.clock_ready = None;
+                    rep.build_request = None;
+                    rep.completed_build = None;
+                    rep.authored_clock = None;
                     rep.applied = rep.store.last().map_or_else(
                         || {
                             let instance = &self.instances[rep.inst];

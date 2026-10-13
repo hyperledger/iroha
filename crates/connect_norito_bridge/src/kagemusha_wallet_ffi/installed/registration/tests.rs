@@ -106,7 +106,7 @@ fn relocation_refuses_noncanonical_bounded_data_or_invalid_new_scope() {
 
 #[test]
 fn relocation_retains_private_no_follow_directory_custody() {
-    let (temp, root) = private();
+    let (_temp, root) = private();
     let source = original(&source());
     let missing = std::path::Path::new(&root).join("absent");
     assert_eq!(

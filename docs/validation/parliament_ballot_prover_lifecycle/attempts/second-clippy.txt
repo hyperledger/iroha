@@ -1,0 +1,17 @@
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-lifecycle
+[cargo-fast] CARGO_BUILD_JOBS=cargo-default
+[cargo-fast] sccache=disabled
+[cargo-fast] linker=system-default
+[cargo-fast] CARGO_INCREMENTAL=1
+[cargo-fast] running: cargo clippy --release --locked -p iroha_parliament_ballot_proof --test prover_lifecycle --example prover_lifecycle -- -D warnings
+    Checking norito v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/norito)
+    Checking iroha_parliament_ballot_proof v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof)
+error: expected one of `.`, `;`, `?`, `}`, or an operator, found `:`
+  --> crates/iroha_parliament_ballot_proof/examples/prover_lifecycle.rs:83:23
+   |
+83 |         "fixture_only": true,
+   |                       ^ expected one of `.`, `;`, `?`, `}`, or an operator
+
+error: could not compile `iroha_parliament_ballot_proof` (example "prover_lifecycle") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

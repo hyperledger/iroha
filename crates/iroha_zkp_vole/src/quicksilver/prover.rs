@@ -29,6 +29,14 @@ impl<F> fmt::Debug for Polynomial<F> {
     }
 }
 
+impl<F: Zeroize> Zeroize for Polynomial<F> {
+    /// Erase every coefficient and reset the degree: the constant 0 remains.
+    fn zeroize(&mut self) {
+        self.coefficients.zeroize();
+        self.degree = Degree::ZERO;
+    }
+}
+
 impl<F: LambdaField> Polynomial<F> {
     /// A polynomial that carries only a mark.
     fn marked(degree: Degree) -> Self {
@@ -324,6 +332,29 @@ mod tests {
         assert_eq!(same.degree, Degree::ONE);
         assert_eq!(at(&same), element(50) * at(&w[0]));
         assert!(format!("{product:?}").contains("degree"));
+    }
+
+    #[test]
+    fn erasing_a_polynomial_leaves_the_constant_zero() {
+        let values = [element(1), element(2)];
+        let tags: Vec<u8> = (10..12).flat_map(|seed| element(seed).to_bytes()).collect();
+        let system = prover(&values, &tags);
+        let mut product = system.mul(system.witness(0), system.witness(1));
+        assert!(!product.coefficients[..3].iter().any(BinaryField::is_zero));
+        product.zeroize();
+        assert_eq!(product.degree, Degree::ZERO);
+        assert!(product.coefficients.iter().all(BinaryField::is_zero));
+        // A mark is erased with the rest.
+        let mut missing = system.witness(2);
+        missing.zeroize();
+        assert_eq!(missing.degree, Degree::ZERO);
+        // The erased value is usable as the constant 0.
+        let sum = system.add(product, system.witness(0));
+        assert_eq!(sum.coefficients, system.witness(0).coefficients);
+        // Buffers of values are erased through the same implementation.
+        let mut scratch = zeroize::Zeroizing::new(vec![system.witness(1); 4]);
+        scratch.zeroize();
+        assert!(scratch.is_empty());
     }
 
     #[test]

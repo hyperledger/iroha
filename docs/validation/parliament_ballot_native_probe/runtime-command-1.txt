@@ -1,0 +1,1 @@
+Darwin takemiyamakotonoMac-Studio.local 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:20:40 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6020 arm64

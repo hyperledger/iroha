@@ -117,7 +117,7 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first_u64, second_u64);
         let mut transactions = state.transactions.block();
-        transactions.insert_block(std::collections::HashSet::new(), first);
+        transactions.insert_block(std::collections::BTreeSet::new(), first);
         transactions.commit().expect("commit transaction height");
         let (third, third_u64) = next_height_for_state(&mut state);
         assert_eq!(usize::from(third), 2);

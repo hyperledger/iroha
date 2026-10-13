@@ -85,7 +85,7 @@ impl ManagedStore {
             super::native_operation::require_deadline(deadline)?;
             return Ok(Some((config, transport)));
         }
-        generated_local::prepare(self.prepared(name)?, deadline)
+        generated_local::prepare(&self.prepared(name)?, deadline)
     }
 }
 

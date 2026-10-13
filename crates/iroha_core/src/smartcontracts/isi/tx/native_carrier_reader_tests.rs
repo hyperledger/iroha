@@ -46,7 +46,8 @@ fn native_carrier_charges_the_complete_source_and_preserves_exact_outputs() {
         let carrier = chain
             .state()
             .read_finalized_execution_carrier(
-                NonZeroUsize::new(height as usize).unwrap(),
+                NonZeroUsize::new(usize::try_from(height).expect("fixture value fits usize"))
+                    .unwrap(),
                 work,
                 bytes,
             )
@@ -513,7 +514,7 @@ fn authenticated_carrier_network_visitor_preserves_borrowed_rows_and_refuses_for
             let index = u32::try_from(visits).unwrap();
             assert!(std::ptr::eq(
                 result,
-                &carrier.block().network_output_at(index).unwrap().1.result
+                &raw const carrier.block().network_output_at(index).unwrap().1.result
             ));
             visits += 1;
         })

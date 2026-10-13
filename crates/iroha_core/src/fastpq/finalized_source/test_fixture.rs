@@ -53,7 +53,9 @@ pub(crate) fn original_source(
         })
         .collect();
     let proposal = chain.proposal(None, transactions);
-    let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+    let mut pending = chain
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        .unwrap();
 
     // Only observation escapes before publication; the protected wire never clones
     // into a job and both unpublished and prepared states refuse the real handoff.

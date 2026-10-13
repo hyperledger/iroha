@@ -83,6 +83,13 @@ fn drain_ready_preauth_datagrams(
 
 #[derive(Debug)]
 pub(super) struct RetainedQuicDatagram {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "shipping transport rejects QUIC before activation; qualification tests exercise the retained datagram path"
+        )
+    )]
     pub(super) payload: bytes::Bytes,
     _lease: SharedByteLease,
 }
@@ -96,7 +103,7 @@ struct QuicDatagramActivation {
 ///
 /// Unauthenticated payloads are discarded, while authenticated payloads enter
 /// a fixed-count inbox whose per-entry size is capped by configuration.
-pub(crate) struct QuicDatagramIngress {
+pub struct QuicDatagramIngress {
     inbox: mpsc::Receiver<RetainedQuicDatagram>,
     terminal: watch::Receiver<Option<Arc<str>>>,
     activation: Option<oneshot::Sender<QuicDatagramActivation>>,
@@ -105,7 +112,7 @@ pub(crate) struct QuicDatagramIngress {
 
 impl QuicDatagramIngress {
     /// Start draining Quinn immediately after transport establishment.
-    pub(crate) fn spawn(connection: quinn::Connection, max_payload_bytes: usize) -> Self {
+    pub(crate) fn spawn(connection: &quinn::Connection, max_payload_bytes: usize) -> Self {
         let (inbox_tx, inbox) = mpsc::channel(QUIC_DATAGRAM_INBOX_CAPACITY);
         let (terminal_tx, terminal) = watch::channel(None::<Arc<str>>);
         let (activation_tx, mut activation_rx) = oneshot::channel::<QuicDatagramActivation>();
@@ -238,6 +245,13 @@ impl QuicDatagramIngress {
     }
 
     /// Serialize application authentication with the drain's observation order.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "shipping transport rejects QUIC before activation; qualification tests exercise the retained datagram path"
+        )
+    )]
     pub(super) async fn authenticate(
         &mut self,
         byte_budget: InboundSourceByteBudget,
@@ -258,6 +272,13 @@ impl QuicDatagramIngress {
         Ok(())
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "shipping transport rejects QUIC before activation; qualification tests exercise the retained datagram path"
+        )
+    )]
     pub(super) async fn recv(&mut self) -> Result<RetainedQuicDatagram, Error> {
         loop {
             if let Some(reason) = self.terminal.borrow().clone() {
@@ -500,7 +521,7 @@ mod tests {
                 return;
             }
             Ok(Err(error)) => panic!("QUIC pair failed: {error}"),
-            Err(_) => panic!("QUIC pair timed out"),
+            Err(error) => panic!("QUIC pair timed out: {error}"),
         };
 
         let received_before = server.stats().frame_rx.datagram;
@@ -518,7 +539,7 @@ mod tests {
         // Both the activation and the dependency-owned DATAGRAM are ready when
         // the pump is first scheduled. The pump must drain the latter under
         // pre-authentication policy before acknowledging the boundary.
-        let mut ingress = QuicDatagramIngress::spawn(server, 32);
+        let mut ingress = QuicDatagramIngress::spawn(&server, 32);
         let budget = SharedByteBudget::new(1024, 0).expect("test byte budget");
         ingress
             .authenticate(InboundSourceByteBudget::shared_only(budget))
@@ -545,9 +566,9 @@ mod tests {
                 return;
             }
             Ok(Err(error)) => panic!("QUIC pair failed: {error}"),
-            Err(_) => panic!("QUIC pair timed out"),
+            Err(error) => panic!("QUIC pair timed out: {error}"),
         };
-        let mut ingress = QuicDatagramIngress::spawn(server, 32);
+        let mut ingress = QuicDatagramIngress::spawn(&server, 32);
         client
             .send_datagram(bytes::Bytes::new())
             .expect("empty DATAGRAM reaches the peer transport");

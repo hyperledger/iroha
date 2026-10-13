@@ -5793,7 +5793,7 @@ export interface ToriiSumeragiParamsSnapshot {
   chain_height: number;
 }
 
-export type SumeragiEvidenceKind = "NativeSumeragiEvidence";
+export type SumeragiEvidenceKind = "NativeSumeragiEvidence" | "SccpForgeryEvidence";
 
 export interface SumeragiEvidenceListOptions {
   limit?: NumericLike;
@@ -5821,8 +5821,8 @@ export interface SumeragiEvidenceOffender {
   peer_id: string;
 }
 
-export interface SumeragiEvidenceRecord {
-  kind: "NativeSumeragiEvidence";
+export interface SumeragiNativeEvidence {
+  scope: SumeragiNativeEvidenceScope;
   class: "proposal" | "phase_vote" | "timeout_vote" | "invalid_proposal" | "conflicting_certificates";
   instance: string;
   height: ToriiU64;
@@ -5838,6 +5838,69 @@ export interface SumeragiEvidenceRecord {
   consensus_admitted_height: ToriiU64;
   penalty_status: SumeragiEvidencePenaltyStatus;
 }
+
+/** Exact retained scope DATA; parsing does not authenticate the source. */
+export interface SumeragiLaneEvidenceScope {
+  lane: number;
+  incarnation: string;
+  created_at: ToriiU64;
+  admission_parent_height: ToriiU64;
+  admission_parent_hash: string;
+  admission_parent_core_hash: string;
+  admission_parent_result: string;
+}
+export type SumeragiNativeEvidenceScope =
+  | { kind: "root"; value: null }
+  | { kind: "lane"; value: SumeragiLaneEvidenceScope };
+export interface SccpGenerationEvidenceScope {
+  kind: "sccp_generation";
+  value: { generation: ToriiU64 };
+}
+export interface SccpForgeryAnchor {
+  core_hash: string;
+  result: string;
+  path: ReadonlyArray<string>;
+}
+export interface SccpForgeryOffender {
+  signer: number;
+  lane_id: number;
+  validator: string;
+  activation_height: ToriiU64;
+}
+export interface SccpForgeryRecord {
+  evidence: {
+    qc: string;
+    header: string;
+    aggregate_signature: string;
+    anchor: SccpForgeryAnchor | null;
+  };
+  rule: { rule: "E1" | "E2" | "E3" | "E4"; detail: null };
+  generation: ToriiU64;
+  start_height: ToriiU64;
+  offenders: ReadonlyArray<SccpForgeryOffender>;
+}
+/** Original model DATA; no signature or historical-authority verification is implied. */
+export interface SccpForgeryEvidence {
+  record: SccpForgeryRecord;
+  attribution: {
+    scope: SccpGenerationEvidenceScope;
+    instance: string;
+    height: ToriiU64;
+    epoch: ToriiU64;
+    context_id: string;
+    authority_generation: string;
+    offenders: ReadonlyArray<SumeragiEvidenceOffender & { lane_stake: null }>;
+    safety_violation: boolean;
+  };
+  recorded_height: ToriiU64;
+  recorded_view: ToriiU64;
+  recorded_ms: ToriiU64;
+  consensus_admitted_height: ToriiU64;
+  penalty_status: SumeragiEvidencePenaltyStatus;
+}
+export type SumeragiEvidenceRecord =
+  | { kind: "NativeSumeragiEvidence"; value: SumeragiNativeEvidence }
+  | { kind: "SccpForgeryEvidence"; value: SccpForgeryEvidence };
 
 export interface SumeragiEvidenceListResponse {
   total: ToriiU64;

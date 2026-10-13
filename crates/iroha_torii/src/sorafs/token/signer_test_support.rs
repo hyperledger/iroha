@@ -20,10 +20,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-pub(crate) const PROVIDER: [u8; 32] = [0x11; 32];
-pub(crate) const NOW_MS: u64 = 1_731_234_000_500;
-pub(crate) const CHAIN: &str = "sorafs-reference";
-pub(crate) const NETWORK: [u8; 32] = [0x71; 32];
+pub const PROVIDER: [u8; 32] = [0x11; 32];
+pub const NOW_MS: u64 = 1_731_234_000_500;
+pub const CHAIN: &str = "sorafs-reference";
+pub const NETWORK: [u8; 32] = [0x71; 32];
 const HARDWARE_HANDLE: &str = "hsm://sorafs/stream-token/primary";
 const OBSERVER_HANDLE: &str = "observer:prod/stream-token/primary";
 
@@ -84,7 +84,7 @@ fn signatures_digest(signatures: &[SignerOperationSignatureV1]) -> [u8; 32] {
     )
 }
 
-pub(crate) struct FixedClock {
+pub struct FixedClock {
     pub now: AtomicU64,
     next_challenge: AtomicU64,
 }
@@ -115,7 +115,7 @@ impl SignerClockV1 for FixedClock {
 fn block_hash(height: u64) -> [u8; 32] {
     digest(b"simulated-finalized-block", &[&height.to_be_bytes()])
 }
-pub(crate) fn anchor(height: u64) -> SignerCustodyAnchorV1 {
+pub fn anchor(height: u64) -> SignerCustodyAnchorV1 {
     SignerCustodyAnchorV1 {
         height,
         block_hash: block_hash(height),
@@ -123,7 +123,7 @@ pub(crate) fn anchor(height: u64) -> SignerCustodyAnchorV1 {
     }
 }
 
-pub(crate) struct SimulatedFinality {
+pub struct SimulatedFinality {
     pub tip: AtomicU64,
     pub unavailable: std::sync::atomic::AtomicBool,
     pub completed_proof_source_available: std::sync::atomic::AtomicBool,
@@ -220,7 +220,7 @@ impl SignerFinalityV1 for SimulatedFinality {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum TestSignerMode {
+pub enum TestSignerMode {
     Sign,
     Unavailable,
     Refused,
@@ -232,7 +232,7 @@ pub(crate) enum TestSignerMode {
     HistoricalCompletion,
 }
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum ObserverFault {
+pub enum ObserverFault {
     Unavailable,
     WrongKey,
     WrongRequest,
@@ -251,7 +251,7 @@ struct Stored {
     receipt: SignerStreamTokenReceiptV1,
     completion: SignerCompletedOperationV1,
 }
-pub(crate) struct SignedFixture {
+pub struct SignedFixture {
     pub storage: actual::SorafsStorage,
     pub pins: StreamTokenSignerPinsV1,
     pub clock: Arc<FixedClock>,
@@ -292,41 +292,50 @@ fn authority_config(
         active_until_unix_ms: NOW_MS + 3_600_000,
     }
 }
-pub(crate) fn storage_config(limit: u32) -> actual::SorafsStorage {
-    let mut storage = actual::SorafsStorage::default();
-    storage.enabled = true;
-    storage.provider_id = Some(ProviderId(PROVIDER));
-    storage.stream_tokens = actual::SorafsTokenConfig {
+pub fn storage_config(limit: u32) -> actual::SorafsStorage {
+    actual::SorafsStorage {
         enabled: true,
-        signer: Some(actual::SorafsStreamTokenSignerConfig {
-            native: None,
-            clock_uncertainty_ms: 250,
-            runtime_handle: HARDWARE_HANDLE.into(),
-            key_handle: "pkcs11:production/stream-token/key-4".into(),
-            service_id: "stream-primary".into(),
-            administrator_id: "stream-security-primary".into(),
-            public_key: public(0x33),
-            key_revision: 4,
-            policy_revision: 9,
-            policy_digest: [0xb4; 32],
-            attester: actual::SorafsStreamTokenAttesterConfig {
-                authority: authority_config("custody-primary", "custody-security-primary", 0x44),
-                max_validity_ms: 1_801_000,
-                max_anchor_age_ms: 10_000,
-            },
-            observer: actual::SorafsStreamTokenObserverConfig {
-                runtime_handle: OBSERVER_HANDLE.into(),
-                authority: authority_config("observer-primary", "observer-security-primary", 0x55),
-                max_state_age_ms: 5_000,
-            },
-        }),
-        default_ttl_secs: 900,
-        default_max_streams: 2,
-        default_rate_limit_bytes: 512 * 1024,
-        default_requests_per_minute: limit,
-        ..actual::SorafsTokenConfig::default()
-    };
-    storage
+        provider_id: Some(ProviderId(PROVIDER)),
+        stream_tokens: actual::SorafsTokenConfig {
+            enabled: true,
+            signer: Some(actual::SorafsStreamTokenSignerConfig {
+                native: None,
+                clock_uncertainty_ms: 250,
+                runtime_handle: HARDWARE_HANDLE.into(),
+                key_handle: "pkcs11:production/stream-token/key-4".into(),
+                service_id: "stream-primary".into(),
+                administrator_id: "stream-security-primary".into(),
+                public_key: public(0x33),
+                key_revision: 4,
+                policy_revision: 9,
+                policy_digest: [0xb4; 32],
+                attester: actual::SorafsStreamTokenAttesterConfig {
+                    authority: authority_config(
+                        "custody-primary",
+                        "custody-security-primary",
+                        0x44,
+                    ),
+                    max_validity_ms: 1_801_000,
+                    max_anchor_age_ms: 10_000,
+                },
+                observer: actual::SorafsStreamTokenObserverConfig {
+                    runtime_handle: OBSERVER_HANDLE.into(),
+                    authority: authority_config(
+                        "observer-primary",
+                        "observer-security-primary",
+                        0x55,
+                    ),
+                    max_state_age_ms: 5_000,
+                },
+            }),
+            default_ttl_secs: 900,
+            default_max_streams: 2,
+            default_rate_limit_bytes: 512 * 1024,
+            default_requests_per_minute: limit,
+            ..actual::SorafsTokenConfig::default()
+        },
+        ..Default::default()
+    }
 }
 
 impl SignedFixture {
@@ -832,7 +841,7 @@ impl StreamTokenSignerClientV1 for SignedFixture {
     }
 }
 
-pub(crate) struct SignedObserver(pub Arc<SignedFixture>);
+pub struct SignedObserver(pub Arc<SignedFixture>);
 impl StreamTokenStateObserverClientV1 for SignedObserver {
     fn finalize_check(
         &self,
@@ -841,6 +850,10 @@ impl StreamTokenStateObserverClientV1 for SignedObserver {
     {
         Err(StreamTokenSignerCallErrorV1::Unavailable)
     }
+    #[expect(
+        clippy::misnamed_getters,
+        reason = "the observer trait exposes the observer identity; the fixture also has a separate signer handle"
+    )]
     fn handle(&self) -> &str {
         &self.0.observer_handle
     }

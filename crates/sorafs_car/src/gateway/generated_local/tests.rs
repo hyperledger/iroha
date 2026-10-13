@@ -636,10 +636,17 @@ fn publication_selection_is_separate_bounded_original_intent() {
         format!("https://{}:9443/", host())
     );
     assert!(!format!("{selection:?}").contains(&host()));
-    assert!(selection.blocking_client(Duration::ZERO).is_err());
+    assert!(selection.clone().blocking_client(Duration::ZERO).is_err());
+    let selected_url = selection.base_url().clone();
+    let selected_url_backing = selection.base_url().as_str().as_ptr();
     let client = selection.blocking_client(WAIT).unwrap();
     assert!(!format!("{client:?}").contains(&host()));
-    assert_eq!(client.selection().base_url(), selection.base_url());
+    assert_eq!(client.selection().base_url(), &selected_url);
+    assert_eq!(
+        client.selection().base_url().as_str().as_ptr(),
+        selected_url_backing,
+        "client retains the original selected URL allocation"
+    );
     let mut malformed = original.clone();
     malformed.proposal.endpoints[0]
         .attestation
@@ -666,6 +673,7 @@ fn publication_guard_refuses_foreign_destinations_before_any_connection() {
     listener.set_nonblocking(true).unwrap();
     let selection = publication_selection(&identity, listener.local_addr().unwrap().port());
     let client = selection.blocking_client(WAIT).unwrap();
+    let selection = client.selection();
     selection.validate_base_url(selection.base_url()).unwrap();
     for raw in [
         "https://other.localhost/".to_owned(),
@@ -741,6 +749,7 @@ fn publication_client_uses_original_tls_for_all_three_routes() {
     );
     let selection = publication_selection(&identity, server.port);
     let client = selection.blocking_client(WAIT).unwrap();
+    let selection = client.selection();
     for route in ["seed-ingress", "storage-coordinate", "provider-readback"] {
         assert_eq!(
             publication_post(&client, &format!("v1/musubi/publication/{route}")).unwrap(),

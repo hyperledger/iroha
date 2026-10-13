@@ -195,7 +195,7 @@ impl norito::NoritoSchema for RowsRef<'_> {
 }
 impl norito::core::SerializePayload for RowsRef<'_> {
     fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::Error> {
-        let RowsSource::Writes(writes) = &self.source else {
+        let RowsSource::Writes(rows) = &self.source else {
             let RowsSource::Encoded(bytes) = &self.source else {
                 unreachable!()
             };
@@ -208,7 +208,7 @@ impl norito::core::SerializePayload for RowsRef<'_> {
         norito::core::write_element_sequence::<Row, _>(
             writer,
             Rows {
-                writes: writes.iter(),
+                writes: rows.iter(),
                 context: self.context,
                 remaining: self.count,
             },
@@ -261,7 +261,7 @@ impl NativeContextArchive {
             || !result.belongs_to(&self.budget)
             || !witness.pool().same_pool(&self.budget)
             || !witness
-                .matches_original_native_execution(executed, result.get().commitment().execution)
+                .matches_original_native_execution(executed, &result.get().commitment().execution)
             || original.height != executed.header().height().get()
             || original.carrier_hash != executed.hash()
             || executed.header() != overlay._curr_block
@@ -609,7 +609,7 @@ impl Iterator for DecodedRows<'_> {
 }
 #[cfg(test)]
 impl<'a> RowsRef<'a> {
-    fn iter(&self) -> Result<DecodedRows<'a>, norito::Error> {
+    fn decode_rows(&self) -> Result<DecodedRows<'a>, norito::Error> {
         let RowsSource::Encoded(bytes) = self.source else {
             return Err(norito::Error::NonCanonicalEncoding);
         };
@@ -812,7 +812,7 @@ pub(crate) mod test_helpers {
     pub(crate) fn one_row_subset(bytes: &[u8]) -> Vec<u8> {
         let mut value = read_coordinates(bytes).unwrap();
         assert_eq!(value.rows.count, 2, "genuine same-carrier two-row source");
-        let row = value.rows.iter().unwrap().next().unwrap().unwrap();
+        let row = value.rows.decode_rows().unwrap().next().unwrap().unwrap();
         let mut encoded = Vec::new();
         let _flags = ncore::DecodeFlagsGuard::enter(ncore::default_encode_flags());
         ncore::write_element_sequence::<Row, _>(
@@ -909,7 +909,7 @@ pub(crate) mod test_helpers {
             })
             .collect();
         assert_eq!(value.rows.count, expected.len());
-        for (actual, expected) in value.rows.iter().unwrap().zip(&expected) {
+        for (actual, expected) in value.rows.decode_rows().unwrap().zip(&expected) {
             let actual = actual.unwrap();
             assert_eq!(actual.key, expected.key);
             assert_eq!(actual.tx, expected.tx);
@@ -920,7 +920,14 @@ pub(crate) mod test_helpers {
             value.rows.count != 0,
             "actual Prepared witness must capture an intent"
         );
-        value.rows.iter().unwrap().next().unwrap().unwrap().tx
+        value
+            .rows
+            .decode_rows()
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .tx
     }
 }
 
@@ -980,6 +987,7 @@ mod tests {
     }
     #[test]
     fn borrowed_prepared_rows_use_canonical_sequence_and_refuse_changed_cardinality() {
+        use norito::NoritoSchema as _;
         let writes = [
             ExecKv {
                 key: amx_record_witness_key(AmxRecordKind::Prepared, [0x61; 32]).to_vec(),
@@ -1000,7 +1008,6 @@ mod tests {
                 .unwrap()
                 .unwrap(),
         ];
-        use norito::NoritoSchema as _;
         assert_ne!(RowsRef::nominal_name(), <Vec<Row>>::nominal_name());
         assert_eq!(RowsRef::frame_name(), <Vec<Row>>::frame_name());
         assert_eq!(
@@ -1142,7 +1149,6 @@ mod tests {
             IntentProjection::decode(bytes.as_slice()).is_ok(),
             "same original source retry after caller scope retires"
         );
-        drop(decoded);
         drop(bytes);
         assert_eq!(budget.reserved_bytes(), 0);
     }

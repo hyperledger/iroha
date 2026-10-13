@@ -277,7 +277,7 @@ fn ensure_private_instruction(
     }
     let bootstrap = state.genesis_execution_scope.is_some();
     if !bootstrap
-        && !cfg!(all(test, sumeragi_core_mutation = "HC286"))
+        && !cfg!(all(test, sumeragi_core_mutation = "HC341"))
         && is_exact_local_amx_approval(instruction, state, scope)?
     {
         // Scope ownership only: normal Grant/Revoke execution still requires the
@@ -302,8 +302,8 @@ fn ensure_private_instruction(
     })?;
     let parameter = instruction.as_any().is::<SetParameter>();
     if target.dataspace.is_some_and(|target| target != dataspace)
-        || target.global && !(bootstrap && parameter)
-        || parameter && !bootstrap
+        || target.global && !parameter
+        || !bootstrap && parameter
     {
         return Err(denied(
             "private root cannot execute foreign or global-control instructions",
@@ -412,7 +412,19 @@ fn is_global_amx_coordinator_instruction(instruction: &InstructionBox) -> bool {
 }
 
 fn is_reviewed_root_local_instruction(instruction: &InstructionBox) -> bool {
-    instruction.as_any().is::<Log>()
+    let any = instruction.as_any();
+    any.is::<Log>()
+        // Roles and their assignments belong to this immutable root's own World.
+        // Removal cannot issue or delegate a capability. This classifies scope only:
+        // ordinary current CanManageRoles and contract-runtime gates still apply.
+        || (!cfg!(all(
+            test,
+            feature = "mutation-testing",
+            sumeragi_core_mutation = "HC343"
+        )) && matches!(
+            any.downcast_ref::<iroha_data_model::isi::UnregisterBox>(),
+            Some(iroha_data_model::isi::UnregisterBox::Role(_))
+        ))
 }
 
 fn denied(message: &'static str) -> ValidationFail {

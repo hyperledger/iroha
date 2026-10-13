@@ -1260,7 +1260,7 @@ fn validate_exact_state_file(
     validate_state_length(expected.length, maximum_bytes)?;
     let mut hasher = blake3::Hasher::new_derive_key("iroha:musubi:publication-journal-file:v1");
     let mut total = 0usize;
-    let mut buffer = [0u8; 64 * 1024];
+    let mut buffer = [0_u8; 8 * 1024];
     loop {
         let read = file.read(&mut buffer).map_err(storage_error)?;
         if read == 0 {
@@ -1772,6 +1772,124 @@ mod tests {
         fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700))
             .expect("restore tempdir mode");
     }
+    #[test]
+    fn streamed_large_journal_verification_preserves_full_digest_length_and_byte_bound() {
+        let root = private_tempdir();
+        let configuration = configuration();
+        let binding = journal_binding(&configuration);
+        let mut journal = DurableMusubiPublicationServiceJournalV1::initialize(
+            root.path(),
+            binding.clone(),
+            limits(),
+        )
+        .expect("initialize genuine journal");
+        let first = attempt(&configuration, 0x31, 0x32);
+        assert_eq!(
+            journal
+                .begin(&first, 10_000)
+                .expect("reserve large response"),
+            MusubiPublicationJournalBeginV1::Execute
+        );
+        let response: Vec<u8> = (0_u8..=250).cycle().take(2 * 64 * 1024 + 17).collect();
+        journal
+            .commit(first.key, first.request_digest, &response)
+            .expect("commit complete large response");
+        drop(journal);
+        let mut reopened =
+            DurableMusubiPublicationServiceJournalV1::open(root.path(), binding, limits())
+                .expect("reopen complete large journal");
+        assert_eq!(
+            reopened
+                .begin(&first, 10_001)
+                .expect("recover exact response"),
+            MusubiPublicationJournalBeginV1::Cached(response)
+        );
+        let mut bytes = root
+            .root
+            .read(JOURNAL_STATE_FILE, limits().max_snapshot_usize())
+            .expect("read complete original journal file");
+        assert!(bytes.len() > 2 * 64 * 1024);
+        let expected = reopened.state_version;
+        assert_eq!(expected.length, u64::try_from(bytes.len()).unwrap());
+        assert_eq!(
+            expected.digest,
+            blake3::derive_key("iroha:musubi:publication-journal-file:v1", &bytes)
+        );
+        validate_exact_state_file(&root.root, expected, bytes.len())
+            .expect("every byte fits the exact file bound");
+
+        // The recorded length and the accumulated file length are independent checks.
+        for length in [expected.length - 1, expected.length + 1] {
+            assert_eq!(
+                validate_exact_state_file(
+                    &root.root,
+                    PersistedJournalVersionV1 { length, ..expected },
+                    bytes.len() + 1,
+                ),
+                Err(DurableMusubiPublicationServiceJournalOpenErrorV1::StorageUnavailable)
+            );
+        }
+        assert_eq!(
+            validate_exact_state_file(&root.root, expected, bytes.len() - 1),
+            Err(DurableMusubiPublicationServiceJournalOpenErrorV1::InvalidState)
+        );
+        assert_eq!(
+            validate_exact_state_file(
+                &root.root,
+                PersistedJournalVersionV1 {
+                    length: expected.length - 1,
+                    ..expected
+                },
+                bytes.len() - 1,
+            ),
+            Err(DurableMusubiPublicationServiceJournalOpenErrorV1::StorageUnavailable)
+        );
+
+        let final_byte = bytes.len() - 1;
+        bytes[final_byte] ^= 0xff;
+        root.root
+            .write_atomic(JOURNAL_STATE_FILE, &bytes, PublishMode::Replace)
+            .expect("publish physically distinct file with a corrupted final byte");
+        assert_eq!(
+            validate_exact_state_file(&root.root, expected, bytes.len()),
+            Err(DurableMusubiPublicationServiceJournalOpenErrorV1::StorageUnavailable)
+        );
+        // Use the actual replacement snapshot only to isolate the final-byte digest check.
+        // Production retains the original snapshot and already refuses above.
+        let replacement = root.root.open_read(JOURNAL_STATE_FILE).unwrap();
+        let snapshot = FileSnapshot::private_journal(&replacement).unwrap();
+        drop(replacement);
+        assert_eq!(
+            validate_exact_state_file(
+                &root.root,
+                PersistedJournalVersionV1 {
+                    snapshot,
+                    ..expected
+                },
+                bytes.len(),
+            ),
+            Err(DurableMusubiPublicationServiceJournalOpenErrorV1::StorageUnavailable)
+        );
+        let changed_digest = blake3::derive_key("iroha:musubi:publication-journal-file:v1", &bytes);
+        assert_ne!(changed_digest, expected.digest);
+        validate_exact_state_file(
+            &root.root,
+            PersistedJournalVersionV1 {
+                snapshot,
+                digest: changed_digest,
+                ..expected
+            },
+            bytes.len(),
+        )
+        .expect("physical digest verifier accounts for every byte of the replacement");
+        assert_eq!(
+            root.root
+                .read(JOURNAL_STATE_FILE, limits().max_snapshot_usize())
+                .unwrap(),
+            bytes
+        );
+    }
+
     #[test]
     fn completed_response_and_consumed_authorizations_survive_restart() {
         let root = private_tempdir();

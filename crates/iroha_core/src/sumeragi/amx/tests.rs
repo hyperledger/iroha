@@ -120,7 +120,9 @@ fn yes(tx: &AmxTransactionV1, participant: DataSpaceId) -> AmxRecordV1 {
     AmxRecordV1::Prepared(AmxPreparedV1 {
         tx: tx.id().unwrap(),
         participant,
-        vote: AmxVoteV1::Yes([participant.as_u64() as u8; 32]),
+        vote: AmxVoteV1::Yes(
+            [u8::try_from(participant.as_u64()).expect("fixture value fits u8"); 32],
+        ),
     })
 }
 

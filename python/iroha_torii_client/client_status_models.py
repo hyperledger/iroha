@@ -168,7 +168,7 @@ class ConnectAdmissionManifest:
     extra: Dict[str, Any]
 
 
-SUMERAGI_EVIDENCE_KIND = "NativeSumeragiEvidence"
+SUMERAGI_EVIDENCE_KINDS = frozenset({"NativeSumeragiEvidence", "SccpForgeryEvidence"})
 SUMERAGI_EVIDENCE_CLASSES = {
     "proposal",
     "phase_vote",
@@ -216,10 +216,10 @@ class SumeragiEvidenceOffender:
 
 
 @dataclass(frozen=True)
-class SumeragiEvidenceRecord:
-    """Exact native evidence audit projection returned by `/v1/sumeragi/evidence`."""
+class SumeragiNativeEvidenceRecord:
+    """Exact native audit payload; transported DATA does not authenticate its source."""
 
-    kind: Literal["NativeSumeragiEvidence"]
+    scope: SumeragiEvidenceScope
     class_: Literal["proposal", "phase_vote", "timeout_vote", "invalid_proposal", "conflicting_certificates"]
     instance: str
     height: int
@@ -234,6 +234,126 @@ class SumeragiEvidenceRecord:
     recorded_ms: int
     consensus_admitted_height: int
     penalty_status: SumeragiEvidencePenaltyStatus
+
+@dataclass(frozen=True)
+class SumeragiLaneEvidenceScope:
+    """Original lane incarnation and admitting parent coordinates as offered DATA."""
+
+    lane: int
+    incarnation: str
+    created_at: int
+    admission_parent_height: int
+    admission_parent_hash: str
+    admission_parent_core_hash: str
+    admission_parent_result: str
+
+
+@dataclass(frozen=True)
+class SccpGenerationEvidenceScope:
+    """Recorded generation, independent of the certificate's claimed height."""
+
+    generation: int
+
+
+@dataclass(frozen=True)
+class SumeragiEvidenceScope:
+    """Closed scope envelope; the decoder binds its kind to its exact value."""
+
+    kind: Literal["root", "lane", "sccp_generation"]
+    value: Union[None, SumeragiLaneEvidenceScope, SccpGenerationEvidenceScope]
+
+
+@dataclass(frozen=True)
+class SccpForgeryAnchor:
+    """Exact original anchor bytes and twelve siblings; not a verified witness."""
+
+    core_hash: str
+    result: str
+    path: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SccpForgerySubmission:
+    """Original fixed-width certificate bytes offered by the server."""
+
+    qc: str
+    header: str
+    aggregate_signature: str
+    anchor: Optional[SccpForgeryAnchor]
+
+
+@dataclass(frozen=True)
+class SccpForgeryRule:
+    """Closed first-mismatch label reported by the server."""
+
+    rule: Literal["E1", "E2", "E3", "E4"]
+    detail: None
+
+
+@dataclass(frozen=True)
+class SccpForgeryOffender:
+    """Original generation member registration, without independent authentication."""
+
+    signer: int
+    lane_id: int
+    validator: str
+    activation_height: int
+
+
+@dataclass(frozen=True)
+class SccpForgeryRecord:
+    """Self-contained forgery record DATA with exact certificate and generation."""
+
+    evidence: SccpForgerySubmission
+    rule: SccpForgeryRule
+    generation: int
+    start_height: int
+    offenders: Tuple[SccpForgeryOffender, ...]
+
+
+@dataclass(frozen=True)
+class SccpEvidenceOffender:
+    """Corresponding recorded signer and peer; SCCP has no native lane stake."""
+
+    signer: int
+    peer_id: str
+    lane_stake: None
+
+
+@dataclass(frozen=True)
+class SccpEvidenceAttribution:
+    """Exact model attribution DATA; signed epoch/context are not scheduling authority."""
+
+    scope: SumeragiEvidenceScope
+    instance: str
+    height: int
+    epoch: int
+    context_id: str
+    authority_generation: str
+    offenders: Tuple[SccpEvidenceOffender, ...]
+    safety_violation: bool
+
+
+@dataclass(frozen=True)
+class SccpForgeryEvidenceRecord:
+    """Closed SCCP audit payload; parsing grants no signature or penalty authority."""
+
+    record: SccpForgeryRecord
+    attribution: SccpEvidenceAttribution
+    recorded_height: int
+    recorded_view: int
+    recorded_ms: int
+    consensus_admitted_height: int
+    penalty_status: SumeragiEvidencePenaltyStatus
+
+
+@dataclass(frozen=True)
+class SumeragiEvidenceRecord:
+    """Current closed kind/value evidence envelope; no flat-record fallback."""
+
+    kind: Literal["NativeSumeragiEvidence", "SccpForgeryEvidence"]
+    value: Union[SumeragiNativeEvidenceRecord, SccpForgeryEvidenceRecord]
+
 
 @dataclass(frozen=True)
 class SumeragiEvidenceListPage:

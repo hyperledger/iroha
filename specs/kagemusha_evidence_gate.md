@@ -648,7 +648,14 @@ and terminal summary SHA256 is
 `0c3f513adae01026f11c50227b6b5b82fd6ad68a0bbda0016d3e418309ecf01c`.
 The executable, build inputs and complete selected local source bytes are
 preserved in `m3-real-q-fft-baseline-preserved-1` before any rebuild.
-The next FFT-only diagnostic is separate and grants no performance gate pass.
+The subsequent baseline diagnostic completes six observations and verifies all
+36 proofs, with no host or calibration invalidity, but its final source check
+fails after a new merge changes selected inputs. Its natural exit is 1 and the
+whole diagnostic is source-inconclusive; it cannot authorize an FFT-only
+comparison (`m3-real-q-fft-baseline-diagnostic-1/result.json`, SHA256
+`a986e12b0ac7c43c0c2a0299c3b3d421a3493faaa31dc768f966bab89055712f`).
+The 32 preserved artifacts and 1,622 source copies remain intact. Fresh captures
+must use the reconciled candidate; none of these observations grants a gate pass.
 Independent terminal review reconciles all 810 raw files and 270 successful
 child tests: 540 proofs verify, comprising 180 measured and 360 calibration
 proofs; 144 measured proofs enter valid gate decisions. All memory hard limits
@@ -656,6 +663,22 @@ and block margins pass. Sixteen invalid attempts fail calibration stability and
 two fail the quiet-memory checks. The review is retained at
 `m3-streaming-msm-terminal-resource-review-1/review.json` (SHA256
 `4b6892111e47703b567a7181259b832726ec9d2a0b0f3dda72255d46b815a038`).
+
+The reviewed lookup-FFT change is applied after merge reconciliation. It batches
+up to four lookup triples in already-owned dead gate columns, preserving field
+workspace bounds and the process-wide MSM budget. The actual three-file
+application joins the frozen patch and observed before/after images
+(`m3-lookup-fft-root-application-1/receipt.json`, SHA256
+`52585a42aa111c8be13c41bd70aa87dff7ce025dcd30782c5680fc210cedb04c`).
+Scoped formatting passes. The first rebuilt validation stops at strict Clippy
+on five missing error-documentation sections in the merged allocation API;
+no Rust tests execute. The subsequent repair adds only Rustdoc to those five
+methods and three analogous verifier APIs; all non-documentation bytes match
+(`m3-merged-api-doc-repair-1/receipt.json`, SHA256
+`1d65664c3c460799fb50a7411d6caf6fade94881a233eb60818fbef0c656db98`).
+Rebuilt lint, all 317 ordinary PLONK tests and fresh M3 qualification remain
+required; static review and preparation controls establish no proof-byte or
+performance result.
 
 A separate four-process forced-contention diagnostic verifies eight sums with
 identical inputs and canonical outputs within each curve's pair. With
@@ -668,8 +691,8 @@ probes and all source/binary boundaries are retained in
 arithmetic-path comparison, not a repeated-block benchmark, an explanation of
 the earlier proof outlier, or a fresh M3 qualification. The previous executable
 and source records remain in `m3-pre-streaming-preserved-1`; its valid hard
-failure is unchanged. The heavy adversarial result above and the separately
-running fresh M3 campaign supersede no earlier failed or invalid attempt.
+failure is unchanged. The heavy adversarial result above and the completed M3
+campaign supersede no earlier failed or invalid attempt.
 
 The earlier ordinary gadget and recursion run passes 286 gadget and 27 recursion
 unit tests, with eight and two explicit ignores respectively. Its compact
@@ -859,10 +882,21 @@ spec-test outcomes; the donor controls and all 13 signing tests pass. Independen
 review checks four child intervals, the 1,534-source union, 72 retained depfiles
 and both executable identities (`sumeragi-current-component-5/result.json`, SHA
 `77f574baf212bcc6ef43bb86b2fdcd45d3a23227f786c8a5345ed60bfd2778cb`).
-The full 155-mutation gate is running against this candidate; the 10,000-seed
-suite and F22 idle stress remain unqualified. The
-focused result does not establish current Core recovery, native Load,
-real-network or phone acceptance.
+The subsequent full 155-mutation attempt ends naturally with exit 1. Its
+baseline passes 166 named tests and all 36 scenarios at 200 seeds, then MS64,
+MS65, MS66 and MS1 are killed by their required tests. The next mutation compiles
+but its admission refuses a changed `Cargo.lock`; all 151 remaining mutation
+errors follow that source refusal, rather than establishing survived mutations
+or additional protocol failures. Independent review checks all 375 admitted
+children's original logs, source intervals and executable identities. The final
+boundary contains 30 changed or added paths, including 22 emitted Rust inputs,
+so this is historical partial evidence, not current-candidate qualification
+(`sumeragi-current-mutations-5/result.json`, SHA
+`5496fdd87aede1f76cf43741774b2e10fa9ce8d5b0bc7111416ecb6f1896e952`).
+The merged source requires fresh lint, component and complete mutation checks;
+the four earlier kills cannot be reused as current passes. The 10,000-seed suite
+and F22 idle stress remain unqualified. These component results do not establish
+current Core recovery, native Load, real-network or phone acceptance.
 
 The stock-profile native network harness compiles in
 `native-finality-harness-capture-8`, but its strict source closure fails. Three

@@ -1,0 +1,7 @@
+{
+  "observed_utc": "2026-10-13T06:56:38.784729+00:00",
+  "compiled_lock_sha256": "272656061ba7dc00dcdaf41ca003113977a937121e95493f83a8a3757bbe7f45",
+  "observed_lock_sha256": "299ceef4349ce45892d7c84b06b2ea161734f12640be3175d0d67f061570e60f",
+  "build_rebound_to_new_lock": false,
+  "note": "Concurrent checkout lock differs after clean oracle test/lint/build intervals; oracle receipt retains its original archived lock. No rebuild or historical repin performed."
+}

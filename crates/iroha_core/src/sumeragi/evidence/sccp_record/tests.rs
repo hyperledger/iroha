@@ -40,7 +40,7 @@ pub(super) fn claim() -> EvidenceRecord {
         signers: 7,
     };
     EvidenceRecord {
-        evidence: RecordedEvidenceV1::SccpForgery(SccpForgeryRecordV1 {
+        evidence: RecordedEvidenceV1::SccpForgery(Box::new(SccpForgeryRecordV1 {
             evidence: SubmitSccpForgeryEvidenceV1 {
                 qc: qc.encode(),
                 header: *header.as_bytes(),
@@ -56,7 +56,7 @@ pub(super) fn claim() -> EvidenceRecord {
                 validator: account,
                 activation_height: 1,
             }],
-        }),
+        })),
         attribution: EvidenceAttribution {
             scope: EvidenceScope::SccpGeneration { generation: 7 },
             instance: [9; 32],
@@ -183,7 +183,7 @@ fn discriminator_and_escaped_keys_are_charged_before_branch_selection() {
         assert!(
             matches!(
                 material_kind(&raw, &pool),
-                Err(Error::Logical(_)) | Err(Error::Preparation(_))
+                Err(Error::Logical(_) | Error::Preparation(_))
             ),
             "oversized discriminator/key must refuse original resources"
         );
@@ -199,4 +199,118 @@ fn discriminator_and_escaped_keys_are_charged_before_branch_selection() {
         0,
         "branch scratch retires before the selected body decode"
     );
+}
+
+#[test]
+fn verified_claim_box_is_exactly_funded_refunds_late_refusal_and_retries() {
+    use crate::{
+        smartcontracts::isi::sccp::{
+            forgery::{
+                tests::{active_member_chain, future},
+                verify_committed,
+            },
+            read::native::SccpNativeReadControl,
+        },
+        state::StateReadOnly as _,
+    };
+    use iroha_allocation::AllocationRefusal;
+    use std::{
+        sync::atomic::AtomicBool,
+        time::{Duration, Instant},
+    };
+
+    let (chain, keys) = active_member_chain();
+    let evidence = future(&chain, &keys);
+    let view = chain.state().view();
+    let scratch = AllocationBudget::new(
+        iroha_crypto::bls::consensus::ConsensusAggregateScratch::<()>::backing_bytes(),
+    );
+    let stop = AtomicBool::new(false);
+    let verified = verify_committed(
+        &view,
+        &evidence,
+        view.native_execution_tip().unwrap().creation_time_ms() + 1_000,
+        &scratch,
+        SccpNativeReadControl {
+            deadline: Instant::now() + Duration::from_secs(60),
+            stop: &stop,
+        },
+    )
+    .unwrap();
+    assert_eq!(scratch.reserved_bytes(), 0);
+    let count = usize::try_from(verified.qc().signers.count_ones()).unwrap();
+    let mut account_bytes = 0;
+    let mut account_allocations = 0;
+    for (_, _, member) in verified.signers() {
+        member
+            .unwrap()
+            .validator
+            .for_each_admission_clone_layout(|layout| {
+                account_bytes += layout.size();
+                account_allocations += 1;
+            })
+            .unwrap();
+    }
+    // Each compact BLS key owns its one-byte algorithm tag and exact 48-byte key.
+    // The ledger has one slot per account backing, key, vector, and record Box.
+    let expected = Layout::new::<SccpForgeryRecordV1>().size()
+        + Layout::array::<SccpForgeryOffenderV1>(count)
+            .unwrap()
+            .size()
+        + Layout::array::<EvidenceOffender>(count).unwrap().size()
+        + Layout::array::<AllocationCharge>(account_allocations + count + 3)
+            .unwrap()
+            .size()
+        + ChargedShared::<SccpRecordBody>::allocation_layout().size()
+        + account_bytes
+        + count * 49;
+    let pool = AllocationBudget::new(expected);
+    let occupied = pool.try_reserve_bytes(1).unwrap();
+    let error = prepare_claim(&verified, verified.qc().signers, &pool)
+        .err()
+        .expect("last compact key must refuse with one byte occupied");
+    let Preparation::Admission(AllocationRefusal::Capacity {
+        requested_bytes,
+        reserved_bytes,
+        limit_bytes,
+        ..
+    }) = error
+    else {
+        panic!("original exact-pool capacity refusal: {error:?}")
+    };
+    assert_eq!(requested_bytes, 49);
+    assert_eq!(reserved_bytes, expected - 49 + 1);
+    assert_eq!(limit_bytes, expected);
+    assert_eq!(
+        pool.reserved_bytes(),
+        1,
+        "partial record, accounts and keys refund"
+    );
+    drop(occupied);
+    assert_eq!(pool.reserved_bytes(), 0);
+    let prepared = prepare_claim(&verified, verified.qc().signers, &pool).unwrap();
+    assert_eq!(pool.reserved_bytes(), expected);
+    assert_eq!(prepared.body.allocation_bytes(), Some(expected));
+    assert!(prepared.body.belongs_to(&pool));
+    assert!(prepared.body.graph_belongs_to(&pool));
+    let RecordedEvidenceV1::SccpForgery(material) = &prepared.fields().evidence else {
+        panic!("closed SCCP record")
+    };
+    assert_eq!(material.evidence, evidence);
+    assert_eq!(material.offenders.len(), count);
+    assert_eq!(material.generation, verified.generation().generation);
+    let successor = prepared.body.clone();
+    drop(prepared);
+    assert_eq!(
+        pool.reserved_bytes(),
+        expected,
+        "shared owner keeps every original charge"
+    );
+    drop(successor);
+    assert_eq!(
+        pool.reserved_bytes(),
+        0,
+        "last owner refunds the complete original graph"
+    );
+    assert_eq!(scratch.reserved_bytes(), 0);
 }

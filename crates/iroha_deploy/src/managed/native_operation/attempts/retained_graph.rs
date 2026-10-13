@@ -267,12 +267,7 @@ fn validate_bounded(
                         )?;
                     }
                 }
-                current.require_current_local_in_tree(
-                    pass,
-                    tree.as_deref_mut(),
-                    originals.as_ref(),
-                    root_read,
-                )
+                current.require_current_local_in_tree(pass, tree, originals.as_ref(), root_read)
             })
         })?;
         #[cfg(test)]
@@ -368,7 +363,7 @@ std::thread_local! {
 }
 #[cfg(test)]
 fn after_forward_for_test() -> Result<()> {
-    let action = AFTER_FORWARD.with(|state| state.take());
+    let action = AFTER_FORWARD.with(std::cell::RefCell::take);
     action.map_or(Ok(()), |action| action())
 }
 
@@ -438,10 +433,7 @@ impl History {
             let (foreign, work) =
                 Self::test_validation_work(usize::MAX, || graph.close(foreign, true, true));
             assert_eq!(
-                foreign
-                    .err()
-                    .expect("foreign scope must refuse")
-                    .to_string(),
+                foreign.expect_err("foreign scope must refuse").to_string(),
                 invalid("native read phase changed its original history owner").to_string(),
             );
             assert!(

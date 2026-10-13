@@ -141,8 +141,8 @@ impl CellArenaV1 {
         let key = (
             cell.descriptor,
             cell.data_descriptor,
-            cell.data.clone(),
-            cell.refs.clone(),
+            cell.data.to_vec(),
+            cell.refs.to_vec(),
         );
         if let Some(index) = self.interned.get(&key) {
             return *index;
@@ -169,8 +169,8 @@ impl CellArenaV1 {
         self.insert(TonBocCell {
             descriptor: u8::try_from(refs.len()).expect("refs"),
             data_descriptor: u8::try_from(full + bits.len().div_ceil(8)).expect("data"),
-            data,
-            refs: refs.to_vec(),
+            data: (data).into(),
+            refs: (refs.to_vec()).into(),
             exotic: false,
         })
     }
@@ -183,14 +183,19 @@ impl CellArenaV1 {
             .iter()
             .rev()
             .map(|cell| TonBocCell {
-                refs: cell.refs.iter().map(|child| last - child).collect(),
+                refs: (cell
+                    .refs
+                    .iter()
+                    .map(|child| last - child)
+                    .collect::<Vec<_>>())
+                .into(),
                 ..cell.clone()
             })
-            .collect();
+            .collect::<Vec<_>>();
         (
             TonBoc {
-                roots: vec![0],
-                cells,
+                roots: (vec![0]).into(),
+                cells: (cells).into(),
             },
             last,
         )
@@ -223,8 +228,8 @@ impl CellArenaV1 {
         self.insert(TonBocCell {
             descriptor: 0x0a,
             data_descriptor: u8::try_from(data.len() * 2).expect("data"),
-            data,
-            refs: vec![old, new],
+            data: (data).into(),
+            refs: (vec![old, new]).into(),
             exotic: true,
         })
     }
@@ -246,8 +251,11 @@ impl CellArenaV1 {
                 .refs
                 .iter()
                 .map(|child| visit(arena, *child, map, out))
-                .collect();
-            let mapped = out.insert(TonBocCell { refs, ..cell });
+                .collect::<Vec<_>>();
+            let mapped = out.insert(TonBocCell {
+                refs: (refs).into(),
+                ..cell
+            });
             map.insert(index, mapped);
             mapped
         }
@@ -337,7 +345,7 @@ pub fn hashmap_edge(
             .iter()
             .filter(|(key, _)| key[common] == side)
             .map(|(key, leaf)| (key[common + 1..].to_vec(), leaf.clone()))
-            .collect();
+            .collect::<Vec<_>>();
         let edge = hashmap_edge(arena, &subset, n - common - 1, fork_extra);
         children.push(arena.cell(&edge.bits, &edge.refs));
     }
@@ -412,7 +420,7 @@ impl SyntheticEpochV1 {
                     .payload()
                     .to_vec(),
             })
-            .collect();
+            .collect::<Vec<_>>();
         signatures.sort_by_key(|signature| signature.node_id_short);
         TonBlockSignaturesV1::Ordinary(TonOrdinaryBlockSignaturesV1 {
             catchain_seqno: SYNTHETIC_CATCHAIN_SEQNO,
@@ -440,7 +448,7 @@ impl SyntheticEpochV1 {
                     },
                 )
             })
-            .collect();
+            .collect::<Vec<_>>();
         let list = hashmap_edge(arena, &entries, 16, None);
         let mut bits = BitsV1::new();
         bits.uint(0x11, 8)
@@ -464,6 +472,13 @@ pub struct SyntheticKeyBlockV1 {
 /// What a synthetic minter transaction emits.
 #[derive(Clone, Debug)]
 pub enum SyntheticTonEventV1 {
+    /// `SccpFinalizedEvent`; the event contains no amount field.
+    Finalized {
+        /// Finalized message identity.
+        message_id: [u8; 32],
+        /// Route outbound nonce.
+        nonce: u64,
+    },
     /// `sccp_transfer_to_taira`.
     Transfer {
         /// Message id.
@@ -641,7 +656,7 @@ impl SyntheticTonChainV1 {
                         },
                     )
                 })
-                .collect();
+                .collect::<Vec<_>>();
         let config = hashmap_edge(arena, &entries, 32, None);
         let config = arena.cell(&config.bits, &config.refs);
         let mut auxiliary = BitsV1::new();
@@ -669,7 +684,7 @@ impl SyntheticTonChainV1 {
                         },
                     )
                 })
-                .collect();
+                .collect::<Vec<_>>();
             let mut fork_extra = BitsV1::new();
             fork_extra.bit(false).uint(1, 64);
             let root = hashmap_edge(arena, &entries, 32, Some(&fork_extra));
@@ -866,6 +881,11 @@ impl SyntheticTonChainV1 {
         let mut body = BitsV1::new();
         let mut body_refs = Vec::new();
         match event {
+            SyntheticTonEventV1::Finalized { message_id, nonce } => {
+                body.uint(0x5343_464e, 32)
+                    .bytes(message_id)
+                    .uint(u128::from(*nonce), 64);
+            }
             SyntheticTonEventV1::Transfer {
                 message_id,
                 nonce,
@@ -873,12 +893,12 @@ impl SyntheticTonChainV1 {
                 amount,
                 payload,
             } => {
-                let mut chunks: Vec<&[u8]> = payload.chunks(127).collect();
+                let mut chunks: Vec<&[u8]> = payload.chunks(127).collect::<Vec<_>>();
                 let mut next: Option<usize> = None;
                 while let Some(chunk) = chunks.pop() {
                     let mut bits = BitsV1::new();
                     bits.bytes(chunk);
-                    let refs: Vec<usize> = next.into_iter().collect();
+                    let refs: Vec<usize> = next.into_iter().collect::<Vec<_>>();
                     next = Some(arena.cell(&bits, &refs));
                 }
                 body.uint(0x5343_5454, 32)
@@ -908,6 +928,66 @@ impl SyntheticTonChainV1 {
         let mut arena = CellArenaV1::new();
         let body = Self::event_body(&mut arena, event);
         arena.boc(body)
+    }
+
+    /// Exact linked account transaction fixture and its original representation hash.
+    pub fn transaction_boc(
+        minter: &[u8; 32],
+        lt: u64,
+        event: &SyntheticTonEventV1,
+        succeed: bool,
+    ) -> (Vec<u8>, [u8; 32]) {
+        let mut arena = CellArenaV1::new();
+        let root = Self::transaction(&mut arena, minter, lt, event, succeed);
+        (arena.boc(root), arena.hash(root))
+    }
+
+    /// Burn discovery fixture with a canonical incoming wallet notification.
+    pub fn burn_transaction_boc(
+        minter: &[u8; 32],
+        wallet: &[u8; 32],
+        lt: u64,
+        query_id: u64,
+        event: &SyntheticTonEventV1,
+        succeed: bool,
+    ) -> (Vec<u8>, [u8; 32]) {
+        let mut arena = CellArenaV1::new();
+        let root = Self::transaction(&mut arena, minter, lt, event, succeed);
+        let recipient = arena.cell(BitsV1::new().bytes(&[3; 34]), &[]);
+        let custom = arena.cell(BitsV1::new().uint(0x5343_4254, 32), &[recipient]);
+        let body = arena.cell(
+            BitsV1::new()
+                .uint(0x7bdd_97de, 32)
+                .uint(query_id.into(), 64)
+                .coins(1)
+                .std_address(0, &[9; 32])
+                .uint(0, 2),
+            &[custom],
+        );
+        let incoming = arena.cell(
+            BitsV1::new()
+                .bit(false)
+                .bit(true)
+                .bit(true)
+                .bit(false)
+                .std_address(0, wallet)
+                .std_address(0, minter)
+                .zero_currency()
+                .coins(0)
+                .coins(0)
+                .uint(lt.into(), 64)
+                .uint(1, 32)
+                .bit(false)
+                .bit(true),
+            &[body],
+        );
+        let mut transaction = arena.cells[root].clone();
+        let old_aux = &arena.cells[transaction.refs[0]];
+        let messages = old_aux.refs[0];
+        let auxiliary = arena.cell(BitsV1::new().bit(true).bit(true), &[incoming, messages]);
+        transaction.refs[0] = auxiliary;
+        let root = arena.insert(transaction);
+        (arena.boc(root), arena.hash(root))
     }
 
     fn transaction(

@@ -126,7 +126,7 @@ fn confidential_python_wallet_closure_preserves_active_owner_and_redacts_context
         let weak = Arc::downgrade(&running);
         wallet.close().expect("close");
         wallet.close().expect("idempotent close");
-        assert_code(py, wallet.acquire().err().expect("closed"), "closed");
+        assert_code(py, wallet.acquire().expect_err("closed"), "closed");
         assert!(weak.upgrade().is_some());
         drop(running);
         assert!(
@@ -178,8 +178,7 @@ fn confidential_python_wallet_parses_bounds_and_fails_before_tree_or_key_work() 
                     None,
                     None,
                 )
-                .err()
-                .expect("empty"),
+                .expect_err("empty"),
             "input_count",
         );
         let inputs = PyList::new(
@@ -199,38 +198,33 @@ fn confidential_python_wallet_parses_bounds_and_fails_before_tree_or_key_work() 
                     None,
                     None,
                 )
-                .err()
-                .expect("too many"),
+                .expect_err("too many"),
             "invalid_input",
         );
         let partial = input_dict(py, 1);
         partial.del_item("diversifier").expect("partial input");
         assert_code(
             py,
-            input(partial.as_any()).err().expect("partial secret parse"),
+            input(partial.as_any()).expect_err("partial secret parse"),
             "invalid_input",
         );
         let malformed = input_dict(py, 1);
         malformed.set_item("amount", true).expect("bool");
         assert_code(
             py,
-            input(malformed.as_any()).err().expect("boolean amount"),
+            input(malformed.as_any()).expect_err("boolean amount"),
             "invalid_input",
         );
         assert_code(
             py,
-            word(PyBytes::new(py, &[2; 31]).as_any())
-                .err()
-                .expect("word width"),
+            word(PyBytes::new(py, &[2; 31]).as_any()).expect_err("word width"),
             "invalid_input",
         );
         let change = PyDict::new(py);
         change.set_item("amount", 1).expect("change amount");
         assert_code(
             py,
-            super::change(change.as_any())
-                .err()
-                .expect("missing change nonce"),
+            super::change(change.as_any()).expect_err("missing change nonce"),
             "invalid_input",
         );
         change
@@ -275,8 +269,7 @@ fn confidential_python_wallet_parses_bounds_and_fails_before_tree_or_key_work() 
                     Some(leaves.as_any()),
                     None,
                 )
-                .err()
-                .expect("invalid amount before key work"),
+                .expect_err("invalid amount before key work"),
             "invalid_transfer_amounts",
         );
     });

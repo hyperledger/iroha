@@ -102,14 +102,14 @@ fn encoded_sections_preserve_enclosing_refusal_then_retry_identically() {
 fn canonical_protocol_refusal_remains_invalid_with_equal_enclosing_limit() {
     let bytes = norito::encode_canonical(&vec!["canonical".to_owned()]).unwrap();
     let protocol = allocation_limit(0);
-    assert_eq!(
+    assert!(matches!(
         decode::<Vec<String>>(&bytes, protocol).unwrap_err(),
         VMError::InvalidMetadata
-    );
-    assert_eq!(
+    ));
+    assert!(matches!(
         with_decode_limits_scope(protocol, || decode::<Vec<String>>(&bytes, protocol)).unwrap_err(),
         VMError::InvalidMetadata
-    );
+    ));
     assert_eq!(
         decode::<Vec<String>>(&bytes, allocation_limit(usize::MAX)).unwrap(),
         vec!["canonical".to_owned()]
@@ -129,10 +129,10 @@ fn assert_malformed<T: std::fmt::Debug>(
             bad
         },
     ] {
-        assert_eq!(
+        assert!(matches!(
             with_decode_limits_scope(allocation_limit(0), || parser(&malformed, 0)).unwrap_err(),
-            VMError::InvalidMetadata,
-        );
+            VMError::InvalidMetadata
+        ));
     }
 }
 
@@ -150,15 +150,15 @@ fn whole_artifact_image_limit_precedes_section_resource_admission() {
     let mut bytes = ProgramMetadata::default().encode();
     bytes.extend_from_slice(&interface().encode_section());
     bytes.resize(HEADER_SIZE + MAX_PROGRAM_IMAGE_BYTES_V1 + 1, 0);
-    assert_eq!(
+    assert!(matches!(
         with_decode_limits_scope(allocation_limit(0), || ProgramMetadata::parse(&bytes))
             .unwrap_err(),
         VMError::InvalidMetadata
-    );
-    assert_eq!(
+    ));
+    assert!(matches!(
         ProgramMetadata::parse(&bytes).unwrap_err(),
         VMError::InvalidMetadata
-    );
+    ));
 }
 
 #[test]

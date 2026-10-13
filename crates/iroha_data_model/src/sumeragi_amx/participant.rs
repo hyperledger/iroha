@@ -35,7 +35,7 @@ use super::{
 use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, sumeragi::epoch::ValidatorEpochContextV1};
 
 // Each obligation intersects at most one distinct epoch per admissible decision height.
-const MAX_DECISION_CONTEXTS: usize = MAX_AMX_PENDING * (MAX_AMX_DEADLINE_WINDOW as usize + 2);
+const MAX_DECISION_CONTEXTS: u64 = MAX_AMX_PENDING as u64 * (MAX_AMX_DEADLINE_WINDOW + 2);
 
 /// The dataspace executor's side of AMX: escrow, apply and release a leg's effects.
 ///
@@ -236,7 +236,8 @@ impl AmxParticipantStateV1 {
         }
         if self.prepared.len() > MAX_AMX_PENDING
             || self.held.len() > MAX_AMX_PENDING
-            || self.decision_contexts.len() > MAX_DECISION_CONTEXTS
+            || u64::try_from(self.decision_contexts.len())
+                .map_or(true, |count| count > MAX_DECISION_CONTEXTS)
         {
             return Err(rejected("participant state exceeds its bounds"));
         }
@@ -271,8 +272,10 @@ impl AmxParticipantStateV1 {
         let mut prior: Option<&ValidatorEpochContextV1> = None;
         for context in &self.decision_contexts {
             context.validate().map_err(AmxError::Anchor)?;
+            let overlaps_live_height_range =
+                context.authorization.last_height >= oldest_live.authorization.first_height;
             if context.authorization.epoch >= oldest_live.authorization.epoch
-                || context.authorization.last_height >= oldest_live.authorization.first_height
+                || overlaps_live_height_range
                 || context.network_id != self.global.current.network_id
                 || context.mode != self.global.current.mode
                 || context.da_layout != self.global.current.da_layout
@@ -283,8 +286,10 @@ impl AmxParticipantStateV1 {
                 ));
             }
             if let Some(previous) = prior {
+                let overlaps_previous_height_range =
+                    previous.authorization.last_height >= context.authorization.first_height;
                 if previous.authorization.epoch >= context.authorization.epoch
-                    || previous.authorization.last_height >= context.authorization.first_height
+                    || overlaps_previous_height_range
                 {
                     return Err(rejected("decision contexts are not strictly ascending"));
                 }
@@ -297,13 +302,12 @@ impl AmxParticipantStateV1 {
             }
             prior = Some(context);
         }
-        if let Some(previous) = prior {
-            if previous.authorization.epoch.checked_add(1) == Some(oldest_live.authorization.epoch)
-            {
-                oldest_live
-                    .validate_successor(previous)
-                    .map_err(AmxError::Anchor)?;
-            }
+        if let Some(previous) = prior
+            && previous.authorization.epoch.checked_add(1) == Some(oldest_live.authorization.epoch)
+        {
+            oldest_live
+                .validate_successor(previous)
+                .map_err(AmxError::Anchor)?;
         }
         // Every already authenticated epoch in an unresolved obligation's decision interval
         // remains available. A missing archive member must fail restoration, not strand escrow.

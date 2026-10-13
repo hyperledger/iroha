@@ -182,18 +182,21 @@ fn settlement_proofs(
     for height in 1..=setup.chain.height() {
         let proof =
             crate::sumeragi::finality::build_proof(&setup.chain.state().view(), height).unwrap();
-        let verified = verifier.verify(&proof).unwrap();
-        assert_eq!(verified.result(), setup.chain.committed(height).result());
+        let authenticated = verifier.verify(&proof).unwrap();
+        assert_eq!(
+            authenticated.result(),
+            setup.chain.committed(height).result()
+        );
         if height == 6 {
             // Retain the exact signed transaction from the verified successful block.
             let iroha_data_model::transaction::TransactionEntrypoint::External(signed) =
-                verified.block().network_entrypoint_at(0).unwrap()
+                authenticated.block().network_entrypoint_at(0).unwrap()
             else {
                 panic!("exact external Unload transaction")
             };
             assert_eq!(*signed.hash().as_ref(), transaction_hash);
             assert!(
-                verified
+                authenticated
                     .block()
                     .network_output_at(0)
                     .unwrap()
@@ -204,7 +207,7 @@ fn settlement_proofs(
             records.push(publish(
                 output,
                 "unload-block.norito",
-                &verified.block().encode_wire().unwrap(),
+                &authenticated.block().encode_wire().unwrap(),
             ));
             records.push(publish(
                 output,

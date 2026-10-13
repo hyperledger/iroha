@@ -468,6 +468,10 @@ impl World {
             return self.fail(v);
         }
         self.check_view_change(actions);
+        let prepares = std::mem::take(&mut self.log.lock().expect("signing log").prepares);
+        for (machine, slot, block_hash) in prepares {
+            self.check_first_due_prepare(machine, slot, block_hash);
+        }
         let commits = std::mem::take(&mut self.log.lock().expect("signing log").commits);
         for (m, msg) in commits {
             if let Err(e) = self.commit_backed(&msg) {

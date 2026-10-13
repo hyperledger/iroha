@@ -1146,8 +1146,9 @@ mod tests {
         let canonical =
             ivm_abi::codec::encode_canonical_norito(&schema).expect("canonical JSON schema");
         assert_eq!(
-            decode_canonical::<JsonConstructionSchemaV1>(&canonical),
-            Ok(schema.clone())
+            (decode_canonical::<JsonConstructionSchemaV1>(&canonical))
+                .expect("expected successful fixture result"),
+            schema.clone()
         );
         let alternate_flags =
             norito::core::default_encode_flags() ^ norito::core::header_flags::COMPACT_LEN;
@@ -1156,15 +1157,16 @@ mod tests {
             to_bytes(&schema).expect("alternate JSON schema")
         };
         assert_ne!(alternate, canonical);
-        assert_eq!(
+        assert!(matches!(
             decode_canonical::<JsonConstructionSchemaV1>(&alternate),
             Err(VMError::DecodeError)
-        );
+        ));
         let _ambient = norito::core::DecodeFlagsGuard::enter(alternate_flags);
         let ambient_before = to_bytes(&schema).expect("ambient JSON schema");
         assert_eq!(
-            decode_canonical::<JsonConstructionSchemaV1>(&canonical),
-            Ok(schema.clone())
+            (decode_canonical::<JsonConstructionSchemaV1>(&canonical))
+                .expect("expected successful fixture result"),
+            schema.clone()
         );
         assert_eq!(
             to_bytes(&schema).expect("ambient JSON schema after decode"),
@@ -1343,18 +1345,18 @@ mod tests {
                     Err(VMError::DecodeError)
                 ));
                 let mut node_index = 0usize;
-                assert_eq!(
+                assert!(matches!(
                     state_node_word_count(&option_schema.nodes, &mut node_index),
                     Ok(1)
-                );
+                ));
                 assert_eq!(node_index, MAX_STATE_VALUE_NODES);
                 let too_many_options =
                     nested_option_schema(MAX_STATE_VALUE_NODES, StateValueKindV1::Bool);
                 let mut too_many_index = 0usize;
-                assert_eq!(
+                assert!(matches!(
                     state_node_word_count(&too_many_options.nodes, &mut too_many_index),
                     Err(VMError::DecodeError)
-                );
+                ));
             })
             .expect("spawn small-stack JSON state test")
             .join()
@@ -1447,7 +1449,7 @@ mod tests {
                         let handle = nested_some_options(&mut vm, wrappers, 1);
                         install_build_inputs(&mut vm, &schema, &[handle]);
                         let before = vm.register(10);
-                        assert_eq!(build_json(&mut vm, CoreHost::resolve_code_tlv_addr), Err(VMError::DecodeError));
+                        assert!(matches!(build_json(&mut vm, CoreHost::resolve_code_tlv_addr), Err(VMError::DecodeError)));
                         assert_eq!(vm.register(10), before, "over-limit tagged JSON is never published");
                     }
                 }
@@ -1467,11 +1469,7 @@ mod tests {
                         ],
                     };
                     install_build_inputs(&mut vm, &schema, &[deep_handle, 2]);
-                    assert_eq!(
-                        build_json(&mut vm, CoreHost::resolve_code_tlv_addr),
-                        Err(VMError::DecodeError),
-                        "the valid deep first sibling must be cleaned up after the later invalid Bool"
-                    );
+                    assert!(matches!(build_json(&mut vm, CoreHost::resolve_code_tlv_addr), Err(VMError::DecodeError)), "the valid deep first sibling must be cleaned up after the later invalid Bool");
                 }
             })
             .expect("spawn small-stack JSON build test")
@@ -1537,8 +1535,9 @@ mod tests {
         );
         assert_eq!(pointer_type, PointerType::Name);
         assert_eq!(
-            decode_canonical::<Name>(&getter_payload),
-            Ok(name.clone()),
+            (decode_canonical::<Name>(&getter_payload))
+                .expect("expected successful fixture result"),
+            name.clone(),
             "the getter must accept JSON_BUILD output without an ambient-layout compatibility mode"
         );
         assert_eq!(
@@ -1595,7 +1594,10 @@ mod tests {
             syscalls::SYSCALL_JSON_GET_JSON,
         );
         assert_eq!(pointer_type, PointerType::Json);
-        assert_eq!(decode_canonical::<Json>(&payload), Ok(nested_json.clone()));
+        assert_eq!(
+            (decode_canonical::<Json>(&payload)).expect("expected successful fixture result"),
+            nested_json.clone()
+        );
         assert_eq!(
             payload,
             encode_canonical_norito(&nested_json).expect("canonical nested JSON")
@@ -1607,7 +1609,10 @@ mod tests {
             syscalls::SYSCALL_JSON_GET_NAME,
         );
         assert_eq!(pointer_type, PointerType::Name);
-        assert_eq!(decode_canonical::<Name>(&payload), Ok(name.clone()));
+        assert_eq!(
+            (decode_canonical::<Name>(&payload)).expect("expected successful fixture result"),
+            name.clone()
+        );
         assert_eq!(
             payload,
             encode_canonical_norito(&name).expect("canonical name")
@@ -1619,7 +1624,10 @@ mod tests {
             syscalls::SYSCALL_JSON_GET_ACCOUNT_ID,
         );
         assert_eq!(pointer_type, PointerType::AccountId);
-        assert_eq!(decode_canonical::<AccountId>(&payload), Ok(account.clone()));
+        assert_eq!(
+            (decode_canonical::<AccountId>(&payload)).expect("expected successful fixture result"),
+            account.clone()
+        );
         assert_eq!(
             payload,
             encode_canonical_norito(&account).expect("canonical account")
@@ -1631,7 +1639,10 @@ mod tests {
             syscalls::SYSCALL_JSON_GET_NFT_ID,
         );
         assert_eq!(pointer_type, PointerType::NftId);
-        assert_eq!(decode_canonical::<NftId>(&payload), Ok(nft.clone()));
+        assert_eq!(
+            (decode_canonical::<NftId>(&payload)).expect("expected successful fixture result"),
+            nft.clone()
+        );
         assert_eq!(
             payload,
             encode_canonical_norito(&nft).expect("canonical NFT")
@@ -1644,8 +1655,9 @@ mod tests {
         );
         assert_eq!(pointer_type, PointerType::AssetDefinitionId);
         assert_eq!(
-            decode_canonical::<AssetDefinitionId>(&payload),
-            Ok(asset_definition.clone())
+            (decode_canonical::<AssetDefinitionId>(&payload))
+                .expect("expected successful fixture result"),
+            asset_definition.clone()
         );
         assert_eq!(
             payload,
@@ -1984,8 +1996,9 @@ mod tests {
             let materialized = vm.memory.load_u64(vm.register(10)).unwrap();
             install_build_inputs(&mut vm, &construction, &[materialized]);
             assert_eq!(
-                build_json(&mut vm, CoreHost::resolve_code_tlv_addr),
-                Ok(gas)
+                (build_json(&mut vm, CoreHost::resolve_code_tlv_addr))
+                    .expect("expected successful fixture result"),
+                gas
             );
             let rebuilt: Json =
                 decode_canonical(vm.validate_tlv(vm.register(10)).unwrap().payload).unwrap();
@@ -2167,9 +2180,8 @@ mod tests {
             let registers_before = [vm.register(10), vm.register(11), vm.register(12)];
             let heap_before = vm.memory.heap_allocated_len();
             let gas_before = vm.remaining_gas();
-            assert_eq!(
-                typed_getter(&mut vm, number, CoreHost::resolve_code_tlv_addr),
-                Err(VMError::UnknownSyscall(number))
+            assert!(
+                matches!(typed_getter(&mut vm, number, CoreHost::resolve_code_tlv_addr), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (number))
             );
             assert_eq!(
                 [vm.register(10), vm.register(11), vm.register(12)],
@@ -2262,12 +2274,13 @@ mod tests {
         )
         .expect("missing is none");
         assert_eq!(
-            crate::sum::read_words(
+            (crate::sum::read_words(
                 &vm,
                 vm.register(10),
                 crate::sum::SumLayoutV1::option(1).unwrap()
-            ),
-            Ok((false, vec![]))
+            ))
+            .expect("expected successful fixture result"),
+            (false, vec![])
         );
         let number: Name = "number".parse().expect("number key");
         let number_ptr = vm
@@ -2276,7 +2289,7 @@ mod tests {
         vm.set_register(10, json_ptr);
         vm.set_register(11, number_ptr);
         // A JSON number token is present but not a canonical decimal string.
-        assert_eq!(
+        assert!(matches!(
             typed_getter(
                 &mut vm,
                 syscalls::SYSCALL_JSON_GET_INT,
@@ -2284,21 +2297,23 @@ mod tests {
             )
             .err(),
             Some(VMError::DecodeError)
-        );
+        ));
         let wrong: Name = "wrong".parse().expect("wrong-type key");
         let wrong_ptr = vm
             .alloc_input_tlv(&tlv(PointerType::Name, &to_bytes(&wrong).unwrap()))
             .expect("wrong-type key TLV");
         vm.set_register(10, json_ptr);
         vm.set_register(11, wrong_ptr);
-        assert_eq!(
-            typed_getter(
-                &mut vm,
-                syscalls::SYSCALL_JSON_GET_INT,
-                CoreHost::resolve_code_tlv_addr,
-            )
-            .err(),
-            Some(VMError::DecodeError),
+        assert!(
+            matches!(
+                typed_getter(
+                    &mut vm,
+                    syscalls::SYSCALL_JSON_GET_INT,
+                    CoreHost::resolve_code_tlv_addr,
+                )
+                .err(),
+                Some(VMError::DecodeError)
+            ),
             "a present field of the wrong JSON type traps"
         );
         let array = Json::from(norito::json!(["7"]));
@@ -2310,14 +2325,16 @@ mod tests {
             .expect("array JSON TLV");
         vm.set_register(10, array_ptr);
         vm.set_register(11, key_ptr);
-        assert_eq!(
-            typed_getter(
-                &mut vm,
-                syscalls::SYSCALL_JSON_GET_INT,
-                CoreHost::resolve_code_tlv_addr,
-            )
-            .err(),
-            Some(VMError::DecodeError),
+        assert!(
+            matches!(
+                typed_getter(
+                    &mut vm,
+                    syscalls::SYSCALL_JSON_GET_INT,
+                    CoreHost::resolve_code_tlv_addr,
+                )
+                .err(),
+                Some(VMError::DecodeError)
+            ),
             "a non-object root traps"
         );
     }
@@ -2356,18 +2373,23 @@ mod tests {
             assert_eq!(text.payload, expected.as_bytes());
         }
         assert_eq!(
-            get(&mut vm, syscalls::SYSCALL_JSON_GET_BOOL, "flag"),
-            Ok((true, vec![1]))
+            (get(&mut vm, syscalls::SYSCALL_JSON_GET_BOOL, "flag"))
+                .expect("expected successful fixture result"),
+            (true, vec![1])
         );
         assert_eq!(
-            get(&mut vm, syscalls::SYSCALL_JSON_GET_BOOL, "off"),
-            Ok((true, vec![0]))
+            (get(&mut vm, syscalls::SYSCALL_JSON_GET_BOOL, "off"))
+                .expect("expected successful fixture result"),
+            (true, vec![0])
         );
         for number in [
             syscalls::SYSCALL_JSON_GET_STRING,
             syscalls::SYSCALL_JSON_GET_BOOL,
         ] {
-            assert_eq!(get(&mut vm, number, "missing"), Ok((false, vec![])));
+            assert_eq!(
+                (get(&mut vm, number, "missing")).expect("expected successful fixture result"),
+                (false, vec![])
+            );
         }
         for (number, key) in [
             (syscalls::SYSCALL_JSON_GET_STRING, "number"),
@@ -2375,9 +2397,8 @@ mod tests {
             (syscalls::SYSCALL_JSON_GET_BOOL, "quoted_flag"),
             (syscalls::SYSCALL_JSON_GET_BOOL, "number"),
         ] {
-            assert_eq!(
-                get(&mut vm, number, key),
-                Err(VMError::DecodeError),
+            assert!(
+                matches!(get(&mut vm, number, key), Err(VMError::DecodeError)),
                 "{key} has the wrong JSON type"
             );
         }
@@ -2437,7 +2458,7 @@ mod tests {
             );
             if expected.is_none() && key != "missing" {
                 // A present field that is not a canonical decimal string traps.
-                assert_eq!(result.err(), Some(VMError::DecodeError), "{key}");
+                assert!(matches!(result.err(), Some(VMError::DecodeError)), "{key}");
                 continue;
             }
             result.expect("typed decimal getter");
@@ -2513,7 +2534,7 @@ mod tests {
             );
             if expected.is_none() && key.as_ref() != "missing" {
                 // A present field that is not a canonical quantity string traps.
-                assert_eq!(result.err(), Some(VMError::DecodeError), "{key}");
+                assert!(matches!(result.err(), Some(VMError::DecodeError)), "{key}");
                 continue;
             }
             result.expect("typed quantity getter");
@@ -2561,10 +2582,10 @@ mod tests {
         vm.set_register(10, schema_ptr);
         vm.set_register(11, 0);
         vm.set_register(12, 2);
-        assert_eq!(
+        assert!(matches!(
             build_json(&mut vm, CoreHost::resolve_code_tlv_addr),
             Err(VMError::DecodeError)
-        );
+        ));
     }
     #[test]
     fn build_json_rejects_noncanonical_quantities_and_hidden_option_payloads() {
@@ -2592,10 +2613,12 @@ mod tests {
         vm.set_register(10, quantity_schema_ptr);
         vm.set_register(11, quantity_table);
         vm.set_register(12, 1);
-        assert_eq!(
-            build_json(&mut vm, CoreHost::resolve_code_tlv_addr),
-            Err(VMError::DecodeError),
-            "quantity inputs must already use their unique canonical frame",
+        assert!(
+            matches!(
+                build_json(&mut vm, CoreHost::resolve_code_tlv_addr),
+                Err(VMError::DecodeError)
+            ),
+            "quantity inputs must already use their unique canonical frame"
         );
         let option_schema = JsonConstructionSchemaV1 {
             nodes: vec![JsonConstructionNodeV1::Value {
@@ -2624,10 +2647,12 @@ mod tests {
         vm.set_register(10, option_schema_ptr);
         vm.set_register(11, option_table);
         vm.set_register(12, 1);
-        assert_eq!(
-            build_json(&mut vm, CoreHost::resolve_code_tlv_addr),
-            Err(VMError::DecodeError),
-            "Option::none cannot smuggle an inactive placeholder into JSON",
+        assert!(
+            matches!(
+                build_json(&mut vm, CoreHost::resolve_code_tlv_addr),
+                Err(VMError::DecodeError)
+            ),
+            "Option::none cannot smuggle an inactive placeholder into JSON"
         );
     }
     #[test]
@@ -2647,10 +2672,10 @@ mod tests {
         vm.set_register(10, schema_ptr);
         vm.set_register(11, 0);
         vm.set_register(12, 0);
-        assert_eq!(
+        assert!(matches!(
             build_json(&mut vm, CoreHost::resolve_code_tlv_addr),
             Err(VMError::DecodeError)
-        );
+        ));
     }
     #[test]
     fn build_json_spills_large_canonical_output_to_owned_heap() {
@@ -2702,14 +2727,14 @@ mod tests {
             .expect("key TLV");
         vm.set_register(10, malformed_json);
         vm.set_register(11, key_ptr);
-        assert_eq!(
+        assert!(matches!(
             typed_getter(
                 &mut vm,
                 syscalls::SYSCALL_JSON_GET_INT,
                 CoreHost::resolve_code_tlv_addr,
             ),
             Err(VMError::DecodeError)
-        );
+        ));
         let json = Json::from(norito::json!({"count": 7}));
         let json_ptr = vm
             .alloc_input_tlv(&tlv(
@@ -2722,13 +2747,13 @@ mod tests {
             .expect("malformed typed key TLV");
         vm.set_register(10, json_ptr);
         vm.set_register(11, malformed_key);
-        assert_eq!(
+        assert!(matches!(
             typed_getter(
                 &mut vm,
                 syscalls::SYSCALL_JSON_GET_INT,
                 CoreHost::resolve_code_tlv_addr,
             ),
             Err(VMError::DecodeError)
-        );
+        ));
     }
 }

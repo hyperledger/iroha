@@ -28,7 +28,7 @@ use mv::{
 use std::num::NonZeroU64;
 
 fn world() -> World {
-    let mut world = *fixture();
+    let mut world = fixture();
     world.governance_proposals.insert([4; 32], proposal(0, 41));
     world.governance_proposals.insert([5; 32], proposal(2, 41));
     world.rebuild_governance_read_indexes().unwrap();
@@ -211,7 +211,7 @@ fn moved_retyped_deleted_inserted_noop_and_absent_rows_encode_the_checked_origin
 fn all_five_membership_defects_reject_current_and_repaired_current_predecessor() {
     for previous in [false, true] {
         for defect in 0..5 {
-            let mut state = state(*fixture());
+            let mut state = state(fixture());
             let extra = match defect {
                 0 => None,
                 1 | 2 => Some((42, [0; 32])),
@@ -479,7 +479,7 @@ fn real_replacement_retains_rewound_proposals_modes_and_exact_physical_work() {
 
 #[test]
 fn inadequate_scan_admission_defers_latent_corruption_without_reporting_success() {
-    let state = state(*fixture());
+    let state = state(fixture());
     let mut block = state.block(header());
     block
         .world

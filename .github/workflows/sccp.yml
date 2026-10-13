@@ -1,0 +1,151 @@
+name: SCCP v1 conformance
+
+# Cross-check the committed fixtures through each independent implementation.
+# These component checks do not establish live-network or settlement readiness.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sccp-v1-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  python-reference:
+    name: Independent Python reference and fixture drift
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+      - name: Install the pinned test runner
+        run: python3 -m pip install --disable-pip-version-check pytest==9.0.3
+      # test_fixture_has_no_drift regenerates every Python-owned fixture in
+      # memory and compares it byte for byte, without rewriting committed data.
+      - name: Verify primitives, destination behavior and every reference fixture
+        run: |
+          mkdir -p target/qualification/sccp
+          python3 -m pytest -q pytests/scripts/test_sccp_reference.py 2>&1 | tee target/qualification/sccp/python-reference.log
+      - name: Retain the reference test record
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sccp-python-reference-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/qualification/sccp/python-reference.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  rust-reference:
+    name: Rust fixture generators and BLS cross-checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: sccp-v1-rust-reference
+          cache-on-failure: "true"
+      # The ordinary tests reconstruct the fixtures and fail on drift. The
+      # ignored regeneration tests are intentionally never selected in CI.
+      - name: Check payload, tree, history, finality, transition and control fixtures
+        run: |
+          mkdir -p target/qualification/sccp
+          cargo test --locked -p iroha_sccp --lib --test v1_vectors --test v1_reference_finality --test v1_reference_transitions --test v1_reference_control 2>&1 | tee target/qualification/sccp/rust-reference.log
+      - name: Reproduce Python BLS vectors and check the Rust-owned BLS fixture
+        run: |
+          cargo test --locked -p iroha_crypto --lib signature::bls::consensus::tests:: 2>&1 | tee target/qualification/sccp/bls-reference.log
+      - name: Retain the Rust test records
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sccp-rust-reference-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/qualification/sccp/*.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  evm-contracts:
+    name: Native EVM build, fixture replay and gas
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24"
+      - name: Install the pinned test runner
+        run: python3 -m pip install --disable-pip-version-check pytest==9.0.3
+      - name: Test authenticated artifact and compiler rejection paths
+        run: python3 -m pytest -q pytests/scripts/test_contract_artifact_corridor.py
+      # The harness authenticates native solc 0.8.31, audits the locked EDR
+      # runtime, and exercises Prague and Osaka with the committed gas bounds.
+      - name: Build and test the locked Solidity contracts
+        run: |
+          mkdir -p target/qualification/sccp
+          bash scripts/sccp_evm_contract_smoke.sh 2>&1 | tee target/qualification/sccp/evm-contracts.log
+      - name: Retain the EVM test record
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sccp-evm-contracts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/qualification/sccp/evm-contracts.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  ton-contracts:
+    name: Native TON build, fixture replay, StateInit and gas
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+      - name: Install the pinned test runner
+        run: python3 -m pip install --disable-pip-version-check pytest==9.0.3
+      - name: Test toolchain authentication, vector rendering and StateInit encoding
+        run: python3 -m pytest -q scripts/tests/ton_sccp_builder_test.py
+      # "all" authenticates Acton 1.2.0 / Tolk 1.4.2, checks generated vectors,
+      # formatting and wrappers, then runs the full emulator, gas and golden checks.
+      - name: Build and test all three TON contracts
+        run: |
+          mkdir -p target/qualification/sccp
+          sh scripts/sccp_ton_contract_build.sh all 2>&1 | tee target/qualification/sccp/ton-contracts.log
+      - name: Retain the TON test record and measured gas
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sccp-ton-contracts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            target/qualification/sccp/ton-contracts.log
+            contracts/ton/sccp/gas-current.json
+          if-no-files-found: warn
+          retention-days: 14

@@ -17,9 +17,9 @@
 //!
 //! This module holds the hash functions only.
 //!
-//! TODO: WP-S6 adds the evidence rules of §4.9 here: the window E0, the mismatch predicates
-//! E1–E4 over a verified certificate and the anchor lookup with its witness errors
-//! (`WitnessRequired`, `BadWitness`, `EvidenceExpired`).
+//! Core owns the evidence rules E0–E4 over original committed state and verified
+//! certificates, including witness acquisition and source-bound refusal. Pure hash
+//! helpers do not establish evidence or finality authority.
 
 use iroha_crypto::Hash;
 

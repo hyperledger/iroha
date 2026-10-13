@@ -103,7 +103,7 @@ fn check_arithmetic(values: &[Scalar], points: &[Point]) {
     let mut expected = points[0].mul_scalar(Scalar::zero());
     for (value, point) in values.iter().zip(points) {
         terms.push(value, point).unwrap();
-        expected = expected + point.mul_scalar(*value);
+        expected += point.mul_scalar(*value);
     }
     assert!(terms.evaluate().unwrap().equals(&expected));
     // Check the intentional variable-time control against the same direct

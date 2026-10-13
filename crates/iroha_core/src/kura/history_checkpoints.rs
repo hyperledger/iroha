@@ -92,7 +92,7 @@ impl HistoryCheckpoints {
     /// Whether `height` keeps a sparse checkpoint.
     #[must_use]
     pub const fn is_checkpoint_height(height: u64) -> bool {
-        height != 0 && height % HISTORY_CHECKPOINT_INTERVAL == 0
+        height != 0 && height.is_multiple_of(HISTORY_CHECKPOINT_INTERVAL)
     }
 
     /// Record an identity a reader just verified: as a recent entry, and as a

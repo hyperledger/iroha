@@ -113,10 +113,10 @@ struct Discovery<'v, V: StateReadOnly> {
 ///
 /// # Errors
 /// The height is outside authenticated non-genesis history or its original archive refuses.
-pub fn amx_relays<'v, V: StateReadOnly>(
-    view: &'v V,
+pub fn amx_relays<V: StateReadOnly>(
+    view: &V,
     height: u64,
-) -> Result<NativeAmxRelayDiscoveryReadV1<'v, V>, NativeAmxRelayDiscoveryErrorV1> {
+) -> Result<NativeAmxRelayDiscoveryReadV1<'_, V>, NativeAmxRelayDiscoveryErrorV1> {
     discover(view, height, None)
 }
 
@@ -129,19 +129,19 @@ pub fn amx_relays<'v, V: StateReadOnly>(
 ///
 /// # Errors
 /// The same original-history and resource refusals as [`amx_relays`].
-pub fn amx_relays_to<'v, V: StateReadOnly>(
-    view: &'v V,
+pub fn amx_relays_to<V: StateReadOnly>(
+    view: &V,
     height: u64,
     target: NetworkId,
-) -> Result<NativeAmxRelayDiscoveryReadV1<'v, V>, NativeAmxRelayDiscoveryErrorV1> {
+) -> Result<NativeAmxRelayDiscoveryReadV1<'_, V>, NativeAmxRelayDiscoveryErrorV1> {
     discover(view, height, Some(target))
 }
 
-fn discover<'v, V: StateReadOnly>(
-    view: &'v V,
+fn discover<V: StateReadOnly>(
+    view: &V,
     height: u64,
     target: Option<NetworkId>,
-) -> Result<NativeAmxRelayDiscoveryReadV1<'v, V>, NativeAmxRelayDiscoveryErrorV1> {
+) -> Result<NativeAmxRelayDiscoveryReadV1<'_, V>, NativeAmxRelayDiscoveryErrorV1> {
     use NativeAmxPreparedRelayErrorV1 as Error;
     let index = height
         .checked_sub(1)
@@ -236,7 +236,7 @@ impl<V: StateReadOnly> NativeAmxRelayDiscoveryReadV1<'_, V> {
 
 impl<V: StateReadOnly> Discovery<'_, V> {
     fn targets(&self, network: NetworkId) -> bool {
-        cfg!(all(test, sumeragi_core_mutation = "HC287"))
+        cfg!(all(test, sumeragi_core_mutation = "HC342"))
             || self.target.is_none_or(|selected| selected == network)
     }
 
@@ -337,7 +337,7 @@ impl<V: StateReadOnly> Discovery<'_, V> {
             self.complete = true;
             return Ok(Poll::Complete);
         }
-        if !self.handoffs_complete && !cfg!(all(test, sumeragi_core_mutation = "HC275")) {
+        if !self.handoffs_complete && !cfg!(all(test, sumeragi_core_mutation = "HC330")) {
             let original = self.source.completed_original().map_err(Error::Proof)?;
             let target = if original.commitment().schedule.boundary.is_none() {
                 None

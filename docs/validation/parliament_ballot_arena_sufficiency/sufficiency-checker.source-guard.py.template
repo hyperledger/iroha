@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""Check conditional source-model sufficiency of the standalone ballot arena.
+
+Python 3.11+, adjacent arena model/frontend/backend helpers, and reviewed Rust
+1.93.1 sources. No environment variables, network, builds or production writes.
+Default runs all retained-layout classes and writes JSON only to stdout;
+--output saves the result. --require-qualified deliberately fails: this source
+model does not certify compiled allocation correspondence, stack or native heap.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import time
+
+import parliament_ballot_arena_backend as backend
+import parliament_ballot_arena_frontend as frontend
+from parliament_ballot_arena_model import Buddy, HEAP_BYTES, block_bytes, spatial_admission_bound
+
+ROOT = Path(__file__).resolve().parents[1]
+ARENA_PATH = "crates/iroha_parliament_ballot_proof/examples/resource_contract/arena.rs"
+ARENA_SHA256 = "1c4a2faceaee40bfd74dd7b956c62fa2a906eaee3edc7e0ab69bce88c164eaa8"
+HELPERS = ("scripts/parliament_ballot_arena_model.py", "scripts/parliament_ballot_arena_frontend.py",
+           "scripts/parliament_ballot_arena_backend.py", "scripts/check_parliament_ballot_arena_sufficiency.py")
+
+
+def source_inventory(repo: Path = ROOT) -> dict:
+    """Check reviewed source pins and bind this run to all helper bytes."""
+    digest = hashlib.sha256((repo / ARENA_PATH).read_bytes()).hexdigest()
+    if digest != ARENA_SHA256:
+        raise ValueError("actual arena source changed; review model before repinning")
+    return {"arena": {ARENA_PATH: digest}, "frontend": frontend.source_inventory(repo),
+            "backend": backend.source_inventory(repo),
+            "helpers": {name: hashlib.sha256((repo / name).read_bytes()).hexdigest() for name in HELPERS}}
+
+
+def frontend_spatial_proof() -> dict:
+    """Apply the occupied-bin lemma for every possible frontend request order.
+
+    At a non-input request, at most ten other non-input blocks and one input
+    block are live (12 includes the new request). For any B<=262144 each of
+    those ten blocks occupies at most 262144/B B-bins, and the input occupies
+    at most 524288/B. The weaker eleven-other-block envelope below is safe
+    even without using the presence of the input. The input is allocated first.
+    """
+    bounds = frontend.frontend_bounds()
+    count = bounds["maximum_live_objects_including_input"]
+    large = bounds["maximum_copied_input_rounded_block"]
+    other = bounds["maximum_other_rounded_block"]
+    # Intentionally allow 11 others plus the input before a request; this
+    # overcounts the documented 12-live-object cap and simplifies the envelope.
+    blocks = [large] + [other] * (count - 1)
+    claims = []
+    request = 64
+    while request <= other:
+        result = spatial_admission_bound(HEAP_BYTES, request, blocks)
+        if not result["guaranteed_free_block"] or sum(blocks) + request > HEAP_BYTES:
+            raise ValueError("frontend spatial/quota envelope no longer fits")
+        claims.append({"request_block": request, **result})
+        request *= 2
+    if bounds["maximum_layout_alignment"] > 16384 or large > HEAP_BYTES:
+        raise ValueError("frontend input/alignment premise no longer fits")
+    return {"source_bounds": bounds, "conservative_pre_request_blocks": blocks,
+            "maximum_post_request_block_bytes": sum(blocks) + other,
+            "input_allocated_first": True, "input_first_request_fits": True,
+            "all_noninput_buddy_orders": claims, "conditional_spatial_success": True,
+            "source_to_compiled_allocation_correspondence_proved": False}
+
+
+def full_trace(row: str, role: str, *, lengths=frontend.REG_CAPS, seats=3, accel=False) -> list[dict]:
+    """Compose complete frontend ownership with ordinary backend allocations."""
+    front = frontend.frontend_trace(row, role, registration_lengths=lengths, seats=seats)
+    return front["prefix"] + backend.backend_trace(row, role, seats=seats, accel=accel) + front["suffix"]
+
+
+def trace_result(events: list[dict]) -> dict:
+    """Replay one exact source-model schedule and require complete cleanup."""
+    model = Buddy()
+    model.replay(events)
+    return model.report()
+
+
+def _accumulate(total: dict, name: dict, report: dict, digest) -> None:
+    """Keep bounded peak witnesses and a canonical digest of all row results."""
+    total["classes_checked"] += 1
+    for key in ("peak_block_bytes", "peak_requested_bytes", "peak_live_objects", "allocations_upper_bound"):
+        if report[key] > total.get(key, -1):
+            total[key] = report[key]
+            total[key + "_witness"] = name
+    digest.update((json.dumps({"case": name, "result": report}, sort_keys=True, separators=(",", ":")) + "\n").encode())
+
+
+def run_all() -> dict:
+    """Enumerate every retained registration order tuple and vote list size.
+
+    Registration exact lengths share retained geometry within each buddy class.
+    The fixed-size input remains in one block order across the entire domain;
+    profile temporaries precede the fields and restore their starting state.
+    Field-slice storage stays fixed while typed fields are copied in fixed order.
+    All later frame/profile temporaries are frontend-safe by the spatial lemma
+    and free completely before backend entry. Thus only retained field orders
+    affect backend entry topology. Upper endpoints maximize requested-byte
+    accounting; backend allocation order depends on row/role and vote seats.
+    """
+    start = time.monotonic()
+    sources = source_inventory()
+    proof = frontend_spatial_proof()
+    groups = []
+    for row in backend.ROWS:
+        low = frontend.canonical_record_bytes(row, "registration", registration_lengths=(0,) * 7)
+        high = frontend.canonical_record_bytes(row, "registration", registration_lengths=frontend.REG_CAPS)
+        if block_bytes(low, 1) != block_bytes(high, 1):
+            raise ValueError("registration input crosses a retained block class")
+        for accel in (False, True):
+            summary = {"row": row, "mode": "accel" if accel else "portable", "classes_checked": 0}
+            digest = hashlib.sha256()
+            # Backend trace is independent of registration byte lengths.
+            back = backend.backend_trace(row, "registration", accel=accel)
+            for item in frontend.registration_retained_classes():
+                lengths = tuple(hi for _, hi in item["ranges"])
+                front = frontend.frontend_trace(row, "registration", registration_lengths=lengths)
+                result = trace_result(front["prefix"] + back + front["suffix"])
+                _accumulate(summary, {"role": "registration", "lengths": lengths}, result, digest)
+            summary["registration_classes_checked"] = summary["classes_checked"]
+            for seats in range(3, 1001):
+                result = trace_result(full_trace(row, "vote", seats=seats, accel=accel))
+                _accumulate(summary, {"role": "vote", "seats": seats}, result, digest)
+            if summary["registration_classes_checked"] != 32768 or summary["classes_checked"] != 33766:
+                raise ValueError("exhaustive domain cardinality changed")
+            summary["vote_classes_checked"] = 998
+            summary["canonical_result_stream_sha256"] = digest.hexdigest()
+            summary["all_traces_ended_empty"] = True
+            groups.append(summary)
+    if source_inventory() != sources:
+        raise ValueError("source changed during exhaustive model replay")
+    return {"schema": "parliament-ballot-conditional-arena-v1", "sources": sources,
+            "domain": frontend.parameter_domain(), "frontend_spatial_proof": proof,
+            "frontend_assumptions": frontend.trace_assumptions(), "backend_assumptions": backend.trace_assumptions(),
+            "groups": groups, "classes_checked": sum(g["classes_checked"] for g in groups),
+            "conditional_source_model_sufficiency": True,
+            "registration_class_argument": run_all.__doc__.strip(),
+            "rejection_argument": "Ordinary early returns visit allocation prefixes, then drop owned buffers without new allocations. Frontend arbitrary admitted lengths use the spatial lemma. Backend proof-dependent provider repetition counts are covered only after exact state restoration; there is no byte-level reachability certificate.",
+            "source_to_compiled_allocation_correspondence_proved": False,
+            "complete_arena_certificate": False, "complete_workspace_certificate": False,
+            "profile_qualified": False, "elapsed_seconds": time.monotonic() - start}
+
+
+def main() -> int:
+    """Run the full conditional check; qualification remains unavailable."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--rustdoc-root", type=Path, help="also verify pinned installed Rust allocation source")
+    parser.add_argument("--require-qualified", action="store_true")
+    args = parser.parse_args()
+    try:
+        rust = backend.rust_source_inventory(args.rustdoc_root) if args.rustdoc_root else None
+        report = run_all()
+        report["installed_rust_allocation_sources"] = rust
+        text = json.dumps(report, sort_keys=True, indent=2) + "\n"
+        if args.output:
+            args.output.write_text(text)
+        else:
+            print(text, end="")
+        return 2 if args.require_qualified else 0
+    except (OSError, ValueError, TypeError) as error:
+        print(json.dumps({"conditional_source_model_sufficiency": False, "failure": str(error), "profile_qualified": False}))
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

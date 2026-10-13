@@ -2728,17 +2728,16 @@ impl AcceptedTransaction<'static> {
         }
         .with_validation_time(now))
     }
-    /// Accept an entrypoint at one explicit validation instant.
+    /// Admit a test-chain or queue fixture at one explicit validation instant.
     ///
-    /// Durable recovery uses the persisted enqueue instant to prove that an acknowledged
-    /// entrypoint passed the same chain, signature, crypto-policy, clock, and limit checks as
-    /// ingress before classifying its current terminal state. It deliberately does not
-    /// re-evaluate live NTS health: the durable record proves prior ingress admission, and a
-    /// restarting sampler must not invalidate acknowledged queue state.
+    /// Fixtures run the same chain, signature, crypto-policy, clock, and limit checks as
+    /// ingress with their own clock. Live NTS health is not part of this fixture operation;
+    /// production ingress captures and enforces its actual NTS admission snapshot.
     ///
     /// # Errors
     ///
     /// See [`AcceptTransactionFail`].
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn accept_entrypoint_at_time(
         tx: TransactionEntrypoint,
         expected_network_id: &NetworkId,
@@ -2874,22 +2873,6 @@ impl AcceptedTransaction<'static> {
             let _ = accepted.entrypoint_hash.set(prepared.entrypoint_hash);
         }
         Ok(accepted.with_validation_time(now))
-    }
-}
-impl<'tx> From<AcceptedTransaction<'tx>> for SignedTransaction {
-    fn from(source: AcceptedTransaction<'tx>) -> Self {
-        match source.entrypoint.into_owned() {
-            TransactionEntrypoint::External(entrypoint) => entrypoint,
-            TransactionEntrypoint::SealedReveal(entrypoint) => entrypoint.signed_transaction,
-            TransactionEntrypoint::SealedCommitment(_) => {
-                panic!("sealed commitment entrypoints are not signed transactions")
-            }
-        }
-    }
-}
-impl<'tx> From<AcceptedTransaction<'tx>> for (AccountId, Executable) {
-    fn from(source: AcceptedTransaction<'tx>) -> Self {
-        SignedTransaction::from(source).into()
     }
 }
 impl AsRef<SignedTransaction> for AcceptedTransaction<'_> {
@@ -3155,9 +3138,9 @@ impl StateBlock<'_> {
         genesis: Option<&crate::block::AuthenticatedGenesisTransaction>,
     ) -> Result<DataTriggerSequence, ExecutionAttemptError<TransactionRejectionReason>> {
         state_transaction.genesis_execution_scope = None;
-        if let Some(reason) = state_transaction.execution_deferral() {
-            return Err(ExecutionAttemptError::Deferred(reason));
-        }
+        state_transaction
+            .ensure_execution_ready()
+            .map_err(ExecutionAttemptError::Deferred)?;
         if genesis.is_some() && !matches!(tx.entrypoint(), TransactionEntrypoint::External(_)) {
             return Err(
                 reject_not_permitted("genesis admission requires an external input").into(),
@@ -3251,7 +3234,11 @@ impl StateBlock<'_> {
             _ => {}
         }
         debug!(tx=%tx.hash(), "Validating transaction");
-        Self::validate_transaction_with_runtime_executor(tx.clone(), state_transaction, ivm_cache)?;
+        Self::validate_transaction_with_runtime_executor(
+            tx.as_ref().clone(),
+            state_transaction,
+            ivm_cache,
+        )?;
         let trigger_sequence = if allow_unregistered_authority {
             debug!(
                 authority = %authority,
@@ -3261,9 +3248,9 @@ impl StateBlock<'_> {
         } else {
             debug!("Transaction validated successfully; processing data triggers");
             let trigger_result = state_transaction.execute_data_triggers_dfs(&authority);
-            if let Some(reason) = state_transaction.execution_deferral() {
-                return Err(ExecutionAttemptError::Deferred(reason));
-            }
+            state_transaction
+                .ensure_execution_ready()
+                .map_err(ExecutionAttemptError::Deferred)?;
             let trigger_sequence = trigger_result?;
             debug!("Data triggers executed successfully");
             trigger_sequence
@@ -3389,9 +3376,10 @@ impl StateBlock<'_> {
         // Parse and cache metadata + derived hashes.
         let bytes = contract.as_ref();
         let summary = ivm_cache.summarize_executable(bytes).map_err(|error| {
-            if let Some(owner) = ExecutionDeferred::from_vm_error(&error) {
-                return ExecutionAttemptError::Deferred(owner);
-            }
+            let error = match ExecutionDeferred::try_from_vm_error(error) {
+                Ok(owner) => return ExecutionAttemptError::Deferred(owner),
+                Err(error) => error,
+            };
             let failure = match error {
                 ivm::VMError::UnknownSyscall(number) => ValidationFail::NotPermitted(format!(
                     "unknown syscall number 0x{number:02x} for abi_version 1"
@@ -3498,9 +3486,10 @@ impl StateBlock<'_> {
                     &state_transaction.execution_budget(),
                 )
                 .map_err(|err| {
-                    if let Some(owner) = ExecutionDeferred::from_vm_error(&err) {
-                        return ExecutionAttemptError::Deferred(owner);
-                    }
+                    let err = match ExecutionDeferred::try_from_vm_error(err) {
+                        Ok(owner) => return ExecutionAttemptError::Deferred(owner),
+                        Err(error) => error,
+                    };
                     ExecutionAttemptError::Rejected(TransactionRejectionReason::Validation(
                         ValidationFail::IvmAdmission(
                             iroha_data_model::executor::IvmAdmissionError::BytecodeDecodingFailed(
@@ -3661,11 +3650,10 @@ impl StateBlock<'_> {
     ///
     /// Note: transaction instructions will be executed on the given `state_transaction`.
     fn validate_transaction_with_runtime_executor(
-        tx: AcceptedTransaction<'_>,
+        tx: SignedTransaction,
         state_transaction: &mut StateTransaction<'_, '_>,
         ivm_cache: &mut IvmCache,
     ) -> Result<(), ExecutionAttemptError<TransactionRejectionReason>> {
-        let tx: SignedTransaction = tx.into();
         let authority = tx.authority().clone();
         state_transaction
             .world
@@ -6562,11 +6550,15 @@ pub mod tests {
         let authority_account = new_account_in_domain(&authority, &domain_id).build(&authority);
         let validator_a_account =
             new_account_in_domain(&validator_a, &domain_id).build(&validator_a);
-        let validator_b_account =
+        let second_validator_registration =
             new_account_in_domain(&validator_b, &domain_id).build(&validator_b);
         let world = World::with(
             [domain],
-            [authority_account, validator_a_account, validator_b_account],
+            [
+                authority_account,
+                validator_a_account,
+                second_validator_registration,
+            ],
             [],
         );
         let kura = Kura::blank_kura_for_testing();
@@ -9407,14 +9399,16 @@ pub mod tests {
         let chain: ChainId = "chain".parse().unwrap();
         let state = State::new_with_chain(world, kura, query_handle, chain.clone());
         // Commit the pipeline gas allowlist in the original signed genesis.
-        let mut gas = iroha_config::parameters::actual::Gas::default();
-        gas.accepted_assets = vec![
-            AssetDefinitionId::derive_from_components(
-                DomainId::try_new("domain", "universal").unwrap(),
-                "xor".parse().unwrap(),
-            )
-            .canonical_address(),
-        ];
+        let gas = iroha_config::parameters::actual::Gas {
+            accepted_assets: vec![
+                AssetDefinitionId::derive_from_components(
+                    DomainId::try_new("domain", "universal").unwrap(),
+                    "xor".parse().unwrap(),
+                )
+                .canonical_address(),
+            ],
+            ..Default::default()
+        };
         let chain = crate::block::tests::component_chain_with_genesis_parameters(
             state,
             crate::pipeline_gas_policy::parameters_for_testing(gas).into(),
@@ -9800,12 +9794,12 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_metadata_conflict_rejected_even_if_state_matches() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             smart_contract::manifest::ContractManifest,
             transaction::{Executable, TransactionBuilder},
         };
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         // Seed block 1 with a correct manifest for the program.
         let header1 = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
@@ -9915,9 +9909,9 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_abi_and_code_hash_match() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         let header = iroha_data_model::block::BlockHeader::new(nonzero!(2_u64), None, None, 0, 0);
         let mut block = fixture.state.block(header);
@@ -9974,8 +9968,8 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_rejects_mismatched_hashes() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         let prog = minimal_ivm_contract_program();
         // Compute real code hash; then corrupt expected
@@ -10023,8 +10017,8 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_rejects_mismatched_code_hash() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         let prog = minimal_ivm_contract_program();
         let mut wrong_bytes = [0u8; 32];
@@ -10072,12 +10066,12 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_state_conflict_rejected_even_if_metadata_matches() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             smart_contract::manifest::ContractManifest,
             transaction::{Executable, TransactionBuilder},
         };
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         // Seed block 1 with a manifest that has the right code_hash but wrong abi_hash.
         let header1 = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
@@ -10322,9 +10316,9 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_lookup_in_state() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         // Seed block 1: insert a manifest into WSV directly via state tx
         let header1 = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
@@ -10543,10 +10537,10 @@ pub mod tests {
     fn ivm_bytecode_at_limit_is_accepted_at_admission() {
         use iroha_data_model::transaction::{Executable, TransactionBuilder};
         use std::time::Duration;
+        const BYTECODE_LIMIT: u64 = 1021;
         let (authority_id, kp) = gen_account_in("wonderland");
         // Use an exact bytecode-size limit that can be represented by the 17-byte
         // IVM metadata header plus a valid literal-prefix alignment.
-        const BYTECODE_LIMIT: u64 = 1021;
         let default_limits = TransactionParameters::default();
         let limits = TransactionParameters::with_max_signatures(
             NonZeroU64::new(1).unwrap(),
@@ -10557,8 +10551,14 @@ pub mod tests {
             default_limits.max_metadata_depth(),
         );
         // Create a blob exactly at the allowed bytecode size.
-        let at_limit_blob = minimal_ivm_program_with_literal_padding(1, BYTECODE_LIMIT as usize);
-        assert_eq!(at_limit_blob.len(), BYTECODE_LIMIT as usize);
+        let at_limit_blob = minimal_ivm_program_with_literal_padding(
+            1,
+            usize::try_from(BYTECODE_LIMIT).expect("fixture value fits usize"),
+        );
+        assert_eq!(
+            at_limit_blob.len(),
+            usize::try_from(BYTECODE_LIMIT).expect("fixture value fits usize")
+        );
         let tx = TransactionBuilder::new(
             test_network_id(),
             authority_id.clone(),

@@ -25,6 +25,7 @@ use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
 };
+use zeroize::Zeroizing;
 
 /// Witness bits of [`Toy`].
 const ELL: usize = 320;
@@ -74,7 +75,9 @@ impl<F: LambdaField> Relation<F> for Toy {
 
     fn emit<C: ConstraintSystem<Field = F>>(&self, public: &[u8], cs: &mut C) {
         let w = |index: usize| cs.witness(index);
-        let mut out = Vec::with_capacity(31);
+        // Values are secret under the prover: the scratch is allocated once and
+        // erased when it is dropped.
+        let mut out = Zeroizing::new(Vec::with_capacity(31));
         for i in 0..8 {
             let b = 128 + 3 * i;
             let sum = cs.add(cs.add(w(b), w(b + 1)), w(b + 2));
@@ -110,8 +113,8 @@ impl<F: LambdaField> Relation<F> for Toy {
         let low = cs.mul(w(288), w(289));
         let high = cs.mul(cs.mul(w(290), w(291)), cs.mul(w(292), w(293)));
         out.push(cs.add_bit(cs.add(cs.add(low, high), w(294)), public_bit(public, 48)));
-        for value in out {
-            cs.constrain(value);
+        for value in out.iter() {
+            cs.constrain(*value);
         }
     }
 }
@@ -154,7 +157,9 @@ fn witness(public: &[u8], seed: u8) -> Vec<u8> {
     for i in 0..4 {
         let b = 232 + 8 * i;
         if i % 2 == 0 {
-            (b..b + 7).for_each(|index| set(&mut bytes, index, true));
+            for index in b..b + 7 {
+                set(&mut bytes, index, true);
+            }
         }
         let bit = (b..b + 7).all(|index| get(&bytes, index)) ^ p(24 + i);
         set(&mut bytes, b + 7, bit);
@@ -245,6 +250,43 @@ fn the_toy_relation_and_its_witness_generator_agree() {
     assert_eq!(is_satisfied::<Gf128, _>(&Toy, &PUBLIC[..], &free), Ok(true));
 }
 
+/// The witness of the cross-checks with the prototype (`make_witness(pub, 1)` of
+/// `toy.py`).
+const PROTOTYPE_WITNESS: &str =
+    "8e5727ba08417c46d9ed6cb27aebdf49af665a91073d3e8920f6f1d6827f77ff67200f72441555f0";
+
+/// Prove the toy relation in reference mode on `vole` with the prototype's inputs
+/// and the tape of `salt`, and compare the proof length, the counter and
+/// SHAKE256(proof, 64 bytes) with the prototype's.
+fn check_prototype<F: LambdaField>(
+    vole: &VoleParams,
+    salt: u8,
+    len: usize,
+    counter: u32,
+    digest: &str,
+) {
+    let level = vole.lambda();
+    let context = ProofContext::reference(*vole);
+    let witness = hex(PROTOTYPE_WITNESS);
+    let mu = pattern(2 * level.bytes(), 7, 1);
+    let proof = prove::<F, _>(
+        &context,
+        &Toy,
+        &PUBLIC[..],
+        &mu,
+        &witness,
+        &tape(level, salt),
+    )
+    .expect("valid witness");
+    assert_eq!(proof.len(), len);
+    assert_eq!(proof[len - 4..], counter.to_le_bytes());
+    assert_eq!(shake256(&proof, 64), hex(digest), "{level:?}");
+    assert_eq!(
+        verify::<F, _>(&context, &Toy, &PUBLIC[..], &mu, &proof),
+        Ok(())
+    );
+}
+
 /// Reference mode (the empty prefix) against the Python prototype.
 ///
 /// Produced by `stage3_scratch/toy.py`, which drives an unmodified copy of the
@@ -257,36 +299,58 @@ fn the_toy_relation_and_its_witness_generator_agree() {
 /// SHAKE256(proof, 64 bytes).
 #[test]
 fn reference_mode_proofs_are_byte_identical_to_the_python_prototype() {
-    const WITNESS: &str =
-        "8e5727ba08417c46d9ed6cb27aebdf49af665a91073d3e8920f6f1d6827f77ff67200f72441555f0";
-    fn check<F: LambdaField>(vole: &VoleParams, len: usize, counter: u32, digest: &str) {
-        let level = vole.lambda();
-        let context = ProofContext::reference(*vole);
-        let witness = hex(WITNESS);
-        let mu = pattern(2 * level.bytes(), 7, 1);
-        let proof = prove::<F, _>(&context, &Toy, &PUBLIC[..], &mu, &witness, &tape(level, 0))
-            .expect("valid witness");
-        assert_eq!(proof.len(), len);
-        assert_eq!(proof[len - 4..], counter.to_le_bytes());
-        assert_eq!(shake256(&proof, 64), hex(digest), "{level:?}");
-        assert_eq!(
-            verify::<F, _>(&context, &Toy, &PUBLIC[..], &mu, &proof),
-            Ok(())
-        );
-    }
-    check::<Gf128>(
+    check_prototype::<Gf128>(
         FAEST_128F.vole(),
+        0,
         3810,
         199,
         "fc7d4a214ff9db92026152f96401777ff5597929512b32cc2a5250248aadd339\
          9faf63af5986091d4197e096cf7a2e78821a025161cdb47f34c56bb179d37807",
     );
-    check::<Gf256>(
+    check_prototype::<Gf256>(
         FAEST_256F.vole(),
+        0,
         13068,
         891,
         "456b71f611c48b742f825a3c81488033d88ccb091d3c8a71713511bf5dddd5dc\
          86c2c334a322ed886409612af8bfdce2c1fa58870cf8cceb0043e74063cd6bdf",
+    );
+}
+
+/// The counter rule on tapes whose run contains BAVC.Open aborts: counters whose
+/// challenge has zero grinding bits but selects an opening of more than `T_open`
+/// node keys, which the prover must skip exactly like a grinding failure.
+///
+/// Produced by `stage3_scratch/fix2/toy_abort.py`: the prover of `toy.py` on the
+/// same unmodified prototype, with the tape `r[i] = 11i + 3 + salt`,
+/// `iv_pre[i] = 13i + 5 + salt` (mod 256), recording every counter at which
+/// `decode_all_chall3` succeeds and `bavc_open` returns nothing. It reports
+///
+/// * FAEST-128f, salt 2: aborts at counters 5 and 399, accepted counter 424;
+/// * FAEST-256s, salt 0: aborts at counters 183, 185, 193, 205, 255, 259, 261,
+///   289 and 327, accepted counter 425.
+///
+/// A prover that turned an abort into an error, or that accepted the aborting
+/// counter, cannot produce these bytes. The unit test
+/// `a_counter_whose_opening_is_too_large_is_skipped_like_a_grinding_failure` of
+/// the proof module recomputes the fate of every counter in Rust.
+#[test]
+fn the_retry_after_an_opening_abort_is_byte_identical_to_the_python_prototype() {
+    check_prototype::<Gf128>(
+        FAEST_128F.vole(),
+        2,
+        3810,
+        424,
+        "2d253ac1197bb36b0d3bedc42e3374fa94f852523e4ba1e4cf19554e11c7f418\
+         22d67b879636a767c3ffc0c77c8c6a487e22c2375a6869cea7e250cc1bf59cca",
+    );
+    check_prototype::<Gf256>(
+        FAEST_256S.vole(),
+        0,
+        11434,
+        425,
+        "9d09699d09bdfb6e23b003f33d47d98d4dc5f6e873e6b9701e5678275bccea81\
+         0c1f530db97b2e7233c8ec3223d8367e13cf4299f4f50d3f0d06f754ac6c78ee",
     );
 }
 
@@ -300,7 +364,11 @@ struct Setup<'a> {
 }
 
 fn setup<'a, F: LambdaField>(namespace: Namespace<'a>, vole: &VoleParams, salt: u8) -> Setup<'a> {
-    let context = ProofContext::new(namespace, *vole);
+    let context = if namespace.is_reference() {
+        ProofContext::reference(*vole)
+    } else {
+        ProofContext::new(namespace, *vole).expect("non-empty prefix")
+    };
     let public = pattern(7, 29, salt);
     let mu =
         message_digest(namespace, vole.lambda(), &[b"toy statement", &public]).expect("valid call");
@@ -355,6 +423,33 @@ fn honest_proofs_verify_on_the_standard_and_on_a_custom_row() {
     assert_eq!(codec::proof_bytes(&params), params.signature_bytes());
 }
 
+/// The small row of the ballot profile (FAEST-256s geometry: 61,440 leaves,
+/// `tau = 22`, six grinding bits) at this relation's witness length.
+#[test]
+fn honest_proofs_verify_on_the_small_256_bit_row() {
+    let prefix = ballot_like_prefix(b"VOTE");
+    let namespace = Namespace::new(&prefix).expect("77 bytes");
+    let small = setup::<Gf256>(namespace, FAEST_256S.vole(), 8);
+    assert_eq!(small.proof.len(), 11_434);
+    assert_eq!(accepts::<Gf256>(&small, &small.proof), Ok(()));
+    let params = small
+        .context
+        .params_for::<Gf256, _>(&Toy)
+        .expect("valid row");
+    let mut forged = small.proof.clone();
+    forged[Field::MaskedWitness.offset(&params)] ^= 1;
+    assert_eq!(
+        accepts::<Gf256>(&small, &forged),
+        Err(ProofError::ChallengeMismatch)
+    );
+    // The fast row of the same level is another proof length.
+    let fast = ProofContext::new(namespace, *FAEST_256F.vole()).expect("non-empty prefix");
+    assert!(matches!(
+        verify::<Gf256, _>(&fast, &Toy, &small.public[..], &small.mu, &small.proof),
+        Err(ProofError::Codec(CodecError::InvalidLength { .. }))
+    ));
+}
+
 #[test]
 fn proofs_are_bound_to_the_public_input_mu_namespace_and_row() {
     let prefix = ballot_like_prefix(b"VOTE");
@@ -401,8 +496,14 @@ fn proofs_are_bound_to_the_public_input_mu_namespace_and_row() {
 
     // The namespace: reference mode, another role, a prefix one byte shorter.
     let other_prefix = ballot_like_prefix(b"REG");
-    for other in [&b""[..], &other_prefix, &prefix[..76]] {
-        let other = ProofContext::new(Namespace::new(other).expect("bounded"), *context.vole());
+    let reference = ProofContext::reference(*context.vole());
+    assert_eq!(
+        verify::<Gf128, _>(&reference, &Toy, &public[..], mu, proof),
+        rejected
+    );
+    for other in [&other_prefix[..], &prefix[..76]] {
+        let other = ProofContext::new(Namespace::new(other).expect("bounded"), *context.vole())
+            .expect("non-empty prefix");
         assert_eq!(
             verify::<Gf128, _>(&other, &Toy, &public[..], mu, proof),
             rejected
@@ -415,7 +516,7 @@ fn proofs_are_bound_to_the_public_input_mu_namespace_and_row() {
         *FAEST_EM_128F.vole(),
         VoleParams::new(SecurityLevel::L128, 17, 8, 109, 3, 7, 312).expect("valid row"),
     ] {
-        let other = ProofContext::new(namespace, vole);
+        let other = ProofContext::new(namespace, vole).expect("non-empty prefix");
         assert!(matches!(
             verify::<Gf128, _>(&other, &Toy, &public[..], mu, proof),
             Err(ProofError::Codec(CodecError::InvalidLength { .. }))

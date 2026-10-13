@@ -110,7 +110,10 @@ fn budgeted_arc_snapshot_canonical_mode_rejects_an_opaque_start_with_bounded_pag
         &state,
         &store,
         &ALICE_ID,
-        find_role_ids_start(params, Default::default()),
+        find_role_ids_start(
+            params,
+            iroha_data_model::query::dsl::SelectorTuple::default(),
+        ),
         canonical_test_limits(3),
         QueryExecutionBudget::from_weighted_limit(16 * 1024 * 1024, 1, 1),
     )

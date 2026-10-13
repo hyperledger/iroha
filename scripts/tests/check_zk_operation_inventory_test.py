@@ -860,7 +860,7 @@ class GuaranteeSelection(Base):
     def test_new_registry_read_fails(self) -> None:
         path = "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs"
         text = source(path)
-        mark = "pub(crate) fn verify_execution_proof("
+        mark = "pub fn validate_execution_receipt_at("
         mutated = text.replace(mark, "fn pick(world: &W, id: &Id) { let _ = world.verifying_keys.get(id); }\n" + mark, 1)
         self.assert_fails(run("check_guarantee_selection", self.small, {path: mutated}),
                           f"`verifying_key_registry_read` occurs 1 times in {path}, recorded 0")
@@ -963,7 +963,7 @@ class Anchors(Base):
 
     def test_symbol_must_be_in_the_file_and_in_production_code(self) -> None:
         path = "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs"
-        good = self.minimal(x={"path": path, "symbol": "pub(crate) fn verify_execution_proof("})
+        good = self.minimal(x={"path": path, "symbol": "pub fn validate_execution_receipt_at("})
         self.assert_clean(run("check_anchors", good))
         self.assert_fails(run("check_anchors", self.minimal(x={"path": path, "symbol": "fn no_such_function("})), "is not in")
         self.assert_fails(run("check_anchors", self.minimal(x={"path": path, "symbol": "fn sample_proof_verifier()"})),
@@ -982,8 +982,8 @@ class Anchors(Base):
     def test_symbol_survives_reformatting(self) -> None:
         path = "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs"
         text = source(path)
-        mark = "pub(crate) fn verify_execution_proof("
-        reformatted = text.replace(mark, "pub(crate)\n    fn   verify_execution_proof(", 1)
+        mark = "pub fn validate_execution_receipt_at("
+        reformatted = text.replace(mark, "pub\n    fn   validate_execution_receipt_at(", 1)
         self.assert_clean(run("check_anchors", self.minimal(x={"path": path, "symbol": mark}), {path: reformatted}))
 
     def test_tests_must_exist_and_run_by_default(self) -> None:

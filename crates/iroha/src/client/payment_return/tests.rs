@@ -105,6 +105,18 @@ fn native_payment_full_return_identity_is_canonical_and_original_stays_successfu
         norito::json::from_str::<NativePaymentReturnLink>(&link_json).unwrap(),
         *first.link()
     );
+    let wire: norito::json::Value = norito::json::from_json(&link_json).unwrap();
+    let expected_network: norito::json::Value =
+        norito::json::from_json(&norito::json::to_json(&original.network()).unwrap()).unwrap();
+    assert_eq!(wire.get("original_network"), Some(&expected_network));
+    assert!(wire.get("network").is_none());
+    assert!(
+        norito::json::from_str::<NativePaymentReturnLink>(
+            &link_json.replace("\"original_network\":", "\"network\":")
+        )
+        .is_err(),
+        "the signed metadata has one field name, with no Rust-name alias"
+    );
     assert_eq!(first.settlement_id(), independent.settlement_id());
     assert_eq!(first.payment().intent(), independent.payment().intent());
     let original_move = match &original.settlement().details {

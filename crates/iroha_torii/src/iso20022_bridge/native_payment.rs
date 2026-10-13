@@ -234,7 +234,7 @@ pub(super) fn native_payment_from_value(value: &JsonValue) -> Option<Option<IsoN
             let carrier = IsoNativeCarrierOutcome {
                 height: value.get("height")?.as_u64()?,
                 applied: value.get("applied")?.as_bool()?,
-                rejection: required_nullable_string(value, "rejection")?,
+                rejection: required_nullable_string(value, "rejection").ok()?,
             };
             if carrier.height < 2 || carrier.applied == carrier.rejection.is_some() {
                 return None;
@@ -255,7 +255,7 @@ pub(super) fn native_payment_from_value(value: &JsonValue) -> Option<Option<IsoN
             Some(IsoNativeBusinessSettlement {
                 transaction_hash: required_clean_string(value, "transaction_hash")?,
                 receipt_frame: required_clean_string(value, "receipt_frame")?,
-                nexus_fee_frame: required_nullable_string(value, "nexus_fee_frame")?,
+                nexus_fee_frame: required_nullable_string(value, "nexus_fee_frame").ok()?,
             })
         }
     };

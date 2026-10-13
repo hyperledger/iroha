@@ -13,7 +13,21 @@ pub(crate) struct PreparedBlockHashes<'target, Installation> {
     >,
     mode: mv::BlockMode,
     visible_len: usize,
+    #[cfg_attr(
+        not(any(test, feature = "iroha-core-tests", feature = "bench")),
+        expect(
+            dead_code,
+            reason = "TODO: connect aggregate hash publication; retain the exact successor height before entering physical publication"
+        )
+    )]
     height: usize,
+    #[cfg_attr(
+        not(any(test, feature = "iroha-core-tests", feature = "bench")),
+        expect(
+            dead_code,
+            reason = "TODO: connect aggregate hash publication; retain its original committed-height owner through preparation"
+        )
+    )]
     committed_height: &'target AtomicUsize,
     installation: Installation,
     preflight_release: Option<iroha_allocation::release::DeferredRelease>,
@@ -31,6 +45,13 @@ pub(super) mod retained_hash_slot;
 #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
 use retained_hash_slot::RetainedHashSlot;
 
+#[cfg_attr(
+    not(any(test, feature = "iroha-core-tests", feature = "bench")),
+    expect(
+        dead_code,
+        reason = "TODO: connect retained aggregate hash acquisition; keep exact changed, poison and original-release refusal classification"
+    )
+)]
 fn refusal<E>(
     error: OwnedWriteError,
     wait: iroha_allocation::release::ReleaseWait,
@@ -45,16 +66,16 @@ fn refusal<E>(
 impl DetachedBlockHashes {
     /// Standalone fixture adapter to the same caller-owned preparation kernel.
     /// Aggregate production callers retain the slot before invoking admission.
-    pub(crate) fn try_prepare_publication<'target, Installation, E>(
+    pub(crate) fn try_prepare_publication<Installation, E>(
         self,
-        target: &'target BlockHashes,
+        target: &BlockHashes,
         admit: impl FnOnce(&Self, &BlockHashes) -> Result<Installation, E>,
     ) -> Result<
-        PreparedBlockHashes<'target, Installation>,
+        PreparedBlockHashes<'_, Installation>,
         (
             Self,
             mv::PublicationPreparationError<E>,
-            RetainedHashSlot<'target, Installation>,
+            RetainedHashSlot<'_, Installation>,
         ),
     > {
         let mut slot = RetainedHashSlot::new(self, target);
@@ -66,6 +87,13 @@ impl DetachedBlockHashes {
 }
 impl<'target, Installation> PreparedBlockHashes<'target, Installation> {
     /// Release physical locks and return the same private tree for retry.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect aggregate hash-publication abort; retain the same private tree, original owner and notifications for retry"
+        )
+    )]
     pub(crate) fn abort(self) -> (DetachedBlockHashes, AbortedBlockHashes<Installation>) {
         let Self {
             owner,
@@ -97,6 +125,13 @@ impl<'target, Installation> PreparedBlockHashes<'target, Installation> {
         )
     }
     /// Publish without allocation; retain cleanup until aggregate fences release.
+    #[cfg_attr(
+        not(any(test, feature = "iroha-core-tests", feature = "bench")),
+        expect(
+            dead_code,
+            reason = "TODO: connect aggregate hash publication; keep original writer, reader, installation and notification retirement together"
+        )
+    )]
     pub(crate) fn publish(self) -> PublishedBlockHashes<'target, Installation> {
         let Self {
             prepared,
@@ -117,6 +152,13 @@ impl<'target, Installation> PreparedBlockHashes<'target, Installation> {
     }
 }
 /// Released tree cleanup and wake custody. Drop after other publication fences.
+#[cfg_attr(
+    not(any(test, feature = "iroha-core-tests", feature = "bench")),
+    expect(
+        dead_code,
+        reason = "TODO: connect aggregate hash publication; retain cleanup until every enclosing publication fence releases"
+    )
+)]
 pub(crate) struct PublishedBlockHashes<'a, Installation> {
     _retirement: iroha_allocation::release::ReleaseGuard<
         'a,

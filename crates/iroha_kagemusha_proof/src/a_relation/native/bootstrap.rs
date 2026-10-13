@@ -127,10 +127,9 @@ impl std::error::Error for Error {
 }
 impl From<norito::core::DecodeAttemptError> for Error {
     fn from(error: norito::core::DecodeAttemptError) -> Self {
-        match error.into_local_refusal() {
-            Ok(original) => Self::DecodeResource(original),
-            Err(_) => Self::Input,
-        }
+        error
+            .into_local_refusal()
+            .map_or(Self::Input, Self::DecodeResource)
     }
 }
 impl Error {

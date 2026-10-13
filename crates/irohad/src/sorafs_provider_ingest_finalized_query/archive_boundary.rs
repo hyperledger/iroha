@@ -2,12 +2,12 @@
 
 /// Authenticated startup boundary of one finalized archive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ArchiveStartupBoundaryV1 {
+pub enum ArchiveStartupBoundaryV1 {
     Bootstrap,
     Qualified,
 }
 /// Require a fully replayed State at the exact durable current-consensus Kura tip.
-pub(crate) fn classify_archive_startup_boundary(
+pub fn classify_archive_startup_boundary(
     state_height: u64,
     kura_height: u64,
 ) -> Result<ArchiveStartupBoundaryV1, &'static str> {
@@ -22,7 +22,7 @@ pub(crate) fn classify_archive_startup_boundary(
 }
 /// Live visibility gate before an archive starts serving queries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ArchiveActivationGateV1 {
+pub enum ArchiveActivationGateV1 {
     StrictLive,
     AwaitingGenesis,
 }

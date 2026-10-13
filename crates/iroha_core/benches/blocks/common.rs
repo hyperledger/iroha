@@ -397,9 +397,6 @@ pub fn generate_ids(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use iroha_test_samples::{ALICE_ID, ALICE_KEYPAIR};
-    use mv::storage::StorageReadOnly as _;
 
     #[test]
     fn start_chain_applies_the_benchmark_genesis() {

@@ -239,7 +239,7 @@ impl X509GovernanceRecords {
             let budget_before = transaction.privacy_budget_for_testing();
             let commitment_count = transaction.world.privacy_commitments.iter().count();
             let root_count = transaction.world.privacy_roots.iter().count();
-            let stale = x509_crl(
+            let outdated = x509_crl(
                 1,
                 1,
                 0xEA,
@@ -249,7 +249,7 @@ impl X509GovernanceRecords {
                 None,
                 PrivacyZkX509RecordLifecycleV1::Active,
             );
-            let error = RegisterPrivacyZkX509CrlV1::new(stale)
+            let error = RegisterPrivacyZkX509CrlV1::new(outdated)
                 .execute(&ALICE_ID, &mut transaction)
                 .expect_err("CRL older than the consensus freshness limit");
             assert!(

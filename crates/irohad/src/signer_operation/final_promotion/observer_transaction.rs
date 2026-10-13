@@ -192,17 +192,16 @@ impl FinalPromotionObserverTransactionsV1 {
             return Err(Error::Binding);
         }
         self.validate_payload(&payload, &prepared.instruction().clone().into())?;
-        let builder =
-            TransactionBuilder::from_payload(payload.clone()).map_err(|_| Error::Payload)?;
+        let builder = TransactionBuilder::from_payload(payload).map_err(|_| Error::Payload)?;
         let message = builder.payload_hash_bytes();
         prepared.ensure_live().map_err(|_| Error::Check)?;
-        let signature = self.sign(&payload, &message, provider)?;
+        let signature = self.sign(builder.payload(), &message, provider)?;
         prepared.ensure_live().map_err(|_| Error::Check)?;
         complete_binding_waiting(
             prepared.bind_signed_transaction(builder.build_with_signature(signature)),
             wait,
         )
-        .map_err(binding_error)
+        .map_err(|terminal| binding_error(&terminal))
     }
 
     /// Sign precisely one original account Check under the same distinct observer and fee policy.
@@ -235,14 +234,13 @@ impl FinalPromotionObserverTransactionsV1 {
             return Err(Error::Binding);
         }
         self.validate_payload(&payload, &prepared.instruction().clone().into())?;
-        let builder =
-            TransactionBuilder::from_payload(payload.clone()).map_err(|_| Error::Payload)?;
+        let builder = TransactionBuilder::from_payload(payload).map_err(|_| Error::Payload)?;
         let message = builder.payload_hash_bytes();
         prepared.ensure_live().map_err(|_| Error::Check)?;
-        let signature = self.sign(&payload, &message, provider)?;
+        let signature = self.sign(builder.payload(), &message, provider)?;
         prepared.ensure_live().map_err(|_| Error::Check)?;
         complete_binding(prepared.bind_signed_transaction(builder.build_with_signature(signature)))
-            .map_err(binding_error)
+            .map_err(|terminal| binding_error(&terminal))
     }
 
     fn validate_payload(
@@ -254,7 +252,9 @@ impl FinalPromotionObserverTransactionsV1 {
             return Err(Error::Payload);
         };
         if payload.authority != self.observer
-            || payload.network_id().map(|id| id.as_bytes())
+            || payload
+                .network_id()
+                .map(iroha_data_model::NetworkId::as_bytes)
                 != Some(&self.receipt_binding.network_id)
             || payload.fee_payment_intent() != &self.approved_fees
             || instructions.len() != 1
@@ -284,7 +284,7 @@ impl FinalPromotionObserverTransactionsV1 {
     }
 }
 
-fn binding_error<F>(terminal: CheckTermination<F>) -> Error {
+fn binding_error<F>(terminal: &CheckTermination<F>) -> Error {
     match terminal {
         CheckTermination::Terminal(_) => Error::Check,
         CheckTermination::Expired => Error::Unavailable,

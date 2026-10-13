@@ -155,7 +155,7 @@ impl PrepareArgs {
         }
         let manifest = RawGenesisTransaction::from_json_slice(&manifest_bytes)?;
         let _profile = ChainDiscriminantGuard::enter(manifest.chain_discriminant());
-        let signed = iroha_genesis::read_signed_genesis_bytes(&self.signed_genesis)?;
+        let signed_genesis = iroha_genesis::read_signed_genesis_bytes(&self.signed_genesis)?;
         let proofs = read_proofs(&self.proof_json)?;
         let signer = release_signer(&self.release_key_file)?;
         let faucet = self
@@ -223,7 +223,7 @@ impl PrepareArgs {
         };
         let prepared = prepare_network_publication(
             PinnedPublicationGenesis {
-                signed_genesis: &signed,
+                signed_genesis: &signed_genesis,
                 manifest_json: &manifest_bytes,
                 expected_manifest_sha256: self.expected_genesis_manifest_sha256,
                 genesis_public_key: &self.genesis_public_key,

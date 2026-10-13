@@ -92,7 +92,9 @@ fn waiting_validation_rejects_original_cancellation_and_expiry_without_entering_
     cancelled.cancelled.store(true, Ordering::Release);
     assert!(acquire_validation(&validation, &cancelled).is_err());
     let expired = Budget {
-        started: Instant::now() - Duration::from_secs(121),
+        started: Instant::now()
+            .checked_sub(Duration::from_secs(121))
+            .unwrap(),
         ..budget()
     };
     assert!(acquire_validation(&validation, &expired).is_err());

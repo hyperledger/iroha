@@ -455,8 +455,8 @@ fn casting_context_authorization_replays_all_prefix_phases_and_rejects_tampering
             &mismatched_key_state.query_view(),
             ballot_attempt_id,
         ),
-        Err(TimedOvnCastingAuthorizationErrorV1::TimedOvn(_))
-            | Err(TimedOvnCastingAuthorizationErrorV1::KeySession(_))
+        Err(TimedOvnCastingAuthorizationErrorV1::TimedOvn(_)
+            | TimedOvnCastingAuthorizationErrorV1::KeySession(_))
     ));
 
     let lifecycle = lifecycle
@@ -930,7 +930,10 @@ pub(crate) fn release_pulse_unavailable_attempt_fixture_v1(
         .fail_ballot_no_result(attempt_id, ballot_id, false, release_height + 1)
         .expect("release expiry is derived after its boundary");
     assert_eq!(
-        state.ballot(&ballot_id).expect("failed ballot").failure_kind,
+        state
+            .ballot(&ballot_id)
+            .expect("failed ballot")
+            .failure_kind,
         Some(ParliamentBallotFailureKindV1::ReleasePulseUnavailable)
     );
     (state, (release_beacon_session_id, release_height))

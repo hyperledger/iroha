@@ -714,13 +714,13 @@ state_test! { sync pipeline_trigger_revalidates_a_sibling_replaced_after_matchin
     };
     pipeline_trigger_transaction!(state, block1, state_block, stx);
     let replacer_id: TriggerId = "a_pipeline_sibling_replacer".parse().unwrap();
-    let replaced_id: TriggerId = "b_pipeline_sibling_replaced".parse().unwrap();
+    let victim_trigger_id: TriggerId = "b_pipeline_sibling_replaced".parse().unwrap();
     let replacement_executed: Name = "pipeline_replacement_executed".parse().unwrap();
     let filter = PipelineEventFilterBox::from(
         BlockEventFilter::new().for_status(BlockStatus::Approved),
     );
     let_row! { replacement = Trigger::new(
-        replaced_id.clone(),
+        victim_trigger_id.clone(),
         Action::new(
             vec![InstructionBox::from(SetKeyValue::account(
                 ALICE_ID.clone(),
@@ -736,7 +736,7 @@ state_test! { sync pipeline_trigger_revalidates_a_sibling_replaced_after_matchin
         replacer_id.clone(),
         Action::new(
             vec![
-                InstructionBox::from(Unregister::trigger(replaced_id.clone())),
+                InstructionBox::from(Unregister::trigger(victim_trigger_id.clone())),
                 InstructionBox::from(Register::trigger(replacement)),
             ],
             Repeats::Exactly(1),
@@ -745,7 +745,7 @@ state_test! { sync pipeline_trigger_revalidates_a_sibling_replaced_after_matchin
         ).expect("sibling replacer action"),
     ) };
     let_row! { original_sibling = Trigger::new(
-        replaced_id.clone(),
+        victim_trigger_id.clone(),
         Action::new(
             Vec::<InstructionBox>::new(),
             Repeats::Exactly(1),
@@ -793,7 +793,7 @@ state_test! { sync pipeline_trigger_revalidates_a_sibling_replaced_after_matchin
             .world
             .triggers()
             .pipeline_triggers()
-            .get(&replaced_id)
+            .get(&victim_trigger_id)
             .expect("replacement sibling must remain registered");
         assert_eq!(replacement.repeats(), &Repeats::Exactly(1));
     }
@@ -836,13 +836,13 @@ state_test! { sync data_trigger_revalidates_the_captured_incarnation_and_event
     .unwrap();
     let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
     let replacer_id: TriggerId = "a_data_sibling_replacer".parse().unwrap();
-    let replaced_id: TriggerId = "b_data_sibling_replaced".parse().unwrap();
+    let victim_trigger_id: TriggerId = "b_data_sibling_replaced".parse().unwrap();
     let replacement_executed: Name = "data_replacement_executed".parse().unwrap();
     let asset_filter = DataEventFilter::Asset(
         data_pre::AssetEventFilter::new().for_asset(asset_id.clone()),
     );
     let_row! { replacement = Trigger::new(
-        replaced_id.clone(),
+        victim_trigger_id.clone(),
         Action::new(
             vec![InstructionBox::from(SetKeyValue::account(
                 ALICE_ID.clone(),
@@ -858,7 +858,7 @@ state_test! { sync data_trigger_revalidates_the_captured_incarnation_and_event
         replacer_id.clone(),
         Action::new(
             vec![
-                InstructionBox::from(Unregister::trigger(replaced_id.clone())),
+                InstructionBox::from(Unregister::trigger(victim_trigger_id.clone())),
                 InstructionBox::from(Register::trigger(replacement)),
             ],
             Repeats::Exactly(1),
@@ -867,7 +867,7 @@ state_test! { sync data_trigger_revalidates_the_captured_incarnation_and_event
         ).expect("data-trigger sibling replacer action"),
     ) };
     let_row! { original_sibling = Trigger::new(
-        replaced_id.clone(),
+        victim_trigger_id.clone(),
         Action::new(
             Vec::<InstructionBox>::new(),
             Repeats::Exactly(1),
@@ -886,10 +886,14 @@ state_test! { sync data_trigger_revalidates_the_captured_incarnation_and_event
     let state = authenticate_trigger_fixture(state);
 
     let_row! { block2 = trigger_component_block(&state, 2) };
-    let callback_source = signed_callback_boundary_source(&state, block2.as_ref().header(), vec![
+    let callback_source = signed_callback_boundary_source(
+&state,
+&block2.as_ref().header(),
+vec![
         Mint::asset_quantity(1_u32, asset_id.clone()).into(),
         Mint::asset_quantity(1_u32, asset_id.clone()).into(),
-    ]);
+    ],
+);
     let mut state_block = state.block(block2.as_ref().header());
     let mut stx = state_block.transaction_for_fastpq_testing(
         Hash::from(callback_source.hash_as_entrypoint()),
@@ -919,7 +923,7 @@ state_test! { sync data_trigger_revalidates_the_captured_incarnation_and_event
         .world
         .triggers
         .data_triggers()
-        .get(&replaced_id)
+        .get(&victim_trigger_id)
         .expect("replacement data trigger remains registered");
     assert_eq!(replacement.repeats(), &Repeats::Exactly(1));
 

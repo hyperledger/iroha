@@ -1336,7 +1336,7 @@ fn generated_permissioned_localnet_cannot_mint_additional_xor() {
             .expect("derive generated operator");
     let manifest = RawGenesisTransaction::from_path(temp.path().join("genesis.json"))
         .expect("parse generated genesis");
-    let operator_mint_permissions = manifest
+    let mut operator_mint_permissions = manifest
         .instructions()
         .filter_map(|instruction| instruction.as_any().downcast_ref::<GrantBox>())
         .filter_map(|grant| match grant {
@@ -1344,9 +1344,8 @@ fn generated_permissioned_localnet_cannot_mint_additional_xor() {
                 CanMintAssetWithDefinition::try_from(grant.object()).ok()
             }
             _ => None,
-        })
-        .collect::<Vec<_>>();
-    assert!(operator_mint_permissions.is_empty());
+        });
+    assert!(operator_mint_permissions.next().is_none());
     let signed = read_signed_genesis(&temp.path().join("genesis.signed.nrt"))
         .expect("read executed permissioned genesis");
     assert!(signed.network_entrypoint_count() > 0);
@@ -1806,10 +1805,11 @@ fn generated_fee_unshield_verifier_uses_canonical_native_registry_material() {
         iroha_data_model::zk::verifier_backend_registry_tag_v1(&retired_id.backend),
         None
     );
-    assert_eq!(
+    assert!(matches!(
         validate_and_prepare_verifying_key_record_v1(&retired_id, &record).unwrap_err(),
-        "verifying-key record backend does not match the production registry backend"
-    );
+        iroha_core_zk::VerificationAttemptError::Rejected(error)
+            if error == "verifying-key record backend does not match the production registry backend"
+    ));
     assert_eq!(
         validate_and_prepare_verifying_key_record_v1(&id, &record).unwrap(),
         expected,
@@ -2448,7 +2448,7 @@ fn permissioned_localnet_uses_mandatory_nexus_default() {
     );
     assert_eq!(
         nexus["storage"]["local_budget_bytes"].as_integer(),
-        Some(LOCALNET_NEXUS_STORAGE_BUDGET_BYTES as i64),
+        Some(i64::try_from(LOCALNET_NEXUS_STORAGE_BUDGET_BYTES).unwrap()),
         "mandatory Nexus storage must have a finite developer cap in permissioned mode"
     );
 }

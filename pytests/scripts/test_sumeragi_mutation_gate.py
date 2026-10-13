@@ -331,13 +331,17 @@ def test_registered_core_rules_have_real_hooks_and_named_core_regressions():
     text = "\n".join(path.read_text() for path in source.rglob("*.rs"))
     functions = set(re.findall(r"\bfn\s+(\w+)\s*\(", text))
     functions.update(re.findall(r"\bstate_test!\s*\{\s*(?:sync|result|large_stack|consensus_stack)\s+(\w+)\b", text))
+    world = (source / "smartcontracts/isi/world.rs").read_text()
+    assert re.search(r"macro_rules! world_test\s*\{\s*\(\$name:ident \$body:block\)\s*=>\s*\{\s*#\[test\]\s*fn \$name\(\) \$body", world)
+    assert 'include!("world_sccp_governance_tests.rs");' in world
+    functions.update(re.findall(r"\bworld_test!\s*\(\s*(\w+)\s*\{", text))
     ids = [mutation.id for mutation in gate.CORE_MUTATIONS]
     assert len(ids) == len(set(ids))
     for mutation in gate.CORE_MUTATIONS:
         assert gate.has_switch(mutation.id, core=True)
         assert not gate.has_switch(mutation.id)
         assert mutation.tests and not mutation.scenarios
-        assert all(name.rsplit("::", 1)[-1] in functions for name in mutation.tests)
+        assert all(name.rsplit("::", 1)[-1] in functions for name in mutation.tests), mutation.id
 
 
 def test_mutation_ids_select_one_rule_across_all_implementation_owners():
@@ -868,7 +872,7 @@ def test_worker_validation_and_certificate_gate_preserves_original_attempt_owner
 
 def test_payload_local_decoder_gate_retains_original_typed_worker_reason():
     rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC45"]
-    assert rule.tests == ("sumeragi::executor::payload_refusal_tests::original_available_payload_local_decode_refusal_keeps_typed_worker_reason_and_retry",)
+    assert rule.tests == ("sumeragi::executor::payload_refusal_tests::original_available_payload_local_decode_refusal_transfers_typed_original_reason_and_retry",)
     assert not rule.scenarios
     assert gate.has_switch("HC45", core=True)
     assert not gate.has_switch("HC45")
@@ -878,7 +882,7 @@ def test_narrow_caller_depth_gate_requires_original_bytes_and_worker_retry():
     rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC46"]
     assert rule.tests == (
         "execution_attempt::tests::original_surviving_narrow_decode_depth_refusal_retries_identical_bytes",
-        "sumeragi::executor::payload_refusal_tests::original_available_payload_narrow_depth_refusal_keeps_typed_worker_reason_and_retry",
+        "sumeragi::executor::payload_refusal_tests::original_available_payload_narrow_depth_refusal_transfers_typed_original_reason_and_retry",
     )
     assert not rule.scenarios
     assert gate.has_switch("HC46", core=True)
@@ -3105,10 +3109,19 @@ def test_completed_native_amx_proof_has_original_graph_retry_mutation():
     assert not gate.has_switch("HC159", model=True)
     assert not gate.has_switch("HC159", daemon=True)
     implementation = (ROOT / "crates/iroha_core/src/query/native_receipts/amx_read.rs").read_text()
-    assert "portable: Option<Option<AllocatedAmxRecordProofV1>>" in implementation
+    assert "portable: PortableProof" in implementation
+    representation = implementation.split("enum PortableProof {", 1)[1].split("}", 1)[0]
+    assert "Unbuilt," in representation
+    assert "Completed(Option<AllocatedAmxRecordProofV1>)" in representation
     assert 'all(test, sumeragi_core_mutation = "HC159")' in implementation
     assert "if namespace.is_err()" in implementation
-    assert implementation.index("namespace?;") < implementation.index('.take()\n            .ok_or(Error::Source("completed portable proof is not retained"))')
+    compact = re.sub(r"\s+", "", implementation)
+    delivery = "std::mem::replace(&mutself.portable,PortableProof::Unbuilt)"
+    assert compact.index("namespace?;") < compact.index(delivery)
+    assert "letPortableProof::Completed(proof)=" + delivery in compact
+    assert 'Error::Source("completed portable proof is not retained")' in implementation
+    mutation = implementation.split('sumeragi_core_mutation = "HC159"', 1)[1].split("namespace?;", 1)[0]
+    assert "self.portable = PortableProof::Unbuilt;" in mutation
     control = (ROOT / "crates/iroha_core/src/sumeragi/amx/proof_tests.rs").read_text()
     assert "fn " + name + "(" in control
     assert "NativeContextArchiveError::Io" in control
@@ -4231,7 +4244,8 @@ def test_prepared_intent_capture_uses_original_witness_and_authenticated_source(
     assert 'frame = "iroha_core::amx::AmxIntentCoordinatesV1"' in owner
     assert "borrowed_intent_coordinates_declare_exact_owned_frame_without_erasing_nominal_lifetime" in owner
     source_binding = (source / "state/fastpq_quantity_capture/commitment_journal/finalized_source/witness.rs").read_text()
-    assert "self.native == Some((executed.hash(), execution))" in source_binding
+    native_match = source_binding.split("pub(crate) fn matches_original_native_execution(", 1)[1].split("\n    }", 1)[0]
+    assert "self.native.as_ref().is_some_and(|(block,original)|*block==executed.hash()&&original==execution)" in re.sub(r"\s+", "", native_match)
     assert "std::ptr::eq(self.wire(), self.wire.get())" in source_binding
 
 
@@ -4405,7 +4419,7 @@ def test_torii_cache_mutation_has_exact_owner_hook_and_both_native_adapters():
     assert "cached Applied must retain its original canonical membership" in controls
     assert "prepared submission cache must retain its original canonical membership" in controls
     assert "canonical_outcome_test_fixture(false)" in controls
-    assert "membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap())" in controls
+    assert "membership.insert_block(BTreeSet::new(), NonZeroUsize::new(2).unwrap())" in controls
     build = (source / "build.rs").read_text()
     declared = re.search(r'const IDS: &\[&str\] = &\[(.*?)\];', build, re.S)
     assert declared is not None
@@ -6481,9 +6495,10 @@ def test_native_cursor_output_retention_has_original_owner_and_causal_control():
         "if original.native_height == target", "drop(completed)",
         "checkpoint: Option<SumeragiFinalityCheckpoint>", "carrier: Option<Carrier>",
         "admit_verification_slot(budget).map_err(ProofError::from)?",
-        "coherent_height(view)? != current", "verified.block().hash() != *hash",
-        "receipt.result() != verified.result()", "receipt.id().0.as_ref() != verified.context_id().as_ref()",
-        "read_frame(durable.clone(), *height, verified.root_scope())",
+        "coherent_height(view)? != current", "authenticated.block().hash() != *hash",
+        "receipt.result() != authenticated.result()", "receipt.id().0.as_ref() != authenticated.context_id().as_ref()",
+        "read_frame(durable.clone(), *height, authenticated.root_scope())",
+        "receipt.block_hash() != authenticated.block().hash()", "receipt.core_hash() != authenticated.core_hash()",
     ):
         assert re.sub(r"\s+", "", obligation) in compact
     production = source.split("#[cfg(test)]\nmod tests", 1)[0]
@@ -6560,14 +6575,14 @@ def test_native_cursor_pending_retention_has_one_shared_kernel_and_causal_contro
     assert kernel.count("write_canonical_to_writer(") == 1
     assert kernel.count("try_clone_from_charge(") == 1
     assert "original.complete(block, members, budget, deadline)?" in kernel
-    for obligation in ("members_address != members.as_ptr() as usize", "!original.owned._charges.belongs_to(budget)",
+    for obligation in ("members_address != members.as_ptr() as usize", "!original.owned.charges.belongs_to(budget)",
                        "std::ptr::eq(original.block.as_ref(), block.as_ref())", "if pop.is_none()",
                        "pop.take().expect", "wire_complete", 'sumeragi_core_mutation = "HC213"'):
         assert obligation in kernel
     construction = kernel.split("struct Construction {", 1)[1].split("impl ProofPreparation", 1)[0]
     assert construction.index("pop:") < construction.index("owned:")
     owned = kernel.split("pub(super) struct OwnedProof {", 1)[1].split("impl OwnedProof", 1)[0]
-    assert owned.index("proof:") < owned.index("_charges:")
+    assert owned.index("proof:") < owned.index("charges:")
     for body in (source.split("#[cfg(test)]\nmod tests", 1)[0], kernel.split("#[cfg(test)]\nmod tests", 1)[0]):
         assert "AllocationBudget::new" not in body and "mem::forget" not in body
     control = re.sub(r"\s+", "", source.split("fn native_cursor_pending_refusal(", 1)[1])
@@ -6673,7 +6688,8 @@ def test_sccp_control_mutation_preserves_original_cause_and_pause_owner(mid, own
     spec = (ROOT / "specs/sumeragi.md").read_text()
     rows = re.findall(rf"^\| {mid} \|.*$", spec, re.M)
     assert len(rows) == 1 and name in rows[0]
-    assert "| SC5 (full State: HC257) | CT1 disabled |" in spec and "| SC6 | CT3 builder pacing disabled |" in spec
+    assert "| SC5 (HC257) | CT1 disabled |" in spec
+    assert "| SC6 (HC259, HC260, HC264) | CT3 builder pacing disabled |" in spec
     # The existing pending-proof custody rule remains an independent live rule.
     assert len(gate.index_mutations(gate.CORE_MUTATIONS)["HC236"].tests) == 3
 
@@ -6786,7 +6802,7 @@ def test_sccp_fast_pause_kill_requires_declared_native_controls(monkeypatch, tmp
     assert result["named_tests"] == list(rule.tests)
 
 
-_FEE_TAIL_MUTATION_CONTROLS = {'HC244': {'description': 'Network failure-fee settlement: swallow the original local execution deferral as a completed rejection', 'owner': 'state/output_network.rs', 'controls': {'state::output_capacity::producer::tests::network::fees::sccp_failure_fee_decoder_refusal_keeps_original_deferral_and_retry': 'the original fee-tail deferral must not become a completed Network rejection', 'state::output_capacity::producer::tests::network::fees::ordinary_failure_fee_decoder_refusal_keeps_original_deferral_and_retry': 'the original fee-tail deferral must not become a completed Network rejection', 'state::output_capacity::producer::tests::network::penalties::refusal::fee_decoder_refusal_after_actual_ballot_penalty_rolls_back_and_retries_once': 'fee refusal after an actual slash must preserve the original deferral'}}, 'HC245': {'description': 'Network ballot-penalty settlement: swallow the original local execution deferral as a completed rejection', 'owner': 'state/output_network.rs', 'controls': {'state::output_capacity::producer::tests::network::penalties::refusal::actual_ballot_penalty_decoder_refusal_keeps_original_deferral_and_retry': 'the original penalty-tail deferral must not become a completed Network rejection'}}}
+_FEE_TAIL_MUTATION_CONTROLS = {'HC244': {'description': 'Network failure-fee settlement: swallow the original local execution deferral as a completed rejection', 'owner': 'state/output_network.rs', 'controls': {'state::output_capacity::producer::tests::network::fees::sccp_failure_fee_decoder_refusal_keeps_original_deferral_and_retry': 'the original fee-tail deferral must not become a completed Network rejection', 'state::output_capacity::producer::tests::network::fees::ordinary_failure_fee_decoder_refusal_keeps_original_deferral_and_retry': 'the original fee-tail deferral must not become a completed Network rejection', 'state::output_capacity::producer::tests::network::penalties::refusal::fee_decoder_refusal_after_actual_ballot_penalty_rolls_back_and_retries_once': 'the original penalty/fee-tail refusal must remain deferred, including after a slash'}}, 'HC245': {'description': 'Network ballot-penalty settlement: swallow the original local execution deferral as a completed rejection', 'owner': 'state/output_network.rs', 'controls': {'state::output_capacity::producer::tests::network::penalties::refusal::actual_ballot_penalty_decoder_refusal_keeps_original_deferral_and_retry': 'the original penalty/fee-tail refusal must remain deferred, including after a slash'}}}
 _FEE_TAIL_TEST_FILES = {'state::output_capacity::producer::tests::network::fees::sccp_failure_fee_decoder_refusal_keeps_original_deferral_and_retry': 'state/output_network_fee_tests.rs', 'state::output_capacity::producer::tests::network::fees::ordinary_failure_fee_decoder_refusal_keeps_original_deferral_and_retry': 'state/output_network_fee_tests.rs', 'state::output_capacity::producer::tests::network::penalties::refusal::actual_ballot_penalty_decoder_refusal_keeps_original_deferral_and_retry': 'state/output_network_penalty_refusal_tests.rs', 'state::output_capacity::producer::tests::network::penalties::refusal::fee_decoder_refusal_after_actual_ballot_penalty_rolls_back_and_retries_once': 'state/output_network_penalty_refusal_tests.rs'}
 
 
@@ -6830,7 +6846,7 @@ def test_failure_fee_tail_mutation_binds_original_consumer_controls(mid):
         else:
             assert "fee_decode_test_scope::refuse_actual_fee_decode()" in helper
             assert "let outcome = execute(&mut block, &source)" in helper
-        assert "Err(ExecutionOutputAttemptError::Deferred(original))" in helper
+        assert "Err(ExecutionOutputAttemptError::Deferred(returned))" in helper
         assert "execute(&mut retry, &source)" in helper
     rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
     assert len(rows) == 1 and all(name in rows[0] for name in rule.tests)
@@ -7183,11 +7199,11 @@ def test_amx_discovery_mutation_requires_authenticated_zero_record_progress_fail
 
 
 @pytest.mark.parametrize("mutation,test,path,cause", [
-    ("HC273",
+    ("HC328",
      "sumeragi::executor::payload_owner::tests::fresh_view_refreshes_authenticated_block_time_without_replacing_signed_input",
      "crates/iroha_core/src/sumeragi/executor/payload_owner.rs",
      "fresh view must refresh certified time without another signed transaction"),
-    ("HC274",
+    ("HC329",
      "sumeragi::executor::clock_tests::authenticated_proposer_time_above_floor_executes_and_replays_without_restamping",
      "crates/iroha_core/src/sumeragi/executor/clock_tests.rs",
      "authenticated proposer time above the input floor must execute"),
@@ -7204,15 +7220,15 @@ def test_authenticated_proposer_time_mutations_require_exact_native_regressions(
 
 
 @pytest.mark.parametrize("mutation,daemon,test,path,cause", [
-    ("HC275", False,
+    ("HC330", False,
      "sumeragi::amx::native::tests::paid_borrowed_custody::handoffs::native_amx_handoff_discovery_delivers_final_boundary_without_record_and_replays_both_roots",
      "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/handoffs.rs",
      "authenticated final epoch boundary must deliver its handoff without an AMX row or successor"),
-    ("HC276", True,
+    ("HC331", True,
      "amx_relay::ledger::handoff_recovery_tests::fresh_relayer_recovers_independent_native_handoffs_after_two_epochs_and_restart",
      "crates/irohad/src/amx_relay/handoff_recovery_tests.rs",
      "fresh relayer must recover the original independent successful handoff after its source epoch is no longer tracked"),
-    ("HC277", True,
+    ("HC332", True,
      "amx_relay::tests::growing_source_tip_cannot_starve_pending_original_handoff_retry",
      "crates/irohad/src/amx_relay.rs",
      "continuous source growth must not starve bounded retry of the original handoff"),
@@ -7231,19 +7247,19 @@ def test_native_amx_handoff_mutations_require_exact_recovery_regressions(
 
 
 @pytest.mark.parametrize("mutation,daemon,test,path,cause", [
-    ("HC287", False,
+    ("HC342", False,
      "sumeragi::amx::native::tests::paid_borrowed_custody::route_discovery::native_amx_route_discovery_retains_refused_handoff_while_another_destination_advances",
      "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/route_discovery.rs",
      "requested route must be selected before unrelated target graph acquisition"),
-    ("HC283", False,
+    ("HC338", False,
      "sumeragi::amx::native::tests::paid_borrowed_custody::expiry_recovery::native_amx_expiry_recovery_authenticates_final_decision_after_restart_and_rechecks_cached_positive",
      "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/expiry_recovery.rs",
      "a child root cannot authenticate the Global expiry decision"),
-    ("HC284", False,
+    ("HC339", False,
      "sumeragi::amx::native::tests::paid_borrowed_custody::expiry_recovery::native_amx_expiry_recovery_authenticates_final_decision_after_restart_and_rechecks_cached_positive",
      "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/expiry_recovery.rs",
      "cached positive height must reauthenticate original proof before suppressing a carrier"),
-    ("HC285", True,
+    ("HC340", True,
      "amx_relay::ledger::expiry_recovery_tests::independently_decided_expiry_recovers_only_the_existing_exact_carrier_without_dispatch",
      "crates/irohad/src/amx_relay/expiry_recovery_tests.rs",
      "read-only carrier recovery must preserve independently authenticated outcomes: unknown"),
@@ -7262,7 +7278,7 @@ def test_native_amx_expiry_recovery_mutations_require_authenticated_outcomes(
 
 
 def test_lane_first_prepare_mutation_requires_original_source_regression():
-    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC278"]
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC333"]
     assert rule.tests == (
         "sumeragi::lanes::executor::native_decode_tests::native_lane_first_prepare_admission_binds_original_source_and_retains_its_charge",
     )
@@ -7270,14 +7286,14 @@ def test_lane_first_prepare_mutation_requires_original_source_regression():
         "certification never exempts source substitution",
         "crates/iroha_core/src/sumeragi/lanes/executor/native_decode_tests.rs",
     ),)
-    assert gate.has_switch("HC278", core=True)
-    assert not gate.has_switch("HC278")
-    assert not gate.has_switch("HC278", model=True)
-    assert not gate.has_switch("HC278", daemon=True)
+    assert gate.has_switch("HC333", core=True)
+    assert not gate.has_switch("HC333")
+    assert not gate.has_switch("HC333", model=True)
+    assert not gate.has_switch("HC333", daemon=True)
 
 
 def test_lane_queue_lease_mutation_preserves_original_admission_controls():
-    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC272"]
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC327"]
     prefix = "sumeragi::lanes::executor::queue_lease_tests::"
     assert rule.tests == tuple(prefix + name for name in (
         "lane_original_queue_lease_retires_expiry_and_withdrawal_during_clock_wait",
@@ -7291,9 +7307,9 @@ def test_lane_queue_lease_mutation_preserves_original_admission_controls():
             "lane retained output must not outlive its original Queue admission",
             "same-hash readmission must not revive the retained lane Queue lease",
         ))
-    assert gate.has_switch("HC272", core=True)
-    assert not gate.has_switch("HC272")
-    assert not gate.has_switch("HC272", model=True)
+    assert gate.has_switch("HC327", core=True)
+    assert not gate.has_switch("HC327")
+    assert not gate.has_switch("HC327", model=True)
 
 
 def test_begin_delivery_mutation_requires_original_post_admission_source_failure():
@@ -7403,7 +7419,12 @@ def test_sccp_generation_mutations_keep_unique_rules_and_original_custody_owners
 def test_sccp_generation_mutations_keep_their_original_causal_assertions(mid, test, cause, relation):
     source = ROOT / "crates/iroha_core/src/smartcontracts/isi/sccp/generations.rs"
     code = source.read_text()
-    assert code.count('cfg!(all(test, sumeragi_core_mutation = "' + mid + '"))') == 1
+    condition = 'all(test, sumeragi_core_mutation = "' + mid + '")'
+    if mid == "HC251":
+        assert code.count("#[cfg(" + condition + ")]") == 1
+        assert code.count("#[cfg(not(" + condition + "))]") == 1
+    else:
+        assert code.count("cfg!(" + condition + ")") == 1
     assert relation in code
     controls = source.with_suffix("") / "tests.rs"
     text = controls.read_text()
@@ -7757,32 +7778,50 @@ def test_lane_effective_clock_rules_have_exact_original_owners(mid, name, source
 
 
 @pytest.mark.parametrize("mutation,test,cause", [
-    ('HC279', 'sumeragi::executor::prepare_admission_tests::ct5_post_encoding_clock_advance_rolls_back_actual_begin_and_fees_with_original_decode', 'time-sensitive effects must be locally deferred after the last encoding wait'),
-    ('HC280', 'sumeragi::executor::prepare_admission_tests::ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source', 'cached native Valid cannot bypass a fresh local clock check'),
-    ('HC281', 'sumeragi::executor::prepare_admission_tests::ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source', 'a certificate flag cannot substitute another result'),
-    ('HC282', 'sumeragi::executor::prepare_admission_tests::ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source', 'native first signing must recheck the actual wall clock after execution'),
+    ('HC334', 'sumeragi::executor::prepare_admission_tests::ct5_post_encoding_clock_advance_rolls_back_actual_begin_and_fees_with_original_decode', 'time-sensitive effects must be locally deferred after the last encoding wait'),
+    ('HC335', 'sumeragi::executor::prepare_admission_tests::ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source', 'cached native Valid cannot bypass a fresh local clock check'),
+    ('HC336', 'sumeragi::executor::prepare_admission_tests::ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source', 'a certificate flag cannot substitute another result'),
+    ('HC337', 'sumeragi::executor::prepare_admission_tests::ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source', 'native first signing must recheck the actual wall clock after execution'),
 ])
 def test_native_first_prepare_mutations_bind_original_control(mutation, test, cause):
     rule = gate.index_mutations(gate.CORE_MUTATIONS)[mutation]
-    assert rule.tests == (test,)
-    assert rule.causes == (gate.ExpectedFailure(cause,
+    expected_tests = (test,)
+    expected_causes = (gate.ExpectedFailure(cause,
         "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs"),)
+    if mutation == "HC334":
+        expected_tests += ("sumeragi::executor::clock_tests::sccp_ct5_completion_resamples_clock_and_retains_original_for_certified_retry",)
+        expected_causes += (gate.ExpectedFailure(
+            "CT5 must resample after completing the original execution before returning Valid",
+            "crates/iroha_core/src/sumeragi/executor/clock_tests.rs",
+            worker_thread="sumeragi-publication-test",
+            join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+            join_message="publication worker fixture: Any { .. }"),)
+    if mutation == "HC337":
+        expected_tests += ("sumeragi::executor::clock_tests::sccp_ct5_prepare_signing_resamples_original_after_valid_and_binds_every_coordinate",)
+        expected_causes += (gate.ExpectedFailure(
+            "CT5 must resample the original clock at Prepare signing after Valid was delivered",
+            "crates/iroha_core/src/sumeragi/executor/clock_tests.rs",
+            worker_thread="sumeragi-publication-test",
+            join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+            join_message="publication worker fixture: Any { .. }"),)
+    assert rule.tests == expected_tests
+    assert rule.causes == expected_causes
     assert gate.has_switch(mutation, core=True)
     assert not gate.has_switch(mutation)
     assert not gate.has_switch(mutation, model=True)
 
 
 @pytest.mark.parametrize("mutation,test,cause", [
-    ('MS64', 'machine::tests::signing::det_ct5_cached_execution_waits_for_stage_and_checks_actual_first_signing_time', 'cached Valid cannot bypass first-Prepare freshness after stage delay'),
-    ('MS65', 'machine::tests::signing::det_ct5_unsigned_prepare_reservation_restart_never_synthesizes_first_signature', 'a durable unsigned reservation cannot synthesize a first Prepare without fresh source-bound execution or a genuine matching PQC'),
-    ('MS66', 'machine::tests::signing::det_ct5_successful_prepare_signature_is_exact_durable_and_authenticated_on_restart', 'a checksummed fabricated successful signature is not restart authority'),
+    ('MS71', 'machine::tests::signing::det_ct5_cached_execution_waits_for_stage_and_checks_actual_first_signing_time', 'cached Valid cannot bypass first-Prepare freshness after stage delay'),
+    ('MS72', 'machine::tests::signing::det_ct5_unsigned_prepare_reservation_restart_never_synthesizes_first_signature', 'a durable unsigned reservation cannot synthesize a first Prepare without fresh source-bound execution or a genuine matching PQC'),
+    ('MS73', 'machine::tests::signing::det_ct5_successful_prepare_signature_is_exact_durable_and_authenticated_on_restart', 'a checksummed fabricated successful signature is not restart authority'),
 ])
 def test_first_prepare_consensus_mutations_bind_original_control(mutation, test, cause):
     rule = gate.index_mutations(gate.MUTATIONS)[mutation]
     expected_tests = (test,)
     expected_causes = (gate.ExpectedFailure(cause,
         "crates/iroha_sumeragi/src/machine/tests/signing.rs"),)
-    if mutation == "MS64":
+    if mutation == "MS71":
         expected_tests += ("sim::world::clock_guard::tests::det_ct5_world_retained_execution_rechecks_clock_at_first_prepare",)
         expected_causes += (gate.ExpectedFailure(
             "a retained World result must not sign after its actual wall clock advances",
@@ -7795,7 +7834,7 @@ def test_first_prepare_consensus_mutations_bind_original_control(mutation, test,
 
 
 def test_native_amx_approval_scope_mutation_requires_real_owner_grant():
-    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC286"]
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC341"]
     assert rule.tests == (
         "sumeragi::amx::native::tests::paid_borrowed_custody::authorization::native_amx_exact_owner_grant_revocation_and_separate_relay_preserve_settlement",
         "sumeragi::amx::native::tests::paid_borrowed_custody::approval_proof::native_amx_approval_proof_requires_owner_grant_and_rechecks_exact_private_cut",
@@ -7804,7 +7843,215 @@ def test_native_amx_approval_scope_mutation_requires_real_owner_grant():
         "actual debit owner grants the exact native AMX intent",
         "crates/iroha_core/src/sumeragi/amx/native/tests.rs",
     ),) * 2
-    assert gate.has_switch("HC286", core=True)
-    assert not gate.has_switch("HC286")
-    assert not gate.has_switch("HC286", model=True)
-    assert not gate.has_switch("HC286", daemon=True)
+    assert gate.has_switch("HC341", core=True)
+    assert not gate.has_switch("HC341")
+    assert not gate.has_switch("HC341", model=True)
+    assert not gate.has_switch("HC341", daemon=True)
+
+def test_state_effect_contention_mutation_has_actual_publisher_and_exact_refusal():
+    prefix = "state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::effect_retry_tests::"
+    names = (
+        "actual_state_effect_reader_refusal_retains_original_and_retries_after_release",
+        "actual_state_effect_writer_refusal_retains_original_and_retries_after_release",
+    )
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC272"]
+    lifecycle_name = "signed_lifecycle_index_refusal_precedes_geometry_and_replays_final_cursor_journal"
+    lifecycle_prefix = "state::tests::publication_effect_lifecycle_tests::"
+    assert rule.tests == tuple(prefix + name for name in names) + (lifecycle_prefix + lifecycle_name,)
+    assert not rule.scenarios
+    assert rule.causes == (gate.ExpectedFailure(
+        "the original index blocker must defer before visibility",
+        "crates/iroha_core/src/state/publication_effect_retry_tests.rs",
+    ), gate.ExpectedFailure(
+        "the original index blocker must defer before visibility",
+        "crates/iroha_core/src/state/publication_effect_retry_tests.rs",
+    ), gate.ExpectedFailure(
+        "the signed lifecycle index blocker must defer before geometry",
+        "crates/iroha_core/src/state/publication_effect_lifecycle_tests.rs",
+    ))
+    assert gate.has_switch("HC272", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}):
+        assert not gate.has_switch("HC272", **family)
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(root).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"HC272"', path.read_text())}
+    assert owners == {"state/publication.rs"}
+    publication = (root / "state/publication.rs").read_text()
+    effect = (root / "state/effect_publication.rs").read_text()
+    controls = (root / "state/publication_effect_retry_tests.rs").read_text()
+    compact = re.sub(r"\s+", "", publication)
+    assert 'all(test,sumeragi_core_mutation="HC272")' in compact
+    assert "TransactionsBlockError::PublicationBusy(wait)" in publication
+    assert "prepare_blocking" not in publication and "prepare_blocking" not in effect
+    assert "effect indexes must be released before retry" in effect
+    for name in names:
+        assert "fn " + name + "(" in controls
+    for obligation in ("staged_block(", "original.try_publish()", "state.da_indexes_hydrated.read()",
+                       "state.da_indexes_hydrated.write()", "original.publication_identity_for_test()",
+                       "state.world.try_block(&budget)", "budget.same_pool", "drop(reader)",
+                       "drop(exclusive)", "worker.join()", "probe.blocked.load", "generation + 2"):
+        assert obligation in controls
+    assert "AllocationBudget::new" not in controls and "set_limit_bytes" not in controls
+    rows = re.findall(r"^\| HC272 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and all(name in rows[0] for name in (*names, lifecycle_name))
+    lifecycle = (root / "state/publication_effect_lifecycle_tests.rs").read_text()
+    for obligation in ("manual_lane_lifecycle_payload()", "pending.prepare(Signers::Quorum)",
+                       "pending.publish(Signers::Quorum)", "prepared_lifecycle_identity",
+                       "lane_geometry_journal_state_for_test", "state.geometry_publication.lock().is_none()",
+                       "budget.same_pool", "drop(blocker)", "worker.join()", "generation + 2",
+                       "path.is_file()", "DaShardCursorJournal::load", ".replay_from(&chain)"):
+        assert re.sub(r"\s+", "", obligation) in re.sub(r"\s+", "", lifecycle)
+    assert "AllocationBudget::new" not in lifecycle and "set_limit_bytes" not in lifecycle
+    assert "prepare_committed_autoscale_lane_geometry" in publication
+    assert compact.index("effect_locks.try_prepare()") < compact.index("geometry.apply(geometry_lease.lease())")
+    geometry = (root / "state/geometry_publication.rs").read_text()
+    owner = geometry[geometry.index("impl PreparedCommittedLaneGeometry") :]
+    assert "resume_lane_geometry_publication(&request,&update.replaced_lane_ids,None,Some(lease),)" in re.sub(r"\s+", "", owner)
+    assert "persist_lane_lifecycle_cursor_journal" not in owner
+    effects = (root / "state/carrier_lifecycle_effects.rs").read_text()
+    assert ".sync_mapping(&self.lane_config)" in effects
+    assert "mapping_changed || !self.lanes_to_reset.is_empty()" in effects
+    assert "pub(super) fn capture_snapshot" in effects
+
+
+def test_lifecycle_manifest_refusal_mutation_preserves_each_original_read_and_cause():
+    name = "signed_lifecycle_manifest_writer_refusal_retains_preflight_and_original_retry"
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC273"]
+    assert rule.tests == ("state::tests::publication_effect_manifest_tests::" + name,)
+    assert rule.causes == (gate.ExpectedFailure(
+        "the signed manifest preflight must retain its original local refusal",
+        "crates/iroha_core/src/state/publication_effect_manifest_tests.rs",
+    ),)
+    assert not rule.scenarios
+    assert gate.has_switch("HC273", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}):
+        assert not gate.has_switch("HC273", **family)
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(root).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"HC273"', path.read_text())}
+    assert owners == {"state/publication.rs"}
+    state = (root / "state.rs").read_text()
+    start = state.index("fn validate_committed_autoscale_lane_lifecycle(")
+    end = state.index("/// Update tiered state backend settings", start)
+    preflight = re.sub(r"\s+", "", state[start:end])
+    assert preflight.count("releases.manifests.try_read_or_wait()") == 3
+    assert "releases.manifests.read()" not in preflight
+    assert preflight.count('field:"lane_manifests"') == 3
+    publication = (root / "state/publication.rs").read_text()
+    assert 'sumeragi_core_mutation = "HC273"' in publication
+    assert "TransactionsBlockError::PublicationBusy(wait)" in publication
+    controls = (root / "state/publication_effect_manifest_tests.rs").read_text()
+    compact = re.sub(r"\s+", "", controls)
+    for obligation in ("manual_lane_lifecycle_payload()", "pending.prepare(Signers::Quorum)",
+                       "pending.publish(Signers::Quorum)", "state.lane_manifests.write()",
+                       "state.geometry_publication.lock().is_none()", "lane_geometry_journal_state_for_test",
+                       "drop(blocker)", "worker.join()", "generation + 2", "DaShardCursorJournal::load"):
+        assert re.sub(r"\s+", "", obligation) in compact
+    assert "AllocationBudget::new" not in controls and "set_limit_bytes" not in controls
+    rows = re.findall(r"^\| HC273 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and name in rows[0]
+
+
+def test_kura_publication_cleanup_mutation_keeps_actual_enclosing_owners():
+    names = (
+        "original_kura_partial_refusal_callbacks_follow_all_state_siblings",
+        "original_kura_success_callbacks_follow_all_state_siblings",
+        "original_kura_unwind_callbacks_follow_all_state_siblings",
+    )
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC274"]
+    assert rule.tests == tuple("state::tests::publication_effect_kura_tests::" + name for name in names)
+    assert rule.causes == tuple(gate.ExpectedFailure(
+        "original Kura notifications must wait for complete State cleanup",
+        "crates/iroha_core/src/state/publication_effect_kura_tests.rs",
+    ) for _ in names)
+    assert not rule.scenarios
+    assert gate.has_switch("HC274", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}):
+        assert not gate.has_switch("HC274", **family)
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(root).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"HC274"', path.read_text())}
+    assert owners == {"kura/publication_lease/retained.rs"}
+    retained = (root / "kura/publication_lease/retained.rs").read_text()
+    assert "releases: [DeferredReleaseBatch; 4]" in retained
+    assert "guard.try_release_into(batch)" in retained
+    assert "impl Drop for Acquisition" in retained and "impl Drop for KuraPhysicalScope" in retained
+    assert "Vec<" not in retained and "AllocationBudget::new" not in retained
+    canonical = (root / "kura/publication_lease.rs").read_text()
+    assert canonical.count("fn prepare_publication_fences") == 1
+    assert "self.prepare_publication_fences(&mut fences)?" in canonical
+    assert ".prepare_publication_fences(&mut acquisition.fences)?" in retained
+    publication = re.sub(r"\s+", "", (root / "state/publication.rs").read_text())
+    acquire = publication.index("ifprepared_geometry.is_some()")
+    assert acquire < publication.index("let_state_write_lock=write_fence.lock();", acquire)
+    assert publication.index("geometry.apply(geometry_lease.lease())") > acquire
+    assert publication.index("drop(geometry_lease)") < publication.index("state_ref.enforce_nexus_storage_budget(")
+    assert publication.count(".geometry_cleanup.retire_notices()") == 2
+    controls = (root / "state/publication_effect_kura_tests.rs").read_text()
+    for name in names:
+        assert "fn " + name + "(" in controls
+    for obligation in ("manual_lane_lifecycle_test_chain", "state.state_commit_lock.lock()",
+                       "state.state_write_lock.lock()", "state.lane_lifecycle_lock.lock()",
+                       "effects.physical_scope()", "publication_fences_for_test",
+                       "original.physical_scope()", "original.retire_notices()",
+                       "std::panic::catch_unwind", "probe.blocked.load", "budget.reserved_bytes()"):
+        assert obligation in controls
+    assert "AllocationBudget::new" not in controls and "set_limit_bytes" not in controls
+    rows = re.findall(r"^\| HC274 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and all(name in rows[0] for name in names)
+
+
+def test_native_append_physical_state_refusal_keeps_actual_driver_release_owner():
+    name = "original_append_driver_retains_manifest_release_without_timer_or_foreign_wake"
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC275"]
+    assert rule.tests == ("state::tests::publication_effect_manifest_tests::" + name,)
+    assert rule.causes == (gate.ExpectedFailure(
+        "the original append scheduler must retain its physical State release",
+        "crates/iroha_core/src/state/publication_effect_manifest_tests.rs",
+    ),)
+    assert not rule.scenarios
+    assert gate.has_switch("HC275", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}):
+        assert not gate.has_switch("HC275", **family)
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(root).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"HC275"', path.read_text())}
+    assert owners == {"sumeragi/driver/mod.rs"}
+    authority = (root / "sumeragi/runtime_availability.rs").read_text()
+    compact = re.sub(r"\s+", "", authority)
+    assert compact.count("try_view_once().map_err(state_view_error)?") == 2
+    assert "letview=state.view();" not in compact and "letview=self.state.view();" not in compact
+    assert "io::Error::new(kind,error).into()" in compact
+    driver = (root / "sumeragi/driver/mod.rs").read_text()
+    assert "cause.downcast_ref::<crate::state::StateViewError>()" in driver
+    assert "traits::PublicationDeferral::StateViewBusy(wait.clone())" in driver
+    scheduler = (root / "sumeragi/driver/exec.rs").read_text()
+    assert "append_refusal: Option<PublicationDeferral>" in scheduler
+    assert ".and_then(PublicationDeferral::release_wait)" in scheduler
+    controls = (root / "state/publication_effect_manifest_tests.rs").read_text()
+    fixture = (root / "sumeragi/test_chain.rs").read_text()
+    for obligation in ("pending.append_prepared()", "pending.run_original_append_for_test(append)",
+                       "state.lane_manifests.write()", "state.lane_manifests.observe_release()",
+                       "scheduler.next(u64::MAX - 1)", "Arc::ptr_eq(&original, &append)",
+                       "drop(state.crypto.read())", "drop(blocker)", "worker.join()"):
+        assert re.sub(r"\s+", "", obligation) in re.sub(r"\s+", "", controls)
+    assert "if !self.appended" in fixture and "self.appended = true" in fixture
+    assert "super::driver::run_original_append_for_test" in fixture
+    assert "AllocationBudget::new" not in controls and "set_limit_bytes" not in controls
+    rows = re.findall(r"^\| HC275 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and name in rows[0]
+
+
+def test_private_root_role_removal_mutation_requires_paid_restart_regression():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC343"]
+    assert rule.tests == ("sumeragi::amx::native::tests::paid_borrowed_custody::read_roles::native_private_read_role_removal_preserves_debit_and_survives_certified_restart",)
+    assert rule.causes == (gate.ExpectedFailure(
+        "bank management must delete its dedicated read role through ordinary native authorization",
+        "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/read_roles.rs",
+    ),)
+    assert not rule.scenarios
+    assert gate.has_switch("HC343", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}):
+        assert not gate.has_switch("HC343", **family)
+    rows = re.findall(r"^\| HC343 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and "native_private_read_role_removal_preserves_debit_and_survives_certified_restart" in rows[0]

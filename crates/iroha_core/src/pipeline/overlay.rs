@@ -526,9 +526,7 @@ fn validate_bound_contract_manifest(
 }
 fn map_program_analysis_error(err: ProgramAnalysisError) -> OverlayBuildError {
     match err {
-        ProgramAnalysisError::Metadata(error)
-            if crate::execution_attempt::ExecutionDeferred::from_vm_error(&error).is_some() =>
-        {
+        ProgramAnalysisError::Metadata(error) if error.execution_deferral().is_some() => {
             OverlayBuildError::IvmLoad(error)
         }
         ProgramAnalysisError::Metadata(_) => OverlayBuildError::IvmHeaderParse,
@@ -547,14 +545,16 @@ fn reject_state_free_axt_syscalls(bytecode: &[u8]) -> Result<(), OverlayBuildErr
     Ok(())
 }
 fn map_artifact_admission_error(error: ivm::ContractArtifactError) -> OverlayBuildError {
-    if let Some(local) = error.local_vm_error() {
-        return OverlayBuildError::IvmLoad(local);
+    match error.try_into_local_vm_error() {
+        Ok(local) => OverlayBuildError::IvmLoad(local),
+        Err(error) => OverlayBuildError::HeaderPolicy(IvmAdmissionError::BytecodeDecodingFailed(
+            error.to_string(),
+        )),
     }
-    OverlayBuildError::HeaderPolicy(IvmAdmissionError::BytecodeDecodingFailed(error.to_string()))
 }
 #[cfg(any(test, feature = "iroha-core-tests"))]
 fn map_program_summary_error(error: ivm::VMError) -> OverlayBuildError {
-    if crate::execution_attempt::ExecutionDeferred::from_vm_error(&error).is_some() {
+    if error.execution_deferral().is_some() {
         return OverlayBuildError::IvmLoad(error);
     }
     OverlayBuildError::HeaderPolicy(crate::smartcontracts::ivm::admission_reason_from_vm_error(
@@ -1151,9 +1151,10 @@ fn prune_redundant_contract_ops_with_metadata<R, M>(
         return;
     }
     if let Some(metadata) = metadata.as_ref() {
+        let metadata_len = metadata.len();
+        let queued_len = queued.len();
         debug_assert_eq!(
-            metadata.len(),
-            queued.len(),
+            metadata_len, queued_len,
             "overlay execution metadata must align with queued instructions",
         );
     }
@@ -1811,11 +1812,17 @@ impl TxOverlay {
         ) {
             (Some(runtime_context), Some(authorization)) => {
                 validate_overlay_contract_runtime_context(world, runtime_context)?;
-                if runtime_context.contract_address != authorization.contract_address
-                    || runtime_context.contract_alias != authorization.contract_alias
-                    || runtime_context.entrypoint != authorization.entrypoint
-                    || execution_context.authority != runtime_context.contract_subject
-                {
+                if (
+                    &runtime_context.contract_address,
+                    &runtime_context.contract_alias,
+                    &runtime_context.entrypoint,
+                    &execution_context.authority,
+                ) != (
+                    &authorization.contract_address,
+                    &authorization.contract_alias,
+                    &authorization.entrypoint,
+                    &runtime_context.contract_subject,
+                ) {
                     return Err(ValidationFail::NotPermitted(
                         "prepared contract effect does not match its immutable authorization snapshot"
                             .to_owned(),
@@ -1886,7 +1893,7 @@ impl TxOverlay {
         state_tx: &mut StateTransaction<'_, '_>,
         authority: &AccountId,
     ) -> Result<(), ValidationFail> {
-        let result = (|| -> Result<(), ValidationFail> {
+        (|| -> Result<(), ValidationFail> {
             let execution_height = self
                 .source
                 .is_live_execution()
@@ -2145,8 +2152,7 @@ impl TxOverlay {
                 }
             }
             Ok(())
-        })();
-        result
+        })()
     }
     #[cfg(any(test, feature = "iroha-core-tests"))]
     fn with_entrypoint_authorization(
@@ -2336,14 +2342,18 @@ where
         host = host.with_access_logging();
     }
     begin_overlay_access_log(&mut host, capture_access_log)?;
-    let effective_cycles =
-        max_cycles.map_or(governed_cycles.get(), |cap| cap.min(governed_cycles.get()));
+    let effective_cycles = max_cycles.map_or_else(
+        || governed_cycles.get(),
+        |cap| cap.min(governed_cycles.get()),
+    );
     vm.set_max_cycles(effective_cycles);
     vm.set_gas_limit(tx_gas_limit);
     vm.set_zk_trace_enabled(false);
     run_vm_with_host(&mut vm, &mut host)?;
     let ivm_gas_used = tx_gas_limit.saturating_sub(vm.remaining_gas());
-    let _access_log = finish_overlay_access_log(&mut host, capture_access_log)?;
+    let access_log = finish_overlay_access_log(&mut host, capture_access_log)?;
+    #[cfg(not(test))]
+    let _ = &access_log;
     let queued = host.drain_queued_effects_with_contract_runtime_context(None);
     let (durable_state_overlay, durable_state_authorizations) =
         host.drain_durable_state_overlay_with_authorizations();
@@ -2359,7 +2369,7 @@ where
     Ok(GenericOverlayExecution {
         overlay,
         #[cfg(test)]
-        access_log: _access_log,
+        access_log,
         #[cfg(test)]
         access_fence,
         #[cfg(test)]
@@ -3103,7 +3113,7 @@ where
                     state_ro.prepared_contract_cache().execution_budget(),
                     Some(iroha_crypto::Hash::prehashed(*tx.hash().as_ref())),
                     summary.prepared_contract().shared_artifact(),
-                    Some(*header),
+                    Some(header),
                     transport_caps_snapshot,
                     negotiated_caps_snapshot,
                 );
@@ -3296,7 +3306,7 @@ where
                     state_ro.prepared_contract_cache().execution_budget(),
                     Some(iroha_crypto::Hash::prehashed(*tx.hash().as_ref())),
                     summary.prepared_contract().shared_artifact(),
-                    Some(*header),
+                    Some(header),
                     transport_caps_snapshot,
                     negotiated_caps_snapshot,
                 );
@@ -4042,9 +4052,8 @@ mod tests_overlay_manifest {
             .filter(|number| ivm::syscalls::is_axt_syscall(*number))
             .min()
             .unwrap();
-        assert_eq!(
-            reject_state_free_axt_syscalls(&bytes),
-            Err(OverlayBuildError::StateRequiredSyscall(expected))
+        assert!(
+            matches!(reject_state_free_axt_syscalls(&bytes), Err(OverlayBuildError::StateRequiredSyscall(actual)) if actual == expected)
         );
         bytes.pop();
         assert!(matches!(
@@ -4347,17 +4356,17 @@ mod tests_overlay_manifest {
         let mut stale_writes = BTreeMap::new();
         stale_writes.insert(marker.clone(), None);
         stale_writes.insert(forbidden_effect.clone(), Some(vec![0xA5]));
-        let mut stale = TxOverlay::from_ivm_execution(Vec::new(), 0, stale_writes)
+        let mut outdated = TxOverlay::from_ivm_execution(Vec::new(), 0, stale_writes)
             .with_entrypoint_authorization(Some(authorization.clone()))
             .with_lifecycle_completion(&contract_address, Some(pending));
-        stale
+        outdated
             .durable_state_authorizations
             .insert(marker, Some(authorization.clone()));
-        stale
+        outdated
             .durable_state_authorizations
             .insert(forbidden_effect.clone(), Some(authorization));
         let mut transaction = block.transaction();
-        let error = stale
+        let error = outdated
             .apply(&mut transaction, &authority)
             .expect_err("a consumed lifecycle marker cannot be replayed");
         assert!(matches!(error, ValidationFail::NotPermitted(_)));
@@ -4679,10 +4688,20 @@ mod tests_overlay_manifest {
             );
             let error = build_overlay_for_transaction_with_accounts(&transaction, &[])
                 .expect_err("state-free execution must apply the generic syscall profile");
-            assert_eq!(
-                error,
-                OverlayBuildError::IvmLoad(ivm::VMError::GenericSyscallNotAllowed { syscall })
-            );
+            assert!(match (
+                &(error),
+                &(OverlayBuildError::IvmLoad(ivm::VMError::GenericSyscallNotAllowed { syscall }))
+            ) {
+                (
+                    OverlayBuildError::IvmLoad(ivm::VMError::GenericSyscallNotAllowed {
+                        syscall: actual_field_0,
+                    }),
+                    OverlayBuildError::IvmLoad(ivm::VMError::GenericSyscallNotAllowed {
+                        syscall: expected_field_0,
+                    }),
+                ) => actual_field_0 == expected_field_0,
+                _ => false,
+            });
         }
     }
     #[test]
@@ -4710,7 +4729,9 @@ mod tests_overlay_manifest {
             );
             let error = build_overlay_for_transaction_with_accounts(&transaction, &[])
                 .expect_err("state-free execution must reject the complete AXT surface");
-            assert_eq!(error, OverlayBuildError::StateRequiredSyscall(syscall));
+            assert!(
+                matches!(error, OverlayBuildError::StateRequiredSyscall(actual) if actual == syscall)
+            );
         }
     }
     #[test]
@@ -4854,13 +4875,13 @@ mod tests_overlay_manifest {
     fn selective_rebuild_reuses_the_prepared_argument_plan_without_redecoding() {
         let artifact = kotodama_lang::compiler::Compiler::new()
             .compile_source(
-                r#"
+                r"
 seiyaku RebuildArguments { permission CanInspectRebuildArguments;
   kotoage fn inspect(int value) authorize(CanInspectRebuildArguments) -> int {
     return value;
   }
 }
-"#,
+",
             )
             .expect("compile parameterized rebuild fixture");
         let prepared = ivm::prepare_contract(Arc::from(artifact))
@@ -4936,13 +4957,13 @@ seiyaku RebuildArguments { permission CanInspectRebuildArguments;
     fn raw_rebuild_does_not_reuse_a_plan_for_different_signed_arguments() {
         let artifact = kotodama_lang::compiler::Compiler::new()
             .compile_source(
-                r#"
+                r"
 seiyaku RawRebuildArguments { permission CanInspectRawRebuild;
   kotoage fn inspect(int value) authorize(CanInspectRawRebuild) {
     let _value = value;
   }
 }
-"#,
+",
             )
             .expect("compile raw rebuild binding fixture");
         let prepared = ivm::prepare_contract(Arc::from(artifact))
@@ -5017,13 +5038,13 @@ seiyaku RawRebuildArguments { permission CanInspectRawRebuild;
         use iroha_data_model::transaction::executable::ContractArgumentRecord;
         let program = kotodama_lang::compiler::Compiler::new()
             .compile_source(
-                r#"
+                r"
 seiyaku QuarantineArguments { permission CanInspectQuarantine;
   kotoage fn inspect(int value) authorize(CanInspectQuarantine) {
     let _value = value;
   }
 }
-"#,
+",
             )
             .expect("compile parameterized quarantine fixture");
         let verified = ivm::verify_contract_artifact(&program).expect("verify quarantine fixture");
@@ -5184,7 +5205,7 @@ seiyaku QuarantineArguments { permission CanInspectQuarantine;
         let accounts = block.accounts_snapshot();
         let upper_bound = nonzero!(1_000_000_u64);
         let mut cache = IvmCache::new();
-        let stale = build_prepared_overlay_for_transaction_with_accounts_zk(
+        let outdated = build_prepared_overlay_for_transaction_with_accounts_zk(
             &raw_ivm,
             Arc::clone(&accounts),
             &block,
@@ -5266,7 +5287,7 @@ seiyaku QuarantineArguments { permission CanInspectQuarantine;
             .expect_err("the quarantine raw-IVM overlay builder must reject the active hold"),
         );
         let mut apply_tx = block.transaction();
-        let error = stale
+        let error = outdated
             .overlay
             .apply(&mut apply_tx, raw_ivm.authority())
             .expect_err("a hold imposed after preparation must invalidate the ordinary overlay");
@@ -5280,13 +5301,13 @@ seiyaku QuarantineArguments { permission CanInspectQuarantine;
     fn state_free_raw_builder_rejects_protected_entrypoint_before_argument_decode() {
         let program = kotodama_lang::compiler::Compiler::new()
             .compile_source(
-                r#"
+                r"
 seiyaku ProtectedStateFreeOverlay { permission CanWriteStateFreeOverlay;
   kotoage fn write(int value) authorize(CanWriteStateFreeOverlay) {
     let _value = value;
   }
 }
-"#,
+",
             )
             .expect("compile protected state-free overlay fixture");
         let (authority, keypair) = gen_account_in("wonderland");
@@ -5328,13 +5349,13 @@ seiyaku ProtectedStateFreeOverlay { permission CanWriteStateFreeOverlay;
     fn state_free_raw_builder_rejects_permissionless_entrypoint_before_argument_decode() {
         let program = kotodama_lang::compiler::Compiler::new()
             .compile_source(
-                r#"
+                r"
 seiyaku PermissionlessStateFreeOverlay {
   view fn write(int value) authorize(anyone) -> int {
     return value;
   }
 }
-"#,
+",
             )
             .expect("compile permissionless state-free overlay fixture");
         let (authority, keypair) = gen_account_in("wonderland");
@@ -5381,13 +5402,13 @@ seiyaku PermissionlessStateFreeOverlay {
         const REQUIRED_PERMISSION: &str = "CanWriteParameterizedOverlay";
         let program = kotodama_lang::compiler::Compiler::new()
             .compile_source(
-                r#"
+                r"
 seiyaku ProtectedParameterizedOverlay { permission CanWriteParameterizedOverlay;
   kotoage fn write(int value) authorize(CanWriteParameterizedOverlay) {
     let _value = value;
   }
 }
-"#,
+",
             )
             .expect("compile protected parameterized overlay fixture");
         let verified =
@@ -5470,13 +5491,13 @@ seiyaku ProtectedParameterizedOverlay { permission CanWriteParameterizedOverlay;
         let (authority, keypair) = gen_account_in("wonderland");
         let (artifact, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
-                r#"
+                r"
 seiyaku GuardedOverlay { permission CanInvokeContractEntrypoint;
   kotoage fn main(int value) authorize(CanInvokeContractEntrypoint) {
     let _value = value;
   }
 }
-"#,
+",
             )
             .expect("compile parameterized guarded overlay contract");
         let prepared = ivm::prepare_contract(Arc::from(artifact.clone()))
@@ -5587,13 +5608,13 @@ seiyaku GuardedOverlay { permission CanInvokeContractEntrypoint;
         );
         let (rebound_artifact, rebound_manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
-                r#"
+                r"
 seiyaku GuardedOverlayRebound { permission CanInvokeContractEntrypoint;
   kotoage fn main(int value) authorize(CanInvokeContractEntrypoint) {
     let _value = value + 1;
   }
 }
-"#,
+",
             )
             .expect("compile parameterized rebound overlay contract");
         let rebound_code_hash = rebound_manifest.code_hash.expect("rebound code hash");
@@ -7218,13 +7239,13 @@ mod tests {
         );
         let (program, manifest) = compiler
             .compile_source_with_manifest(
-                r#"
+                r"
 seiyaku ProtectedProved { permission CanWriteProved;
   kotoage fn write(int value) authorize(CanWriteProved) {
     let _value = value;
   }
 }
-"#,
+",
             )
             .expect("compile protected ZK-mode contract");
         let (authority, keypair) = gen_account_in("wonderland");
@@ -7484,10 +7505,10 @@ seiyaku ProtectedProved { permission CanWriteProved;
     }
     #[test]
     fn overlay_rejects_manifest_abi_mismatch_before_execution() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::prelude::{AccountId, TransactionBuilder};
         use iroha_model_base::metadata::Metadata;
         use iroha_primitives::json::Json;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (program, header_len, meta) = sample_program();
         let (code_hash, abi_hash) = super::compute_program_hashes(&meta, header_len, &program);
         let contract_address: ContractAddress =
@@ -7567,13 +7588,13 @@ seiyaku ProtectedProved { permission CanWriteProved;
         );
         let (program, manifest) = compiler
             .compile_source_with_manifest(
-                r#"
+                r"
 seiyaku AliasBoundArguments { permission CanInvokeOverlayFixture;
   kotoage fn main(int value) authorize(CanInvokeOverlayFixture) {
     let _value = value;
   }
 }
-"#,
+",
             )
             .expect("compile parameterized ZK alias-binding fixture");
         let parsed =
@@ -7724,7 +7745,6 @@ seiyaku AliasBoundArguments { permission CanInvokeOverlayFixture;
     }
     #[test]
     fn raw_and_proved_ivm_reject_header_substitution_for_bound_contract() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             prelude::{AccountId, IvmBytecode, TransactionBuilder},
             transaction::IvmProved,
@@ -7732,6 +7752,7 @@ seiyaku AliasBoundArguments { permission CanInvokeOverlayFixture;
         use iroha_model_base::metadata::Metadata;
         use iroha_primitives::json::Json;
         use std::sync::Arc;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (stored_program, header_len, meta) = sample_program_zk_mode();
         let (code_hash, abi_hash) =
             super::compute_program_hashes(&meta, header_len, &stored_program);
@@ -7951,10 +7972,10 @@ seiyaku AliasBoundArguments { permission CanInvokeOverlayFixture;
     }
     #[test]
     fn overlay_rejects_contract_binding_code_hash_mismatch() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::prelude::{AccountId, TransactionBuilder};
         use iroha_model_base::metadata::Metadata;
         use iroha_primitives::json::Json;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (program, header_len, meta) = sample_program();
         let (code_hash, abi_hash) = super::compute_program_hashes(&meta, header_len, &program);
         let contract_address: ContractAddress =
@@ -8055,10 +8076,10 @@ seiyaku AliasBoundArguments { permission CanInvokeOverlayFixture;
     }
     #[test]
     fn overlay_requires_manifest_abi_for_bound_instance() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::prelude::{AccountId, TransactionBuilder};
         use iroha_model_base::metadata::Metadata;
         use iroha_primitives::json::Json;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (program, header_len, meta) = sample_program();
         let (code_hash, _abi_hash) = super::compute_program_hashes(&meta, header_len, &program);
         let contract_address: ContractAddress =
@@ -8493,7 +8514,7 @@ pub(crate) fn amx_timeout_message(violation: &AmxBudgetViolation) -> String {
     }
 }
 /// Structured error type for overlay construction failures.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum OverlayBuildError {
     /// Failed to parse IVM header metadata.
     IvmHeaderParse,
@@ -8526,13 +8547,21 @@ pub enum OverlayBuildError {
     ExecutionOwner(String),
 }
 impl OverlayBuildError {
-    /// Return the typed local refusal before any consensus rejection mapping.
-    pub(crate) fn execution_deferral(&self) -> Option<crate::execution_attempt::ExecutionDeferred> {
+    /// Move the typed local refusal before any consensus rejection mapping.
+    /// Completed overlay errors are returned unchanged to their deterministic mapper.
+    pub(crate) fn into_execution_deferral(
+        self,
+    ) -> Result<crate::execution_attempt::ExecutionDeferred, Self> {
         match self {
-            Self::IvmLoad(error) | Self::IvmRun(error) => {
-                crate::execution_attempt::ExecutionDeferred::from_vm_error(error)
+            Self::IvmLoad(error) => {
+                crate::execution_attempt::ExecutionDeferred::try_from_vm_error(error)
+                    .map_err(Self::IvmLoad)
             }
-            _ => None,
+            Self::IvmRun(error) => {
+                crate::execution_attempt::ExecutionDeferred::try_from_vm_error(error)
+                    .map_err(Self::IvmRun)
+            }
+            other => Err(other),
         }
     }
     #[cfg(test)]

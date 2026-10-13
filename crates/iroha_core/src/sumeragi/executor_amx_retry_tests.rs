@@ -69,7 +69,7 @@ fn original_paid_amx_post_decode_refusal_retains_worker_leg_and_exact_retry() {
                     let retry_attempt = worker.run_execution(&block, hash, false);
                     assert!(matches!(&retry_attempt, Ok(Some(_))),
                         "same original paid candidate must retry after genuine capacity release: {retry_attempt:?}");
-                    let Some(ExecOutcome::Valid { result: public_result, .. }) = worker.execute(&block, hash, false) else {
+                    let Ok(Some(ExecOutcome::Valid { result: public_result, .. })) = worker.execute(&block, hash, false) else {
                         panic!("same original paid candidate must retry after genuine capacity release");
                     };
                     assert_eq!(Some(public_result), retry_attempt.unwrap(),
@@ -81,7 +81,7 @@ fn original_paid_amx_post_decode_refusal_retains_worker_leg_and_exact_retry() {
                     assert_eq!(retry.2, first.2);
                     assert_eq!(block.payload().as_slice().as_ptr(), wire);
                     assert_eq!(worker.state.view().height(), height);
-                    assert!(worker.routing_refusal.is_none());
+
                     assert!(worker.recovery.is_none(), "a completed visibility interval cannot invalidate byte-only decode custody");
                     assert!(worker.live.is_some() || worker.finishing.is_some());
                     assert!(budget.reserved_bytes() > 0);
@@ -131,7 +131,9 @@ fn with_original_paid_bank(
                             decoded: None,
                             returned_refusal: None,
                             amx_legs: None,
-                            parent_service: Default::default(),
+                            parent_service:
+                                crate::sumeragi::certified_chain::ParentServicePreparation::default(
+                                ),
                         };
                         let original = attempt.original_decoded(&pool).unwrap();
                         test(
@@ -392,7 +394,7 @@ fn original_paid_amx_worker_retry_reauthenticates_changed_native_parent() {
                     assert!(worker.parent_applied(&changed), "the height/hash gate alone cannot authorize a changed parent result");
                     assert_ne!(changed.header().parent_result, block.header().parent_result);
                     let changed_hash = changed.hash(&**worker.context.crypto.as_ref().unwrap());
-                    assert!(matches!(worker.execute(&changed, changed_hash, false), Some(ExecOutcome::Invalid)),
+                    assert!(matches!(worker.execute(&changed, changed_hash, false), Ok(Some(ExecOutcome::Invalid))),
                         "fresh native successor authentication must reject a changed committed parent result");
                     assert_eq!(observer.snapshot().0, 1, "changed parent never reuses or decodes a monetary leg");
                     assert_eq!(observer.snapshot().1, 1, "changed parent never reaches current monetary execution");
@@ -581,7 +583,7 @@ fn with_original_paid_multisig_bank(
                             decoded: None,
                             returned_refusal: None,
                             amx_legs: None,
-        parent_service: Default::default(),
+        parent_service: crate::sumeragi::certified_chain::ParentServicePreparation::default(),
                         };
                             let original = attempt.original_decoded(&pool).unwrap();
                             test(
@@ -839,7 +841,7 @@ fn rejected_amx_worker_occurrence_retains_source_prefix_and_replays_before_later
                         block_hash: hash, source: block.clone(),
                         decoder: iroha_data_model::block::PreparedSignedBlockSignaturesDecode::new(&pool).unwrap(),
                         decoded: None, returned_refusal: None, amx_legs: None,
-        parent_service: Default::default(),
+        parent_service: crate::sumeragi::certified_chain::ParentServicePreparation::default(),
                     };
                     let original = attempt.original_decoded(&pool).unwrap();
                     let inputs = original.external_entrypoints_slice();

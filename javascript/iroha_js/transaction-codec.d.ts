@@ -250,3 +250,93 @@ export const browserTransactionCodec: Readonly<NexusTransactionCodec> & Readonly
   validateInstructionSignable: typeof validateBrowserInstructionTransactionSignable;
   validateExecutableBatchSignable: typeof validateBrowserExecutableBatchSignable;
 }>;
+
+/** Structural attachment codec only; transaction admission and proof verification are separate. */
+export type AttachmentKindV1 = "Proof" | "KeyMaterial";
+export type AttachmentRoleV1 = "ActionProof" | "VerifyingKey" | "LanePrivacyProof" | "ExecutionProof";
+export type ActionRoleV1 = "ProofEffect" | "ProofVerification" | "Administrative" | "Effect";
+export type ActionOperationV1 = { type: "NativeInstruction"; wireId: string } | { type: "TransactionProof" | "IvmProvedExecution" };
+export type ActionAuthorityBindingV1 = { type: "TransactionAuthority" } | { type: "ContractSubject" | "Account"; accountId: string };
+export type ActionInvocationBindingV1 = { type: "Transaction" } | { type: "Direct"; instructionIndex: number } | { type: "Contract"; rootIndex: number; callPath: number[] };
+export interface AttachmentReferenceV1 {
+  index: number;
+  kind: AttachmentKindV1;
+  role: AttachmentRoleV1;
+  /** Exact byte count, bounded to 9 MiB. */
+  length: number;
+  contentHash: Uint8Array;
+}
+export interface ActionIntentV1 {
+  actionIndex: number;
+  operation: ActionOperationV1;
+  role: ActionRoleV1;
+  authority: ActionAuthorityBindingV1;
+  invocation: ActionInvocationBindingV1;
+  publicInputsDigest: Uint8Array;
+  statementDigest: Uint8Array;
+  attachments: AttachmentReferenceV1[];
+}
+export interface SignedAttachmentOccurrenceV1 {
+  index: number;
+  kind: AttachmentKindV1;
+  length: number;
+  contentHash: Uint8Array;
+  bytes: Uint8Array;
+}
+export interface SignedAttachmentsV1 {
+  actions: ActionIntentV1[];
+  occurrences: SignedAttachmentOccurrenceV1[];
+}
+export const SIGNED_ATTACHMENT_LIMITS_V1: Readonly<{
+  maxActions: 16; maxOccurrences: 16; maxOccurrenceBytes: 9437184;
+  maxFrameBytes: 9502720; maxCallPath: 32; maxWireIdBytes: 128;
+}>;
+/** Exact canonical descriptor frame. Does not admit the enclosing transaction or verify a proof. */
+export function encodeSignedAttachmentsV1(value: SignedAttachmentsV1): Uint8Array;
+/** Structural validation plus independent output bytes. Account validation uses the authenticated SDK native runtime. */
+export function decodeSignedAttachmentsV1(encoded: Uint8Array): SignedAttachmentsV1;
+/** Padded standard-base64 string value used by canonical Norito JSON. */
+export function signedAttachmentsToJsonV1(value: SignedAttachmentsV1): string;
+export function signedAttachmentsFromJsonV1(value: string): SignedAttachmentsV1;
+/** Statement derived from the supplied ordered intent; does not authenticate the supplied intent or proof. */
+export function actionStatementDigestV1(action: ActionIntentV1, orderedIntentDigest: Uint8Array): Uint8Array;
+/** Normalized descriptor frame for hashing only. It cannot be decoded as an admitted descriptor. */
+export function signedAttachmentsIntentProjectionV1(value: SignedAttachmentsV1): Uint8Array;
+
+/** Structurally complete carrier. This does not establish cryptographic proof validity. */
+export interface ProofCarrierV1 {
+  backend: string;
+  proofBytes: Uint8Array;
+  verifyingKey: { backend: string; name: string };
+  verifyingKeyCommitment: Uint8Array | null;
+  envelopeHash: Uint8Array | null;
+  lanePrivacy: { commitmentId: number; leaf: Uint8Array; leafIndex: number; auditPath: Uint8Array[] } | null;
+}
+/** Complete canonical ProofAttachment, bounded by the signed occurrence limit. */
+export declare function encodeProofCarrierV1(value: ProofCarrierV1): Uint8Array;
+export declare function decodeProofCarrierV1(encoded: Uint8Array): ProofCarrierV1;
+/** Exact proof-free metadata digest. Empty proof bytes are allowed for planning; generated envelope contents are omitted. Does not admit or verify a proof. */
+export declare function proofCarrierPublicInputsDigestV1(value: ProofCarrierV1): Uint8Array;
+/** Checks actual carrier metadata and statements against a caller-supplied intent.
+ * Does not derive/validate transaction context, executable targets, or privacy normalization.
+ */
+export declare function inspectSignedAttachmentProofBindingsV1(
+  descriptor: SignedAttachmentsV1,
+  orderedIntentDigest: Uint8Array,
+): Array<{ actionIndex: number; attachment: ProofCarrierV1 }>;
+
+/** Canonical context derived and validated by the authenticated Rust payload decoder. */
+export interface TransactionAttachmentContextV1 {
+  payloadHash: Uint8Array;
+  orderedIntentDigest: Uint8Array;
+  orderedIntentProjection: Uint8Array;
+  attachmentFrame: Uint8Array | null;
+  statementDigests: Uint8Array[];
+}
+/** Validates attachment context against actual payload/network/authority, including Rust privacy normalization.
+ * Does not verify proof/signature cryptography or establish runtime/state admission.
+ */
+export declare function inspectCanonicalTransactionAttachmentContextV1(
+  payloadBytes: Uint8Array,
+  expected: { networkId: Uint8Array; authority: string },
+): TransactionAttachmentContextV1;

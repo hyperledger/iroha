@@ -201,7 +201,7 @@ pub fn expiry_amx_decision<'v, V: StateReadOnly>(
     }
     let begin_index = usize::try_from(descriptor.source_height() - 1)
         .map_err(|_| Error::Source("Begin height cannot index captured history"))?;
-    if !cfg!(all(test, sumeragi_core_mutation = "HC283"))
+    if !cfg!(all(test, sumeragi_core_mutation = "HC338"))
         && (descriptor.source_network() != *view.network_id()
             || view.native_execution_tip().map(|tip| tip.root_scope())
                 != Some(SumeragiRootScope::Global)
@@ -274,7 +274,7 @@ impl<V: StateReadOnly> NativeAmxExpiryDecisionReadV1<'_, V> {
         if self.complete {
             return Err(Error::Source("expiry recovery read already completed"));
         }
-        #[cfg(all(test, sumeragi_core_mutation = "HC284"))]
+        #[cfg(all(test, sumeragi_core_mutation = "HC339"))]
         if let Some(height) = self.cursor.positive {
             // Mutation: promote a discovery locator into outcome authority without acquiring
             // its original certified source. Production never constructs a result this way.

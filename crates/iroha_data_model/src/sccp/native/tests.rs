@@ -220,7 +220,7 @@ fn forgery_record_preserves_new_offender_subset_and_rejects_bad_attribution_shap
 fn evidence_material_and_scope_are_closed_and_keep_penalty_timing_separate() {
     let original = record();
     let value = EvidenceRecord {
-        evidence: RecordedEvidenceV1::SccpForgery(original.clone()),
+        evidence: RecordedEvidenceV1::SccpForgery(Box::new(original.clone())),
         attribution: EvidenceAttribution {
             scope: EvidenceScope::SccpGeneration {
                 generation: original.generation,
@@ -430,4 +430,67 @@ fn anchor_json_requires_twelve_hex_siblings_and_preserves_bounded_output() {
             json::from_json::<SccpAnchorWitnessV1>(&json::to_json(&document).unwrap()).is_err()
         );
     }
+}
+
+#[test]
+fn recorded_evidence_keeps_native_stack_shell_small() {
+    // Adding a large forgery witness must not make every ordinary consensus
+    // evidence value reserve that inline frame during restore or verification.
+    assert!(
+        std::mem::size_of::<RecordedEvidenceV1>()
+            <= std::mem::size_of::<crate::block::consensus::Evidence>()
+                + 2 * std::mem::size_of::<usize>()
+    );
+}
+
+#[test]
+fn recorded_evidence_uses_one_boxed_binary_layout_and_direct_json_record() {
+    let original = record();
+    let value = RecordedEvidenceV1::SccpForgery(Box::new(original.clone()));
+    let record_bytes = original.encode();
+    let flags = norito::core::header_flags::COMPACT_LEN;
+    assert_eq!(norito::core::default_encode_flags(), flags);
+    // The first-release contract is tag 1, the variant-field length, then the
+    // owned-record length and exact record bytes. These are distinct prefixes.
+    let mut owned = Vec::new();
+    norito::core::write_len_to_vec_with_flags(
+        &mut owned,
+        u64::try_from(record_bytes.len()).unwrap(),
+        flags,
+    );
+    owned.extend_from_slice(&record_bytes);
+    let mut expected = 1_u32.to_le_bytes().to_vec();
+    norito::core::write_len_to_vec_with_flags(
+        &mut expected,
+        u64::try_from(owned.len()).unwrap(),
+        flags,
+    );
+    expected.extend_from_slice(&owned);
+    assert_eq!(value.encode(), expected);
+    assert_eq!(
+        RecordedEvidenceV1::decode_all(&mut expected.as_slice()).unwrap(),
+        value
+    );
+    let mut unboxed = 1_u32.to_le_bytes().to_vec();
+    norito::core::write_len_to_vec_with_flags(
+        &mut unboxed,
+        u64::try_from(record_bytes.len()).unwrap(),
+        flags,
+    );
+    unboxed.extend_from_slice(&record_bytes);
+    assert!(RecordedEvidenceV1::decode_all(&mut unboxed.as_slice()).is_err());
+    expected.push(0);
+    assert!(RecordedEvidenceV1::decode_all(&mut expected.as_slice()).is_err());
+    let json = norito::json::to_json(&value).unwrap();
+    assert_eq!(
+        json,
+        format!(
+            "{{\"kind\":\"sccp_forgery\",\"value\":{}}}",
+            norito::json::to_json(&original).unwrap()
+        )
+    );
+    assert_eq!(
+        norito::json::from_json::<RecordedEvidenceV1>(&json).unwrap(),
+        value
+    );
 }

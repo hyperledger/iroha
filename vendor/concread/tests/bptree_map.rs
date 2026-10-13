@@ -1,3 +1,5 @@
+//! Ordered-map range, lookup and removal regressions against BTreeMap.
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound;
 

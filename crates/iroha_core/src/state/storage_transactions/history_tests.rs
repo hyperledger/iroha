@@ -298,7 +298,7 @@ fn initial_successor_reserves_batch_identity_and_cursor_before_work() {
         .budget
         .try_reserve_bytes(storage.budget.limit_bytes() - initial - (demand - 1))
         .unwrap();
-    let blocked = storage.budget.reserved_bytes();
+    let reserved_bytes = storage.budget.reserved_bytes();
     let release = match storage.prepare_next_block(false) {
         Err(MembershipAdmissionError::Capacity(AllocationRefusal::Capacity {
             requested_bytes,
@@ -310,7 +310,7 @@ fn initial_successor_reserves_batch_identity_and_cursor_before_work() {
         }
         _ => panic!("original batch, identity and cursor require one admission"),
     };
-    assert_eq!(storage.budget.reserved_bytes(), blocked);
+    assert_eq!(storage.budget.reserved_bytes(), reserved_bytes);
     {
         let pending = storage.pending.lock();
         let pending = pending.as_ref().expect("original refusal stays pending");
@@ -405,7 +405,7 @@ fn capacity_retry_keeps_original_batch_identity_and_private_predecessor() {
     );
     let mut pending = Some(ready);
     let mut block = storage.attach_prepared(&mut pending).unwrap();
-    block.insert_block(HashSet::from([key(100)]), height(2));
+    block.insert_block(BTreeSet::from([key(100)]), height(2));
     block.commit().unwrap();
     assert_eq!(storage.blocks.read().len(), keys.len());
 }
@@ -450,7 +450,7 @@ fn original_reader_and_journal_credits_refund_only_after_last_custody() {
     commit(&storage, 2, &[key(2)], false);
     let old = storage.view();
     let mut block = storage.block();
-    block.insert_block(HashSet::from([key(3)]), height(3));
+    block.insert_block(BTreeSet::from([key(3)]), height(3));
     let journal = block.prepare_commit().unwrap().detach();
     let retained = pool.reserved_bytes();
     drop(journal);
@@ -477,7 +477,7 @@ fn restored_equal_bytes_are_a_foreign_original_family_and_identity() {
     ));
     assert!(original.is_some());
     let mut block = storage.attach_prepared(&mut original).unwrap();
-    block.insert_block(HashSet::from([key(2)]), height(2));
+    block.insert_block(BTreeSet::from([key(2)]), height(2));
     block.commit().unwrap();
     assert_eq!(restored.view().get(&key(2)), None);
 }
@@ -606,7 +606,7 @@ fn physical_busy_return_resumes_exact_original_cursor_batch_and_identity() {
     let predecessor = ready.baseline.as_ref().unwrap().clone();
     let mut ready = Some(ready);
     let mut block = storage.attach_prepared(&mut ready).unwrap();
-    block.insert_block(HashSet::from([key(3)]), height(2));
+    block.insert_block(BTreeSet::from([key(3)]), height(2));
     let mut field = super::super::block::TransactionsBlockField::new(block);
     field.try_prepare_publication().unwrap();
     let held = storage
@@ -651,7 +651,7 @@ fn physical_busy_return_resumes_exact_original_cursor_batch_and_identity() {
     assert!(predecessor.matches(&resumed.work.as_ref().unwrap().predecessor()));
     let mut resumed = Some(resumed);
     let mut block = storage.attach_prepared(&mut resumed).unwrap();
-    block.insert_block(HashSet::from([key(3)]), height(2));
+    block.insert_block(BTreeSet::from([key(3)]), height(2));
     block.commit().unwrap();
     assert_eq!(storage.view().get(&key(1)), Some(height(1)));
     assert_eq!(storage.view().get(&key(3)), Some(height(2)));
@@ -662,7 +662,7 @@ fn native_physical_retry_and_unrelated_unwind_preserve_original_generation() {
     let storage = owner();
     commit(&storage, 1, &[key(1)], false);
     let mut block = storage.block();
-    block.insert_block(HashSet::from([key(2)]), height(2));
+    block.insert_block(BTreeSet::from([key(2)]), height(2));
     let mut field = super::super::block::TransactionsBlockField::new(block);
     field.try_prepare_publication().unwrap();
     assert_eq!(

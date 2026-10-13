@@ -90,7 +90,7 @@ impl fmt::Debug for DeferredQueryContinuation {
         f.debug_struct("DeferredQueryContinuation")
             .field("expected_cursor", &self.expected_cursor)
             .field("remaining_items", &self.remaining_items)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 /// Continuation that materializes one page per `Continue` request.
@@ -718,8 +718,7 @@ impl LiveQueryStoreHandle {
         // NOTE: we are checking remaining items _after_ the first batch is taken
         let remaining_items = live_query.remaining();
         // if the cursor is `None` - the query has ended, we can remove it from the store
-        let query_id = if next_cursor.is_some() {
-            let expected_cursor = next_cursor.expect("checked as present");
+        let query_id = if let Some(expected_cursor) = next_cursor {
             let ordinary_memory_lease = self
                 .ordinary_memory_admission
                 .as_ref()
@@ -1565,16 +1564,15 @@ mod tests {
             ShutdownSignal::new(),
         ));
         let start = Arc::new(Barrier::new(CALLERS + 1));
-        let callers = (0..CALLERS)
-            .map(|_| {
-                let store = Arc::clone(&store);
-                let start = Arc::clone(&start);
-                std::thread::spawn(move || {
-                    start.wait();
-                    store.try_reserve_query_slot()
-                })
-            })
-            .collect::<Vec<_>>();
+        let mut callers = Vec::with_capacity(CALLERS);
+        for _ in 0..CALLERS {
+            let store = Arc::clone(&store);
+            let start = Arc::clone(&start);
+            callers.push(std::thread::spawn(move || {
+                start.wait();
+                store.try_reserve_query_slot()
+            }));
+        }
         start.wait();
         let admitted = callers
             .into_iter()

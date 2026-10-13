@@ -29,7 +29,7 @@ use iroha_sccp::{
     TonBlockIdExtV1, TonBlockSignaturesV1, TonOrdinaryBlockSignaturesV1,
     TonSimplexBlockSignaturesV1, TonValidatorSignatureV1,
     light_client::{
-        profile::{SccpChainProfilesV1, TonChainProfileV1},
+        profile::TonChainProfileV1,
         proof::{SccpLcAdvanceV1, SccpLcBootstrapDataV1, SccpLcSetDataV1, SccpSourceProofV1},
         ton::{
             TonBackLinkV1, TonKeyBlockHopV1, TonLcAdvanceV1, TonLcBootstrapV1,
@@ -346,16 +346,15 @@ pub struct TonBuilder {
 }
 
 impl TonBuilder {
-    /// A builder over `lite` under the newest compiled TON profile version.
-    ///
-    /// TODO(B11): build under the version active on the target Taira (Torii capabilities)
-    /// rather than the newest compiled one.
+    /// A builder over `lite` under the profile selected by committed Taira state.
     #[must_use]
-    pub fn new(lite: LiteClient) -> Self {
-        Self {
-            lite,
-            profile: SccpChainProfilesV1::latest().ton,
-        }
+    pub fn new(profile: TonChainProfileV1, lite: LiteClient) -> Self {
+        Self { lite, profile }
+    }
+
+    /// Select the profile resolved from the current committed Taira cut before building.
+    pub fn set_profile(&mut self, profile: TonChainProfileV1) {
+        self.profile = profile;
     }
 
     /// Moves the liteclient to its next liteserver, for a caller whose build failed on the data
@@ -613,6 +612,14 @@ pub fn shard_links(
 }
 
 impl SourceChainBuilder for TonBuilder {
+    fn source_attempts(&self) -> usize {
+        self.lite.servers().len()
+    }
+
+    fn rotate_endpoints(&self) {
+        TonBuilder::rotate_endpoints(self);
+    }
+
     fn network(&self) -> SccpNetworkV1 {
         SccpNetworkV1::TonMainnet
     }
@@ -718,11 +725,19 @@ mod tests {
         let servers =
             LiteServerSet::parse(&[&format!("127.0.0.1:1:{KEY}"), &format!("127.0.0.1:2:{KEY}")])
                 .expect("loopback liteservers");
-        let builder = TonBuilder::new(LiteClient::new(
-            servers,
-            LiteClientConfig::default(),
-            FailoverPolicy::default(),
-        ));
+        let mut builder = TonBuilder::new(
+            iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().ton,
+            LiteClient::new(
+                servers,
+                LiteClientConfig::default(),
+                FailoverPolicy::default(),
+            ),
+        );
+        let mut selected = builder.profile;
+        selected.supported_until_ms = 1;
+        builder.set_profile(selected);
+        assert_eq!(builder.profile, selected);
+        assert_eq!(builder.source_attempts(), 2);
         assert_eq!(builder.lite.servers().preferred(), 0);
         builder.rotate_endpoints();
         assert_eq!(builder.lite.servers().preferred(), 1);

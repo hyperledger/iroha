@@ -80,7 +80,7 @@ fn encode_contract_view(arguments: &Map) -> Result<Vec<u8>, String> {
     // Borrow the decoded payload and cap allocation before encoding. Never clone a source-sized
     // JSON tree or infer another body spelling after the external signer has authorized it.
     norito::json::to_json_bounded_boxed(body_value, MAX_BODY_BYTES)
-        .map(|bytes| bytes.into_vec())
+        .map(<[u8]>::into_vec)
         .map_err(|error| format!("contract view body exceeds its bounded encoding policy: {error}"))
 }
 

@@ -971,10 +971,10 @@ enum JobKey {
 #[derive(Clone, Debug)]
 struct Job {
     input: Input,
-    // Scheduling only: the signed absolute expiry uses the same wall-time domain
-    // as certified payload stamps; retry cadence uses elapsed simulation time.
-    not_before_ms: Option<Millis>,
+    /// Virtual scheduler time for ordinary delay and retry pacing.
     next_at: Millis,
+    /// Certified wall-time deadline of a signed expiry obligation, if any.
+    not_before_wall_ms: Option<Millis>,
 }
 
 /// A relayer process on a machine: its scan position per instance and its pending relays by
@@ -1006,33 +1006,24 @@ impl Relayer {
         (prepare_delay, settle_delay): (Millis, Millis),
     ) {
         let boxed = || Box::new(proof.clone());
-        let mut add = |target: usize,
-                       key: JobKey,
-                       input: Input,
-                       next_at: Millis,
-                       not_before_ms: Option<Millis>| {
+        let mut add = |target: usize, key: JobKey, input: Input, next_at: Millis| {
+            let not_before_wall_ms = match (key, proof.record()) {
+                (JobKey::Expire(_), Some(Record::Begin { expires_at_ms, .. })) => {
+                    Some(*expires_at_ms)
+                }
+                _ => None,
+            };
             self.jobs.entry((target, key)).or_insert(Job {
                 input,
-                not_before_ms,
                 next_at,
+                not_before_wall_ms,
             });
         };
         match (inst, proof.record()) {
-            (
-                GLOBAL,
-                Some(Record::Begin {
-                    x, expires_at_ms, ..
-                }),
-            ) => {
+            (GLOBAL, Some(Record::Begin { x, .. })) => {
                 // MX13: lose the only actionable final-payment work when a participant is silent.
                 if !cfg!(sumeragi_mutation = "MX13") {
-                    add(
-                        GLOBAL,
-                        JobKey::Expire(*x),
-                        Input::Expire(*x),
-                        now,
-                        Some(*expires_at_ms),
-                    );
+                    add(GLOBAL, JobKey::Expire(*x), Input::Expire(*x), now);
                 }
                 if let Some(tx) = txs.get(x) {
                     let delay = prepare_delay * u64::from(x.0[0]) / u64::from(u8::MAX);
@@ -1042,7 +1033,6 @@ impl Relayer {
                             JobKey::Prepare(*x),
                             Input::Prepare(tx.clone(), boxed()),
                             now + delay,
-                            None,
                         );
                     }
                 }
@@ -1056,7 +1046,6 @@ impl Relayer {
                             JobKey::Settle(*x),
                             Input::Settle(boxed()),
                             now + delay,
-                            None,
                         );
                     }
                 }
@@ -1068,18 +1057,11 @@ impl Relayer {
                         JobKey::Handoff(GLOBAL, next.id.epoch),
                         Input::GlobalHandoff(boxed()),
                         now,
-                        None,
                     );
                 }
             }
             (_, Some(Record::Prepared { x, participant, .. })) if *participant == inst => {
-                add(
-                    GLOBAL,
-                    JobKey::Vote(*x, inst),
-                    Input::Vote(boxed()),
-                    now,
-                    None,
-                );
+                add(GLOBAL, JobKey::Vote(*x, inst), Input::Vote(boxed()), now);
             }
             (_, Some(Record::Epoch { next, .. })) => {
                 add(
@@ -1087,7 +1069,6 @@ impl Relayer {
                     JobKey::Handoff(inst, next.id.epoch),
                     Input::Handoff(inst, boxed()),
                     now,
-                    None,
                 );
             }
             _ => {}
@@ -1367,6 +1348,9 @@ impl World {
     /// The execution of `block` of instance `inst` on the post-state certified by `parent`: the
     /// simulator's `block_exec` and, in an AMX world, the application's records bound into `R`.
     pub fn app_exec(&self, inst: usize, parent: &Hash32, block: &AvailableBody) -> ExecOutcome {
+        if let Some(outcome) = self.clock_payload_validity(inst, block) {
+            return outcome;
+        }
         let config = &self.instances[inst];
         let base = block_exec(parent, block, &config.config(block.header().height).epoch);
         match &self.amx {
@@ -1530,18 +1514,18 @@ impl World {
         for index in 0..amx.relayers.len() {
             let machine_index = amx.relayers[index].machine;
             let machine = &self.machines[machine_index];
-            let wall_offset = self
+            // Same wall clock as World::wall_ms. Keep it distinct from virtual retry time,
+            // and sample it again on every tick so clock steps cannot strand due jobs.
+            let offset = self
                 .clock_guard
                 .as_ref()
                 .and_then(|guard| guard.wall_offsets.get(machine_index))
                 .copied()
                 .unwrap_or(0);
-            let wall_ms = u64::try_from(
-                i64::try_from(machine.clock.local(now))
-                    .unwrap_or(i64::MAX)
-                    .saturating_add(wall_offset),
-            )
-            .unwrap_or(0);
+            let wall = i64::try_from(machine.clock.local(now))
+                .unwrap_or(i64::MAX)
+                .saturating_add(offset);
+            let wall = u64::try_from(wall).unwrap_or(0);
             let outage = amx
                 .config
                 .relayer_down
@@ -1612,7 +1596,7 @@ impl World {
                 let Some(job) = amx.relayers[index].jobs.get_mut(&(target, key)) else {
                     continue;
                 };
-                if job.next_at > now || job.not_before_ms.is_some_and(|due| wall_ms < due) {
+                if job.next_at > now || job.not_before_wall_ms.is_some_and(|due| wall < due) {
                     continue;
                 }
                 job.next_at = now + retry;

@@ -298,7 +298,6 @@ struct RealProcessLeakageRequestV1 {
 
 enum RealProcessBoundRequestV1 {
     Smoke(RealProcessSmokeRequestV1),
-    Benchmark(RealProcessBenchmarkRequestV1),
     Fault(RealProcessFaultRequestV1),
     Leakage(RealProcessLeakageRequestV1),
 }
@@ -485,7 +484,6 @@ impl norito::json::FastJsonWrite for RealProcessBenchmarkOutcomeV1 {
         &self,
         out: &mut dyn norito::json::JsonWriteSink,
     ) -> std::result::Result<(), norito::json::BoundedJsonError> {
-        use norito::json::FastJsonWrite as _;
         out.begin_container()?;
         match self {
             Self::Succeeded(result) => {
@@ -1784,12 +1782,6 @@ fn read_bound_real_process_request() -> Result<(RealProcessBoundRequestV1, Strin
                 norito::json::from_value(value).wrap_err("decode strict smoke request")?;
             validate_real_process_smoke_request(&request)?;
             RealProcessBoundRequestV1::Smoke(request)
-        }
-        "benchmark" => {
-            let request: RealProcessBenchmarkRequestV1 =
-                norito::json::from_value(value).wrap_err("decode strict benchmark request")?;
-            validate_real_process_request(&request)?;
-            RealProcessBoundRequestV1::Benchmark(request)
         }
         "fault" => {
             let request: RealProcessFaultRequestV1 =
@@ -6950,134 +6942,6 @@ fn verify_invalid_leg_carrier_is_state_byte_identical(
         );
     }
     Ok(())
-}
-
-fn restart_ack_occurrence(
-    peer_index: usize,
-    revision: u64,
-    control_type: &str,
-    before_pid: u32,
-    after_pid: u32,
-) -> Result<FaultControlOccurrenceV1> {
-    let command = FaultRestartCommandV1 {
-        format_version: 1,
-        revision,
-        operation: "recover_crashed_validator".to_owned(),
-        peer_index,
-        before_pid,
-    };
-    let command_bytes = canonical_harness_json_bytes(&command)?;
-    let acknowledgement = FaultRestartAckV1 {
-        format_version: 1,
-        revision,
-        command_sha256: sha256_hex(&command_bytes),
-        operation: command.operation,
-        peer_index,
-        before_pid,
-        after_pid,
-        health_observed: true,
-    };
-    fault_control_occurrence(
-        control_type,
-        Some(peer_index),
-        command_bytes,
-        canonical_harness_json_bytes(&acknowledgement)?,
-        Some(before_pid),
-        Some(after_pid),
-    )
-}
-
-fn wait_for_fault_state_reverted(
-    network: &Network,
-    before: &FaultStateSnapshotV1,
-) -> Result<FaultStateSnapshotV1> {
-    let started = Instant::now();
-    let mut last = None;
-    while started.elapsed() <= FINALITY_TIMEOUT {
-        match capture_fault_state_snapshot(network, "after") {
-            Ok(snapshot) if ensure_fault_state_reverted(before, &snapshot).is_ok() => {
-                return Ok(snapshot);
-            }
-            Ok(_) => last = Some("APS state has not returned to its pre-trial identity".to_owned()),
-            Err(error) => last = Some(error.to_string()),
-        }
-        thread::sleep(POLL_INTERVAL);
-    }
-    Err(eyre!(
-        "timed out waiting for pre-carrier crash reconciliation: {}",
-        last.unwrap_or_else(|| "no state response".to_owned())
-    ))
-}
-
-fn advance_fault_bundle_past_expiry(
-    sponsor: &Client,
-    bundle: &FaultPreparedBundleV1,
-) -> Result<()> {
-    loop {
-        let height = sponsor
-            .client()
-            .get_privacy_capabilities()?
-            .committed_height;
-        if height > bundle.manifest.expiry_height {
-            return Ok(());
-        }
-        let tick = {
-            let account = sponsor.account_client();
-            account
-                .prepare_transaction(iroha::client::AccountTransactionDraft::new(
-                    [InstructionBox::from(Log::new(
-                        Level::INFO,
-                        format!("APS fault expiry {} h{height}", bundle.manifest.bundle_id),
-                    ))],
-                    bounded_nexus_fee(),
-                    Metadata::default(),
-                ))
-                .and_then(|payload| account.sign_transaction(payload))
-        }
-        .wrap_err("build integration-test transaction")?;
-        sponsor.submit_transaction_and_wait(&tick)?;
-    }
-}
-
-fn phase_certificate_for_leg(
-    sponsor: &Client,
-    bundle: &FaultPreparedBundleV1,
-    committee: &CommitteeEndpoints,
-    leg_ordinal: usize,
-    phase: iroha::data_model::nexus::PrivateSettlementPhaseV1,
-    barrier: Option<&iroha::data_model::nexus::PrivateSettlementPrepareBarrierV1>,
-) -> Result<iroha::data_model::nexus::PrivateSettlementPhaseCertificateV1> {
-    let payload = bundle.manifest.legs[leg_ordinal].payload_digest;
-    let votes = committee
-        .endpoints
-        .iter()
-        .map(|endpoint| match (phase, barrier) {
-            (iroha::data_model::nexus::PrivateSettlementPhaseV1::Prepare, None) => sponsor
-                .client()
-                .request_private_settlement_prepare_vote_v1(
-                    endpoint,
-                    &bundle.manifest,
-                    payload,
-                    &committee.authority,
-                )
-                .map(|response| response.vote),
-            (iroha::data_model::nexus::PrivateSettlementPhaseV1::Commit, Some(barrier)) => sponsor
-                .client()
-                .request_private_settlement_commit_vote_v1(
-                    endpoint,
-                    payload,
-                    barrier,
-                    &committee.authority,
-                )
-                .map(|response| response.vote),
-            _ => Err(eyre!("fault phase/barrier combination is invalid")),
-        })
-        .collect::<Result<Vec<_>>>()?;
-    aggregate_fault_phase_votes(
-        &votes,
-        [0, 1, 2],
-        u8::try_from(leg_ordinal).expect("leg ordinal fits u8"),
-    )
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -1,9 +1,9 @@
 //! Original funded SCCP committee payload with independent lifecycle scalars.
 //!
 //! Current/undo readers share only immutable key/account allocations. No decoder or mutable
-//! body escape creates custody. Snapshot DTOs require explicit original-pool admission.
-//! Snapshot records decode directly under the original pool; current/undo map nodes
-//! use the same admitted committee storage owner.
+//! body escape creates custody. Production records are built from original borrowed members
+//! or decoded directly under the original pool; current/undo map nodes use the same admitted
+//! committee storage owner. Test DTO fixtures exercise the borrowed-member constructor.
 
 use std::{alloc::Layout, fmt, mem::ManuallyDrop, ops::Deref};
 
@@ -104,12 +104,6 @@ impl GenerationBody {
         match self {
             Self::Constructed(payload) => payload.get(),
             Self::Decoded(payload) => &payload.record,
-        }
-    }
-    fn belongs_to(&self, budget: &AllocationBudget) -> bool {
-        match self {
-            Self::Constructed(payload) => payload.belongs_to(budget),
-            Self::Decoded(payload) => payload.allowance.belongs_to(budget),
         }
     }
 }
@@ -294,9 +288,14 @@ impl<'a, T> Construction<'a, T> {
 }
 
 impl RetainedSccpGeneration {
-    /// Whether the immutable original body and its shared shell belong to this exact pool.
+    /// Observe both actual pool identities in constructed and decoded custody tests.
+    #[cfg(test)]
     pub(crate) fn belongs_to(&self, budget: &AllocationBudget) -> bool {
-        self.body.belongs_to(budget) && GenerationBody::belongs_to(&self.body, budget)
+        self.body.belongs_to(budget)
+            && match &*self.body {
+                GenerationBody::Constructed(payload) => payload.belongs_to(budget),
+                GenerationBody::Decoded(payload) => payload.allowance.belongs_to(budget),
+            }
     }
 
     /// Decode one exact snapshot record from borrowed lower-case hex under the
@@ -321,7 +320,7 @@ impl RetainedSccpGeneration {
         budget: &AllocationBudget,
         validate: bool,
     ) -> Result<Self, GenerationRecordError> {
-        if source.len() % 2 != 0 {
+        if !source.len().is_multiple_of(2) {
             return Err(GenerationRecordError::Invalid("snapshot record"));
         }
         let byte_count = source.len() / 2;
@@ -416,7 +415,8 @@ impl RetainedSccpGeneration {
         })
     }
 
-    /// Admit a snapshot/test DTO as a new graph in the original pool, without granting authority.
+    /// Build a test DTO fixture through the production borrowed-member constructor.
+    /// This performs no snapshot restoration and grants no committee authority.
     ///
     /// # Errors
     /// Invalid structure, original capacity refusal or fallible physical/account allocation.
@@ -425,13 +425,6 @@ impl RetainedSccpGeneration {
         source: &SccpCommitteeGenerationV1,
         budget: &AllocationBudget,
     ) -> Result<Self, GenerationRecordError> {
-        let mut reservation = budget.try_reserve_bytes(Self::admission_demand(source)?)?;
-        Self::admit_prepaid(source, budget, &mut reservation)
-    }
-
-    fn snapshot_members(
-        source: &SccpCommitteeGenerationV1,
-    ) -> Result<[Option<MemberRef<'_>>; 31], GenerationRecordError> {
         if !source.is_well_formed() {
             return Err(GenerationRecordError::Invalid("record structure"));
         }
@@ -443,30 +436,11 @@ impl RetainedSccpGeneration {
                 activation_height: member.activation_height,
             });
         }
-        Ok(members)
-    }
-
-    /// Exact complete snapshot payload demand; decoding remains a claim, not authority.
-    pub(crate) fn admission_demand(
-        source: &SccpCommitteeGenerationV1,
-    ) -> Result<usize, GenerationRecordError> {
-        let members = Self::snapshot_members(source)?;
-        Self::allocation_demand(&source.keys, &members[..source.members.len()])
-    }
-
-    /// Restore one DTO from its partition of an aggregate original snapshot reservation.
-    pub(crate) fn admit_prepaid(
-        source: &SccpCommitteeGenerationV1,
-        budget: &AllocationBudget,
-        reservation: &mut AllocationReservation,
-    ) -> Result<Self, GenerationRecordError> {
-        let members = Self::snapshot_members(source)?;
-        Self::from_members_prepaid(
+        Self::from_members(
             source,
             &source.keys,
             &members[..source.members.len()],
             budget,
-            reservation,
         )
     }
 
@@ -611,11 +585,12 @@ impl RetainedSccpGeneration {
     pub fn is_liable(&self, current: u64, lc: u64) -> bool {
         self.generation == current
             || lc <= self.liable_until_lc
-            || lc
-                <= self.dest_cleared_lc.map_or_else(
-                    || self.liable_until_lc.saturating_add(self.progress_cap_ms),
-                    |cleared| cleared.saturating_add(self.grace_ms),
-                )
+            || (!cfg!(all(test, sumeragi_core_mutation = "HC322"))
+                && lc
+                    <= self.dest_cleared_lc.map_or_else(
+                        || self.liable_until_lc.saturating_add(self.progress_cap_ms),
+                        |cleared| cleared.saturating_add(self.grace_ms),
+                    ))
     }
     /// Structural key/deadline checks; this grants no committee authority.
     #[must_use]
@@ -746,7 +721,7 @@ mod tests {
                     .unwrap()
             })
             .collect();
-        keys.sort();
+        keys.sort_unstable();
         let validator = AccountId::new(
             KeyPair::try_from_seed(vec![7; 32], Algorithm::Ed25519)
                 .unwrap()
@@ -909,14 +884,36 @@ mod tests {
     fn aggregate_generation_reservation_moves_exact_credit_and_rejects_foreign_or_short_source() {
         let source = claim();
         let budget = AllocationBudget::new(1024 * 1024);
-        let bytes = RetainedSccpGeneration::admission_demand(&source).unwrap();
+        let mut members = [None; 31];
+        for (slot, member) in members.iter_mut().zip(&source.members) {
+            *slot = member.as_ref().map(|member| MemberRef {
+                lane_id: member.lane_id,
+                validator: &member.validator,
+                activation_height: member.activation_height,
+            });
+        }
+        let members = &members[..source.members.len()];
+        let bytes = RetainedSccpGeneration::allocation_demand(&source.keys, members).unwrap();
         let mut original = budget.try_reserve_bytes(bytes * 2).unwrap();
         assert_eq!(budget.reserved_bytes(), bytes * 2);
-        let first = RetainedSccpGeneration::admit_prepaid(&source, &budget, &mut original).unwrap();
+        let first = RetainedSccpGeneration::from_members_prepaid(
+            &source,
+            &source.keys,
+            members,
+            &budget,
+            &mut original,
+        )
+        .unwrap();
         assert_eq!(original.remaining_bytes(), bytes);
         assert_eq!(budget.reserved_bytes(), bytes * 2);
-        let second =
-            RetainedSccpGeneration::admit_prepaid(&source, &budget, &mut original).unwrap();
+        let second = RetainedSccpGeneration::from_members_prepaid(
+            &source,
+            &source.keys,
+            members,
+            &budget,
+            &mut original,
+        )
+        .unwrap();
         assert_eq!(original.remaining_bytes(), 0);
         drop(original);
         assert_eq!(budget.reserved_bytes(), bytes * 2);
@@ -927,7 +924,13 @@ mod tests {
         let other = AllocationBudget::new(1024 * 1024);
         let mut foreign = other.try_reserve_bytes(bytes).unwrap();
         assert!(matches!(
-            RetainedSccpGeneration::admit_prepaid(&source, &budget, &mut foreign),
+            RetainedSccpGeneration::from_members_prepaid(
+                &source,
+                &source.keys,
+                members,
+                &budget,
+                &mut foreign
+            ),
             Err(GenerationRecordError::Invalid(
                 "foreign original reservation"
             ))
@@ -936,7 +939,13 @@ mod tests {
         assert_eq!(budget.reserved_bytes(), 0);
         let mut short = budget.try_reserve_bytes(bytes - 1).unwrap();
         assert!(matches!(
-            RetainedSccpGeneration::admit_prepaid(&source, &budget, &mut short),
+            RetainedSccpGeneration::from_members_prepaid(
+                &source,
+                &source.keys,
+                members,
+                &budget,
+                &mut short
+            ),
             Err(GenerationRecordError::Invalid(
                 "incomplete original reservation"
             ))

@@ -1,0 +1,25 @@
+--- a/crates/norito/src/lib.rs
++++ b/crates/norito/src/lib.rs
+@@ -9506,6 +9506,22 @@
+     Ok(header)
+ }
+ 
++/// Borrow the payload of one uncompressed canonical-layout frame without decoding its graph.
++///
++/// This authenticates only the version, flags, schema, exact padding, length and checksum.
++/// The caller must validate every payload field and canonical encoding before interpreting it.
++/// No decoder budget controls or payload storage are allocated.
++///
++/// # Errors
++/// Rejects an invalid envelope or any layout other than the canonical encoder's fixed flags.
++pub fn canonical_frame_payload<T: NoritoSerialize>(bytes: &[u8]) -> Result<&[u8], Error> {
++    let header = checked_canonical_header(bytes)?;
++    if header.flags != core::default_encode_flags() {
++        return Err(Error::NonCanonicalEncoding);
++    }
++    checked_uncompressed_payload::<T>(bytes, &header)
++}
++
+ /// Decode one exact canonical V1 frame under default and schema-specific limits.
+ ///
+ /// Nested Norito limit scopes compose by taking the stricter value in every dimension, so the

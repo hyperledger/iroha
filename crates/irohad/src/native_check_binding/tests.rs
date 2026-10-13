@@ -70,7 +70,7 @@ fn retries_keep_exact_owner_pool_and_deadline_with_bounded_backoff() {
     let original = failure(&pool, &dropped, &retries, deadline);
     let address = original.original.signed.as_ptr();
     let mut waits = 0_usize;
-    let pending = match complete_check_with(
+    let pending = complete_check_with(
         Err(original),
         Failure::retry,
         || now.get(),
@@ -85,10 +85,8 @@ fn retries_keep_exact_owner_pool_and_deadline_with_bounded_backoff() {
             waits += 1;
             now.set(now.get() + delay);
         },
-    ) {
-        Ok(pending) => pending,
-        Err(_) => panic!("original attempt should complete"),
-    };
+    )
+    .unwrap_or_else(|_| panic!("original attempt should complete"));
     assert_eq!(waits, 5);
     assert_eq!(retries.get(), 5);
     assert_eq!(pending.signed.as_ptr(), address);

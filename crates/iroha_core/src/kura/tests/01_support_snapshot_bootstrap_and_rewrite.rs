@@ -322,7 +322,7 @@ fn blank_kura_applies_staged_pre_genesis_nexus_geometry() {
     let config = kura_config_for_path(&ignored_store, BLOCKS_IN_MEMORY);
     let kura = Kura::new_temporary_with_configured_lane_catalog(&config, &lane_config, &catalog)
         .expect("open the exact configured startup baseline");
-    let store_root = kura.store_root().to_path_buf();
+    let store_root = kura.store_root().clone();
     let mut state = State::try_new_with_chain(
         crate::state::AllocationBudget::new(
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
@@ -370,7 +370,7 @@ fn temporary_configured_kura_owns_authenticated_storage_lifetime() {
     let config = kura_config_for_path(&ignored_store, BLOCKS_IN_MEMORY);
     let kura = Kura::new_temporary_with_configured_lane_catalog(&config, &lane_config, &configured)
         .expect("initialize temporary authenticated Kura");
-    let store_root = kura.store_root().to_path_buf();
+    let store_root = kura.store_root().clone();
     assert!(store_root.is_dir());
     assert_ne!(store_root, ignored_store);
     let canonical_blocks = Kura::canonical_storage_path(&store_root);
@@ -535,7 +535,7 @@ fn native_storage_original_frames_and_certificates_survive_strict_restart() {
             .unwrap();
     for height in 1..=3 {
         let authority = verified.authenticated_execution(height).unwrap();
-        let original = &originals[height as usize - 1];
+        let original = &originals[usize::try_from(height).expect("fixture value fits usize") - 1];
         assert_eq!(
             authority.block().commit_certificate(),
             original.commit_certificate()
@@ -543,7 +543,8 @@ fn native_storage_original_frames_and_certificates_survive_strict_restart() {
         let (retained, bytes) = reopened
             .read_authenticated_execution_wire(
                 &authority,
-                original_wires[height as usize - 1].len() as u64,
+                original_wires[usize::try_from(height).expect("fixture value fits usize") - 1].len()
+                    as u64,
                 &history_budget,
             )
             .unwrap()
@@ -552,7 +553,10 @@ fn native_storage_original_frames_and_certificates_survive_strict_restart() {
             &retained,
             authority.block()
         ));
-        assert_eq!(bytes.as_slice(), original_wires[height as usize - 1]);
+        assert_eq!(
+            bytes.as_slice(),
+            original_wires[usize::try_from(height).expect("fixture value fits usize") - 1]
+        );
     }
     assert!(!reopened.store_root().join("merge_ledger").exists());
     assert!(!reopened.store_root().join("v2_finality").exists());

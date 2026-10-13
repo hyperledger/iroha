@@ -11,6 +11,10 @@
     clippy::unnecessary_wraps
 )]
 mod authenticated_block_proofs;
+mod transaction_attachment_context;
+pub use transaction_attachment_context::{
+    JsTransactionAttachmentContextV1, inspect_transaction_attachment_context_v1,
+};
 mod kaigi_authorization_v1;
 mod kaigi_proof_v1;
 mod kaigi_usage_v1;
@@ -8750,12 +8754,12 @@ mod tests {
     #[test]
     fn canonical_kotodama_binding_returns_full_artifact_manifest() {
         let request = canonical_kotodama_request(
-            r#"seiyaku Demo { permission RunDemo;
+            r"seiyaku Demo { permission RunDemo;
                 hajimari() {}
                 kaizen() {}
                 kotoage fn run() authorize(RunDemo) {}
                 view fn ping() authorize(anyone) -> int { return 1; }
-            }"#,
+            }",
         );
         let result = compile_kotodama_request(&request).expect("compile canonical Kotodama source");
         assert!(result.ok);
@@ -8821,7 +8825,7 @@ mod tests {
     }
     #[test]
     fn canonical_kotodama_request_preserves_source_name_and_selects_zk_policy() {
-        let source = r#"
+        let source = r"
 seiyaku Privacy { permission CanCommitPrivateInput;
   kotoage fn commit() authorize(CanCommitPrivateInput) {
     let Secret<int> value = crypto::private_input(0);
@@ -8830,7 +8834,7 @@ seiyaku Privacy { permission CanCommitPrivateInput;
     crypto::commit_output();
   }
 }
-"#;
+";
         let request = JsKotodamaCompileRequest {
             artifacts: Vec::new(),
             source: source.to_owned(),

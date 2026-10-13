@@ -1,7 +1,8 @@
 //! Proof/effect consumer controls over a real paid native chain through genuine due H60.
 //! Route and reducer-produced certificate preconditions are installed before genesis only.
 //! These tests do not qualify route establishment, live ballot/PQ proofs or emergency-pause
-//! creation. No World write, fabricated result or substituted native authority follows certification.
+//! creation. Positive fixtures use their original certified sources without World writes.
+//! The adversarial branch control changes only durable certificate bytes after that cut.
 
 use super::*;
 use crate::{
@@ -624,7 +625,7 @@ fn native_control_capacity_preserves_original_wait_retry_and_unwind_custody() {
             &partial_budget,
             super::tests::control(&stop)
         ),
-        Err(SccpNativeReadError::Source(_)) | Err(SccpNativeReadError::Allocation(_))
+        Err(SccpNativeReadError::Source(_) | SccpNativeReadError::Allocation(_))
     ));
     assert_eq!(partial_budget.reserved_bytes(), 0);
     assert_eq!(native.certified_result().header().as_bytes(), &original);
@@ -696,6 +697,64 @@ fn native_control_selects_its_own_genuine_branch_with_same_instance_and_control_
         foreign.commit_qc().unwrap().block_hash.0
     );
     drop(proof);
+    assert_eq!(budget.reserved_bytes(), occupied);
+
+    // A foreign certificate remains genuinely signed by the same committee and has
+    // the same SCCP/history roots. Replace only those bytes in this source's durable
+    // frame: ordinary source selection must now reject the crossed execution join.
+    chain.kura().replace_native_certificate_for_test(
+        std::num::NonZeroUsize::new(61).unwrap(),
+        foreign.block().commit_certificate().unwrap().clone(),
+    );
+    let acquired = read_commit_certificate(
+        &view,
+        NonZeroU64::new(61).unwrap(),
+        &budget,
+        super::tests::control(&stop).deadline,
+    )
+    .unwrap();
+    assert_eq!(
+        acquired.certificate().commit_qc,
+        foreign.certificate().unwrap().commit_qc()
+    );
+    drop(acquired);
+    let error = control_proof(
+        &view,
+        ETH,
+        1,
+        1,
+        SccpNativeProofAt::Height(NonZeroU64::new(original.height()).unwrap()),
+        &budget,
+        super::tests::control(&stop),
+    )
+    .err()
+    .expect("genuine foreign certificate cannot replace this executed source");
+    assert_eq!(
+        error.to_string(),
+        "invalid native SCCP data: signed execution differs from the original stored frame"
+    );
+    assert_eq!(budget.reserved_bytes(), occupied);
+    chain.kura().replace_native_certificate_for_test(
+        std::num::NonZeroUsize::new(61).unwrap(),
+        original.block().commit_certificate().unwrap().clone(),
+    );
+    let restored = control_proof(
+        &view,
+        ETH,
+        1,
+        1,
+        SccpNativeProofAt::Height(NonZeroU64::new(original.height()).unwrap()),
+        &budget,
+        super::tests::control(&stop),
+    )
+    .unwrap();
+    assert_eq!(
+        QcFixedV1::parse(&restored.data().certificate.qc)
+            .unwrap()
+            .block_hash,
+        original.commit_qc().unwrap().block_hash.0
+    );
+    drop(restored);
     assert_eq!(budget.reserved_bytes(), occupied);
 }
 

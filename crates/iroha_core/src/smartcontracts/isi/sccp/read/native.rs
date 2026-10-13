@@ -12,6 +12,7 @@ use std::{
 };
 
 use iroha_allocation::{AllocationBudget, AllocationRefusal, AllocationReservation};
+use iroha_crypto::bls::consensus::ConsensusAggregateScratch;
 use iroha_data_model::{
     NetworkId,
     block::consensus::SumeragiRootScope,
@@ -32,7 +33,10 @@ use iroha_sccp::{
     },
     v1::{
         control::{ControlLeafV1, control_leaf},
-        finality::{QcFixedV1, check_signers, signers_from_bitmap},
+        finality::{
+            CertificateError, QcFixedV1, check_signers, signers_from_bitmap,
+            verify_certificate_with_scratch,
+        },
         hashes::{history_leaf, message_id, node, payload_hash, transfer_leaf},
         payload::SccpTransferPayloadRefV1,
     },
@@ -47,12 +51,26 @@ use crate::{
     state::{State, StateReadOnly, StateView, StateViewError, WorldReadOnly},
     sumeragi::{
         crypto::BlsCrypto,
-        finality::{NativeCommitCertificateReadErrorV1, read_commit_certificate},
+        finality::{
+            NativeCommitCertificateDataV1, NativeCommitCertificateReadErrorV1,
+            read_commit_certificate,
+        },
     },
 };
 
 /// Maximum native generation transitions in one catch-up response (§6).
 pub const MAX_NATIVE_ROTATIONS: usize = 16;
+pub mod evidence;
+/// Borrowed, request-funded registry and governance metadata.
+pub mod governance_metadata;
+/// Request-funded light-client metadata.
+pub mod light_client_metadata;
+/// Borrowed, request-funded message metadata.
+pub mod message_metadata;
+mod reconciliation;
+pub use reconciliation::forgery_hold;
+mod fast_pause;
+pub use fast_pause::{RetainedFastPauseView, anchor_witness, fast_pause};
 const MAX_KEYS: usize = 31;
 const MAX_BLOCK_LEAVES: usize = 512;
 const MAX_PAYLOAD_BYTES: usize = 4096;
@@ -81,6 +99,9 @@ pub enum SccpNativeReadError {
     /// A prior generation is no longer retained under the committed retention policy.
     #[error("native SCCP record pruned: {0}")]
     Pruned(&'static str),
+    /// A genuine outgoing rotation passed its deadline at the authenticated committed tip.
+    #[error("native SCCP rotation is outside its committed retention window")]
+    RotationPruned,
     /// The requested certificate's original header is inactive.
     #[error("the selected original native result is inactive")]
     Inactive,
@@ -108,6 +129,9 @@ pub enum SccpNativeReadError {
     /// Result validation, including the typed nested `Body(Resource)` local refusal.
     #[error(transparent)]
     CertifiedResult(#[from] CertifiedResultError),
+    /// The original native certificate failed the server's required destination relation.
+    #[error(transparent)]
+    Certificate(#[from] CertificateError),
     /// The original request deadline expired, including during a bounded history scan.
     #[error("native SCCP request deadline expired")]
     Deadline,
@@ -146,8 +170,8 @@ pub fn with_state_view<T>(
 /// verified certificate or an authority capability. Do not release the charge while
 /// retaining the DTO. The transport must separately admit its encoded response buffer.
 pub struct SccpNativeDataV1<T> {
-    data: T,
-    _charge: AllocationReservation,
+    pub(super) data: T,
+    pub(super) _charge: AllocationReservation,
 }
 
 impl<T> SccpNativeDataV1<T> {
@@ -174,9 +198,10 @@ struct SourceIdentity {
     network: [u8; 32],
     instance: Hash32,
     height: u64,
+    timestamp_ms: u64,
 }
 
-fn deadline_check(control: SccpNativeReadControl<'_>) -> Result<()> {
+pub(super) fn deadline_check(control: SccpNativeReadControl<'_>) -> Result<()> {
     if control.stop.load(Ordering::Acquire) {
         return Err(SccpNativeReadError::Cancelled);
     }
@@ -229,6 +254,7 @@ fn source_identity(
         network: *view.network_id().as_bytes(),
         instance,
         height,
+        timestamp_ms: tip.creation_time_ms(),
     })
 }
 
@@ -366,6 +392,7 @@ fn certificate(
         height,
         source,
         original.certificate(),
+        &original,
         budget,
         control,
     )
@@ -373,12 +400,14 @@ fn certificate(
 
 // Private DATA projection kernel: the production caller above supplies only the original
 // compact reader's retained bytes. Tests mutate those bytes to exercise source rejection;
-// this function creates no verified capability and does not authenticate an offered roster.
+// this function verifies the original executed generation's certificate relation and
+// exact executed-frame binding without creating a destination trust capability.
 fn project_original(
     world: &(impl WorldReadOnly + ?Sized),
     height: NonZeroU64,
     source: SourceIdentity,
     raw: &SumeragiCommitCertificateV1,
+    original: &NativeCommitCertificateDataV1,
     budget: &AllocationBudget,
     control: SccpNativeReadControl<'_>,
 ) -> Result<SccpCertificateV1> {
@@ -415,6 +444,21 @@ fn project_original(
         let result =
             CertifiedResultV1::decode(&raw.result_preimage, CertifiedResultScope::TairaGlobal)?;
         let x = result.header();
+        let expected = original.executed_wire_identity();
+        let execution = &result.commitment().execution;
+        if (
+            execution.executed_block_wire_len,
+            execution.executed_block_wire_hash,
+        ) != expected
+        {
+            return Err(SccpNativeReadError::Invalid(
+                "signed execution differs from the original stored frame",
+            ));
+        }
+        let original_header = original.original_header();
+        let timestamp_ms = u64::try_from(original_header.creation_time().as_millis())
+            .map_err(|_| SccpNativeReadError::Invalid("original block time exceeds u64"))?;
+        result.check_block(original_header.height().get(), timestamp_ms)?;
         if !x.is_active() {
             return Err(SccpNativeReadError::Inactive);
         }
@@ -460,15 +504,49 @@ fn project_original(
         data.check_shape()
             .map_err(|_| SccpNativeReadError::Invalid("native certificate shape"))?;
         deadline_check(control)?;
+        if verify_original_relation(&data, source.instance, &generation.keys, budget, control)?
+            != qc.result
+        {
+            return Err(SccpNativeReadError::Invalid(
+                "verified native result differs",
+            ));
+        }
         Ok(data)
     })
 }
 
+// The original executed generation supplies these borrowed keys. A DATA committee is
+// never an independent trust pin. Admission funds the exact pairing backing before it
+// exists; its canonical owner retires that backing before refunding this original pool.
+fn verify_original_relation(
+    data: &SccpCertificateV1,
+    instance: Hash32,
+    keys: &[[u8; 48]],
+    budget: &AllocationBudget,
+    control: SccpNativeReadControl<'_>,
+) -> Result<Hash32> {
+    deadline_check(control)?;
+    let mut scratch = ConsensusAggregateScratch::new(|bytes| budget.try_reserve_bytes(bytes))?;
+    let verified = verify_certificate_with_scratch(
+        &instance.0,
+        &data.qc,
+        &data.header,
+        &data.aggregate_signature,
+        keys,
+        &mut scratch,
+    )?;
+    drop(scratch);
+    deadline_check(control)?;
+    Ok(Hash32(verified.result))
+}
+
 /// Read an original active native certificate at `height`, or the captured tip for `None`.
+/// A genesis-only tip has no Commit certificate: latest is unavailable, not an invalid selector.
 ///
 /// # Errors
 /// Preserves original source/resource failures; rejects non-Global roots, inactive headers,
-/// invalid selectors, generation mismatch, noncanonical native frames and non-exact quorums.
+/// invalid selectors, generation mismatch, noncanonical native frames, non-exact quorums,
+/// invalid aggregate signatures and a signed result that differs from the exact stored execution.
 pub fn finality(
     view: &impl StateReadOnly,
     height: Option<NonZeroU64>,
@@ -476,6 +554,11 @@ pub fn finality(
     control: SccpNativeReadControl<'_>,
 ) -> Result<SccpNativeDataV1<SccpCertificateV1>> {
     let source = source_identity(view, control)?;
+    if height.is_none() && source.height < 2 {
+        return Err(SccpNativeReadError::Unavailable(
+            "the original tip has no Commit certificate yet",
+        ));
+    }
     let height = checked_height(height.map_or(source.height, NonZeroU64::get), source)?;
     let charge =
         budget.try_reserve_bytes(size_of::<SccpCertificateV1>() + CERTIFICATE_HEAP_BYTES)?;
@@ -492,7 +575,9 @@ pub fn finality(
 ///
 /// # Errors
 /// Rejects a zero/unknown cursor, limits outside `1..=16`, unavailable original certificates,
-/// resync gaps and mismatched successor records. Preserves typed resource failures.
+/// resync gaps, mismatched successor records and rotations past their outgoing generation's
+/// deadline at the original committed tip. The deadline is inclusive. Preserves typed
+/// resource failures; a missing source is never evidence of expiry.
 pub fn committee_rotations(
     view: &impl StateReadOnly,
     after_generation: u64,
@@ -560,6 +645,11 @@ pub fn committee_rotations(
                 "generation end has no matching original rotation",
             ));
         }
+        // Only the genuine original rotation and its retained generation establish expiry.
+        // Local wall time, an absent archive, and an offered DATA timestamp cannot do so.
+        if current.deadline_ms < source.timestamp_ms {
+            return Err(SccpNativeReadError::RotationPruned);
+        }
         data.push(SccpRotationV1 {
             certificate: cert,
             next_committee: copy_slice(&next.keys)?,
@@ -600,10 +690,17 @@ pub fn message_proof(
         .map_err(|_| SccpNativeReadError::Invalid("stored transfer payload"))?;
     if !payload.is_outbound()
         || payload.target() != Some(record.network)
-        || payload.route_revision != record.revision
-        || payload.nonce != record.nonce
-        || payload.deadline_ms != record.deadline_ms
-        || payload.amount != record.amount
+        || (
+            payload.route_revision,
+            payload.nonce,
+            payload.deadline_ms,
+            payload.amount,
+        ) != (
+            record.revision,
+            record.nonce,
+            record.deadline_ms,
+            record.amount,
+        )
     {
         return Err(SccpNativeReadError::Invalid("record payload coordinates"));
     }
@@ -920,9 +1017,11 @@ fn bounded_tree_path(leaves: &mut [[u8; 32]], index: u64) -> Result<([u8; 32], V
     Ok((leaves[0], path))
 }
 
-/// TODO: replace the per-request O(size) scan with the §6 authenticated O(log size) cache
-/// once its retained nodes have original pool ownership and typed deadline/admission errors.
-/// This bounded streaming implementation uses only 33 peak slots and at most 32 siblings.
+/// Embedded message/control proofs stream original history leaves in O(size) time,
+/// checking cancellation and the source deadline at each leaf. Scratch stays bounded
+/// to 33 peak slots and 32 siblings. The standalone §6 `/history` route separately
+/// uses its original-pool `SccpHistoryNodeCache` for the specified O(log size) path;
+/// this embedded producer does not duplicate or replace that cache owner.
 fn history_path(
     world: &(impl WorldReadOnly + ?Sized),
     index: u64,

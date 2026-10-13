@@ -127,7 +127,7 @@ impl Worker<'_> {
         // Observe its actual release before the generation probe and retain on Busy.
         let release = self.state.view_publication_release();
         let generation = self.state.state_view_generation();
-        if generation % 2 != 0 {
+        if !generation.is_multiple_of(2) {
             return Err(PublicationError::Deferred(
                 PublicationDeferral::PublicationBusy(release),
             ));
@@ -248,7 +248,7 @@ impl Worker<'_> {
         scope: OriginalPayloadScope,
         physical_parent: &SignedBlock,
         current_view: &crate::state::StateView<'_>,
-    ) -> Result<Option<Option<PayloadBytes>>, PublicationError> {
+    ) -> Result<Option<PayloadBytes>, PublicationError> {
         let reusable = match self.completed_payload.as_ref() {
             None => return Ok(None),
             Some(original) => {
@@ -292,7 +292,7 @@ impl Worker<'_> {
             .as_ref()
             .expect("exact owner checked above");
         check_proposer_clock(original.creation_time, self.context.time_source.now())?;
-        Ok(Some(Some(original.payload.clone())))
+        Ok(Some(original.payload.clone()))
     }
 
     /// Keep the original nonempty funded output only while its captured queue inputs remain live.
@@ -595,7 +595,7 @@ mod tests {
                         let original_range = section.merges.as_ptr();
                         assert!(creation_time >= Duration::from_millis(section.time_floor_ms));
                         assert_eq!(source.block.network_entrypoint_count(), 0);
-                        clock.set(creation_time - Duration::from_millis(1));
+                        clock.set(creation_time.checked_sub(Duration::from_millis(1)).unwrap());
                         assert!(worker.build(height, 0, 1 << 20, 100).is_err());
                         assert_eq!(
                             worker
@@ -760,7 +760,6 @@ mod tests {
     #[test]
     fn retained_partial_payload_refuses_missing_original_parent_and_resumes_same_paid_wire() {
         // Pin before genesis so retired fixture State generations cannot alter exact refunds.
-        let _fixture_epoch = crossbeam_epoch::pin();
         struct OriginalJournal {
             path: std::path::PathBuf,
             saved: std::path::PathBuf,
@@ -770,6 +769,7 @@ mod tests {
                 std::fs::rename(&self.saved, &self.path).unwrap();
             }
         }
+        let _fixture_epoch = crossbeam_epoch::pin();
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, _clock, _time) = attach_queue(chain, worker);
             let budget = worker.state.ivm_execution_budget();
@@ -950,7 +950,6 @@ mod tests {
                     .poll(&mut Context::from_waker(Waker::noop())),
                 Poll::Ready(())
             );
-            drop(pending);
             let Some(output) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("both actual physical releases permit the same paid original wire");
             };
@@ -964,11 +963,11 @@ mod tests {
     #[test]
     fn retained_partial_payload_preserves_actual_publication_release_until_source_withdrawal() {
         // Pin before genesis so retired fixture State generations cannot alter exact refunds.
-        let _fixture_epoch = crossbeam_epoch::pin();
         use std::{
             future::Future,
             task::{Context, Poll, Waker},
         };
+        let _fixture_epoch = crossbeam_epoch::pin();
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, _clock, _time) = attach_queue(chain, worker);
             let state = worker.state;
@@ -1020,7 +1019,6 @@ mod tests {
                     .poll(&mut Context::from_waker(Waker::noop())),
                 Poll::Ready(())
             );
-            drop(released);
             drop((current_view, parent));
             assert!(
                 worker.payload_storage_wait().is_none(),
@@ -1121,7 +1119,10 @@ mod tests {
             let PublicationError::Deferred(ref refusal) = failure else {
                 panic!("original certificate preparation must retain its capacity refusal");
             };
-            let original_refusal = refusal.clone();
+            let original_refusal = refusal
+                .allocation_refusal()
+                .expect("original State pool refusal")
+                .clone();
             let Some(AllocationRefusal::Capacity { release, .. }) = refusal.allocation_refusal()
             else {
                 panic!("the actual original State pool supplies the release observation");
@@ -1130,7 +1131,18 @@ mod tests {
             let context = &mut Context::from_waker(Waker::noop());
             assert_eq!(registration.poll_wait(&wait, context), Poll::Pending);
             scheduler.done(0, ExecDone::Prepared(Err(failure)));
-            assert_eq!(scheduler.preparation_refusal(), Some(&original_refusal));
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::allocation_refusal),
+                Some(&original_refusal)
+            );
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::release_wait),
+                Some(&wait)
+            );
             assert!(scheduler.next(0).is_none());
             assert_eq!(scheduler.wakeup(), u64::MAX);
             assert_eq!(retained_partial_pointer(worker), partial_pointer);
@@ -1168,7 +1180,18 @@ mod tests {
                 panic!("actual original-pool retirement permits the same committed head to retry");
             };
             assert!(Arc::ptr_eq(&original, &retry));
-            assert_eq!(scheduler.preparation_refusal(), Some(&original_refusal));
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::allocation_refusal),
+                Some(&original_refusal)
+            );
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::release_wait),
+                Some(&wait)
+            );
             // The independent pressure owner is deliberately still retained at
             // every retirement, identity and wake assertion above.
             drop(pressure);
@@ -1178,7 +1201,6 @@ mod tests {
     #[test]
     fn retained_partial_payload_idle_expiry_refunds_while_original_parent_stays_unavailable() {
         // Pin before genesis so retired fixture State generations cannot alter exact refunds.
-        let _fixture_epoch = crossbeam_epoch::pin();
         struct OriginalJournal {
             path: std::path::PathBuf,
             saved: std::path::PathBuf,
@@ -1188,6 +1210,7 @@ mod tests {
                 std::fs::rename(&self.saved, &self.path).unwrap();
             }
         }
+        let _fixture_epoch = crossbeam_epoch::pin();
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, clock, _time) = attach_queue(chain, worker);
             let budget = worker.state.ivm_execution_budget();
@@ -1452,8 +1475,8 @@ mod tests {
             let original_hash = {
                 let block = payload::decode(original.as_slice()).unwrap();
                 assert_eq!(block.network_entrypoint_count(), 1);
-                let hash = block.network_entrypoints().next().unwrap().hash();
-                hash
+
+                block.network_entrypoints().next().unwrap().hash()
             };
             let added_hash = queue_work(chain, 2_001, &queue, &time);
             assert_ne!(added_hash, original_hash);
@@ -1691,11 +1714,11 @@ mod tests {
     fn completed_original_payload_preserves_actual_publisher_release_and_expires_while_it_is_held()
     {
         // Pin before genesis so retired fixture State generations cannot alter exact refunds.
-        let _fixture_epoch = crossbeam_epoch::pin();
         use std::{
             future::Future,
             task::{Context, Poll, Waker},
         };
+        let _fixture_epoch = crossbeam_epoch::pin();
         for expire_while_held in [false, true] {
             super::super::publication_tests::with_worker(move |chain, worker, _blocks, _events| {
                 let (queue, clock, _time) = attach_queue(chain, worker);
@@ -1850,7 +1873,6 @@ mod tests {
                         .poll(&mut Context::from_waker(Waker::noop())),
                     Poll::Ready(())
                 );
-                drop(released);
                 assert!(state.try_view_once().is_ok());
                 assert!(
                     worker.payload_storage_wait().is_none(),
@@ -1872,11 +1894,11 @@ mod tests {
     #[test]
     fn completed_original_payload_retries_the_same_backing_after_actual_header_reader_release() {
         // Pin before genesis so retired fixture State generations cannot alter exact refunds.
-        let _fixture_epoch = crossbeam_epoch::pin();
         use std::{
             future::Future,
             task::{Context, Poll, Waker},
         };
+        let _fixture_epoch = crossbeam_epoch::pin();
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, _clock, _time) = attach_queue(chain, worker);
             let state = worker.state;
@@ -1921,7 +1943,6 @@ mod tests {
                     .poll(&mut Context::from_waker(Waker::noop())),
                 Poll::Ready(())
             );
-            drop(released);
             let Some(retried) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("retry")
             };
@@ -1977,8 +1998,8 @@ mod tests {
             let original_hash = {
                 let block = payload::decode(original.as_slice()).unwrap();
                 assert_eq!(block.network_entrypoint_count(), 1);
-                let hash = block.network_entrypoints().next().unwrap().hash();
-                hash
+
+                block.network_entrypoints().next().unwrap().hash()
             };
             drop(original);
             assert!(worker.completed_payload.is_some());

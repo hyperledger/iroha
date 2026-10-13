@@ -335,6 +335,21 @@ impl Directory {
     }
 
     // Consume the original census while its directory metadata and native owner remain live.
+    pub(super) fn visit_entries_native(
+        &self,
+        mut visit: impl FnMut(&OsStr) -> io::Result<()>,
+    ) -> io::Result<()> {
+        for entry in rustix::fs::Dir::read_from(&self.current().file)? {
+            let entry = entry?;
+            let name = OsStr::from_bytes(entry.file_name().to_bytes());
+            if name == "." || name == ".." {
+                continue;
+            }
+            visit(checked_name(name)?)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn entries_native<T>(
         &self,
         maximum: usize,
@@ -342,18 +357,13 @@ impl Directory {
     ) -> io::Result<T> {
         let before = self.current().file.metadata()?;
         let mut names = Vec::new();
-        for entry in rustix::fs::Dir::read_from(&self.current().file)? {
-            let entry = entry?;
-            let name = OsStr::from_bytes(entry.file_name().to_bytes());
-            if name == "." || name == ".." {
-                continue;
-            }
-            checked_name(name)?;
+        self.visit_entries_native(|name| {
             if names.len() >= maximum {
                 return Err(invalid("directory entry count exceeds the bound"));
             }
             names.push(name.to_owned());
-        }
+            Ok(())
+        })?;
         if !unchanged(&before, &self.current().file.metadata()?) {
             return Err(changed());
         }
@@ -550,7 +560,15 @@ impl Directory {
     }
 
     pub(super) fn child_optional(&self, name: &OsStr) -> io::Result<Option<Self>> {
-        let result = match self.child_admission(name, false, false, true) {
+        self.child_optional_policy(name, true)
+    }
+
+    pub(super) fn child_owned_optional(&self, name: &OsStr) -> io::Result<Option<Self>> {
+        self.child_optional_policy(name, false)
+    }
+
+    fn child_optional_policy(&self, name: &OsStr, private: bool) -> io::Result<Option<Self>> {
+        let result = match self.child_admission(name, false, false, private) {
             // The admitted child already closed its complete retained ancestry.
             Ok(NativeChildOutcome::Present(child)) => return Ok(Some(child)),
             Ok(NativeChildOutcome::InitialAbsence(_)) => Ok(None),
@@ -769,12 +787,54 @@ impl Directory {
         consume(bytes).map(NativeReadOutcome::Present)
     }
 
+    pub(super) fn open_regular_native(&self, name: &OsStr) -> io::Result<Option<File>> {
+        let file = match self.open_read(name) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        if !file.metadata()?.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "artifact is not a regular file",
+            ));
+        }
+        let before = validate_file(&file, false)?;
+        let named = self.open_read(name)?;
+        if !unchanged(&before, &validate_file(&named, false)?) {
+            return Err(changed());
+        }
+        Ok(Some(file))
+    }
+
+    pub(super) fn sync_parent(&self) -> io::Result<()> {
+        self.revalidate()?;
+        if let Some(parent) = self.links.iter().rev().nth(1) {
+            parent.sync()?;
+        }
+        self.revalidate()
+    }
+
     pub(super) fn write_atomic(
         &self,
         name: &OsStr,
         bytes: &[u8],
         mode: PublishMode,
         private_destination: bool,
+    ) -> io::Result<()> {
+        self.write_atomic_observed(name, bytes, mode, private_destination, 128, &mut |_, _| {
+            Ok(())
+        })
+    }
+
+    pub(super) fn write_atomic_observed(
+        &self,
+        name: &OsStr,
+        bytes: &[u8],
+        mode: PublishMode,
+        private_destination: bool,
+        temporary_attempts: u32,
+        before: &mut impl FnMut(AtomicWriteStep, &Path) -> io::Result<()>,
     ) -> io::Result<()> {
         self.revalidate()?;
         if mode == PublishMode::Replace {
@@ -789,9 +849,14 @@ impl Directory {
                 Err(error) => return Err(error),
             }
         }
-        let (temporary, mut file) = (0..128)
+        let (temporary, mut file) = (0..temporary_attempts)
             .find_map(|_| {
                 let name = temporary_name();
+                if let Err(error) = before(AtomicWriteStep::CreateTemp, &self.path().join(&name))
+                    .and_then(|()| self.revalidate())
+                {
+                    return Some(Err(error));
+                }
                 match rustix::fs::openat(
                     &self.current().file,
                     &name,
@@ -814,9 +879,20 @@ impl Directory {
                 ))
             })?;
         let result = (|| {
-            file.write_all(bytes)?;
+            let temporary_path = self.path().join(&temporary);
+            let (head, tail) = bytes.split_at(bytes.len() / 2);
+            before(AtomicWriteStep::WriteHead, &temporary_path)?;
+            self.revalidate()?;
+            file.write_all(head)?;
+            before(AtomicWriteStep::WriteTail, &temporary_path)?;
+            self.revalidate()?;
+            file.write_all(tail)?;
+            before(AtomicWriteStep::SyncFile, &temporary_path)?;
+            self.revalidate()?;
             file.sync_all()?;
             validate_file(&file, true)?;
+            self.revalidate()?;
+            before(AtomicWriteStep::Publish, &self.path().join(name))?;
             self.revalidate()?;
             let named = self.open_read(OsStr::new(&temporary))?;
             if identity(&named)? != identity(&file)? {
@@ -831,6 +907,8 @@ impl Directory {
                 )?,
                 PublishMode::CreateNew => publish_new(&self.current().file, &temporary, name)?,
             }
+            before(AtomicWriteStep::SyncDirectory, self.path())?;
+            self.revalidate()?;
             self.current().file.sync_all()?;
             let published = self.open_read(name)?;
             validate_file(&published, true)?;
@@ -856,13 +934,32 @@ impl Directory {
 
     // The public removal bracket owns full entry and every-result exit custody.
     pub(super) fn remove_private_native(&self, name: &OsStr) -> io::Result<bool> {
-        let Some(file) = self.open_readonly_native(name, true)? else {
+        self.remove_file_native(name, true)
+    }
+
+    pub(super) fn remove_regular_native(&self, name: &OsStr) -> io::Result<bool> {
+        self.remove_file_native(name, false)
+    }
+
+    fn remove_file_native(&self, name: &OsStr, private: bool) -> io::Result<bool> {
+        let snapshot = |file: &File| {
+            if private {
+                journal_snapshot(file)
+            } else {
+                snapshot_file(file, false)
+            }
+        };
+        let admitted = if private {
+            self.open_readonly_native(name, true)?
+        } else {
+            self.open_regular_native(name)?
+        };
+        let Some(file) = admitted else {
             return Ok(false);
         };
-        let before = journal_snapshot(&file)?;
+        let before = snapshot(&file)?;
         self.revalidate()?;
-        if journal_snapshot(&file)? != before || journal_snapshot(&self.open_read(name)?)? != before
-        {
+        if snapshot(&file)? != before || snapshot(&self.open_read(name)?)? != before {
             return Err(changed());
         }
         rustix::fs::unlinkat(&self.current().file, name, AtFlags::empty())?;

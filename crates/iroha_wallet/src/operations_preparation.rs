@@ -283,9 +283,11 @@ struct TerminalRead {
     retirement: Option<ObservedRecord<Retirement>>,
     custody_plan: Option<stream_token_custody::RetainedPlanTimestamp>,
 }
-enum ReadRecipe {
+// The call owns the retained records. The recipe only selects and consumes that
+// owner, so an original read does not carry an inline terminal-record graph.
+enum ReadRecipe<'a> {
     Original,
-    Terminal(Option<TerminalRecords>),
+    Terminal(&'a mut Option<TerminalRecords>),
 }
 fn observed_record<T: norito::json::JsonDeserialize + norito::json::JsonSerialize>(
     reader: &mut iroha_operation_journal::NativeJournalReadScope<'_, '_>,
@@ -325,20 +327,22 @@ impl Retained {
     fn read_with_recipe(
         journal: &Journal,
         config: &Config,
-        recipe: ReadRecipe,
+        recipe: ReadRecipe<'_>,
     ) -> Result<(Self, Option<TerminalRead>)> {
         journal.verify_native_inventory()?;
         journal.read_native_scope(|reader| {
             let (retain, previous_request, previous_retirement, previous_custody_plan) =
                 match recipe {
                     ReadRecipe::Original => (false, None, None, None),
-                    ReadRecipe::Terminal(Some(previous)) => (
-                        true,
-                        Some(previous.request),
-                        Some(previous.retirement),
-                        previous.custody_plan,
-                    ),
-                    ReadRecipe::Terminal(None) => (true, None, None, None),
+                    ReadRecipe::Terminal(previous) => match previous.take() {
+                        Some(previous) => (
+                            true,
+                            Some(previous.request),
+                            Some(previous.retirement),
+                            previous.custody_plan,
+                        ),
+                        None => (true, None, None, None),
+                    },
                 };
             let (request, request_observation, custody_plan) = if retain {
                 let (request, unchanged) =

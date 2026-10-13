@@ -176,7 +176,7 @@ impl SafetyRecord {
     /// Verify an actual retained signature against its exact original signing identity.
     /// An unsigned reservation supplies no first-signature authority.
     pub fn prepare_signature_verifies(&self, crypto: &dyn Crypto) -> bool {
-        if cfg!(sumeragi_mutation = "MS66") {
+        if cfg!(sumeragi_mutation = "MS73") {
             return true;
         }
         match (self.prepare, self.prepare_signature) {

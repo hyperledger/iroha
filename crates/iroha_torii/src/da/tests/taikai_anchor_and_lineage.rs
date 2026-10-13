@@ -288,7 +288,10 @@ async fn taikai_collect_pending_uploads_sorts_by_base_id() {
     let pending = collect_pending_uploads(&spool_dir)
         .await
         .expect("collect pending uploads");
-    let observed: Vec<_> = pending.iter().map(|upload| upload.base_id()).collect();
+    let observed: Vec<_> = pending
+        .iter()
+        .map(crate::da::taikai::taikai_ingest::PendingUpload::base_id)
+        .collect();
     assert_eq!(observed, vec![base_a, base_b]);
 }
 #[tokio::test]

@@ -156,24 +156,27 @@ mod tests {
     fn immutable_authority_changes_and_reappearance_are_rejected() {
         let original = record();
         let mut changes = vec![];
-        let mut changed = original.clone();
-        changed.da_layout.chunk_size_bytes *= 2;
-        changes.push(changed);
-        let mut changed = original.clone();
-        changed.anchor_freshness += 1;
-        changes.push(changed);
-        let mut changed = original.clone();
-        changed.dataspace = DataSpaceId::new(8);
-        changes.push(changed);
-        let mut changed = original.clone();
-        changed.created_at += 1;
-        changed.active_from += 1;
-        changes.push(changed);
-        for changed in changes {
+        let mut tampered_value = original.clone();
+        tampered_value.da_layout.chunk_size_bytes *= 2;
+        changes.push(tampered_value);
+        let mut tampered_value = original.clone();
+        tampered_value.anchor_freshness += 1;
+        changes.push(tampered_value);
+        let mut tampered_value = original.clone();
+        tampered_value.dataspace = DataSpaceId::new(8);
+        changes.push(tampered_value);
+        let mut tampered_value = original.clone();
+        tampered_value.created_at += 1;
+        tampered_value.active_from += 1;
+        changes.push(tampered_value);
+        for tampered_value in changes {
             let mut selected = LaneSelection::new(original.lane, original.incarnation);
             selected.observe(10, &state(original.clone())).unwrap();
             assert_eq!(
-                selected.observe(15, &state(changed)).unwrap_err().kind(),
+                selected
+                    .observe(15, &state(tampered_value))
+                    .unwrap_err()
+                    .kind(),
                 io::ErrorKind::InvalidData
             );
         }

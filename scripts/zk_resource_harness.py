@@ -93,6 +93,8 @@ if str(SCRIPTS) not in sys.path:
 
 import private_settlement_process_observer as observer
 import private_settlement_session_control as control
+from nexus import resource_process as native_process
+from nexus import resource_process_exit as native_exit
 
 SCHEMA_PATH = REPOSITORY / "crates" / "iroha_measurement" / "fixtures" / "record_schema_v1.json"
 DEFAULT_OUTPUT_ROOT = REPOSITORY / "dist" / "zk-resource-harness"
@@ -114,7 +116,8 @@ MAX_OUTPUT_TAIL_BYTES = 64 * 1024
 # Most argument bytes --record-arguments may store verbatim.
 MAX_RECORDED_ARGUMENT_BYTES = 64 * 1024
 # Output readers may drain after reap. Only an immediate nonblocking reap
-# excuses an observer exit race; a later exit cannot erase a genuine failure.
+# handles an unobserved short child. A bound native terminal proof handles the
+# Darwin pre-reap gap; a later exit never erases a genuine observation failure.
 OUTPUT_DRAIN_SECONDS = 5.0
 # Fixed reasons of the process observer that mean the running image is not
 # the pinned executable (for example a shell that re-executes another image).
@@ -806,6 +809,14 @@ def _image_differs(error: BaseException) -> bool:
             and str(error) in IMAGE_MISMATCH_REASONS)
 
 
+def _owned_child_monitor(reader, pid, image):
+    """Register Darwin exec observation before admitting any live baseline."""
+    if sys.platform != "darwin":
+        return None
+    return native_exit.DarwinOwnedChildMonitor(pid, image, reader.reader,
+                                               reader.cpu_numer, reader.cpu_denom)
+
+
 def observe_child(child: subprocess.Popen, image: observer.ExecutableImage, records: Any,
                   interval_ms: int, timeout_ms: int) -> dict[str, Any]:
     """Sample the pinned child until it exits, then take the kernel's totals.
@@ -828,47 +839,101 @@ def observe_child(child: subprocess.Popen, image: observer.ExecutableImage, reco
     sampled: dict[str, Any] = {"state": "failed", "reason": "not_started"}
     reaped: tuple[int, Any] | None = None
     reader = None
+    monitor = None
+    terminal = None
+    native_failure = None
+    registration_failure = None
+    timed_out = False
+
+    def reap_child():
+        """Poll only the original child and retain the first observed deadline breach."""
+        # Qualification needs a reap observed within the same overall budget.
+        # Check after wait4: a poll or terminal authentication may cross the
+        # deadline. A child already reaped must never be signalled afterward.
+        nonlocal timed_out
+        result = _try_reap(child.pid)
+        if result is not None and time.monotonic_ns() >= deadline:
+            timed_out = True
+        return result
+
     try:
         reader = observer.native_reader()
         scope = None
+        try:
+            monitor = _owned_child_monitor(reader, child.pid, image)
+        except (ValueError, OSError) as error:
+            error_number = getattr(error, 'errno', None)
+            registration_failure = {'operation': 'owned_child_monitor_registration',
+                'errno': error_number if type(error_number) is int and 0 <= error_number <= 4095 else None}
+            raise
         try:
             scope = observer.ProcessScope(
                 [{"label": "measured_command", "pid": child.pid, "ppid": os.getpid(),
                   "pgid": os.getpgid(child.pid), "image": "command"}], reader,
                 {"command": image})
         except (ValueError, OSError) as error:
-            if _image_differs(error):
-                sampled = {"state": "failed", "reason": "executable_image_differs"}
-            else:
-                reaped = _try_reap(child.pid)
+            if type(error) is native_process.NativeProcessUnavailable and error.pid == child.pid:
+                native_failure = error.fact()
+                native_exit.validate_failure(native_failure)
+                reaped = reap_child()
+                if reaped is not None and monitor is not None:
+                    # Even a command too short for a baseline must not hide an
+                    # exec observed by the registration that preceded it.
+                    monitor.check()
                 sampled = ({"state": "not_sampled", "reason": "exited_before_first_sample",
                             "observations": 0} if reaped is not None
                            else {"state": "failed", "reason": type(error).__name__})
+            else:
+                sampled = {"state": "failed", "reason": (
+                    "executable_image_differs" if _image_differs(error) else type(error).__name__)}
         if scope is not None:
             journal = observer.ResourceObservationJournal(records, "observations", policy)
             baseline = scope.initial
+            if monitor is not None:
+                monitor.bind_sample(reader.last_native_binding, baseline['processes'][0])
+                records.publish("observations/native-admission.json", control.canonical({
+                    "version": 1, "kind": "darwin_owned_child_admission",
+                    "identity": monitor.bound['identity'], "real_uid": monitor.bound['ruid'],
+                    "cpu_time_ns": monitor.bound['cpu_time_ns']}))
             journal.append(baseline)
             baseline_reference = records.publish("observations/baseline.json",
                                                  control.canonical(baseline))
             failure: str | None = None
             while reaped is None:
-                reaped = _try_reap(child.pid)
-                if reaped is not None or time.monotonic_ns() >= deadline:
+                if failure is None and monitor is not None:
+                    monitor.check()
+                reaped = reap_child()
+                if reaped is not None:
+                    if failure is None and monitor is not None:
+                        monitor.check()
+                    break
+                if time.monotonic_ns() >= deadline:
                     break
                 time.sleep(interval_ms / 1000)
                 if failure is not None:
                     continue
                 try:
-                    journal.append(scope.observe())
+                    observation = scope.observe()
                 except (ValueError, OSError) as error:
-                    if _image_differs(error):
-                        failure = "executable_image_differs"
-                        continue
-                    # The process may have exited between the reap check and
-                    # the sample. Only a failure while it stays alive is one.
-                    reaped = _try_reap(child.pid)
-                    if reaped is None:
-                        failure = journal.failure_reason or "process_observation_failed"
+                    if type(error) is native_process.NativeProcessUnavailable:
+                        native_failure = error.fact()
+                        if monitor is not None:
+                            try:
+                                terminal = monitor.authenticate(error)
+                            except (ValueError, OSError):
+                                failure = "native_terminal_authentication_failed"
+                            else:
+                                break
+                        else:
+                            failure = "process_observation_failed"
+                    else:
+                        failure = ("executable_image_differs" if _image_differs(error)
+                                   else "process_observation_failed")
+                    continue
+                # Storage, malformed observations and CPU failures are never terminal evidence.
+                if monitor is not None:
+                    monitor.bind_sample(reader.last_native_binding, observation['processes'][0])
+                journal.append(observation)
             if failure is None and not journal.failed:
                 journal.flush()
             if failure is not None or journal.failed:
@@ -908,13 +973,19 @@ def observe_child(child: subprocess.Popen, image: observer.ExecutableImage, reco
     except (ValueError, OSError) as error:
         # Reader, journal or window failure: the run is still reaped and
         # reported; only a fixed reason is recorded.
-        sampled = {"state": "failed", "reason": type(error).__name__}
+        sampled = ({"state": "failed", "reason": "native_monitor_registration_failed",
+                    "monitor_failure": registration_failure} if registration_failure is not None
+                   else {"state": "failed", "reason": type(error).__name__})
     finally:
+        if monitor is not None:
+            try:
+                monitor.close()
+            except (ValueError, OSError):
+                sampled = {"state": "failed", "reason": "native_monitor_close_failed"}
         if reader is not None:
             reader.close()
-    timed_out = False
     while reaped is None:
-        reaped = _try_reap(child.pid)
+        reaped = reap_child()
         if reaped is None:
             if time.monotonic_ns() >= deadline:
                 timed_out = True
@@ -925,6 +996,19 @@ def observe_child(child: subprocess.Popen, image: observer.ExecutableImage, reco
     finished = time.monotonic_ns()
     child.returncode = (-os.WTERMSIG(status) if os.WIFSIGNALED(status)
                         else os.WEXITSTATUS(status))
+    if native_failure is not None:
+        sampled["native_failure"] = native_failure
+    if terminal is not None:
+        total_cpu = _rusage_ns(usage.ru_utime) + _rusage_ns(usage.ru_stime)
+        if (terminal['exit_status'] != status or timed_out
+                or terminal['terminal_cpu_time_ns'] > total_cpu + CPU_ROUNDING_SLACK_NS):
+            sampled = {"state": "failed", "reason": "native_terminal_reap_differs",
+                       "native_failure": native_failure}
+        try:
+            sampled['terminal'] = records.publish("observations/terminal.json", control.canonical(terminal))
+        except (ValueError, OSError):
+            sampled = {"state": "failed", "reason": "native_terminal_publication_failed",
+                       "native_failure": native_failure}
     return {"classification": "measured", "pid": child.pid, "exit": _exit_fact(status),
             "timed_out": timed_out, "wall_ns": finished - started,
             "cpu_user_ns": _rusage_ns(usage.ru_utime),
@@ -1036,7 +1120,7 @@ def _evidence_kind(name: str, context_file: str) -> str | None:
             return "context"
         if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.(json|norito)", leaf):
             return "view" if leaf.endswith(".json") else "binary"
-    if directory == "observations" and (leaf in {"baseline.json", "window.json"}
+    if directory == "observations" and (leaf in {"baseline.json", "window.json", "native-admission.json", "terminal.json"}
             or re.fullmatch(r"chunk-[0-9]{20}\.json", leaf)):
         return "observation"
     return None
@@ -1171,10 +1255,12 @@ class _EvidenceSnapshot:
             leaf = path.rsplit("/", 1)[-1]
             if kind == "view" and leaf not in allowed_views:
                 continue
-            maximum = MAX_RECORD_BYTES if kind in {"view", "binary"} else MAX_EVIDENCE_BYTES
+            maximum = (native_exit.MAX_TERMINAL_BYTES if leaf in {"native-admission.json", "terminal.json"}
+                       else MAX_RECORD_BYTES if kind in {"view", "binary"} else MAX_EVIDENCE_BYTES)
             try:
                 binding, raw = directory._read(path, maximum, kind in {"view", "context"}
-                                               or path == "report.json")
+                                               or path in {"report.json", "observations/baseline.json",
+                                                           "observations/native-admission.json", "observations/terminal.json"})
             except (OSError, ValueError):
                 self.reasons.append(f"unsafe_or_oversize_evidence:{index}")
                 continue
@@ -1185,6 +1271,96 @@ class _EvidenceSnapshot:
             if directory._names(name) != previous:
                 self.reasons.append("evidence_inventory_changed")
         directory._validate()
+
+
+def _terminal_evidence_reasons(process, snapshot):
+    """Replay the closed terminal proof from the same hashed evidence byte snapshot."""
+    try:
+        sampled = process['sampled']
+        if 'monitor_failure' in sampled:
+            fact = sampled['monitor_failure']
+            if (type(fact) is not dict or set(fact) != {'operation', 'errno'}
+                    or fact['operation'] != 'owned_child_monitor_registration'
+                    or (fact['errno'] is not None and not _unsigned(fact['errno'], 4095))
+                    or sampled['state'] != 'failed'
+                    or sampled['reason'] != 'native_monitor_registration_failed'):
+                return ["native_terminal_evidence_invalid"]
+        if 'native_failure'  in sampled:
+            native_exit.validate_failure(sampled['native_failure'])
+        reference = sampled.get('terminal')
+        terminal_path = "observations/terminal.json"
+        if reference is None:
+            return (["native_terminal_evidence_invalid"] if terminal_path in snapshot.bindings else [])
+        if (type(reference) is not dict or set(reference) != {'path', 'sha256', 'bytes'}
+                or reference.get('path') != terminal_path
+                or reference != snapshot.bindings.get(terminal_path)
+                or not _unsigned(reference['bytes'], native_exit.MAX_TERMINAL_BYTES)):
+            return ["native_terminal_evidence_invalid"]
+        # This proof consumes these outer process fields; enforce their exact
+        # types here instead of relying on numeric equality or truthiness.
+        if (not _unsigned(process['pid'], native_exit.PID_MAX) or process['pid'] <= 1
+                or type(process['timed_out']) is not bool
+                or not _unsigned(process['cpu_user_ns'], MAX_U64)
+                or not _unsigned(process['cpu_system_ns'], MAX_U64)
+                or type(sampled['state']) is not str
+                or sampled['state'] not in {'validated', 'not_sampled', 'failed'}):
+            return ["native_terminal_evidence_invalid"]
+        exit_fact = process['exit']
+        if type(exit_fact) is not dict:
+            return ["native_terminal_evidence_invalid"]
+        if exit_fact.get('kind') == 'exited':
+            valid_exit = set(exit_fact) == {'kind', 'code'} and _unsigned(exit_fact['code'], 255)
+        elif exit_fact.get('kind') == 'signaled':
+            valid_exit = (set(exit_fact) == {'kind', 'signal'}
+                          and _unsigned(exit_fact['signal'], 127) and exit_fact['signal'] > 0)
+        else:
+            valid_exit = False
+        if not valid_exit:
+            return ["native_terminal_evidence_invalid"]
+        proof = strict_json(snapshot.raw[terminal_path])
+        baseline = strict_json(snapshot.raw['observations/baseline.json'])
+        admission = strict_json(snapshot.raw['observations/native-admission.json'])
+        if (type(admission) is not dict or set(admission) != {
+                'version', 'kind', 'identity', 'real_uid', 'cpu_time_ns'}
+                or type(admission['version']) is not int or admission['version'] != 1
+                or admission['kind'] != 'darwin_owned_child_admission'
+                or len(baseline['processes']) != 1):
+            return ["native_terminal_evidence_invalid"]
+        sample = baseline['processes'][0]
+        if (not _unsigned(admission['cpu_time_ns'], MAX_U64)
+                or not _unsigned(sample['cpu_time_ns'], MAX_U64)
+                or type(admission['real_uid']) is not int
+                or proof['real_uid'] != admission['real_uid']
+                or admission['cpu_time_ns'] != sample['cpu_time_ns']
+                or proof['identity']['pid'] != process['pid']
+                or proof['failure'] != sampled.get('native_failure')):
+            return ["native_terminal_evidence_invalid"]
+        if sampled['state'] == 'validated':
+            if (not _unsigned(sampled['observations'], MAX_U64) or sampled['observations'] < 2
+                    or not _unsigned(sampled['sampled_cpu_time_ns'], MAX_U64)):
+                return ["native_terminal_evidence_invalid"]
+            last_cpu = sample['cpu_time_ns'] + sampled['sampled_cpu_time_ns']
+        elif sampled['state'] == 'not_sampled':
+            if type(sampled['observations']) is not int or sampled['observations'] != 1:
+                return ["native_terminal_evidence_invalid"]
+            last_cpu = sample['cpu_time_ns']
+        else:
+            # Rejected observations stay rejected independently; this only checks
+            # the retained diagnostic proof, never promotes a failed journal.
+            last_cpu = proof['last_sample_cpu_time_ns']
+        native_exit.validate_terminal(proof, sample['identity'], last_cpu)
+        # Validate the fixed identity shape before recursively comparing intake.
+        # Malformed equally nested JSON must not recurse beyond that schema.
+        if not native_exit._same_typed(admission['identity'], sample['identity']):
+            return ["native_terminal_evidence_invalid"]
+        if (not process['timed_out'] and sampled['state'] != 'failed'
+                and (_exit_fact(proof['exit_status']) != process['exit']
+                     or proof['terminal_cpu_time_ns'] > process['cpu_user_ns']
+                        + process['cpu_system_ns'] + CPU_ROUNDING_SLACK_NS)):
+            return ["native_terminal_evidence_invalid"]
+    except (KeyError, TypeError, ValueError, OSError):
+        return ["native_terminal_evidence_invalid"]
+    return []
 
 
 def judge_records(descriptor: dict[str, Any], run: Path, context: dict[str, Any],
@@ -1203,7 +1379,7 @@ def judge_records(descriptor: dict[str, Any], run: Path, context: dict[str, Any]
     if snapshot is None:
         with _EvidenceDirectory(run) as directory:
             snapshot = _EvidenceSnapshot(directory, descriptor)
-    reasons: list[str] = list(snapshot.reasons)
+    reasons: list[str] = list(snapshot.reasons) + _terminal_evidence_reasons(process, snapshot)
     decoded: list[dict[str, Any]] = []
     present = snapshot.child_names
     names = [name for name in present

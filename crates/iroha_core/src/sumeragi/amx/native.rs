@@ -309,7 +309,8 @@ mod graph_refusal_tests {
         assert!(local.allocation_refusal().is_none());
         assert_eq!(local.decode_refusal(), Some(&expected));
         let vm_error = local.into_vm_error();
-        let same = crate::execution_attempt::ExecutionDeferred::from_vm_error(&vm_error).unwrap();
+        let same =
+            crate::execution_attempt::ExecutionDeferred::try_from_vm_error(vm_error).unwrap();
         assert_eq!(same.decode_refusal(), Some(&expected));
         assert!(matches!(
             global_source_graph_error(GraphError::Invalid("completed".into())),
@@ -811,10 +812,10 @@ mod tests;
 impl Execute for SettleAmxV1 {
     fn execute(
         self,
-        _authority: &AccountId,
+        authority: &AccountId,
         state: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        execute_settle_original(&self, _authority, state)
+        execute_settle_original(&self, authority, state)
     }
 }
 

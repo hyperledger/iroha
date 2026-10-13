@@ -32,7 +32,7 @@ fn recover(
     }
 }
 
-fn assert_same(actual: ManagedCustodyProgress, expected: &ManagedCustodyProgress) {
+fn assert_same(actual: &ManagedCustodyProgress, expected: &ManagedCustodyProgress) {
     assert_eq!(actual.transaction_status, expected.transaction_status);
     assert_eq!(actual.finalized, expected.finalized);
     assert!(actual.current.is_none() && expected.current.is_none());
@@ -88,7 +88,7 @@ fn configure_and_enroll_recovery_workspace_preserves_native_source_refusal_and_r
             }
         );
         assert_same(
-            recover(&mut fixture, purpose, true, deadline)
+            &recover(&mut fixture, purpose, true, deadline)
                 .unwrap()
                 .unwrap(),
             &expected,
@@ -114,7 +114,7 @@ fn configure_and_enroll_recovery_workspace_preserves_native_source_refusal_and_r
                 .unwrap();
             assert_eq!(directory.read(name, maximum).unwrap(), before);
             assert_same(
-                recover(&mut fixture, purpose, true, deadline)
+                &recover(&mut fixture, purpose, true, deadline)
                     .unwrap()
                     .unwrap(),
                 &expected,
@@ -130,7 +130,7 @@ fn configure_and_enroll_recovery_workspace_preserves_native_source_refusal_and_r
             Err(crate::managed::Error::NativeDeadline)
         ));
         assert_same(
-            recover(&mut fixture, purpose, true, deadline)
+            &recover(&mut fixture, purpose, true, deadline)
                 .unwrap()
                 .unwrap(),
             &expected,
@@ -175,9 +175,9 @@ fn warmed_recovery_workspace_keeps_exact_finite_and_refused_outer_charges() {
             .unwrap()
             .unwrap();
         assert_eq!(exact_budget.consumed_allocated_bytes(), charge);
-        assert_same(actual, &expected);
+        assert_same(&actual, &expected);
         assert_same(
-            recover(&mut fixture, purpose, true, deadline)
+            &recover(&mut fixture, purpose, true, deadline)
                 .unwrap()
                 .unwrap(),
             &warm,
@@ -201,7 +201,7 @@ fn warmed_recovery_workspace_keeps_exact_finite_and_refused_outer_charges() {
             );
             assert!(!norito::core::decode_limits_active());
             assert_same(
-                recover(&mut fixture, purpose, true, deadline)
+                &recover(&mut fixture, purpose, true, deadline)
                     .unwrap()
                     .unwrap(),
                 &warm,

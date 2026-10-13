@@ -14,17 +14,27 @@ use iroha_data_model::{
 #[test]
 fn maximum_mandatory_page_corpus_fits_reserved_evidence_budget() {
     let member_count = (1..16)
-        .filter(|count| ensure_reward_identity(&super::tests::multisig(0, *count)).is_ok())
-        .last()
+        .rfind(|count| ensure_reward_identity(&super::tests::multisig(0, *count)).is_ok())
         .unwrap();
     let validators = (0..MAX_REWARD_VALIDATORS)
-        .map(|index| (super::tests::multisig(index as u32, member_count), 1))
+        .map(|index| {
+            (
+                super::tests::multisig(
+                    u32::try_from(index).expect("fixture value fits u32"),
+                    member_count,
+                ),
+                1,
+            )
+        })
         .collect::<BTreeMap<_, _>>();
     let validator = validators.first_key_value().unwrap().0.clone();
     let recipients = (MAX_REWARD_VALIDATORS..MAX_REWARD_VALIDATORS + MAX_REWARD_RECIPIENTS)
         .map(|index| {
             (
-                super::tests::multisig(index as u32, member_count),
+                super::tests::multisig(
+                    u32::try_from(index).expect("fixture value fits u32"),
+                    member_count,
+                ),
                 Quantity::one(),
             )
         })
@@ -218,7 +228,10 @@ fn maximum_committee_tail_archive_fits_independent_source_budget() {
             let stakes = (0..MAX_REWARD_RECIPIENTS)
                 .map(|index| {
                     (
-                        super::tests::multisig(index as u32 + 100, 1),
+                        super::tests::multisig(
+                            u32::try_from(index).expect("fixture value fits u32") + 100,
+                            1,
+                        ),
                         Quantity::one(),
                     )
                 })

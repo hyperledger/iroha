@@ -124,7 +124,7 @@ where
 fn membership_probe_before_stage(state: &State) -> storage_transactions::DetachedTransactionsBlock {
     let mut block = state.transactions.block();
     block.insert_block(
-        std::collections::HashSet::new(),
+        std::collections::BTreeSet::new(),
         std::num::NonZeroUsize::new(state.transactions.latest_height() + 1).unwrap(),
     );
     block.prepare_commit().unwrap().detach()

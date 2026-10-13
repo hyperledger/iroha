@@ -69,11 +69,11 @@ seiyaku EmptyProducts {
 }
 "#,
     );
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
     let vm = run_table_function(
         "seiyaku EmptyRoot { struct Empty {} view fn main() authorize(anyone) -> Empty { Empty {} } }",
     );
-    assert_eq!(vm.public_call_result_word(0), Ok(0));
+    assert!(matches!(vm.public_call_result_word(0), Ok(0)));
 }
 
 #[test]
@@ -148,7 +148,7 @@ fn wide_sum_payloads_cross_the_signed_immediate_boundary() {
     );
     for source in [option_source, result_source] {
         let vm = run_table_function(&source);
-        assert_eq!(vm.public_call_result_word(0), Ok(1));
+        assert!(matches!(vm.public_call_result_word(0), Ok(1)));
     }
 }
 
@@ -282,15 +282,15 @@ fn run_maximum_table_function(source: &str, argument_words: usize, result_words:
     vm.run()
         .expect("execute all maximum-table initialization and nested returns");
     assert_eq!(vm.register(31), original_stack_top);
-    assert_eq!(vm.call_result_word_count(), Ok(1));
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.call_result_word_count(), Ok(1)));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
     assert!(vm.public_call_result_word(1).is_err());
     // A completed private table's large width cannot replace the original root
     // result owner, even if guest descriptor registers claim another address.
     vm.set_register(10, u64::MAX);
     vm.set_register(11, MAX_CALL_WORDS_V1 as u64);
-    assert_eq!(vm.call_result_word_count(), Ok(1));
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.call_result_word_count(), Ok(1)));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
     assert!(vm.public_call_result_word(1).is_err());
     vm
 }
@@ -316,7 +316,7 @@ fn maximum_argument_table_initializes_every_word_across_nested_calls() {
     // caller frame. Both invocations run the complete typed/initialized scan;
     // the true invocation also reads every selected content sentinel.
     let vm = run_maximum_table_function(&source, width, 1);
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
 }
 
 #[test]
@@ -347,7 +347,7 @@ fn maximum_result_table_initializes_every_word_across_nested_returns() {
     // The two producer returns initialize every slot with opposite values in
     // the original caller-owned table before the root may publish its Boolean.
     let vm = run_maximum_table_function(&source, 1, width);
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
 }
 
 #[test]

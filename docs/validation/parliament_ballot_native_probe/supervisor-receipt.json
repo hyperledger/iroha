@@ -1,0 +1,1065 @@
+{
+  "campaign_journal": {
+    "path": "docs/validation/parliament_ballot_native_probe/campaign/cases.jsonl",
+    "sha256": "f471e5ca22745447e8cbbca66e4aaec1941671e832cb6233a9df82f8d101e597"
+  },
+  "campaign_passed": true,
+  "campaign_report": {
+    "path": "docs/validation/parliament_ballot_native_probe/campaign/report.json",
+    "sha256": "83b5b73d586234951fe2194fd6136f1bb149351d7eb0e82979dade19ed36b1b5"
+  },
+  "complete_native_coverage": false,
+  "complete_workspace_certificate": false,
+  "completed_observations": 134,
+  "focused_validation": {
+    "command": [
+      "/opt/homebrew/bin/python3.11",
+      "scripts/tests/parliament_ballot_native_probe_test.py"
+    ],
+    "observed_exit": 0,
+    "record_kind": "recorded from actual tool execution; no new execution during this aggregation",
+    "tests_passed": 14
+  },
+  "guarded_input_count": 2040,
+  "independent_engineering_review": "vole_backend reviewed controls/provenance/publication and confirmed corpus and cargo/manifest fixes; not a human security review or independent cryptographic audit",
+  "input_changes": {},
+  "missing_runtime_identity_observations": {
+    "no_interposer_refusals": 2,
+    "panic_aborts": 2,
+    "terminal_oom": 16
+  },
+  "profile_qualified": false,
+  "proof_cases": 120,
+  "proof_charged_endpoint_calls": {
+    "maximum_per_case": 0,
+    "nonzero_cases": 0,
+    "sum": 0
+  },
+  "proof_native_kind_counts": {
+    "ordinary": 66,
+    "terminal_incomplete": 16,
+    "unadmitted": 38
+  },
+  "proof_outcome_counts": {
+    "accepted": 16,
+    "admission_rejected": 36,
+    "input_error": 2,
+    "rejected": 50,
+    "resource_exhausted": 16
+  },
+  "runtime_image_counts": [
+    84
+  ],
+  "runtime_observation_count": 114,
+  "runtime_path_uuid_sets": {
+    "/private/tmp/parliament-native-controls-20261013-final/libnp.dylib": [
+      "F77726FD-F6CE-3D0A-AE42-5D0E1C99C98F"
+    ],
+    "/private/tmp/parliament-native-probe/worker-accel": [
+      "618548C7-B3A0-3C00-BEB6-CE898C84AAD7"
+    ],
+    "/private/tmp/parliament-native-probe/worker-portable": [
+      "AF76AEB6-01C7-3261-8F7B-DBF4040C22F9"
+    ],
+    "/usr/lib/libRosetta.dylib": [
+      "E359944B-D230-33F9-A04E-0C3B17C3326E"
+    ],
+    "/usr/lib/libSystem.B.dylib": [
+      "4FDC9AA6-B344-37FE-B8C6-A4C94A038F57"
+    ],
+    "/usr/lib/libc++.1.dylib": [
+      "1E9BA4AA-B5DA-3CF3-80AC-4B880049573F"
+    ],
+    "/usr/lib/libc++abi.dylib": [
+      "A21743EE-6E1C-3E74-97EA-7AF793DE4BDF"
+    ],
+    "/usr/lib/libcharset.1.dylib": [
+      "3C9B584E-740A-3664-A1B0-52E561EA4B0B"
+    ],
+    "/usr/lib/libiconv.2.dylib": [
+      "C343D6F7-6932-30E8-8E8F-F756946D8413"
+    ],
+    "/usr/lib/libobjc.A.dylib": [
+      "C0680DF6-9900-3C29-A071-95A031686EF8"
+    ],
+    "/usr/lib/libsharedcache.dylib": [
+      "BBF95357-BEBF-3D89-8900-2BBB14A667C5"
+    ],
+    "/usr/lib/objc/libobjcMsgSend.dylib": [
+      "41179EDE-DC97-3BBE-8848-6400D12C1436"
+    ],
+    "/usr/lib/objc/libobjcMsgSend1.dylib": [
+      "B40D9B2A-E1EE-37ED-8004-711A1F263DE1"
+    ],
+    "/usr/lib/objc/libobjcMsgSend10.dylib": [
+      "678186C0-8EAD-3B35-8CBB-00285B41E4A0"
+    ],
+    "/usr/lib/objc/libobjcMsgSend11.dylib": [
+      "E05CB08C-E956-36FA-8967-AE8E346A8D2C"
+    ],
+    "/usr/lib/objc/libobjcMsgSend12.dylib": [
+      "10AB03AA-FF1F-3FDC-9DFB-BFC40042C501"
+    ],
+    "/usr/lib/objc/libobjcMsgSend13.dylib": [
+      "ABF53427-FA6F-3D0D-8F9D-7AD795CA5C92"
+    ],
+    "/usr/lib/objc/libobjcMsgSend14.dylib": [
+      "9A844C46-A6DA-34D4-8EBF-2AD775C30684"
+    ],
+    "/usr/lib/objc/libobjcMsgSend15.dylib": [
+      "7C995666-2B2D-3284-AA0A-EBF7C922838E"
+    ],
+    "/usr/lib/objc/libobjcMsgSend16.dylib": [
+      "B6C0E14B-53AE-3E22-9ED5-1729C49F46F2"
+    ],
+    "/usr/lib/objc/libobjcMsgSend17.dylib": [
+      "07B4CF85-251B-301B-832B-20B315A59E19"
+    ],
+    "/usr/lib/objc/libobjcMsgSend18.dylib": [
+      "43E575B7-04DB-3999-A633-1A3B638BA6E3"
+    ],
+    "/usr/lib/objc/libobjcMsgSend19.dylib": [
+      "736F4D85-76F7-3B28-8D87-C07E8F7A0EF4"
+    ],
+    "/usr/lib/objc/libobjcMsgSend2.dylib": [
+      "BD27A84B-C9AE-3282-BBEA-3B6119837B5A"
+    ],
+    "/usr/lib/objc/libobjcMsgSend20.dylib": [
+      "74E67C8B-6BCA-3184-A18E-A97F370052C6"
+    ],
+    "/usr/lib/objc/libobjcMsgSend21.dylib": [
+      "CC0D732F-98E7-3888-9E15-70984DA2FB04"
+    ],
+    "/usr/lib/objc/libobjcMsgSend22.dylib": [
+      "85A60286-5DE3-32BA-B18C-2A498B065C88"
+    ],
+    "/usr/lib/objc/libobjcMsgSend23.dylib": [
+      "5452A0D2-6B19-39BE-ADDD-80B7BCDE3A98"
+    ],
+    "/usr/lib/objc/libobjcMsgSend24.dylib": [
+      "94BBF2D6-722B-350D-8557-4D25A8E8D53A"
+    ],
+    "/usr/lib/objc/libobjcMsgSend25.dylib": [
+      "35481387-5A8E-3AE4-86A6-94CEB3CC8726"
+    ],
+    "/usr/lib/objc/libobjcMsgSend26.dylib": [
+      "9E0C8664-E7F4-39D1-AAFC-BD92B255E4E8"
+    ],
+    "/usr/lib/objc/libobjcMsgSend27.dylib": [
+      "FD424935-55A9-3650-955A-EED3441A1D19"
+    ],
+    "/usr/lib/objc/libobjcMsgSend28.dylib": [
+      "09BA7B97-7DF7-3C7F-932A-B6847662FC49"
+    ],
+    "/usr/lib/objc/libobjcMsgSend29.dylib": [
+      "36D5BA3F-2139-30B0-8558-556764BE9813"
+    ],
+    "/usr/lib/objc/libobjcMsgSend3.dylib": [
+      "C0860D68-DDFC-3BD7-8B06-DB0645CBBED4"
+    ],
+    "/usr/lib/objc/libobjcMsgSend30.dylib": [
+      "9F05564A-9D12-372C-98FC-E9F0E6BE4F04"
+    ],
+    "/usr/lib/objc/libobjcMsgSend31.dylib": [
+      "0985E20F-78C3-3466-A2B2-DBB95F7104A3"
+    ],
+    "/usr/lib/objc/libobjcMsgSend32.dylib": [
+      "0D309D58-D576-3E5D-AD4B-6D55AB491702"
+    ],
+    "/usr/lib/objc/libobjcMsgSend33.dylib": [
+      "346E0484-48FA-369B-8A64-93B5F5341CFE"
+    ],
+    "/usr/lib/objc/libobjcMsgSend34.dylib": [
+      "6A31F809-BCBE-3E01-A367-E91FDACCE324"
+    ],
+    "/usr/lib/objc/libobjcMsgSend4.dylib": [
+      "A6153BF5-622B-3B01-81B6-F64A365EF613"
+    ],
+    "/usr/lib/objc/libobjcMsgSend5.dylib": [
+      "3913A71C-B29A-3AEA-820B-BEC40AC1861A"
+    ],
+    "/usr/lib/objc/libobjcMsgSend6.dylib": [
+      "9BC523A3-E167-3F6C-8CAE-0F3EBA671791"
+    ],
+    "/usr/lib/objc/libobjcMsgSend7.dylib": [
+      "248B7BCE-5B4C-34C7-A340-43D5228628C5"
+    ],
+    "/usr/lib/objc/libobjcMsgSend8.dylib": [
+      "3E041BAD-A8E8-3069-B741-78CD1A45B176"
+    ],
+    "/usr/lib/objc/libobjcMsgSend9.dylib": [
+      "34A67969-21A0-39D6-BB81-8FDA5A2409DB"
+    ],
+    "/usr/lib/system/libcache.dylib": [
+      "80BAE197-E285-3F6E-A1EE-B77FE37D7E5D"
+    ],
+    "/usr/lib/system/libcommonCrypto.dylib": [
+      "41C99F45-C5E6-39DB-B1F2-A1BEA9D242A4"
+    ],
+    "/usr/lib/system/libcompiler_rt.dylib": [
+      "DFB5CE7F-A36E-36AA-BECE-1392D3D43607"
+    ],
+    "/usr/lib/system/libcopyfile.dylib": [
+      "72D95AF9-BF5E-3A84-81A6-BCC5BDB99857"
+    ],
+    "/usr/lib/system/libcorecrypto.dylib": [
+      "807AA6C9-5D8A-3CA5-B4CE-FACE5296EF6A"
+    ],
+    "/usr/lib/system/libdispatch.dylib": [
+      "022BF08F-0B3A-3225-9E65-16D1553CE90D"
+    ],
+    "/usr/lib/system/libdyld.dylib": [
+      "62863BCA-DD60-3D32-A9DB-89099BA6F3D7"
+    ],
+    "/usr/lib/system/libkeymgr.dylib": [
+      "5EC997EF-3ADA-360B-9FCD-5F940C83FA4E"
+    ],
+    "/usr/lib/system/libmacho.dylib": [
+      "50DEADEC-3E99-3519-AFC3-4A3FEB3F14C3"
+    ],
+    "/usr/lib/system/libquarantine.dylib": [
+      "7FD4AE22-86EF-382B-83F5-ADF9336C1160"
+    ],
+    "/usr/lib/system/libremovefile.dylib": [
+      "E6E6DFCF-6B2C-3F30-A59D-816CAB1190CE"
+    ],
+    "/usr/lib/system/libsystem_asl.dylib": [
+      "B4D449B7-A821-3A9A-8019-E917B291F10A"
+    ],
+    "/usr/lib/system/libsystem_blocks.dylib": [
+      "6F304731-D95D-3501-B4AD-F2934F7F2446"
+    ],
+    "/usr/lib/system/libsystem_c.dylib": [
+      "FBA7B23E-AA60-3A90-9AA4-A7A2E0AD63EE"
+    ],
+    "/usr/lib/system/libsystem_collections.dylib": [
+      "1E8022D4-5A37-3A7A-8936-603E6FA88358"
+    ],
+    "/usr/lib/system/libsystem_configuration.dylib": [
+      "F3EB66A7-7A24-3AE5-B6E8-9A37BB00F119"
+    ],
+    "/usr/lib/system/libsystem_containermanager.dylib": [
+      "08A57205-555D-3792-8931-9D5B585AF326"
+    ],
+    "/usr/lib/system/libsystem_coreservices.dylib": [
+      "57248E07-11A5-3857-918E-4A3A63B69FE8"
+    ],
+    "/usr/lib/system/libsystem_darwin.dylib": [
+      "4E66C888-993C-3E6A-A8DA-A949C01C5B67"
+    ],
+    "/usr/lib/system/libsystem_darwindirectory.dylib": [
+      "61264923-2AA5-3658-B8C4-550C71E9D4B3"
+    ],
+    "/usr/lib/system/libsystem_dnssd.dylib": [
+      "DE22096F-1E5B-3D6E-8164-771582DD6391"
+    ],
+    "/usr/lib/system/libsystem_eligibility.dylib": [
+      "EDDE8E9C-A2CF-3931-BBB3-321CB852EB30"
+    ],
+    "/usr/lib/system/libsystem_featureflags.dylib": [
+      "20C1CAB2-1F13-3426-8146-9CAE9FF2A33D"
+    ],
+    "/usr/lib/system/libsystem_info.dylib": [
+      "BC387AEB-1CEF-3513-92D7-D7F913596711"
+    ],
+    "/usr/lib/system/libsystem_kernel.dylib": [
+      "F63BF418-8F75-34A4-AAF1-8CAF2B9B6A05"
+    ],
+    "/usr/lib/system/libsystem_m.dylib": [
+      "A3FB340F-3ED5-30F4-8B64-9D5860F64D35"
+    ],
+    "/usr/lib/system/libsystem_malloc.dylib": [
+      "2339CB57-FE5A-3154-A206-A76059C749EB"
+    ],
+    "/usr/lib/system/libsystem_networkextension.dylib": [
+      "22E1D190-486F-324F-ABA4-F36AB841BFE9"
+    ],
+    "/usr/lib/system/libsystem_notify.dylib": [
+      "58FD36D8-37A7-311C-80F2-8E64DD8710CF"
+    ],
+    "/usr/lib/system/libsystem_platform.dylib": [
+      "080E4444-A0FB-3913-9756-4E470015F32F"
+    ],
+    "/usr/lib/system/libsystem_pthread.dylib": [
+      "5A1828C3-CBC2-3B85-BD07-C8ED10021A41"
+    ],
+    "/usr/lib/system/libsystem_sandbox.dylib": [
+      "1E892B56-092E-3832-BDE3-DCE356D7A4FA"
+    ],
+    "/usr/lib/system/libsystem_sanitizers.dylib": [
+      "7138ED99-7AA0-34EA-B35B-20EF6ADB1EED"
+    ],
+    "/usr/lib/system/libsystem_secinit.dylib": [
+      "DE037464-4C5D-3E96-A33F-2A4557CC6A20"
+    ],
+    "/usr/lib/system/libsystem_symptoms.dylib": [
+      "60EE7884-9F4E-3184-A6AC-FA40A7A0297D"
+    ],
+    "/usr/lib/system/libsystem_trace.dylib": [
+      "B48A8E3E-A12A-3342-8321-428B555E965E"
+    ],
+    "/usr/lib/system/libsystem_trial.dylib": [
+      "6AE48824-EC44-3A8C-B501-BE57DBE892E7"
+    ],
+    "/usr/lib/system/libunwind.dylib": [
+      "3070AB81-B082-39E8-8A00-EF88DDE9AC47"
+    ],
+    "/usr/lib/system/libxpc.dylib": [
+      "0791121F-B5FC-3F84-BF04-115E86D2D882"
+    ]
+  },
+  "runtime_paths_with_uuid_variation": [],
+  "runtime_shared_cache_uuids": [
+    "C284A291-B68B-3D0D-A1A0-3F866F87EFDC"
+  ],
+  "rust_controls": [
+    {
+      "charged_endpoint_calls": 0,
+      "classification": "control_observed",
+      "control": "empty",
+      "exit": 0,
+      "mode": "portable",
+      "native_allocation_endpoint_observed": false,
+      "phase_nonzero_endpoint_counters": [
+        {
+          "calloc": {
+            "calls": 28,
+            "failures": 0,
+            "requested_bytes": 1636
+          },
+          "free": {
+            "calls": 23,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 1048576
+          },
+          "mach_vm_map": {
+            "calls": 13,
+            "failures": 0,
+            "requested_bytes": 25793272944
+          },
+          "malloc": {
+            "calls": 206,
+            "failures": 0,
+            "requested_bytes": 17266
+          },
+          "malloc_zone_calloc": {
+            "calls": 137,
+            "failures": 0,
+            "requested_bytes": 3296
+          },
+          "mmap": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 43286528
+          },
+          "posix_memalign": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 256
+          }
+        },
+        {},
+        {
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 16384
+          }
+        }
+      ]
+    },
+    {
+      "charged_endpoint_calls": 0,
+      "classification": "control_observed",
+      "control": "routed",
+      "exit": 0,
+      "mode": "portable",
+      "native_allocation_endpoint_observed": false,
+      "phase_nonzero_endpoint_counters": [
+        {
+          "calloc": {
+            "calls": 28,
+            "failures": 0,
+            "requested_bytes": 1636
+          },
+          "free": {
+            "calls": 23,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 1048576
+          },
+          "mach_vm_map": {
+            "calls": 14,
+            "failures": 0,
+            "requested_bytes": 25797614704
+          },
+          "malloc": {
+            "calls": 206,
+            "failures": 0,
+            "requested_bytes": 17267
+          },
+          "malloc_zone_calloc": {
+            "calls": 137,
+            "failures": 0,
+            "requested_bytes": 3296
+          },
+          "mmap": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 43286528
+          },
+          "posix_memalign": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 256
+          }
+        },
+        {},
+        {
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 16384
+          }
+        }
+      ]
+    },
+    {
+      "charged_endpoint_calls": 3,
+      "classification": "control_observed",
+      "control": "system",
+      "exit": 0,
+      "mode": "portable",
+      "native_allocation_endpoint_observed": true,
+      "phase_nonzero_endpoint_counters": [
+        {
+          "calloc": {
+            "calls": 28,
+            "failures": 0,
+            "requested_bytes": 1636
+          },
+          "free": {
+            "calls": 23,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 1048576
+          },
+          "mach_vm_map": {
+            "calls": 13,
+            "failures": 0,
+            "requested_bytes": 25793305712
+          },
+          "malloc": {
+            "calls": 206,
+            "failures": 0,
+            "requested_bytes": 17267
+          },
+          "malloc_zone_calloc": {
+            "calls": 137,
+            "failures": 0,
+            "requested_bytes": 3296
+          },
+          "mmap": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 43286528
+          },
+          "posix_memalign": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 256
+          }
+        },
+        {
+          "free": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_map": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 4194304
+          },
+          "malloc": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 4096
+          }
+        },
+        {
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 16384
+          }
+        }
+      ]
+    },
+    {
+      "charged_endpoint_calls": 4,
+      "classification": "control_observed",
+      "control": "thread",
+      "exit": 0,
+      "mode": "portable",
+      "native_allocation_endpoint_observed": true,
+      "phase_nonzero_endpoint_counters": [
+        {
+          "calloc": {
+            "calls": 28,
+            "failures": 0,
+            "requested_bytes": 1636
+          },
+          "free": {
+            "calls": 23,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 1048576
+          },
+          "mach_vm_map": {
+            "calls": 14,
+            "failures": 0,
+            "requested_bytes": 25797385328
+          },
+          "malloc": {
+            "calls": 206,
+            "failures": 0,
+            "requested_bytes": 17267
+          },
+          "malloc_zone_calloc": {
+            "calls": 137,
+            "failures": 0,
+            "requested_bytes": 3296
+          },
+          "mmap": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 43286528
+          },
+          "posix_memalign": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 256
+          }
+        },
+        {
+          "calloc": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 80
+          },
+          "malloc": {
+            "calls": 3,
+            "failures": 0,
+            "requested_bytes": 320
+          }
+        },
+        {
+          "calloc": {
+            "calls": 2,
+            "failures": 0,
+            "requested_bytes": 48
+          },
+          "free": {
+            "calls": 8,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 16384
+          },
+          "malloc": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 72
+          },
+          "posix_memalign": {
+            "calls": 2,
+            "failures": 0,
+            "requested_bytes": 128
+          }
+        }
+      ]
+    },
+    {
+      "charged_endpoint_calls": 3,
+      "classification": "control_observed",
+      "control": "tls",
+      "exit": 0,
+      "mode": "portable",
+      "native_allocation_endpoint_observed": true,
+      "phase_nonzero_endpoint_counters": [
+        {
+          "calloc": {
+            "calls": 28,
+            "failures": 0,
+            "requested_bytes": 1636
+          },
+          "free": {
+            "calls": 23,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 1048576
+          },
+          "mach_vm_map": {
+            "calls": 13,
+            "failures": 0,
+            "requested_bytes": 25792617584
+          },
+          "malloc": {
+            "calls": 206,
+            "failures": 0,
+            "requested_bytes": 17264
+          },
+          "malloc_zone_calloc": {
+            "calls": 137,
+            "failures": 0,
+            "requested_bytes": 3296
+          },
+          "mmap": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 43286528
+          },
+          "posix_memalign": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 256
+          }
+        },
+        {
+          "malloc": {
+            "calls": 3,
+            "failures": 0,
+            "requested_bytes": 328
+          }
+        },
+        {
+          "free": {
+            "calls": 3,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 16384
+          }
+        }
+      ]
+    },
+    {
+      "charged_endpoint_calls": null,
+      "classification": "expected_runtime_failure",
+      "control": "panic",
+      "exit": -6,
+      "mode": "portable",
+      "native_allocation_endpoint_observed": null,
+      "native_observation": null
+    },
+    {
+      "charged_endpoint_calls": 0,
+      "classification": "control_observed",
+      "control": "empty",
+      "exit": 0,
+      "mode": "accel",
+      "native_allocation_endpoint_observed": false,
+      "phase_nonzero_endpoint_counters": [
+        {
+          "calloc": {
+            "calls": 28,
+            "failures": 0,
+            "requested_bytes": 1636
+          },
+          "free": {
+            "calls": 23,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 1048576
+          },
+          "mach_vm_map": {
+            "calls": 13,
+            "failures": 0,
+            "requested_bytes": 25793141872
+          },
+          "malloc": {
+            "calls": 206,
+            "failures": 0,
+            "requested_bytes": 17248
+          },
+          "malloc_zone_calloc": {
+            "calls": 137,
+            "failures": 0,
+            "requested_bytes": 3296
+          },
+          "mmap": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 43286528
+          },
+          "posix_memalign": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 256
+          }
+        },
+        {},
+        {
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 16384
+          }
+        }
+      ]
+    },
+    {
+      "charged_endpoint_calls": 0,
+      "classification": "control_observed",
+      "control": "routed",
+      "exit": 0,
+      "mode": "accel",
+      "native_allocation_endpoint_observed": false,
+      "phase_nonzero_endpoint_counters": [
+        {
+          "calloc": {
+            "calls": 28,
+            "failures": 0,
+            "requested_bytes": 1636
+          },
+          "free": {
+            "calls": 23,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 1048576
+          },
+          "mach_vm_map": {
+            "calls": 14,
+            "failures": 0,
+            "requested_bytes": 25796959344
+          },
+          "malloc": {
+            "calls": 206,
+            "failures": 0,
+            "requested_bytes": 17249
+          },
+          "malloc_zone_calloc": {
+            "calls": 137,
+            "failures": 0,
+            "requested_bytes": 3296
+          },
+          "mmap": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 43286528
+          },
+          "posix_memalign": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 256
+          }
+        },
+        {},
+        {
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 16384
+          }
+        }
+      ]
+    },
+    {
+      "charged_endpoint_calls": 3,
+      "classification": "control_observed",
+      "control": "system",
+      "exit": 0,
+      "mode": "accel",
+      "native_allocation_endpoint_observed": true,
+      "phase_nonzero_endpoint_counters": [
+        {
+          "calloc": {
+            "calls": 28,
+            "failures": 0,
+            "requested_bytes": 1636
+          },
+          "free": {
+            "calls": 23,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 1048576
+          },
+          "mach_vm_map": {
+            "calls": 13,
+            "failures": 0,
+            "requested_bytes": 25792699504
+          },
+          "malloc": {
+            "calls": 206,
+            "failures": 0,
+            "requested_bytes": 17249
+          },
+          "malloc_zone_calloc": {
+            "calls": 137,
+            "failures": 0,
+            "requested_bytes": 3296
+          },
+          "mmap": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 43286528
+          },
+          "posix_memalign": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 256
+          }
+        },
+        {
+          "free": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_map": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 4194304
+          },
+          "malloc": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 4096
+          }
+        },
+        {
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 16384
+          }
+        }
+      ]
+    },
+    {
+      "charged_endpoint_calls": 4,
+      "classification": "control_observed",
+      "control": "thread",
+      "exit": 0,
+      "mode": "accel",
+      "native_allocation_endpoint_observed": true,
+      "phase_nonzero_endpoint_counters": [
+        {
+          "calloc": {
+            "calls": 28,
+            "failures": 0,
+            "requested_bytes": 1636
+          },
+          "free": {
+            "calls": 23,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 1048576
+          },
+          "mach_vm_map": {
+            "calls": 13,
+            "failures": 0,
+            "requested_bytes": 25793354864
+          },
+          "malloc": {
+            "calls": 206,
+            "failures": 0,
+            "requested_bytes": 17249
+          },
+          "malloc_zone_calloc": {
+            "calls": 137,
+            "failures": 0,
+            "requested_bytes": 3296
+          },
+          "mmap": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 43286528
+          },
+          "posix_memalign": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 256
+          }
+        },
+        {
+          "calloc": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 80
+          },
+          "malloc": {
+            "calls": 3,
+            "failures": 0,
+            "requested_bytes": 320
+          }
+        },
+        {
+          "calloc": {
+            "calls": 2,
+            "failures": 0,
+            "requested_bytes": 48
+          },
+          "free": {
+            "calls": 8,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 16384
+          },
+          "malloc": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 72
+          },
+          "posix_memalign": {
+            "calls": 2,
+            "failures": 0,
+            "requested_bytes": 128
+          }
+        }
+      ]
+    },
+    {
+      "charged_endpoint_calls": 3,
+      "classification": "control_observed",
+      "control": "tls",
+      "exit": 0,
+      "mode": "accel",
+      "native_allocation_endpoint_observed": true,
+      "phase_nonzero_endpoint_counters": [
+        {
+          "calloc": {
+            "calls": 28,
+            "failures": 0,
+            "requested_bytes": 1636
+          },
+          "free": {
+            "calls": 23,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 1048576
+          },
+          "mach_vm_map": {
+            "calls": 14,
+            "failures": 0,
+            "requested_bytes": 25797270640
+          },
+          "malloc": {
+            "calls": 206,
+            "failures": 0,
+            "requested_bytes": 17246
+          },
+          "malloc_zone_calloc": {
+            "calls": 137,
+            "failures": 0,
+            "requested_bytes": 3296
+          },
+          "mmap": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 43286528
+          },
+          "posix_memalign": {
+            "calls": 4,
+            "failures": 0,
+            "requested_bytes": 256
+          }
+        },
+        {
+          "malloc": {
+            "calls": 3,
+            "failures": 0,
+            "requested_bytes": 328
+          }
+        },
+        {
+          "free": {
+            "calls": 3,
+            "failures": 0,
+            "requested_bytes": 0
+          },
+          "mach_vm_deallocate": {
+            "calls": 1,
+            "failures": 0,
+            "requested_bytes": 16384
+          }
+        }
+      ]
+    },
+    {
+      "charged_endpoint_calls": null,
+      "classification": "expected_runtime_failure",
+      "control": "panic",
+      "exit": -6,
+      "mode": "accel",
+      "native_allocation_endpoint_observed": null,
+      "native_observation": null
+    }
+  ],
+  "schema": "parliament-native-probe-supervisor-review-v1",
+  "scope": "Fresh-process named-endpoint observation; nested counters are not unique allocations/live bytes. Zero proof observations do not establish interception completeness, native memory ceiling, stack sufficiency or runtime source correspondence.",
+  "source_templates": {
+    "scripts/check_parliament_ballot_native_probe.py": {
+      "sha256": "cc8b7e80444fb7c5c5706d2d049348f3759f838829bd9553e87c1bf15c437182",
+      "template": "docs/validation/parliament_ballot_native_probe/sources/check_parliament_ballot_native_probe.py.template",
+      "template_sha256": "cc8b7e80444fb7c5c5706d2d049348f3759f838829bd9553e87c1bf15c437182"
+    },
+    "scripts/tests/parliament_ballot_native_probe_test.py": {
+      "sha256": "77cb21f83d0a77051a7b8d2ef718638b12ad57f378dac18bb8f58be0ada1589a",
+      "template": "docs/validation/parliament_ballot_native_probe/sources/parliament_ballot_native_probe_test.py.template",
+      "template_sha256": "77cb21f83d0a77051a7b8d2ef718638b12ad57f378dac18bb8f58be0ada1589a"
+    }
+  }
+}

@@ -1,0 +1,158 @@
+{
+  "binary": {
+    "built_path": "target/cargo-fast/parliament-lifecycle/release/examples/prover_lifecycle",
+    "retained_path": "/tmp/parliament-prover-lifecycle/supplement/example-accel",
+    "sha256": "3e7f422587c909d0ecd025f939c06f71fd39897be0cd107409d50d4b39d55bbc"
+  },
+  "commands": [
+    {
+      "after_guard_matched": true,
+      "before_guard_matched": true,
+      "command": [
+        "scripts/cargo_fast.sh",
+        "--target-slot",
+        "parliament-lifecycle",
+        "--incremental",
+        "--",
+        "clippy",
+        "--release",
+        "--locked",
+        "-p",
+        "iroha_parliament_ballot_proof",
+        "--features",
+        "accel",
+        "--test",
+        "prover_lifecycle",
+        "--example",
+        "prover_lifecycle",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "elapsed_seconds": 0.6064344590995461,
+      "exit": 0,
+      "log": "clippy-accel.txt",
+      "log_sha256": "1b5873747d44782fee90c62fec3bfec2ed56224cdaf962ba1e723573450796f3"
+    },
+    {
+      "after_guard_matched": true,
+      "before_guard_matched": true,
+      "command": [
+        "scripts/cargo_fast.sh",
+        "--target-slot",
+        "parliament-lifecycle",
+        "--incremental",
+        "--",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "iroha_parliament_ballot_proof",
+        "--features",
+        "accel",
+        "--example",
+        "prover_lifecycle"
+      ],
+      "elapsed_seconds": 2.657399875111878,
+      "exit": 0,
+      "log": "build-accel.txt",
+      "log_sha256": "75a8341464bf699e16c3a764173b63f564a2c246e467bce4bb03242acda2750a"
+    },
+    {
+      "after_guard_matched": true,
+      "before_guard_matched": true,
+      "command": [
+        "/tmp/parliament-prover-lifecycle/supplement/example-accel",
+        "candidate",
+        "registration",
+        "publish"
+      ],
+      "elapsed_seconds": 0.4750927079003304,
+      "exit": 0,
+      "log": "example-accel-publish.txt",
+      "log_sha256": "6b6f935422d5c6c4318ed7c5bed3084e622952271b7cc8d4efaccfc1f7efdc9a"
+    },
+    {
+      "after_guard_matched": true,
+      "before_guard_matched": true,
+      "command": [
+        "/tmp/parliament-prover-lifecycle/supplement/example-accel",
+        "candidate",
+        "registration",
+        "cancel"
+      ],
+      "elapsed_seconds": 0.2682038340717554,
+      "exit": 0,
+      "log": "example-accel-cancel.txt",
+      "log_sha256": "76caa4d81ad405eddbbc8dbc9f0ed2689e602de2486270d3b72a20235e33d19b"
+    },
+    {
+      "after_guard_matched": true,
+      "before_guard_matched": true,
+      "command": [
+        "/tmp/parliament-prover-lifecycle/supplement/example-accel",
+        "candidate",
+        "registration",
+        "cancel-after-wait"
+      ],
+      "elapsed_seconds": 0.2549415829125792,
+      "exit": 0,
+      "log": "example-accel-cancel-after-wait.txt",
+      "log_sha256": "7d0edb636246ab228fce70be6c9d8075ba6f871a5861e8dcd814d8083e5dedfa"
+    },
+    {
+      "after_guard_matched": true,
+      "before_guard_matched": true,
+      "command": [
+        "/tmp/parliament-prover-lifecycle/supplement/example-accel",
+        "candidate",
+        "registration",
+        "drop"
+      ],
+      "elapsed_seconds": 0.26024362491443753,
+      "exit": 0,
+      "log": "example-accel-drop.txt",
+      "log_sha256": "61f8fbfc33b9b434d38a7c78ab41ecf4de09edd5c481fcc53542266272b24335"
+    },
+    {
+      "after_guard_matched": true,
+      "before_guard_matched": true,
+      "command": [
+        "rustfmt",
+        "--check",
+        "--edition",
+        "2024",
+        "crates/iroha_parliament_ballot_proof/examples/prover_lifecycle.rs",
+        "crates/iroha_parliament_ballot_proof/examples/prover_lifecycle/job.rs",
+        "crates/iroha_parliament_ballot_proof/tests/prover_lifecycle.rs",
+        "crates/iroha_parliament_ballot_proof/tests/prover_lifecycle/allocator_probe.rs"
+      ],
+      "elapsed_seconds": 0.05531170801259577,
+      "exit": 0,
+      "log": "rustfmt.txt",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "after_guard_matched": true,
+      "before_guard_matched": true,
+      "command": [
+        "bash",
+        "scripts/check_no_legacy_codec.sh"
+      ],
+      "elapsed_seconds": 2.2428381252102554,
+      "exit": 0,
+      "log": "no-legacy-codec.txt",
+      "log_sha256": "379b917f97fed5e8d99dd739ced15cb1d38e3cb7d1fe36e7655a12abe1ee8969"
+    }
+  ],
+  "finished_utc": "2026-10-13T06:08:50.885149+00:00",
+  "head": "5f89bf021f94d80a42b1daa991f6e8ca32d9e067",
+  "passed": true,
+  "profile_qualified": false,
+  "scope": "Supplemental accelerated example/lint build; does not rerun or reattribute completed b7d64 tests.",
+  "source_changes": {},
+  "source_count": 243,
+  "source_manifest_sha256": "d69e9435e7958df4e1d3ec0a397c2167f77da5e03f19c70ed66f6370757c969c",
+  "started_utc": "2026-10-13T06:08:43.608585+00:00",
+  "whole_secret_erasure_qualified": false
+}

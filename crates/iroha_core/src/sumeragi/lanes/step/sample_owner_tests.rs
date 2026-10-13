@@ -59,10 +59,18 @@ fn sample_finalizer_refusal_preserves_exact_source_and_retry_funds_only_suffix()
     let pointer = value.samples.as_ptr();
     pool.set_limit_bytes(demand(3) + demand(2) - 1);
     let original_refusal = pool.try_reserve_bytes(demand(2)).unwrap_err();
+    let Err(LaneStepError::Deferred(actual)) =
+        record_sample(&mut value, Some(&policy(1)), &input(), 5, 5000, &pool)
+    else {
+        panic!("original sample capacity must defer")
+    };
+    assert_eq!(actual.allocation_refusal(), Some(&original_refusal));
     assert_eq!(
-        record_sample(&mut value, Some(&policy(1)), &input(), 5, 5000, &pool),
-        Err(LaneStepError::Deferred(original_refusal.clone().into()))
+        actual.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
     );
+    assert_eq!(actual.phase(), None);
+    assert!(actual.decode_refusal().is_none() && actual.verification_refusal().is_none());
     let iroha_allocation::AllocationRefusal::Capacity {
         requested_bytes,
         reserved_bytes,
@@ -245,10 +253,18 @@ fn sample_finalizer_exceeds_limit_retains_exact_requested_suffix_demand() {
         requested_bytes, limit_bytes,
     } if requested_bytes == demand(1) && limit_bytes == demand(1) - 1)
     );
+    let Err(LaneStepError::Deferred(actual)) =
+        record_sample(&mut value, Some(&policy(8)), &input(), 5, 5000, &pool)
+    else {
+        panic!("original sample capacity must defer")
+    };
+    assert_eq!(actual.allocation_refusal(), Some(&expected));
     assert_eq!(
-        record_sample(&mut value, Some(&policy(8)), &input(), 5, 5000, &pool),
-        Err(LaneStepError::Deferred(expected.into()))
+        actual.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
     );
+    assert_eq!(actual.phase(), None);
+    assert!(actual.decode_refusal().is_none() && actual.verification_refusal().is_none());
     assert_eq!(value, original);
     assert_eq!(pool.reserved_bytes(), 0);
     pool.set_limit_bytes(demand(1));

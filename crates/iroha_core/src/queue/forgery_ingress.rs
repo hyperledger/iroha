@@ -150,7 +150,9 @@ impl ForgeryIngressState {
         if now >= self.last_refill {
             self.last_refill = now;
         }
-        let refill = elapsed.as_nanos().min(u128::from(BURST_NS)) as u64;
+        let refill = u64::try_from(elapsed.as_nanos())
+            .unwrap_or(u64::MAX)
+            .min(BURST_NS);
         self.credit_ns = self.credit_ns.saturating_add(refill).min(BURST_NS);
         if self.credit_ns < TOKEN_NS {
             return Err(ForgeryIngressError::RateLimited);
@@ -230,7 +232,7 @@ impl Queue {
         self.observe_forgery(triple, &budget, Instant::now())?;
         // No cache mutex spans cryptography; all observers share its preceding atomic
         // LRU/token decision. No invented read-worker deadline or replacement pool.
-        let _verified = forgery::verify_prechecked(precheck, &budget)?;
+        let _verified = forgery::verify_prechecked(&precheck, &budget)?;
         let parts = (triple.generation, triple.message, triple.signers);
         Ok(SccpAdmissionKeysV1::new(SccpExemptClassV1::ForgeryEvidence)
             .with_exclusive(&parts)

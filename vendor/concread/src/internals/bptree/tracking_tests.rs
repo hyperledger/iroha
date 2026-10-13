@@ -53,7 +53,7 @@ fn fixed_tracking_layout_checks_actual_alignment_empty_and_overflow() {
     assert!(Buffer::allocation_layout(oversized).is_err());
 }
 
-#[cfg(all(not(feature = "dhat-heap"), not(miri)))]
+#[cfg(not(miri))]
 mod allocated {
     use super::*;
     use crate::internals::bptree::node::allocation_tests::{

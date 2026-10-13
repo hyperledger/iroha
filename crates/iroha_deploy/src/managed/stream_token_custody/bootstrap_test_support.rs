@@ -45,9 +45,10 @@ impl ManagedStreamTokenCustody {
         )
         .unwrap();
         assert!(history.has_pending());
-        assert!(history.original().unwrap().is_none());
+        assert!(history.original().is_none());
         assert!(history.dispatch().is_err());
-        let history = history
+
+        history
             .finish_pending_with_reads(
                 self,
                 current,
@@ -55,8 +56,7 @@ impl ManagedStreamTokenCustody {
                 options.deadline,
                 &NativeEnrollmentReads(native),
             )
-            .unwrap();
-        history
+            .unwrap()
     }
 
     pub(in crate::managed) fn bootstrap_native_configure(

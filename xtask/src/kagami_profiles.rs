@@ -76,13 +76,12 @@ fn published_private_key_rendering(spec: &ProfileSpec) -> PrivateKeyRendering {
     }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum GenesisIdentityRendering<'a> {
+enum GenesisIdentityRendering {
     Unpublished,
-    Inline(&'a str),
     SiblingFile,
     RuntimeFile,
 }
-fn published_genesis_identity_rendering(spec: &ProfileSpec) -> GenesisIdentityRendering<'static> {
+fn published_genesis_identity_rendering(spec: &ProfileSpec) -> GenesisIdentityRendering {
     if spec.slug == "iroha3-dev" {
         GenesisIdentityRendering::SiblingFile
     } else {
@@ -1175,16 +1174,13 @@ fn render_peer_config_with_private_keys(
     peers: &[PeerMaterial],
     peer_index: usize,
     genesis_public_key: &iroha_crypto::PublicKey,
-    genesis_identity_rendering: GenesisIdentityRendering<'_>,
+    genesis_identity_rendering: GenesisIdentityRendering,
     private_key_rendering: PrivateKeyRendering,
 ) -> String {
     let genesis_identity_source = match genesis_identity_rendering {
         // Unpublished authoring policy cannot claim a runtime identity. The signer binds it
         // through a genuine original provisional block, then generation validates the final cut.
         GenesisIdentityRendering::Unpublished => String::new(),
-        GenesisIdentityRendering::Inline(expected_hash) => {
-            format!("expected_hash = \"{expected_hash}\"")
-        }
         // Published host-run profiles resolve this path relative to the generated config itself.
         GenesisIdentityRendering::SiblingFile => {
             "expected_hash_file = \"genesis.expected_hash\"".to_owned()
@@ -1369,7 +1365,7 @@ fn write_peer_configs(
     peers: &[PeerMaterial],
     genesis_public_key: &iroha_crypto::PublicKey,
     directory: &iroha_fs::PrivateDirectory,
-    genesis_identity_rendering: GenesisIdentityRendering<'_>,
+    genesis_identity_rendering: GenesisIdentityRendering,
     private_key_rendering: PrivateKeyRendering,
 ) -> AnyResult<()> {
     // The signing projection and published developer configs carry private originals.
@@ -1399,8 +1395,8 @@ fn render_docker_compose(spec: &ProfileSpec, peers: &[PeerMaterial]) -> String {
         GenesisIdentityRendering::RuntimeFile => {
             "\n      - ./genesis.expected_hash:/run/iroha/genesis.expected_hash:ro"
         }
-        GenesisIdentityRendering::Unpublished | GenesisIdentityRendering::Inline(_) => {
-            unreachable!("published profiles never carry an inline genesis identity")
+        GenesisIdentityRendering::Unpublished => {
+            unreachable!("published profiles require a provisioned genesis identity file")
         }
     };
     let runtime_secrets_volume =
@@ -2398,12 +2394,20 @@ mod tests {
                 &peers,
                 0,
                 genesis_key.public_key(),
-                GenesisIdentityRendering::Inline(&expected_hash),
+                GenesisIdentityRendering::Unpublished,
                 PrivateKeyRendering::Inline,
             );
-            let table = rendered
+            let mut table = rendered
                 .parse::<toml::Table>()
                 .expect("rendered profile config is valid TOML");
+            table
+                .get_mut("genesis")
+                .and_then(toml::Value::as_table_mut)
+                .expect("generated genesis config")
+                .insert(
+                    "expected_hash".into(),
+                    toml::Value::String(expected_hash.clone()),
+                );
             let bundle = tempdir().expect("profile config admission directory");
             let path = bundle.path().join("peer0.toml");
             assert!(

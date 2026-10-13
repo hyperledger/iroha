@@ -236,24 +236,24 @@ fn exact_group_descriptor_rejects_missing_duplicate_displaced_and_single_routes(
         require_exact_table_materializers(GROUP_ONLY, &[group]).unwrap(),
         2
     );
-    assert_eq!(
+    assert!(matches!(
         require_exact_table_materializers(GROUP_ONLY, &[]),
         Err(TableCaptureError::MissingMaterializer(
             "state.transactions.current"
         ))
-    );
-    assert_eq!(
+    ));
+    assert!(matches!(
         require_exact_table_materializers(GROUP_ONLY, &[group, group]),
         Err(TableCaptureError::DuplicateMaterializer(
             "state.transactions.current"
         ))
-    );
+    ));
     let mut displaced = readers(aliases);
     displaced.swap(0, 1);
-    assert_eq!(
+    assert!(matches!(
         require_exact_table_materializers(FIELDS, &displaced),
         Err(TableCaptureError::DisplacedMaterializer("world.accounts"))
-    );
+    ));
     let singles = [
         TableMaterializer::Single {
             id: "state.transactions.current",
@@ -264,10 +264,10 @@ fn exact_group_descriptor_rejects_missing_duplicate_displaced_and_single_routes(
             capture: accounts,
         },
     ];
-    assert_eq!(
+    assert!(matches!(
         require_exact_table_materializers(GROUP_ONLY, &singles),
         Err(TableCaptureError::MalformedMembershipGroup)
-    );
+    ));
     const NO_OWNER: &[Field] = &[MEMBERSHIP_FIELDS[1], MEMBERSHIP_FIELDS[2]];
     const DUP_FRONTIER: &[Field] = &[MEMBERSHIP, FRONTIER];
     const BAD_FRONTIER_FIELDS: &[Field] = &[
@@ -303,12 +303,12 @@ fn exact_group_descriptor_rejects_missing_duplicate_displaced_and_single_routes(
     let peak_before = budget.peak_reserved_bytes();
     budget.set_limit_bytes(0);
     for fields in [NO_OWNER, DUP_FRONTIER, BAD_FRONTIER, BAD_TABLE] {
-        assert_eq!(
+        assert!(matches!(
             capture_tables_once(&state, fields, &[group], policy())
                 .err()
                 .unwrap(),
             TableCaptureError::MalformedMembershipGroup
-        );
+        ));
         assert_eq!(budget.peak_reserved_bytes(), peak_before);
         assert_eq!(budget.reserved_bytes(), before);
     }
@@ -322,12 +322,12 @@ fn grouped_output_count_and_original_pool_are_admitted_before_any_reader() {
     let before = budget.reserved_bytes();
     let mut limited = policy();
     limited.tables.max_tables = 3;
-    assert_eq!(
+    assert!(matches!(
         capture_tables_once(&state, FIELDS, &readers(aliases), limited)
             .err()
             .unwrap(),
         TableCaptureError::MaterializerLimit
-    );
+    ));
     assert_eq!(CALLS.get(), 0);
     let occupied = budget
         .try_reserve_bytes(budget.limit_bytes() - before)
@@ -336,11 +336,10 @@ fn grouped_output_count_and_original_pool_are_admitted_before_any_reader() {
         .unwrap()
         .size();
     let expected = budget.try_reserve_bytes(bytes).unwrap_err();
-    assert_eq!(
-        capture_tables_once(&state, FIELDS, &readers(aliases), policy())
+    assert!(
+        matches!(&(capture_tables_once(&state, FIELDS, &readers(aliases), policy())
             .err()
-            .unwrap(),
-        TableCaptureError::Admission(expected)
+            .unwrap()), TableCaptureError::Admission(actual) if actual == &expected)
     );
     assert_eq!(CALLS.get(), 0);
     drop(occupied);
@@ -363,11 +362,10 @@ fn busy_source_work_and_pair_row_refusals_reclaim_preceding_native_nodes() {
         .try_membership_observation()
         .err()
         .unwrap();
-    assert_eq!(
-        capture_tables_once(&state, FIELDS, &readers(aliases), policy())
+    assert!(
+        matches!(&(capture_tables_once(&state, FIELDS, &readers(aliases), policy())
             .err()
-            .unwrap(),
-        TableCaptureError::Membership(MembershipCaptureError::Acquisition(expected))
+            .unwrap()), TableCaptureError::Membership(MembershipCaptureError::Acquisition(actual)) if actual == &expected)
     );
     assert_eq!(CALLS.get(), 1);
     assert_eq!(budget.reserved_bytes(), before);
@@ -436,7 +434,21 @@ fn post_group_error_identity_and_generation_retry_drop_pair_and_companion() {
         let before = budget.reserved_bytes();
         let result = capture_tables_once(&state, FIELDS, &readers(last), policy());
         if let Some(expected) = expected {
-            assert_eq!(result.err().unwrap(), expected);
+            assert!(match (&result.err().unwrap(), &expected) {
+                (TableCaptureError::Leaf(actual), TableCaptureError::Leaf(expected)) =>
+                    actual == expected,
+                (
+                    TableCaptureError::IdentityMismatch {
+                        expected: actual_expected,
+                        actual: actual_actual,
+                    },
+                    TableCaptureError::IdentityMismatch {
+                        expected: expected_expected,
+                        actual: expected_actual,
+                    },
+                ) => actual_expected == expected_expected && actual_actual == expected_actual,
+                _ => false,
+            });
         } else {
             assert!(result.unwrap().is_none());
         }

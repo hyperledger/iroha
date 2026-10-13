@@ -262,7 +262,7 @@ fn current_genesis_history_replays_from_reopened_stores_to_the_identical_state()
         assert_eq!(state.view().native_execution_tip(), tips[index]);
         assert_eq!(
             prepared.instance(),
-            root_instance(&chain.genesis, &chain.chain_id.to_string()).unwrap(),
+            root_instance(&chain.genesis, chain.chain_id.as_ref()).unwrap(),
             "the replayed instance is the one the stored genesis defines"
         );
         release(state, prepared);
@@ -305,8 +305,8 @@ fn a_store_never_replays_under_another_genesis() {
     // Any signed difference is another genesis; here one consensus parameter.
     let new = chain(4, 300);
     assert_ne!(old.genesis.hash(), new.genesis.hash());
-    let old_instance = root_instance(&old.genesis, &old.chain_id.to_string()).unwrap();
-    let new_instance = root_instance(&new.genesis, &new.chain_id.to_string()).unwrap();
+    let old_instance = root_instance(&old.genesis, old.chain_id.as_ref()).unwrap();
+    let new_instance = root_instance(&new.genesis, new.chain_id.as_ref()).unwrap();
     assert_ne!(
         old_instance, new_instance,
         "the instance peers bind in the handshake separates the two histories"
@@ -624,7 +624,7 @@ fn pinned_history_of_an_earlier_build_replays_to_its_pinned_state() {
         Ok(_) => panic!("Strict startup must refuse a store whose persisted frame was altered"),
     };
     assert!(
-        refusal.contains("BlockDecode") || refusal.contains("CanonicalBlockWireMismatch"),
+        refusal.contains("CodecAttempt") || refusal.contains("CanonicalBlockWireMismatch"),
         "the altered frame itself is what stops startup: {refusal}"
     );
 }

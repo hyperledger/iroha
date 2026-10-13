@@ -89,7 +89,10 @@ fn execute_query_rejects_oversized_singular_response_before_output_allocation() 
     let error = host
         .syscall(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_QUERY, &mut vm)
         .expect_err("oversized singular query must exhaust its byte budget");
-    assert_eq!(error, ivm::VMError::OutOfGas);
+    assert!(matches!(
+        (&(error), &(ivm::VMError::OutOfGas)),
+        (ivm::VMError::OutOfGas, ivm::VMError::OutOfGas)
+    ));
     assert_eq!(
         vm.register(10),
         request_ptr,
@@ -206,11 +209,11 @@ fn core_queries_return_typed_handles_and_specialists_remain_norito() {
     let contract_address = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku DedicatedQueryContract {
   view fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
         0,
     );
     let code_hash = *state
@@ -562,10 +565,15 @@ fn core_query_get_respects_user_executor_denial_for_every_entity() {
             let error = host
                 .syscall(ivm_sys::SYSCALL_CORE_QUERY_GET, &mut vm)
                 .expect_err("deny-all executor must reject typed entity reads");
-            assert_eq!(
-                error,
-                ivm::VMError::PermissionDenied,
-                "{presence} entity {tag:?}",
+            assert!(
+                matches!(
+                    (&(error), &(ivm::VMError::PermissionDenied)),
+                    (
+                        ivm::VMError::PermissionDenied,
+                        ivm::VMError::PermissionDenied
+                    )
+                ),
+                "{presence} entity {tag:?}"
             );
             assert_eq!(
                 vm.register(10),
@@ -640,7 +648,16 @@ fn core_query_page_respects_user_executor_denial_for_every_entity() {
         let error = host
             .syscall(ivm_sys::SYSCALL_CORE_QUERY_PAGE, &mut vm)
             .expect_err("deny-all executor must reject typed page reads");
-        assert_eq!(error, ivm::VMError::PermissionDenied, "entity {tag:?}");
+        assert!(
+            matches!(
+                (&(error), &(ivm::VMError::PermissionDenied)),
+                (
+                    ivm::VMError::PermissionDenied,
+                    ivm::VMError::PermissionDenied
+                )
+            ),
+            "entity {tag:?}"
+        );
         assert_eq!(
             vm.register(10),
             tag.as_u64(),
@@ -757,7 +774,11 @@ fn core_query_page_is_bounded_ordered_and_validates_arguments() {
     assert_eq!(read_option_int(&vm, vm.register(11)), None);
     for (tag, offset_bits, limit) in [
         (0, 0, 1),
-        (CoreQueryEntityTagV1::Account.as_u64(), (-1_i64) as u64, 1),
+        (
+            CoreQueryEntityTagV1::Account.as_u64(),
+            u64::try_from(-1_i64).expect("fixture value fits u64"),
+            1,
+        ),
         (
             CoreQueryEntityTagV1::Account.as_u64(),
             (i64::MAX - 1) as u64,
@@ -914,7 +935,8 @@ fn account_asset_pages_filter_before_pagination_and_enforce_account_access() {
         assert_eq!(&id, expected_id);
         assert_eq!(
             read_option_int(&vm, vm.register(11)),
-            (offset + 1 < expected.len()).then_some((offset + 1) as i64)
+            (offset + 1 < expected.len())
+                .then_some(i64::try_from(offset + 1).expect("fixture value fits i64"))
         );
     }
     for owner in [0, bob_pointer] {
@@ -922,18 +944,27 @@ fn account_asset_pages_filter_before_pagination_and_enforce_account_access() {
         vm.set_register(11, 0);
         vm.set_register(12, 1);
         vm.set_register(13, owner);
-        assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_CORE_QUERY_PAGE, &mut vm),
-            Err(ivm::VMError::PermissionDenied)
-        );
+        assert!(matches!(
+            (
+                &(host.syscall(ivm_sys::SYSCALL_CORE_QUERY_PAGE, &mut vm)),
+                &(ivm::VMError::PermissionDenied)
+            ),
+            (
+                Err(ivm::VMError::PermissionDenied),
+                ivm::VMError::PermissionDenied
+            )
+        ));
         assert_eq!(vm.register(10), CoreQueryEntityTagV1::Asset.as_u64());
     }
     vm.set_register(10, CoreQueryEntityTagV1::Account.as_u64());
     vm.set_register(13, alice_pointer);
-    assert_eq!(
-        host.syscall(ivm_sys::SYSCALL_CORE_QUERY_PAGE, &mut vm),
-        Err(ivm::VMError::DecodeError)
-    );
+    assert!(matches!(
+        (
+            &(host.syscall(ivm_sys::SYSCALL_CORE_QUERY_PAGE, &mut vm)),
+            &(ivm::VMError::DecodeError)
+        ),
+        (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError)
+    ));
 }
 
 #[test]

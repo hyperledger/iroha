@@ -42,11 +42,24 @@ pub(super) fn control(stop: &AtomicBool) -> SccpNativeReadControl<'_> {
 /// No test writes a generation, X, R or QC. The long epoch avoids an unrelated boundary
 /// ceremony while a real heartbeat supplies the unchanged-key rotation test.
 pub(super) fn active_chain() -> CertifiedTestChain {
+    active_chain_with_cadence(NonZeroU64::new(1_000).unwrap())
+}
+
+// A signed one-millisecond cadence admits both adjacent retention boundary tips.
+// Every existing caller retains its original signed one-second cadence.
+fn active_chain_with_cadence(cadence: NonZeroU64) -> CertifiedTestChain {
     let mut config = TestChainConfig::new(World::new(), 1_000);
     config.consensus_mode = iroha_data_model::parameter::system::SumeragiConsensusMode::Npos;
-    config.genesis_block_cadence_ms = NonZeroU64::new(1_000).unwrap();
+    config.genesis_block_cadence_ms = cadence;
+    // Preserve SCCP's original one-hour epoch duration in both signed cadence fixtures.
+    let epoch_ms = iroha_data_model::sccp::params::SCCP_MIN_EPOCH_MS_V1;
+    let epoch_length_blocks = NonZeroU64::new(epoch_ms / cadence.get()).unwrap();
+    assert_eq!(
+        epoch_length_blocks.get().checked_mul(cadence.get()),
+        Some(epoch_ms)
+    );
     let npos = SumeragiNposParameters {
-        epoch_length_blocks: NonZeroU64::new(3_600).unwrap(),
+        epoch_length_blocks,
         max_validators: 4,
         ..SumeragiNposParameters::default()
     };
@@ -59,6 +72,13 @@ pub(super) fn active_chain() -> CertifiedTestChain {
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
     nexus.staking.unbonding_delay = Duration::from_secs(21 * 86_400);
     nexus.staking.max_slash_bps = 1;
+    let keys = crate::smartcontracts::isi::sccp::forgery::tests::keys();
+    config.validator_keys = Some(keys.clone());
+    crate::smartcontracts::isi::sccp::forgery::tests::register_genesis_members(
+        &mut config,
+        &keys,
+        &nexus.staking,
+    );
     config.nexus = Some(nexus);
     config.genesis_instructions.push(
         InitializeSccpV1 {
@@ -338,8 +358,14 @@ fn streaming_history_and_block_paths_match_the_canonical_promote_odd_tree() {
             if size <= MAX_BLOCK_LEAVES {
                 let (block, path) = bounded_tree_path(&mut leaves.clone(), index as u64).unwrap();
                 assert_eq!(block, block_root(&leaves).unwrap());
-                verify_block_inclusion(&leaves[index], index as u32, size as u32, &path, &block)
-                    .unwrap();
+                verify_block_inclusion(
+                    &leaves[index],
+                    u32::try_from(index).expect("fixture value fits u32"),
+                    u32::try_from(size).expect("fixture value fits u32"),
+                    &path,
+                    &block,
+                )
+                .unwrap();
             }
         }
     }
@@ -470,6 +496,7 @@ fn original_projection_rejects_bare_body_wrong_scope_identity_and_qc_substitutio
             height,
             source,
             original,
+            &owner,
             &budget,
             control(&stop)
         )
@@ -478,7 +505,15 @@ fn original_projection_rejects_bare_body_wrong_scope_identity_and_qc_substitutio
     let mut bare = original.clone();
     bare.result_preimage.drain(..X_LEN);
     assert!(matches!(
-        project_original(view.world(), height, source, &bare, &budget, control(&stop)),
+        project_original(
+            view.world(),
+            height,
+            source,
+            &bare,
+            &owner,
+            &budget,
+            control(&stop)
+        ),
         Err(SccpNativeReadError::CertifiedResult(_))
     ));
     let mut foreign = source;
@@ -489,6 +524,7 @@ fn original_projection_rejects_bare_body_wrong_scope_identity_and_qc_substitutio
             height,
             foreign,
             original,
+            &owner,
             &budget,
             control(&stop)
         ),
@@ -516,6 +552,7 @@ fn original_projection_rejects_bare_body_wrong_scope_identity_and_qc_substitutio
                     height,
                     source,
                     &changed,
+                    &owner,
                     &budget,
                     control(&stop)
                 ),
@@ -531,6 +568,7 @@ fn original_projection_rejects_bare_body_wrong_scope_identity_and_qc_substitutio
                 height,
                 source,
                 original,
+                &owner,
                 &budget,
                 control(&stop),
             )
@@ -833,5 +871,207 @@ fn message_rejects_payload_and_stored_coordinate_disagreement_before_admission()
             _ => unreachable!(),
         }
         assert_eq!(budget.reserved_bytes(), 0, "mutation {mutation}");
+    }
+}
+
+/// Original storage selection is insufficient when only the certificate bytes change:
+/// the indexed block hash deliberately excludes the certificate and its result.
+#[test]
+fn native_certificate_rejects_reencoded_original_signature_substitution() {
+    let mut chain = active_chain();
+    chain.commit_at(2_000, Vec::new());
+    check_original_signature_substitution(&chain);
+}
+
+#[inline(never)]
+fn check_original_signature_substitution(chain: &CertifiedTestChain) {
+    use iroha_data_model::block::CommitCertificate;
+    let stop = AtomicBool::new(false);
+    let budget = AllocationBudget::new(128 << 20);
+    let view = chain.state().view();
+    let height = NonZeroU64::new(2).unwrap();
+    let original =
+        read_commit_certificate(&view, height, &budget, control(&stop).deadline).unwrap();
+    let raw = original.certificate();
+    let original_block = chain.committed(2);
+    let original_certificate = original_block.block().commit_certificate().unwrap();
+    let mut qc: Qc = norito::decode_canonical(&raw.commit_qc).unwrap();
+    let original_signature = qc.agg_sig.0;
+    let valid = finality(&view, Some(height), &budget, control(&stop)).unwrap();
+    assert_eq!(valid.data().aggregate_signature, original_signature);
+    drop(valid);
+    let occupied = budget.reserved_bytes();
+    // An identity signature retains the canonical QC layout, signer set, all hashes,
+    // source height and response shape. Only the required cryptographic relation rejects it.
+    qc.agg_sig.0 = iroha_sccp::v1::committee::IDENTITY_SIGNATURE;
+    let changed_qc = norito::encode_canonical(&qc).unwrap();
+    chain.kura().replace_native_certificate_for_test(
+        NonZeroUsize::new(2).unwrap(),
+        CommitCertificate::from_untrusted_parts(
+            raw.consensus_header.clone(),
+            changed_qc.clone(),
+            raw.result_preimage.clone(),
+            original_certificate.availability().to_vec(),
+        ),
+    );
+    let replaced =
+        read_commit_certificate(&view, height, &budget, control(&stop).deadline).unwrap();
+    assert_eq!(replaced.certificate().commit_qc, changed_qc);
+    assert_eq!(
+        replaced.certificate().consensus_header,
+        raw.consensus_header
+    );
+    assert_eq!(replaced.certificate().result_preimage, raw.result_preimage);
+    drop(replaced);
+    assert_eq!(budget.reserved_bytes(), occupied);
+    let error = finality(&view, Some(height), &budget, control(&stop))
+        .err()
+        .expect("original stored invalid signature cannot authorize SCCP DATA or ETag");
+    assert!(error.to_string().contains("aggregate signature"), "{error}");
+    assert_eq!(budget.reserved_bytes(), occupied);
+    // Restore the exact genuine certificate; neither a cache fallback nor a permanent
+    // source quarantine may replace the actual next durable acquisition.
+    chain.kura().replace_native_certificate_for_test(
+        NonZeroUsize::new(2).unwrap(),
+        original_certificate.clone(),
+    );
+    let retried = finality(&view, Some(height), &budget, control(&stop)).unwrap();
+    assert_eq!(retried.data().aggregate_signature, original_signature);
+    drop((retried, original));
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn native_certificate_crypto_refusal_keeps_exact_original_pool_and_source() {
+    let mut chain = active_chain();
+    chain.commit_at(2_000, Vec::new());
+    check_original_crypto_refusal(&chain);
+}
+
+#[inline(never)]
+fn check_original_crypto_refusal(chain: &CertifiedTestChain) {
+    let stop = AtomicBool::new(false);
+    let budget = AllocationBudget::new(128 << 20);
+    let view = chain.state().view();
+    let proof = finality(&view, NonZeroU64::new(2), &budget, control(&stop)).unwrap();
+    let original_signature = proof.data().aggregate_signature;
+    let generation = signing_generation(view.world(), 2, control(&stop)).unwrap();
+    let occupied = budget.reserved_bytes();
+    let exact = ConsensusAggregateScratch::<()>::backing_bytes();
+    assert!(exact > 0);
+    let external = budget
+        .try_reserve_bytes(budget.limit_bytes() - occupied - (exact - 1))
+        .unwrap();
+    let error = verify_original_relation(
+        proof.data(),
+        chain.instance(),
+        &generation.keys,
+        &budget,
+        control(&stop),
+    )
+    .expect_err("one missing original pairing byte refuses before allocation");
+    let SccpNativeReadError::Allocation(AllocationRefusal::Capacity {
+        requested_bytes,
+        reserved_bytes,
+        limit_bytes,
+        ..
+    }) = error
+    else {
+        panic!("original exact pairing refusal must retain its type");
+    };
+    assert_eq!(requested_bytes, exact);
+    assert_eq!(reserved_bytes, budget.limit_bytes() - (exact - 1));
+    assert_eq!(limit_bytes, budget.limit_bytes());
+    assert_eq!(budget.reserved_bytes(), reserved_bytes);
+    assert_eq!(proof.data().aggregate_signature, original_signature);
+    drop(external);
+    let verified = verify_original_relation(
+        proof.data(),
+        chain.instance(),
+        &generation.keys,
+        &budget,
+        control(&stop),
+    )
+    .unwrap();
+    assert_eq!(
+        verified.0,
+        verify_certificate(
+            &chain.instance().0,
+            &proof.data().qc,
+            &proof.data().header,
+            &proof.data().aggregate_signature,
+            &generation.keys,
+        )
+        .unwrap()
+        .result
+    );
+    assert_eq!(budget.reserved_bytes(), occupied);
+    drop(proof);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn genuine_rotation_retention_is_inclusive_at_the_original_tip_deadline() {
+    let mut chain = active_chain_with_cadence(NonZeroU64::new(1).unwrap());
+    let (start, deadline) = {
+        let view = chain.state().view();
+        let original = store::committee_generations::get(view.world(), &1).unwrap();
+        (original.start_timestamp_ms, original.deadline_ms)
+    };
+    chain.commit_at(
+        start + SccpParametersV1::taira_default().committee_heartbeat_ms,
+        Vec::new(),
+    );
+    let stop = AtomicBool::new(false);
+    let budget = AllocationBudget::new(128 << 20);
+    chain.commit_at(deadline, Vec::new());
+    {
+        let view = chain.state().view();
+        assert_eq!(
+            view.native_execution_tip().unwrap().creation_time_ms(),
+            deadline
+        );
+        let rotations = committee_rotations(&view, 1, 1, &budget, control(&stop))
+            .expect("the original deadline remains inclusive");
+        assert_eq!(rotations.data().len(), 1);
+        let cert = &rotations.data()[0].certificate;
+        let x = SccpFinalityHeaderV1::parse(&cert.header).unwrap();
+        assert!(x.is_rotation());
+        assert_eq!(x.generation(), 1);
+        verify_certificate(
+            &chain.instance().0,
+            &cert.qc,
+            &cert.header,
+            &cert.aggregate_signature,
+            &cert.committee,
+        )
+        .expect("retained rotation still has its genuine outgoing aggregate");
+        assert!(budget.reserved_bytes() > 0);
+    }
+    assert_eq!(budget.reserved_bytes(), 0);
+    chain.commit_at(deadline.checked_add(1).unwrap(), Vec::new());
+    {
+        let view = chain.state().view();
+        assert_eq!(
+            view.native_execution_tip().unwrap().creation_time_ms(),
+            deadline + 1
+        );
+        let outgoing = store::committee_generations::get(view.world(), &1)
+            .expect("liability retains the original generation beyond rotation expiry");
+        assert_eq!(outgoing.deadline_ms, deadline);
+        assert!(outgoing.end.is_some());
+        match committee_rotations(&view, 1, 1, &budget, control(&stop)) {
+            Ok(_) => panic!("expired rotation was served beyond the authenticated tip deadline"),
+            Err(error) => assert_eq!(
+                error.to_string(),
+                "native SCCP rotation is outside its committed retention window"
+            ),
+        }
+        assert_eq!(budget.reserved_bytes(), 0);
+        assert!(matches!(
+            committee_rotations(&view, u64::MAX, 1, &budget, control(&stop)),
+            Err(SccpNativeReadError::NotFound(_))
+        ));
+        assert_eq!(budget.reserved_bytes(), 0);
     }
 }

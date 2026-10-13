@@ -4,18 +4,6 @@ use super::*;
 use iroha_allocation::shared::{Reserved, Shared};
 use iroha_allocation::{AllocationCharge, ChargedBufferFromChargeError};
 
-// Reuse this integration binary's sole actual allocator observer. Each new
-// control drains its observation before releasing SERIAL, including on unwind.
-struct ResetObservation;
-impl Drop for ResetObservation {
-    fn drop(&mut self) {
-        OBSERVE_ALLOCATIONS.with(|enabled| enabled.set(false));
-        NEXT_SIZE.store(usize::MAX, SeqCst);
-        FAIL_NEXT.store(false, SeqCst);
-        OBSERVED_BUDGET.with(|observed| observed.borrow_mut().take());
-    }
-}
-
 fn charge(budget: &AllocationBudget, layout: Layout) -> AllocationCharge {
     budget
         .try_reserve(layout)
@@ -45,8 +33,7 @@ fn wait<'a>(
 
 #[test]
 fn original_charge_layout_mismatch_precedes_allocation_and_never_refunds() {
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let expected = Layout::array::<u32>(4).unwrap();
     for actual in [
         Layout::from_size_align(15, 4).unwrap(),
@@ -86,8 +73,7 @@ fn original_charge_layout_mismatch_precedes_allocation_and_never_refunds() {
 
 #[test]
 fn typed_layout_overflow_returns_original_charge_before_allocation() {
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let layout = Layout::new::<u64>();
     let budget = AllocationBudget::new(layout.size());
     let original = charge(&budget, layout);
@@ -107,8 +93,7 @@ fn typed_layout_overflow_returns_original_charge_before_allocation() {
 
 #[test]
 fn equal_pool_limits_do_not_move_refusal_or_refund_to_a_foreign_pool() {
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let layout = Layout::array::<u8>(53).unwrap();
     let original_pool = AllocationBudget::new(53 + ReleaseRegistration::allocation_layout().size());
     let mut original_pool_registration = registration(&original_pool);
@@ -141,8 +126,7 @@ fn equal_pool_limits_do_not_move_refusal_or_refund_to_a_foreign_pool() {
 
 #[test]
 fn allocator_null_retains_exact_credit_for_retry_without_another_reservation() {
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let layout = Layout::array::<u8>(113).unwrap();
     let budget =
         AllocationBudget::new(layout.size() + ReleaseRegistration::allocation_layout().size());
@@ -194,8 +178,7 @@ fn allocator_null_retains_exact_credit_for_retry_without_another_reservation() {
 
 #[test]
 fn aborting_a_refused_allocation_refunds_only_when_the_returned_charge_drops() {
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(71 + ReleaseRegistration::allocation_layout().size());
     let mut budget_registration = registration(&budget);
     let original = charge(&budget, Layout::array::<u8>(71).unwrap());
@@ -222,8 +205,7 @@ fn aligned_elements_use_the_validated_original_backing_layout() {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[repr(align(256))]
     struct Entry([u8; 17]);
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let layout = Layout::array::<Entry>(3).unwrap();
     let budget = AllocationBudget::new(layout.size());
     let original = charge(&budget, layout);
@@ -245,8 +227,7 @@ fn zero_bytes_still_require_exact_alignment_and_fixed_logical_capacity() {
     #[derive(Clone, Copy)]
     #[repr(align(256))]
     struct Entry;
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(0);
     let wrong = charge(&budget, Layout::array::<u8>(0).unwrap());
     observe_next(0, false, &budget);
@@ -270,8 +251,7 @@ fn zero_bytes_still_require_exact_alignment_and_fixed_logical_capacity() {
 
 #[test]
 fn zero_capacity_retains_its_exact_zero_charge_without_backing_allocation() {
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(0);
     let original = charge(&budget, Layout::array::<u64>(0).unwrap());
     observe_next(0, false, &budget);
@@ -288,8 +268,7 @@ type Header = Reserved<ChargedBuffer<u8>, AllocationCharge>;
 
 #[test]
 fn complete_buffer_and_header_demand_is_refused_before_either_allocation() {
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let backing = Layout::array::<u8>(129).unwrap();
     let header = Header::layout();
     let total = backing.size().checked_add(header.size()).unwrap();
@@ -350,8 +329,7 @@ fn complete_buffer_and_header_demand_is_refused_before_either_allocation() {
 
 #[test]
 fn allocated_header_survives_buffer_refusal_and_initializes_without_reconstruction() {
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let backing = Layout::array::<u8>(193).unwrap();
     let header = Header::layout();
     let total = backing.size() + header.size();
@@ -389,8 +367,7 @@ fn allocated_header_survives_buffer_refusal_and_initializes_without_reconstructi
 
 #[test]
 fn initialized_buffer_survives_header_refusal_with_the_same_original_charge() {
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let backing = Layout::array::<u8>(211).unwrap();
     let header = Header::layout();
     let total = backing.size() + header.size();
@@ -421,8 +398,7 @@ fn initialized_buffer_survives_header_refusal_with_the_same_original_charge() {
 
 #[test]
 fn dropping_unused_header_does_not_refund_live_nested_buffer() {
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let backing = Layout::array::<u8>(149).unwrap();
     let header = Header::layout();
     let budget = AllocationBudget::new(backing.size() + header.size());
@@ -442,8 +418,7 @@ fn dropping_unused_header_does_not_refund_live_nested_buffer() {
 
 #[test]
 fn partially_allocated_preparation_unwind_releases_original_owners() {
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let backing = Layout::array::<u8>(151).unwrap();
     let header = Header::layout();
     let budget = AllocationBudget::new(backing.size() + header.size());
@@ -463,8 +438,7 @@ fn partially_allocated_preparation_unwind_releases_original_owners() {
 
 #[test]
 fn returned_allocator_error_reports_exact_layout_without_a_pool_admission_claim() {
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let layout = Layout::array::<u8>(31).unwrap();
     let budget = AllocationBudget::new(31);
     let original = charge(&budget, layout);
@@ -509,8 +483,7 @@ fn last_shared_reader_frees_header_before_buffered_payload_and_both_refunds() {
 
     type Shell = Reserved<BufferedPayload, AllocationCharge>;
 
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let backing = Layout::array::<u8>(239).unwrap();
     let header = Shell::layout();
     let total = backing.size().checked_add(header.size()).unwrap();
@@ -600,8 +573,7 @@ impl Wake for AfterComposedRetirement {
 
 #[test]
 fn composed_last_reader_refunds_wait_until_outer_physical_guard_releases() {
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let backing = Layout::array::<u8>(241).unwrap();
     let header = Header::layout();
     let total = backing.size().checked_add(header.size()).unwrap();
@@ -655,8 +627,7 @@ fn composed_last_reader_refunds_wait_until_outer_physical_guard_releases() {
 
 #[test]
 fn partially_allocated_composition_unwind_defers_refunds_past_outer_guard() {
-    let _serial = SERIAL.lock().unwrap();
-    let _reset = ResetObservation;
+    let _serial = serial_observation();
     let backing = Layout::array::<u8>(251).unwrap();
     let header = Header::layout();
     let total = backing.size().checked_add(header.size()).unwrap();

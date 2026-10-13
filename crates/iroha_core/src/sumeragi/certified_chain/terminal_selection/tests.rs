@@ -368,7 +368,7 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
     });
     let codec = context.consumed_allocated_bytes() - before_codec;
     let header = gap.borrowed().header().unwrap();
-    let verified = iroha_sumeragi::availability::verify_availability(
+    let authenticated = iroha_sumeragi::availability::verify_availability(
         header.instance,
         &config,
         header,
@@ -376,7 +376,7 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
         &prefix.authority.crypto,
     )
     .unwrap();
-    let shape = verified.shape();
+    let shape = authenticated.shape();
     let scratch = shape
         .encoded_bytes()
         .checked_add(
@@ -403,7 +403,6 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
     } else {
         codec.checked_add(payload).unwrap() - 1
     };
-    drop(verified);
     drop(table);
 
     // Only the RS16 control supplies the existing funded artifact owner; this eliminates

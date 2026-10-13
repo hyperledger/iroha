@@ -1,0 +1,43 @@
+{
+  "checks": [
+    {
+      "command": [
+        "python3.11",
+        "scripts/parliament_ballot_io_error_guard.py",
+        "--output",
+        "docs/validation/parliament_ballot_io_error_guard/analysis"
+      ],
+      "exit_code": 0,
+      "output": "docs/validation/parliament_ballot_io_error_guard/analysis.txt"
+    },
+    {
+      "command": [
+        "python3.11",
+        "-m",
+        "pytest",
+        "-q",
+        "scripts/tests/parliament_ballot_io_error_guard_test.py"
+      ],
+      "exit_code": 0,
+      "output": "docs/validation/parliament_ballot_io_error_guard/tests.txt"
+    },
+    {
+      "command": [
+        "python3.11",
+        "scripts/parliament_ballot_io_error_guard.py",
+        "--output",
+        "/tmp/parliament-io-guard-qualified-refusal-1",
+        "--require-qualified"
+      ],
+      "exit_code": 2,
+      "output": "docs/validation/parliament_ballot_io_error_guard/qualification-refusal.txt"
+    }
+  ],
+  "input_changes": {},
+  "observed_at_utc": "2026-10-13T09:22:24.077212+00:00",
+  "peer_review": "Separate agent confirmed exact local path/source scope and identity anchors, independently ran 28 tests and fresh analysis. No remaining findings.",
+  "profile_qualified": false,
+  "report_sha256": "65a5730373f840a0361dd5ec385e6f3935a3870ac622a04692bfe71c820e6ef2",
+  "tests_passed": 28,
+  "upstream_extra_sources_comparison": "Both std/fs.rs and std/sys/pal/unix/mod.rs downloaded from fixed Rust commit 01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf and matched installed extracted source bytes before helper hash pinning."
+}

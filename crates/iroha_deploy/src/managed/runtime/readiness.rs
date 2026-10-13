@@ -709,7 +709,7 @@ mod tests {
         let cancelled = AtomicBool::new(false);
         let clock = FakeClock::new();
         let budget = Budget {
-            started: clock.now() - Duration::from_secs(2),
+            started: clock.now().checked_sub(Duration::from_secs(2)).unwrap(),
             timeout: Duration::from_secs(1),
             cancelled: &cancelled,
             progress: &progress,

@@ -36,7 +36,10 @@ impl Counter {
         Self
     }
     pub(super) fn finish(self) -> Counts {
-        COUNTS.with(|state| state.get().expect("the parse observer remains installed"))
+        let observation =
+            COUNTS.with(|state| state.get().expect("the parse observer remains installed"));
+        drop(self);
+        observation
     }
 }
 impl Drop for Counter {

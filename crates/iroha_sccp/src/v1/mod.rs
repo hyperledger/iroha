@@ -60,6 +60,7 @@ pub mod merkle;
 pub mod network;
 pub mod payload;
 pub mod proof;
+pub mod reconciliation;
 pub mod signature;
 pub mod ton_cell;
 

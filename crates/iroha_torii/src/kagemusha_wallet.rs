@@ -61,7 +61,7 @@ fn finality_unavailable() -> Error {
         message: "The payer's native Load finality evidence is unavailable.".into(),
     }
 }
-pub(crate) async fn handler(
+pub async fn handler(
     State(app): State<SharedAppState>,
     axum::extract::Path((scheme, wallet, request)): axum::extract::Path<(String, String, String)>,
     headers: HeaderMap,
@@ -70,9 +70,7 @@ pub(crate) async fn handler(
 ) -> Result<AxResponse, Error> {
     read(
         app,
-        scheme,
-        wallet,
-        request,
+        (scheme, wallet, request),
         headers,
         auth.account,
         remote,
@@ -80,7 +78,7 @@ pub(crate) async fn handler(
     )
     .await
 }
-pub(crate) async fn finality_handler(
+pub async fn finality_handler(
     State(app): State<SharedAppState>,
     axum::extract::Path((scheme, wallet, request)): axum::extract::Path<(String, String, String)>,
     headers: HeaderMap,
@@ -89,9 +87,7 @@ pub(crate) async fn finality_handler(
 ) -> Result<AxResponse, Error> {
     read(
         app,
-        scheme,
-        wallet,
-        request,
+        (scheme, wallet, request),
         headers,
         auth.account,
         remote,
@@ -99,7 +95,7 @@ pub(crate) async fn finality_handler(
     )
     .await
 }
-pub(crate) async fn epoch_handler(
+pub async fn epoch_handler(
     State(app): State<SharedAppState>,
     axum::extract::Path((scheme, wallet, request, boundary)): axum::extract::Path<(
         String,
@@ -113,9 +109,7 @@ pub(crate) async fn epoch_handler(
 ) -> Result<AxResponse, Error> {
     read(
         app,
-        scheme,
-        wallet,
-        request,
+        (scheme, wallet, request),
         headers,
         auth.account,
         remote,
@@ -125,9 +119,7 @@ pub(crate) async fn epoch_handler(
 }
 async fn read(
     app: SharedAppState,
-    scheme: String,
-    wallet: String,
-    request: String,
+    (scheme, wallet, request): (String, String, String),
     headers: HeaderMap,
     payer: AccountId,
     remote: std::net::SocketAddr,

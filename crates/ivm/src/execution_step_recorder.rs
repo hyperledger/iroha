@@ -292,9 +292,12 @@ mod tests {
         assert!(rows[1].after.halted);
         assert_eq!(rows[1].after.pc, 8);
         assert_eq!(recorder.end().unwrap().padding_cycles, 0);
-        assert_eq!(recorder.end().unwrap().outcome, Ok(()));
+        assert!(matches!(recorder.end().unwrap().outcome, Ok(())));
         assert_eq!(recorder.end().unwrap().state, rows[1].after);
-        assert_eq!(recorder.begin_run(), Err(VMError::HostUnavailable));
+        assert!(matches!(
+            recorder.begin_run(),
+            Err(VMError::HostUnavailable)
+        ));
         drop(recorder);
         assert_eq!(budget.reserved_bytes(), 0);
     }
@@ -307,10 +310,10 @@ mod tests {
         let mut vm = IVM::new(0);
         vm.load_code(&code).unwrap();
         let mut host = DefaultHost::default();
-        assert_eq!(
+        assert!(matches!(
             vm.run_with_host_diagnostic_steps(&mut host, &mut recorder),
             Err(VMError::OutOfGas)
-        );
+        ));
         let row = &recorder.records()[0];
         assert_eq!(row.instruction, Some(add));
         assert_eq!(
@@ -329,9 +332,8 @@ mod tests {
         let mut vm = IVM::new(100);
         vm.load_code(&code).unwrap();
         let mut host = DefaultHost::default();
-        assert_eq!(
-            vm.run_with_host_diagnostic_steps(&mut host, &mut recorder),
-            Err(VMError::ExecutionDeferred(
+        assert!(
+            matches!(vm.run_with_host_diagnostic_steps(&mut host, &mut recorder), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
                 ExecutionDeferral::ActiveMemoryCapacity
             ))
         );

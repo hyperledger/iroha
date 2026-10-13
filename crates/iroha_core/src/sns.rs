@@ -295,7 +295,7 @@ pub(crate) struct RegisterNameInput {
     pub(crate) metadata: Metadata,
 }
 /// Errors returned by the ledger-backed SNS helpers.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error)]
 pub enum SnsError {
     /// The original local attempt could not decode or fund authoritative state.
     /// This nonserializable owner is never an inactive-name or payment verdict.
@@ -335,6 +335,14 @@ impl SnsError {
             completed => {
                 crate::execution_attempt::ExecutionAttemptError::Rejected(rejected(completed))
             }
+        }
+    }
+
+    /// Consume a local refusal while returning an unchanged completed SNS error.
+    pub(crate) fn into_deferral(self) -> Result<crate::execution_attempt::ExecutionDeferred, Self> {
+        match self {
+            Self::Deferred(original) => Ok(original),
+            completed => Err(completed),
         }
     }
 
@@ -705,9 +713,9 @@ fn alias_auto_renew_attempt(
     let selector = match crate::alias_setup::selector_for_resolved_alias_target(&state.target) {
         Ok(selector) => selector,
         Err(error) => {
-            return match error.deferral() {
-                Some(reason) => AliasAutoRenewAttempt::Deferred(reason.clone()),
-                None => AliasAutoRenewAttempt::Retry(error.to_string()),
+            return match error.into_deferral() {
+                Ok(original) => AliasAutoRenewAttempt::Deferred(original),
+                Err(completed) => AliasAutoRenewAttempt::Retry(completed.to_string()),
             };
         }
     };
@@ -720,9 +728,9 @@ fn alias_auto_renew_attempt(
             ));
         }
         Err(error) => {
-            return match error.deferral() {
-                Some(reason) => AliasAutoRenewAttempt::Deferred(reason.clone()),
-                None => AliasAutoRenewAttempt::Retry(error.to_string()),
+            return match error.into_deferral() {
+                Ok(original) => AliasAutoRenewAttempt::Deferred(original),
+                Err(completed) => AliasAutoRenewAttempt::Retry(completed.to_string()),
             };
         }
     };
@@ -742,17 +750,17 @@ fn alias_auto_renew_attempt(
         &state.target,
         now_ms,
     ) {
-        return match error.deferral() {
-            Some(reason) => AliasAutoRenewAttempt::Deferred(reason.clone()),
-            None => AliasAutoRenewAttempt::Retry(error.to_string()),
+        return match error.into_deferral() {
+            Ok(original) => AliasAutoRenewAttempt::Deferred(original),
+            Err(completed) => AliasAutoRenewAttempt::Retry(completed.to_string()),
         };
     }
     let record = match get_name_record_by_selector(state_transaction.world(), &selector, now_ms) {
         Ok(record) => record,
         Err(error) => {
-            return match error.deferral() {
-                Some(reason) => AliasAutoRenewAttempt::Deferred(reason.clone()),
-                None => AliasAutoRenewAttempt::Retry(error.to_string()),
+            return match error.into_deferral() {
+                Ok(original) => AliasAutoRenewAttempt::Deferred(original),
+                Err(completed) => AliasAutoRenewAttempt::Retry(completed.to_string()),
             };
         }
     };
@@ -784,9 +792,9 @@ fn alias_auto_renew_attempt(
     ) {
         Ok(quote) => quote,
         Err(error) => {
-            return match error.deferral() {
-                Some(reason) => AliasAutoRenewAttempt::Deferred(reason.clone()),
-                None => AliasAutoRenewAttempt::Retry(error.to_string()),
+            return match error.into_deferral() {
+                Ok(original) => AliasAutoRenewAttempt::Deferred(original),
+                Err(completed) => AliasAutoRenewAttempt::Retry(completed.to_string()),
             };
         }
     };
@@ -828,7 +836,7 @@ fn alias_auto_renew_attempt(
         if let Err(refusal) = state_transaction.require_storage_admission() {
             return AliasAutoRenewAttempt::Storage(refusal);
         }
-        if let Some(reason) = state_transaction.execution_deferral() {
+        if let Err(reason) = state_transaction.ensure_execution_ready() {
             return AliasAutoRenewAttempt::Deferred(reason);
         }
         return AliasAutoRenewAttempt::Retry(error.to_string());
@@ -845,9 +853,9 @@ fn alias_auto_renew_attempt(
         payment,
     ) {
         Ok(_) => AliasAutoRenewAttempt::Renewed,
-        Err(error) => match error.deferral() {
-            Some(reason) => AliasAutoRenewAttempt::Deferred(reason.clone()),
-            None => AliasAutoRenewAttempt::Retry(error.to_string()),
+        Err(error) => match error.into_deferral() {
+            Ok(original) => AliasAutoRenewAttempt::Deferred(original),
+            Err(completed) => AliasAutoRenewAttempt::Retry(completed.to_string()),
         },
     }
 }
@@ -870,11 +878,14 @@ fn suspend_alias_auto_renew(
             iroha_logger::warn!(target = %target, reason, "alias auto-renew suspended");
         }
         Err(error) => {
-            if let Some(reason) = error.deferral() {
-                return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
-                    reason.clone(),
-                ));
-            }
+            let error = match error.into_deferral() {
+                Ok(original) => {
+                    return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
+                        original,
+                    ));
+                }
+                Err(completed) => completed,
+            };
             iroha_logger::error!(target = %target, %error, "failed to persist alias auto-renew suspension");
         }
     }
@@ -920,11 +931,14 @@ fn record_alias_auto_renew_failure(
             }
         }
         Err(persist_error) => {
-            if let Some(reason) = persist_error.deferral() {
-                return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
-                    reason.clone(),
-                ));
-            }
+            let persist_error = match persist_error.into_deferral() {
+                Ok(original) => {
+                    return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
+                        original,
+                    ));
+                }
+                Err(completed) => completed,
+            };
             iroha_logger::error!(
                 target = %target,
                 %persist_error,
@@ -943,11 +957,14 @@ fn process_alias_auto_renew_storage_key(
     let state = match alias_auto_renew_state_by_storage_key(&state_block.world, storage_key) {
         Ok(state) => state,
         Err(error) => {
-            if let Some(reason) = error.deferral() {
-                return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
-                    reason.clone(),
-                ));
-            }
+            let error = match error.into_deferral() {
+                Ok(original) => {
+                    return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
+                        original,
+                    ));
+                }
+                Err(completed) => completed,
+            };
             iroha_logger::error!(%storage_key, %error, "malformed alias auto-renew state skipped");
             return Ok(());
         }
@@ -961,11 +978,19 @@ fn process_alias_auto_renew_storage_key(
     let mut transaction = state_block.try_transaction()?;
     let attempt = alias_auto_renew_attempt(&mut transaction, scope, &state, &config, now_ms);
     transaction.require_storage_admission()?;
-    if let Some(reason) = transaction.execution_deferral() {
-        return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
-            reason,
-        ));
-    }
+    // A nested completed boundary may already have exported the original. Forward it
+    // before consulting the sticky guard, whose moved state forbids any new attempt.
+    let attempt = match attempt {
+        AliasAutoRenewAttempt::Deferred(original) => {
+            return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
+                original,
+            ));
+        }
+        completed => completed,
+    };
+    transaction
+        .ensure_execution_ready()
+        .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?;
     match attempt {
         AliasAutoRenewAttempt::Storage(refusal) => return Err(refusal.into()),
         AliasAutoRenewAttempt::Deferred(reason) => {
@@ -1018,11 +1043,14 @@ pub(crate) fn process_alias_auto_renewals(
     let cursor = match alias_auto_renew_cursor(&state_block.world) {
         Ok(cursor) => cursor,
         Err(error) => {
-            if let Some(reason) = error.deferral() {
-                return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
-                    reason.clone(),
-                ));
-            }
+            let error = match error.into_deferral() {
+                Ok(original) => {
+                    return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
+                        original,
+                    ));
+                }
+                Err(completed) => completed,
+            };
             iroha_logger::error!(%error, "alias auto-renew sweep skipped because its cursor is invalid");
             return Ok(());
         }
@@ -1045,6 +1073,11 @@ pub(crate) fn process_alias_auto_renewals(
     Ok(())
 }
 /// Build the selector used for a full account-alias lease record.
+///
+/// # Errors
+///
+/// Returns an error if the alias cannot be rendered against the supplied
+/// dataspace catalog.
 pub fn selector_for_account_alias(
     alias: &AccountAlias,
     catalog: &impl DataSpaceCatalogRead,
@@ -1056,10 +1089,19 @@ pub fn selector_for_account_alias(
     })
 }
 /// Build the selector used for a canonical domain-name lease record.
+///
+/// # Errors
+///
+/// Returns an error if the domain text does not satisfy the SNS selector
+/// label rules.
 pub fn selector_for_domain(domain: &DomainId) -> Result<NameSelectorV1, NameSelectorError> {
     NameSelectorV1::new(DOMAIN_NAME_SUFFIX_ID, domain.to_string())
 }
 /// Build the selector used for a canonical dataspace-alias lease record.
+///
+/// # Errors
+///
+/// Returns an error if the alias does not satisfy the SNS selector label rules.
 pub fn selector_for_dataspace_alias(alias: &str) -> Result<NameSelectorV1, NameSelectorError> {
     NameSelectorV1::new(DATASPACE_ALIAS_SUFFIX_ID, alias)
 }
@@ -1225,6 +1267,11 @@ fn active_account_alias_lease_record(
     Ok((storage_key, record))
 }
 /// Ensures an active SNS name lease exists and is owned by the exact alias target account.
+///
+/// # Errors
+///
+/// Returns an error if the alias cannot be resolved, its authoritative lease
+/// is missing or malformed, or the lease is inactive or owned by another account.
 pub fn ensure_account_alias_lease(
     state_transaction: &StateTransaction<'_, '_>,
     owner: &AccountId,
@@ -1696,6 +1743,11 @@ fn ensure_policy_payment_asset_literal(
     Ok(())
 }
 /// Ensure one namespace policy is exactly pinned to the configured, registered Nexus fee asset.
+///
+/// # Errors
+///
+/// Returns an error if the namespace policy is absent or invalid, the
+/// configured fee asset cannot be resolved, or the policy names another asset.
 pub fn ensure_namespace_policy_payment_asset_matches_configured(
     world: &impl WorldReadOnly,
     namespace: SnsNamespace,
@@ -2162,6 +2214,12 @@ pub fn quote_account_alias_registration(
     )
 }
 /// Quote account-alias registration only when policy and configured fee asset agree exactly.
+///
+/// # Errors
+///
+/// Returns an error for an invalid or reserved alias, missing or inactive
+/// policy, mismatched fee asset, existing registration, invalid pricing or
+/// lease term, or overflowing fee/lifecycle arithmetic.
 pub fn quote_account_alias_registration_with_configured_fee_asset(
     world: &impl WorldReadOnly,
     catalog: &impl DataSpaceCatalogRead,
@@ -2234,6 +2292,12 @@ pub fn quote_account_alias_renewal(
     quote_account_alias_renewal_inner(world, catalog, alias, term_years, now_ms, None)
 }
 /// Quote account-alias renewal only when policy and configured fee asset agree exactly.
+///
+/// # Errors
+///
+/// Returns an error for an invalid alias, missing or inactive policy,
+/// mismatched fee asset, absent, frozen, or tombstoned lease, invalid pricing
+/// or term, or overflowing fee/lifecycle arithmetic.
 pub fn quote_account_alias_renewal_with_configured_fee_asset(
     world: &impl WorldReadOnly,
     catalog: &impl DataSpaceCatalogRead,

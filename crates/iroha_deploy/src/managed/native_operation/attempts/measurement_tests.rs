@@ -269,7 +269,7 @@ fn record_sample_closes_before_outer_source_exit_overrides_codec_refusal() {
             // Its native directory exit must still override the already observed codec error.
             std::fs::rename(
                 directory.path(),
-                records.fixture._temporary.path().join("original-records"),
+                records.fixture.temporary.path().join("original-records"),
             )?;
             result
         });

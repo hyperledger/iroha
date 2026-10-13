@@ -87,6 +87,11 @@ pub struct MusubiSearchIndexV1 {
 }
 impl MusubiSearchProjectionV1 {
     /// Rebuild a fresh projection from a canonically ordered finalized event stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a finalized event conflicts with a prior namespace
+    /// claim or metadata revision, or its metadata is invalid.
     pub fn rebuild<I>(events: I) -> Result<Self, MusubiSearchError>
     where
         I: IntoIterator,
@@ -103,6 +108,11 @@ impl MusubiSearchProjectionV1 {
     /// This is the bounded recovery path used after process restart or event-stream
     /// lag. Steady-state updates use [`Self::apply_finalized`] and never rescan the
     /// authoritative package directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if package or metadata records are invalid, metadata
+    /// has no package, a package has duplicate metadata rows, or metadata is missing.
     pub fn rebuild_records<P, M>(packages: P, metadata: M) -> Result<Self, MusubiSearchError>
     where
         P: IntoIterator,
@@ -158,6 +168,11 @@ impl MusubiSearchProjectionV1 {
     ///
     /// Events unrelated to rich package discovery are intentionally ignored. Exact
     /// dependency resolution must never read this projection.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for conflicting namespace claims, invalid metadata, or
+    /// a regressing or conflicting metadata revision.
     pub fn apply_finalized(&mut self, event: &MusubiEvent) -> Result<(), MusubiSearchError> {
         self.apply_finalized_changed(event).map(|_| ())
     }
@@ -194,9 +209,9 @@ impl MusubiSearchProjectionV1 {
                     .map_err(|_| MusubiSearchError::InconsistentFinalizedEvent)?;
                 let package = event.package.clone();
                 if let Some(existing) = self.documents.get(&package) {
+                    let same_revision = event.revision == existing.metadata_revision;
                     if event.revision < existing.metadata_revision
-                        || (event.revision == existing.metadata_revision
-                            && event.metadata != existing.metadata)
+                        || (same_revision && event.metadata != existing.metadata)
                     {
                         return Err(MusubiSearchError::InconsistentFinalizedEvent);
                     }
@@ -338,6 +353,11 @@ impl MusubiSearchProjectionV1 {
 }
 impl MusubiSearchIndexV1 {
     /// Rebuild an anchored projection from one consistent finalized world-state view.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the snapshot anchor or package/metadata records are
+    /// invalid or inconsistent.
     pub fn rebuild_records<P, M>(
         packages: P,
         metadata: M,
@@ -371,6 +391,11 @@ impl MusubiSearchIndexV1 {
     ///
     /// `finalized_height` and `finalized_block_hash` must identify the block that emitted the
     /// event. Events unrelated to package discovery do not change the anchor or revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the event conflicts with the finalized height/hash
+    /// or existing projection, or incrementing the projection revision overflows.
     pub fn apply_finalized(
         &mut self,
         event: &MusubiEvent,
@@ -412,6 +437,11 @@ impl MusubiSearchIndexV1 {
         Ok(true)
     }
     /// Execute one exact-token query against the anchored discovery projection.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid request, unavailable projection, stale
+    /// cursor, or an inconsistent projected result page.
     pub fn search(
         &self,
         request: &MusubiSearchQueryV1,

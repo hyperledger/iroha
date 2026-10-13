@@ -72,12 +72,6 @@ impl std::ops::Deref for LaneStorageEntry {
     }
 }
 
-impl LaneStorageEntry {
-    pub(super) fn blocks_dir(&self, root: impl AsRef<Path>) -> PathBuf {
-        self.identity.blocks_dir(root.as_ref())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

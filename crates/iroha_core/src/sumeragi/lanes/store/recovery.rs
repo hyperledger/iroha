@@ -8,7 +8,6 @@ pub struct LaneStoreOpen {
     pub(super) store: FileLaneBlockStore,
     target: u64,
     pub(super) validated: u64,
-    refusal: Option<crate::execution_attempt::ExecutionDeferred>,
 }
 impl LaneStoreOpen {
     pub(super) fn new(store: FileLaneBlockStore, target: u64) -> Self {
@@ -16,7 +15,6 @@ impl LaneStoreOpen {
             store,
             target,
             validated: 0,
-            refusal: None,
         }
     }
     /// Complete recovery, returning this exact owner on every refusal or error.
@@ -31,13 +29,8 @@ impl LaneStoreOpen {
     )]
     pub fn complete(mut self) -> Result<FileLaneBlockStore, (Self, Attempt<io::Error>)> {
         if let Err(error) = self.progress() {
-            self.refusal = match &error {
-                Attempt::Deferred(original) => Some(original.clone()),
-                Attempt::Rejected(_) => None,
-            };
             return Err((self, error));
         }
-        self.refusal = None;
         *self.store.state.lock() = StoreState {
             tip: self.target,
             read: None,
@@ -46,20 +39,17 @@ impl LaneStoreOpen {
         Ok(self.store)
     }
     fn progress(&mut self) -> Result<(), Attempt<io::Error>> {
+        self.store.revalidate_custody()?;
         while self.validated < self.target {
             let height = self.validated + 1;
             let mut state = self.store.state.lock();
             let prepared = self.store.read_prepared(&mut state, height)?;
             let bytes = prepared.prepare(&self.store.budget).map_err(record_error)?;
-            durable_artifact::publish(
-                &*self.store.faults,
-                &self.store.dir,
-                &frame_name(height),
-                bytes,
-            )?;
+            self.store.publish_frame(height, bytes)?;
             state.read = None;
             self.validated = height;
         }
+        self.store.revalidate_custody()?;
         Ok(())
     }
 }

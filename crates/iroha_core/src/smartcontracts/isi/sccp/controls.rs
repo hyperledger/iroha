@@ -30,6 +30,18 @@ pub struct ControlCauseV1 {
 }
 
 impl ControlCauseV1 {
+    /// Exact emergency certificate, only after its native same-pass enactment rechecks.
+    pub(super) fn from_fast_pause(
+        effect: &super::fast_pause::certification::EnactingPause,
+    ) -> Self {
+        let (certificate_id, effect_hash) = effect.cause();
+        Self {
+            track: iroha_sccp::v1::control::TRACK_FAST_PAUSE,
+            certificate_id,
+            effect_hash,
+        }
+    }
+
     /// Bind the exact Parliament certificate selected by the due-effect executor.
     ///
     /// This constructor does not establish authorization by itself. Its caller must retain
@@ -53,8 +65,8 @@ impl ControlCauseV1 {
     }
 
     fn require_supported(self) -> Result<(), Error> {
-        // TODO: implement the canonical fast-pause certificate/state/enactment owner before
-        // admitting track 2. A raw claimed certificate ID is not that authority.
+        // This validation belongs to the Parliament constructor. Track two is
+        // issued only by the separate source-bound EnactingPause constructor.
         if self.track != iroha_sccp::v1::control::TRACK_PARLIAMENT {
             return Err(refuse("native fast-pause authority is unavailable"));
         }
@@ -326,7 +338,11 @@ mod tests {
             assert_eq!(leaves::leaf_count_at(&*stx.world, 7), 0);
         }
         for index in 0..leaves::MAX_LEAVES_PER_BLOCK {
-            leaves::allocate_leaf(&mut stx, SccpLeafRefV1::transfer([index as u8; 32])).unwrap();
+            leaves::allocate_leaf(
+                &mut stx,
+                SccpLeafRefV1::transfer([index.to_le_bytes()[0]; 32]),
+            )
+            .unwrap();
         }
         record_control(&mut stx, network, 1, cause(1, 1)).expect_err("full block");
         assert_eq!(store::routes::get(&*stx.world, &network), Some(&original));

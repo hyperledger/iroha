@@ -42,7 +42,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
     #[must_use]
     pub fn actor_admission_for_tests(
         self_id: PeerId,
-        targets: HashSet<PeerId>,
+        targets: BTreeSet<PeerId>,
         capacity: std::num::NonZeroUsize,
     ) -> (Self, NetworkActorAdmissionTestFixture<T>) {
         let mut handle = Self::closed_for_tests();

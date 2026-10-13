@@ -282,7 +282,7 @@ fn full_intent_terms_and_selection_cannot_change_and_large_checkpoint_is_codec_o
             0 => selection.chain_id.push_str("-other"),
             1 => selection.manager = selection.operator.clone(),
             _ => selection.policy_digest[0] ^= 1,
-        };
+        }
         assert!(owner.inner.validate_intent(&changed).is_err());
     }
     let bytes = std::fs::read(directory.path().join("original.nrt")).unwrap();

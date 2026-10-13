@@ -86,6 +86,7 @@ pub(crate) enum Error {
     LocalDkg(LocalGlobalThresholdBeaconDkgErrorV1),
     Journal(iroha_core::sumeragi::native_journal::NativeJournalError),
     GenesisBundle(eyre::Report),
+    #[cfg(test)]
     Export(seat_export::ExportError),
     Attempt(seat_attempt::AttemptError),
     PendingAttempt(seat_attempt::PendingSeatDkgAttempt),
@@ -103,6 +104,7 @@ impl std::fmt::Display for Error {
             Self::LocalDkg(error) => return std::fmt::Display::fmt(error, f),
             Self::Journal(error) => return std::fmt::Display::fmt(error, f),
             Self::GenesisBundle(error) => return std::fmt::Display::fmt(error, f),
+            #[cfg(test)]
             Self::Export(error) => return std::fmt::Display::fmt(error, f),
             Self::Attempt(error) => return std::fmt::Display::fmt(error, f),
             Self::PendingAttempt(error) => return std::fmt::Display::fmt(error, f),
@@ -124,6 +126,7 @@ impl Error {
             Self::LocalDkg(_) => 77,
             Self::Journal(_) => 78,
             Self::GenesisBundle(_) => 79,
+            #[cfg(test)]
             Self::Export(_) => 80,
             Self::Attempt(_) => 81,
             Self::PendingAttempt(_) => 82,
@@ -192,6 +195,7 @@ impl std::error::Error for Error {
             Self::LocalDkg(error) => Some(error),
             Self::Journal(error) => Some(error),
             Self::GenesisBundle(error) => Some(error.as_ref()),
+            #[cfg(test)]
             Self::Export(error) => Some(error),
             Self::Attempt(error) => Some(error),
             Self::PendingAttempt(error) => Some(error),
@@ -273,7 +277,7 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
-    /// Sign one signed-genesis-roster FinalizeGlobalBeaconKey draft.
+    /// Sign one signed-genesis-roster `FinalizeGlobalBeaconKey` draft.
     SignGenesisInstall {
         #[arg(long)]
         chain_id: ChainId,
@@ -359,7 +363,7 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
-    /// Sign one exact current-quorum FinalizeGlobalBeaconKey draft.
+    /// Sign one exact current-quorum `FinalizeGlobalBeaconKey` draft.
     SignRotation {
         #[command(flatten)]
         proof: RotationProofArgs,
@@ -394,22 +398,22 @@ enum Command {
 /// Explicit transport and cumulative decoded-allocation admission for one journal.
 #[derive(Clone, Copy, clap::Args)]
 pub(crate) struct FinalityLimitsArgs {
-    #[arg(long, default_value_t = NATIVE_FINALITY_MAX_BLOCK_BYTES)]
-    finality_block_bytes: usize,
-    #[arg(long, default_value_t = MAX_ROTATION_PHASE_PROOF_BYTES)]
-    finality_journal_bytes: usize,
-    #[arg(long, default_value_t = NATIVE_FINALITY_MAX_BLOCK_COUNT)]
-    finality_block_count: usize,
-    #[arg(long, default_value_t = 128 * 1024 * 1024)]
-    finality_allocated_bytes: usize,
+    #[arg(long = "finality-block-bytes", default_value_t = NATIVE_FINALITY_MAX_BLOCK_BYTES)]
+    block_bytes: usize,
+    #[arg(long = "finality-journal-bytes", default_value_t = MAX_ROTATION_PHASE_PROOF_BYTES)]
+    journal_bytes: usize,
+    #[arg(long = "finality-block-count", default_value_t = NATIVE_FINALITY_MAX_BLOCK_COUNT)]
+    block_count: usize,
+    #[arg(long = "finality-allocated-bytes", default_value_t = 128 * 1024 * 1024)]
+    allocated_bytes: usize,
 }
 impl FinalityLimitsArgs {
     pub(crate) fn checked(self) -> Result<NativeFinalityLimits> {
         let limits = NativeFinalityLimits {
-            block_bytes: self.finality_block_bytes,
-            journal_bytes: self.finality_journal_bytes,
-            block_count: self.finality_block_count,
-            allocated_bytes: self.finality_allocated_bytes,
+            block_bytes: self.block_bytes,
+            journal_bytes: self.journal_bytes,
+            block_count: self.block_count,
+            allocated_bytes: self.allocated_bytes,
         };
         limits.validate().map_err(|_| Error::InvalidInput)?;
         Ok(limits)
@@ -498,24 +502,24 @@ pub(crate) fn dispatch_if_requested() -> bool {
             finality_fd,
             attempt_root,
             timeout_ms,
-        } => genesis_seat::provision_genesis_seat_command(
-            &genesis.chain_id,
-            genesis.finality_limits,
-            genesis.network_id,
-            genesis.chain_discriminant,
-            &genesis.request,
-            &genesis.genesis_manifest,
-            &genesis.genesis_signed,
-            &genesis.genesis_public_key,
+        } => genesis_seat::provision_genesis_seat_command(genesis_seat::ProvisionGenesisSeat {
+            chain_id: &genesis.chain_id,
+            finality_limits: genesis.finality_limits,
+            network: genesis.network_id,
+            chain_discriminant: genesis.chain_discriminant,
+            request_path: &genesis.request,
+            manifest_path: &genesis.genesis_manifest,
+            wire_path: &genesis.genesis_signed,
+            key_path: &genesis.genesis_public_key,
             signer_index,
             key_fd,
             config_fd,
             public_fd,
             finality_fd,
-            &attempt_root,
+            attempt_root: &attempt_root,
             timeout_ms,
             budget,
-        ),
+        }),
         Command::AssembleGenesisDkg {
             genesis,
             phase_proof,
@@ -523,22 +527,22 @@ pub(crate) fn dispatch_if_requested() -> bool {
             provider,
             certificate_height,
             output,
-        } => genesis_seat::assemble_genesis_dkg_command(
-            &genesis.chain_id,
-            genesis.finality_limits,
-            genesis.network_id,
-            genesis.chain_discriminant,
-            &genesis.request,
-            &genesis.genesis_manifest,
-            &genesis.genesis_signed,
-            &genesis.genesis_public_key,
-            &phase_proof,
-            &public_session,
-            &provider,
+        } => genesis_seat::assemble_genesis_dkg_command(genesis_seat::AssembleGenesisDkg {
+            chain_id: &genesis.chain_id,
+            finality_limits: genesis.finality_limits,
+            network: genesis.network_id,
+            chain_discriminant: genesis.chain_discriminant,
+            request_path: &genesis.request,
+            manifest_path: &genesis.genesis_manifest,
+            wire_path: &genesis.genesis_signed,
+            key_path: &genesis.genesis_public_key,
+            phase_paths: &phase_proof,
+            public_session_path: &public_session,
+            provider_paths: &provider,
             certificate_height,
-            &output,
+            output: &output,
             budget,
-        ),
+        }),
         Command::SignGenesisInstall {
             chain_id,
             finality_limits,
@@ -549,18 +553,18 @@ pub(crate) fn dispatch_if_requested() -> bool {
             key_fd,
             config_fd,
             output,
-        } => genesis_seat::sign_genesis_install_command(
-            &chain_id,
+        } => genesis_seat::sign_genesis_install_command(genesis_seat::SignGenesisInstall {
+            chain_id: &chain_id,
             finality_limits,
-            network_id,
+            network: network_id,
             chain_discriminant,
-            &bundle,
+            bundle_path: &bundle,
             signer_index,
             key_fd,
             config_fd,
-            &output,
+            output: &output,
             budget,
-        ),
+        }),
         Command::AssembleGenesisInstall {
             chain_id,
             finality_limits,
@@ -569,16 +573,16 @@ pub(crate) fn dispatch_if_requested() -> bool {
             bundle,
             signature,
             output,
-        } => genesis_seat::assemble_genesis_install_command(
-            &chain_id,
+        } => genesis_seat::assemble_genesis_install_command(genesis_seat::AssembleGenesisInstall {
+            chain_id: &chain_id,
             finality_limits,
-            network_id,
+            network: network_id,
             chain_discriminant,
-            &bundle,
-            &signature,
-            &output,
+            bundle_path: &bundle,
+            signature_paths: &signature,
+            output: &output,
             budget,
-        ),
+        }),
         Command::ProvisionRotationSeat {
             proof,
             signer_index,
@@ -590,19 +594,19 @@ pub(crate) fn dispatch_if_requested() -> bool {
             provider_revision,
             attempt_root,
             timeout_ms,
-        } => provision_rotation_seat_command(
-            &proof,
+        } => provision_rotation_seat_command(rotation_seat::ProvisionRotationSeat {
+            proof: &proof,
             signer_index,
             key_fd,
             config_fd,
             public_fd,
             finality_fd,
-            &provider_handle,
+            provider_handle: &provider_handle,
             provider_revision,
-            &attempt_root,
+            attempt_root: &attempt_root,
             timeout_ms,
             budget,
-        ),
+        }),
         Command::AssembleRotationDkg {
             proof,
             public_session,
@@ -887,7 +891,8 @@ pub(crate) fn read_public_bytes_bounded(path: &Path, maximum: usize) -> Result<V
     {
         return Err(Error::InvalidInput);
     }
-    let mut bytes = vec![0; before.len() as usize];
+    let length = usize::try_from(before.len()).map_err(|_| Error::InvalidInput)?;
+    let mut bytes = vec![0; length];
     file.read_exact(&mut bytes).map_err(|_| Error::Io)?;
     let mut end = [0];
     let named = File::from(
@@ -941,13 +946,17 @@ fn advance_phase_journal(
 ) -> Result<u64> {
     let height = u64::try_from(journal.blocks.len()).map_err(|_| Error::Height)?;
     check_rotation_phase_height(*last_height, height, cutoff_height)?;
-    if verifier.tip().map(|tip| tip.height()).unwrap_or(1) != *last_height {
+    if verifier.tip().map_or(
+        1,
+        iroha_core::sumeragi::certified_chain::CommittedBlock::height,
+    ) != *last_height
+    {
         return Err(Error::Height);
     }
-    let verified = verifier.advance(journal.into())?;
+    let authenticated = verifier.advance(journal.into())?;
     // The sole verifier checks actual height, source order and the prior receipt.
-    debug_assert_eq!(verified.height(), height);
-    *last_height = verified.height();
+    debug_assert_eq!(authenticated.height(), height);
+    *last_height = authenticated.height();
     Ok(*last_height)
 }
 
@@ -1079,12 +1088,7 @@ fn validate_rotation_bundle(
         .iter()
         .map(|seat| seat.validator.clone())
         .collect::<Vec<_>>();
-    let authorization_roster = selected
-        .incumbent_authority()
-        .validators
-        .iter()
-        .cloned()
-        .collect::<Vec<_>>();
+    let authorization_roster = selected.incumbent_authority().validators.clone();
     bundle.record.validate(budget).map_err(Error::from)?;
     if bundle.schema != "iroha.validator-committee.rotation-dkg.v1"
         || bundle.preparation != *preparation

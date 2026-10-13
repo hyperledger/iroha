@@ -117,35 +117,31 @@ fn source_fixture() -> (
 fn exact_signed_source_requires_direct_role11_action_digest_index_and_time() {
     let (state, _, record, instruction, entry) = source_fixture();
     let network = *state.network_id_ref().as_bytes();
-    assert_eq!(
+    assert!(matches!(
         signed_source_matches(&record, TargetKind::Reserved, &entry, network, 1_000),
         Ok(())
-    );
+    ));
     let mut changed = record.clone();
     changed.operation.reserved_execution.instruction_index = 1;
-    assert_eq!(
-        signed_source_matches(&changed, TargetKind::Reserved, &entry, network, 1_000),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(signed_source_matches(&changed, TargetKind::Reserved, &entry, network, 1_000), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             Error::Execution
         ))
     );
     changed = record.clone();
     changed.request_digest = [0x99; 32];
-    assert_eq!(
-        signed_source_matches(&changed, TargetKind::Reserved, &entry, network, 1_000),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(signed_source_matches(&changed, TargetKind::Reserved, &entry, network, 1_000), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             Error::Execution
         ))
     );
-    assert_eq!(
-        signed_source_matches(&record, TargetKind::Reserved, &entry, network, 1_001),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(signed_source_matches(&record, TargetKind::Reserved, &entry, network, 1_001), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             Error::Execution
         ))
     );
-    assert_eq!(
-        signed_source_matches(&record, TargetKind::Terminal, &entry, network, 1_000),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(signed_source_matches(&record, TargetKind::Terminal, &entry, network, 1_000), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             Error::CorruptHistory
         ))
     );
@@ -167,18 +163,15 @@ fn exact_signed_source_requires_direct_role11_action_digest_index_and_time() {
         &changed.operation.reserved_execution.authority,
     )
     .unwrap();
-    assert_eq!(
-        signed_source_matches(
-            &changed,
-            TargetKind::Reserved,
-            &changed_entry,
-            network,
-            1_000
-        ),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            Error::Execution
-        ))
-    );
+    assert!(matches!(signed_source_matches(
+        &changed,
+        TargetKind::Reserved,
+        &changed_entry,
+        network,
+        1_000
+    ), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
+        Error::Execution
+    )));
 }
 
 #[test]
@@ -234,7 +227,7 @@ fn expiry_source_keeps_original_slot_under_new_current_custody() {
     execution.transaction_hash = *entry.hash().as_ref();
     execution.recorded_at_unix_ms = 1_100;
     terminal.operation.terminal_execution = Some(execution);
-    assert_eq!(
+    assert!(matches!(
         signed_source_matches(
             &terminal,
             TargetKind::Terminal,
@@ -242,8 +235,8 @@ fn expiry_source_keeps_original_slot_under_new_current_custody() {
             *state.network_id_ref().as_bytes(),
             1_100,
         ),
-        Ok(()),
-    );
+        Ok(())
+    ));
     // A certified block at the terminal's height that does not carry the terminal entry.
     let mut chain = crate::query::signer_check::fixture::chain(World::new());
     chain.commit_at(1_050, Vec::new());
@@ -252,19 +245,17 @@ fn expiry_source_keeps_original_slot_under_new_current_custody() {
         .unwrap()
         .certified(2)
         .expect("certified height 2");
-    assert_eq!(
-        authenticate_target(&view, &terminal, TargetKind::Terminal, &target),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(authenticate_target(&view, &terminal, TargetKind::Terminal, &target), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             Error::Execution
-        )),
+        ))
     );
     // A target of another height than the recorded execution.
     let genesis = CertifiedChain::new(&view).unwrap().certified(1).unwrap();
-    assert_eq!(
-        authenticate_target(&view, &terminal, TargetKind::Terminal, &genesis),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(authenticate_target(&view, &terminal, TargetKind::Terminal, &genesis), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             Error::Execution
-        )),
+        ))
     );
 }
 
@@ -278,18 +269,15 @@ fn historical_reader_requires_retained_row_and_committed_finality() {
             b"pinned role11 floor",
         ))),
     };
-    assert_eq!(
-        authenticate_stream_token_history_to_floor_v1(
-            &state.view(),
-            provider,
-            record.operation.operation.reviewed.request.operation_id,
-            floor,
-        )
-        .err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            Error::Conflict
-        )),
-    );
+    assert!(matches!(authenticate_stream_token_history_to_floor_v1(
+        &state.view(),
+        provider,
+        record.operation.operation.reviewed.request.operation_id,
+        floor,
+    )
+    .err(), Some(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
+        Error::Conflict
+    )));
     let mut world = World::new();
     let id = record.operation.operation.reviewed.request.operation_id;
     world.smart_contract_state.insert(
@@ -321,11 +309,10 @@ fn historical_reader_requires_retained_row_and_committed_finality() {
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     );
-    assert_eq!(
-        authenticate_stream_token_history_to_floor_v1(&state.view(), provider, id, floor).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(authenticate_stream_token_history_to_floor_v1(&state.view(), provider, id, floor).err(), Some(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             Error::Finality
-        )),
+        ))
     );
 }
 
@@ -344,8 +331,8 @@ fn actual_signed_history_source_preserves_local_codec_refusal() {
         ),
         "original codec refusal must not become successful proof rejection: {failed:?}"
     );
-    assert_eq!(
+    assert!(matches!(
         signed_source_matches(&record, TargetKind::Reserved, &entry, network, 1_000),
         Ok(())
-    );
+    ));
 }

@@ -1934,7 +1934,9 @@ fn stream_token_discriminator_rejects_foreign_bulk_operations_before_reading_len
         let body = [0xc2; 32];
         let mut wire = slot.to_be_bytes().to_vec();
         wire.extend_from_slice(&operation.to_be_bytes());
-        wire.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        wire.extend_from_slice(
+            &(u32::try_from(body.len()).expect("fixture body length fits u32")).to_be_bytes(),
+        );
         wire.extend_from_slice(&body);
         let mut reader = Cursor::new(wire);
         let (actual_slot, actual_operation, frame, _) =

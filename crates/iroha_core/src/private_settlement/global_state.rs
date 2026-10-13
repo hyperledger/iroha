@@ -2280,7 +2280,7 @@ pub(crate) mod tests {
                 lane: leg.route.lane_id,
                 dataspace: leg.route.dataspace_id,
                 incarnation: leg.route.lane_incarnation.into(),
-                params: Default::default(),
+                params: iroha_data_model::parameter::system::SumeragiParameters::default(),
                 committee: authority
                     .validators
                     .into_iter()

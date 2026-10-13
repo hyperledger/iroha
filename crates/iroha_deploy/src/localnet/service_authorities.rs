@@ -409,6 +409,7 @@ impl ProviderServiceInventory {
             .find(|entry| entry.role == role)
             .ok_or_else(|| Error::Invalid("original provider service role is absent".into()))
     }
+    #[cfg(test)]
     pub(crate) fn native_transaction_signer_authorities<'a>(
         &'a self,
         network: &'a NetworkServiceInventory,
@@ -422,6 +423,7 @@ impl ProviderServiceInventory {
     }
 }
 /// Borrowed original native roles; full profile and current native eligibility remain required.
+#[cfg(test)]
 pub(crate) struct NativeTransactionSignerAuthorities<'a> {
     pub(crate) proof_outcome: &'a StreamTokenAuthority,
     pub(crate) repair: &'a StreamTokenAuthority,
@@ -738,8 +740,10 @@ pub(super) fn generate(
             provider_id,
             &selected[0].1.account_id,
             &network,
-            &mut unique,
-            &mut tls_keys,
+            provider_material::ProviderKeyInventory {
+                unique: &mut unique,
+                tls_keys: &mut tls_keys,
+            },
         )?;
         let compliance = compliance_material::GeneratedCompliance::generate(
             &selected_directory,
@@ -1482,14 +1486,13 @@ where
             if account == &reserves.custody || account == &reserves.treasury {
                 return Err(invalid());
             }
-            if let Some(amount) = expected.get(account) {
-                if mint.destination()
+            if let Some(amount) = expected.get(account)
+                && (mint.destination()
                     != &AssetId::new(localnet_xor_asset_definition_id(), account.clone())
                     || mint.object() != amount
-                    || !funded.insert(account.clone())
-                {
-                    return Err(invalid());
-                }
+                    || !funded.insert(account.clone()))
+            {
+                return Err(invalid());
             }
         }
     }
@@ -1729,7 +1732,7 @@ pub(crate) fn capture_retained(
                     grant.destination() != account || grant.object() != permission
                 });
                 if matches!(
-                    grant.object().name().as_ref(),
+                    grant.object().name(),
                     "CanOperateSorafsStreamTokenGateway" | "CanCheckSorafsStreamTokenGateway"
                 ) {
                     return Err(invalid());

@@ -82,6 +82,16 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
         ],
     },
     OtherDomains {
+        usage: Use::Record,
+        reason: "SCCP fast-pause certificate roots bind its selected ordered endorsements and incident digests; they describe one certificate's content, not the round table or complete State",
+        literals: &[r"sccp/pause-endorsements/v1", r"sccp/pause-incidents/v1"],
+    },
+    OtherDomains {
+        usage: Use::Seed,
+        reason: "SCCP pause-panel sampling seed and primary/backup identifiers derive from the authenticated pulse and panel sequence; they do not hash State content or independently authorize the draw",
+        literals: &[r"sccp/pause-panel-id/v1", r"sccp/pause-panel/v1"],
+    },
+    OtherDomains {
         usage: Use::Name,
         reason: "Name of the native certified-result descriptor in the release wire identity. The descriptor binds the compiled header layout, body framing, hash recipe and bounds; this format name is not a hash domain or a commitment over current State data",
         literals: &[r"iroha.sumeragi.certified_result.v1"],

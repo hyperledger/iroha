@@ -1,0 +1,13 @@
+{
+  "files": {
+    "Cargo.lock": {
+      "after_sha256": "3caa5fbc9bc169e27257e456abf13beb1c7b53fae27f63dff68ffb39054b8cba",
+      "before_sha256": "6d8e3d424264d8c934fc1683111659e246d71960cc4b247efa512502235b435c"
+    },
+    "crates/iroha_parliament_ballot_proof/Cargo.toml": {
+      "after_sha256": "f1b9e23aceb1039ff92b3d4dc2f9a94d63afa35842b5b3541b7c9e32b00f76d5",
+      "before_sha256": "1b555b57b3541f5b031378628aaa42c5b78ad86dc36ceee043d023f49a83a3b7"
+    }
+  },
+  "scope": "Only ballot example libc devdependency and existing resolved libc package edge; no new package or production dependency."
+}

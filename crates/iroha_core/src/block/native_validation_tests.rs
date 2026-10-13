@@ -107,7 +107,7 @@ impl NativeValidationFixture {
             .ready(self.chain.height() + 1)
             .unwrap();
         let header = NativeHeader {
-            control_witness: Default::default(),
+            control_witness: iroha_sumeragi::types::ControlWitness::default(),
             instance: self.chain.instance(),
             epoch: crate::sumeragi::schedule::core_epoch(&scheduled.epoch)
                 .unwrap()
@@ -160,6 +160,8 @@ impl NativeValidationFixture {
             header,
             bytes,
             self.chain.state(),
+            None,
+            None,
         )
     }
 }
@@ -265,7 +267,10 @@ fn native_validation_rechecks_signature_despite_forged_positive_cache_entry() {
     assert!(
         fixture
             .chain
-            .begin_proposal(executor_proposal, Default::default())
+            .begin_proposal(
+                executor_proposal,
+                iroha_sumeragi::types::ControlWitness::default()
+            )
             .is_err()
     );
     let published = fixture

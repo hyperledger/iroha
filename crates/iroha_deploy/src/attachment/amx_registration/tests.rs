@@ -460,7 +460,9 @@ fn administrative_amx_replay_requires_genuine_signed_prefix_and_preserves_unsign
                     std::fs::remove_file(directory.path().join(proof_name)).unwrap();
                     assert_eq!(directory.entries(4).unwrap(), before);
                 }
-                if phase != NativePreparationPhase::Missing {
+                if phase == NativePreparationPhase::Missing {
+                    assert!(!journal.exists());
+                } else {
                     let saved = PrivateDirectory::open_exact(&journal).unwrap();
                     assert_eq!(
                         saved.read("preparation.json", MAX_RECORD_BYTES).unwrap(),
@@ -498,8 +500,6 @@ fn administrative_amx_replay_requires_genuine_signed_prefix_and_preserves_unsign
                             .unwrap()
                             .is_none()
                     );
-                } else {
-                    assert!(!journal.exists());
                 }
                 if phase == NativePreparationPhase::PayloadRetained {
                     // With no replay evidence, the existing producer can finish its exact

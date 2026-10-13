@@ -28,10 +28,10 @@ fn input(amount: u128, leaf_index: usize) -> native::ConfidentialUnshieldInputV2
 #[test]
 fn context_rejects_zero_key_and_redacts_private_state() {
     let (network, asset) = context();
-    assert_eq!(
+    assert!(matches!(
         ConfidentialProver::new(network, &asset, Zeroizing::new([0; 32])).unwrap_err(),
         ConfidentialProverError::InvalidSpendKey
-    );
+    ));
     let prover = ConfidentialProver::new(network, &asset, Zeroizing::new([91; 32])).unwrap();
     assert_eq!(
         format!("{prover:?}"),
@@ -54,12 +54,12 @@ fn saved_change_conversion_checks_shape_and_uses_the_default_owner() {
         native::default_confidential_diversifier_v2()
     );
     for index in [65_536, usize::MAX] {
-        assert_eq!(
+        assert!(matches!(
             change().into_input(index).unwrap_err(),
             ConfidentialProverError::InputIndex
-        );
+        ));
     }
-    assert_eq!(
+    assert!(matches!(
         native::ConfidentialUnshieldOutputV3 {
             amount: 0,
             rho: [94; 32],
@@ -67,7 +67,7 @@ fn saved_change_conversion_checks_shape_and_uses_the_default_owner() {
         .into_input(0)
         .unwrap_err(),
         ConfidentialProverError::InvalidInputAmounts
-    );
+    ));
 }
 
 #[test]
@@ -102,14 +102,16 @@ fn tree_rejects_missing_duplicate_and_over_capacity_notes_before_proving() {
         .validate([0].into_iter())
         .is_ok()
     );
-    assert_eq!(
-        ConfidentialTree::Paths {
-            root,
-            paths: &paths
-        }
-        .validate([1].into_iter()),
-        Err(ConfidentialProverError::PathIndexMismatch),
-        "a valid path for leaf zero cannot describe leaf one",
+    assert!(
+        matches!(
+            ConfidentialTree::Paths {
+                root,
+                paths: &paths
+            }
+            .validate([1].into_iter()),
+            Err(ConfidentialProverError::PathIndexMismatch)
+        ),
+        "a valid path for leaf zero cannot describe leaf one"
     );
     assert!(
         ConfidentialTree::Paths {
@@ -172,24 +174,24 @@ fn invalid_transfer_and_redemption_fail_before_key_preparation() {
         diversifier: [1; 32],
         leaf_index: 0,
     };
-    assert_eq!(
+    assert!(matches!(
         prover
             .prove_transfer(tree(), vec![transfer_input.clone()], vec![])
             .unwrap_err(),
         ConfidentialProverError::OutputCount
-    );
+    ));
     for amount in [0, 8, 10] {
         let output = native::ConfidentialTransferOutputV2 {
             amount,
             rho: [2; 32],
             owner_tag: [3; 32],
         };
-        assert_eq!(
+        assert!(matches!(
             prover
                 .prove_transfer(tree(), vec![transfer_input.clone()], vec![output])
                 .unwrap_err(),
             ConfidentialProverError::InvalidTransferAmounts
-        );
+        ));
     }
     assert!(
         prover
@@ -201,18 +203,18 @@ fn invalid_transfer_and_redemption_fail_before_key_preparation() {
             .prove_unshield(tree(), vec![input(9, 0)], 0, None)
             .is_err()
     );
-    assert_eq!(
+    assert!(matches!(
         prover
             .prove_unshield(tree(), vec![input(0, 0), input(9, 1)], 9, None)
             .unwrap_err(),
         ConfidentialProverError::InvalidInputAmounts
-    );
-    assert_eq!(
+    ));
+    assert!(matches!(
         prover
             .prove_unshield(tree(), vec![input(9, 0)], 4, None)
             .unwrap_err(),
         ConfidentialProverError::InvalidChange
-    );
+    ));
     assert!(
         prover
             .prove_unshield(
@@ -314,7 +316,9 @@ fn canonical_wallet_proves_transfer_full_redemption_and_private_change() {
             stark_max_envelope_bytes: 0,
             stark_max_proof_bytes: 0,
         };
-        crate::verify_for_relation(result.relation, &result.proof, &key, policy).unwrap();
+        crate::verify_for_relation(result.relation, &result.proof, &key, policy)
+            .map_err(crate::verification::expect_rejected)
+            .unwrap();
     }
 }
 

@@ -1,0 +1,78 @@
+/usr/lib/system/libsystem_malloc.dylib [arm64e]:
+    -platform:
+        platform     minOS      sdk
+ zippered(macOS/Catalyst)     27.0      27.0   
+    -uuid:
+        2339CB57-FE5A-3154-A206-A76059C749EB
+/usr/lib/system/libsystem_pthread.dylib [x86_64]:
+    -platform:
+        platform     minOS      sdk
+ zippered(macOS/Catalyst)     27.0      27.0   
+    -uuid:
+        0BAFE0E7-F27F-363F-A13C-70619F985288
+/usr/lib/system/libsystem_pthread.dylib [arm64]:
+    -platform:
+        platform     minOS      sdk
+ zippered(macOS/Catalyst)     27.0      27.0   
+    -uuid:
+        08833BEC-E49C-31B7-85FD-6EF2BAC2B425
+/usr/lib/system/libsystem_pthread.dylib [arm64e]:
+    -platform:
+        platform     minOS      sdk
+ zippered(macOS/Catalyst)     27.0      27.0   
+    -uuid:
+        5A1828C3-CBC2-3B85-BD07-C8ED10021A41
+/usr/lib/system/libsystem_pthread.dylib [arm64e.x1]:
+    -platform:
+        platform     minOS      sdk
+ zippered(macOS/Catalyst)     27.0      27.0   
+    -uuid:
+        B70220C6-9BED-395B-A68D-74410436AE0F
+/usr/lib/system/libsystem_kernel.dylib [x86_64]:
+    -platform:
+        platform     minOS      sdk
+ zippered(macOS/Catalyst)     27.0      27.0   
+    -uuid:
+        40155496-5BD7-3491-AEFC-B4395F3DCF04
+/usr/lib/system/libsystem_kernel.dylib [arm64]:
+    -platform:
+        platform     minOS      sdk
+ zippered(macOS/Catalyst)     27.0      27.0   
+    -uuid:
+        B07862D0-C2DE-3AED-898C-88190E38064E
+/usr/lib/system/libsystem_kernel.dylib [arm64e]:
+    -platform:
+        platform     minOS      sdk
+ zippered(macOS/Catalyst)     27.0      27.0   
+    -uuid:
+        F63BF418-8F75-34A4-AAF1-8CAF2B9B6A05
+/usr/lib/system/libsystem_kernel.dylib [arm64e.x1]:
+    -platform:
+        platform     minOS      sdk
+ zippered(macOS/Catalyst)     27.0      27.0   
+    -uuid:
+        215799FC-408F-314D-8085-F59EF059135E
+/usr/lib/system/libdyld.dylib [arm64e]:
+    -platform:
+        platform     minOS      sdk
+ zippered(macOS/Catalyst)     27.0      27.0   
+    -uuid:
+        62863BCA-DD60-3D32-A9DB-89099BA6F3D7
+/usr/lib/dyld [x86_64]:
+    -platform:
+        platform     minOS      sdk
+           macOS     27.0      27.0   
+    -uuid:
+        DDF57712-1394-3A6F-9951-B6F8A2B51DA5
+/usr/lib/dyld [arm64e]:
+    -platform:
+        platform     minOS      sdk
+           macOS     27.0      27.0   
+    -uuid:
+        D341DDCB-7969-3A9C-8E03-0CF4751398A9
+/usr/lib/dyld [arm64e.x1]:
+    -platform:
+        platform     minOS      sdk
+           macOS     27.0      27.0   
+    -uuid:
+        8831382F-3800-372B-99C1-B23F876C0DA9

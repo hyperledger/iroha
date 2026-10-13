@@ -402,7 +402,7 @@ fn native_validation_rejects_committed_da_pin_intent_identity_reuse() {
     fixture.chain.commit_proposal(
         proposal,
         crate::sumeragi::test_chain::Signers::Quorum,
-        Default::default(),
+        iroha_sumeragi::types::ControlWitness::default(),
     );
     for (intent, expected) in [
         (
@@ -579,7 +579,7 @@ fn native_validation_rejects_da_cursor_regression() {
     fixture.chain.commit_proposal(
         predecessor,
         crate::sumeragi::test_chain::Signers::Quorum,
-        Default::default(),
+        iroha_sumeragi::types::ControlWitness::default(),
     );
     {
         let cursors = fixture

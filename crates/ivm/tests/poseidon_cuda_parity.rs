@@ -1,5 +1,8 @@
 //! Native Poseidon parity probes; mandatory physical qualification uses cuda_hardware.
 #![cfg(feature = "cuda")]
+/// Exact completion increases required by these native parity tests.
+#[path = "support/cuda_completion_increase.rs"]
+mod cuda_completion_increase;
 /// Shared exact-owner CUDA completion controls.
 #[path = "support/cuda_completions.rs"]
 pub mod cuda_completions;
@@ -98,7 +101,7 @@ fn poseidon2_cuda_many_matches_scalar_vectors() {
         return;
     }
     assert!(
-        cuda_completions::increased(&before, ivm::CudaKernel::Poseidon2),
+        cuda_completion_increase::increased(&before, ivm::CudaKernel::Poseidon2),
         "native batch parity requires a completed CUDA kernel"
     );
     assert_eq!(actual, expected, "Poseidon2 CUDA batch mismatch");
@@ -130,7 +133,7 @@ fn poseidon6_cuda_many_matches_scalar_vectors() {
         return;
     }
     assert!(
-        cuda_completions::increased(&before, ivm::CudaKernel::Poseidon6),
+        cuda_completion_increase::increased(&before, ivm::CudaKernel::Poseidon6),
         "native batch parity requires a completed CUDA kernel"
     );
     assert_eq!(actual, expected, "Poseidon6 CUDA batch mismatch");

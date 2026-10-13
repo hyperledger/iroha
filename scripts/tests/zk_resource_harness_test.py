@@ -1153,17 +1153,23 @@ class NativeRunTests(unittest.TestCase):
 
 
 class ObservationExitRaceTests(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(harness, "_owned_child_monitor", return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_immediate_reap_establishes_an_actual_exit_race(self):
         usage = SimpleNamespace(ru_utime=1.0, ru_stime=1.0, ru_maxrss=1024)
         child = SimpleNamespace(pid=424242, returncode=None)
         reader = mock.Mock()
+        absent = harness.native_process.NativeProcessUnavailable(child.pid, "proc_pidinfo", 3, 300, 400)
         with mock.patch.object(harness.observer, "native_reader", return_value=reader), \
-                mock.patch.object(harness.observer, "ProcessScope", side_effect=ValueError("exited")), \
+                mock.patch.object(harness.observer, "ProcessScope", side_effect=absent), \
                 mock.patch.object(harness.os, "getpgid", return_value=1), \
                 mock.patch.object(harness, "_try_reap", return_value=(0, usage)) as reaped:
             result = harness.observe_child(child, mock.Mock(), mock.Mock(), 100, 10000)
         self.assertEqual(result["sampled"], {"state": "not_sampled", "reason": "exited_before_first_sample",
-                                           "observations": 0})
+                                           "observations": 0, "native_failure": absent.fact()})
         reaped.assert_called_once_with(child.pid)
         reader.close.assert_called_once()
 

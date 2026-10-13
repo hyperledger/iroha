@@ -226,7 +226,7 @@ fn state_capture_checks_undo_indexes_before_encoding_and_preserves_pool_refusal(
         max_rows: 16,
         max_payload_bytes: 16384,
         max_ordered_table_bytes: 32768,
-        max_streamed_value_bytes: 131072,
+        max_streamed_value_bytes: 131_072,
     };
     let pool = state.ivm_execution_budget();
     pool.set_limit_bytes(0);

@@ -11,8 +11,13 @@ pub(crate) fn read_registered_account_state<W: WorldReadOnly>(
     let Some(bytes) = world.smart_contract_state().get(&key) else {
         return Ok(None);
     };
-    let state = norito::decode_from_bytes::<MultisigAccountState>(bytes)
-        .map_err(multisig_decode_attempt)?;
+    let state = norito::core::classify_decode_attempt(|| {
+        norito::decode_from_bytes::<MultisigAccountState>(bytes).map_err(|error| match error {
+            norito::Error::Json(original) => original.into_core_error(),
+            original => original,
+        })
+    })
+    .map_err(multisig_decode_attempt)?;
     validate_registered_account_state(world, account.clone(), state).map(Some)
 }
 
@@ -46,14 +51,21 @@ fn validate_registered_account_state<W: WorldReadOnly>(
     // Json::as_ref removes outer quotes from strings; typed decoders need the
     // exact canonical JSON document retained by get().
     if let Some(metadata_spec) = account.metadata().get(&spec_key()) {
-        let metadata_spec = norito::json::from_str::<MultisigSpec>(metadata_spec.get().as_str())
-            .map_err(|err| {
-                json_decode_attempt_error(err, |err| {
-                    ValidationFail::QueryFailed(QueryExecutionFail::Conversion(format!(
-                        "invalid multisig/spec metadata for `{resolved_account}`: {err}"
-                    )))
-                })
-            })?;
+        let metadata_spec = norito::core::classify_decode_attempt(|| {
+            norito::json::from_str::<MultisigSpec>(metadata_spec.get().as_str())
+                .map_err(norito::json::Error::into_core_error)
+        })
+        .map_err(|original| {
+            canonical_decode_attempt_error(original, |original| {
+                let diagnostic = match original.into_error() {
+                    norito::Error::Json(original) => original.to_string(),
+                    original => original.to_string(),
+                };
+                ValidationFail::QueryFailed(QueryExecutionFail::Conversion(format!(
+                    "invalid multisig/spec metadata for `{resolved_account}`: {diagnostic}"
+                )))
+            })
+        })?;
         if metadata_spec != state.spec {
             return Err(ValidationFail::QueryFailed(QueryExecutionFail::Conversion(
                 format!(
@@ -63,13 +75,20 @@ fn validate_registered_account_state<W: WorldReadOnly>(
         }
     }
     if let Some(metadata_home_domain) = account.metadata().get(&home_domain_key()) {
-        let metadata_home_domain = norito::json::from_str::<
-            Option<iroha_model_base::domain::DomainId>,
-        >(metadata_home_domain.get().as_str())
-        .map_err(|err| {
-            json_decode_attempt_error(err, |err| {
+        let metadata_home_domain = norito::core::classify_decode_attempt(|| {
+            norito::json::from_str::<Option<iroha_model_base::domain::DomainId>>(
+                metadata_home_domain.get().as_str(),
+            )
+            .map_err(norito::json::Error::into_core_error)
+        })
+        .map_err(|original| {
+            canonical_decode_attempt_error(original, |original| {
+                let diagnostic = match original.into_error() {
+                    norito::Error::Json(original) => original.to_string(),
+                    original => original.to_string(),
+                };
                 ValidationFail::QueryFailed(QueryExecutionFail::Conversion(format!(
-                    "invalid multisig home-domain metadata for `{resolved_account}`: {err}"
+                    "invalid multisig home-domain metadata for `{resolved_account}`: {diagnostic}"
                 )))
             })
         })?;
@@ -157,10 +176,26 @@ pub(crate) fn read_settled_fee_proposal<W: WorldReadOnly>(
     {
         return Err(invalid_proposal_binding().into());
     }
-    let terminal = norito::decode_from_bytes::<MultisigProposalTerminalState>(terminal_bytes)
-        .map_err(multisig_decode_attempt)?;
-    let actual_hash = HashOf::try_new(&terminal.proposal.instructions)
-        .map_err(|error| multisig_instruction_decode_attempt(error, multisig_state_encode_error))?;
+    let terminal = norito::core::classify_decode_attempt(|| {
+        norito::decode_from_bytes::<MultisigProposalTerminalState>(terminal_bytes).map_err(
+            |error| match error {
+                norito::Error::Json(original) => original.into_core_error(),
+                original => original,
+            },
+        )
+    })
+    .map_err(multisig_decode_attempt)?;
+    let actual_hash = norito::core::classify_decode_attempt(|| {
+        HashOf::try_new(&terminal.proposal.instructions).map_err(|error| match error {
+            norito::Error::Json(original) => original.into_core_error(),
+            original => original,
+        })
+    })
+    .map_err(|original| {
+        canonical_decode_attempt_error(original, |original| {
+            multisig_state_encode_error(original.into_error())
+        })
+    })?;
     if terminal.multisig_account_id != *account
         || terminal.instructions_hash != *instructions_hash
         || actual_hash != *instructions_hash
@@ -185,11 +220,23 @@ pub(crate) fn read_settled_fee_proposal<W: WorldReadOnly>(
     ) else {
         return Ok(None);
     };
-    let execution =
+    let execution = norito::core::classify_decode_attempt(|| {
         norito::decode_from_bytes::<MultisigProposalTerminalExecutionStateV1>(execution_bytes)
-            .map_err(multisig_decode_attempt)?;
-    let outcome = norito::decode_from_bytes::<MultisigApprovalOutcomeV1>(outcome_bytes)
-        .map_err(multisig_decode_attempt)?;
+            .map_err(|error| match error {
+                norito::Error::Json(original) => original.into_core_error(),
+                original => original,
+            })
+    })
+    .map_err(multisig_decode_attempt)?;
+    let outcome = norito::core::classify_decode_attempt(|| {
+        norito::decode_from_bytes::<MultisigApprovalOutcomeV1>(outcome_bytes).map_err(|error| {
+            match error {
+                norito::Error::Json(original) => original.into_core_error(),
+                original => original,
+            }
+        })
+    })
+    .map_err(multisig_decode_attempt)?;
     if !same_terminal_evidence(&execution.terminal, &terminal)?
         || execution.entrypoint_account_id != *account
         || execution.terminal_entrypoint_hash != current_entrypoint_hash
@@ -226,8 +273,16 @@ fn same_terminal_evidence(
         return Ok(false);
     }
     let hash = |instructions: &Vec<InstructionBox>| {
-        HashOf::try_new(instructions).map_err(|error| {
-            multisig_instruction_decode_attempt(error, multisig_state_encode_error)
+        norito::core::classify_decode_attempt(|| {
+            HashOf::try_new(instructions).map_err(|error| match error {
+                norito::Error::Json(original) => original.into_core_error(),
+                original => original,
+            })
+        })
+        .map_err(|original| {
+            canonical_decode_attempt_error(original, |original| {
+                multisig_state_encode_error(original.into_error())
+            })
         })
     };
     Ok(hash(&left.proposal.instructions)? == left.instructions_hash

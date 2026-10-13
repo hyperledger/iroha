@@ -13,13 +13,15 @@ fn generated_with(
         .unwrap()
         .test_child(Purpose::ReservePolicy)?;
     generated(
-        &fixture.operation,
-        Purpose::ReservePolicy,
-        fixture.semantic,
-        &HistoryScope::FixedBody,
-        &grant,
-        fixture.deadline,
-        None,
+        crate::managed::native_operation::attempts::GeneratedSelection {
+            operation: &fixture.operation,
+            purpose: Purpose::ReservePolicy,
+            semantic: fixture.semantic,
+            scope: &HistoryScope::FixedBody,
+            authorization: &grant,
+            deadline: fixture.deadline,
+            body_expiry: None,
+        },
         |attempt| fixture.inspect(attempt),
         |_| Err(invalid("first reservation has no predecessor")),
         |attempt, _, _| Ok(fixture.retain(attempt)),

@@ -1,0 +1,7 @@
+error: EventSet can be derived only on enums with up to 64 variants
+ --> tests/ui_fail/event_set_too_many.rs:4:10
+  |
+4 | #[derive(EventSet)]
+  |          ^^^^^^^^
+  |
+  = note: this error originates in the derive macro `EventSet` (in Nightly builds, run with -Z macro-backtrace for more info)

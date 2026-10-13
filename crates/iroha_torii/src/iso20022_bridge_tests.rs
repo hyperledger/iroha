@@ -325,10 +325,12 @@ fn high_s_p256_signature(signature: P256Signature) -> P256Signature {
         let minuend = i16::from(P256_ORDER[i]) - i16::from(borrow as u8);
         let subtrahend = i16::from(low_s_bytes[32 + i]);
         if minuend >= subtrahend {
-            high_s_bytes[32 + i] = (minuend - subtrahend) as u8;
+            high_s_bytes[32 + i] =
+                u8::try_from(minuend - subtrahend).expect("nonnegative byte difference");
             borrow = 0;
         } else {
-            high_s_bytes[32 + i] = (minuend + 256 - subtrahend) as u8;
+            high_s_bytes[32 + i] =
+                u8::try_from(minuend + 256 - subtrahend).expect("borrowed byte difference");
             borrow = 1;
         }
     }
@@ -695,10 +697,12 @@ fn signed_pacs008_xml_with_x509_material(
     x509_data_extra: &str,
     signing_time: &str,
 ) -> String {
-    let certificates_xml = certificates
-        .iter()
-        .map(|certificate| format!("<X509Certificate>{certificate}</X509Certificate>"))
-        .collect::<String>();
+    let mut certificates_xml = String::new();
+    for certificate in certificates {
+        certificates_xml.push_str("<X509Certificate>");
+        certificates_xml.push_str(certificate);
+        certificates_xml.push_str("</X509Certificate>");
+    }
     let key_info =
         format!("<KeyInfo><X509Data>{certificates_xml}{x509_data_extra}</X509Data></KeyInfo>");
     signed_pacs008_xml_with_key_info_at(signing_key, &key_info, signing_time)
@@ -857,33 +861,30 @@ fn signed_pacs008_xml_with_key_info_at(
         )
         .0
     });
-    let signed_info = if let Some(signed_properties) = signed_properties.as_ref() {
-        let canonical_signed_properties =
-            canonicalize_supported_xml(signed_properties).expect("canonical SignedProperties");
-        let signed_properties_digest =
-            BASE64_STANDARD.encode(Sha256::digest(canonical_signed_properties.as_bytes()));
-        signed_info_xml_with_signed_properties_reference(
-            XML_C14N_1_0,
-            &payload_digest,
-            signed_properties_id,
-            &signed_properties_digest,
-        )
-    } else {
-        signed_info_xml(XML_C14N_1_0, &payload_digest, false)
-    };
+    let signed_info = signed_properties.as_ref().map_or_else(
+        || signed_info_xml(XML_C14N_1_0, &payload_digest, false),
+        |signed_properties| {
+            let canonical_signed_properties =
+                canonicalize_supported_xml(signed_properties).expect("canonical SignedProperties");
+            let signed_properties_digest =
+                BASE64_STANDARD.encode(Sha256::digest(canonical_signed_properties.as_bytes()));
+            signed_info_xml_with_signed_properties_reference(
+                XML_C14N_1_0,
+                &payload_digest,
+                signed_properties_id,
+                &signed_properties_digest,
+            )
+        },
+    );
     let canonical_signed_info =
         canonicalize_xmlsig_signed_info(&signed_info, CanonicalXmlMode::Inclusive);
     let signature: P256Signature = signing_key.sign(canonical_signed_info.as_bytes());
     let signature = low_s_p256_signature(signature);
     let signature_value = BASE64_STANDARD.encode(signature.to_der().as_bytes());
-    let qualifying_properties = if let Some(signed_properties) = signed_properties {
-        format!(
+    let qualifying_properties = signed_properties.map_or_else(|| r##"<Object><QualifyingProperties xmlns="{XADES_NS}" Target="#sig-001"></QualifyingProperties></Object>"##
+            .to_owned(), |signed_properties| format!(
             r##"<Object><QualifyingProperties xmlns="{XADES_NS}" Target="#sig-001">{signed_properties}</QualifyingProperties></Object>"##
-        )
-    } else {
-        r##"<Object><QualifyingProperties xmlns="{XADES_NS}" Target="#sig-001"></QualifyingProperties></Object>"##
-            .to_owned()
-    };
+        ));
     let signature_xml = format!(
         concat!(
             r#"<Signature xmlns="{XMLDSIG_NS}" Id="sig-001">{signed_info}<SignatureValue>{signature_value}</SignatureValue>"#,
@@ -1276,22 +1277,15 @@ fn signed_properties_xml_with_signing_certificate_v2_digest_bytes(
     id: &str,
     digests: &[[u8; 32]],
 ) -> String {
-    let certs = digests
-        .iter()
-        .map(|digest| {
-            let digest = BASE64_STANDARD.encode(digest);
-            format!(
-                concat!(
-                    "<Cert><CertDigest>",
-                    r#"<ds:DigestMethod Algorithm="{sha256}"></ds:DigestMethod>"#,
-                    "<ds:DigestValue>{digest}</ds:DigestValue>",
-                    "</CertDigest></Cert>"
-                ),
-                sha256 = XMLDSIG_SHA256,
-                digest = digest
-            )
-        })
-        .collect::<String>();
+    let mut certs = String::new();
+    for digest in digests {
+        let digest = BASE64_STANDARD.encode(digest);
+        certs.push_str("<Cert><CertDigest><ds:DigestMethod Algorithm=\"");
+        certs.push_str(XMLDSIG_SHA256);
+        certs.push_str("\"></ds:DigestMethod><ds:DigestValue>");
+        certs.push_str(&digest);
+        certs.push_str("</ds:DigestValue></CertDigest></Cert>");
+    }
     format!(
         concat!(
             r#"<SignedProperties xmlns="{XADES_NS}" xmlns:ds="{XMLDSIG_NS}" Id="{id}"><SignedSignatureProperties>"#,
@@ -2066,7 +2060,7 @@ fn signed_pacs008_xml_with_certificate_chain_policy(
         leaf_digital_signature,
         CertificateChainValidity::Valid,
         CertificateChainIssuerName::Matching,
-        false,
+        IsCa::NoCa,
     )
 }
 fn signed_pacs008_xml_with_certificate_chain_options(
@@ -2075,7 +2069,7 @@ fn signed_pacs008_xml_with_certificate_chain_options(
     leaf_digital_signature: bool,
     validity: CertificateChainValidity,
     issuer_name: CertificateChainIssuerName,
-    leaf_is_ca: bool,
+    leaf_ca: IsCa,
 ) -> CertificateChainSignedPayload {
     let issuer_key = RcgenKeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).expect("issuer key");
     let mut issuer_params =
@@ -2124,11 +2118,7 @@ fn signed_pacs008_xml_with_certificate_chain_options(
     leaf_params
         .distinguished_name
         .push(DnType::CommonName, "ISO Bridge Test Leaf");
-    leaf_params.is_ca = if leaf_is_ca {
-        IsCa::Ca(BasicConstraints::Unconstrained)
-    } else {
-        IsCa::NoCa
-    };
+    leaf_params.is_ca = leaf_ca;
     leaf_params.key_usages = if leaf_digital_signature {
         vec![KeyUsagePurpose::DigitalSignature]
     } else {
@@ -2447,15 +2437,12 @@ fn signed_pacs008_xml_with_certificate_chain_material_and_x509_extra(
         .sign(canonical_signed_info.as_bytes())
         .expect("leaf XMLDSig signature");
     let signature_value = BASE64_STANDARD.encode(low_s_p256_signature_der_from_bytes(&signature));
-    let certificates_xml = certificates_der
-        .iter()
-        .map(|certificate_der| {
-            format!(
-                "<X509Certificate>{}</X509Certificate>",
-                BASE64_STANDARD.encode(certificate_der)
-            )
-        })
-        .collect::<String>();
+    let mut certificates_xml = String::new();
+    for certificate_der in certificates_der {
+        certificates_xml.push_str("<X509Certificate>");
+        certificates_xml.push_str(&BASE64_STANDARD.encode(certificate_der));
+        certificates_xml.push_str("</X509Certificate>");
+    }
     let signature_xml = format!(
         concat!(
             r#"<Signature xmlns="{XMLDSIG_NS}" Id="sig-001">{signed_info}<SignatureValue>{signature_value}</SignatureValue>"#,
@@ -2566,9 +2553,11 @@ fn try_signed_pacs008_xml_with_generated_ocsp_x509_certificate_chain(
         None,
     );
     let response_der_base64 = BASE64_STANDARD.encode(&response_der);
-    let extra_x509_data_xml = embed_ocsp_response
-        .then(|| format!("<EncapsulatedOCSPValue>{response_der_base64}</EncapsulatedOCSPValue>"))
-        .unwrap_or_default();
+    let extra_x509_data_xml = if embed_ocsp_response {
+        format!("<EncapsulatedOCSPValue>{response_der_base64}</EncapsulatedOCSPValue>")
+    } else {
+        String::new()
+    };
     let certificates_der = [leaf_cert.der().as_ref(), issuer_cert.der().as_ref()];
     let signed_payload = signed_pacs008_xml_with_certificate_chain_material_and_x509_extra(
         &leaf_key,
@@ -2996,9 +2985,7 @@ fn inbound_metadata(message_id: &str, message_type: &str) -> IsoMessageMetadata 
     IsoMessageMetadata::inbound(
         "generic-iso20022",
         message_type,
-        None,
-        Some(format!("{message_id}-biz")),
-        None,
+        (None, Some(format!("{message_id}-biz")), None),
         format!("{message_id}-payload-hash"),
         "snapshot".to_owned(),
         false,
@@ -3039,7 +3026,7 @@ fn signed_pacs008_xml_with_certificate_chain_issuer_name_mismatch() -> Certifica
         true,
         CertificateChainValidity::Valid,
         CertificateChainIssuerName::MismatchedLeafIssuer,
-        false,
+        IsCa::NoCa,
     )
 }
 fn signed_pacs008_xml_with_leaf_ca_certificate_chain() -> CertificateChainSignedPayload {
@@ -3049,7 +3036,7 @@ fn signed_pacs008_xml_with_leaf_ca_certificate_chain() -> CertificateChainSigned
         true,
         CertificateChainValidity::Valid,
         CertificateChainIssuerName::Matching,
-        true,
+        IsCa::Ca(BasicConstraints::Unconstrained),
     )
 }
 fn signed_pacs008_xml_with_generated_two_certificate_chain(
@@ -4577,7 +4564,7 @@ fn supported_xml_canonicalizer_expands_empty_elements_and_sorts_attributes() {
 #[test]
 fn supported_xml_canonicalizer_decodes_character_references() {
     let canonical = canonicalize_supported_xml(
-        r#"<A attr='&quot;&amp;&lt;&apos;&#x9;&#10;&#xD;'>one&amp;&lt;&gt;&#13;</A>"#,
+        r"<A attr='&quot;&amp;&lt;&apos;&#x9;&#10;&#xD;'>one&amp;&lt;&gt;&#13;</A>",
     )
     .expect("predefined and numeric XML character references should canonicalize");
     assert_eq!(
@@ -5370,7 +5357,7 @@ fn supported_xml_p256_signature_rejects_high_s() {
 #[test]
 fn supported_xml_required_base64_rejects_duplicate_children() {
     let err = decode_required_child_base64(
-        r#"<Reference><DigestValue>AQ==</DigestValue><DigestValue>Ag==</DigestValue></Reference>"#,
+        r"<Reference><DigestValue>AQ==</DigestValue><DigestValue>Ag==</DigestValue></Reference>",
         "DigestValue",
     )
     .expect_err("duplicate required base64 children must fail closed");
@@ -5382,13 +5369,13 @@ fn supported_xml_required_base64_rejects_duplicate_children() {
     .expect_err("required base64 attributes must fail closed");
     assert!(matches!(err, MsgError::ValidationFailed));
     let err = decode_required_child_base64(
-        r#"<Reference><DigestValue><Chunk>AQ==</Chunk></DigestValue></Reference>"#,
+        r"<Reference><DigestValue><Chunk>AQ==</Chunk></DigestValue></Reference>",
         "DigestValue",
     )
     .expect_err("nested required base64 markup must fail closed");
     assert!(matches!(err, MsgError::ValidationFailed));
     let err = decode_required_child_base64(
-        r#"<Reference><DigestValue>A<!--comment-->Q==</DigestValue></Reference>"#,
+        r"<Reference><DigestValue>A<!--comment-->Q==</DigestValue></Reference>",
         "DigestValue",
     )
     .expect_err("required base64 comments must fail closed");
@@ -6368,7 +6355,7 @@ signed_payload_tests! {
             true,
             CertificateChainValidity::ExpiredLeaf,
             CertificateChainIssuerName::Matching,
-            false,
+            IsCa::NoCa,
         ),
         "XMLDSig leaf certificate must be valid at signing time",
     );
@@ -6379,7 +6366,7 @@ signed_payload_tests! {
             true,
             CertificateChainValidity::FutureIssuer,
             CertificateChainIssuerName::Matching,
-            false,
+            IsCa::NoCa,
         ),
         "XMLDSig issuer certificate must be valid at signing time",
     );
@@ -6895,7 +6882,7 @@ fn require_verified_profile_rejects_reference_unsupported_attributes() {
     let transforms_payload = signed_pacs008_xml_with_signed_info_rewrite(|signed_info| {
         signed_info.replacen("<Transforms>", r#"<Transforms Id="transforms-001">"#, 1)
     });
-    let transform_payload = signed_pacs008_xml_with_signed_info_rewrite(|signed_info| {
+    let rewritten_transform_payload = signed_pacs008_xml_with_signed_info_rewrite(|signed_info| {
         let transform =
             format!(r#"<Transform Algorithm="{XMLDSIG_ENVELOPED_SIGNATURE}"></Transform>"#);
         let unsupported = format!(
@@ -6913,7 +6900,7 @@ fn require_verified_profile_rejects_reference_unsupported_attributes() {
     for payload in [
         reference_payload,
         transforms_payload,
-        transform_payload,
+        rewritten_transform_payload,
         digest_method_payload,
     ] {
         assert_require_verified_signed_payload_rejected(
@@ -7936,7 +7923,7 @@ live_pacs008_parse_rejection_tests! {
         )
         .replace(
             r#"<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08">"#,
-            r#"<Document xmlns=urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08>"#,
+            r"<Document xmlns=urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08>",
         )
         => "unquoted Document namespace attributes must fail parsing";
     live_rail_profile_xsd_fixtures_reject_doctype_declaration:
@@ -8257,9 +8244,11 @@ fn profile_idempotency_rejects_replayed_uetr() {
     let first = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.008",
-        None,
-        Some("biz-1".to_owned()),
-        Some("123e4567-e89b-12d3-a456-426614174000".to_owned()),
+        (
+            None,
+            Some("biz-1".to_owned()),
+            Some("123e4567-e89b-12d3-a456-426614174000".to_owned()),
+        ),
         "hash-1".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -8267,9 +8256,11 @@ fn profile_idempotency_rejects_replayed_uetr() {
     let replay = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.008",
-        None,
-        Some("biz-2".to_owned()),
-        Some("123E4567-E89B-12D3-A456-426614174000".to_owned()),
+        (
+            None,
+            Some("biz-2".to_owned()),
+            Some("123E4567-E89B-12D3-A456-426614174000".to_owned()),
+        ),
         "hash-2".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -8283,9 +8274,11 @@ fn profile_idempotency_rejects_replayed_business_message_id() {
     let first = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.008",
-        None,
-        Some(" biz-duplicate ".to_owned()),
-        Some("123e4567-e89b-12d3-a456-426614174000".to_owned()),
+        (
+            None,
+            Some(" biz-duplicate ".to_owned()),
+            Some("123e4567-e89b-12d3-a456-426614174000".to_owned()),
+        ),
         "hash-1".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -8293,9 +8286,11 @@ fn profile_idempotency_rejects_replayed_business_message_id() {
     let replay = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.008",
-        None,
-        Some("biz-duplicate".to_owned()),
-        Some("123e4567-e89b-12d3-a456-426614174001".to_owned()),
+        (
+            None,
+            Some("biz-duplicate".to_owned()),
+            Some("123e4567-e89b-12d3-a456-426614174001".to_owned()),
+        ),
         "hash-2".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -8324,9 +8319,11 @@ fn concurrent_admission_commits_one_complete_identity_tuple() {
             let metadata = IsoMessageMetadata::inbound(
                 "generic-iso20022",
                 "pacs.008",
-                None,
-                Some("biz-race".to_owned()),
-                Some("123e4567-e89b-12d3-a456-426614174500".to_owned()),
+                (
+                    None,
+                    Some("biz-race".to_owned()),
+                    Some("123e4567-e89b-12d3-a456-426614174500".to_owned()),
+                ),
                 "payload-race".to_owned(),
                 "snapshot".to_owned(),
                 false,
@@ -8372,9 +8369,7 @@ fn pacs009_group_message_id_owns_payment_replay_reservation() {
     let first_metadata = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.009",
-        None,
-        Some("pacs009-header-a".to_owned()),
-        None,
+        (None, Some("pacs009-header-a".to_owned()), None),
         "pacs009-payload-a".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -8382,9 +8377,7 @@ fn pacs009_group_message_id_owns_payment_replay_reservation() {
     let replay_metadata = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.009",
-        None,
-        Some("pacs009-header-b".to_owned()),
-        None,
+        (None, Some("pacs009-header-b".to_owned()), None),
         "pacs009-payload-b".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -8414,9 +8407,11 @@ fn durable_in_flight_reservation_pins_capacity_until_transaction_binding() {
     let metadata = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.008",
-        None,
-        Some("in-flight-biz".to_owned()),
-        Some("123e4567-e89b-12d3-a456-426614174550".to_owned()),
+        (
+            None,
+            Some("in-flight-biz".to_owned()),
+            Some("123e4567-e89b-12d3-a456-426614174550".to_owned()),
+        ),
         "in-flight-payload".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -8443,9 +8438,7 @@ fn rejected_original_identity_blocks_both_exact_and_changed_retries() {
     let original = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.008",
-        None,
-        Some("biz-exact-retry".to_owned()),
-        None,
+        (None, Some("biz-exact-retry".to_owned()), None),
         "payload-original".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -8584,9 +8577,11 @@ fn retry_replacement_rejects_conflicting_uetr() {
     let first = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.008",
-        None,
-        Some("biz-1".to_owned()),
-        Some("123e4567-e89b-12d3-a456-426614174000".to_owned()),
+        (
+            None,
+            Some("biz-1".to_owned()),
+            Some("123e4567-e89b-12d3-a456-426614174000".to_owned()),
+        ),
         "hash-1".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -8594,9 +8589,11 @@ fn retry_replacement_rejects_conflicting_uetr() {
     let second = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.008",
-        None,
-        Some("biz-2".to_owned()),
-        Some("123e4567-e89b-12d3-a456-426614174001".to_owned()),
+        (
+            None,
+            Some("biz-2".to_owned()),
+            Some("123e4567-e89b-12d3-a456-426614174001".to_owned()),
+        ),
         "hash-2".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -8604,9 +8601,11 @@ fn retry_replacement_rejects_conflicting_uetr() {
     let conflicting_retry = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.008",
-        None,
-        Some("biz-1-retry".to_owned()),
-        Some("123E4567-E89B-12D3-A456-426614174001".to_owned()),
+        (
+            None,
+            Some("biz-1-retry".to_owned()),
+            Some("123E4567-E89B-12D3-A456-426614174001".to_owned()),
+        ),
         "hash-3".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -8629,9 +8628,7 @@ fn retry_replacement_rejects_conflicting_business_message_id() {
     let first = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.008",
-        None,
-        Some("biz-1".to_owned()),
-        None,
+        (None, Some("biz-1".to_owned()), None),
         "hash-1".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -8639,9 +8636,7 @@ fn retry_replacement_rejects_conflicting_business_message_id() {
     let second = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.008",
-        None,
-        Some("biz-2".to_owned()),
-        None,
+        (None, Some("biz-2".to_owned()), None),
         "hash-2".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -8649,9 +8644,7 @@ fn retry_replacement_rejects_conflicting_business_message_id() {
     let conflicting_retry = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.008",
-        None,
-        Some(" biz-2 ".to_owned()),
-        None,
+        (None, Some(" biz-2 ".to_owned()), None),
         "hash-3".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -8680,9 +8673,7 @@ fn durable_store_reloads_message_status() {
         let metadata = IsoMessageMetadata::inbound(
             "generic-iso20022",
             "pacs.008",
-            None,
-            Some("persisted-biz".to_owned()),
-            None,
+            (None, Some("persisted-biz".to_owned()), None),
             "persisted-hash".to_owned(),
             "snapshot".to_owned(),
             false,
@@ -8727,9 +8718,7 @@ fn durable_store_reloads_message_status() {
     let replay = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.008",
-        None,
-        Some("persisted-biz".to_owned()),
-        None,
+        (None, Some("persisted-biz".to_owned()), None),
         "replay-hash".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -9574,9 +9563,7 @@ fn lowering_store_capacity_preserves_every_unexpired_replay_identity() {
                 IsoMessageMetadata::inbound(
                     "generic-iso20022",
                     "pacs.008",
-                    None,
-                    Some(format!("{message_id}-biz")),
-                    None,
+                    (None, Some(format!("{message_id}-biz")), None),
                     format!("{message_id}-hash"),
                     "snapshot".to_owned(),
                     false,
@@ -9628,9 +9615,7 @@ fn lowering_store_capacity_preserves_every_unexpired_replay_identity() {
         IsoMessageMetadata::inbound(
             "generic-iso20022",
             "pacs.008",
-            None,
-            Some("capacity-rejected-biz".to_owned()),
-            None,
+            (None, Some("capacity-rejected-biz".to_owned()), None),
             "capacity-rejected-hash".to_owned(),
             "snapshot".to_owned(),
             false,
@@ -9653,9 +9638,7 @@ fn assert_digest_correct_record_mutation_is_rejected(
             IsoMessageMetadata::inbound(
                 "generic-iso20022",
                 "pacs.008",
-                None,
-                Some(format!("{message_id}-biz")),
-                None,
+                (None, Some(format!("{message_id}-biz")), None),
                 format!("{message_id}-hash"),
                 "snapshot".to_owned(),
                 false,
@@ -9696,9 +9679,7 @@ fn assert_digest_correct_audit_mutation_is_rejected(
                 IsoMessageMetadata::inbound(
                     "generic-iso20022",
                     "pacs.008",
-                    None,
-                    Some(format!("{case}-{message_id}-biz")),
-                    None,
+                    (None, Some(format!("{case}-{message_id}-biz")), None),
                     format!("{case}-{message_id}-hash"),
                     "snapshot".to_owned(),
                     false,
@@ -9739,9 +9720,7 @@ fn durable_store_retention_is_independent_from_dedupe_ttl() {
         IsoMessageMetadata::inbound(
             "generic-iso20022",
             "pacs.008",
-            None,
-            Some("ttl-kept-a-biz".to_owned()),
-            None,
+            (None, Some("ttl-kept-a-biz".to_owned()), None),
             "ttl-kept-a-hash".to_owned(),
             "snapshot".to_owned(),
             false,
@@ -9754,9 +9733,7 @@ fn durable_store_retention_is_independent_from_dedupe_ttl() {
         IsoMessageMetadata::inbound(
             "generic-iso20022",
             "pacs.008",
-            None,
-            Some("ttl-kept-b-biz".to_owned()),
-            None,
+            (None, Some("ttl-kept-b-biz".to_owned()), None),
             "ttl-kept-b-hash".to_owned(),
             "snapshot".to_owned(),
             false,
@@ -9787,9 +9764,7 @@ fn durable_store_never_evicts_an_unexpired_identity_for_capacity() {
         IsoMessageMetadata::inbound(
             "generic-iso20022",
             "pacs.008",
-            None,
-            Some("compact-old-biz".to_owned()),
-            None,
+            (None, Some("compact-old-biz".to_owned()), None),
             "compact-old-hash".to_owned(),
             "snapshot".to_owned(),
             false,
@@ -9803,9 +9778,7 @@ fn durable_store_never_evicts_an_unexpired_identity_for_capacity() {
         IsoMessageMetadata::inbound(
             "generic-iso20022",
             "pacs.008",
-            None,
-            Some("compact-new-biz".to_owned()),
-            None,
+            (None, Some("compact-new-biz".to_owned()), None),
             "compact-new-hash".to_owned(),
             "snapshot".to_owned(),
             false,
@@ -9858,9 +9831,7 @@ fn durable_store_compacts_records_older_than_retention_window() {
         IsoMessageMetadata::inbound(
             "generic-iso20022",
             "pacs.008",
-            None,
-            Some("age-expired-biz".to_owned()),
-            None,
+            (None, Some("age-expired-biz".to_owned()), None),
             "age-expired-hash".to_owned(),
             "snapshot".to_owned(),
             false,
@@ -9912,9 +9883,7 @@ fn durable_store_writes_tamper_evident_audit_index() {
             IsoMessageMetadata::inbound(
                 "generic-iso20022",
                 "pacs.008",
-                None,
-                Some(business_id.to_owned()),
-                None,
+                (None, Some(business_id.to_owned()), None),
                 payload_hash.to_owned(),
                 "snapshot".to_owned(),
                 false,
@@ -10001,9 +9970,7 @@ fn durable_store_exports_external_audit_notary_spool() {
         IsoMessageMetadata::inbound(
             "generic-iso20022",
             "pacs.008",
-            None,
-            Some("external-audit-biz".to_owned()),
-            None,
+            (None, Some("external-audit-biz".to_owned()), None),
             "external-audit-hash".to_owned(),
             "snapshot".to_owned(),
             false,
@@ -10067,9 +10034,7 @@ async fn external_audit_write_failure_marks_runtime_unhealthy_and_retries() {
         IsoMessageMetadata::inbound(
             "generic-iso20022",
             "pacs.008",
-            None,
-            Some("external-audit-failure-biz".to_owned()),
-            None,
+            (None, Some("external-audit-failure-biz".to_owned()), None),
             "external-audit-failure-hash".to_owned(),
             "snapshot".to_owned(),
             false,
@@ -10106,9 +10071,7 @@ fn durable_store_exports_audit_index_matching_persisted_manifest() {
         IsoMessageMetadata::inbound(
             "generic-iso20022",
             "pacs.008",
-            None,
-            Some("audit-export-biz".to_owned()),
-            None,
+            (None, Some("audit-export-biz".to_owned()), None),
             "audit-export-hash".to_owned(),
             "snapshot".to_owned(),
             false,
@@ -10157,9 +10120,7 @@ fn durable_store_audit_index_stops_startup_on_tampered_record() {
                 IsoMessageMetadata::inbound(
                     "generic-iso20022",
                     "pacs.008",
-                    None,
-                    Some(business_id.to_owned()),
-                    None,
+                    (None, Some(business_id.to_owned()), None),
                     payload_hash.to_owned(),
                     "snapshot".to_owned(),
                     false,
@@ -10197,9 +10158,7 @@ fn durable_store_rejects_tampered_record_body() {
             IsoMessageMetadata::inbound(
                 "generic-iso20022",
                 "pacs.008",
-                None,
-                Some("tamper-biz".to_owned()),
-                None,
+                (None, Some("tamper-biz".to_owned()), None),
                 "tamper-hash".to_owned(),
                 "snapshot".to_owned(),
                 false,
@@ -10248,9 +10207,7 @@ fn durable_store_rejects_missing_record_digest() {
             IsoMessageMetadata::inbound(
                 "generic-iso20022",
                 "pacs.008",
-                None,
-                Some("missing-digest-biz".to_owned()),
-                None,
+                (None, Some("missing-digest-biz".to_owned()), None),
                 "missing-digest-hash".to_owned(),
                 "snapshot".to_owned(),
                 false,
@@ -10292,9 +10249,7 @@ fn durable_store_rejects_malformed_record_digest() {
             IsoMessageMetadata::inbound(
                 "generic-iso20022",
                 "pacs.008",
-                None,
-                Some("bad-digest-biz".to_owned()),
-                None,
+                (None, Some("bad-digest-biz".to_owned()), None),
                 "bad-digest-hash".to_owned(),
                 "snapshot".to_owned(),
                 false,
@@ -10485,9 +10440,7 @@ fn durable_store_rejects_digest_correct_message_id_filename_drift() {
             IsoMessageMetadata::inbound(
                 "generic-iso20022",
                 "pacs.008",
-                None,
-                Some("filename-drift-biz".to_owned()),
-                None,
+                (None, Some("filename-drift-biz".to_owned()), None),
                 "filename-drift-hash".to_owned(),
                 "snapshot".to_owned(),
                 false,
@@ -10522,9 +10475,7 @@ fn durable_store_rejects_symlinked_record_on_reload() {
             IsoMessageMetadata::inbound(
                 "generic-iso20022",
                 "pacs.008",
-                None,
-                Some("symlinked-record-biz".to_owned()),
-                None,
+                (None, Some("symlinked-record-biz".to_owned()), None),
                 "symlinked-record-hash".to_owned(),
                 "snapshot".to_owned(),
                 false,
@@ -10558,9 +10509,7 @@ fn durable_store_rejects_symlinked_messages_dir_on_reload() {
             IsoMessageMetadata::inbound(
                 "generic-iso20022",
                 "pacs.008",
-                None,
-                Some("symlinked-messages-dir-biz".to_owned()),
-                None,
+                (None, Some("symlinked-messages-dir-biz".to_owned()), None),
                 "symlinked-messages-dir-hash".to_owned(),
                 "snapshot".to_owned(),
                 false,
@@ -10747,9 +10696,7 @@ fn durable_store_refuses_oversized_update_without_mutating_original_record() {
         IsoMessageMetadata::inbound(
             "generic-iso20022",
             "pacs.008",
-            None,
-            Some("oversized-persist-biz".to_owned()),
-            None,
+            (None, Some("oversized-persist-biz".to_owned()), None),
             "oversized-persist-hash".to_owned(),
             "snapshot".to_owned(),
             false,
@@ -12820,9 +12767,7 @@ fn conflicting_v2_replay_and_transaction_identities_stop_startup() {
                 IsoMessageMetadata::inbound(
                     "generic-iso20022",
                     "pacs.008",
-                    None,
-                    Some(format!("{message_id}-biz")),
-                    None,
+                    (None, Some(format!("{message_id}-biz")), None),
                     format!("{message_id}-hash"),
                     "snapshot".to_owned(),
                     false,
@@ -12867,9 +12812,7 @@ fn conflicting_v2_replay_and_transaction_identities_stop_startup() {
                 IsoMessageMetadata::inbound(
                     "generic-iso20022",
                     "pacs.008",
-                    None,
-                    Some(format!("{message_id}-biz")),
-                    None,
+                    (None, Some(format!("{message_id}-biz")), None),
                     format!("{message_id}-hash"),
                     "snapshot".to_owned(),
                     false,
@@ -12959,9 +12902,7 @@ fn persisted_iso_records_regenerate_a_missing_v3_audit_index() {
             IsoMessageMetadata::inbound(
                 "generic-iso20022",
                 "pacs.008",
-                None,
-                Some("audit-required-biz".to_owned()),
-                None,
+                (None, Some("audit-required-biz".to_owned()), None),
                 "audit-required-hash".to_owned(),
                 "snapshot".to_owned(),
                 false,
@@ -13080,9 +13021,7 @@ fn valid_but_stale_iso_audit_index_is_regenerated_after_validation() {
             IsoMessageMetadata::inbound(
                 "generic-iso20022",
                 "pacs.008",
-                None,
-                Some("stale-audit-biz".to_owned()),
-                None,
+                (None, Some("stale-audit-biz".to_owned()), None),
                 "stale-audit-hash".to_owned(),
                 "snapshot".to_owned(),
                 false,

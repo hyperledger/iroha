@@ -210,7 +210,7 @@ impl VerifiedPaymentReceipt {
     /// Exact authenticated Nexus charge, or authenticated absence of that receipt.
     ///
     /// Absence remains distinct from a fabricated zero-valued fee record. Carriers
-    /// authorizing PipelineGas are unsupported until its outcome can be authenticated.
+    /// authorizing `PipelineGas` are unsupported until its outcome can be authenticated.
     #[must_use]
     pub fn nexus_fee_receipt(&self) -> Option<&NexusFeeReceipt> {
         self.evidence.result().nexus_fee_receipt()
@@ -231,12 +231,12 @@ mod tests;
 
 #[cfg(test)]
 /// Genuine QC-verified fixture for tests of consumers of the opaque receipt.
-pub(crate) fn payment_receipt_for_testing() -> VerifiedPaymentReceipt {
+pub(super) fn payment_receipt_for_testing() -> VerifiedPaymentReceipt {
     tests::payment_receipt()
 }
 
 #[cfg(test)]
-pub(crate) fn payment_operation_fixture_for_testing(
+pub(super) fn payment_operation_fixture_for_testing(
     rejected: bool,
 ) -> (
     iroha_data_model::sumeragi_finality::test_fixtures::NativeFinalityFixture,

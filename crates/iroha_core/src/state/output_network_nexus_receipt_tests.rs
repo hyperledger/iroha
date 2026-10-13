@@ -35,7 +35,7 @@ fn balance(block: &StateBlock<'_>, asset: &AssetDefinitionId) -> Quantity {
         .world
         .assets()
         .get(&AssetId::of(asset.clone(), ALICE_ID.clone()))
-        .map_or(Quantity::zero(), |value| value.0.clone())
+        .map_or_else(Quantity::zero, |value| value.0.clone())
 }
 
 #[test]

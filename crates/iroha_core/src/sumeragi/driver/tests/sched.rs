@@ -525,7 +525,12 @@ impl Executor for Panicking {
         panic!("boom")
     }
 
-    fn execute(&mut self, _: &AvailableBody, _: &Hash32, _: bool) -> Option<ExecOutcome> {
+    fn execute(
+        &mut self,
+        _: &AvailableBody,
+        _: &Hash32,
+        _: bool,
+    ) -> Result<Option<ExecOutcome>, PublicationError> {
         panic!("boom")
     }
     fn discard(&mut self, _: u64, _: &[Hash32]) {}
@@ -569,7 +574,7 @@ fn executor_panics_become_local_failures() {
     );
     assert!(matches!(
         done,
-        ExecDone::Executed(Some(ExecOutcome::Failed(_)))
+        ExecDone::Executed(Err(PublicationError::RecoveryRequired(_)))
     ));
     let commit = std::sync::Arc::new(super::super::exec::Commit {
         qc: commit_qc(&b1, r1),
@@ -648,7 +653,7 @@ fn certified_execution_flag_reaches_the_application_without_inference() {
                     certified
                 },
             ),
-            ExecDone::Executed(Some(ExecOutcome::Valid { .. }))
+            ExecDone::Executed(Ok(Some(ExecOutcome::Valid { .. })))
         ));
     }
     assert_eq!(
@@ -684,7 +689,7 @@ impl Executor for Overlay {
         block: &AvailableBody,
         block_hash: &Hash32,
         certified: bool,
-    ) -> Option<ExecOutcome> {
+    ) -> Result<Option<ExecOutcome>, PublicationError> {
         self.certified_calls.push(certified);
         self.other("execute");
         self.inner.execute(block, block_hash, certified)
@@ -1294,7 +1299,7 @@ fn all_validator_control_waits_for_applied_parent_and_shares_do_not_starve_work(
 fn application_control_ingress_has_a_hard_protocol_cap() {
     let mut sched = ExecSched::new(0, Backoff::default(), super::test_registrations());
     sched.retain_control_context(Some((partial_context(1), 0)));
-    for index in 0..iroha_sumeragi::types::MAX_COMMITTEE_SIZE + 1 {
+    for index in 0..=iroha_sumeragi::types::MAX_COMMITTEE_SIZE {
         let mut bytes = vec![0xAB; 32];
         bytes[..8].copy_from_slice(&(index as u64).to_le_bytes());
         sched.receive_control(PublicKey::new(bytes).unwrap(), partial(1));

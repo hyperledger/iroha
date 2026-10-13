@@ -86,13 +86,13 @@ struct DecisionDelivery<'v, V: StateReadOnly> {
 /// # Errors
 /// Invalid height order, a non-Global authenticated root, or original-pool allocation
 /// refusal. No source acquisition occurs before the retained job is admitted.
-pub fn decision_amx_relay<'v, V: StateReadOnly>(
-    view: &'v V,
+pub fn decision_amx_relay<V: StateReadOnly>(
+    view: &V,
     begin_height: u64,
     decision_height: u64,
     transaction: [u8; 32],
     participant: DataSpaceId,
-) -> Result<NativeAmxDecisionRelayReadV1<'v, V>, NativeAmxDecisionRelayErrorV1> {
+) -> Result<NativeAmxDecisionRelayReadV1<'_, V>, NativeAmxDecisionRelayErrorV1> {
     use NativeAmxDecisionRelayErrorV1 as Error;
     if begin_height < 2 || decision_height < begin_height {
         return Err(Error::Source(

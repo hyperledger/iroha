@@ -2311,6 +2311,7 @@ def test_catalog_field_reader(tmp_path: Path) -> None:
         "catalogs: `execution_policy_digest_v1` is checked against the source",
         "catalogs: `execution_output_policy_v1` is checked against the source",
         "catalogs: `fastpq_source_policy_v1` is checked against the source",
+        "catalogs: `fraud_admission_policy_v1` is checked against the source",
     ]
     assert [(catalog["id"], field) for catalog, field in unlisted] == [
         ("zk_consensus_policy_hash", "pipa_r.max_proof_bytes"),
@@ -2750,16 +2751,56 @@ def test_lane_route_statements_state_that_there_is_no_rescue_above_the_global_bu
     assert "resource_coherence::validate_successor_resource_limits" in system
     assert "successor heights. This selector also handles raw authoring inputs before validation." in system
     assert "with the\n/// global chain as its rescue" not in payload
+    assert "The raw selector verdict does not establish an admissible committed policy." in payload
     lanes = (ROOT / "specs/sumeragi_lanes.md").read_text(encoding="utf-8")
-    assert "every admitted transaction fits the full global selection budget" in lanes
-    assert "space remaining after other global proposal contents can defer" in lanes
-    assert "rescue carries it only when enough space remains" in lanes
+    normalized_lanes = CHECKER["normalize"](lanes)
+    assert "transaction cap plus the global proposer reserve to fit" in normalized_lanes
+    assert "every admitted transaction fits the full global selection budget" in normalized_lanes
+    assert "rescue carries it only when enough space remains" in normalized_lanes
+    coherence = relation(CONTRACT, "transaction_cap_fits_block_payload")
+    assert coherence["expr"] == (
+        "transaction.max_tx_bytes + block.payload_transaction_reserve_bytes <= block.max_block_bytes"
+    )
+    assert coherence["enforcement"]
     proposer = next(entry for entry in CONTRACT["stage_tests"] if entry["stage"] == "proposer")
     assert "global_rescue_carries_a_stalled_lane_transaction_only_within_the_global_budget" in {
         test["name"] for test in proposer["tests"]
     }
     assert "if next > max_bytes {" in {site["contains"] for site in proposer["enforcement"]}
     assert "let next = bytes.saturating_add(transaction.encoded_len());\n        if next > max_bytes {" in payload
+
+
+def test_committed_coherence_and_global_packing_guards_cannot_disappear() -> None:
+    """Every committed-policy edge and the global rescue budget remain source-checked."""
+    coherence = relation(CONTRACT, "transaction_cap_fits_block_payload")
+    proposer = next(entry for entry in CONTRACT["stage_tests"] if entry["stage"] == "proposer")
+    cases = [(coherence["id"], site) for site in coherence["enforcement"]]
+    cases.extend(
+        ("proposer", site)
+        for site in proposer["enforcement"]
+        if site["path"] == "crates/iroha_core/src/sumeragi/payload.rs"
+    )
+    assert len(cases) == 13
+    for owner, site in cases:
+        path = site["path"]
+        source = CHECKER["_read"](ROOT, path, "test")
+        normalized = CHECKER["_normalized"](source)
+        needle = CHECKER["normalize"](site["contains"])
+        assert normalized.count(needle) == 1, (owner, site)
+        # The canonical matcher ignores whitespace; replace the actual code span while
+        # keeping every other statement and every registry record unchanged.
+        pattern = r"\s*".join(re.escape(piece) for piece in site["contains"].split())
+        match = re.search(pattern, source)
+        assert match is not None, (owner, site)
+        changed = source[: match.start()] + "/* removed enforcing application */" + source[match.end() :]
+        CHECKER["_OVERRIDES"][path] = changed
+        try:
+            found: list = []
+            CHECKER["_check_owned_sites"](ROOT, CONTRACT, path, found)
+        finally:
+            del CHECKER["_OVERRIDES"][path]
+        assert any(owner in problem and "no longer contains" in problem for problem in found), found
+    assert CHECKER["_OVERRIDES"] == {}
 
 
 PATH_CRATES = (
@@ -5859,7 +5900,10 @@ def test_every_receiver_of_a_cap_in_the_path_crates_is_read() -> None:
                     literals += 1
                     assert any(first <= start < last for first, last in pinned), (where, text)
     assert calls > 1000 and receivers > 1000 and broken > 250, (calls, receivers, broken)
-    assert names >= 100 and literals > 40, (names, literals)
+    # Consolidating production min/max callers leaves 98 named receiver operands.
+    # Every occurrence is still checked above, and the required source sites below
+    # independently prevent coverage from disappearing behind a census change.
+    assert names >= 98 and literals > 40, (names, literals)
     # Every integer constant that stands in such a receiver is classified.
     listed = {
         (item["owner"]["path"], item["owner"]["symbol"])

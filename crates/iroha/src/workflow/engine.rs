@@ -1566,17 +1566,17 @@ impl WorkflowHandle {
     /// The concrete carrier state is left intact, including a rejected duplicate carrier.
     pub(crate) fn record_native_payment_completion(
         &self,
-        completion: NativePaymentCompletionV1,
+        completion: &NativePaymentCompletionV1,
     ) -> Result<WorkflowProgressV1, WorkflowError> {
         let mut session = self.engine.open(self.id, Some(&self.plan))?;
-        if session.journal.native_payment_completion.as_ref() == Some(&completion) {
+        if session.journal.native_payment_completion.as_ref() == Some(completion) {
             return Ok(session.journal.progress());
         }
         session.record(|journal| {
             if journal
                 .native_payment_completion
                 .as_ref()
-                .is_some_and(|stored| stored != &completion)
+                .is_some_and(|stored| stored != completion)
             {
                 return Err(WorkflowError::new(
                     WorkflowErrorCode::BindingMismatch,

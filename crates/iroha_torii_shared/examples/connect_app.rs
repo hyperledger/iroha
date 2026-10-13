@@ -85,7 +85,7 @@ async fn run_connect_app() -> anyhow::Result<()> {
     }
     let client = Client::new();
     let x = X25519Sha256::new();
-    let (app_pk, app_sk) = x.try_keypair(KeyGenOption::Random)?;
+    let (app_pk, app_secret_key) = x.try_keypair(KeyGenOption::Random)?;
     let app_pk_bytes: [u8; 32] = *app_pk.as_bytes();
     let mut nonce = [0u8; 16];
     rand::rngs::OsRng.try_fill_bytes(&mut nonce)?;
@@ -190,8 +190,9 @@ async fn run_connect_app() -> anyhow::Result<()> {
     )
     .map_err(anyhow::Error::msg)?;
     let wallet_pk_bytes: [u8; 32] = wallet_pk;
-    let (k_app, k_wallet) = sdk::x25519_derive_keys(&app_sk.to_bytes(), &wallet_pk_bytes, &sid_arr)
-        .expect("x25519 derive keys");
+    let (k_app, k_wallet) =
+        sdk::x25519_derive_keys(&app_secret_key.to_bytes(), &wallet_pk_bytes, &sid_arr)
+            .expect("x25519 derive keys");
     send_app_action(&mut ws, &k_app, &sid_arr, action.as_str()).await?;
     if let Some(Ok(Message::Binary(bin))) = ws.next().await {
         let mut cursor = bin.as_ref();

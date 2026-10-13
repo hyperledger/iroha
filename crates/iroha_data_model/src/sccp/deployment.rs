@@ -45,6 +45,9 @@ pub struct SccpCommitteePinV1 {
 
 impl SccpCommitteePinV1 {
     /// Check the pin's state-independent shape without granting committee authority.
+    ///
+    /// # Errors
+    /// Rejects a zero generation, start height, deadline or committee root.
     pub fn validate_shape(&self) -> Result<(), super::native::SccpNativeDataError> {
         use super::native::SccpNativeDataError;
         if self.generation == 0 || self.start_height == 0 || self.until_ms == 0 {

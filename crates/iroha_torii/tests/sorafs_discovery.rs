@@ -386,7 +386,7 @@ fn provider_cache_warns_when_chunk_range_missing() {
     assert!(
         result
             .warnings
-            .contains(&AdvertWarning::MissingChunkRangeCapability),
+            .contains(&AdvertWarning::ChunkRangeCapability),
         "ingestion must emit missing_chunk_range warning"
     );
     let record = cache
@@ -395,7 +395,7 @@ fn provider_cache_warns_when_chunk_range_missing() {
     assert!(
         record
             .warnings()
-            .contains(&AdvertWarning::MissingChunkRangeCapability),
+            .contains(&AdvertWarning::ChunkRangeCapability),
         "cache record must retain warning metadata"
     );
 }

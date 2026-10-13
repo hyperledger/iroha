@@ -15,8 +15,10 @@ import "@contracts/sccp-addresses"
 import "@contracts/sccp-cells"
 import "@contracts/sccp-constants"
 import "@contracts/sccp-errors"
+import "@contracts/sccp-fees"
 import "@contracts/sccp-finality"
 import "@contracts/sccp-messages"
+import "@contracts/sccp-recovery"
 import "@contracts/sccp-storage"
 import "@wrappers/SccpTairaXorMinter.gen"
 import "sccp-test-helpers"
@@ -46,6 +48,27 @@ fun canonicalDefault(): MinterStorage {
     return canonicalFor(testCommittee(4, 0));
 }
 
+/// A retained activation with distinct fields for getter/layout assertions.
+fun initRecoveryOperation(): RecoveryOperation {
+    return {
+        stage: SCCP_RECOVERY_ACTIVATE,
+        phase: SCCP_RECOVERY_FAILED,
+        attempt: 3,
+        nonce: 22,
+        amount: 0,
+        count: 0,
+        nextId: 0,
+        queryId: 29,
+        result: 0,
+        tail: ConsumeTail {
+            kind: 0,
+            recipient: null,
+            response: testing.treasury("deployer").address,
+            messageId: 0,
+        }.toCell(),
+    };
+}
+
 /// Deploys `storage` without init (a plain top-up) and returns the wrapper.
 fun deployUninitialized(storage: MinterStorage): SccpTairaXorMinter {
     val deployer = testing.treasury("deployer");
@@ -54,7 +77,7 @@ fun deployUninitialized(storage: MinterStorage): SccpTairaXorMinter {
         deployer.address,
         createMessage({
             bounce: BounceMode.NoBounce,
-            value: grams("5"),
+            value: sccpMinterFloor() + grams("5"),
             dest: { workchain: BASECHAIN, stateInit: minter.stateInit! },
             body: TopUpTons { queryId: 0 },
         }),
@@ -187,7 +210,11 @@ get fun `test init records immutables, zero counters and controlNonce 0`() {
         0,
         0,
     );
-    expect(env.minter.getSccpRetry(0)).toEqual(0);
+    expect(env.minter.getSccpRecovery(0) == null).toBeTrue();
+    val (recoveryCount, nextRecoveryId, activatedBuckets) = env.minter.getSccpRecoveryState();
+    expect(recoveryCount).toEqual(0);
+    expect(nextRecoveryId).toEqual(1);
+    expect(activatedBuckets).toEqual(0);
 
     // TEP-74: no admin, and the wallet code of the configuration
     val jetton = env.minter.getJettonData();
@@ -401,9 +428,26 @@ get fun `test init rejects initial data that is not canonical`() {
     s = canonicalDefault();
     s.deployedBuckets = 1;
     cases.push(s);
-    // a recorded retry
+    // Each noncanonical recovery scalar or retained operation rejects init.
+    var recovery = RecoveryBook.empty();
+    recovery.nextId = 2;
     s = canonicalDefault();
-    s.retries.set(5, SCCP_RETRY_UNCONSUME);
+    s.recovery = recovery.toCell();
+    cases.push(s);
+    recovery = RecoveryBook.empty();
+    recovery.count = 1;
+    s = canonicalDefault();
+    s.recovery = recovery.toCell();
+    cases.push(s);
+    recovery = RecoveryBook.empty();
+    recovery.activatedBuckets = 1;
+    s = canonicalDefault();
+    s.recovery = recovery.toCell();
+    cases.push(s);
+    recovery = RecoveryBook.empty();
+    recovery.operations.set(5, initRecoveryOperation().toCell());
+    s = canonicalDefault();
+    s.recovery = recovery.toCell();
     cases.push(s);
     // checkpoints: an entry, another empty encoding, a reference, a library cell
     val empty = beginCell().storeUint(0, 2).endCell();
@@ -429,7 +473,7 @@ get fun `test init rejects initial data that is not canonical`() {
         expect(code).toEqual(SccpErrors.BadConfig as int);
         i += 1;
     }
-    expect(i).toEqual(14);
+    expect(i).toEqual(17);
     // the canonical data itself is accepted
     expect(initOutcome(canonicalDefault())).toEqual(0);
 }
@@ -840,13 +884,20 @@ get fun `test canonical storage matches the TL-B bit layout`() {
     val committee = testCommittee(31, 0);
     val storage = canonicalFor(committee);
     // minter_data: initialized(1) equivocated(1) total(4) pending(4) outbound(64)
-    // op(64) control(64) paused(1) fast_pause(64) deployed(64) retries(1)
+    // op(64) control(64) paused(1) fast_pause(64) deployed(64); recovery is a ref.
     var root = storage.toCell().beginParse();
-    expect(root.remainingBitsCount()).toEqual(332);
-    expect(root.remainingRefsCount()).toEqual(3);
-    // every counter is zero and `retries` is the empty dictionary
+    expect(root.remainingBitsCount()).toEqual(331);
+    expect(root.remainingRefsCount()).toEqual(4);
+    // Every root counter is zero; the recovery book has its canonical next id.
     expect(root.loadUint(256)).toEqual(0);
-    expect(root.loadUint(76)).toEqual(0);
+    expect(root.loadUint(75)).toEqual(0);
+    var recovery = storage.recovery.beginParse();
+    expect(recovery.remainingBitsCount()).toEqual(139);
+    expect(recovery.remainingRefsCount()).toEqual(0);
+    expect(recovery.loadUint(64)).toEqual(1);
+    expect(recovery.loadUint(10)).toEqual(0);
+    expect(recovery.loadUint(64)).toEqual(0);
+    expect(recovery.loadUint(1)).toEqual(0);
     // minter_config: network(256) instance(256) revision(32) cap(Coins)
     val config = storage.config.beginParse();
     expect(config.remainingBitsCount()).toEqual(256 + 256 + 32 + 4 + 64);
@@ -905,7 +956,13 @@ get fun `test get methods return their fields in the order of the specification`
     expect(slots.insert(1002, 0xA2)).toBeTrue();
     expect(slots.insert(1003, 0xA3)).toBeTrue();
     storage.checkpoints = slots.toCell();
-    storage.retries.set(77, SCCP_RETRY_ACTIVATE);
+    var recovery = RecoveryBook.empty();
+    recovery.nextId = 78;
+    recovery.count = 1;
+    recovery.activatedBuckets = 22;
+    val operation = initRecoveryOperation().toCell();
+    recovery.operations.set(77, operation);
+    storage.recovery = recovery.toCell();
     val minter = installPinned(storage, deployer, grams("5"));
 
     val reply = net.runGetMethod<tuple>(minter.address, "get_sccp_state");
@@ -972,8 +1029,13 @@ get fun `test get methods return their fields in the order of the specification`
     expect(stored.get(5) as int).toEqual(1003);
     expect(stored.get(6) as int).toEqual(0xA3);
 
-    expect(minter.getSccpRetry(77)).toEqual(SCCP_RETRY_ACTIVATE);
-    expect(minter.getSccpRetry(78)).toEqual(0);
+    expect(minter.getSccpRecovery(77)!.hash()).toEqual(operation.hash());
+    expect(minter.getSccpRecovery(78) == null).toBeTrue();
+    val retained = net.runGetMethod<tuple>(minter.address, "get_sccp_recovery_state");
+    expect(retained.size()).toEqual(3);
+    expect(retained.get(0) as int).toEqual(1);
+    expect(retained.get(1) as int).toEqual(78);
+    expect(retained.get(2) as int).toEqual(22);
     expect(minter.getJettonData().totalSupply).toEqual(20);
     expect(minter.getBucketAddress(3)).toEqual(
         sccpBucketAddress(minter.address, 3, build("SccpConsumedBucket")),

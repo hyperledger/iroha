@@ -50,6 +50,10 @@ fn json_error(status: StatusCode, code: &'static str, message: impl Into<String>
         .into_response()
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn reject_client_storage_tokens(headers: &HeaderMap) -> Result<(), Response> {
     if CLIENT_STORAGE_TOKEN_HEADERS
         .iter()
@@ -64,6 +68,10 @@ fn reject_client_storage_tokens(headers: &HeaderMap) -> Result<(), Response> {
     Ok(())
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn try_acquire_public_gateway_permit(
     semaphore: &Semaphore,
 ) -> Result<SemaphorePermit<'_>, Response> {
@@ -80,12 +88,16 @@ fn try_acquire_public_gateway_permit(
     })
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn acquire_public_gateway_permit() -> Result<SemaphorePermit<'static>, Response> {
     try_acquire_public_gateway_permit(&PUBLIC_GATEWAY_INFLIGHT)
 }
 
 /// Serve the host-selected site manifest without an application principal.
-pub(crate) async fn handle_get_sorafs_site_manifest(
+pub async fn handle_get_sorafs_site_manifest(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     raw_query: axum::extract::RawQuery,
@@ -101,7 +113,7 @@ pub(crate) async fn handle_get_sorafs_site_manifest(
 }
 
 /// Resolve one locally available CID without an application principal.
-pub(crate) async fn handle_get_sorafs_cid_lookup(
+pub async fn handle_get_sorafs_cid_lookup(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     Path(cid): Path<String>,
@@ -118,7 +130,7 @@ pub(crate) async fn handle_get_sorafs_cid_lookup(
 }
 
 /// Serve the root document for one locally available CID.
-pub(crate) async fn handle_get_sorafs_cid_root(
+pub async fn handle_get_sorafs_cid_root(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     uri: Uri,
@@ -135,7 +147,7 @@ pub(crate) async fn handle_get_sorafs_cid_root(
 }
 
 /// Serve a bounded path or byte range under one locally available CID.
-pub(crate) async fn handle_get_sorafs_cid_path(
+pub async fn handle_get_sorafs_cid_path(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     uri: Uri,
@@ -152,7 +164,7 @@ pub(crate) async fn handle_get_sorafs_cid_path(
 }
 
 /// Serve the root document selected by the request's canonical host.
-pub(crate) async fn handle_get_sorafs_site_root(
+pub async fn handle_get_sorafs_site_root(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
 ) -> Response {
@@ -167,7 +179,7 @@ pub(crate) async fn handle_get_sorafs_site_root(
 }
 
 /// Serve a bounded path selected by the request's canonical host.
-pub(crate) async fn handle_get_sorafs_site_path(
+pub async fn handle_get_sorafs_site_path(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     Path(raw_path): Path<String>,
@@ -183,7 +195,7 @@ pub(crate) async fn handle_get_sorafs_site_path(
 }
 
 /// Return whether the canonical request host selects a configured public SoraFS site.
-pub(crate) fn request_host_selects_site(state: &SharedAppState, headers: &HeaderMap) -> bool {
+pub fn request_host_selects_site(state: &SharedAppState, headers: &HeaderMap) -> bool {
     request_host_selects_site_inner(state, headers)
 }
 
@@ -1386,10 +1398,8 @@ mod tests {
     #[test]
     fn public_gateway_concurrency_limit_fails_fast_with_retry_after() {
         let semaphore = Semaphore::new(1);
-        let permit = match try_acquire_public_gateway_permit(&semaphore) {
-            Ok(permit) => permit,
-            Err(_) => panic!("the first gateway request must acquire the only permit"),
-        };
+        let permit = try_acquire_public_gateway_permit(&semaphore)
+            .unwrap_or_else(|_| panic!("the first gateway request must acquire the only permit"));
         let response = match try_acquire_public_gateway_permit(&semaphore) {
             Ok(_) => panic!("a second gateway request must not exceed the concurrency bound"),
             Err(response) => response,

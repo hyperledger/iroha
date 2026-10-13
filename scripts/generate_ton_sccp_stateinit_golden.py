@@ -123,14 +123,16 @@ def _cell_record(cell: builder.Cell, refs: Sequence[str]) -> Dict[str, Any]:
 def wallet_address(owner: int, minter: int, wallet_code: builder.Cell) -> int:
     """Account id of the wallet of `0:owner` under minter `0:minter`."""
 
-    data = builder.Builder().coins(0).address(0, owner).address(0, minter).end()
+    data = (builder.Builder().coins(0).address(0, owner).address(0, minter)
+            .ref(builder.empty_recovery_receipts()).end())
     return int.from_bytes(builder.state_init(wallet_code, data).hash, "big")
 
 
 def bucket_initial_data(minter: int, index: int) -> builder.Cell:
     """Canonical data of bucket `index`: `bucket_data` with `activated = false` and clear flags."""
 
-    return builder.Builder().address(0, minter).uint(index, 64).bit(False).uint(0, 256).uint(0, 256).end()
+    return (builder.Builder().address(0, minter).uint(index, 64).bit(False)
+            .uint(0, 256).uint(0, 256).ref(builder.empty_recovery_receipts()).end())
 
 
 def bucket_address(minter: int, index: int, bucket_code: builder.Cell) -> int:
@@ -201,11 +203,12 @@ def compute(project: Path = builder.PROJECT) -> Dict[str, Any]:
                     "hash": _hex(root.hash),
                     "depth": root.depth,
                     "boc": _hex(boc),
-                    "root": _cell_record(root, ["config", "committee", "checkpoints"]),
+                    "root": _cell_record(root, ["config", "committee", "checkpoints", "recovery"]),
                     "config": _cell_record(cells["config"], ["initial_pin", "wallet_code", "bucket_code"]),
                     "initial_pin": _cell_record(cells["initial_pin"], []),
                     "committee": _cell_record(cells["committee"], ["keys[0]"]),
                     "checkpoints": _cell_record(cells["checkpoints"], []),
+                    "recovery": _cell_record(cells["recovery"], []),
                     "keys": [
                         _cell_record(cell, [f"keys[{i + 1}]"] if cell.refs else [])
                         for i, cell in enumerate(key_cells)
@@ -266,6 +269,7 @@ def cross_check(fixture: Dict[str, Any], tolk: Dict[Tuple[str, str], str]) -> No
         expected[(label, "committee_hash")] = data["committee"]["hash"]
         expected[(label, "keys_hash")] = data["keys"][0]["hash"]
         expected[(label, "checkpoints_hash")] = data["checkpoints"]["hash"]
+        expected[(label, "recovery_hash")] = data["recovery"]["hash"]
         expected[(label, "data_hash")] = vector["initial_data"]["hash"]
         expected[(label, "data_depth")] = str(vector["initial_data"]["depth"])
         expected[(label, "state_init_hash")] = vector["state_init_hash"]

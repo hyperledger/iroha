@@ -17,6 +17,7 @@ import "@contracts/sccp-errors"
 import "@contracts/sccp-fees"
 import "@contracts/sccp-finality"
 import "@contracts/sccp-messages"
+import "@contracts/sccp-recovery"
 import "@contracts/sccp-storage"
 import "@contracts/sccp-verify"
 import "@wrappers/SccpConsumedBucket.gen"
@@ -128,9 +129,11 @@ get fun `test void expired consumes the nonce and emits sccp_voided`() {
     testing.setNow(T0 + 101);
     val res = sendVoidExpired(env, env.deployer, 3, d, env.minter.voidRequiredValue(3));
     expect(res).toHaveSuccessfulTx<SccpVoidExpired>({ to: env.minter.address });
-    expect(res).toHaveSuccessfulDeploy<SccpActivateBucket>({ to: env.minter.getBucketAddress(0) });
-    expect(res).toHaveSuccessfulTx<SccpConsume>({ to: env.minter.getBucketAddress(0) });
-    expect(res).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    expect(res).toHaveSuccessfulDeploy<SccpRecoveryDispatch>({ to: env
+            .minter
+            .getBucketAddress(0) });
+    expect(res).toHaveSuccessfulTx<SccpRecoveryDispatch>({ to: env.minter.getBucketAddress(0) });
+    expect(res).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(res).toHaveSuccessfulTx<ReturnExcessesBack>({ to: env.deployer });
     expect(res).toNotHaveTx<InternalTransferStep>({});
     expect(res).toHaveAllSuccessfulTxs();
@@ -175,13 +178,13 @@ get fun `test void expired consumes the nonce and emits sccp_voided`() {
     reportGas("void inline n=4", stepGas(res), SCCP_GAS_MINTER_VOID);
     reportGas(
         "minter sccp_consumed void",
-        res.getUsedGas<SccpConsumed>({ to: env.minter.address }),
-        SCCP_GAS_MINTER_CONSUMED,
+        recoveryGas(res, env.minter.address, SCCP_RECOVERY_CONSUME, true),
+        SCCP_GAS_RECOVERY,
     );
     // a void is final: the message can no longer be finalized (it is expired
     // anyway) nor voided twice
     val again = sendVoidExpired(env, env.deployer, 3, d, env.minter.voidRequiredValue(3));
-    expect(again).toHaveSuccessfulTx<SccpAlreadyConsumed>({ to: env.minter.address });
+    expect(again).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(again).toHaveSuccessfulTx<ReturnExcessesBack>({ to: env.deployer });
     expectEvents(again, []);
     expect(env.minter.getSccpState().opCount).toEqual(1);
@@ -211,7 +214,7 @@ get fun `test the Taira to TON payload vector of the fixture is voided under its
     testing.setNow(VEC_INBOUND_DEADLINE_MS / 1000);
     expectRefused(
         env,
-        voidInline(env, VEC_INBOUND_NONCE, cert, proof, grams("5")),
+        voidInline(env, VEC_INBOUND_NONCE, cert, proof, REPLAY_VALUE),
         SccpErrors.DeadlineNotReached,
     );
     testing.setNow(VEC_INBOUND_DEADLINE_MS / 1000 + 1);
@@ -222,7 +225,7 @@ get fun `test the Taira to TON payload vector of the fixture is voided under its
         proof,
         env.minter.voidRequiredValue(VEC_INBOUND_NONCE),
     );
-    expect(res).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    expect(res).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expectEvents(
         res,
         [
@@ -250,7 +253,7 @@ get fun `test void against a stored checkpoint`() {
     expectOutcome(sendCheckpoint(env, env.deployer, d.cert, null, grams("1")), 0);
     val res = sendVoidExpiredCheckpoint(env, env.deployer, 0, d, env.minter.voidRequiredValue(0));
     expect(res).toHaveSuccessfulTx<SccpVoidExpiredCheckpoint>({ to: env.minter.address });
-    expect(res).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    expect(res).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expectEvents(res, [eventVoided(d.messageId, 0, 1)]);
     expect(isConsumedAt(env, 0)).toBeTrue();
     expect(env.minter.getSccpState().opCount).toEqual(1);
@@ -266,19 +269,19 @@ get fun `test void deadline edge and nonce argument`() {
     testing.setNow(T0 + 100);
     expectRefused(
         env,
-        sendVoidExpired(env, env.deployer, 0, d, grams("5")),
+        sendVoidExpired(env, env.deployer, 0, d, REPLAY_VALUE),
         SccpErrors.DeadlineNotReached,
     );
     testing.setNow(T0 + 101);
     // the nonce argument must be the payload nonce
     expectRefused(
         env,
-        sendVoidExpired(env, env.deployer, 1, d, grams("5")),
+        sendVoidExpired(env, env.deployer, 1, d, REPLAY_VALUE),
         SccpErrors.BadNonce,
     );
     expectRefused(
         env,
-        sendVoidExpired(env, env.deployer, SCCP_MAX_U64, d, grams("5")),
+        sendVoidExpired(env, env.deployer, SCCP_MAX_U64, d, REPLAY_VALUE),
         SccpErrors.BadNonce,
     );
     // the entry minimum is the quote minus the storage grace (the minter is above its floor)
@@ -296,7 +299,7 @@ get fun `test void deadline edge and nonce argument`() {
     ).toEqual(sccpVoidRequiredValue(1) + sccpMinterStorageGrace());
     expect(
         sendVoidExpired(env, env.deployer, 0, d, env.minter.voidRequiredValue(0)),
-    ).toHaveSuccessfulTx<SccpConsumed>({
+    ).toHaveSuccessfulTx<SccpRecoveryAck>({
         to: env.minter.address,
     });
     expect(isConsumedAt(env, 0)).toBeTrue();
@@ -319,13 +322,13 @@ get fun `test a deadline ending in 999 ms is probed at the whole seconds on both
     testing.setNow(T0 + 200);
     expectRefused(
         env,
-        sendVoidExpired(env, env.deployer, 0, d, grams("5")),
+        sendVoidExpired(env, env.deployer, 0, d, REPLAY_VALUE),
         SccpErrors.DeadlineNotReached,
     );
     testing.setNow(T0 + 201);
     expect(
         sendVoidExpired(env, env.deployer, 0, d, env.minter.voidRequiredValue(0)),
-    ).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    ).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
 }
 
 get fun `test void checks run in the order of the specification`() {
@@ -435,7 +438,7 @@ get fun `test void checks run in the order of the specification`() {
     );
     expect(
         voidInline(env, 0, d.cert, d.proof, minimum),
-    ).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    ).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     // the nonce argument is judged before the consumed set: a wrong one for
     // the consumed payload answers BadNonce, not the bucket
     val consumed = voidInline(env, 5, d.cert, d.proof, minimum);
@@ -450,12 +453,12 @@ get fun `test void of a finalized message is rejected by the bucket`() {
     val d = expiredDelivery(env, 2, alice);
     expect(
         sendFinalize(env, env.deployer, d, finalizeValue(env, 2)),
-    ).toHaveSuccessfulTx<SccpConsumed>({
+    ).toHaveSuccessfulTx<SccpRecoveryAck>({
         to: env.minter.address,
     });
     testing.setNow(T0 + 101);
     val res = sendVoidExpired(env, env.deployer, 2, d, env.minter.voidRequiredValue(2));
-    expect(res).toHaveSuccessfulTx<SccpAlreadyConsumed>({ to: env.minter.address });
+    expect(res).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(
         res.findExternalOutMessage<SccpVoidedEvent>({ from: env.minter.address }) == null,
     ).toBeTrue();
@@ -498,7 +501,7 @@ get fun `test void expired proves an old block through the history root`() {
     // the leaf of the old block is not a leaf of the certified block
     val direct = messageProofCell(0, [], payload, ownBlockRef(x));
     expectOutcome(
-        voidInline(env, 6, cert, direct, grams("5")),
+        voidInline(env, 6, cert, direct, REPLAY_VALUE),
         SccpErrors.BadProof,
     );
     // another history index
@@ -509,7 +512,7 @@ get fun `test void expired proves an old block through the history root`() {
         blockRefCell(oldHeight, leaf, 1, 2, treePath(history, 1)),
     );
     expectOutcome(
-        voidInline(env, 6, cert, wrong, grams("5")),
+        voidInline(env, 6, cert, wrong, REPLAY_VALUE),
         SccpErrors.BadProof,
     );
 }
@@ -520,18 +523,18 @@ get fun `test void expired needs a Live generation`() {
     val d = expiredDelivery(env, 0, alice);
     expectOutcome(sendCheckpoint(env, env.deployer, d.cert, null, grams("1")), 0);
     testing.setNow(PIN_UNTIL_MS / 1000 + 1);
-    expect(sendVoidExpired(env, env.deployer, 0, d, grams("5"))).toHaveFailedTx<SccpVoidExpired>({
+    expect(sendVoidExpired(env, env.deployer, 0, d, REPLAY_VALUE)).toHaveFailedTx<SccpVoidExpired>({
         to: env.minter.address,
         exitCode: SccpErrors.CommitteeNotAccepted as int,
     });
     expectOutcome(
-        sendVoidExpiredCheckpoint(env, env.deployer, 0, d, grams("5")),
+        sendVoidExpiredCheckpoint(env, env.deployer, 0, d, REPLAY_VALUE),
         SccpErrors.CommitteeNotAccepted,
     );
     expect(isConsumedAt(env, 0)).toBeFalse();
     // the frozen void takes over
     val res = sendVoidFrozen(env, 0, 1, env.minter.voidFrozenRequiredValue(0));
-    expect(res).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(res).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(isConsumedAt(env, 0)).toBeTrue();
 }
 
@@ -550,11 +553,11 @@ get fun `test voids are not blocked by the pause`() {
     testing.setNow(T0 + 101);
     expect(
         sendVoidExpired(env, env.deployer, 0, d, env.minter.voidRequiredValue(0)),
-    ).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    ).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expectOutcome(sendCheckpoint(env, env.deployer, second.cert, null, grams("1")), 0);
     expect(
         sendVoidExpiredCheckpoint(env, env.deployer, 1, second, env.minter.voidRequiredValue(1)),
-    ).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    ).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     val state = env.minter.getSccpState();
     // the control and two voids
     expect(state.opCount).toEqual(3);
@@ -622,7 +625,7 @@ get fun `test void after a rotation proves under the installing handoff`() {
         blockRefCell(d.x.height, d.x.sccpRoot, d.x.messageCount, 0, []),
     );
     val res = voidStored(env, 0, handoff.ref(), proof, env.minter.voidRequiredValue(0));
-    expect(res).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    expect(res).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expectEvents(res, [eventVoided(d.messageId, 0, 1)]);
     expect(isConsumedAt(env, 0)).toBeTrue();
 }
@@ -634,20 +637,20 @@ get fun `test void expired requires the ton mainnet global id`() {
     expectOutcome(sendCheckpoint(env, env.deployer, d.cert, null, grams("1")), 0);
     testing.setNow(T0 + 101);
     setGlobalId(-3);
-    expectOutcome(sendVoidExpired(env, env.deployer, 0, d, grams("5")), SccpErrors.WrongChain);
+    expectOutcome(sendVoidExpired(env, env.deployer, 0, d, REPLAY_VALUE), SccpErrors.WrongChain);
     expectOutcome(
-        sendVoidExpiredCheckpoint(env, env.deployer, 0, d, grams("5")),
+        sendVoidExpiredCheckpoint(env, env.deployer, 0, d, REPLAY_VALUE),
         SccpErrors.WrongChain,
     );
     testing.setNow(PIN_UNTIL_MS / 1000 + 1);
-    expectOutcome(sendVoidFrozen(env, 0, 1, grams("5")), SccpErrors.WrongChain);
+    expectOutcome(sendVoidFrozen(env, 0, 1, REPLAY_VALUE), SccpErrors.WrongChain);
     // chain identity comes before the range
-    expectOutcome(sendVoidFrozen(env, 0, 0, grams("5")), SccpErrors.WrongChain);
+    expectOutcome(sendVoidFrozen(env, 0, 0, REPLAY_VALUE), SccpErrors.WrongChain);
     expect(env.minter.getSccpState().opCount).toEqual(0);
     setGlobalId(SCCP_TON_GLOBAL_ID);
     expect(
         sendVoidFrozen(env, 0, 1, env.minter.voidFrozenRequiredValue(0)),
-    ).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    ).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
 }
 
 get fun `test bounced sccp_consume of a void leaves the supply untouched`() {
@@ -673,10 +676,17 @@ get fun `test bounced sccp_consume of a void leaves the supply untouched`() {
     );
     // a void reserves no pending supply and carries amount 0
     expect(env.minter.getSccpState().pendingSupply).toEqual(0);
-    val consume = step.outMessages.at<SccpConsume>(step.outMessages.size() - 1).loadBody();
+    val consume = step.outMessages.at<SccpRecoveryDispatch>(step.outMessages.size() - 1).loadBody();
     expect(consume.nonce).toEqual(0);
     expect(consume.amount).toEqual(0);
-    val tail = consume.tail.load();
+    val tail = minterStorage(env)
+        .recovery
+        .load()
+        .operations
+        .mustGet(consume.operationId)
+        .load()
+        .tail
+        .load();
     expect(tail.kind).toEqual(SCCP_CONSUME_KIND_VOID);
     expect(tail.recipient == null).toBeTrue();
     expect(tail.response).toEqual(env.deployer);
@@ -716,11 +726,10 @@ get fun `test a void in flight when the latch fires still completes`() {
     );
     // after the two events: the activation of bucket 0, then the consume
     val outs = step.outMessages.size();
-    expect(outs).toEqual(4);
+    expect(outs).toEqual(3);
     latch(env);
-    net.send(env.minter.address, forwardOut(step, outs - 2));
     val res = net.send(env.minter.address, forwardOut(step, outs - 1));
-    expect(res).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    expect(res).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(res).toHaveSuccessfulTx<ReturnExcessesBack>({ to: env.deployer });
     expect(res).toHaveAllSuccessfulTxs();
     expectEvents(res, [eventVoided(d.messageId, 0, 1)]);
@@ -748,17 +757,17 @@ get fun `test opCount saturates at the top of u64 under a void`() {
     testing.setNow(T0 + 101);
     expect(
         sendVoidExpired(env, env.deployer, 0, d, env.minter.voidRequiredValue(0)),
-    ).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    ).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(env.minter.getSccpState().opCount).toEqual(SCCP_MAX_U64);
     // at the bound the void still succeeds and the counter stays
     val res = sendVoidExpired(env, env.deployer, 1, second, env.minter.voidRequiredValue(1));
-    expect(res).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    expect(res).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(res).toEmitExternalMessage<SccpVoidedEvent>();
     expect(env.minter.getSccpState().opCount).toEqual(SCCP_MAX_U64);
     // and so does a frozen void
     testing.setNow(PIN_UNTIL_MS / 1000 + 1);
     val frozen = sendVoidFrozen(env, 2, 3, env.minter.voidFrozenRequiredValue(2));
-    expect(frozen).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(frozen).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(frozen).toEmitExternalMessage<SccpVoidedEvent>();
     expect(env.minter.getSccpState().opCount).toEqual(SCCP_MAX_U64);
     expect(isConsumedAt(env, 4)).toBeTrue();
@@ -769,7 +778,7 @@ get fun `test opCount saturates at the top of u64 under a void`() {
 
 get fun `test void frozen requires an expired generation`() {
     val env = setupEnv();
-    expect(sendVoidFrozen(env, 0, 1, grams("5"))).toHaveFailedTx<SccpVoidFrozen>({
+    expect(sendVoidFrozen(env, 0, 1, REPLAY_VALUE)).toHaveFailedTx<SccpVoidFrozen>({
         to: env.minter.address,
         exitCode: SccpErrors.NotFrozen as int,
     });
@@ -780,17 +789,19 @@ get fun `test void frozen requires an expired generation`() {
     val until = (T0 + 86400) * 1000 + TEST_VALIDITY_MS;
     expect(env.minter.getSccpState().untilMs).toEqual(until);
     testing.setNow(PIN_UNTIL_MS / 1000 + 10);
-    expectOutcome(sendVoidFrozen(env, 0, 1, grams("5")), SccpErrors.NotFrozen);
+    expectOutcome(sendVoidFrozen(env, 0, 1, REPLAY_VALUE), SccpErrors.NotFrozen);
     // at the successor's deadline still Live, one second later Frozen
     testing.setNow(until / 1000);
-    expectOutcome(sendVoidFrozen(env, 0, 1, grams("5")), SccpErrors.NotFrozen);
+    expectOutcome(sendVoidFrozen(env, 0, 1, REPLAY_VALUE), SccpErrors.NotFrozen);
     expect(env.minter.getSccpState().deployedBuckets).toEqual(0);
     testing.setNow(until / 1000 + 1);
     val res = sendVoidFrozen(env, 0, 512, env.minter.voidFrozenRequiredValue(0));
     expect(res).toHaveSuccessfulTx<SccpVoidFrozen>({ to: env.minter.address });
-    expect(res).toHaveSuccessfulDeploy<SccpActivateBucket>({ to: env.minter.getBucketAddress(0) });
-    expect(res).toHaveSuccessfulTx<SccpConsumeRange>({ to: env.minter.getBucketAddress(0) });
-    expect(res).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(res).toHaveSuccessfulDeploy<SccpRecoveryDispatch>({ to: env
+            .minter
+            .getBucketAddress(0) });
+    expect(res).toHaveSuccessfulTx<SccpRecoveryDispatch>({ to: env.minter.getBucketAddress(0) });
+    expect(res).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(res).toHaveSuccessfulTx<ReturnExcessesBack>({ to: env.deployer });
     expect(res).toHaveAllSuccessfulTxs();
     // one external-out message for the range, with message id 0
@@ -810,8 +821,8 @@ get fun `test void frozen requires an expired generation`() {
     reportGas("void_frozen", stepGas(res), SCCP_GAS_MINTER_VOID_FROZEN);
     reportGas(
         "minter range reply",
-        res.getUsedGas<SccpRangeConsumed>({ to: env.minter.address }),
-        SCCP_GAS_MINTER_RANGE_REPLY,
+        recoveryGas(res, env.minter.address, SCCP_RECOVERY_RANGE, true),
+        SCCP_GAS_RECOVERY,
     );
 }
 
@@ -819,17 +830,17 @@ get fun `test void frozen after a latch`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     finalizeOk(env, 10, 1, alice);
-    expectOutcome(sendVoidFrozen(env, 0, 1, grams("5")), SccpErrors.NotFrozen);
+    expectOutcome(sendVoidFrozen(env, 0, 1, REPLAY_VALUE), SccpErrors.NotFrozen);
     latch(env);
     // the latch freezes the minter although the deadline is far away
     expect(env.minter.getSccpState().untilMs).toEqual(0);
     val res = sendVoidFrozen(env, 0, 10, env.minter.voidFrozenRequiredValue(0));
-    expect(res).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(res).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expectEvents(res, [eventVoided(0, 0, 10)]);
     expect(isConsumedAt(env, 9)).toBeTrue();
     // a minted nonce stays minted: its range is rejected as a whole
     val rejected = sendVoidFrozen(env, 10, 2, env.minter.voidFrozenRequiredValue(10));
-    expect(rejected).toHaveSuccessfulTx<SccpRangeRejected>({ to: env.minter.address });
+    expect(rejected).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expectEvents(rejected, []);
     expect(isConsumedAt(env, 11)).toBeFalse();
     val state = env.minter.getSccpState();
@@ -870,7 +881,7 @@ get fun `test void frozen range rules`() {
     var i = 0;
     while (i < bad.size()) {
         val [first, count] = bad.get(i);
-        expect(sendVoidFrozen(env, first, count, grams("5"))).toHaveFailedTx<SccpVoidFrozen>({
+        expect(sendVoidFrozen(env, first, count, REPLAY_VALUE)).toHaveFailedTx<SccpVoidFrozen>({
             to: env.minter.address,
             exitCode: SccpErrors.BadRange as int,
         });
@@ -882,7 +893,7 @@ get fun `test void frozen range rules`() {
     i = 0;
     while (i < live.size()) {
         val [first, count] = live.get(i);
-        expectOutcome(sendVoidFrozen(env, first, count, grams("5")), SccpErrors.NotFrozen);
+        expectOutcome(sendVoidFrozen(env, first, count, REPLAY_VALUE), SccpErrors.NotFrozen);
         i += 1;
     }
     testing.setNow(PIN_UNTIL_MS / 1000 + 1);
@@ -890,12 +901,12 @@ get fun `test void frozen range rules`() {
     i = 0;
     while (i < bad.size()) {
         val [first, count] = bad.get(i);
-        expectOutcome(sendVoidFrozen(env, first, count, grams("5")), SccpErrors.BadRange);
+        expectOutcome(sendVoidFrozen(env, first, count, REPLAY_VALUE), SccpErrors.BadRange);
         i += 1;
     }
     // a range containing a consumed nonce is rejected as a whole
     val rejected = sendVoidFrozen(env, 5, 10, env.minter.voidFrozenRequiredValue(5));
-    expect(rejected).toHaveSuccessfulTx<SccpRangeRejected>({ to: env.minter.address });
+    expect(rejected).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(
         rejected.findExternalOutMessage<SccpVoidedEvent>({ from: env.minter.address }) == null,
     ).toBeTrue();
@@ -905,12 +916,12 @@ get fun `test void frozen range rules`() {
     // the adjacent free ranges succeed
     expect(
         sendVoidFrozen(env, 0, 10, env.minter.voidFrozenRequiredValue(0)),
-    ).toHaveSuccessfulTx<SccpRangeConsumed>({
+    ).toHaveSuccessfulTx<SccpRecoveryAck>({
         to: env.minter.address,
     });
     expect(
         sendVoidFrozen(env, 11, 501, env.minter.voidFrozenRequiredValue(11)),
-    ).toHaveSuccessfulTx<SccpRangeConsumed>({
+    ).toHaveSuccessfulTx<SccpRecoveryAck>({
         to: env.minter.address,
     });
     val (hi, lo) = bucketOf(env, 0).getBits();
@@ -918,21 +929,21 @@ get fun `test void frozen range rules`() {
     expect(lo).toEqual(ALL_BITS);
     // a second void of voided nonces is rejected
     val twice = sendVoidFrozen(env, 0, 1, env.minter.voidFrozenRequiredValue(0));
-    expect(twice).toHaveSuccessfulTx<SccpRangeRejected>({ to: env.minter.address });
+    expect(twice).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     // buckets beyond four ahead need sccp_deploy_buckets first
-    expect(sendVoidFrozen(env, 5 * 512, 1, grams("5"))).toHaveFailedTx<SccpVoidFrozen>({
+    expect(sendVoidFrozen(env, 5 * 512, 1, REPLAY_VALUE)).toHaveFailedTx<SccpVoidFrozen>({
         to: env.minter.address,
         exitCode: SccpErrors.BucketNotDeployed as int,
     });
     // up to four ahead deploys the missing buckets
     val ahead = sendVoidFrozen(env, 4 * 512, 512, env.minter.voidFrozenRequiredValue(4 * 512));
-    expect(ahead).toHaveSuccessfulDeploy<SccpActivateBucket>({
+    expect(ahead).toHaveSuccessfulDeploy<SccpRecoveryDispatch>({
         to: env.minter.getBucketAddress(1),
     });
-    expect(ahead).toHaveSuccessfulDeploy<SccpActivateBucket>({
+    expect(ahead).toHaveSuccessfulDeploy<SccpRecoveryDispatch>({
         to: env.minter.getBucketAddress(4),
     });
-    expect(ahead).toHaveSuccessfulTx<SccpConsumeRange>({ to: env.minter.getBucketAddress(4) });
+    expect(ahead).toHaveSuccessfulTx<SccpRecoveryDispatch>({ to: env.minter.getBucketAddress(4) });
     expect(env.minter.getSccpState().deployedBuckets).toEqual(5);
     // the mint and three frozen voids
     expect(env.minter.getSccpState().opCount).toEqual(4);
@@ -952,7 +963,7 @@ get fun `test void frozen requires its value after the range and the Frozen chec
     expectOutcome(sendVoidFrozen(env, 0, 1, minimum - 1), SccpErrors.NotEnoughValue);
     expect(env.minter.getSccpState().deployedBuckets).toEqual(0);
     val res = sendVoidFrozen(env, 0, 1, minimum);
-    expect(res).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(res).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(res).toHaveAllSuccessfulTxs();
     // an existing bucket needs no activation value
     expect(
@@ -966,14 +977,17 @@ get fun `test void frozen accepts the last nonce of u64`() {
     val lastBucket = SCCP_MAX_U64 >> SCCP_BUCKET_SHIFT;
     var st = minterStorage(env);
     st.deployedBuckets = lastBucket;
+    var recovery = st.recovery.load();
+    recovery.activatedBuckets = lastBucket;
+    st.recovery = recovery.toCell();
     setMinterStorage(env, st);
     testing.setNow(PIN_UNTIL_MS / 1000 + 1);
     // first + count = 2^64: the last nonce is 2^64 − 1
     val first = SCCP_MAX_U64 - 511;
     expect(first % 512).toEqual(0);
     // one nonce more would leave the bucket and the u64 range
-    expectOutcome(sendVoidFrozen(env, first + 1, 512, grams("5")), SccpErrors.BadRange);
-    expectOutcome(sendVoidFrozen(env, SCCP_MAX_U64, 2, grams("5")), SccpErrors.BadRange);
+    expectOutcome(sendVoidFrozen(env, first + 1, 512, REPLAY_VALUE), SccpErrors.BadRange);
+    expectOutcome(sendVoidFrozen(env, SCCP_MAX_U64, 2, REPLAY_VALUE), SccpErrors.BadRange);
     // the last nonce alone
     val last = sendVoidFrozen(
         env,
@@ -981,17 +995,17 @@ get fun `test void frozen accepts the last nonce of u64`() {
         1,
         env.minter.voidFrozenRequiredValue(SCCP_MAX_U64),
     );
-    expect(last).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(last).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expectEvents(last, [eventVoided(0, SCCP_MAX_U64, 1)]);
     expect(env.minter.getSccpState().deployedBuckets).toEqual(lastBucket + 1);
     expect(isConsumedAt(env, SCCP_MAX_U64)).toBeTrue();
     expect(isConsumedAt(env, SCCP_MAX_U64 - 1)).toBeFalse();
     // the whole last bucket is one valid range; here its last nonce is taken
     val whole = sendVoidFrozen(env, first, 512, env.minter.voidFrozenRequiredValue(first));
-    expect(whole).toHaveSuccessfulTx<SccpRangeRejected>({ to: env.minter.address });
+    expect(whole).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     // the 511 nonces before it
     val rest = sendVoidFrozen(env, first, 511, env.minter.voidFrozenRequiredValue(first));
-    expect(rest).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(rest).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expectEvents(rest, [eventVoided(0, first, 511)]);
     val (hi, lo) = bucketOf(env, lastBucket).getBits();
     expect(hi).toEqual(ALL_BITS);
@@ -999,7 +1013,49 @@ get fun `test void frozen accepts the last nonce of u64`() {
     expect(env.minter.getSccpState().opCount).toEqual(2);
 }
 
-get fun `test bounced sccp_range_consumed makes the bucket clear the range`() {
+get fun `test bounced range acknowledgement preserves flags and retries exactly one void event`() {
+    val env = setupEnv();
+    testing.setNow(PIN_UNTIL_MS / 1000 + 1);
+    val cursor = testing.createTraceIterationCursor(
+        env.deployer,
+        createMessage({
+            bounce: BounceMode.Only256BitsOfBody,
+            value: env.minter.voidFrozenRequiredValue(3),
+            dest: env.minter.address,
+            body: SccpVoidFrozen {
+                queryId: 1,
+                response: env.deployer,
+                firstNonce: 3,
+                count: 4,
+            },
+        }),
+    );
+    val step = recoverUntilDispatch(cursor, SCCP_RECOVERY_RANGE);
+    cursor.close();
+    val ack = step.outMessages.at<SccpRecoveryAck>(0).loadBody();
+    val row = minterStorage(env).recovery.load().operations.mustGet(ack.operationId).load();
+    expect(row.nonce).toEqual(3);
+    expect(row.count).toEqual(4);
+    expect(isConsumedAt(env, 3)).toBeTrue();
+    expect(isConsumedAt(env, 6)).toBeTrue();
+    testing.processSingleTraceStep(
+        env.minter.address,
+        bouncedMessage(ack, env.minter.getBucketAddress(0), grams("0.05")),
+    );
+    expect(isConsumedAt(env, 3)).toBeTrue();
+    expect(isConsumedAt(env, 6)).toBeTrue();
+    expect(env.minter.getSccpState().opCount).toEqual(0);
+    expect(
+        sendRetry(env, ack.operationId, env.minter.retryRequiredValue()),
+    ).toHaveAllSuccessfulTxs();
+    expect(env.minter.getSccpState().opCount).toEqual(1);
+    expect(minterStorage(env).recovery.load().count).toEqual(0);
+    val duplicate = sendVoidFrozen(env, 3, 4, env.minter.voidFrozenRequiredValue(3));
+    expectEvents(duplicate, []);
+    expect(env.minter.getSccpState().opCount).toEqual(1);
+}
+
+get fun `test range replies are accepted only from the canonical bucket`() {
     val env = setupEnv();
     testing.setNow(PIN_UNTIL_MS / 1000 + 1);
     val cursor = testing.createTraceIterationCursor(
@@ -1011,62 +1067,37 @@ get fun `test bounced sccp_range_consumed makes the bucket clear the range`() {
             body: SccpVoidFrozen {
                 queryId: 1,
                 response: env.deployer,
-                firstNonce: 3,
-                count: 4,
+                firstNonce: 0,
+                count: 1,
             },
         }),
     );
-    val steps = cursor.executeTill<SccpConsumeRange>({ to: env.minter.getBucketAddress(0) });
+    val step = recoverUntilDispatch(cursor, SCCP_RECOVERY_RANGE);
     cursor.close();
-    val consumed = steps.at(steps.size() - 1).outMessages.at<SccpRangeConsumed>(0).loadBody();
-    expect(consumed.first).toEqual(3);
-    expect(consumed.count).toEqual(4);
-    expect(isConsumedAt(env, 3)).toBeTrue();
-    expect(isConsumedAt(env, 6)).toBeTrue();
-    testing.processSingleTraceStep(
-        env.minter.address,
-        bouncedMessage(consumed, env.minter.getBucketAddress(0), grams("0.05")),
-    );
-    expect(isConsumedAt(env, 3)).toBeFalse();
-    expect(isConsumedAt(env, 6)).toBeFalse();
-    // the reply never reached the minter: nothing was counted or emitted
+    var ack = step.outMessages.at<SccpRecoveryAck>(0).loadBody();
+    val before = minterStorage(env).toCell().hash();
+    val sources: array<address> = [
+        testing.treasury("stranger").address,
+        env.minter.getBucketAddress(1),
+    ];
+    var i = 0;
+    repeat (sources.size()) {
+        val res = sendToMinter(env, sources.get(i), ack, grams("1"));
+        expect(res).toHaveFailedTx<SccpRecoveryAck>({
+            to: env.minter.address,
+            exitCode: SccpErrors.BadRecovery as int,
+        });
+        expect(minterStorage(env).toCell().hash()).toEqual(before);
+        i += 1;
+    }
+    ack.result = SCCP_RECEIPT_REJECTED;
+    val rejected = sendToMinter(env, sources.get(0), ack, grams("1"));
+    expect(rejected).toHaveFailedTx<SccpRecoveryAck>({
+        to: env.minter.address,
+        exitCode: SccpErrors.BadRecovery as int,
+    });
+    expect(minterStorage(env).toCell().hash()).toEqual(before);
     expect(env.minter.getSccpState().opCount).toEqual(0);
-    // the range can be voided again
-    expect(
-        sendVoidFrozen(env, 3, 4, env.minter.voidFrozenRequiredValue(3)),
-    ).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
-    expect(env.minter.getSccpState().opCount).toEqual(1);
-}
-
-get fun `test range replies are accepted only from the canonical bucket`() {
-    val env = setupEnv();
-    val stranger = testing.treasury("stranger").address;
-    testing.setNow(PIN_UNTIL_MS / 1000 + 1);
-    expect(
-        sendVoidFrozen(env, 0, 1, env.minter.voidFrozenRequiredValue(0)),
-    ).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
-    val value: SendParams = { value: grams("1"), bounce: true };
-    // a stranger, and the bucket of another index
-    expect(
-        env.minter.sendSccpRangeConsumed(stranger, 0, 5, 1, value),
-    ).toHaveFailedTx<SccpRangeConsumed>({
-        to: env.minter.address,
-        exitCode: SccpErrors.NotBucket as int,
-    });
-    expect(
-        env.minter.sendSccpRangeConsumed(env.minter.getBucketAddress(0), 0, 512, 1, value),
-    ).toHaveFailedTx<SccpRangeConsumed>({
-        to: env.minter.address,
-        exitCode: SccpErrors.NotBucket as int,
-    });
-    expect(
-        env.minter.sendSccpRangeRejected(stranger, 0, 5, 1, value),
-    ).toHaveFailedTx<SccpRangeRejected>({
-        to: env.minter.address,
-        exitCode: SccpErrors.NotBucket as int,
-    });
-    // no forged reply was counted or emitted
-    expect(env.minter.getSccpState().opCount).toEqual(1);
 }
 
 get fun `test bucket range masks cover both halves`() {
@@ -1074,7 +1105,7 @@ get fun `test bucket range masks cover both halves`() {
     testing.setNow(PIN_UNTIL_MS / 1000 + 1);
     expect(
         sendVoidFrozen(env, 250, 12, env.minter.voidFrozenRequiredValue(250)),
-    ).toHaveSuccessfulTx<SccpRangeConsumed>({
+    ).toHaveSuccessfulTx<SccpRecoveryAck>({
         to: env.minter.address,
     });
     val (hi, lo) = bucketOf(env, 0).getBits();
@@ -1087,10 +1118,10 @@ get fun `test bucket range masks cover both halves`() {
     // single nonces at the ends of the bucket
     expect(
         sendVoidFrozen(env, 0, 1, env.minter.voidFrozenRequiredValue(0)),
-    ).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    ).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(
         sendVoidFrozen(env, 511, 1, env.minter.voidFrozenRequiredValue(511)),
-    ).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    ).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     val (hi2, lo2) = bucketOf(env, 0).getBits();
     expect(hi2).toEqual(0x3F | (1 << 255));
     expect(lo2).toEqual((0x3F << 250) | 1);

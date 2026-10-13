@@ -362,8 +362,8 @@ pub enum Error {
     },
     /// Failed to create the directory {1:?}
     MkDir(#[source] std::io::Error, PathBuf),
-    /// Original canonical block decoder outcome, including local admission refusal.
-    BlockDecode(#[from] norito::core::DecodeAttemptError),
+    /// Original observed canonical codec or input reservation outcome, including local admission refusal.
+    CodecAttempt(#[from] norito::core::DecodeAttemptError),
     /// The original native source pool or physical allocator refused the raw frame backing.
     NativeFrameAllocation(#[source] iroha_allocation::ChargedBufferError),
     /// Failed to frame or deframe Norito payload
@@ -462,20 +462,7 @@ pub enum Error {
     /// Kura requires restart to complete an interrupted durable prune transaction
     PruneRecoveryRequired,
 }
-impl Error {
-    /// Return whether this error proves that the canonical publication boundary cannot be
-    /// retried safely by the live consensus process.
-    #[must_use]
-    pub(crate) const fn requires_restart_recovery(&self) -> bool {
-        matches!(
-            self,
-            Self::DaBlockRewriteCommitStateUnknown { .. }
-                | Self::CanonicalBlockCommittedRecoveryRequired { .. }
-                | Self::CanonicalStoragePoisoned
-                | Self::PruneRecoveryRequired
-        )
-    }
-}
+impl Error {}
 trait AddErrContextExt<T> {
     type Context;
     fn add_err_context(self, context: &Self::Context) -> Result<T, Error>;

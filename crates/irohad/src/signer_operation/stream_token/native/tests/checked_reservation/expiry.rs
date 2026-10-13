@@ -1,4 +1,4 @@
-//! Local attestation expiry across a genuine finalized BeforeProvider Check.
+//! Local attestation expiry across a genuine finalized `BeforeProvider` Check.
 
 use super::*;
 use iroha_crypto::Signature;

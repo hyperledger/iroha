@@ -24,6 +24,9 @@ use iroha_model_base::topology::DataSpaceId;
 
 thread_local! {
     static TRACKING: Cell<bool> = const { Cell::new(false) };
+    static DENIAL_ACTIVE: Cell<bool> = const { Cell::new(false) };
+    static DENIAL_LAYOUT: Cell<Option<Layout>> = const { Cell::new(None) };
+    static DENIAL_OCCURRED: Cell<bool> = const { Cell::new(false) };
     // Each allocation entry point has its own observable count.
     static REQUESTS: Cell<[usize; 3]> = const { Cell::new([0; 3]) };
     // One fixed per-thread ledger. Allocator callbacks never allocate or assert.
@@ -33,6 +36,49 @@ thread_local! {
 struct TrackingAllocator;
 #[global_allocator]
 static ALLOCATOR: TrackingAllocator = TrackingAllocator;
+
+/// Refuse one exact native layout on this thread and restore ordinary allocation on unwind.
+///
+/// The operation must use fallible allocation. Other layouts and threads are unaffected.
+/// The Boolean proves the allocator received the selected request; no error is fabricated.
+pub(crate) fn with_exact_allocation_denial<T>(
+    layout: Layout,
+    operation: impl FnOnce() -> T,
+) -> (T, bool) {
+    assert!(
+        !DENIAL_ACTIVE.with(Cell::get),
+        "nested exact allocation denial"
+    );
+    DENIAL_ACTIVE.with(|active| active.set(true));
+    DENIAL_OCCURRED.with(|occurred| occurred.set(false));
+    DENIAL_LAYOUT.with(|selected| selected.set(Some(layout)));
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let _ = DENIAL_LAYOUT.try_with(|selected| selected.set(None));
+            let _ = DENIAL_ACTIVE.try_with(|active| active.set(false));
+        }
+    }
+    let restore = Restore;
+    let result = operation();
+    let occurred = DENIAL_OCCURRED.with(Cell::get);
+    drop(restore);
+    (result, occurred)
+}
+
+fn deny_exact_layout(layout: Layout) -> bool {
+    DENIAL_LAYOUT
+        .try_with(|selected| {
+            if selected.get() == Some(layout) {
+                selected.set(None);
+                let _ = DENIAL_OCCURRED.try_with(|occurred| occurred.set(true));
+                true
+            } else {
+                false
+            }
+        })
+        .unwrap_or(false)
+}
 
 fn record_request(route: usize) {
     if TRACKING.try_with(Cell::get).unwrap_or(false) {
@@ -189,26 +235,40 @@ fn record_physical(route: usize, pointer: *mut u8, layout: Layout, retired: bool
     });
 }
 
-// SAFETY: each route forwards the original pointer, layout and operation to System unchanged.
+// SAFETY: ordinary requests forward their original System contract. An explicitly selected
+// test request returns null; failed realloc leaves the original allocation live.
 unsafe impl GlobalAlloc for TrackingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         record_request(0);
         // SAFETY: preserve the caller's original allocation contract.
-        let pointer = unsafe { System.alloc(layout) };
+        let pointer = if deny_exact_layout(layout) {
+            std::ptr::null_mut()
+        } else {
+            unsafe { System.alloc(layout) }
+        };
         record_physical(0, pointer, layout, false);
         pointer
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         record_request(1);
         // SAFETY: preserve the caller's original zeroed allocation contract.
-        let pointer = unsafe { System.alloc_zeroed(layout) };
+        let pointer = if deny_exact_layout(layout) {
+            std::ptr::null_mut()
+        } else {
+            unsafe { System.alloc_zeroed(layout) }
+        };
         record_physical(1, pointer, layout, false);
         pointer
     }
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
         record_request(2);
         // SAFETY: preserve the live System allocation and requested replacement size.
-        let replacement = unsafe { System.realloc(pointer, layout, size) };
+        let replacement =
+            if Layout::from_size_align(size, layout.align()).is_ok_and(deny_exact_layout) {
+                std::ptr::null_mut()
+            } else {
+                unsafe { System.realloc(pointer, layout, size) }
+            };
         record_physical(2, pointer, layout, !replacement.is_null());
         replacement
     }
@@ -235,6 +295,32 @@ pub fn measured<T>(operation: impl FnOnce() -> T) -> (T, [usize; 3]) {
     let result = operation();
     drop(stop);
     (result, REQUESTS.with(Cell::get))
+}
+
+#[test]
+fn exact_layout_denial_keeps_original_reallocation_alive() {
+    let layout = Layout::from_size_align(37, 8).unwrap();
+    // SAFETY: selected failures return null. Every successful pointer below is freed
+    // with its original layout; failed realloc does not relinquish the old pointer.
+    let (ordinary, denied) =
+        with_exact_allocation_denial(layout, || unsafe { std::alloc::alloc(layout) });
+    assert!(denied && ordinary.is_null());
+    let (zeroed, denied) =
+        with_exact_allocation_denial(layout, || unsafe { std::alloc::alloc_zeroed(layout) });
+    assert!(denied && zeroed.is_null());
+    let original = unsafe { std::alloc::alloc(layout) };
+    assert!(!original.is_null());
+    unsafe { original.write(0xA7) };
+    let observation = PhysicalObservation::start();
+    let requested = Layout::from_size_align(73, 8).unwrap();
+    let (replacement, denied) = with_exact_allocation_denial(requested, || unsafe {
+        std::alloc::realloc(original, layout, requested.size())
+    });
+    assert!(denied && replacement.is_null());
+    assert_eq!(unsafe { original.read() }, 0xA7);
+    assert_eq!(observation.snapshot().retirements(original as usize), 0);
+    unsafe { std::alloc::dealloc(original, layout) };
+    assert_eq!(observation.snapshot().retirements(original as usize), 1);
 }
 
 // Thread infrastructure and the parent-owned input/oracle precede observation.

@@ -126,8 +126,13 @@ Clones share their HTTP and stream transports and compatibility decision. To
 change configuration, copy it with `client.to_builder()`, edit the builder, and
 call `build()` to obtain a new context with a fresh compatibility cache and probe
 coordinator. The copied builder retains both selected transports. When selecting
-a different origin, choose its HTTP and operator credentials explicitly. Transport
-replacement preserves an existing absolute request deadline.
+a different origin, choose its HTTP and operator credentials explicitly. Use
+`builder.api_token(None)` to clear the typed listener credential, or
+`builder.api_token(Some(secret))` to replace it for the new listener. Both calls
+remove every `X-API-Token` spelling from generic header defaults; clearing
+`builder.headers` alone does not clear the typed credential. The listener token
+and the fresh operator signature authorize separate gates. Transport replacement
+preserves an existing absolute request deadline.
 
 `Config::http_transport_policy` defaults to `HttpTransportPolicy::Ordinary`.
 Generated owned localnets select `DirectLoopback` explicitly. It requires cleartext

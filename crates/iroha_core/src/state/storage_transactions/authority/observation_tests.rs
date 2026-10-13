@@ -102,9 +102,7 @@ fn original_reader_notice_waits_for_observation_release_on_success_and_unwind() 
                     pool_before,
                     "observation creates no publication allocation"
                 );
-                if unwind {
-                    panic!("injected borrowed consumer unwind");
-                }
+                assert!(!unwind, "injected borrowed consumer unwind");
                 drop(observation);
             });
         }));

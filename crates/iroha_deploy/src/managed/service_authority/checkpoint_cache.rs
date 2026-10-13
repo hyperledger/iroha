@@ -155,11 +155,12 @@ impl CheckpointImportScope {
     }
 
     #[cfg(test)]
-    /// Probe the actual workspace after its producer; a cold probe intentionally warms it.
-    pub(in crate::managed) fn test_epoch_charge(
+    /// Read an exact core projection with zero decoder charge; a miss may populate the workspace.
+    pub(in crate::managed) fn test_epoch_projection(
         &self,
         context: &iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1,
-    ) -> u64 {
+    ) -> iroha_sumeragi::types::EpochConfig {
+        let inherited = norito::core::decode_limits_active();
         let mut selected = self
             .cache
             .epoch_validation
@@ -171,11 +172,13 @@ impl CheckpointImportScope {
             1024 * 1024,
             MAX_CHECKPOINT_BYTES,
             8 * 1024 * 1024,
-            64 * 1024 * 1024,
+            0,
             64,
         ));
-        finite.with(|| selected.core_epoch(context)).unwrap();
-        finite.consumed_allocated_bytes()
+        let projection = finite.with(|| selected.core_epoch(context)).unwrap();
+        assert_eq!(finite.consumed_allocated_bytes(), 0);
+        assert_eq!(norito::core::decode_limits_active(), inherited);
+        projection
     }
 
     /// Begin cold pure-import work only for an inactive shared original graph.
@@ -357,7 +360,9 @@ impl CheckpointCache {
                 (false, false)
             }
         };
-        let offered = self.import(
+        let offered = Self::import(
+            #[cfg(test)]
+            &self.decode_attempts,
             bytes,
             network,
             chain,
@@ -394,7 +399,14 @@ impl CheckpointCache {
                     return Err(error);
                 }
                 drop(error);
-                match self.import(bytes, network, chain, validation.as_deref_mut()) {
+                match Self::import(
+                    #[cfg(test)]
+                    &self.decode_attempts,
+                    bytes,
+                    network,
+                    chain,
+                    validation,
+                ) {
                     Ok(verifier) => verifier,
                     Err(error) => {
                         // Another caller may have filled the memo during the cold retry. Refusal
@@ -451,7 +463,7 @@ impl CheckpointCache {
     // One canonical producer for cold, nonwaiting fallback and optional-memory relief retry.
     // Each actual invocation owns its original admission and is counted independently.
     fn import(
-        &self,
+        #[cfg(test)] decode_attempts: &std::sync::atomic::AtomicUsize,
         bytes: &[u8],
         network: NetworkId,
         chain: &str,
@@ -460,16 +472,14 @@ impl CheckpointCache {
         #[cfg(test)]
         graph_import_counts::record();
         #[cfg(test)]
-        self.decode_attempts
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        decode_attempts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         #[cfg(test)]
         if crate::managed::native_operation::deadline_diagnostics::active() {
             crate::managed::native_operation::deadline_diagnostics::import_attempt(
                 bytes,
                 network,
                 chain,
-                self.decode_attempts
-                    .load(std::sync::atomic::Ordering::Relaxed),
+                decode_attempts.load(std::sync::atomic::Ordering::Relaxed),
             );
         }
         decode_checkpoint_with_validation(bytes, network, chain, validation)

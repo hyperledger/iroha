@@ -16,7 +16,9 @@ pub(super) fn forgery_or_quarantine(
     world: &(impl WorldReadOnly + ?Sized),
     revision: &SccpRouteRevisionV1,
 ) -> bool {
-    revision.forgery_held(store::forgery_max_generation(world)) || revision.quarantine.is_some()
+    (!cfg!(all(test, sumeragi_core_mutation = "HC323"))
+        && revision.forgery_held(store::forgery_max_generation(world)))
+        || revision.quarantine.is_some()
 }
 
 /// A committed timestamp must belong to this exact captured original history.
@@ -106,7 +108,10 @@ pub fn taira(
 ) -> bool {
     store::routes::get(world, &network)
         .and_then(|route| route.revisions.get(&revision))
-        .is_some_and(|revision| forgery_or_quarantine(world, revision))
+        .is_some_and(|record| {
+            !super::reconciliation::is_reconciled(world, network, revision)
+                && forgery_or_quarantine(world, record)
+        })
         || taira_from_parts(
             store::parameters::get(world)
                 .as_ref()

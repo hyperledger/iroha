@@ -405,7 +405,7 @@ fn kotodama_sm4_gcm_open_rejects_bad_tag() {
         ],
         &[],
     );
-    assert_eq!(vm.run(), Err(ivm::VMError::NoritoInvalid));
+    assert!(matches!(vm.run(), Err(ivm::VMError::NoritoInvalid)));
     assert!(
         vm.call_result_word_count().is_err(),
         "a failed open cannot return bytes"
@@ -517,7 +517,7 @@ fn kotodama_sm4_ccm_open_rejects_bad_tag() {
             i64::try_from(tag.len()).expect("tag length fits i64"),
         )],
     );
-    assert_eq!(vm.run(), Err(ivm::VMError::NoritoInvalid));
+    assert!(matches!(vm.run(), Err(ivm::VMError::NoritoInvalid)));
     assert!(
         vm.call_result_word_count().is_err(),
         "a failed CCM open cannot return bytes"

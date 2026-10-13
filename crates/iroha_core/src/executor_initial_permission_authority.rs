@@ -1,5 +1,5 @@
 fn initial_permission_is_genesis_only(permission: &Permission) -> bool {
-    INITIAL_GENESIS_ONLY_PERMISSION_NAMES.contains(&permission.name().as_ref())
+    INITIAL_GENESIS_ONLY_PERMISSION_NAMES.contains(&permission.name())
 }
 fn invalid_initial_permission_payload(
     permission: &Permission,
@@ -46,7 +46,7 @@ fn validate_initial_permission_payload_constraints(
             }
         }};
     }
-    match permission.name().as_ref() {
+    match permission.name() {
         "CanUseContractPermission" => validate_exact_deployment_permission!(
             executor_permission::smart_contract::CanUseContractPermission
         ),
@@ -370,11 +370,11 @@ fn initial_asset_definition_alias_exact_grant_authority(
     else {
         return Ok(false);
     };
-    if !state_transaction
+    if state_transaction
         .world
         .asset_definition_alias_bindings()
         .get(asset_definition_id)
-        .is_some_and(|binding| binding.alias == alias.canonical_name)
+        .is_none_or(|binding| binding.alias != alias.canonical_name)
     {
         return Ok(false);
     }
@@ -437,7 +437,7 @@ fn initial_permission_capability_root_authority(
                 .map_err(|error| invalid_initial_permission_payload(permission, error))?
         };
     }
-    let result = match permission.name().as_ref() {
+    let result = match permission.name() {
         "CanUnregisterDomain" => {
             let token = decode!(executor_permission::domain::CanUnregisterDomain);
             authority_owns_domain(&state_transaction.world, authority, &token.domain)?
@@ -950,7 +950,7 @@ fn initial_permission_delegation_allowed(
         )
     } else {
         !matches!(
-            permission.name().as_ref(),
+            permission.name(),
             "CanManageSmartContractCode"
                 | "CanReadAccountData"
                 | "CanResolveAccountAlias"
@@ -1088,7 +1088,7 @@ fn validate_initial_account_permission_destination(
     }
     if is_genesis
         && matches!(
-            permission.name().as_ref(),
+            permission.name(),
             "CanOperateSorafsStreamTokenGateway" | "CanCheckSorafsStreamTokenGateway"
         )
     {
@@ -2338,8 +2338,8 @@ fn validate_initial_native_instruction_authority(
         )
         .into());
     }
-    if !initial_native_instruction_is_explicitly_admitted(instruction)
-        && !(is_genesis && initial_genesis_instruction_is_explicitly_admitted(instruction))
+    if !(initial_native_instruction_is_explicitly_admitted(instruction)
+        || is_genesis && initial_genesis_instruction_is_explicitly_admitted(instruction))
     {
         return Err(ValidationFail::NotPermitted(format!(
             "Initial executor does not admit unclassified native instruction `{}`",
@@ -3027,7 +3027,7 @@ fn normalize_role_permission_for_initial_executor(
     validate_initial_permission_payload_constraints(permission)?;
     if is_initial_genesis_context(state_transaction)
         && matches!(
-            permission.name().as_ref(),
+            permission.name(),
             "CanOperateSorafsStreamTokenGateway" | "CanCheckSorafsStreamTokenGateway"
         )
     {

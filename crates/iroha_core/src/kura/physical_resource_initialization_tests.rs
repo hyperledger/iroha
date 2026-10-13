@@ -43,7 +43,6 @@ fn physical_initialization_observes_current_owned_trees_and_all_six_families() {
             .with_extension("norito.restore.tmp"),
         vec![12; 19],
     );
-    drop(write);
     let delegated = kura
         .store_root
         .join("sumeragi")

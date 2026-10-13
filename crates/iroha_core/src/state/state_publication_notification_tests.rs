@@ -24,7 +24,7 @@ impl Wake for ProbeStateWriter {
     fn wake(self: Arc<Self>) {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.odd.fetch_add(
-            usize::from(self.state.state_view_generation() % 2 != 0),
+            usize::from(!self.state.state_view_generation().is_multiple_of(2)),
             Ordering::SeqCst,
         );
         let Ok(mut cleanup) = self.cleanup.try_lock() else {

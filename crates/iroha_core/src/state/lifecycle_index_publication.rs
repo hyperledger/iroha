@@ -22,7 +22,7 @@ pub(super) struct LaneLifecycleReleases<'state> {
     pub(super) shard_cursors: DeferredPublicationRwLock<'state, DaShardCursorIndex>,
     pub(super) pin_intents: DeferredPublicationRwLock<'state, DaPinStore>,
     pub(super) hydrated:
-        DeferredPublicationRwLock<'state, Option<Result<(), DaIndexHydrationError>>>,
+        DeferredPublicationRwLock<'state, Option<Result<(), DaIndexHydrationFailure>>>,
 }
 
 impl<'state> LaneLifecycleReleases<'state> {
@@ -84,7 +84,8 @@ pub(super) fn panic_after_manifest_write_for_test() {
 
 #[cfg(test)]
 pub(super) fn after_manifest_write_for_test() {
-    if PANIC_AFTER_MANIFEST_WRITE.with(|flag| flag.replace(false)) {
-        panic!("injected panic after original manifest write");
-    }
+    assert!(
+        !PANIC_AFTER_MANIFEST_WRITE.with(|flag| flag.replace(false)),
+        "injected panic after original manifest write"
+    );
 }

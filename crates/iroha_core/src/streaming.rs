@@ -2515,7 +2515,7 @@ fn read_snapshot_bytes_with_limit(
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
-        options.custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32);
+        options.custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed());
     }
     #[cfg(windows)]
     {

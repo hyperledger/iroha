@@ -141,8 +141,7 @@ fn validate_taikai_ssm_rejects_malformed_norito() {
     let (_, telemetry) = telemetry_handle_for_tests();
     let err = taikai::validate_taikai_ssm(
         b"not-a-norito-signing-manifest",
-        &manifest.manifest_hash,
-        &taikai.car_digest,
+        (&manifest.manifest_hash, &taikai.car_digest),
         &taikai.envelope_bytes,
         taikai.telemetry.segment_sequence,
         &taikai_alias_cache_policy(),
@@ -174,8 +173,7 @@ fn validate_taikai_ssm_accepts_matching_payload() {
     let (_, telemetry) = telemetry_handle_for_tests();
     let outcome = taikai::validate_taikai_ssm(
         &ssm_bytes,
-        &manifest.manifest_hash,
-        &taikai.car_digest,
+        (&manifest.manifest_hash, &taikai.car_digest),
         &taikai.envelope_bytes,
         taikai.telemetry.segment_sequence,
         &alias_policy,
@@ -203,8 +201,7 @@ fn validate_taikai_publisher_owner_binds_outer_principal() {
     let telemetry = crate::routing::MaybeTelemetry::disabled();
     let outcome = taikai::validate_taikai_ssm(
         &ssm_bytes,
-        &manifest.manifest_hash,
-        &taikai.car_digest,
+        (&manifest.manifest_hash, &taikai.car_digest),
         &taikai.envelope_bytes,
         taikai.telemetry.segment_sequence,
         &taikai_alias_cache_policy(),
@@ -248,8 +245,7 @@ fn validate_taikai_ssm_rejects_unsupported_body_version() {
     let (_, telemetry) = telemetry_handle_for_tests();
     let err = taikai::validate_taikai_ssm(
         &ssm_bytes,
-        &manifest.manifest_hash,
-        &taikai.car_digest,
+        (&manifest.manifest_hash, &taikai.car_digest),
         &taikai.envelope_bytes,
         taikai.telemetry.segment_sequence,
         &taikai_alias_cache_policy(),
@@ -280,8 +276,7 @@ fn validate_taikai_ssm_rejects_zero_signed_timestamp() {
     let (_, telemetry) = telemetry_handle_for_tests();
     let err = taikai::validate_taikai_ssm(
         &ssm_bytes,
-        &manifest.manifest_hash,
-        &taikai.car_digest,
+        (&manifest.manifest_hash, &taikai.car_digest),
         &taikai.envelope_bytes,
         taikai.telemetry.segment_sequence,
         &taikai_alias_cache_policy(),
@@ -323,8 +318,7 @@ fn validate_taikai_ssm_rejects_publisher_account_key_mismatch() {
     let (_, telemetry) = telemetry_handle_for_tests();
     let err = taikai::validate_taikai_ssm(
         &ssm_bytes,
-        &manifest.manifest_hash,
-        &taikai.car_digest,
+        (&manifest.manifest_hash, &taikai.car_digest),
         &taikai.envelope_bytes,
         taikai.telemetry.segment_sequence,
         &taikai_alias_cache_policy(),
@@ -351,8 +345,7 @@ fn validate_taikai_ssm_rejects_self_asserted_alias_council() {
     let (_, telemetry) = telemetry_handle_for_tests();
     let err = taikai::validate_taikai_ssm(
         &attacker_ssm,
-        &manifest.manifest_hash,
-        &taikai.car_digest,
+        (&manifest.manifest_hash, &taikai.car_digest),
         &taikai.envelope_bytes,
         taikai.telemetry.segment_sequence,
         &taikai_alias_cache_policy(),
@@ -383,8 +376,7 @@ fn validate_taikai_ssm_accepts_trusted_alias_council_threshold() {
     let (_, telemetry) = telemetry_handle_for_tests();
     let outcome = taikai::validate_taikai_ssm(
         &ssm,
-        &manifest.manifest_hash,
-        &taikai.car_digest,
+        (&manifest.manifest_hash, &taikai.car_digest),
         &taikai.envelope_bytes,
         taikai.telemetry.segment_sequence,
         &taikai_alias_cache_policy(),
@@ -414,8 +406,7 @@ fn validate_taikai_ssm_rejects_alias_manifest_binding_mismatch() {
     let (_, telemetry) = telemetry_handle_for_tests();
     let err = taikai::validate_taikai_ssm(
         &ssm,
-        &manifest.manifest_hash,
-        &taikai.car_digest,
+        (&manifest.manifest_hash, &taikai.car_digest),
         &taikai.envelope_bytes,
         taikai.telemetry.segment_sequence,
         &taikai_alias_cache_policy(),
@@ -446,8 +437,7 @@ fn validate_taikai_ssm_fails_closed_without_alias_council_policy() {
     let (_, telemetry) = telemetry_handle_for_tests();
     let err = taikai::validate_taikai_ssm(
         &ssm,
-        &manifest.manifest_hash,
-        &taikai.car_digest,
+        (&manifest.manifest_hash, &taikai.car_digest),
         &taikai.envelope_bytes,
         taikai.telemetry.segment_sequence,
         &taikai_alias_cache_policy(),
@@ -479,8 +469,7 @@ fn validate_taikai_ssm_rejects_manifest_mismatch() {
     let (_, telemetry) = telemetry_handle_for_tests();
     let err = taikai::validate_taikai_ssm(
         &bad_ssm,
-        &manifest.manifest_hash,
-        &taikai.car_digest,
+        (&manifest.manifest_hash, &taikai.car_digest),
         &taikai.envelope_bytes,
         taikai.telemetry.segment_sequence,
         &alias_policy,
@@ -510,8 +499,7 @@ fn validate_taikai_ssm_rejects_tampered_signature() {
     let (_, telemetry) = telemetry_handle_for_tests();
     let err = taikai::validate_taikai_ssm(
         &ssm_bytes,
-        &manifest.manifest_hash,
-        &taikai.car_digest,
+        (&manifest.manifest_hash, &taikai.car_digest),
         &taikai.envelope_bytes,
         taikai.telemetry.segment_sequence,
         &alias_policy,
@@ -544,8 +532,7 @@ fn validate_taikai_ssm_rejects_malformed_ed25519_signature_r() {
     let (_, telemetry) = telemetry_handle_for_tests();
     taikai::validate_taikai_ssm(
         &ssm_bytes,
-        &manifest.manifest_hash,
-        &taikai.car_digest,
+        (&manifest.manifest_hash, &taikai.car_digest),
         &taikai.envelope_bytes,
         taikai.telemetry.segment_sequence,
         &alias_policy,
@@ -567,8 +554,7 @@ fn validate_taikai_ssm_rejects_malformed_ed25519_signature_r() {
         let malformed_ssm = to_bytes(&malformed).expect("encode malformed signing manifest");
         let err = taikai::validate_taikai_ssm(
             &malformed_ssm,
-            &manifest.manifest_hash,
-            &taikai.car_digest,
+            (&manifest.manifest_hash, &taikai.car_digest),
             &taikai.envelope_bytes,
             taikai.telemetry.segment_sequence,
             &alias_policy,
@@ -603,8 +589,7 @@ fn validate_taikai_ssm_rejects_malformed_mldsa_signature_lengths() {
     let (_, telemetry) = telemetry_handle_for_tests();
     taikai::validate_taikai_ssm(
         &ssm_bytes,
-        &manifest.manifest_hash,
-        &taikai.car_digest,
+        (&manifest.manifest_hash, &taikai.car_digest),
         &taikai.envelope_bytes,
         taikai.telemetry.segment_sequence,
         &alias_policy,
@@ -628,8 +613,7 @@ fn validate_taikai_ssm_rejects_malformed_mldsa_signature_lengths() {
         let malformed_ssm = to_bytes(&malformed).expect("encode malformed ML-DSA signing manifest");
         let err = taikai::validate_taikai_ssm(
             &malformed_ssm,
-            &manifest.manifest_hash,
-            &taikai.car_digest,
+            (&manifest.manifest_hash, &taikai.car_digest),
             &taikai.envelope_bytes,
             taikai.telemetry.segment_sequence,
             &alias_policy,

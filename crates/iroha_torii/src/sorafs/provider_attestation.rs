@@ -38,7 +38,7 @@ fn authorization(error: ProviderAttestationInventoryReadErrorV1) -> StatusCode {
     }
 }
 
-pub(crate) async fn read_attestation(
+pub async fn read_attestation(
     State(state): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     body: Bytes,

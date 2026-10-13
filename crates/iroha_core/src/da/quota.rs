@@ -231,8 +231,8 @@ mod tests {
         crate::da::signed_test_pin_intent(
             authorization,
             &key_pair,
-            StorageTicketId::new([sequence as u8; 32]),
-            ManifestDigest::new([sequence as u8; 32]),
+            StorageTicketId::new([u8::try_from(sequence).expect("fixture value fits u8"); 32]),
+            ManifestDigest::new([u8::try_from(sequence).expect("fixture value fits u8"); 32]),
             None,
         )
     }
@@ -269,9 +269,11 @@ mod tests {
     }
     #[test]
     fn quota_counts_all_intents_for_one_owner_transactionally() {
-        let mut policy = DaPolicy::default();
-        policy.ingest_quota_max_count_per_account = NonZeroU64::new(2).expect("nonzero");
-        policy.ingest_quota_max_bytes_per_account = NonZeroU64::new(10).expect("nonzero");
+        let policy = DaPolicy {
+            ingest_quota_max_count_per_account: NonZeroU64::new(2).expect("nonzero"),
+            ingest_quota_max_bytes_per_account: NonZeroU64::new(10).expect("nonzero"),
+            ..Default::default()
+        };
         let bundle =
             DaPinIntentBundle::new(vec![authorized_intent(7, 1, 4), authorized_intent(7, 2, 6)]);
         let writes = prepare_with_lookup(&bundle, 1, &policy, |_| None)
@@ -288,9 +290,11 @@ mod tests {
     }
     #[test]
     fn quota_window_rollover_resets_prior_usage() {
-        let mut policy = DaPolicy::default();
-        policy.ingest_quota_window_blocks = NonZeroU64::new(2).expect("nonzero");
-        policy.ingest_quota_max_count_per_account = NonZeroU64::new(1).expect("nonzero");
+        let policy = DaPolicy {
+            ingest_quota_window_blocks: NonZeroU64::new(2).expect("nonzero"),
+            ingest_quota_max_count_per_account: NonZeroU64::new(1).expect("nonzero"),
+            ..Default::default()
+        };
         let first = DaPinIntentBundle::new(vec![authorized_intent(9, 1, 1)]);
         let writes = prepare_with_lookup(&first, 1, &policy, |_| None).expect("first window");
         let second = DaPinIntentBundle::new(vec![authorized_intent(9, 2, 1)]);

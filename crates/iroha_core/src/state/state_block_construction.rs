@@ -5,6 +5,10 @@ use super::*;
 impl State {
     /// Prepare metadata while the exact acquired writers remain jointly armed.
     /// The finish continuation receives an already armed executing owner.
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the acquired block owns the supplied header independently of its caller"
+    )]
     pub(super) fn construct_acquired_block<'state, R>(
         &'state self,
         acquired: canonical_runtime::AcquiredRuntimeBlock<'state>,
@@ -123,7 +127,7 @@ impl State {
         pending_public_lane_slash_observability = Some(Vec::new());
         #[cfg(feature = "zk-preverify")]
         {
-            zk_dedup = Some(Default::default());
+            zk_dedup = Some(crate::zk::DedupCache::default());
         }
         // Every take below is checked while the joint owner is still armed.
         // The finishing closure borrows each Option, including metadata and the
@@ -176,6 +180,7 @@ impl State {
                 native_execution_tip,
                 projection,
                 block_hashes,
+                #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
                 da_rewind_releases,
             } = original
                 .take()
@@ -190,6 +195,7 @@ impl State {
                     .deferred_refund_batch(),
                 state_ref: self,
                 _read_releases: StateViewReleases::new(self),
+                #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
                 _da_rewind_releases: da_rewind_releases,
                 canonical_runtime: block_field::BlockField::new(canonical_runtime),
                 native_execution_tip: block_field::BlockField::new(native_execution_tip),
@@ -301,6 +307,7 @@ impl State {
                 sumeragi_lanes_step: crate::sumeragi::lanes::step::LaneStep::Off,
                 #[cfg(feature = "telemetry")]
                 telemetry: &self.telemetry,
+                #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
                 state_write_lock: &self.state_write_lock,
                 da_commitments: &self.da_commitments,
                 da_receipt_cursors: &self.da_receipt_cursors,

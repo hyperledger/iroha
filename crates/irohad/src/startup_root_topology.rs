@@ -14,7 +14,7 @@ use iroha_data_model::nexus::{
 use iroha_model_base::topology::LaneId;
 
 /// Check geometry only after the caller has authenticated the original signed genesis context.
-pub(super) fn validate(
+pub fn validate(
     nexus: &Nexus,
     mode: ConsensusMode,
     scope: SumeragiRootScope,

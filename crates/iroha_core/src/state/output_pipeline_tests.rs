@@ -360,9 +360,8 @@ fn pipeline_vm_refusal_preserves_callback_repeats_and_publishes_no_rejection() {
     {
         let (mut block, _recording) = recorded_network_block(&state, &source);
         block.reserve_ordinary_execution_outputs(&source).unwrap();
-        assert_eq!(
-            block.execute_ordinary_output_plan(&source, None),
-            Err(ExecutionOutputAttemptError::Deferred(reason.into()))
+        assert!(
+            matches!(&(block.execute_ordinary_output_plan(&source, None)), Err(ExecutionOutputAttemptError::Deferred(owner)) if owner.reason() == reason && owner.phase().is_none() && owner.allocation_refusal().is_none() && owner.decode_refusal().is_none() && owner.verification_refusal().is_none())
         );
         assert!(block.retained_execution_outputs_for_test().is_err());
         assert_eq!(

@@ -144,7 +144,7 @@ pub(in crate::managed) fn with_recovery_http<T>(
                     let (request, challenge) = request(&mut socket)?;
                     let after_details = details_seen.load(Ordering::SeqCst);
                     let (status, content_type, body) = response(
-                        native, signed, details, height.get() as u64, &node, &request, challenge,
+                        ResponseEvidence { native, signed, details, committed_height: height.get() as u64 }, &node, &request, challenge,
                         permit_finality && after_details, status_seen, details_seen,
                     )?;
                     requests.lock().unwrap().push(Request {
@@ -162,7 +162,7 @@ pub(in crate::managed) fn with_recovery_http<T>(
         drop(stopping);
         let results = workers
             .into_iter()
-            .map(|worker| worker.join())
+            .map(std::thread::ScopedJoinHandle::join)
             .collect::<Vec<_>>();
         for result in results {
             result.unwrap().unwrap();
@@ -232,11 +232,17 @@ pub(in crate::managed) fn assert_recovery_reads(
     }
 }
 
-fn response(
-    native: &NativeFixture,
-    signed: &SignedTransaction,
-    details: &PipelineTransactionDetailsResponse,
+/// Exact independently committed envelope and the native evidence served for its recovery.
+#[derive(Clone, Copy)]
+struct ResponseEvidence<'a> {
+    native: &'a NativeFixture,
+    signed: &'a SignedTransaction,
+    details: &'a PipelineTransactionDetailsResponse,
     committed_height: u64,
+}
+
+fn response(
+    evidence: ResponseEvidence<'_>,
     node: &PeerId,
     request: &WalletHttpRequest,
     challenge: Option<[u8; 32]>,
@@ -244,6 +250,12 @@ fn response(
     status_seen: &AtomicBool,
     details_seen: &AtomicBool,
 ) -> io::Result<(u16, &'static str, Vec<u8>)> {
+    let ResponseEvidence {
+        native,
+        signed,
+        details,
+        committed_height,
+    } = evidence;
     let path = request.target.path();
     if request.method == "GET" && path == "/v1/node/capabilities" {
         return Ok((200, "application/json", norito::json::to_vec(&norito::json!({
@@ -266,7 +278,7 @@ fn response(
             signed.hash()
         );
         assert_eq!(
-            query.get("scope").map(|value| value.as_ref()),
+            query.get("scope").map(std::convert::AsRef::as_ref),
             Some("global")
         );
         status_seen.store(true, Ordering::SeqCst);

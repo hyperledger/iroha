@@ -313,7 +313,7 @@ mod tests {
 
         let state = materialized_state();
         state.install_lane_manifests_for_testing(&Arc::new(LaneManifestRegistry::from_statuses(
-            Default::default(),
+            std::collections::BTreeMap::default(),
         )));
         let error = canonical_preimage_once(&state).unwrap_err();
         assert!(

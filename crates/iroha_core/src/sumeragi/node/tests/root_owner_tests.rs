@@ -17,8 +17,14 @@ fn prepared_root_uses_original_state_store() {
         consensus_mode: ConsensusMode::Permissioned,
     })
     .expect("valid original State genesis");
-    assert_eq!(state.view().height(), GENESIS_HEIGHT as usize);
-    assert_eq!(original.blocks_count(), GENESIS_HEIGHT as usize);
+    assert_eq!(
+        state.view().height(),
+        usize::try_from(GENESIS_HEIGHT).expect("fixture value fits usize")
+    );
+    assert_eq!(
+        original.blocks_count(),
+        usize::try_from(GENESIS_HEIGHT).expect("fixture value fits usize")
+    );
     assert_eq!(foreign.blocks_count(), 0);
     assert!(prepared.state.ivm_execution_budget().same_pool(&budget));
     assert_eq!(
@@ -33,7 +39,7 @@ fn prepared_root_uses_original_state_store() {
     );
     assert_eq!(
         prepared.instance(),
-        root_instance(&chain.genesis, &state.chain_id.to_string()).unwrap()
+        root_instance(&chain.genesis, state.chain_id.as_ref()).unwrap()
     );
 }
 
@@ -93,11 +99,11 @@ fn prepared_root_uses_original_state_chain_identity() {
     assert_eq!(prepared.chain_id, configured_chain.to_string());
     assert_eq!(
         prepared.instance(),
-        root_instance(&chain.genesis, &configured_chain.to_string()).unwrap()
+        root_instance(&chain.genesis, configured_chain.as_ref()).unwrap()
     );
     assert_ne!(
         prepared.instance(),
-        root_instance(&chain.genesis, &chain.chain_id.to_string()).unwrap()
+        root_instance(&chain.genesis, chain.chain_id.as_ref()).unwrap()
     );
     assert_eq!(state.view().height(), 1);
     assert_eq!(original.blocks_count(), 1);

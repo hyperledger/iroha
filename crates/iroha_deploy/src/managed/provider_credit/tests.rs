@@ -159,7 +159,7 @@ pub(super) fn intent(
         Quantity::zero(),
         1,
         1,
-        Default::default(),
+        iroha_model_base::metadata::Metadata::default(),
     );
     ManagedInitialProviderCreditIntent {
         policy: policy(coordinator),
@@ -191,7 +191,7 @@ fn codec_original() -> Original {
         Quantity::zero(),
         1,
         1,
-        Default::default(),
+        iroha_model_base::metadata::Metadata::default(),
     );
     Original {
         selection: ProviderCreditUpsertSelection {

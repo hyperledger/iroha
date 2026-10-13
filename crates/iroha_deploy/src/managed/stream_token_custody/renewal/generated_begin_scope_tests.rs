@@ -167,7 +167,7 @@ fn begin_epoch_workspace_preserves_paid_sources_inventory_error_order_and_retry(
         .owner
         .authority
         .directory
-        .create_child(&CustodyPurpose::Renewal(3).directory_name().unwrap())
+        .create_child(CustodyPurpose::Renewal(3).directory_name().unwrap())
         .unwrap();
     let original = begin(&fixture, floor, false, deadline)
         .err()

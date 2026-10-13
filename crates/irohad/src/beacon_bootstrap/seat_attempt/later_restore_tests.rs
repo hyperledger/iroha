@@ -561,20 +561,20 @@ fn fresh_four_and_maximum_committee_claim_uses_genuine_producer_owners_without_r
         .unwrap();
         let (public_read, _public_writer) = rustix::pipe::pipe().unwrap();
         let (finality_read, _finality_writer) = rustix::pipe::pipe().unwrap();
-        let mut attempt = SeatDkgAttempt::new(
+        let mut attempt = SeatDkgAttempt::prepare(SeatDkgAttemptPreparation {
             authority,
-            &roster,
-            count,
-            source.validator_keys[usize::from(count - 1)].clone(),
-            File::from(public_read),
-            File::from(finality_read),
+            roster: &roster,
+            signer_index: count,
+            signer: source.validator_keys[usize::from(count - 1)].clone(),
+            public_input: File::from(public_read),
+            finality_input: File::from(finality_read),
             clock,
-            "software://iroha/consensus-threshold/retained-attempt",
-            7,
-            &root,
-            Instant::now() + Duration::from_secs(60),
-            &budget,
-        )
+            provider_handle: "software://iroha/consensus-threshold/retained-attempt",
+            provider_revision: 7,
+            attempt_root: &root,
+            deadline: Instant::now() + Duration::from_secs(60),
+            budget: &budget,
+        })
         .unwrap();
         assert_eq!(attempt.phase, Phase::Prepared);
         assert!(attempt.original_publications.iter().all(Option::is_none));

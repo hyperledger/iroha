@@ -2,7 +2,7 @@
 //!
 //! These read-only guards add to native tenure and unbond-delay checks. They do not
 //! authenticate or publish evidence. Pending SCCP generations must remain retained until
-//! their penalties apply (§4.11); current pruning deliberately retains all generations.
+//! their penalties apply (§4.11); pruning uses the same exact recorded-offence join.
 
 use super::{original_read::OriginalRead, store};
 use crate::state::{
@@ -37,8 +37,6 @@ pub(crate) enum ReleaseBlocker {
 /// # Errors
 /// Preserves original key-copy resource refusals. Inconsistent offence-to-record joins
 /// refuse as source invariants; they are never interpreted as absence or applied penalties.
-/// TODO: the full evidence handler and pruning owner must preserve the pending-generation
-/// retention invariant before SubmitSccpForgeryEvidence can be enabled.
 pub(crate) fn release_blocker<'a>(
     parent: impl OriginalRead<'a> + 'a,
     current: &(impl WorldReadOnly + ?Sized),
@@ -59,54 +57,99 @@ pub(crate) fn release_blocker<'a>(
         if *generation != record.generation || !record.is_well_formed() {
             return Err(ForgeryStorageError::Invalid);
         }
-        if slashable_through_height.is_none_or(|height| record.start_height <= height)
+        if !cfg!(all(test, sumeragi_core_mutation = "HC320"))
+            && slashable_through_height.is_none_or(|height| record.start_height <= height)
             && record.is_liable(current_generation, clock)
         {
             return Ok(Some(ReleaseBlocker::LiabilityActive));
         }
-        let key =
-            OffenceKey::try_copy(*generation, validator.lane_id, &validator.validator, budget)?;
-        let Some(evidence_id) = store::forgery_offences::get(current, &key) else {
-            continue;
-        };
-        let retained = current
-            .consensus_evidence()
-            .get(&Hash::prehashed(*evidence_id))
-            .ok_or(ForgeryStorageError::Invalid)?;
-        let RecordedEvidenceV1::SccpForgery(forgery) = &retained.evidence else {
-            return Err(ForgeryStorageError::Invalid);
-        };
-        if retained.sccp_evidence_id() != Some(*evidence_id)
-            || retained.attribution.scope
-                != (EvidenceScope::SccpGeneration {
-                    generation: *generation,
-                })
-            || retained.attribution.height != record.start_height
-            || retained.attribution.authority_generation != record.committee_root
-            || forgery.generation != *generation
-            || forgery.start_height != record.start_height
-            || !forgery.offenders.iter().any(|offender| {
-                offender.lane_id == validator.lane_id
-                    && offender.validator == validator.validator
-                    && offender.activation_height == validator.activation_height
-                    && usize::try_from(offender.signer)
-                        .ok()
-                        .and_then(|index| record.members.get(index))
-                        .and_then(Option::as_ref)
-                        .is_some_and(|member| {
-                            member.lane_id == validator.lane_id
-                                && member.validator == validator.validator
-                                && member.activation_height == validator.activation_height
-                        })
-            })
+        if !cfg!(all(test, sumeragi_core_mutation = "HC321"))
+            && member_has_pending_penalty(
+                current,
+                record,
+                validator.lane_id,
+                &validator.validator,
+                validator.activation_height,
+                budget,
+            )?
         {
-            return Err(ForgeryStorageError::Invalid);
-        }
-        if retained.penalty_status == EvidencePenaltyStatus::Pending {
             return Ok(Some(ReleaseBlocker::PenaltyPending));
         }
     }
     Ok(None)
+}
+
+/// Probe only this generation's captured members, never permanent evidence history.
+/// Missing or substituted offence joins and original allocation refusals remain errors.
+pub(crate) fn generation_has_pending_penalty(
+    current: &(impl WorldReadOnly + ?Sized),
+    record: &super::generation_record::RetainedSccpGeneration,
+    budget: &AllocationBudget,
+) -> Result<bool, ForgeryStorageError> {
+    if !record.is_well_formed() {
+        return Err(ForgeryStorageError::Invalid);
+    }
+    for member in record.members.iter().flatten() {
+        if member_has_pending_penalty(
+            current,
+            record,
+            member.lane_id,
+            &member.validator,
+            member.activation_height,
+            budget,
+        )? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn member_has_pending_penalty(
+    current: &(impl WorldReadOnly + ?Sized),
+    record: &super::generation_record::RetainedSccpGeneration,
+    lane_id: iroha_model_base::topology::LaneId,
+    validator: &iroha_data_model::account::AccountId,
+    activation_height: u64,
+    budget: &AllocationBudget,
+) -> Result<bool, ForgeryStorageError> {
+    let key = OffenceKey::try_copy(record.generation, lane_id, validator, budget)?;
+    let Some(evidence_id) = store::forgery_offences::get(current, &key) else {
+        return Ok(false);
+    };
+    let retained = current
+        .consensus_evidence()
+        .get(&Hash::prehashed(*evidence_id))
+        .ok_or(ForgeryStorageError::Invalid)?;
+    let RecordedEvidenceV1::SccpForgery(forgery) = &retained.evidence else {
+        return Err(ForgeryStorageError::Invalid);
+    };
+    if retained.sccp_evidence_id() != Some(*evidence_id)
+        || retained.attribution.scope
+            != (EvidenceScope::SccpGeneration {
+                generation: record.generation,
+            })
+        || retained.attribution.height != record.start_height
+        || retained.attribution.authority_generation != record.committee_root
+        || forgery.generation != record.generation
+        || forgery.start_height != record.start_height
+        || !forgery.offenders.iter().any(|offender| {
+            offender.lane_id == lane_id
+                && offender.validator == *validator
+                && offender.activation_height == activation_height
+                && usize::try_from(offender.signer)
+                    .ok()
+                    .and_then(|index| record.members.get(index))
+                    .and_then(Option::as_ref)
+                    .is_some_and(|member| {
+                        member.lane_id == lane_id
+                            && member.validator == *validator
+                            && member.activation_height == activation_height
+                    })
+        })
+    {
+        return Err(ForgeryStorageError::Invalid);
+    }
+    Ok(retained.penalty_status == EvidencePenaltyStatus::Pending)
 }
 
 #[cfg(test)]

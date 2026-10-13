@@ -133,7 +133,7 @@ impl HandoffOrder {
 struct ScanEnd(Option<u64>);
 impl ScanEnd {
     fn for_pass(&mut self, observed_tip: u64) -> u64 {
-        if cfg!(all(test, sumeragi_daemon_mutation = "HC277")) {
+        if cfg!(all(test, sumeragi_daemon_mutation = "HC332")) {
             return observed_tip;
         }
         *self.0.get_or_insert(observed_tip)
@@ -305,7 +305,8 @@ fn build_route(
 ) -> Result<Route> {
     let verifier = trust(&config)?;
     let account_config = iroha::config::Config::load_file(&config.account_config)?;
-    if account_config.account != config.authority
+    let authority_matches = account_config.account == config.authority;
+    if !authority_matches
         || account_config.network_id != config.network_id
         || account_config.chain != config.chain_id
     {
@@ -319,7 +320,7 @@ fn build_route(
     let instance = verifier.instance().0;
     let ledger = Arc::new(RelayLedger::new(
         client,
-        account.clone(),
+        &account,
         context.clone(),
         verifier,
         config.scope,
@@ -487,7 +488,7 @@ impl Route {
 
 /// Validate all explicit routes, then start one supervised original-source worker per route.
 /// No routes means no signing, journal creation or background worker.
-pub(crate) fn start(
+pub fn start(
     state: Arc<State>,
     config: AmxRelay,
     shutdown: ShutdownSignal,
@@ -500,8 +501,7 @@ pub(crate) fn start(
         Arc::new(FileWorkflowStorage::open_or_create(&config.journal_dir)?);
     let routes = config
         .routes
-        .iter()
-        .cloned()
+        .into_iter()
         .map(|route| {
             let key = route.network_id;
             build_route(route, storage.clone(), config.max_finality_proof_reads)

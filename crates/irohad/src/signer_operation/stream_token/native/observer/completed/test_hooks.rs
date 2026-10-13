@@ -58,6 +58,13 @@ pub(in crate::signer_operation::stream_token::native) fn measure<T>(
     point: Option<Point>,
     action: impl FnOnce() -> T,
 ) -> (T, Audit) {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            PROBE.with_borrow_mut(|slot| *slot = None);
+        }
+    }
+
     PROBE.with_borrow_mut(|slot| {
         assert!(slot.is_none(), "one native observation probe");
         *slot = Some(Probe {
@@ -68,12 +75,6 @@ pub(in crate::signer_operation::stream_token::native) fn measure<T>(
             audit: Audit::default(),
         });
     });
-    struct Reset;
-    impl Drop for Reset {
-        fn drop(&mut self) {
-            PROBE.with_borrow_mut(|slot| *slot = None);
-        }
-    }
     let reset = Reset;
     let result = action();
     let probe = PROBE.with_borrow_mut(|slot| slot.take().unwrap());

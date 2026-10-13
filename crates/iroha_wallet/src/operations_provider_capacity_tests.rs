@@ -748,7 +748,10 @@ fn component_fee_and_canonical_bounds_preserve_actual_resource_refusal() {
                 key: "large".into(),
                 value: "x".repeat(MAX_DECLARATION_BYTES),
             }),
-            4 => changed.options.deadline = Instant::now() - Duration::from_secs(1),
+            4 => {
+                changed.options.deadline =
+                    Instant::now().checked_sub(Duration::from_secs(1)).unwrap()
+            }
             5 => {
                 changed
                     .options

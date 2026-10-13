@@ -273,7 +273,7 @@ fn allocated_original_check_retains_exact_graph_through_frame_refusal_and_native
         .unwrap();
     assert_eq!(readback.high_water(), None);
     assert_eq!(readback.applied_floor().height, fixture.chain.height());
-    assert_eq!(readback.canonical_external().is_empty(), false);
+    assert!(!readback.canonical_external().is_empty());
     // Native State itself now owns new generations. Only the graph/frame delta is asserted above;
     // this test does not equate State's later complete allocation total with its earlier cut.
 }

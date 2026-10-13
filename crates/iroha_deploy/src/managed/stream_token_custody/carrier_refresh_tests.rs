@@ -21,10 +21,10 @@ impl FinalitySource for CountedProof<'_> {
 
     fn finality_proof(&self, height: NonZeroU64) -> io::Result<SumeragiFinalityProof> {
         self.reads.set(self.reads.get() + 1);
-        match self.native {
-            Some(native) => native.finality_proof(height),
-            None => Err(io::Error::other("native proof unavailable")),
-        }
+        self.native.map_or_else(
+            || Err(io::Error::other("native proof unavailable")),
+            |native| native.finality_proof(height),
+        )
     }
 
     fn latest_attestation(&self, _: &PeerId, _: &[u8; 32]) -> io::Result<FinalityAttestation> {
@@ -109,7 +109,7 @@ pub(super) fn retain_after_applied(
         .is_none()
     );
     // The real observation owner rejects the original expired deadline before source access.
-    let elapsed = Instant::now() - Duration::from_secs(1);
+    let elapsed = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
     assert!(
         applied_carrier(
             &mut owner.authority,
@@ -519,8 +519,7 @@ pub(super) fn retain_after_applied(
                 deadline,
             )
         })
-        .err()
-        .expect("original active budget refuses");
+        .expect_err("original active budget refuses");
         let old_reads = proof_reads.replace(0);
         let old_constructors = constructors.replace(0);
         clear_carrier(directory);
@@ -536,8 +535,7 @@ pub(super) fn retain_after_applied(
                 deadline,
             )
         })
-        .err()
-        .expect("observed active budget refuses");
+        .expect_err("observed active budget refuses");
         assert_eq!(new.to_string(), old.to_string());
         assert_eq!(proof_reads.replace(0), old_reads);
         assert_eq!(constructors.replace(0), old_constructors);

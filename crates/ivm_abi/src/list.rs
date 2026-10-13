@@ -162,13 +162,13 @@ mod tests {
                 let layout = ListLayoutV1::try_new(u64::from(capacity), element_words)
                     .expect("valid bounded layout");
                 assert_eq!(
-                    layout.allocation_bytes(),
-                    Ok((2 + u64::from(capacity) * element_words) * 8)
+                    (layout.allocation_bytes()).expect("expected successful fixture result"),
+                    (2 + u64::from(capacity) * element_words) * 8
                 );
                 for index in 0..u64::from(capacity) {
                     assert_eq!(
-                        layout.slot_offset(index),
-                        Ok((2 + index * element_words) * 8)
+                        (layout.slot_offset(index)).expect("expected successful fixture result"),
+                        (2 + index * element_words) * 8
                     );
                 }
             }
@@ -196,7 +196,7 @@ mod tests {
     #[test]
     fn reads_distinguish_capacity_from_logical_length() {
         let layout = ListLayoutV1::try_new(4, 2).expect("layout");
-        assert_eq!(layout.present_slot_offset(2, 1), Ok(32));
+        assert!(matches!(layout.present_slot_offset(2, 1), Ok(32)));
         assert!(matches!(
             layout.present_slot_offset(2, 2),
             Err(ListLayoutErrorV1::LengthOutOfBounds { index: 2, len: 2 })

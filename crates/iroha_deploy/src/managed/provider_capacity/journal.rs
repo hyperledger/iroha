@@ -1,7 +1,9 @@
 //! Bounded immutable generated declaration intent; the wallet owns the sole signed journal.
 
 use super::*;
-use crate::managed::native_operation::attempts::{self, History, Observation, Purpose, Selected};
+#[cfg(test)]
+use crate::managed::native_operation::attempts::Observation;
+use crate::managed::native_operation::attempts::{self, History, Purpose, Selected};
 use iroha_crypto::HashOf;
 use iroha_data_model::sorafs::{
     capacity::CapacityDeclarationRecord, pricing::PricingScheduleRecord,
@@ -158,15 +160,6 @@ impl Original {
 }
 
 impl Selected<Original> {
-    pub fn matches(
-        &self,
-        policy: &ReserveAuthorityPolicyV1,
-        utc: u64,
-        options: &BoundedTransactionOptions,
-    ) -> Result<()> {
-        self.matches_intent(policy)?;
-        self.terms.matches(utc, options)
-    }
     pub fn request(&self, deadline: Instant) -> ProviderCapacityDeclarationRequest {
         Original::request(self, &self.terms, deadline)
     }
@@ -240,7 +233,7 @@ pub(super) fn publish_intent(directory: &PrivateDirectory, original: &Original) 
     )
     .map(|_| ())
 }
-
+#[cfg(test)]
 pub(super) fn explicit(
     directory: &PrivateDirectory,
     original: &Original,

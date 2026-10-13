@@ -47,6 +47,9 @@ pub struct ProviderIngestHttpsSourceConfigV1 {
 }
 impl ProviderIngestHttpsSourceConfigV1 {
     /// Validate bounds without network access or credential resolution.
+    ///
+    /// # Errors
+    /// Rejects an invalid network, source binding, resource limit, timeout or concurrency bound.
     pub fn validate(&self) -> Result<(), ProviderIngestSourceFetchErrorV1> {
         if self.network_id.as_bytes()[31] & 1 != 1
             || self.binding.provider_id == [0; 32]
@@ -110,7 +113,7 @@ impl fmt::Debug for ProviderIngestHttpsGrantV1 {
             .debug_struct("ProviderIngestHttpsGrantV1")
             .field("lease", &self.lease)
             .field("transport", &"<runtime-only>")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 /// Required independently authenticated source-governance and stream-grant service.
@@ -122,23 +125,29 @@ impl fmt::Debug for ProviderIngestHttpsGrantV1 {
 /// Implementations must never log endpoints, credentials or token material.
 pub trait ProviderIngestGovernedHttpsGrantResolverV1: Send + Sync + 'static {
     /// Nonblocking authenticated current source-policy qualification.
+    ///
+    /// # Errors
+    /// Refuses an unqualified source or unavailable authenticated policy snapshot.
     fn qualification(
         &self,
         network: &NetworkId,
         provider: [u8; 32],
     ) -> Result<ProviderIngestSourceQualificationV1, ProviderIngestSourceFetchErrorV1>;
     /// Non-mutating authenticated readiness; no grant issuance or storage mutation.
+    ///
+    /// # Errors
+    /// Refuses unavailable source readiness or a network/provider binding mismatch.
     fn check_readiness(
         &self,
         network: &NetworkId,
         provider: [u8; 32],
     ) -> Result<(), ProviderIngestSourceFetchErrorV1>;
     /// Resolve the exact finalized request to an authenticated bounded transport grant.
-    fn resolve<'a>(
-        &'a self,
+    fn resolve(
+        &self,
         request: ProviderIngestHttpsGrantRequestV1,
     ) -> ProviderIngestFutureV1<
-        'a,
+        '_,
         Result<ProviderIngestHttpsGrantV1, ProviderIngestSourceFetchErrorV1>,
     >;
     /// Nonblocking check against current independently authenticated snapshots.
@@ -146,6 +155,9 @@ pub trait ProviderIngestGovernedHttpsGrantResolverV1: Send + Sync + 'static {
     /// Recheck network/order membership, lease/admission/advert/owner/key revocation and expiry.
     /// The snapshot must be authenticated and sufficiently fresh for the configured policy;
     /// unavailable or stale snapshots must fail closed. Called before fetch, after fetch and EOF.
+    ///
+    /// # Errors
+    /// Refuses expired, revoked or changed lease evidence and unavailable current snapshots.
     fn ensure_current(
         &self,
         lease: &ProviderIngestHttpsSourceLeaseV1,
@@ -172,6 +184,9 @@ impl ProviderIngestHttpsSourceV1 {
     ///
     /// This performs public-policy qualification only; pool readiness still requires the real
     /// resolver's non-mutating authenticated probe. Construction never issues a grant.
+    ///
+    /// # Errors
+    /// Refuses invalid configured bounds, an unavailable resolver or a mismatched qualification.
     pub fn new(
         config: ProviderIngestHttpsSourceConfigV1,
         resolver: Arc<dyn ProviderIngestGovernedHttpsGrantResolverV1>,
@@ -193,9 +208,9 @@ impl ProviderIngestHttpsSourceV1 {
             return Err(ProviderIngestSourceFetchErrorV1::Rejected);
         }
         Ok(Self {
-            admissions,
             config,
             resolver,
+            admissions,
         })
     }
     async fn acquire(
@@ -288,11 +303,11 @@ impl ProviderIngestAuthenticatedProviderSourceV1 for ProviderIngestHttpsSourceV1
             .check_readiness(&self.config.network_id, self.provider_id())?;
         self.qualification().map(|_| ())
     }
-    fn fetch_provider<'a>(
-        &'a self,
+    fn fetch_provider(
+        &self,
         authorization: FinalizedProviderIngestAuthorizationV1,
         musubi_archive: Option<ProviderIngestMusubiArchiveFetchBindingV1>,
-    ) -> ProviderIngestFutureV1<'a, Result<Self::Fetched, ProviderIngestSourceFetchErrorV1>> {
+    ) -> ProviderIngestFutureV1<'_, Result<Self::Fetched, ProviderIngestSourceFetchErrorV1>> {
         Box::pin(async move {
             authorization
                 .validate()

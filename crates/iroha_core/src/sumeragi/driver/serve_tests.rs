@@ -16,7 +16,7 @@ fn body(n: u8, h: u64) -> ServeRequest {
     ServeRequest::Payload(Box::new(PayloadWork::Serve {
         to: key(n),
         height: h,
-        block_hash: Hash32([h as u8; 32]),
+        block_hash: Hash32([u8::try_from(h).expect("fixture value fits u8"); 32]),
     }))
 }
 #[test]
@@ -30,7 +30,7 @@ fn local_work_precedes_peer_requests_and_one_turn_is_in_flight() {
     assert!(s.next(0).is_none());
     s.done(
         0,
-        &Served {
+        Served {
             payload: true,
             ..Served::default()
         },
@@ -47,9 +47,9 @@ fn one_request_per_peer_and_kind_replaces_only_the_same_kind() {
     assert_eq!(s.len(), 3);
     assert_eq!(s.dropped(), 1);
     assert_eq!(s.next(0), Some(body(1, 3)));
-    s.done(0, &Served::default());
+    s.done(0, Served::default());
     assert_eq!(s.next(0), Some(blocks(2, 4)));
-    s.done(0, &Served::default());
+    s.done(0, Served::default());
     assert_eq!(s.next(0), Some(blocks(1, 2)));
 }
 #[test]
@@ -63,7 +63,7 @@ fn actual_response_debt_is_per_peer_and_refills_monotonically() {
     s.next(0);
     s.done(
         0,
-        &Served {
+        Served {
             charges: vec![(key(1), 150)],
             ..Served::default()
         },
@@ -81,7 +81,7 @@ fn peer_bound_evicts_only_idle_fully_refilled_peers() {
     assert!(s.push(blocks(1, 1), 0));
     assert!(!s.push(blocks(2, 1), 0));
     s.next(0);
-    s.done(0, &Served::default());
+    s.done(0, Served::default());
     assert!(s.push(blocks(2, 1), 0));
 }
 #[test]
@@ -89,7 +89,7 @@ fn ready_rows_are_immediate_resource_refusal_has_backoff_and_remote_wait_has_non
     let mut s = ServeSched::new(ServeLimits::default());
     s.done(
         5,
-        &Served {
+        Served {
             payload: true,
             retry: true,
             refused: false,
@@ -100,7 +100,7 @@ fn ready_rows_are_immediate_resource_refusal_has_backoff_and_remote_wait_has_non
     assert!(s.next(5).is_some());
     s.done(
         5,
-        &Served {
+        Served {
             payload: true,
             retry: true,
             refused: true,
@@ -112,7 +112,7 @@ fn ready_rows_are_immediate_resource_refusal_has_backoff_and_remote_wait_has_non
     assert!(s.next(15).is_some());
     s.done(
         15,
-        &Served {
+        Served {
             payload: true,
             ..Served::default()
         },
@@ -125,18 +125,18 @@ fn metadata_completion_does_not_erase_payload_retry_and_refusal_keeps_exact_requ
     let mut s = ServeSched::new(ServeLimits::default());
     s.done(
         0,
-        &Served {
+        Served {
             payload: true,
             retry: true,
             refused: true,
             ..Served::default()
         },
     );
-    s.done(0, &Served::default());
+    s.done(0, Served::default());
     assert_eq!(s.wakeup(), 10);
     s.done(
         0,
-        &Served {
+        Served {
             retry_request: Some(blocks(1, 17)),
             ..Served::default()
         },
@@ -250,9 +250,9 @@ fn full_retry_queue_cannot_drop_author_or_application_completion() {
     assert!(
         matches!(scheduler.next(0), Some(ServeRequest::Payload(w)) if *w == PayloadWork::Applied(3))
     );
-    scheduler.done(0, &Served::default());
+    scheduler.done(0, Served::default());
     assert_eq!(scheduler.next(0), Some(author));
-    scheduler.done(0, &Served::default());
+    scheduler.done(0, Served::default());
     assert_eq!(scheduler.next(0), Some(fetch));
     assert_eq!(scheduler.dropped(), 0);
 }
@@ -270,9 +270,9 @@ fn refused_metadata_owner_cannot_be_replaced_by_another_peer_during_backoff() {
     assert_eq!(scheduler.next(0), Some(original.clone()));
     scheduler.done(
         0,
-        &Served {
+        Served {
             retry_request: Some(original.clone()),
-            deferred: Some(owner.clone()),
+            deferred: Some(owner),
             ..Served::default()
         },
     );
@@ -305,7 +305,7 @@ fn refused_metadata_owner_cannot_be_replaced_by_another_peer_during_backoff() {
     );
     scheduler.done(
         1,
-        &Served {
+        Served {
             payload: true,
             ..Served::default()
         },
@@ -324,8 +324,15 @@ fn refused_metadata_owner_cannot_be_replaced_by_another_peer_during_backoff() {
     );
     drop(held);
     assert_eq!(scheduler.next(10), Some(original));
-    assert_eq!(scheduler.in_flight_refusal, Some(owner));
-    scheduler.done(10, &Served::default());
+    assert_eq!(
+        scheduler
+            .in_flight_refusal
+            .as_ref()
+            .unwrap()
+            .allocation_refusal(),
+        Some(&refusal)
+    );
+    scheduler.done(10, Served::default());
     assert!(scheduler.in_flight_refusal.is_none());
     assert_eq!(scheduler.next(10), Some(other));
 }

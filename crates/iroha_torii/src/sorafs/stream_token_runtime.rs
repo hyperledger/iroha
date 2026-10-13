@@ -8,7 +8,7 @@ use iroha_data_model::sorafs::stream_token_gateway::StreamTokenGatewayAdmissionQ
 use iroha_data_model::{NetworkId, sorafs::reputation::derive_stream_token_gateway_id_v1};
 use std::sync::Arc;
 /// Reject missing, unexpected, or drifting production admission ownership.
-pub(crate) fn preflight_admission_capture(
+pub fn preflight_admission_capture(
     network_id: &NetworkId,
     config: &ToriiConfig,
     runtime_deps: &crate::ToriiRuntimeDeps,
@@ -64,7 +64,7 @@ pub(crate) fn preflight_admission_capture(
         })
 }
 /// Enforce authenticated-operator issuance before constructing any signer dependency.
-pub(crate) fn validate_issuer_operator_signatures(
+pub fn validate_issuer_operator_signatures(
     config: &SorafsTokenConfig,
     operator_signatures_enabled: bool,
 ) -> Result<(), &'static str> {
@@ -140,8 +140,10 @@ mod tests {
         expected = "enabled stream-token issuance requires torii.operator_signatures.enabled"
     )]
     fn enabled_issuer_requires_operator_signatures() {
-        let mut config = SorafsTokenConfig::default();
-        config.enabled = true;
+        let config = SorafsTokenConfig {
+            enabled: true,
+            ..Default::default()
+        };
         validate_issuer_operator_signatures(&config, false)
             .expect("enabled stream-token issuance requires torii.operator_signatures.enabled");
     }

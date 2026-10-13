@@ -71,6 +71,11 @@ impl<W: WorldReadOnly> RoutingInputs<'_, W> {
     /// The sole execution route of a transaction at the next global height.
     /// Lane zero owns the signed root scope; another lane keeps its original record's
     /// dataspace even when the global chain rescues the transaction directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns the original resource deferral if reading the committed routing
+    /// authority cannot complete.
     pub fn execution_route(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -121,6 +126,11 @@ impl<W: WorldReadOnly> RoutingInputs<'_, W> {
 
     /// The lane of `tx` at global height `height`. An unresolved or inactive concrete
     /// dataspace fails closed; it must never be executed in the universal dataspace.
+    ///
+    /// # Errors
+    ///
+    /// Returns the original resource deferral if reading the committed routing
+    /// authority cannot complete.
     pub fn route(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -245,6 +255,11 @@ pub struct RoutingSnapshot {
 
 impl RoutingSnapshot {
     /// The routing inputs of the committed state `view` (for the height after its tip).
+    ///
+    /// # Errors
+    ///
+    /// Returns the original resource deferral if reading the committed routing
+    /// authority cannot complete.
     pub fn of(
         view: &impl StateReadOnly,
     ) -> Result<Self, crate::execution_attempt::ExecutionDeferred> {
@@ -294,9 +309,13 @@ pub fn committed_root_scope(world: &impl WorldReadOnly) -> Option<SumeragiRootSc
 pub(crate) fn read_routing_root_scope(
     world: &impl WorldReadOnly,
 ) -> Result<Option<SumeragiRootScope>, crate::execution_attempt::ExecutionDeferred> {
-    match read_committed_root_scope(world) {
+    let read = norito::core::classify_decode_attempt(|| {
+        read_committed_root_scope(world).map_err(norito::json::Error::into_core_error)
+    });
+    match read {
         Ok(scope) => Ok(scope),
-        Err(error) => match crate::execution_attempt::json_decode_attempt_error(error, |_| ()) {
+        Err(error) => match crate::execution_attempt::canonical_decode_attempt_error(error, |_| ())
+        {
             crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
                 if cfg!(all(test, sumeragi_core_mutation = "HC39")) {
                     return Ok(None);
@@ -605,6 +624,7 @@ mod tests {
         let world = World::new();
         let absent = world.view();
         assert_eq!(committed_root_scope(&absent), None);
+        assert_eq!(read_routing_root_scope(&absent).unwrap(), None);
         drop(absent);
         let mut parameters = world.parameters.block();
         parameters
@@ -619,6 +639,7 @@ mod tests {
         parameters.commit();
         let view = world.view();
         assert_eq!(committed_root_scope(&view), None);
+        assert_eq!(read_routing_root_scope(&view).unwrap(), None);
         let dataspaces = DataSpaceCatalog::default();
         let lanes = SumeragiLaneState::default();
         let inputs = RoutingInputs {
@@ -782,5 +803,170 @@ mod tests {
             .expect("completed routing read"),
             None
         );
+    }
+
+    #[test]
+    fn original_root_json_owner_survives_queue_vm_adapters_and_same_source_retry() {
+        use crate::execution_attempt::ExecutionDeferred;
+        use iroha_data_model::parameter::Parameter;
+        let world = test_support::world(SumeragiRootScope::Global);
+        let view = world.view();
+        let original_parameter = view
+            .parameters()
+            .custom()
+            .get(&consensus_metadata::handshake_meta_id())
+            .unwrap()
+            .clone();
+        assert_eq!(
+            read_routing_root_scope(&view).unwrap(),
+            Some(SumeragiRootScope::Global)
+        );
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+        let original = norito::with_decode_limits_scope(limits, || read_routing_root_scope(&view))
+            .unwrap_err();
+        let observed = original
+            .decode_refusal()
+            .expect("actual original root parser scope")
+            .clone();
+        assert_eq!(
+            original.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        );
+        assert!(original.allocation_refusal().is_none());
+        assert!(original.verification_refusal().is_none());
+        assert!(matches!(observed.resource_error(),
+            norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 }
+            if attempted > 0));
+        let independent =
+            norito::with_decode_limits_scope(limits, || read_routing_root_scope(&view))
+                .unwrap_err();
+        let independent_cause = independent
+            .decode_refusal()
+            .expect("independent actual parser scope");
+        assert_eq!(independent_cause.kind(), observed.kind());
+        assert_eq!(
+            independent_cause.resource_error(),
+            observed.resource_error()
+        );
+        assert_ne!(
+            independent_cause, &observed,
+            "separate reads do not share observer identity"
+        );
+        let crate::queue::Error::Deferred(queued) =
+            crate::queue::Error::from(crate::queue::RoutingResolveError::Deferred(original))
+        else {
+            panic!("unfinished original root read became a terminal queue rejection");
+        };
+        assert_eq!(queued.decode_refusal(), Some(&observed));
+        let moved = ExecutionDeferred::try_from_vm_error(queued.into_vm_error()).unwrap();
+        assert_eq!(moved.decode_refusal(), Some(&observed));
+        assert_eq!(
+            read_routing_root_scope(&view).unwrap(),
+            Some(SumeragiRootScope::Global)
+        );
+        assert_eq!(
+            view.parameters().custom().get(original_parameter.id()),
+            Some(&original_parameter)
+        );
+        drop(view);
+        // A protocol-version mismatch is a completed absent root, even when JSON is valid.
+        let Parameter::Custom(parameter) = test_support::metadata(SumeragiRootScope::Global) else {
+            unreachable!();
+        };
+        let mut metadata: ConsensusHandshakeMetadata =
+            norito::json::from_str(parameter.payload().get()).unwrap();
+        metadata.wire_protocol_version =
+            u32::from(iroha_data_model::sumeragi::PROTOCOL_VERSION) + 1;
+        let mut parameters = world.parameters.block();
+        parameters
+            .set_parameter(Parameter::Custom(
+                iroha_data_model::parameter::CustomParameter::new(
+                    consensus_metadata::handshake_meta_id(),
+                    iroha_primitives::json::Json::new(metadata),
+                ),
+            ))
+            .unwrap();
+        parameters.commit();
+        assert_eq!(read_routing_root_scope(&world.view()).unwrap(), None);
+    }
+
+    #[test]
+    fn lane_policy_original_scope_and_completed_absence_keep_distinct_outcomes() {
+        use crate::execution_attempt::ExecutionDeferred;
+        use iroha_data_model::parameter::{CustomParameter, Parameter};
+        let world = World::new();
+        assert!(
+            crate::sumeragi::lanes::lane_policy(&world.view())
+                .unwrap()
+                .is_none()
+        );
+        let policy = SumeragiLanePolicy::for_chain(
+            SumeragiParameters::default(),
+            iroha_sumeragi::availability::recommended_data_availability_layout(),
+        );
+        policy.validate().unwrap();
+        let original_parameter = policy.clone().into_custom_parameter();
+        let mut parameters = world.parameters.block();
+        parameters
+            .set_parameter(Parameter::Custom(original_parameter.clone()))
+            .unwrap();
+        parameters.commit();
+        let view = world.view();
+        assert_eq!(
+            crate::sumeragi::lanes::lane_policy(&view).unwrap(),
+            Some(policy.clone())
+        );
+        let original = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+            || crate::sumeragi::lanes::lane_policy(&view),
+        )
+        .unwrap_err();
+        let observed = original
+            .decode_refusal()
+            .expect("actual lane policy parser scope")
+            .clone();
+        assert_eq!(
+            original.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        );
+        assert!(original.allocation_refusal().is_none());
+        assert!(original.verification_refusal().is_none());
+        let moved = ExecutionDeferred::try_from_vm_error(original.into_vm_error()).unwrap();
+        assert_eq!(moved.decode_refusal(), Some(&observed));
+        assert_eq!(
+            crate::sumeragi::lanes::lane_policy(&view).unwrap(),
+            Some(policy.clone())
+        );
+        assert_eq!(
+            view.parameters().custom().get(original_parameter.id()),
+            Some(&original_parameter)
+        );
+        drop(view);
+        let mut invalid = policy;
+        invalid.anchor_freshness = 0;
+        assert!(invalid.validate().is_err());
+        for parameter in [
+            CustomParameter::new(
+                SumeragiLanePolicy::parameter_id(),
+                iroha_primitives::json::Json::new(()),
+            ),
+            invalid.into_custom_parameter(),
+        ] {
+            let mut parameters = world.parameters.block();
+            parameters
+                .set_parameter(Parameter::Custom(parameter.clone()))
+                .unwrap();
+            parameters.commit();
+            let view = world.view();
+            assert!(
+                crate::sumeragi::lanes::lane_policy(&view)
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(
+                view.parameters().custom().get(parameter.id()),
+                Some(&parameter)
+            );
+        }
     }
 }

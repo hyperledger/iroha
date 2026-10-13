@@ -405,6 +405,168 @@ fn committee_selectors_include_genesis_but_never_cache_mutable_liability() {
     assert!(!Selection::Committee(NonZeroU64::new(1)).immutable());
 }
 
+#[test]
+fn hold_selectors_are_bounded_exact_pairs_and_mutable() {
+    assert_eq!(hold_query(&ForgeryHoldQuery::default()).unwrap().limit, 64);
+    for query in [
+        ForgeryHoldQuery {
+            limit: Some("65".into()),
+            ..Default::default()
+        },
+        ForgeryHoldQuery {
+            limit: Some("00".into()),
+            ..Default::default()
+        },
+        ForgeryHoldQuery {
+            revision: Some("1".into()),
+            ..Default::default()
+        },
+        ForgeryHoldQuery {
+            after_network: Some("ethereum-mainnet".into()),
+            ..Default::default()
+        },
+        ForgeryHoldQuery {
+            after_revision: Some("1".into()),
+            ..Default::default()
+        },
+    ] {
+        assert!(hold_query(&query).is_err());
+    }
+    let query = hold_query(&ForgeryHoldQuery {
+        network: Some("ethereum-mainnet".into()),
+        revision: Some("2".into()),
+        after_network: Some("ethereum-mainnet".into()),
+        after_revision: Some("1".into()),
+        limit: Some("1".into()),
+    })
+    .unwrap();
+    assert_eq!(query.revision, Some(2));
+    assert_eq!(query.after.unwrap().revision, 1);
+    assert_eq!(Selection::ForgeryHold(query).route(), sccp::FORGERY_HOLD);
+    assert!(!Selection::ForgeryHold(query).immutable());
+}
+
+#[tokio::test]
+async fn hold_handler_preserves_original_source_and_request_deadline() {
+    let app = crate::tests_runtime_handlers::app_with_root_scope_for_handler_test(
+        iroha_core::state::World::new(),
+        false,
+    );
+    let remote = "127.0.0.1:1234".parse().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let invalid = handler_forgery_hold(
+        State(app.clone()),
+        NoritoStringQuery(ForgeryHoldQuery {
+            limit: Some("65".into()),
+            ..Default::default()
+        }),
+        Extension(RouteExecutionDeadline(deadline)),
+        HeaderMap::new(),
+        ConnectInfo(remote),
+    )
+    .await
+    .unwrap();
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    let expired = handler_forgery_hold(
+        State(app.clone()),
+        NoritoStringQuery(ForgeryHoldQuery::default()),
+        Extension(RouteExecutionDeadline(Instant::now())),
+        HeaderMap::new(),
+        ConnectInfo(remote),
+    )
+    .await
+    .unwrap();
+    assert_eq!(expired.status(), StatusCode::REQUEST_TIMEOUT);
+    let missing = handler_forgery_hold(
+        State(app),
+        NoritoStringQuery(ForgeryHoldQuery::default()),
+        Extension(RouteExecutionDeadline(deadline)),
+        HeaderMap::new(),
+        ConnectInfo(remote),
+    )
+    .await
+    .unwrap();
+    assert_eq!(missing.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        missing.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+}
+
+#[tokio::test]
+async fn pause_and_anchor_handlers_reject_unknown_queries_and_preserve_source_refusal() {
+    let app = crate::tests_runtime_handlers::app_with_root_scope_for_handler_test(
+        iroha_core::state::World::new(),
+        false,
+    );
+    let remote = "127.0.0.1:1234".parse().unwrap();
+    for (query, expired, expected) in [
+        (Some("unknown=1"), false, StatusCode::BAD_REQUEST),
+        (None, true, StatusCode::REQUEST_TIMEOUT),
+        (None, false, StatusCode::SERVICE_UNAVAILABLE),
+    ] {
+        let deadline = if expired {
+            Instant::now()
+        } else {
+            Instant::now() + Duration::from_secs(30)
+        };
+        for response in [
+            handler_fast_pause(
+                State(app.clone()),
+                RawQuery(query.map(str::to_owned)),
+                Extension(RouteExecutionDeadline(deadline)),
+                HeaderMap::new(),
+                ConnectInfo(remote),
+            )
+            .await
+            .unwrap(),
+            handler_evidence_anchor(
+                State(app.clone()),
+                Path("1".into()),
+                RawQuery(query.map(str::to_owned)),
+                Extension(RouteExecutionDeadline(deadline)),
+                HeaderMap::new(),
+                ConnectInfo(remote),
+            )
+            .await
+            .unwrap(),
+        ] {
+            assert_eq!(response.status(), expected);
+            if expected == StatusCode::SERVICE_UNAVAILABLE {
+                assert_eq!(
+                    response.headers()[header::CACHE_CONTROL],
+                    "private, no-store"
+                );
+            }
+        }
+    }
+    for invalid in ["0", "01", "+1", "latest", "18446744073709551616"] {
+        let response = handler_evidence_anchor(
+            State(app.clone()),
+            Path(invalid.into()),
+            RawQuery(None),
+            Extension(RouteExecutionDeadline(
+                Instant::now() + Duration::from_secs(30),
+            )),
+            HeaderMap::new(),
+            ConnectInfo(remote),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{invalid}");
+    }
+    for (selection, route) in [
+        (Selection::FastPause, sccp::FAST_PAUSE),
+        (
+            Selection::Anchor(NonZeroU64::new(1).unwrap()),
+            sccp::EVIDENCE_ANCHOR,
+        ),
+    ] {
+        assert_eq!(selection.route(), route);
+        assert!(!selection.immutable());
+    }
+}
+
 #[tokio::test]
 async fn committee_handlers_preserve_query_source_deadline_and_no_store_contract() {
     let app = crate::tests_runtime_handlers::app_with_root_scope_for_handler_test(
@@ -492,4 +654,201 @@ async fn committee_handlers_preserve_query_source_deadline_and_no_store_contract
         );
         assert!(!response.response.headers().contains_key(header::ETAG));
     }
+}
+
+/// Exercise the same textual query extractor used by the mounted native handlers.
+async fn extract_native_query<T>(uri: &str) -> Result<T, StatusCode>
+where
+    T: norito::json::JsonDeserializeOwned + Send,
+{
+    use axum::extract::FromRequestParts as _;
+    let request = axum::http::Request::builder().uri(uri).body(()).unwrap();
+    let (mut parts, _) = request.into_parts();
+    NoritoStringQuery::<T>::from_request_parts(&mut parts, &())
+        .await
+        .map(|NoritoStringQuery(query)| query)
+        .map_err(|response| response.status())
+}
+
+#[tokio::test]
+async fn proof_queries_reject_retired_unknown_and_duplicate_selectors() {
+    let valid: ProofQuery = extract_native_query("/v1/sccp/messages/00/proof?at=42")
+        .await
+        .expect("current selector decodes as text");
+    assert_eq!(valid.at.as_deref(), Some("42"));
+    for query in [
+        "attestation=own",
+        "attestation=42",
+        "at=record&attestation=latest",
+        "at=record&unknown=1",
+        "at=record&at=latest",
+    ] {
+        assert_eq!(
+            extract_native_query::<ProofQuery>(&format!("/v1/sccp/messages/00/proof?{query}"))
+                .await
+                .expect_err("proof query must reject every retired or unknown selector"),
+            StatusCode::BAD_REQUEST,
+            "{query}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn rotation_queries_reject_retired_unknown_and_duplicate_selectors() {
+    let valid: RotationsQuery =
+        extract_native_query("/v1/sccp/committees/rotations?after_generation=1&limit=2")
+            .await
+            .expect("current bounded rotation selectors decode as text");
+    assert_eq!(valid.after_generation.as_deref(), Some("1"));
+    assert_eq!(valid.limit.as_deref(), Some("2"));
+    for query in [
+        "after_generation=1&attestation=latest",
+        "after_generation=1&unknown=1",
+        "after_generation=1&after_generation=2",
+        "after_generation=1&limit=1&limit=2",
+    ] {
+        assert_eq!(
+            extract_native_query::<RotationsQuery>(&format!(
+                "/v1/sccp/committees/rotations?{query}"
+            ))
+            .await
+            .expect_err("rotation query must reject every retired or unknown selector"),
+            StatusCode::BAD_REQUEST,
+            "{query}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn proof_routes_reject_malformed_queries_before_unavailable_record_lookup() {
+    let app = crate::tests_runtime_handlers::app_with_root_scope_for_handler_test(
+        iroha_core::state::World::new(),
+        false,
+    );
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let remote = "127.0.0.1:1234".parse().unwrap();
+    for at in ["own", "0", "+1", "-1", " 1", "1 ", "18446744073709551616"] {
+        let query = ProofQuery {
+            at: Some(at.into()),
+        };
+        let message = handler_message_proof(
+            State(app.clone()),
+            Path("01".repeat(32)),
+            NoritoStringQuery(query.clone()),
+            Extension(RouteExecutionDeadline(deadline)),
+            HeaderMap::new(),
+            ConnectInfo(remote),
+        )
+        .await
+        .unwrap();
+        let control = handler_control_proof(
+            State(app.clone()),
+            Path(("ethereum-mainnet".into(), "1".into(), "1".into())),
+            NoritoStringQuery(query),
+            Extension(RouteExecutionDeadline(deadline)),
+            HeaderMap::new(),
+            ConnectInfo(remote),
+        )
+        .await
+        .unwrap();
+        for response in [message, control] {
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{at}");
+            assert!(!response.headers().contains_key(header::ETAG));
+            let bytes = axum::body::to_bytes(response.into_body(), 4096)
+                .await
+                .unwrap();
+            let json: norito::json::Value = norito::json::from_slice(&bytes).unwrap();
+            assert_eq!(
+                json.get("code").and_then(norito::json::Value::as_str),
+                Some("sccp_invalid_query")
+            );
+        }
+    }
+}
+
+// Finish the genuine signed genesis outside the async assertion frame on the default stack.
+#[inline(never)]
+fn genesis_finality_app() -> (
+    SharedAppState,
+    Box<iroha_core::sumeragi::test_chain::CertifiedTestChain>,
+) {
+    use iroha_core::{
+        state::World,
+        sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
+    };
+    let chain = Box::new(
+        CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000))
+            .expect("genuine signed genesis"),
+    );
+    assert_eq!(chain.height(), 1);
+    let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests();
+    let fixture = std::sync::Arc::get_mut(&mut app).unwrap();
+    fixture.state = std::sync::Arc::clone(chain.state());
+    fixture.kura = std::sync::Arc::clone(chain.kura());
+    (app, chain)
+}
+
+#[tokio::test]
+async fn latest_genesis_finality_is_unavailable_and_never_cacheable() {
+    let (app, _chain) = genesis_finality_app();
+    let remote = "127.0.0.1:1234".parse().unwrap();
+    for accept in ["application/json", crate::utils::NORITO_MIME_TYPE] {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, HeaderValue::from_static(accept));
+        headers.insert(header::IF_NONE_MATCH, HeaderValue::from_static("*"));
+        for (selector, status, code) in [
+            ("1", StatusCode::BAD_REQUEST, "sccp_invalid_query"),
+            (
+                "latest",
+                StatusCode::SERVICE_UNAVAILABLE,
+                "sccp_unavailable",
+            ),
+        ] {
+            let response = handler_finality(
+                State(app.clone()),
+                Path(selector.into()),
+                Extension(RouteExecutionDeadline(
+                    Instant::now() + Duration::from_secs(30),
+                )),
+                headers.clone(),
+                ConnectInfo(remote),
+            )
+            .await
+            .unwrap();
+            assert_eq!(response.status(), status, "{selector} with {accept}");
+            assert!(!response.headers().contains_key(header::ETAG));
+            if selector == "latest" {
+                assert_eq!(
+                    response.headers()[header::CACHE_CONTROL],
+                    "private, no-store"
+                );
+            }
+            let bytes = axum::body::to_bytes(response.into_body(), 4096)
+                .await
+                .unwrap();
+            let error: norito::json::Value = norito::json::from_slice(&bytes).unwrap();
+            assert_eq!(
+                error.get("code").and_then(norito::json::Value::as_str),
+                Some(code)
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn authenticated_rotation_expiry_has_its_dedicated_gone_response() {
+    let response = source_error(SccpNativeReadError::RotationPruned);
+    assert_eq!(response.status(), StatusCode::GONE);
+    assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let json: norito::json::Value = norito::json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        json.get("code").and_then(norito::json::Value::as_str),
+        Some("sccp_rotation_pruned")
+    );
 }

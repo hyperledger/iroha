@@ -1,5 +1,5 @@
 //! The application clock guard of the simulator (§4.5) and its named deterministic tests
-//! (§13.4: MS51, MS52; the liveness test of the cross-session clock-guard agreement).
+//! (§13.4: MS51, MS52, MS65, MS66, MS68–MS70; the cross-session clock-guard agreement).
 
 use super::*;
 use crate::sim::{
@@ -95,6 +95,319 @@ fn guard_rules_and_leads() {
     assert_eq!(state.violated(0, false, 1_001), None);
     assert_eq!(GuardRule::ClockAhead.reason(), "ClockAhead");
     assert_eq!(GuardRule::StaleDueWork.reason(), "StaleDueWork");
+}
+
+/// MS66: an honest leader may be exactly one allowed drift ahead of a slow honest voter.
+/// Removing the allowance must not turn that admissible execution into `ClockAhead`.
+#[test]
+fn clock_guard_accepts_exact_drift_allowance() {
+    let mut sc = Scenario::base("clock-guard-drift-allowance", 1, 4);
+    guarded(
+        &mut sc,
+        ClockGuard {
+            max_clock_drift_ms: DRIFT,
+            due_work_max_lag_ms: 4 * DRIFT,
+            wall_offsets: vec![drift_i64(), 0, 0, 0],
+            ..ClockGuard::default()
+        },
+    );
+    let mut w = World::new(sc);
+    let mut payload = encode_tx_with_due(1, false, true, 0);
+    w.stamp_block_time(0, &mut payload);
+    let t = block_time(&payload).unwrap();
+    let slow_wall = w.wall_ms(1);
+    assert_eq!(i64::try_from(t).unwrap() - slow_wall, drift_i64());
+    assert_eq!(guard_of(&w).violated(t, true, slow_wall), None);
+}
+
+/// MS68: a genuine committed parent and original queued creation time survive clock regression.
+#[test]
+fn clock_guard_committed_parent_wait_retains_work_until_clock_recovery() {
+    for creation_at in [0, 5_000] {
+        let mut sc = Scenario::base("clock_guard_parent_wait", 17, 4);
+        sc.duration = 25_000;
+        sc.workload = Some(Workload {
+            until: 2_000,
+            ..Workload::default()
+        });
+        let lag = lag(DRIFT, &sc);
+        guarded(
+            &mut sc,
+            ClockGuard {
+                max_clock_drift_ms: DRIFT,
+                due_work_max_lag_ms: lag,
+                ..ClockGuard::default()
+            },
+        );
+        let mut world = World::new(sc);
+        world.run_until(5_000);
+        assert!(world.failure.is_none(), "{:?}", world.failure);
+        assert!(world.replicas.iter().all(|replica| replica.applied.0 > 0));
+        let (parent, qc) = world.replicas[0].store.last().unwrap();
+        let mut header = parent.header().clone();
+        header.height += 1;
+        header.parent_hash = qc.block_hash;
+        header.parent_result = qc.result;
+        let mut too_early = encode_time(block_time(parent.payload().as_slice()).unwrap()).to_vec();
+        too_early.extend(encode_tx_with_due(u64::MAX, false, false, 0));
+        assert_eq!(
+            world.clock_payload_validity(0, &fixture_body(header, &too_early)),
+            Some(ExecOutcome::Invalid)
+        );
+        let built_before = world.oracle.built.len();
+        let id = world.next_tx + 1;
+        world.next_tx = id;
+        world.txs[0].insert(id, (creation_at, false, None));
+        for machine in 0..4 {
+            world.set_wall_offset(machine, -10_000);
+            let replica = world.machines[machine].replicas[0].unwrap();
+            world.offer_tx(replica, id, encode_tx_with_due(id, false, false, 0));
+        }
+        world.run_until(6_000);
+        assert!(
+            world.oracle.built.len() == built_before
+                && world
+                    .replicas
+                    .iter()
+                    .any(|replica| replica.clock_ready.is_some())
+                && world
+                    .replicas
+                    .iter()
+                    .all(|replica| replica.txs.contains_key(&id)),
+            "CT3 must retain original work without publishing before the parent and creation floors"
+        );
+        // A stale or duplicate timer cannot consume the current request's wakeup.
+        let replica = world
+            .replicas
+            .iter()
+            .position(|replica| replica.clock_ready.is_some())
+            .unwrap();
+        let original = world.replicas[replica].clock_ready.unwrap();
+        world.clock_payload_ready(replica, original.0.wrapping_add(1), original.1);
+        assert_eq!(world.replicas[replica].clock_ready, Some(original));
+        if creation_at != 0 {
+            for machine in 0..4 {
+                world.set_wall_offset(machine, 0);
+            }
+        }
+        world.run_until(if creation_at == 0 { 25_000 } else { 10_000 });
+        assert!(world.failure.is_none(), "{:?}", world.failure);
+        assert!(
+            world.txs[0][&id].2.is_some(),
+            "original queued work commits after clock recovery"
+        );
+        assert!(
+            world
+                .replicas
+                .iter()
+                .all(|replica| !replica.txs.contains_key(&id))
+        );
+    }
+}
+
+/// Each deterministic floor independently prevents a build until exact equality.
+#[test]
+fn clock_guard_parent_and_creation_floors_hold_independently_at_equality() {
+    for creation_dominates in [false, true] {
+        let mut sc = Scenario::base("clock_independent_floors", 17, 4);
+        sc.workload = Some(Workload {
+            until: 2_000,
+            ..Workload::default()
+        });
+        guarded(
+            &mut sc,
+            ClockGuard {
+                max_clock_drift_ms: DRIFT,
+                due_work_max_lag_ms: 6_000,
+                ..ClockGuard::default()
+            },
+        );
+        let mut world = World::new(sc);
+        world.run_until(5_000);
+        assert!(world.failure.is_none(), "{:?}", world.failure);
+        let r = world.machines[0].replicas[0].unwrap();
+        let parent = &world.replicas[r].store.last().unwrap().0;
+        let height = parent.header().height + 1;
+        let parent_floor =
+            block_time(parent.payload().as_slice()).unwrap() + world.instances[0].params.block_time;
+        let creation_floor = if creation_dominates {
+            parent_floor + 2_000
+        } else {
+            parent_floor - 1
+        };
+        let tx = crate::sim::driver::bind_tx_creation(
+            &encode_tx_with_due(u64::MAX, false, false, 0),
+            creation_floor - 1,
+        )
+        .unwrap();
+        world.replicas[r].txs.clear();
+        world.replicas[r].txs.insert(u64::MAX, tx.clone());
+        let floor = parent_floor.max(creation_floor);
+        assert_eq!(world.builder_clock_floor(r, height, &tx), Some(floor));
+        assert!(parent_floor.min(creation_floor) < floor);
+        let local = i64::try_from(world.machines[0].clock.local(world.now)).unwrap();
+        world.set_wall_offset(0, i64::try_from(floor - 1).unwrap() - local);
+        world.build_payload(r, u64::MAX, height, 65_536, 1_000, world.now);
+        assert_eq!(
+            world.replicas[r].clock_ready,
+            Some((u64::MAX, floor)),
+            "the larger original floor must hold while the other already permits publication"
+        );
+        assert_eq!(world.replicas[r].txs[&u64::MAX], tx);
+        world.set_wall_offset(0, i64::try_from(floor).unwrap() - local);
+        world.build_payload(r, u64::MAX - 1, height, 65_536, 1_000, world.now);
+        assert_eq!(
+            world.replicas[r].clock_ready, None,
+            "exact equality releases the builder"
+        );
+        assert_eq!(world.replicas[r].txs[&u64::MAX], tx);
+
+        // Identical block bytes cannot change validity when an unrelated workload ID
+        // is registered later: the original creation metadata travels in the payload.
+        let (parent, qc) = world.replicas[r].store.last().unwrap();
+        let mut header = parent.header().clone();
+        header.height = height;
+        header.parent_hash = qc.block_hash;
+        header.parent_result = qc.result;
+        let mut payload = encode_time(floor).to_vec();
+        payload.extend(tx);
+        let original = fixture_body(header, &payload);
+        assert_eq!(world.clock_payload_validity(0, &original), None);
+        world.txs[0].insert(u64::MAX, (u64::MAX, false, None));
+        assert_eq!(world.clock_payload_validity(0, &original), None);
+        world.txs[0].remove(&u64::MAX);
+        assert_eq!(world.clock_payload_validity(0, &original), None);
+    }
+}
+
+/// MS69: a completed original payload remains owned across a build-latency wall backstep.
+#[test]
+fn clock_guard_completed_payload_waits_after_build_latency_backstep() {
+    let mut sc = Scenario::base("clock_completed_backstep", 23, 4);
+    sc.workload = None;
+    guarded(
+        &mut sc,
+        ClockGuard {
+            max_clock_drift_ms: DRIFT,
+            due_work_max_lag_ms: 6_000,
+            ..ClockGuard::default()
+        },
+    );
+    let mut world = World::new(sc);
+    world.run_until(1_000);
+    let r = world.machines[0].replicas[0].unwrap();
+    world.machines[0].profile.build_min = 100;
+    world.machines[0].profile.build_max = 100;
+    let tx = encode_tx_with_due(42, false, false, 0);
+    world.replicas[r].txs.insert(42, tx.clone());
+    let req = u64::MAX;
+    let stamp = u64::try_from(world.wall_ms(0)).unwrap();
+    let mut expected = encode_time(stamp).to_vec();
+    expected.extend(tx);
+    let hash = crate::preimage::payload_hash(&world.hasher, &expected);
+    world.build_payload(r, req, 1, 65_536, 1_000, world.now);
+    world.set_wall_offset(0, -500);
+    world.run_until(1_100);
+    assert!(
+        world.replicas[r]
+            .completed_build
+            .as_ref()
+            .is_some_and(|(owner, payload)| *owner == req && payload.as_slice() == expected)
+            && !world.oracle.built.contains(&(0, 0, hash)),
+        "CT3 must retain the original completed payload after a build-latency clock backstep"
+    );
+    world.completed_clock_ready(r, req - 1);
+    assert_eq!(world.replicas[r].completed_build.as_ref().unwrap().0, req);
+    world.run_until(1_499);
+    assert!(!world.oracle.built.contains(&(0, 0, hash)));
+    world.run_until(1_500);
+    assert!(
+        world.oracle.built.contains(&(0, 0, hash)),
+        "original completed bytes publish at exact wall recovery"
+    );
+    assert!(world.replicas[r].completed_build.is_none());
+    world.completed_clock_ready(r, req);
+    assert!(world.replicas[r].completed_build.is_none());
+}
+
+/// MS70: the real fresh proposal signer resamples the clock after queued authoring completes.
+#[test]
+fn clock_guard_fresh_proposal_waits_after_authored_queue_backstep() {
+    let mut sc = Scenario::base("clock_fresh_authored_backstep", 23, 4);
+    sc.workload = Some(Workload {
+        until: 100,
+        ..Workload::default()
+    });
+    guarded(
+        &mut sc,
+        ClockGuard {
+            max_clock_drift_ms: DRIFT,
+            due_work_max_lag_ms: 6_000,
+            ..ClockGuard::default()
+        },
+    );
+    let mut world = World::new(sc);
+    let (r, req, original, delivery) = loop {
+        world.run_until(world.now + 1);
+        assert!(
+            world.now < 5_000,
+            "the actual leader must finish a fresh payload"
+        );
+        if let Some(found) = world.queue.iter().find_map(|((at, _), event)| {
+            if let Ev::Local { r, event, .. } = event
+                && let Event::PayloadAuthored { req, body } = &**event
+            {
+                Some((*r, *req, body.clone(), *at))
+            } else {
+                None
+            }
+        }) {
+            break found;
+        }
+    };
+    let m = world.replicas[r].machine;
+    let header = original.header();
+    assert_eq!((header.height, header.origin_view), (1, 0));
+    let hash = original.hash(&world.hasher);
+    let digest = crate::preimage::att_digest(&world.hasher, None, None);
+    let preimage = crate::preimage::prop_preimage(
+        &header.instance,
+        &header.epoch,
+        header.height,
+        header.origin_view,
+        &hash,
+        &digest,
+    );
+    let key = world.instances[0]
+        .committee(1)
+        .get(header.proposer)
+        .unwrap()
+        .clone();
+    let stamp = block_time(original.payload().as_slice()).unwrap();
+    let proposals = world.stats.proposals;
+    world.set_wall_offset(m, -500);
+    world.run_until(delivery + 10);
+    assert!(
+        world.replicas[r]
+            .authored_clock
+            .as_ref()
+            .is_some_and(|(owner, body)| *owner == req && body == &original)
+            && !world.log.lock().unwrap().was_signed(&key, &preimage)
+            && world.stats.proposals == proposals,
+        "CT3 must not sign or publish a fresh proposal after an authored-queue clock backstep"
+    );
+    world.authored_clock_ready(r, req.wrapping_add(1));
+    assert_eq!(world.replicas[r].authored_clock.as_ref().unwrap().0, req);
+    let recovery = world.clock_floor_global_time(r, stamp);
+    world.run_until(recovery - 1);
+    assert!(!world.log.lock().unwrap().was_signed(&key, &preimage));
+    world.run_until(recovery + 200);
+    assert!(
+        world.log.lock().unwrap().was_signed(&key, &preimage),
+        "the original fresh proposal signs after exact clock recovery"
+    );
+    assert!(world.stats.proposals > proposals);
+    assert!(world.failure.is_none(), "{:?}", world.failure);
 }
 
 /// Wall clocks, the builder stamp, the executor guard (refused, exempt, Byzantine, unstamped)
@@ -390,6 +703,78 @@ fn clock_guard_certified_time_within_two_drifts() {
             max > drift,
             "seed={seed}: some certified time exceeds an honest clock by more than one drift \
              ({max} ms)"
+        );
+    }
+}
+
+/// MS65: the Byzantine leader votes but stamps due-work blocks older than CT5 permits.
+/// Honest leaders still make progress; the first genuine honest Prepare oracle rejects
+/// stale due-work acceptance without imposing a bound on eventual commit time.
+#[test]
+fn clock_guard_due_work_lower_bound_at_first_prepare() {
+    for seed in [1, 2, 3] {
+        let mut sc = Scenario::base("clock_guard_due_work_lower_bound", seed, 4);
+        sc.demotion_window = 8;
+        sc.byz = vec![(3, Vec::new())];
+        sc.workload = None;
+        let lag = lag(DRIFT, &sc);
+        sc.duration = 104 * lag;
+        // Old signed work can be delivered after an idle interval. Its genuine creation
+        // floor and the prior committed parent allow the Byzantine leader's stale stamp;
+        // only CT5 excludes that otherwise deterministic-valid proposal.
+        for batch in 1..=12 {
+            sc.script.push((
+                8 * lag * batch,
+                Fault::Custom(Box::new(move |world: &mut World| {
+                    let id = batch;
+                    world.next_tx = id;
+                    world.txs[0].insert(id, (0, false, None));
+                    world.offer_tx(3, id, encode_tx_with_due(id, false, true, 0));
+                })),
+            ));
+            // Give the Byzantine leader the original aged input first so an honest
+            // fresh proposal cannot consume every batch before CT5 is exercised.
+            sc.script.push((
+                8 * lag * batch + 4 * lag,
+                Fault::Custom(Box::new(move |world: &mut World| {
+                    let id = batch;
+                    for replica in 0..world.replicas.len() {
+                        world.offer_tx(replica, id, encode_tx_with_due(id, false, true, 0));
+                    }
+                })),
+            ));
+        }
+        guarded(
+            &mut sc,
+            ClockGuard {
+                max_clock_drift_ms: DRIFT,
+                due_work_max_lag_ms: lag,
+                leads: vec![(3, vec![-i64::try_from(2 * lag).unwrap()])],
+                ..ClockGuard::default()
+            },
+        );
+        let w = crate::sim::run(sc).unwrap_or_else(|report| panic!("seed={seed}: {report}"));
+        let guard = guard_of(&w);
+        assert!(
+            guard
+                .events
+                .iter()
+                .any(|event| { event.rule == GuardRule::StaleDueWork && !event.certified }),
+            "seed={seed}: stale due-work proposals reached an honest executor"
+        );
+        assert!(
+            guard.first_due_prepares.len() >= 10,
+            "seed={seed}: genuine Prepares checked"
+        );
+        assert!(
+            guard.certified.len() >= 10,
+            "seed={seed}: honest leaders progressed"
+        );
+        assert!(
+            guard
+                .certified
+                .iter()
+                .all(|certificate| certificate.proposer != Some(3))
         );
     }
 }

@@ -24,7 +24,7 @@ fn replacement_parent_keeps_original_generations_clock_anchors_and_finality() {
         *block.sccp_committee_current.get_mut() = 3;
         *block.sccp_liability_clock.get_mut() = 11;
         *block.sccp_degraded_run.get_mut() = 1;
-        *block.sccp_anchor_open.get_mut() = RetainedSccpAnchors::admit(&[anchor], &budget).unwrap();
+        *block.sccp_anchor_open.get_mut() = RetainedSccpAnchors::admit(&[anchor], budget).unwrap();
         block
             .sccp_anchor_chunks
             .try_insert_admitted(0, [3; 32])
@@ -61,12 +61,15 @@ fn replacement_parent_keeps_original_generations_clock_anchors_and_finality() {
     assert_eq!(Current(&published).committee_current(), 4);
     assert_eq!(Current(&published).liability_clock(), 22);
     assert_eq!(Current(&published).degraded_run(), 0);
-    assert!(Current(&published).generation(&1).is_none());
+    assert!(Current(&published).generation(1).is_none());
     assert!(Current(&published).anchor_open().is_empty());
-    assert!(Current(&published).anchor_chunk(&0).is_none());
+    assert!(Current(&published).anchor_chunk(0).is_none());
     let mut replacement = world.block_and_revert();
     for apply in [true, false] {
-        let mut tx = replacement.transaction_without_telemetry(Default::default(), 0);
+        let mut tx = replacement.transaction_without_telemetry(
+            iroha_config::parameters::actual::LaneConfig::default(),
+            0,
+        );
         tx.sccp_parameters.get_mut().as_mut().unwrap().enabled = false;
         *tx.sccp_committee_current.get_mut() = 8;
         *tx.sccp_liability_clock.get_mut() = 99;
@@ -85,11 +88,11 @@ fn replacement_parent_keeps_original_generations_clock_anchors_and_finality() {
         assert_eq!(parent.committee_current(), 3);
         assert_eq!(parent.liability_clock(), 11);
         assert_eq!(parent.degraded_run(), 1);
-        assert_eq!(parent.generation(&1).unwrap().generation, 1);
-        assert!(parent.generation(&2).is_none());
-        assert_eq!(parent.generation(&3).unwrap().generation, 3);
+        assert_eq!(parent.generation(1).unwrap().generation, 1);
+        assert!(parent.generation(2).is_none());
+        assert_eq!(parent.generation(3).unwrap().generation, 3);
         assert_eq!(parent.anchor_open(), &[anchor]);
-        assert_eq!(parent.anchor_chunk(&0), Some(&[3; 32]));
+        assert_eq!(parent.anchor_chunk(0), Some(&[3; 32]));
         assert_eq!(
             parent
                 .generations()
@@ -106,6 +109,6 @@ fn replacement_parent_keeps_original_generations_clock_anchors_and_finality() {
     assert_eq!(Current(&after).committee_current(), 4);
     assert_eq!(Current(&after).liability_clock(), 22);
     assert_eq!(Current(&after).degraded_run(), 0);
-    assert!(Current(&after).generation(&1).is_none());
-    assert_eq!(Current(&after).generation(&2).unwrap().generation, 2);
+    assert!(Current(&after).generation(1).is_none());
+    assert_eq!(Current(&after).generation(2).unwrap().generation, 2);
 }

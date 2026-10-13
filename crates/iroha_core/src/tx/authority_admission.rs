@@ -64,6 +64,10 @@ pub fn executable_self_registers_authority(executable: &Executable, authority: &
 #[must_use]
 pub fn allows_unregistered_authority(executable: &Executable, authority: &AccountId) -> bool {
     executable_self_registers_authority(executable, authority)
+        || (crate::smartcontracts::isi::sccp::keepalive::is_standalone(executable)
+            && authority
+                .try_signatory()
+                .is_some_and(|key| key.algorithm() == iroha_crypto::Algorithm::Ed25519))
         || matches!(
             executable,
             Executable::Instructions(instructions)
@@ -79,9 +83,9 @@ pub(crate) fn instructions_allow_multisig_envelope_authority(
         && instructions.iter().all(|instruction| {
             matches!(
                 MultisigInstructionBox::try_from(instruction),
-                Ok(MultisigInstructionBox::Propose(_))
-                    | Ok(MultisigInstructionBox::Approve(_))
-                    | Ok(MultisigInstructionBox::Cancel(_))
+                Ok(MultisigInstructionBox::Propose(_)
+                    | MultisigInstructionBox::Approve(_)
+                    | MultisigInstructionBox::Cancel(_))
             )
         })
 }

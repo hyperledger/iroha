@@ -112,7 +112,7 @@ fn validate_item_admission(
             "game item stake requires its approved lobby manifest and one unfilled item slot",
         ));
     }
-    Ok(slot as u8)
+    u8::try_from(slot).map_err(|_| invalid("game item participant slot exceeds its wire bound"))
 }
 pub(super) fn same_staked_items(before: &[GameItemStakeV1], after: &[GameItemStakeV1]) -> bool {
     before.len() == after.len()
@@ -275,8 +275,8 @@ pub(crate) fn validate_restored_items(
         };
         if !seen.insert(item.nft_id.clone())
             || record.purpose != NftCustodyPurposeV1::GameWager
-            || record.network_id != session.network_id
-            || record.reservation_id != session.session_id
+            || (&record.network_id, &record.reservation_id)
+                != (&session.network_id, &session.session_id)
             || record.nft_id != item.nft_id
             || record.original_owner != owner.account
             || record.metadata_hash != item.metadata_hash

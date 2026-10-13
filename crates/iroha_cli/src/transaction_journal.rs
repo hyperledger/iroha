@@ -383,7 +383,7 @@ fn recover(
     Ok(observation)
 }
 
-fn verify_committed(
+pub(crate) fn verify_committed(
     expected: &SignedTransaction,
     details: &PipelineTransactionDetailsResponse,
 ) -> Result<()> {

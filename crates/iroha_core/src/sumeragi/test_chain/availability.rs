@@ -133,7 +133,7 @@ mod tests {
             availability_digest: Hash32::ZERO,
             proposer: 0,
             skipped_leaders: Vec::new(),
-            control_witness: Default::default(),
+            control_witness: iroha_sumeragi::types::ControlWitness::default(),
         };
         let body = chain.author_payload(header, payload.clone());
         assert_eq!(body.source().config(), &config);

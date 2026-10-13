@@ -79,7 +79,7 @@ fn certificate(keys: &[KeyPair], header: &BlockHeader, result: Hash32, last: boo
                 view: 0,
                 block_hash: header.hash(&crypto),
                 result,
-                signer: index as u32,
+                signer: u32::try_from(index).expect("fixture value fits u32"),
                 sig: iroha_sumeragi::types::Signature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
             };
 
@@ -96,7 +96,7 @@ fn install_structural_outputs(block: &mut SignedBlock) {
     let outputs = (0..block.external_transactions().count())
         .map(|index| {
             ExecutionOutputV1::Network(NetworkExecutionOutputV1 {
-                input_index: index as u32,
+                input_index: u32::try_from(index).expect("fixture value fits u32"),
                 result: TransactionResult::new(Ok(Vec::new())),
                 completions: Vec::new(),
             })
@@ -106,17 +106,24 @@ fn install_structural_outputs(block: &mut SignedBlock) {
         .set_execution_outputs(
             outputs,
             0,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &crate::execution_output_test_support::structural_output_limits(),
         )
         .unwrap();
 }
-fn params() -> ChainParamsRecord {
+fn params(current: &ValidatorEpochContextV1) -> ChainParamsRecord {
+    let epoch_length = current
+        .authorization
+        .last_height
+        .checked_sub(current.authorization.first_height)
+        .unwrap()
+        .checked_add(1)
+        .unwrap();
     ChainParamsRecord::from_core(&ChainParams {
-        epoch_length: 6,
+        epoch_length,
         ..ChainParams::default()
     })
 }
@@ -125,14 +132,14 @@ fn slot(height: u64, current: &ValidatorEpochContextV1) -> ScheduledSlot {
         ScheduledSlot::Ready(ScheduledConfig {
             height,
             epoch: current.clone(),
-            params: params(),
+            params: params(current),
         })
     } else {
         ScheduledSlot::PendingBoundary {
             height,
             boundary_height: current.authorization.last_height,
             predecessor_context_id: current.context_id().unwrap(),
-            params: params(),
+            params: params(current),
         }
     }
 }
@@ -249,14 +256,25 @@ fn transcript_proposal(
 }
 
 fn build_history(retain: bool) -> Vec<iroha_data_model::block::SharedSignedBlock> {
+    build_history_with_epoch_length(retain, 6, 6, 14)
+}
+
+fn build_history_with_epoch_length(
+    retain: bool,
+    epoch_length: u64,
+    evidence_horizon: u64,
+    last_height: u64,
+) -> Vec<iroha_data_model::block::SharedSignedBlock> {
     let original_keys = keys(false);
     let genesis_key = KeyPair::from_seed(vec![0xCE; 32], Algorithm::Ed25519);
-    let mut policy = SumeragiNposParameters::default();
-    policy.epoch_seed = [0x35; 32];
-    policy.epoch_length_blocks = NonZeroU64::new(6).unwrap();
-    policy.evidence_horizon_blocks = 6;
-    policy.slashing_delay_blocks = 6;
-    policy.max_validators = 4;
+    let policy = SumeragiNposParameters {
+        epoch_seed: [0x35; 32],
+        epoch_length_blocks: NonZeroU64::new(epoch_length).unwrap(),
+        evidence_horizon_blocks: evidence_horizon,
+        slashing_delay_blocks: epoch_length,
+        max_validators: 4,
+        ..Default::default()
+    };
     let validators = members(&original_keys)
         .into_iter()
         .map(|member| (member.validator, member.proof_of_possession))
@@ -274,7 +292,7 @@ fn build_history(retain: bool) -> Vec<iroha_data_model::block::SharedSignedBlock
     let (mut current, root_scope) = crate::sumeragi::epoch::authenticated_genesis(&genesis)
         .unwrap()
         .into_parts();
-    assert_eq!(current.authorization.last_height, 6);
+    assert_eq!(current.authorization.last_height, epoch_length);
     let network = NetworkId::from_genesis_hash(genesis.hash());
     let instance =
         crate::sumeragi::node::root_instance(&genesis, "sumeragi-certified-test-chain").unwrap();
@@ -343,7 +361,7 @@ fn build_history(retain: bool) -> Vec<iroha_data_model::block::SharedSignedBlock
         current.authorization.authority_generation,
         &active_keys,
     );
-    for height in 2..=14 {
+    for height in 2..=last_height {
         let parent = read_frame(history.last().unwrap().clone(), height - 1, root_scope).unwrap();
         let block_time = parent.block().header().creation_time() + Duration::from_millis(1);
         let (_, time_source) = iroha_primitives::time::TimeSource::new_mock(block_time);
@@ -396,7 +414,7 @@ fn build_history(retain: bool) -> Vec<iroha_data_model::block::SharedSignedBlock
             let next_keys = if retain {
                 keys(false)
             } else {
-                keys(height == 6)
+                keys(height == epoch_length)
             };
             let generation = ValidatorGenerationV1::from_committee(
                 network,
@@ -410,7 +428,8 @@ fn build_history(retain: bool) -> Vec<iroha_data_model::block::SharedSignedBlock
             let next_beacon = (!retain).then(|| {
                 crate::beacon::tests::HistoricalBeaconFixture::new(
                     network,
-                    [0x62 + (height / 12) as u8; 32],
+                    [0x62 + u8::try_from(height / epoch_length.checked_mul(2).unwrap()).unwrap();
+                        32],
                     generation.generation,
                     &next_keys,
                 )
@@ -425,7 +444,7 @@ fn build_history(retain: bool) -> Vec<iroha_data_model::block::SharedSignedBlock
                 network_id: network,
                 epoch: current.authorization.epoch + 1,
                 first_height: current.authorization.last_height + 1,
-                last_height: height + 6,
+                last_height: height.checked_add(epoch_length).unwrap(),
                 authority_generation: generation.generation,
                 authority_id: generation.generation_id().unwrap(),
                 beacon: BeaconEpochBindingV1::Installed(InstalledBeaconEpochBindingV1 {
@@ -433,7 +452,11 @@ fn build_history(retain: bool) -> Vec<iroha_data_model::block::SharedSignedBlock
                     transcript_hash: record.transcript_hash,
                 }),
                 previous_authorization_id: current.authorization.authorization_id().unwrap(),
-                transition_id: if retain { [0; 32] } else { [height as u8; 32] },
+                transition_id: if retain {
+                    [0; 32]
+                } else {
+                    [u8::try_from(height).expect("fixture value fits u8"); 32]
+                },
                 decision: if retain {
                     ValidatorEpochDecisionV1::Retain
                 } else {
@@ -473,7 +496,8 @@ fn build_history(retain: bool) -> Vec<iroha_data_model::block::SharedSignedBlock
         install_structural_outputs(&mut block);
         let payload = payload::encode(&block).unwrap();
         let header = BlockHeader {
-            control_witness: crate::sumeragi::epoch_beacon::control::encode(beacon).unwrap(),
+            control_witness: crate::sumeragi::epoch_beacon::control::encode(beacon.as_ref())
+                .unwrap(),
             instance,
             epoch: schedule::core_epoch(&current).unwrap().id,
             height,
@@ -494,7 +518,7 @@ fn build_history(retain: bool) -> Vec<iroha_data_model::block::SharedSignedBlock
         let config = ScheduledConfig {
             height,
             epoch: current.clone(),
-            params: params(),
+            params: params(&current),
         }
         .height_config()
         .unwrap();
@@ -1004,7 +1028,7 @@ fn historical_pulse_requires_signed_header_bytes_and_complete_native_context() {
                 );
                 result.beacon = Some(pulses[0]);
                 header.control_witness =
-                    crate::sumeragi::epoch_beacon::control::encode(result.beacon).unwrap();
+                    crate::sumeragi::epoch_beacon::control::encode(result.beacon.as_ref()).unwrap();
                 *bytes = fixture_result_preimage(&original_x, &result);
             }
             *qc = certificate(
@@ -1052,4 +1076,120 @@ fn synthetic_world() -> crate::sumeragi::commitment::WorldStateTransition {
         world_state_root: iroha_crypto::Hash::new(b"synthetic World"),
         event_commitment: None,
     }
+}
+
+/// Consume the complete ordinary receipt before another native decoder runs.
+#[inline(never)]
+fn certified_epoch_projection<V: StateReadOnly + ?Sized>(
+    reader: &CertifiedChain<'_, V>,
+    height: u64,
+) -> (HeightContextId, Hash32, u64, QcVerification) {
+    let certified = reader.certified(height).unwrap();
+    let authority = &certified.commitment().schedule.current;
+    assert_eq!(
+        authority.authorization.last_height - authority.authorization.first_height + 1,
+        7,
+    );
+    let config = ScheduledConfig {
+        height,
+        epoch: authority.clone(),
+        params: params(authority),
+    }
+    .height_config()
+    .unwrap();
+    assert_eq!(config.epoch.id.epoch, authority.authorization.epoch);
+    (
+        certified.id(),
+        certified.result(),
+        authority.authorization.epoch,
+        certified.verification(),
+    )
+}
+
+#[test]
+fn npos_epoch_schedule_uses_committed_epoch_length() {
+    // The old World-only arithmetic fixture could assign any height an epoch
+    // without a certificate. These same 7/14/7 policy boundaries now come from
+    // the exact signed genesis, verified successor quorums, and genuine pulses.
+    let history = build_history_with_epoch_length(false, 7, 14, 15);
+    let chain_id = ChainId::from("sumeragi-certified-test-chain");
+    let network = NetworkId::from_genesis_hash(history[0].hash());
+    let hashes = history.iter().map(|block| block.hash()).collect::<Vec<_>>();
+    let reader = CertifiedChain::from_frames(&chain_id, &network, &hashes, &history).unwrap();
+    assert!(matches!(
+        reader.certified(0),
+        Err(ExecutionAttemptError::Rejected(
+            ChainReadError::NotCommitted { height: 0 }
+        ))
+    ));
+    for (height, epoch) in [(1, 0), (7, 0), (8, 1), (15, 2)] {
+        let (_, _, actual_epoch, verification) = certified_epoch_projection(&reader, height);
+        assert_eq!(actual_epoch, epoch);
+        assert_eq!(
+            verification,
+            if height == 1 {
+                QcVerification::Genesis
+            } else {
+                QcVerification::Verified
+            },
+        );
+    }
+    let signed_root = certified_epoch_projection(&reader, 1);
+
+    // Independently fund the actual retained historical owner and verify every
+    // successor; decoding a context alone supplies no scheduling authority.
+    let prefix_bytes = std::mem::size_of::<CertifiedPrefix>();
+    let frame_bytes = std::mem::size_of::<CommittedBlock>();
+    let result_bytes = std::mem::size_of::<CertifiedResultV1>();
+    let budget = iroha_allocation::AllocationBudget::new(prefix_bytes + frame_bytes + result_bytes);
+    let mut slot =
+        CertifiedPrefix::new_admitted(&chain_id, network, history[0].clone(), &budget).unwrap();
+    assert_eq!(budget.reserved_bytes(), prefix_bytes);
+    let admitted = &mut slot.as_mut_slice()[0];
+    assert_eq!(admitted.current_epoch_context().authorization.epoch, 0);
+    assert_eq!(
+        admitted.current_epoch_context().authorization.last_height,
+        7
+    );
+    for height in 2..=15 {
+        let (id, result, epoch, verification) = certified_epoch_projection(&reader, height);
+        let expected = (id, result, epoch, verification, height == 2);
+        let actual = admitted
+            .push_admitted_with_finish(
+                history[usize::try_from(height - 1).unwrap()].clone(),
+                &budget,
+                |step| {
+                    assert_eq!(budget.reserved_bytes(), prefix_bytes + frame_bytes);
+                    let (current, genesis) = step.into_parts();
+                    assert_eq!(current.verification(), QcVerification::Verified);
+                    if let Some(anchor) = &genesis {
+                        assert_eq!(anchor.committed().id(), signed_root.0);
+                        assert_eq!(anchor.committed().result(), signed_root.1);
+                        assert_eq!(
+                            anchor
+                                .committed()
+                                .commitment()
+                                .schedule
+                                .current
+                                .authorization
+                                .epoch,
+                            0
+                        );
+                        assert_eq!(anchor.successor(), current.core_hash());
+                    }
+                    (
+                        current.id(),
+                        current.result(),
+                        current.commitment().schedule.current.authorization.epoch,
+                        current.verification(),
+                        genesis.is_some(),
+                    )
+                },
+            )
+            .unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(budget.reserved_bytes(), prefix_bytes);
+    }
+    drop(slot);
+    assert_eq!(budget.reserved_bytes(), 0);
 }

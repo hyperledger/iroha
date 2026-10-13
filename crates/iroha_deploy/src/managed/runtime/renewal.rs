@@ -345,6 +345,7 @@ pub(super) fn advance(
                 turn.provider,
             )
         })
+        .map(Box::new)
         .map(activation::Outcome::Restart)
 }
 

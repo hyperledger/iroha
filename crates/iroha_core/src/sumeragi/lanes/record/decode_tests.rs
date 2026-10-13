@@ -36,8 +36,7 @@ fn four_resource_refusals_keep_same_raw_table_and_payload_owners() {
         for _ in 0..2 {
             let (retained, error) = job
                 .complete(&budget)
-                .err()
-                .expect("exact original phase refusal");
+                .expect_err("exact original phase refusal");
             assert_eq!(
                 matches!(
                     error,
@@ -152,7 +151,7 @@ fn corruption_missing_frame_and_noncanonical_layout_reject_before_bulk_destinati
         let retained = budget.reserved_bytes();
         let mut job = LaneRecordDecode::new(raw);
         for _ in 0..2 {
-            let (same, error) = job.complete(&budget).err().expect("canonical rejection");
+            let (same, error) = job.complete(&budget).expect_err("canonical rejection");
             assert!(matches!(error, LaneRecordError::Codec(_)));
             assert!(same.table_backing.is_none() && same.payload_backing.is_none());
             assert_eq!(budget.reserved_bytes(), retained);
@@ -188,8 +187,7 @@ fn maximum_qc_bitmap_is_bounded_before_any_bulk_decode() {
     budget.set_limit_bytes(retained);
     let (job, error) = LaneRecordDecode::new(raw)
         .complete(&budget)
-        .err()
-        .expect("metadata count exceeds bound");
+        .expect_err("metadata count exceeds bound");
     assert!(matches!(error, LaneRecordError::Codec(_)));
     assert!(job.layout.is_none() && job.table_backing.is_none());
     assert_eq!(budget.reserved_bytes(), retained);

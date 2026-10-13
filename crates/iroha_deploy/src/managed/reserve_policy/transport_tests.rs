@@ -63,8 +63,7 @@ fn missing_reserve_original_recovery_performs_no_http_or_journal_creation() {
                 .authority
                 .directory
                 .open_child("set")
-                .err()
-                .expect("read-only recovery must not create an operation directory")
+                .expect_err("read-only recovery must not create an operation directory")
                 .kind(),
             io::ErrorKind::NotFound
         );
@@ -98,8 +97,7 @@ fn unavailable_reserve_finality_prevents_original_wallet_quote_and_dispatch() {
         };
         let error = coordinator
             .set_initial(&policy, utc_deadline, &options)
-            .err()
-            .expect("missing original finality must refuse initial reserve preparation");
+            .expect_err("missing original finality must refuse initial reserve preparation");
         assert!(
             error
                 .to_string()
@@ -111,8 +109,7 @@ fn unavailable_reserve_finality_prevents_original_wallet_quote_and_dispatch() {
         assert_eq!(
             directory
                 .open_child("transaction")
-                .err()
-                .expect("no wallet journal before authenticated finality")
+                .expect_err("no wallet journal before authenticated finality")
                 .kind(),
             io::ErrorKind::NotFound
         );

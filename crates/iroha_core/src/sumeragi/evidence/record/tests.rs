@@ -371,7 +371,7 @@ fn native_owner_rejects_sccp_material_and_generation_scope_without_charging_or_f
     let pool = AllocationBudget::new(1 << 20);
     // DATA only: these zeros are not a valid BLS certificate or a verified forgery.
     let mut unsupported = original.clone();
-    unsupported.evidence = RecordedEvidenceV1::SccpForgery(SccpForgeryRecordV1 {
+    unsupported.evidence = RecordedEvidenceV1::SccpForgery(Box::new(SccpForgeryRecordV1 {
         evidence: SubmitSccpForgeryEvidenceV1 {
             qc: [0; 116],
             header: [0; 221],
@@ -382,7 +382,7 @@ fn native_owner_rejects_sccp_material_and_generation_scope_without_charging_or_f
         generation: 1,
         start_height: 1,
         offenders: Vec::new(),
-    });
+    }));
     let text = json::to_json(&unsupported).unwrap();
     assert!(matches!(
         parse(&text, &pool),

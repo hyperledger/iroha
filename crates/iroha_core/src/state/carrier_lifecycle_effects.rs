@@ -72,6 +72,16 @@ impl PreparedLaneLifecycleEffects {
         publish_process_runtime: bool,
     ) -> LaneLifecyclePostPublication {
         indexes.install_registries(self.manifests, self.privacy);
+        let mapping_changed = self.transition.requires_geometry();
+        if mapping_changed {
+            // Physical geometry retains no cursor guards. Publish its exact mapping
+            // through this already-acquired index with the rest of the carrier.
+            indexes
+                .da_shard_cursors
+                .as_mut()
+                .expect("prepared shard cursors")
+                .sync_mapping(&self.lane_config);
+        }
         if !self.lanes_to_reset.is_empty() {
             indexes
                 .da_commitments
@@ -112,7 +122,7 @@ impl PreparedLaneLifecycleEffects {
         }
         let persist_cursor_journal = publish_process_runtime
             && (records_reset
-                || (!self.lanes_to_reset.is_empty()
+                || ((mapping_changed || !self.lanes_to_reset.is_empty())
                     && indexes
                         .da_indexes_hydrated
                         .as_ref()

@@ -13,7 +13,7 @@ use norito::json::{BoundedJsonError, JsonSerialize as _, JsonWriteSink};
 
 /// Exact final-output source failure; no local I/O condition is protocol invalidity.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ExportError {
+pub enum ExportError {
     #[error(transparent)]
     Admission(#[from] AllocationRefusal),
     #[error(transparent)]
@@ -167,7 +167,7 @@ pub(super) fn complete_output_prefix(
 }
 
 /// Move-only source for every byte and exact file descriptor of one final seat export.
-pub(crate) struct PreparedSeatExport {
+pub struct PreparedSeatExport {
     directory_identity: DirectoryIdentity,
     public: ValidatedGlobalThresholdBeaconSessionV1,
     seat: u16,
@@ -264,31 +264,26 @@ impl PreparedSeatExport {
     pub(super) fn source_checkpoint(&self) -> Option<&[u8]> {
         self.source
             .as_ref()
-            .map(|source| source.encrypted_checkpoint())
+            .map(iroha_core::beacon::GlobalBeaconAggregateOwnerV1::encrypted_checkpoint)
     }
 
     /// Move the authenticated original aggregate owner once, retaining it on every refusal.
     /// Private/public equations and actual native source validation precede this move.
     pub(crate) fn accept(
         &mut self,
-        source: iroha_core::beacon::GlobalBeaconAggregateOwnerV1,
-    ) -> std::result::Result<
-        (),
-        (
-            iroha_core::beacon::GlobalBeaconAggregateOwnerV1,
-            ExportError,
-        ),
-    > {
+        source: &mut Option<iroha_core::beacon::GlobalBeaconAggregateOwnerV1>,
+    ) -> std::result::Result<(), ExportError> {
+        let original = source.as_ref().ok_or(ExportError::Phase)?;
         if self.source.is_some()
-            || !source.authenticated_session().ptr_eq(&self.public)
-            || source.signer_index() != self.seat
-            || !source.belongs_to(&self.budget)
-            || source.binding().provider_handle_hash != self.provider_handle_hash
-            || source.binding().provider_revision != self.provider_revision
+            || !original.authenticated_session().ptr_eq(&self.public)
+            || original.signer_index() != self.seat
+            || !original.belongs_to(&self.budget)
+            || original.binding().provider_handle_hash != self.provider_handle_hash
+            || original.binding().provider_revision != self.provider_revision
         {
-            return Err((source, ExportError::Phase));
+            return Err(ExportError::Phase);
         }
-        self.source = Some(source);
+        self.source = source.take();
         Ok(())
     }
 
@@ -666,14 +661,14 @@ fn write_remaining(
 ) -> std::result::Result<(), ExportError> {
     while *offset < bytes.len() {
         let at = u64::try_from(*offset).map_err(|_| ExportError::Phase)?;
-        let wrote = write(file, &bytes[*offset..], at).map_err(ExportError::Io)?;
-        if wrote == 0 {
+        let written_bytes = write(file, &bytes[*offset..], at).map_err(ExportError::Io)?;
+        if written_bytes == 0 {
             return Err(ExportError::Io(std::io::ErrorKind::WriteZero.into()));
         }
-        if wrote > bytes.len() - *offset {
+        if written_bytes > bytes.len() - *offset {
             return Err(ExportError::Phase);
         }
-        *offset += wrote;
+        *offset += written_bytes;
     }
     Ok(())
 }

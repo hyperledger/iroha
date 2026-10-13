@@ -129,7 +129,9 @@ pub enum TransactionInclusionRoute {
     Global,
     /// Routed to a native lane. Its proposer selects the transaction within the lane's
     /// budget. The global proposer rescues a transaction of a stalled lane only within the
-    /// global budget: a larger one is carried by its lane's proposer or by none.
+    /// global budget. Complete committed policy makes the transaction cap fit that full
+    /// budget. Raw authoring inputs may describe a larger transaction which only the
+    /// lane's proposer could carry; that does not make the policy admissible.
     NativeLane {
         /// `max_block_bytes` pinned by the committed record of the routed lane.
         max_block_bytes: NonZeroU32,

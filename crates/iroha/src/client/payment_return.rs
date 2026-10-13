@@ -26,8 +26,9 @@ use std::{num::NonZeroU64, sync::Arc};
 )]
 #[norito(deny_unknown_fields)]
 pub struct NativePaymentReturnLink {
-    /// Genesis-derived network of both payments.
-    pub original_network: NetworkId,
+    /// Genesis-derived network of both payments, encoded as `original_network` in signed metadata.
+    #[norito(rename = "original_network")]
+    pub network: NetworkId,
     /// Original payer-scoped business identity.
     pub original_settlement_id: SettlementId,
     /// Original independently verified successful signed carrier.
@@ -75,7 +76,7 @@ impl NativePaymentFullReturnRequest {
             ));
         }
         let link = NativePaymentReturnLink {
-            original_network: original.network(),
+            network: original.network(),
             original_settlement_id: original.settlement_id().clone(),
             original_transaction: original.transaction_hash(),
             original_intent_hash: details.intent_hash,

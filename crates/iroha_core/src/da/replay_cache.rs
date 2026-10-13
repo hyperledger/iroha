@@ -412,6 +412,11 @@ impl ReplayCache {
     /// Prime the replay cache with a known highest sequence for a `(lane, epoch)` window.
     /// This is useful when restoring state from persisted cursors after a restart. Priming
     /// invalidates any in-memory entries and reservations already present for that window.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReplayPrimeError::LaneEpochCapacityExceeded`] when adding a new
+    /// lane/epoch would exceed the configured window capacity.
     pub fn prime_lane_epoch(
         &self,
         lane_epoch: LaneEpoch,
@@ -573,10 +578,11 @@ impl LaneState {
             .iter()
             .filter(|(_, entry)| entry.reservation_generation.is_none());
         let first_sequence = committed.next().map(|(sequence, _)| *sequence);
-        let committed_count = first_sequence
-            .is_some()
-            .then(|| 1_usize.saturating_add(committed.count()))
-            .unwrap_or_default();
+        let committed_count = if first_sequence.is_some() {
+            1_usize.saturating_add(committed.count())
+        } else {
+            Default::default()
+        };
         committed_count >= config.max_entries_per_lane.get()
             && first_sequence.is_some_and(|first| sequence < first)
     }
@@ -619,8 +625,7 @@ impl LaneState {
                 .entries
                 .iter()
                 .filter(|(sequence, _)| Some(**sequence) != protected_sequence)
-                .filter(|(_, entry)| entry.reservation_generation.is_none())
-                .next()
+                .find(|(_, entry)| entry.reservation_generation.is_none())
             {
                 if self.entries.remove(&sequence).is_some() {
                     self.retire_evicted_sequence(sequence);
@@ -717,8 +722,12 @@ mod tests {
             config.max_lane_epochs.get(),
             ReplayCacheConfig::DEFAULT_LANE_EPOCH_CAPACITY
         );
-        assert!(ReplayCacheConfig::DEFAULT_CAPACITY > 0);
-        assert!(ReplayCacheConfig::DEFAULT_LANE_EPOCH_CAPACITY > 0);
+        const {
+            assert!(ReplayCacheConfig::DEFAULT_CAPACITY > 0);
+        }
+        const {
+            assert!(ReplayCacheConfig::DEFAULT_LANE_EPOCH_CAPACITY > 0);
+        }
     }
     #[test]
     fn fresh_insert_is_recorded() {
@@ -987,7 +996,11 @@ mod tests {
         for sequence in 9_u64..=10 {
             assert!(matches!(
                 cache.insert(
-                    ReplayKey::new(lane_epoch, sequence, fingerprint(sequence as u8)),
+                    ReplayKey::new(
+                        lane_epoch,
+                        sequence,
+                        fingerprint(u8::try_from(sequence).expect("fixture value fits u8"))
+                    ),
                     base + Duration::from_millis(sequence),
                 ),
                 ReplayInsertOutcome::Fresh { .. }
@@ -1121,7 +1134,11 @@ mod tests {
         for sequence in 1_u64..=2 {
             assert!(matches!(
                 cache.insert(
-                    ReplayKey::new(lane_epoch, sequence, fingerprint(sequence as u8)),
+                    ReplayKey::new(
+                        lane_epoch,
+                        sequence,
+                        fingerprint(u8::try_from(sequence).expect("fixture value fits u8"))
+                    ),
                     base + Duration::from_millis(sequence),
                 ),
                 ReplayInsertOutcome::Fresh { .. }
@@ -1283,7 +1300,11 @@ mod tests {
         for sequence in 10_u64..=12 {
             assert!(matches!(
                 cache.insert(
-                    ReplayKey::new(lane_epoch, sequence, fingerprint(sequence as u8)),
+                    ReplayKey::new(
+                        lane_epoch,
+                        sequence,
+                        fingerprint(u8::try_from(sequence).expect("fixture value fits u8"))
+                    ),
                     base + Duration::from_millis(sequence),
                 ),
                 ReplayInsertOutcome::Fresh { .. }
@@ -1415,7 +1436,11 @@ mod tests {
         for sequence in 9_u64..=10 {
             assert!(matches!(
                 cache.insert(
-                    ReplayKey::new(lane_epoch, sequence, fingerprint(sequence as u8)),
+                    ReplayKey::new(
+                        lane_epoch,
+                        sequence,
+                        fingerprint(u8::try_from(sequence).expect("fixture value fits u8"))
+                    ),
                     now,
                 ),
                 ReplayInsertOutcome::Fresh { .. }
@@ -1556,7 +1581,11 @@ mod tests {
         for (index, lane_epoch) in [first, second].into_iter().enumerate() {
             assert!(matches!(
                 cache.insert(
-                    ReplayKey::new(lane_epoch, 0, fingerprint(index as u8)),
+                    ReplayKey::new(
+                        lane_epoch,
+                        0,
+                        fingerprint(u8::try_from(index).expect("fixture value fits u8"))
+                    ),
                     base + Duration::from_millis(index as u64),
                 ),
                 ReplayInsertOutcome::Fresh { .. }

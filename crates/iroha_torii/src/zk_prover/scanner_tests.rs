@@ -137,7 +137,10 @@ fn report_persistence_failure_leaves_a_retryable_provisional_receipt() {
     super::TEST_REPORT_SAVE_FAILURE.store(true, AtomicOrdering::SeqCst);
     let error =
         process_attachment_once(&id).expect_err("report publication failure must be visible");
-    assert_eq!(error.kind(), IoErrorKind::Other);
+    assert_eq!(
+        error.io_error().expect("original IO failure").kind(),
+        IoErrorKind::Other
+    );
     assert_eq!(error.to_string(), "injected report publication failure");
     assert!(
         !super::TEST_REPORT_SAVE_FAILURE.load(AtomicOrdering::SeqCst),
@@ -247,7 +250,10 @@ fn malformed_report_file_stops_processing_fail_closed() {
         .expect("persist malformed report fixture");
 
     let error = block_on_scan().expect_err("malformed report must be a persistence failure");
-    assert_eq!(error.kind(), IoErrorKind::InvalidData);
+    assert_eq!(
+        error.io_error().expect("original IO failure").kind(),
+        IoErrorKind::InvalidData
+    );
     assert_eq!(
         fs::read(report_path_from_sanitized(&id)).expect("malformed report remains quarantined"),
         b"{not a report"
@@ -587,7 +593,10 @@ fn nonregular_attachment_body_produces_a_zero_read_rejection_report() {
         .expect_err("nonregular persisted body must be a storage failure");
     // Directory discovery securely opens each entry before yielding metadata;
     // it can reject the same nonregular body before the body-loader wrapper.
-    assert_eq!(error.kind(), IoErrorKind::InvalidData);
+    assert_eq!(
+        error.io_error().expect("original IO failure").kind(),
+        IoErrorKind::InvalidData
+    );
     assert!(error.to_string().contains("regular file"));
     assert!(
         try_load_report(&id)
@@ -760,7 +769,7 @@ fn immutable_snapshot_survives_path_replacement_without_reread() {
         vec![0_u8; PROOF_ATTACHMENT_BODY_MAX_BYTES_V1 as usize + 1],
     )
     .expect("replace path after immutable snapshot acquisition");
-    let report = process_attachment_snapshot_at(&loc, snapshot)
+    let report = process_attachment_snapshot_at(&loc, *snapshot)
         .expect("process immutable snapshot")
         .expect("immutable snapshot produces a report");
     assert!(report.ok, "path replacement affected snapshot: {report:?}");
@@ -1271,7 +1280,11 @@ fn oversized_first_attachment_cannot_starve_later_valid_work() {
     let error = super::block_on_scan()
         .expect_err("an oversized persisted body must fail the storage scan closed");
     assert!(
-        error.to_string().contains("first-release limit"),
+        error
+            .io_error()
+            .expect("original oversized-body IO cause")
+            .to_string()
+            .contains("first-release limit"),
         "unexpected oversized-body error: {error}"
     );
     assert!(
@@ -1280,7 +1293,7 @@ fn oversized_first_attachment_cannot_starve_later_valid_work() {
     );
     assert!(
         load_report(&valid_id).expect("drained valid report").ok,
-        "already-scheduled valid work must be drained before the scan returns its first error"
+        "already-scheduled valid work must be drained before the scan returns all original failures"
     );
 }
 #[test]
@@ -1664,4 +1677,168 @@ async fn background_worker_processes_pending_attachments() {
         0,
         "worker should drain pending attachments"
     );
+}
+
+#[test]
+fn original_verification_refusal_keeps_worker_receipt_retryable_without_report() {
+    let _env = TestDataDirGuard::new();
+    configure_test_cfg(Vec::new());
+    let tenant = anon_tenant_key();
+    let body = fixture_attachment_bytes();
+    let id = store_scanner_attachment(&tenant, &body, "application/x-norito");
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            TEST_VERIFICATION_DECODE_LIMITS.with(|value| value.set(None));
+        }
+    }
+    let reset = Reset;
+    TEST_VERIFICATION_DECODE_LIMITS.with(|value| value.set(Some(limits)));
+    let failure = process_attachment_once(&id).expect_err("actual worker verification must defer");
+    drop(reset);
+    let original = failure
+        .verification_refusal()
+        .expect("typed original verifier owner")
+        .decode_refusal()
+        .expect("captured policy decoder owner")
+        .clone();
+    assert!(
+        failure.io_error().is_none(),
+        "local owner must not be boxed as IO"
+    );
+    norito::with_decode_limits_scope(limits, || {
+        assert_eq!(
+            failure.verification_refusal().unwrap().decode_refusal(),
+            Some(&original)
+        );
+    });
+    assert!(!report_path_from_sanitized(&id).exists());
+    assert!(!report_summary_path_from_sanitized(&id).exists());
+    let mut receipt = load_prover_processing_receipt(&id).expect("provisional receipt persists");
+    assert!(!receipt.terminal);
+    assert_eq!(receipt.retry_count, 1);
+    assert!(receipt.completed_proof_indices.is_empty());
+    let deadline = receipt.retry_not_before_ms.expect("bounded retry deadline");
+    assert_eq!(
+        prover_processing_decision(&id, deadline),
+        ProverProcessingDecision::Due { retry_count: 1 }
+    );
+    assert_eq!(fs::read(attachment_bin_path(&tenant, &id)).unwrap(), body);
+    receipt.retry_not_before_ms = Some(0);
+    assert!(persist_prover_processing_receipt_if_referenced(&receipt).unwrap());
+    let retry = process_attachment_once(&id)
+        .expect("unchanged input retry completes")
+        .expect("report published after completion");
+    assert!(retry.ok);
+    assert!(load_prover_processing_receipt(&id).unwrap().terminal);
+}
+
+#[tokio::test]
+async fn parallel_scan_retains_all_worker_originals_in_both_arrival_orders() {
+    for deferred_first in [true, false] {
+        let _env = TestDataDirGuard::new();
+        configure_test_cfg(Vec::new());
+        let tenant = anon_tenant_key();
+        let local_id =
+            store_scanner_attachment(&tenant, &fixture_attachment_bytes(), "application/x-norito");
+        let io_id = store_scanner_attachment(&tenant, b"io-worker-input", "application/x-norito");
+        ensure_dirs().unwrap();
+        fs::write(report_path_from_sanitized(&io_id), b"{not a report").unwrap();
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let mut tasks = JoinSet::new();
+        let mut releases = Vec::new();
+        for local in [deferred_first, !deferred_first] {
+            let (send, receive) = tokio::sync::oneshot::channel();
+            releases.push(send);
+            let id = if local {
+                local_id.clone()
+            } else {
+                io_id.clone()
+            };
+            tasks.spawn(crate::panic_recovery::catch_async_recoverable(async move {
+                receive.await.expect("controlled arrival order");
+                struct Reset;
+                impl Drop for Reset {
+                    fn drop(&mut self) {
+                        TEST_VERIFICATION_DECODE_LIMITS.with(|value| value.set(None));
+                    }
+                }
+                let _reset = Reset;
+                if local {
+                    TEST_VERIFICATION_DECODE_LIMITS.with(|value| value.set(Some(limits)));
+                }
+                process_attachment_once(&id).map(|report| report.is_some())
+            }));
+        }
+        let mut errors = reserve_scan_failure_slots(2).unwrap();
+        let capacity = errors.capacity();
+        let pointer = errors.as_ptr();
+        let mut processed = 0;
+        for release in releases {
+            release.send(()).unwrap();
+            let result = tasks
+                .join_next()
+                .await
+                .expect("each admitted job returns once");
+            record_prover_join_result(result, &mut processed, &mut errors);
+        }
+        assert!(tasks.is_empty());
+        assert_eq!(processed, 0);
+        assert_eq!(errors.len(), 2, "neither arrival order may discard a cause");
+        assert_eq!(errors[0].verification_refusal().is_some(), deferred_first);
+        assert_eq!(errors[1].verification_refusal().is_some(), !deferred_first);
+        let captured = errors
+            .iter()
+            .find_map(ProverAttemptError::verification_refusal)
+            .unwrap()
+            .decode_refusal()
+            .unwrap()
+            .clone();
+        assert_eq!(capacity, errors.capacity());
+        assert_eq!(
+            pointer,
+            errors.as_ptr(),
+            "moving exact causes cannot grow storage"
+        );
+        // Cover the reserved scan/scheduling slot as well as every worker slot.
+        let original_io = fs::read(reports_dir().join("absent-scheduling-input")).unwrap_err();
+        errors.push(original_io.into());
+        assert_eq!(errors.len(), 3);
+        assert_eq!(capacity, errors.capacity());
+        assert_eq!(pointer, errors.as_ptr());
+        let failure = ProverScanError::Attempts(errors);
+        assert_eq!(
+            failure.io_error().unwrap().kind(),
+            IoErrorKind::InvalidData,
+            "an earlier retryable deferral cannot hide persistence failure"
+        );
+        norito::with_decode_limits_scope(limits, || {
+            assert_eq!(
+                failure
+                    .attempts()
+                    .iter()
+                    .find_map(ProverAttemptError::verification_refusal)
+                    .unwrap()
+                    .decode_refusal(),
+                Some(&captured)
+            );
+        });
+        let receipt = load_prover_processing_receipt(&local_id).unwrap();
+        assert!(!receipt.terminal);
+        assert!(receipt.completed_proof_indices.is_empty());
+        assert!(!report_path_from_sanitized(&local_id).exists());
+        assert_eq!(
+            fs::read(report_path_from_sanitized(&io_id)).unwrap(),
+            b"{not a report"
+        );
+    }
+}
+
+#[test]
+fn impossible_scan_failure_geometry_refuses_before_any_worker() {
+    assert!(matches!(
+        reserve_scan_failure_slots(usize::MAX),
+        Err(ProverScanError::FailureStorage(_))
+    ));
 }

@@ -211,7 +211,7 @@ fn register_capacity_provider(
                     Quantity::zero(),
                     (now - 6_500) / 1_000,
                     (now - 6_500) / 1_000,
-                    Default::default(),
+                    iroha_model_base::metadata::Metadata::default(),
                 ),
             )
             .into(),
@@ -759,7 +759,7 @@ fn native_gateway_provider_executes_real_admission_ack_serving_and_release_under
                     .rejection()
                     .map_or(Error::Unavailable, observation_error)
             })?;
-        runtime.deliver(admitted.record, deadline)?;
+        runtime.deliver(&admitted.record, deadline)?;
         let append = driver.appends();
         assert_eq!(
             append.len(),
@@ -787,31 +787,31 @@ fn native_gateway_provider_executes_real_admission_ack_serving_and_release_under
                     .rejection()
                     .map_or(Error::Unavailable, observation_error)
             })?;
-        runtime.deliver(admitted.record, deadline)?;
+        runtime.deliver(&admitted.record, deadline)?;
         assert_eq!(
             driver.appends(),
             append,
             "terminal replay cannot sign or submit again"
         );
         assert_eq!(
-            runtime.acknowledge(admitted.record, deadline)?,
+            runtime.acknowledge(&admitted.record, deadline)?,
             Ack::Acknowledged
         );
         assert_eq!(
-            runtime.confirm_serving(&request, admitted.record, deadline)?,
+            runtime.confirm_serving(&request, &admitted.record, deadline)?,
             admitted.record
         );
         assert_eq!(
-            runtime.acknowledge(admitted.record, deadline)?,
+            runtime.acknowledge(&admitted.record, deadline)?,
             Ack::ExactReplay
         );
         assert_eq!(
-            runtime.release_lease(admitted.record, deadline)?,
+            runtime.release_lease(&admitted.record, deadline)?,
             Ack::Acknowledged
         );
         assert!(
             runtime
-                .confirm_serving(&request, admitted.record, deadline)
+                .confirm_serving(&request, &admitted.record, deadline)
                 .is_err()
         );
         Ok(())
@@ -845,9 +845,12 @@ fn native_gateway_queue_timeout_retains_only_one_exact_original_envelope() {
         .sign(&instruction, false, deadline)
         .unwrap();
     let submitter = runtime.clone();
-    let submitted = signed.clone();
-    let worker =
-        std::thread::spawn(move || submitter.transactions.submit_and_wait(&submitted, deadline));
+    let worker_transaction = signed.clone();
+    let worker = std::thread::spawn(move || {
+        submitter
+            .transactions
+            .submit_and_wait(&worker_transaction, deadline)
+    });
     // Inspect the exact original while its signed TTL is still live; the queue correctly
     // suppresses expired entries from its pending view after the operation deadline.
     let retained = loop {
@@ -905,13 +908,13 @@ impl StreamTokenGatewayAdmissionProviderV1 for ForbiddenInjectedProvider {
     ) -> Result<StreamTokenGatewayReconciliationReadV1, Error> {
         panic!("startup must not inspect injected background work")
     }
-    fn acknowledge(&self, _: Record, _: Instant) -> Result<Ack, Error> {
+    fn acknowledge(&self, _: &Record, _: Instant) -> Result<Ack, Error> {
         panic!("startup must not acknowledge through an injected provider")
     }
-    fn release_lease(&self, _: Record, _: Instant) -> Result<Ack, Error> {
+    fn release_lease(&self, _: &Record, _: Instant) -> Result<Ack, Error> {
         panic!("startup must not release through an injected provider")
     }
-    fn confirm_serving(&self, _: &Request, _: Record, _: Instant) -> Result<Record, Error> {
+    fn confirm_serving(&self, _: &Request, _: &Record, _: Instant) -> Result<Record, Error> {
         panic!("startup must not accept an injected serving claim")
     }
 }
@@ -1033,7 +1036,7 @@ fn native_gateway_delivery_commits_expiry_before_returning_without_an_append() {
             },
         )
         .unwrap();
-    runtime.deliver(record, deadline).unwrap();
+    runtime.deliver(&record, deadline).unwrap();
     let proof = runtime
         .checked(Selector::Admission(original), deadline)
         .unwrap();
@@ -1052,10 +1055,10 @@ fn native_gateway_delivery_commits_expiry_before_returning_without_an_append() {
         )
         .unwrap();
     assert_eq!(
-        runtime.acknowledge(record, deadline).unwrap(),
+        runtime.acknowledge(&record, deadline).unwrap(),
         Ack::ExactReplay
     );
-    runtime.deliver(record, deadline).unwrap();
+    runtime.deliver(&record, deadline).unwrap();
     assert!(
         driver.appends().is_empty(),
         "eligibility never authorized an expired Append"
@@ -1172,10 +1175,10 @@ fn native_gateway_delivery_rejects_substitution_permission_drift_and_original_de
     let queued_before = queue.queued_len();
     let mut substituted = admitted.record;
     substituted.serving_attempt_id[0] ^= 1;
-    assert!(runtime.deliver(substituted, deadline).is_err());
+    assert!(runtime.deliver(&substituted, deadline).is_err());
     let expired = Instant::now();
     assert_eq!(
-        runtime.deliver(admitted.record, expired),
+        runtime.deliver(&admitted.record, expired),
         Err(Error::Unavailable)
     );
     assert_eq!(
@@ -1201,7 +1204,7 @@ fn native_gateway_delivery_rejects_substitution_permission_drift_and_original_de
         .submit_and_wait(&signed, deadline)
         .unwrap();
     assert!(
-        runtime.deliver(admitted.record, deadline).is_err(),
+        runtime.deliver(&admitted.record, deadline).is_err(),
         "current recorder permission is checked after actual finalized revocation"
     );
     assert!(
@@ -1261,9 +1264,8 @@ fn native_gateway_consume_refusal_retries_original_check_before_one_capture_sign
         )
     };
     pool.set_limit_bytes(0);
-    let failed = consume(proof)
-        .err()
-        .expect("final authenticated consume refuses on the original State pool");
+    let failed =
+        consume(proof).expect_err("final authenticated consume refuses on the original State pool");
     let signed_check = failed.signed_transaction().clone();
     assert_eq!(failed.deadline(), deadline);
     assert_eq!(

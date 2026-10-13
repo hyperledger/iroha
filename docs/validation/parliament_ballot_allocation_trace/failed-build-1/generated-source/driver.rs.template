@@ -1,0 +1,161 @@
+//! Separately built fixed-storage allocation diagnostic, never a shipping API.
+//! Module paths are derived and pinned by the preparation/build receipt.
+#![allow(unsafe_code)]
+
+#[path = "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/resource_contract/arena.rs"]
+mod arena;
+#[path = "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/resource_contract/budget.rs"]
+mod budget;
+#[path = "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/resource_contract/native.rs"]
+mod native;
+mod trace;
+#[path = "generated_workspace.rs"]
+mod workspace;
+
+use iroha_parliament_ballot_proof::profile::{Role, Row};
+
+#[derive(norito::json::JsonSerialize)]
+struct ControlReport<'a> {
+    control: &'a str,
+    routed_allocations: usize,
+    trace: trace::Report,
+    complete_workspace_certificate: bool,
+    profile_qualified: bool,
+}
+
+#[derive(norito::json::JsonSerialize)]
+struct WorkerReport {
+    worker: workspace::Report,
+    trace: trace::Report,
+    read_mode: &'static str,
+    complete_workspace_certificate: bool,
+    profile_qualified: bool,
+}
+
+fn usage() -> ! {
+    eprintln!(
+        "allocation_trace TRACE_FILE candidate|comparator registration|vote INPUT [--heap-limit N] [--units N] [--input-bytes N] [--read-mode normal|eof|eio], or TRACE_FILE --control empty|routed|realloc|overflow|collision"
+    );
+    std::process::exit(3)
+}
+
+fn seal() -> trace::Report {
+    trace::seal_and_write().unwrap_or_else(|error| {
+        eprintln!("allocation trace could not be retained: {error}");
+        std::process::exit(76)
+    })
+}
+
+fn main() {
+    let args: Vec<_> = std::env::args_os().collect();
+    if args.len() < 4 {
+        usage();
+    }
+    trace::init(std::path::Path::new(&args[1])).unwrap_or_else(|error| {
+        eprintln!("allocation trace setup failed: {error}");
+        std::process::exit(75)
+    });
+    if args.len() == 4 && args[2] == "--control" {
+        let kind = match args[3].to_str() {
+            Some("empty") => 0,
+            Some("routed") => 1,
+            Some("realloc") => 2,
+            Some("overflow") => 3,
+            Some("collision") => 4,
+            _ => usage(),
+        };
+        let result = workspace::run_trace_control(kind);
+        let trace = seal();
+        let invalid = !trace.observation_valid;
+        match result {
+            Ok(count) => {
+                println!(
+                    "{}",
+                    norito::json::to_json(&ControlReport {
+                        control: args[3].to_str().expect("validated control"),
+                        routed_allocations: count,
+                        trace,
+                        complete_workspace_certificate: false,
+                        profile_qualified: false,
+                    })
+                    .expect("fixed diagnostic report")
+                );
+                std::process::exit(if invalid { 76 } else { 0 });
+            }
+            Err(native::NativeError(operation, code)) => {
+                eprintln!("allocation control failed: {operation} ({code})");
+                std::process::exit(76)
+            }
+        }
+    }
+    if args.len() < 5 || (args.len() - 5) % 2 != 0 {
+        usage();
+    }
+    let row = match args[2].to_str() {
+        Some("candidate") => Row::Candidate,
+        Some("comparator") => Row::Comparator,
+        _ => usage(),
+    };
+    let role = match args[3].to_str() {
+        Some("registration") => Role::Registration,
+        Some("vote") => Role::Vote,
+        _ => usage(),
+    };
+    let mut options = workspace::Options {
+        row,
+        role,
+        path: std::path::Path::new(&args[4]),
+        heap_limit: arena::HEAP_BYTES,
+        units: budget::VERIFICATION_UNITS,
+        input_bytes: budget::MAX_INPUT_BYTES as u64,
+    };
+    let mut mode = "normal";
+    for pair in args[5..].chunks_exact(2) {
+        if pair[0] == "--read-mode" {
+            let (number, label) = match pair[1].to_str() {
+                Some("normal") => (0, "normal"),
+                Some("eof") => (1, "eof"),
+                Some("eio") => (2, "eio"),
+                _ => usage(),
+            };
+            trace::set_read_mode(number).unwrap_or_else(|_| usage());
+            mode = label;
+            continue;
+        }
+        let value = pair[1]
+            .to_str()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or_else(|| usage());
+        match pair[0].to_str() {
+            Some("--heap-limit") => {
+                options.heap_limit = usize::try_from(value).unwrap_or_else(|_| usage())
+            }
+            Some("--units") => options.units = value,
+            Some("--input-bytes") => options.input_bytes = value,
+            _ => usage(),
+        }
+    }
+    let result = workspace::run(options);
+    let trace = seal();
+    let invalid = !trace.observation_valid;
+    match result {
+        Ok((worker, exit)) => {
+            println!(
+                "{}",
+                norito::json::to_json(&WorkerReport {
+                    worker,
+                    trace,
+                    read_mode: mode,
+                    complete_workspace_certificate: false,
+                    profile_qualified: false,
+                })
+                .expect("fixed diagnostic report")
+            );
+            std::process::exit(if invalid { 76 } else { exit });
+        }
+        Err(native::NativeError(operation, code)) => {
+            eprintln!("allocation worker setup failed: {operation} ({code})");
+            std::process::exit(if invalid { 76 } else { 4 });
+        }
+    }
+}

@@ -23,7 +23,7 @@
 //! (`specs/sumeragi.md` §12.3 O2) and never leaves a partial record visible.
 
 use std::{
-    collections::HashSet,
+    collections::BTreeSet,
     fs::{self, File, OpenOptions},
     io::{self, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -280,7 +280,7 @@ pub struct FileRecordStore {
     /// Serializes installation-log appends.
     log_lock: Mutex<()>,
     /// Directories whose entry in their parent was made durable by this process.
-    durable_dirs: Mutex<HashSet<PathBuf>>,
+    durable_dirs: Mutex<BTreeSet<PathBuf>>,
 }
 
 impl core::fmt::Debug for FileRecordStore {
@@ -328,7 +328,7 @@ impl FileRecordStore {
             log_path,
             faults,
             log_lock: Mutex::new(()),
-            durable_dirs: Mutex::new(HashSet::new()),
+            durable_dirs: Mutex::new(BTreeSet::new()),
         })
     }
 

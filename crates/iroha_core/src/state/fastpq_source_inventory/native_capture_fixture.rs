@@ -240,7 +240,12 @@ fn with_native_state_sources<T>(
             ALICE_ID.clone(),
             FeePaymentIntent::authority(vec![], None),
         );
-        transaction.set_creation_time(header.creation_time() - Duration::from_millis(1));
+        transaction.set_creation_time(
+            header
+                .creation_time()
+                .checked_sub(Duration::from_millis(1))
+                .unwrap(),
+        );
         let mut transaction = transaction.with_instructions(body);
         {
             let view = state.view();
@@ -484,7 +489,9 @@ pub(crate) fn assert_native_publication_refuses(
     let tx = tx.with_instructions(body).sign(ALICE_KEYPAIR.private_key());
     // The actual assembler owns cadence and transaction/parent ordering.
     let proposal = chain.proposal(None, vec![tx]);
-    let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+    let mut pending = chain
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        .unwrap();
     let original_result = pending.result();
     pending.inspect(inspect).unwrap();
     assert!(pending.prepare(Signers::Quorum).is_err());

@@ -731,6 +731,10 @@ fn expect_json_object(value: norito::json::Value, context: &str) -> norito::json
     }
 }
 #[test]
+#[expect(
+    clippy::mutex_integer,
+    reason = "the test verifies recovery of a value after mutex poisoning, which an atomic cannot exercise"
+)]
 fn registry_lock_recovers_after_a_guard_unwinds() {
     let mutex = Mutex::new(0_u8);
     let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

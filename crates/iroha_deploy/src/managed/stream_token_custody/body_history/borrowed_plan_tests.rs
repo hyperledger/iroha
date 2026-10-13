@@ -163,7 +163,7 @@ fn genuine_signed_originals_share_only_the_exact_parser_plan_and_preserve_active
 
     // Genuine canonical Original validation has one semantic implementation. The sealed
     // borrow removes only a repeated full-profile producer at its late interval comparison.
-    let original = history.original().unwrap().unwrap();
+    let original = history.original().unwrap();
     let plan = fixture.owner.authority.provider_plan().unwrap();
     let borrowed = BodyOriginalPlan {
         owner: &fixture.owner,

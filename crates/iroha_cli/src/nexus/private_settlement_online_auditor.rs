@@ -45,7 +45,7 @@ const PRIVATE_SETTLEMENT_AUDITOR_BUSINESS_POLICY_FILE_MAX_BYTES_V1: u64 = 256 * 
 #[derive(PartialEq, Eq, norito::derive::JsonSerialize, norito::derive::JsonDeserialize)]
 #[cfg_attr(test, derive(Clone))]
 #[norito(deny_unknown_fields)]
-pub(crate) struct PrivateSettlementAuditorBusinessPolicyV1 {
+pub struct PrivateSettlementAuditorBusinessPolicyV1 {
     version: u8,
     exact_network_id: NetworkId,
     exact_route: PrivateSettlementRouteV1,
@@ -175,7 +175,7 @@ impl PrivateSettlementAuditorBusinessPolicyV1 {
         Ok(())
     }
 
-    fn approves_input_v1(&self, input: PrivateSettlementAuditorBusinessPolicyInputV1<'_>) -> bool {
+    fn approves_input_v1(&self, input: &PrivateSettlementAuditorBusinessPolicyInputV1<'_>) -> bool {
         self.validate().is_ok()
             && input.network_id == self.exact_network_id
             && input.route == self.exact_route
@@ -220,7 +220,7 @@ impl PrivateSettlementAuditPolicyEvaluatorV1 for PrivateSettlementAuditorBusines
         &self,
         context: iroha_core::private_settlement::PrivateSettlementAuditEvaluationV1<'_>,
     ) -> bool {
-        self.approves_input_v1(PrivateSettlementAuditorBusinessPolicyInputV1 {
+        self.approves_input_v1(&PrivateSettlementAuditorBusinessPolicyInputV1 {
             network_id: context.plaintext.network_id,
             route: context.plaintext.route,
             pool_id: context.plaintext.pool_id,
@@ -321,7 +321,7 @@ impl PrivateSettlementOnlineAuditorTransportV1 for Client {
 fn validate_committee_endpoints_v1(endpoints: &[Url]) -> Result<()> {
     let unique = endpoints
         .iter()
-        .map(|endpoint| endpoint.as_str())
+        .map(url::Url::as_str)
         .collect::<BTreeSet<_>>();
     if endpoints.len() != PRIVATE_SETTLEMENT_AUDITOR_COMMITTEE_SIZE_V1
         || unique.len() != PRIVATE_SETTLEMENT_AUDITOR_COMMITTEE_SIZE_V1
@@ -340,7 +340,7 @@ fn validate_committee_endpoints_v1(endpoints: &[Url]) -> Result<()> {
 ///
 /// Returns a redacted error when the authority shape, key algorithms, or proofs
 /// of possession are invalid.
-pub(crate) fn validate_private_settlement_expected_authority_v1(
+pub fn validate_private_settlement_expected_authority_v1(
     authority: &PrivateSettlementCommitteeAuthorityV1,
 ) -> Result<()> {
     authority
@@ -419,6 +419,19 @@ where
         .map_err(|_| eyre!("private-settlement online auditor acknowledgement quorum failed"))
 }
 
+/// Exact settlement request and its authenticated audit policy context.
+#[derive(Debug)]
+pub struct PrivateSettlementOnlineAuditorOperationV1<'a> {
+    /// Committee identity required of every endpoint response.
+    pub expected_authority: &'a PrivateSettlementCommitteeAuthorityV1,
+    /// Exact encrypted settlement payload being audited.
+    pub payload_digest: iroha_crypto::Hash,
+    /// Committed audit policy and key epoch for this operation.
+    pub audit_policy: &'a PrivateSettlementAuditPolicyV1,
+    /// Pool governance binding the operation to that audit policy.
+    pub pool_governance: &'a PrivateSettlementPoolGovernanceV1,
+}
+
 /// Fetch, decrypt, evaluate, sign, and submit one approval as a fail-closed CLI operation.
 ///
 /// The client transport supplies exact three-of-four views and acknowledgement
@@ -431,13 +444,10 @@ where
 /// Returns only redacted endpoint-quorum, stale-height, credential/policy, or
 /// acknowledgement-quorum failures. Decrypted plaintext and provider details
 /// never cross this boundary.
-pub(crate) fn coordinate_private_settlement_online_auditor_v1<P, E>(
+pub fn coordinate_private_settlement_online_auditor_v1<P, E>(
     client: &Client,
     endpoints: &[Url],
-    expected_authority: &PrivateSettlementCommitteeAuthorityV1,
-    payload_digest: iroha_crypto::Hash,
-    audit_policy: &PrivateSettlementAuditPolicyV1,
-    pool_governance: &PrivateSettlementPoolGovernanceV1,
+    operation: &PrivateSettlementOnlineAuditorOperationV1<'_>,
     credentials: &P,
     request_signer: &dyn IdentityRequestSignerV1,
     evaluator: &E,
@@ -446,6 +456,10 @@ where
     P: PrivateSettlementAuditorCredentialProviderV1 + ?Sized,
     E: PrivateSettlementAuditPolicyEvaluatorV1 + ?Sized,
 {
+    let expected_authority = operation.expected_authority;
+    let payload_digest = operation.payload_digest;
+    let audit_policy = operation.audit_policy;
+    let pool_governance = operation.pool_governance;
     if credentials.approval_public_key() != request_signer.public_key()
         || audit_policy.validate().is_err()
         || pool_governance.body.audit_policy_digest != audit_policy.policy_digest
@@ -582,7 +596,7 @@ impl Drop for PrivateSettlementAuditorSecretFileV1 {
 }
 
 /// Runtime-only restricted pool mapping that clears its asset-binding opening on drop.
-pub(crate) struct ZeroizingPrivateSettlementPoolGovernanceV1(PrivateSettlementPoolGovernanceV1);
+pub struct ZeroizingPrivateSettlementPoolGovernanceV1(PrivateSettlementPoolGovernanceV1);
 
 impl core::ops::Deref for ZeroizingPrivateSettlementPoolGovernanceV1 {
     type Target = PrivateSettlementPoolGovernanceV1;
@@ -605,7 +619,7 @@ impl Drop for ZeroizingPrivateSettlementPoolGovernanceV1 {
 /// `ml_kem_768_secret_hex` fields. It must be absolute, owner-only mode `0600`,
 /// singly linked, with a non-symlink final path component. File and decoded
 /// component buffers are zeroized after checked key construction.
-pub(crate) fn load_private_settlement_auditor_secret_v1(path: &Path) -> Result<HybridSecretKey> {
+pub fn load_private_settlement_auditor_secret_v1(path: &Path) -> Result<HybridSecretKey> {
     let bytes = read_owner_only_auditor_secret_file_v1(path)?;
     let encoded: PrivateSettlementAuditorSecretFileV1 = norito::json::from_slice(bytes.as_slice())
         .map_err(|_| eyre!("private-settlement auditor decryption-key file is invalid"))?;
@@ -630,7 +644,7 @@ pub(crate) fn load_private_settlement_auditor_secret_v1(path: &Path) -> Result<H
 ///
 /// Returns a redacted error when secure file admission, strict Norito JSON
 /// decoding, authority shape, key algorithms, or proofs of possession fail.
-pub(crate) fn load_private_settlement_committee_authority_v1(
+pub fn load_private_settlement_committee_authority_v1(
     path: &Path,
 ) -> Result<PrivateSettlementCommitteeAuthorityV1> {
     let bytes = read_owner_only_auditor_secret_file_v1(path)
@@ -643,7 +657,7 @@ pub(crate) fn load_private_settlement_committee_authority_v1(
 }
 
 /// Load and validate one restricted pool-governance record without echoing its contents.
-pub(crate) fn load_private_settlement_pool_governance_v1(
+pub fn load_private_settlement_pool_governance_v1(
     path: &Path,
 ) -> Result<ZeroizingPrivateSettlementPoolGovernanceV1> {
     let bytes = read_owner_only_auditor_secret_file_v1(path)
@@ -661,7 +675,7 @@ pub(crate) fn load_private_settlement_pool_governance_v1(
 /// This owner-only input is sent as signed request evidence and is accepted by
 /// a validator only when its self-digest, epoch, lifecycle, and dataspace match
 /// the exact policy revision active in that validator's WSV.
-pub(crate) fn load_private_settlement_audit_policy_v1(
+pub fn load_private_settlement_audit_policy_v1(
     path: &Path,
 ) -> Result<PrivateSettlementAuditPolicyV1> {
     let bytes = read_owner_only_auditor_restricted_file_v1(
@@ -678,7 +692,7 @@ pub(crate) fn load_private_settlement_audit_policy_v1(
 }
 
 /// Load and validate one strict owner-only local business policy.
-pub(crate) fn load_private_settlement_auditor_business_policy_v1(
+pub fn load_private_settlement_auditor_business_policy_v1(
     path: &Path,
 ) -> Result<PrivateSettlementAuditorBusinessPolicyV1> {
     let bytes = read_owner_only_auditor_business_policy_file_v1(path)
@@ -1410,18 +1424,18 @@ mod tests {
             .validate()
             .expect("strict business policy fixture validates");
         let references = [fixture.policy_reference];
-        assert!(fixture.policy.approves_input_v1(business_policy_input_v1(
+        assert!(fixture.policy.approves_input_v1(&business_policy_input_v1(
             &fixture,
             500,
             &references
         )));
-        assert!(!fixture.policy.approves_input_v1(business_policy_input_v1(
+        assert!(!fixture.policy.approves_input_v1(&business_policy_input_v1(
             &fixture,
             1_001,
             &references
         )));
         let unexpected = [iroha_crypto::Hash::prehashed([0xFF; 32])];
-        assert!(!fixture.policy.approves_input_v1(business_policy_input_v1(
+        assert!(!fixture.policy.approves_input_v1(&business_policy_input_v1(
             &fixture,
             500,
             &unexpected

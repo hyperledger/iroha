@@ -27,10 +27,10 @@ fn install_genesis_outputs(
         .set_execution_outputs(
             outputs,
             fragments,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &limits,
         )
         .expect("structural genesis outputs must fit their explicit finite fixture policy");

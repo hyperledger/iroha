@@ -397,16 +397,6 @@ fn attestation_tail_refuses_changed_native_genesis_before_status_and_retries_ori
 #[inline(never)]
 fn check_tail_source_retry(chain: &CertifiedTestChain) {
     use std::os::unix::fs::MetadataExt as _;
-    let original_height = chain.height();
-    let view = chain.state().view();
-    let original = capture(&view, chain, [49; 32], status(chain)).unwrap();
-    let source =
-        crate::kura::Kura::canonical_storage_path(&chain.kura().store_root()).join("blocks.data");
-    let saved = source.with_extension("attestation-tail-original");
-    let bytes = std::fs::read(&source).unwrap();
-    let original_identity = std::fs::metadata(&source).unwrap().ino();
-    let budget = view.execution_budget();
-    let reserved = budget.reserved_bytes();
     struct RestoreJournal<'a> {
         source: &'a std::path::Path,
         saved: &'a std::path::Path,
@@ -419,6 +409,16 @@ fn check_tail_source_retry(chain: &CertifiedTestChain) {
             std::fs::rename(self.saved, self.source).unwrap();
         }
     }
+    let original_height = chain.height();
+    let view = chain.state().view();
+    let original = capture(&view, chain, [49; 32], status(chain)).unwrap();
+    let source =
+        crate::kura::Kura::canonical_storage_path(&chain.kura().store_root()).join("blocks.data");
+    let saved = source.with_extension("attestation-tail-original");
+    let bytes = std::fs::read(&source).unwrap();
+    let original_identity = std::fs::metadata(&source).unwrap().ino();
+    let budget = view.execution_budget();
+    let reserved = budget.reserved_bytes();
     for kind in ["missing", "same-bytes-replacement", "symlink"] {
         std::fs::rename(&source, &saved).unwrap();
         let restore = RestoreJournal {

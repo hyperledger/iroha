@@ -148,8 +148,8 @@ fn closed_row_scope_custody_overrides_real_optional_and_decode_results_and_resto
         .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
         .unwrap();
     let original_names = attempt.directory.entries(7).unwrap();
-    let held_authorization = fixture._temporary.path().join("held-authorization.nrt");
-    let held_row = fixture._temporary.path().join("held-row");
+    let held_authorization = fixture.temporary.path().join("held-authorization.nrt");
+    let held_row = fixture.temporary.path().join("held-row");
     for boundary in ["row", "anchor"] {
         for kind in ["present", "absence", "decoder_error", "native_not_found"] {
             if kind == "decoder_error" {

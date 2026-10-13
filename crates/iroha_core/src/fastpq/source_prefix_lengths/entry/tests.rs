@@ -182,10 +182,13 @@ fn one_and_many_occurrences_match_whole_canonical_frames_with_distinct_facts() {
     let mut sizer = SourceEntryFrameSizer::new(hash(), limits()).unwrap();
     let mut bundle = Vec::new();
     for index in 0..40 {
-        let deltas = (0..(1 + index % 3))
+        let deltas = (0..=(index % 3))
             .map(|offset| delta((index + offset) % 29, index % 2 == 1))
             .collect();
-        bundle.push(transcript(deltas, index as u8));
+        bundle.push(transcript(
+            deltas,
+            u8::try_from(index).expect("fixture value fits u8"),
+        ));
         let measured = sizer.append(bundle.last().unwrap()).unwrap();
         assert_eq!(measured, reference(&bundle), "occurrence {}", index + 1);
         let actual = statement(&bundle);
@@ -233,7 +236,12 @@ fn same_entry_committed_and_pending_slices_are_measured_without_copying_or_doubl
 fn actual_private_path_and_outer_field_boundaries_preserve_exact_parity() {
     for count in [1, 2, 127, 128] {
         let bundle: Vec<_> = (0..count)
-            .map(|index| transcript(vec![delta(index % 29, false)], index as u8))
+            .map(|index| {
+                transcript(
+                    vec![delta(index % 29, false)],
+                    u8::try_from(index).expect("fixture value fits u8"),
+                )
+            })
             .collect();
         assert_eq!(
             measure_fastpq_source_entry_frame_usage(hash(), &bundle, limits()).unwrap(),
@@ -494,7 +502,12 @@ fn measured_candidate_source_frames_keep_exact_intrinsic_and_obligation_bounds()
             );
             delta.to_smt_witness = delta.from_smt_witness.clone();
             let bundle: Vec<_> = (0..count)
-                .map(|index| transcript(vec![delta.clone()], index as u8))
+                .map(|index| {
+                    transcript(
+                        vec![delta.clone()],
+                        u8::try_from(index).expect("fixture value fits u8"),
+                    )
+                })
                 .collect();
             let expected = FastpqSourceTranscriptUsage {
                 transcripts: count,

@@ -26,8 +26,8 @@ pub(in crate::state) fn value(id: &AssetId, amount: u32) -> AssetValue {
     Asset::new(id.clone(), amount).into_key_value().1
 }
 
-pub(in crate::state) fn fixture(context: bool) -> Box<World> {
-    let mut world = Box::new(World::default());
+pub(in crate::state) fn fixture(context: bool) -> World {
+    let mut world = World::default();
     for owner in [&*ALICE_ID, &*BOB_ID] {
         let (id, account) = Account::new(owner.clone()).build(owner).into_key_value();
         world.accounts.insert(id, account);
@@ -133,10 +133,10 @@ impl Geometry for AssetId {
             }
     }
 }
-fn logical<'a, K: mv::Key, V: mv::Value>(
-    rows: &'a impl RawStorageImages<K, V>,
+fn logical<K: mv::Key, V: mv::Value>(
+    rows: &impl RawStorageImages<K, V>,
     image: GroupImage,
-) -> Vec<(&'a K, &'a V)> {
+) -> Vec<(&K, &V)> {
     match image {
         GroupImage::Current => rows.current_entries().collect(),
         GroupImage::Predecessor => rows

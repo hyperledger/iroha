@@ -258,7 +258,7 @@ impl Queue {
             return Ok(None);
         };
         let before = state.state_view_generation();
-        if before % 2 != 0 {
+        if !before.is_multiple_of(2) {
             return Err(publication_release);
         }
         if before != lease.publication_generation
@@ -275,7 +275,7 @@ impl Queue {
             })
         });
         let after = state.state_view_generation();
-        if after % 2 != 0 {
+        if !after.is_multiple_of(2) {
             return Err(publication_release);
         }
         Ok(
@@ -295,7 +295,7 @@ impl Queue {
         if lease.queue_address != std::ptr::from_ref(self).addr()
             || lease.state_address != std::ptr::from_ref(state).addr()
             || self.admission_faulted()
-            || (publication_generation % 2 == 0
+            || (publication_generation.is_multiple_of(2)
                 && publication_generation != lease.publication_generation)
             || !lease.admissions.as_slice().iter().all(|admission| {
                 self.txs

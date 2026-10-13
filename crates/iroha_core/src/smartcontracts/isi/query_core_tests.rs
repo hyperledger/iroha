@@ -190,7 +190,7 @@ async fn validate_for_client_world_parts_matches_state_view_path() {
         QueryRequest::Singular(SingularQueryBox::FindParameters(FindParameters)),
         &ALICE_ID,
         &world,
-        latest_block,
+        latest_block.as_ref(),
         limits,
         &state.ivm_execution_budget(),
     )

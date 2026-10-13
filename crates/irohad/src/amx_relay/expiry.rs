@@ -122,7 +122,7 @@ pub(super) async fn recover_carrier(
             },
         )
         .await?;
-    if cfg!(all(test, sumeragi_daemon_mutation = "HC285")) {
+    if cfg!(all(test, sumeragi_daemon_mutation = "HC340")) {
         // Mutation: decoded terminal journal progress replaces a fresh exact-carrier read.
         return Ok(());
     }

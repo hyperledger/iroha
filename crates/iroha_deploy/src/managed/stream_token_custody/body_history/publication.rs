@@ -89,6 +89,10 @@ impl PublishedAnchor {
 
 // These variants are private to the concrete body owner. They are never decoded from disk,
 // manufactured from a height/hash/path, returned by a callback, or accepted by an effect API.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Publication hands off original retained values; active decode limits preserve the measured full-parser allocation recipe"
+)]
 pub(super) enum PublishedBodyDelta {
     Anchor(PublishedAnchor),
     Reserved {
@@ -575,11 +579,11 @@ impl BodyHistory {
         drop(timing);
         #[cfg(test)]
         let step = publication.step();
-        let result = (|| {
-            #[cfg(test)]
-            publication_tests::before_admission(step, &self, owner)?;
-            self.admit_publication(owner, publication, reference, plan, wallets)
-        })();
+        #[cfg(test)]
+        let result = publication_tests::before_admission(step, &self, owner)
+            .and_then(|()| self.admit_publication(owner, publication, reference, plan, wallets));
+        #[cfg(not(test))]
+        let result = self.admit_publication(owner, publication, reference, plan, wallets);
         // Match the canonical producer: original profile exit outranks every ordinary inner
         // result. No transition capability or borrowed profile verdict survives this point.
         #[cfg(test)]

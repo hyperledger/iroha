@@ -111,15 +111,15 @@ impl ParliamentAttemptStateV1 {
                 .filter(|election| election.attempt.status == BodyElectionAttemptStatusV1::NoRoster)
                 .map(|election| (*body, election.attempt.sequence))
         });
-        let capacity_failures = self
-            .active_sortition_capacity_failures
-            .iter()
-            .filter_map(|(body, id)| {
-                self.sortition_capacity_failures
-                    .get(id)
-                    .filter(|failure| failure.status == BodyElectionAttemptStatusV1::NoRoster)
-                    .map(|failure| (*body, failure.sequence))
-            });
+        let capacity_failures =
+            self.active_sortition_capacity_failures
+                .iter()
+                .filter_map(|(body, id)| {
+                    self.sortition_capacity_failures
+                        .get(id)
+                        .filter(|failure| failure.status == BodyElectionAttemptStatusV1::NoRoster)
+                        .map(|failure| (*body, failure.sequence))
+                });
         elections.chain(capacity_failures).collect()
     }
 
@@ -141,7 +141,10 @@ impl ParliamentAttemptStateV1 {
         beacon_session_id: BeaconSessionId,
         governance: &Governance,
         eligible_candidates: Vec<AccountId>,
-    ) -> Option<(Vec<ParliamentSortitionRequestRegistrationV1>, Vec<AccountId>)> {
+    ) -> Option<(
+        Vec<ParliamentSortitionRequestRegistrationV1>,
+        Vec<AccountId>,
+    )> {
         let failed = self.no_roster_sortition_generations_v1();
         let candidate_snapshot = if failed.contains_key(&ParliamentBody::ConfirmationJury) {
             if failed.len() != 1 {
@@ -797,6 +800,12 @@ impl ParliamentAttemptStateV1 {
         network_id: &NetworkId,
         governance: &Governance,
     ) -> Result<(), ParliamentReducerErrorV1> {
+        struct DerivedElectionPlan {
+            election_id: BodyElectionAttemptId,
+            primary: Vec<ParliamentSeatAssignmentV1>,
+            alternates: Vec<ParliamentSeatAssignmentV1>,
+            assignment_root: [u8; 32],
+        }
         self.ensure_active(governance_attempt_id)?;
         if pulse_id.as_bytes().iter().all(|byte| *byte == 0) {
             return Err(ParliamentReducerErrorV1::DuplicateOrZeroIdentifier(
@@ -901,12 +910,6 @@ impl ParliamentAttemptStateV1 {
             return Err(ParliamentReducerErrorV1::InvalidAssignmentPlan);
         }
 
-        struct DerivedElectionPlan {
-            election_id: BodyElectionAttemptId,
-            primary: Vec<ParliamentSeatAssignmentV1>,
-            alternates: Vec<ParliamentSeatAssignmentV1>,
-            assignment_root: [u8; 32],
-        }
         let mut derived = Vec::with_capacity(election_ids.len());
         for election_id in &election_ids {
             let election = self

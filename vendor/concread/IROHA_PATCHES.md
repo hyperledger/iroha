@@ -7,8 +7,18 @@ with its MPL-2.0 license retained in `LICENSE.md`.
 The vendored package is an explicit workspace member, but not a default member.
 Its unit tests therefore use the checked-in workspace lockfile and the maintained
 Cargo metadata/build gate without a temporary harness. MV production still
-disables default features and selects `ebr`, `maps`, and `foldhash`; the release
-gate checks shipping binaries separately from the broader test feature graph.
+disables default features and selects `ebr` and `maps`; the release gate checks
+shipping binaries separately from the broader test feature graph.
+
+The maintained fork contains only the synchronous B+tree, linear cell and EBR
+cell used by Iroha. Unused upstream hashmaps, hash tries, caches, CowCell and async
+implementations, their benchmarks, abandoned unsound experiments, and direct
+Serde adapters are removed. Norito integration remains in `mv`. The obsolete
+SIMD/alternate-hasher/cache features and DHAT allocator replacement are removed
+with their implementations and dependencies. The original allocation-observation
+allocator now covers all supported test feature combinations. `skinny` remains
+to exercise the same B+tree at reduced fanout. The duplicate integration-test
+target is removed; every ordered-map property remains in `tests/bptree_map.rs`.
 
 The generic strong-only shared shell and release observation kernel now belong to
 `crates/iroha_allocation`, a standard-library-only crate below both models and runtime
@@ -87,8 +97,7 @@ permits synchronous refund wakeups to reenter the original writer safely.
 The initial synchronous root uses the same charged strong-only allocation as
 its reader. Both exact layouts are admitted before initial construction; owned
 writers retain that original root. Native mutex backing remains outside those
-charges. The async linear cell shares the explicit writer-input contract below; it has no charged
-shell path and is not enabled by Iroha's dependency features.
+charges. Only the synchronous charged shell implementation is retained.
 
 Final B+tree destruction uses original child pointers and a fixed stack bounded
 by `usize::BITS + 1`; it performs no heap allocation. The committed tree's minimum

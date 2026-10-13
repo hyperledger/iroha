@@ -148,8 +148,10 @@ fn install_retail_policy_fixture(
         exemption_classes: vec![VALIDATION_FEE_TREASURY_PAYOUT_EXEMPTION_CLASS.into()],
         reward_custody: bound.binding.custody(),
     };
-    let registry =
-        crate::validation_fee::tests::policy_registry(&[policy.clone()], &[bound.binding]);
+    let registry = crate::validation_fee::tests::policy_registry(
+        std::slice::from_ref(&policy),
+        &[bound.binding],
+    );
     registry.validate().unwrap();
     crate::validation_fee::tests::install_policy_registry_fixture(&registry, stx);
     policy
@@ -858,7 +860,8 @@ fn deferred_marker_is_consumed_once_and_preserves_atomic_free_and_paid_payments(
             stx.multisig_deferred_execution_stack
                 .push((owner.clone(), HashOf::new(&instructions)));
             admit_deferred(&[], stx).unwrap();
-            stx.world.retail_fee_source_transaction_hash = Some(*Hash::new([used as u8]).as_ref());
+            stx.world.retail_fee_source_transaction_hash =
+                Some(*Hash::new([u8::try_from(used).expect("fixture value fits u8")]).as_ref());
             pay(stx, &req);
             assert!(
                 finalize(stx).is_err(),
@@ -1093,5 +1096,70 @@ fn empty_idle_sweep_retains_original_fragment_count_and_dirty_sibling() {
             .smart_contract_state
             .get(&key)
             .is_none()
+    );
+}
+
+#[test]
+fn idle_cursor_local_decode_refusal_returns_before_child_drop_and_retries_original_state() {
+    let state = crate::state::State::new_for_testing(
+        crate::state::World::default(),
+        crate::kura::Kura::blank_kura_for_testing(),
+        crate::query::store::LiveQueryStore::start_test(),
+    );
+    let cursor_key: StatePath = "retail_fee_control_v1/sweep_cursor".parse().unwrap();
+    let original_cursor: StatePath = "retail_fee_v1/original_cursor".parse().unwrap();
+    let bytes = norito::to_bytes(&original_cursor).unwrap();
+    let header =
+        iroha_data_model::block::BlockHeader::new(std::num::NonZeroU64::MIN, None, None, 0, 0);
+    let mut block = state.block(header);
+    block
+        .world
+        .smart_contract_state
+        .insert(cursor_key.clone(), bytes.clone());
+    let fragments = block.committed_fragment_count();
+    // StatePath is nominal text: deny its actual field bytes, not sequence elements.
+    let refused = norito::core::with_decode_limits_scope(
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, usize::MAX),
+        || process_idle_accounts(&mut block),
+    )
+    .unwrap_err();
+    let crate::execution_attempt::ExecutionAttemptError::Deferred(original) = refused else {
+        panic!("cursor decoding must not become successful optional sweep completion");
+    };
+    assert_eq!(
+        original.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    let observation = original
+        .decode_refusal()
+        .expect("original captured cursor scope")
+        .clone();
+    assert!(original.allocation_refusal().is_none());
+    let block_error = crate::block::BlockValidationError::ExecutionDeferred(original);
+    let crate::block::BlockValidationError::ExecutionDeferred(returned) = block_error else {
+        unreachable!()
+    };
+    assert_eq!(returned.decode_refusal(), Some(&observation));
+    assert_eq!(block.committed_fragment_count(), fragments);
+    assert_eq!(
+        block.world.smart_contract_state.get(&cursor_key),
+        Some(&bytes)
+    );
+    process_idle_accounts(&mut block)
+        .expect("same cursor and parent retry after enclosing scope retires");
+    assert_eq!(block.committed_fragment_count(), fragments);
+    assert_eq!(
+        block.world.smart_contract_state.get(&cursor_key),
+        Some(&bytes)
+    );
+    drop(block);
+    assert!(
+        state
+            .view()
+            .world()
+            .smart_contract_state
+            .get(&cursor_key)
+            .is_none(),
+        "disposable block-local state never became durable"
     );
 }

@@ -529,3 +529,73 @@ fn borrowed_normal_wire_signature_preserves_facade_verdicts_without_owners_or_ca
         }
     }
 }
+
+#[test]
+fn raw_ed25519_admission_matches_strict_relation_without_allocations() {
+    use curve25519_dalek::{constants::EIGHT_TORSION, scalar::Scalar};
+    let message = b"TON original source proof";
+    for seed in 1..=4 {
+        let pair = KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519);
+        let key: [u8; 32] = pair.public_key().to_bytes().1.try_into().unwrap();
+        let signature: [u8; 64] = Signature::new(pair.private_key(), message)
+            .payload()
+            .try_into()
+            .unwrap();
+        let mut candidates = vec![signature, [0; 64], [0xff; 64]];
+        for index in 0..64 {
+            let mut changed = signature;
+            changed[index] ^= 0x80;
+            candidates.push(changed);
+        }
+        // Noncanonical scalar, small-order R and non-prime-order R are all rejected.
+        let mut changed = signature;
+        changed[32..].fill(0xff);
+        candidates.push(changed);
+        for torsion in &EIGHT_TORSION {
+            let mut changed = signature;
+            changed[..32].copy_from_slice(torsion.compress().as_bytes());
+            candidates.push(changed);
+            let mut changed = signature;
+            changed[..32].copy_from_slice(
+                &(curve25519_dalek::constants::ED25519_BASEPOINT_POINT * Scalar::from(7_u64)
+                    + torsion)
+                    .compress()
+                    .to_bytes(),
+            );
+            candidates.push(changed);
+        }
+        let mut keys = vec![key, [0; 32], [0xff; 32]];
+        keys.extend(
+            EIGHT_TORSION
+                .iter()
+                .map(|point| point.compress().to_bytes()),
+        );
+        keys.extend(EIGHT_TORSION.iter().skip(1).map(|torsion| {
+            (curve25519_dalek::constants::ED25519_BASEPOINT_POINT + torsion)
+                .compress()
+                .to_bytes()
+        }));
+        for key in keys {
+            for signature in &candidates {
+                for input in [message.as_slice(), b"changed message".as_slice()] {
+                    let expected =
+                        ed25519::Ed25519Sha512::parse_public_key_uncached_for_decode(&key)
+                            .is_ok_and(|parsed| {
+                                ed25519::Ed25519Sha512::verify_uncached(input, signature, &parsed)
+                                    .is_ok()
+                            });
+                    let observed = without_allocations(|| {
+                        verify_ed25519_signature_borrowed(&key, signature, input)
+                    });
+                    assert_eq!(observed.is_ok(), expected);
+                    if key == pair.public_key().to_bytes().1
+                        && signature == &candidates[0]
+                        && input == message
+                    {
+                        assert!(observed.is_ok());
+                    }
+                }
+            }
+        }
+    }
+}

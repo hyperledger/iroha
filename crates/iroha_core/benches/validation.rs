@@ -1,7 +1,6 @@
 //! Benchmarks for transaction signing, acceptance, validation, and block signing.
 #![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![allow(clippy::all)]
-#![allow(clippy::disallowed_types)] // benches use HashSet internally for metrics
 use criterion::{BatchSize, Criterion};
 use iroha_core::{
     block::*,
@@ -58,7 +57,7 @@ fn build_test_and_transient_state() -> State {
     let query_handle = LiveQueryStore::start_test();
     let (account_id, key_pair) = gen_account_in(&*STARTER_DOMAIN);
     let state = State::try_new(
-        crate::state::AllocationBudget::new(
+        iroha_allocation::AllocationBudget::new(
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         ),
         {
@@ -109,10 +108,21 @@ fn build_test_and_transient_state() -> State {
             )
             .unwrap(),
         ])
-        .chain(0, state.view().latest_block().as_deref())
+        .chain(
+            0,
+            state
+                .view()
+                .latest_block()
+                .expect("benchmark canonical block read")
+                .as_deref(),
+        )
         .sign(key_pair.private_key())
         .unpack(|_| {});
-        let signed_block = Arc::new(SignedBlock::from(unverified_block.clone()));
+        let signed_block = iroha_data_model::block::SharedSignedBlock::try_new(
+            SignedBlock::from(unverified_block.clone()),
+            &state.ivm_execution_budget(),
+        )
+        .expect("benchmark shared block control");
         let mut state_block = state
             .try_block(unverified_block.header())
             .expect("benchmark persisted runtime ABI must validate");
@@ -128,7 +138,7 @@ fn build_test_and_transient_state() -> State {
         state_transaction.apply();
         // Mark the transaction as recorded in this block before commit
         {
-            use std::collections::HashSet;
+            use std::collections::BTreeSet;
             let hash = unverified_block
                 .transactions()
                 .first()
@@ -146,7 +156,7 @@ fn build_test_and_transient_state() -> State {
             .expect("Block height is non-zero");
             state_block
                 .transactions
-                .insert_block(HashSet::from([hash]), height);
+                .insert_block(BTreeSet::from([hash]), height);
         }
         state_block.block_hashes.push_for_tests(signed_block.hash());
         state_block.commit().unwrap();
@@ -236,10 +246,21 @@ fn validate_transaction(criterion: &mut Criterion) {
         )
         .unwrap(),
     ])
-    .chain(0, state.view().latest_block().as_deref())
+    .chain(
+        0,
+        state
+            .view()
+            .latest_block()
+            .expect("benchmark canonical block read")
+            .as_deref(),
+    )
     .sign(key_pair.private_key())
     .unpack(|_| {});
-    let signed_block = Arc::new(SignedBlock::from(unverified_block.clone()));
+    let signed_block = iroha_data_model::block::SharedSignedBlock::try_new(
+        SignedBlock::from(unverified_block.clone()),
+        &state.ivm_execution_budget(),
+    )
+    .expect("benchmark shared block control");
     let transaction = AcceptedTransaction::accept(
         build_test_transaction(network_id).sign(STARTER_KEYPAIR.private_key()),
         &network_id,
@@ -256,18 +277,19 @@ fn validate_transaction(criterion: &mut Criterion) {
         .expect("benchmark persisted runtime ABI must validate");
     let _ = criterion.bench_function("validate", |b| {
         b.iter(|| {
-            match state_block
-                .validate_transaction(transaction.clone(), &mut ivm_cache)
-                .expect("local execution completes")
-                .1
-            {
+            match iroha_core::tx::execute_component_transaction_for_testing(
+                &mut state_block,
+                transaction.clone(),
+                &mut ivm_cache,
+                None,
+            ) {
                 Ok(_) => success_count += 1,
                 Err(_) => failure_count += 1,
             }
         });
     });
     {
-        use std::collections::HashSet;
+        use std::collections::BTreeSet;
         let hash = unverified_block
             .transactions()
             .first()
@@ -285,7 +307,7 @@ fn validate_transaction(criterion: &mut Criterion) {
         .expect("Block height is non-zero");
         state_block
             .transactions
-            .insert_block(HashSet::from([hash]), height);
+            .insert_block(BTreeSet::from([hash]), height);
     }
     state_block.block_hashes.push_for_tests(signed_block.hash());
     state_block.commit().unwrap();
@@ -306,7 +328,7 @@ fn sign_blocks(criterion: &mut Criterion) {
     let _guard = RUNTIME.enter();
     let query_handle = LiveQueryStore::start_test();
     let state = State::try_new(
-        crate::state::AllocationBudget::new(
+        iroha_allocation::AllocationBudget::new(
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         ),
         World::new(),
@@ -333,8 +355,14 @@ fn sign_blocks(criterion: &mut Criterion) {
     .expect("Failed to accept transaction.");
     let (_, peer_private_key) = KeyPair::random().into_parts();
     let mut count = 0;
-    let block =
-        BlockBuilder::new(vec![transaction]).chain(0, state.view().latest_block().as_deref());
+    let block = BlockBuilder::new(vec![transaction]).chain(
+        0,
+        state
+            .view()
+            .latest_block()
+            .expect("benchmark canonical block read")
+            .as_deref(),
+    );
     let _ = criterion.bench_function("sign_block", |b| {
         b.iter_batched(
             || block.clone(),

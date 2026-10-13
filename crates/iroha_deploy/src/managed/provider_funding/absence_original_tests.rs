@@ -41,10 +41,10 @@ fn ordinary(owner: &ProviderFundingBootstrap) -> Result<()> {
             "later funding purpose contains unknown retained material",
         ));
     }
-    match child.directory.open_child_optional("install")? {
-        Some(directory) => metadata::require_unselected(&directory),
-        None => Ok(()),
-    }
+    child.directory.open_child_optional("install")?.map_or_else(
+        || Ok(()),
+        |directory| metadata::require_unselected(&directory),
+    )
 }
 fn child(owner: &ProviderFundingBootstrap) -> ServiceAuthority {
     ServiceAuthority::open_provider(
@@ -114,7 +114,7 @@ fn funding_absence_census_reuses_original_without_creating_or_retaining_children
     let later = child(&owner);
     let directory = later.directory.retain().unwrap();
     let identity = directory.identity().unwrap();
-    let lock_identity = FileIdentity::of(&later._lock).unwrap();
+    let lock_identity = FileIdentity::of(&later.lock).unwrap();
     assert_eq!(
         outcome(probe(&owner)),
         outcome(ordinary(&owner)),
@@ -226,10 +226,10 @@ fn funding_absence_keeps_original_parent_entry_and_all_result_exit_precedence() 
                             lock.try_lock().is_err(),
                             "actual child Result retains its exclusive lock through parent exit"
                         ),
-                        Err(error) => {
-                            assert!(cfg!(windows));
-                            assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
-                        }
+                        #[cfg(windows)]
+                        Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock),
+                        #[cfg(not(windows))]
+                        Err(error) => panic!("retained operation lock must open: {error}"),
                     }
                 }
                 2 => assert_eq!(
@@ -278,7 +278,7 @@ fn funding_absence_observes_appeared_child_material_and_native_substitution() {
     let directory = later.directory.retain().unwrap();
     let install = metadata::ensure_operation(&directory, "install").unwrap();
     let identity = directory.identity().unwrap();
-    let lock_identity = FileIdentity::of(&later._lock).unwrap();
+    let lock_identity = FileIdentity::of(&later.lock).unwrap();
     drop(later);
     let appeared = install.retain().unwrap();
     let hook = checks::on_existing_child_exit(move |result| {

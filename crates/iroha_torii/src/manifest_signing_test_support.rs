@@ -7,7 +7,7 @@ use norito::core::DecodeBudgetContext;
 ///
 /// Existing fixture graphs and signature backend internals have their own owners. This grant
 /// funds at most two complete canonical frames and one compact signer per declared signature.
-pub(crate) struct ManifestSigningFixture {
+pub struct ManifestSigningFixture {
     context: DecodeBudgetContext,
     _scratch: AllocationReservation,
     _pool: AllocationBudget,

@@ -47,19 +47,25 @@ fn account(seed: u8) -> AccountId {
     )
 }
 
-fn fixture(rejected: bool, charged: bool, pipeline_gas: bool, composite: bool) -> Fixture {
-    fixture_with_transaction_network(rejected, charged, pipeline_gas, composite, None)
+#[derive(Clone, Copy)]
+enum FixtureOutcome {
+    Applied,
+    Rejected,
+}
+
+fn fixture(outcome: FixtureOutcome, charged: bool, pipeline_gas: bool, composite: bool) -> Fixture {
+    fixture_with_transaction_network(outcome, charged, pipeline_gas, composite, None)
 }
 
 fn fixture_with_transaction_network(
-    rejected: bool,
+    outcome: FixtureOutcome,
     charged: bool,
     pipeline_gas: bool,
     composite: bool,
     transaction_network: Option<NetworkId>,
 ) -> Fixture {
     let mut native = NativeFinalityFixture::start("sdk-verified-native-payment");
-    let mut verifier = native.verifier();
+    let mut authenticator = native.verifier();
     let signer = KeyPair::from_seed(vec![41; 32], Algorithm::Ed25519);
     let authority = AccountId::new(signer.public_key().clone());
     let asset: AssetDefinitionId = "66owaQmAQMuHxPzxUN3bqZ6FJfDa".parse().unwrap();
@@ -117,7 +123,7 @@ fn fixture_with_transaction_network(
     let mut builder = BlockBuilder::new(header);
     builder.push_transaction(transaction.clone());
     let mut block = builder.build(BlockSignatures::default());
-    let mut result = TransactionResult::new(if rejected {
+    let mut result = TransactionResult::new(if matches!(outcome, FixtureOutcome::Rejected) {
         Err(TransactionRejectionReason::LimitCheck(
             TransactionLimitError {
                 reason: "rejected payment fixture".into(),
@@ -158,10 +164,10 @@ fn fixture_with_transaction_network(
                 completions: Vec::new(),
             })],
             0,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
             AxtPolicySnapshot::default(),
-            Default::default(),
+            std::collections::BTreeSet::default(),
             &ExecutionOutputLimits {
                 max_outputs: 16,
                 max_output_bytes: 16 * 1024 * 1024,
@@ -171,7 +177,7 @@ fn fixture_with_transaction_network(
         )
         .unwrap();
     let proof = native.certify(block);
-    let verified = verifier.verify(&proof).unwrap();
+    let verified = authenticator.verify(&proof).unwrap();
     Fixture {
         native,
         verified,
@@ -209,13 +215,13 @@ fn verify(
 }
 
 pub(super) fn payment_receipt() -> VerifiedPaymentReceipt {
-    let fixture = fixture(false, true, false, false);
+    let fixture = fixture(FixtureOutcome::Applied, true, false, false);
     verify(&fixture, evidence(fixture.verified.block())).unwrap()
 }
 
 #[test]
 fn recovered_payment_authenticates_original_carrier_from_independent_terms() {
-    let original = fixture(false, true, false, false);
+    let original = fixture(FixtureOutcome::Applied, true, false, false);
     let signer = KeyPair::from_seed(vec![41; 32], Algorithm::Ed25519);
     let mut builder = TransactionBuilder::new(
         original.native.network_id(),
@@ -276,7 +282,7 @@ fn recovered_payment_authenticates_original_carrier_from_independent_terms() {
         ),
         Err(PaymentReceiptVerificationError::NetworkMismatch)
     ));
-    let rejected = fixture(true, false, false, false);
+    let rejected = fixture(FixtureOutcome::Rejected, false, false, false);
     assert!(matches!(
         VerifiedPaymentReceipt::verify_recovered(
             &rejected.verified,
@@ -291,7 +297,7 @@ fn recovered_payment_authenticates_original_carrier_from_independent_terms() {
 #[test]
 fn verified_payment_at_final_tip_binds_exact_movements_and_authenticated_fee() {
     for charged in [false, true] {
-        let fixture = fixture(false, charged, false, false);
+        let fixture = fixture(FixtureOutcome::Applied, charged, false, false);
         assert_eq!(
             fixture.native.latest().height(),
             2,
@@ -346,7 +352,7 @@ fn verified_payment_at_final_tip_binds_exact_movements_and_authenticated_fee() {
 
 #[test]
 fn included_rejection_and_forged_success_never_construct_payment_receipts() {
-    let fixture = fixture(true, false, false, false);
+    let fixture = fixture(FixtureOutcome::Rejected, false, false, false);
     let mut included = evidence(fixture.verified.block());
     assert!(included.verify_inclusion_in_block(fixture.verified.block()));
     assert!(matches!(
@@ -366,7 +372,7 @@ fn included_rejection_and_forged_success_never_construct_payment_receipts() {
 
 #[test]
 fn independently_retained_identity_and_every_payment_term_are_required() {
-    let fixture = fixture(false, true, false, false);
+    let fixture = fixture(FixtureOutcome::Applied, true, false, false);
     let verify_intent = |intent: &SettleAtomic| {
         VerifiedPaymentReceipt::verify(
             &fixture.verified,
@@ -447,7 +453,7 @@ fn independently_retained_identity_and_every_payment_term_are_required() {
 
 #[test]
 fn changed_or_removed_fee_outcomes_fail_output_authentication() {
-    let fixture = fixture(false, true, false, false);
+    let fixture = fixture(FixtureOutcome::Applied, true, false, false);
     for change in 0..4 {
         let mut substituted = evidence(fixture.verified.block());
         let ExecutionOutputV1::Network(output) = &mut substituted.output else {
@@ -474,12 +480,12 @@ fn changed_or_removed_fee_outcomes_fail_output_authentication() {
 
 #[test]
 fn composite_and_pipeline_gas_carriers_are_explicitly_unsupported() {
-    let composite = fixture(false, false, false, true);
+    let composite = fixture(FixtureOutcome::Applied, false, false, true);
     assert!(matches!(
         verify(&composite, evidence(composite.verified.block())),
         Err(PaymentReceiptVerificationError::UnsupportedCarrier)
     ));
-    let gas = fixture(false, false, true, false);
+    let gas = fixture(FixtureOutcome::Applied, false, true, false);
     assert!(matches!(
         verify(&gas, evidence(gas.verified.block())),
         Err(PaymentReceiptVerificationError::UnsupportedFeeOutcome)
@@ -488,7 +494,7 @@ fn composite_and_pipeline_gas_carriers_are_explicitly_unsupported() {
 
 #[test]
 fn structural_proof_and_private_root_do_not_authorize_global_payment_receipts() {
-    let fixture = fixture(false, false, false, false);
+    let fixture = fixture(FixtureOutcome::Applied, false, false, false);
     // A fresh verifier cannot skip its independently authenticated genesis prefix.
     let mut unadvanced = SumeragiFinalityVerifier::new(
         fixture.native.genesis(),
@@ -504,10 +510,10 @@ fn structural_proof_and_private_root_do_not_authorize_global_payment_receipts() 
             dataspace_id: DataSpaceId::new(7),
         },
     );
-    let mut verifier = private.verifier();
+    let mut authenticator = private.verifier();
     let block = private.block_with_submitted_work(private.next_header());
     let proof = private.certify(block);
-    let verified = verifier.verify(&proof).unwrap();
+    let verified = authenticator.verify(&proof).unwrap();
     let mut expected = fixture.intent.clone();
     expected.network_id = private.network_id();
     assert!(matches!(
@@ -525,13 +531,18 @@ fn structural_proof_and_private_root_do_not_authorize_global_payment_receipts() 
 pub(super) fn payment_operation_fixture(
     rejected: bool,
 ) -> (NativeFinalityFixture, SettleAtomic, SignedTransaction) {
-    let fixture = fixture(rejected, true, false, false);
+    let outcome = if rejected {
+        FixtureOutcome::Rejected
+    } else {
+        FixtureOutcome::Applied
+    };
+    let fixture = fixture(outcome, true, false, false);
     (fixture.native, fixture.intent, fixture.transaction)
 }
 
 #[test]
 fn payment_execution_authenticates_rejection_without_granting_success() {
-    let fixture = fixture(true, true, false, false);
+    let fixture = fixture(FixtureOutcome::Rejected, true, false, false);
     let original = evidence(fixture.verified.block());
     fixture
         .verified
@@ -577,8 +588,13 @@ fn payment_execution_does_not_close_a_foreign_network_carrier() {
     let transaction_network = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
         Hash::new(b"foreign signed transaction network"),
     ));
-    let fixture =
-        fixture_with_transaction_network(true, false, false, false, Some(transaction_network));
+    let fixture = fixture_with_transaction_network(
+        FixtureOutcome::Rejected,
+        false,
+        false,
+        false,
+        Some(transaction_network),
+    );
     let original = evidence(fixture.verified.block());
     // The signature and rejected input/output are genuinely authenticated in this
     // block, but that chain cannot close the carrier on its intended network.

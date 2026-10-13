@@ -291,6 +291,6 @@ fn clone_and_remove<K: Clone + Ord + Debug, V: Clone, M: CursorMode<K, V>>(
     }
 }
 
-#[cfg(all(test, not(feature = "dhat-heap"), not(miri)))]
+#[cfg(all(test, not(miri)))]
 #[path = "remove_tests.rs"]
 mod tests;

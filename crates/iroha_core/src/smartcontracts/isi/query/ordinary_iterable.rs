@@ -75,13 +75,13 @@ where
             && predicate.is_pass()
         {
             drop(predicate);
-            let (rows, stats) = collect_peers(params, limits, state)?;
+            let (rows, execution_stats) = collect_peers(params, limits, state)?;
             return Ok((
                 OrdinaryIterable::Owned(cast_owned_exact::<
                     ExactOwnedRows<PeerId>,
                     ExactOwnedRows<T>,
                 >(rows)?),
-                stats,
+                execution_stats,
             ));
         }
         if TypeId::of::<Q>()
@@ -92,13 +92,13 @@ where
             && predicate.is_pass()
         {
             drop(predicate);
-            let (rows, stats) = collect_account_ids(params, mode, limits, state)?;
+            let (rows, execution_stats) = collect_account_ids(params, mode, limits, state)?;
             return Ok((
                 OrdinaryIterable::Owned(cast_owned_exact::<
                     ExactOwnedRows<AccountId>,
                     ExactOwnedRows<T>,
                 >(rows)?),
-                stats,
+                execution_stats,
             ));
         }
         if params.pagination.offset_value() == 0
@@ -110,13 +110,14 @@ where
                 && TypeId::of::<T>() == TypeId::of::<TriggerId>()
             {
                 drop(predicate);
-                let (rows, stats) = collect_active_trigger_ids(params, mode, limits, state)?;
+                let (rows, execution_stats) =
+                    collect_active_trigger_ids(params, mode, limits, state)?;
                 return Ok((
                     OrdinaryIterable::Owned(cast_owned_exact::<
                         ExactOwnedRows<TriggerId>,
                         ExactOwnedRows<T>,
                     >(rows)?),
-                    stats,
+                    execution_stats,
                 ));
             }
             if TypeId::of::<Q>()
@@ -124,13 +125,13 @@ where
                 && TypeId::of::<T>() == TypeId::of::<Trigger>()
             {
                 drop(predicate);
-                let (rows, stats) = collect_triggers(params, mode, limits, state)?;
+                let (rows, execution_stats) = collect_triggers(params, mode, limits, state)?;
                 return Ok((
                     OrdinaryIterable::Owned(cast_owned_exact::<
                         ExactOwnedRows<Trigger>,
                         ExactOwnedRows<T>,
                     >(rows)?),
-                    stats,
+                    execution_stats,
                 ));
             }
         }
@@ -186,7 +187,7 @@ fn cast_owned_exact<From: 'static, To: 'static>(value: From) -> Result<To, Error
     let value = core::mem::ManuallyDrop::new(value);
     // SAFETY: equality of `'static` TypeIds proves the concrete types match;
     // `ManuallyDrop` transfers the one owned value through this read.
-    let source: *const From = &*value;
+    let source: *const From = &raw const *value;
     Ok(unsafe { source.cast::<To>().read() })
 }
 /// Serialize a predicate candidate through the checked ordinary JSON helper.
@@ -315,9 +316,9 @@ impl<T> ExactOwnedRows<T> {
             return Err(Error::CapacityLimit);
         }
         let this = core::mem::ManuallyDrop::new(self);
-        let slots = unsafe { core::ptr::read(&this.slots) };
+        let slots = unsafe { core::ptr::read(&raw const this.slots) };
         let len = slots.len();
-        let raw = Box::into_raw(slots) as *mut MaybeUninit<T>;
+        let raw = Box::into_raw(slots).cast::<MaybeUninit<T>>();
         let raw = core::ptr::slice_from_raw_parts_mut(raw.cast::<T>(), len);
         // SAFETY: `finish` established that every slot is initialized, and
         // `MaybeUninit<T>` has the same layout as `T`.
@@ -547,10 +548,10 @@ fn collect_account_ids(
         .checked_mul(3)
         .ok_or(Error::CapacityLimit)?;
     let budget = Some(limits.execution_budget());
-    let mut stats = QueryExecutionStats::default();
+    let mut execution_stats = QueryExecutionStats::default();
     let mut selected = 0_usize;
     for (account, _) in state.world().accounts().iter().take(maximum_rows) {
-        stats.record_preflighted_item(work, budget)?;
+        execution_stats.record_preflighted_item(work, budget)?;
         ensure_account_source_graph(account, maximum)?;
         drop(encode_bounded_frame(account, maximum)?);
         selected = selected.checked_add(1).ok_or(Error::CapacityLimit)?;
@@ -559,14 +560,14 @@ fn collect_account_ids(
         RetainedDecodeBudget::new::<AccountId>(selected, limits.max_source_item_bytes())?;
     let mut rows = ExactOwnedRows::new(selected, slot_bytes)?;
     for (account, _) in state.world().accounts().iter().take(selected) {
-        stats.record_preflighted_item(work, budget)?;
+        execution_stats.record_preflighted_item(work, budget)?;
         ensure_account_source_graph(account, maximum)?;
         drop(encode_bounded_frame(account, maximum)?);
         let (owned, allocated) = clone_account_for_admission(account, graph.next_limit()?)?;
         graph.record_decoded(allocated)?;
         rows.push(owned)?;
     }
-    Ok((rows.finish()?, stats))
+    Ok((rows.finish()?, execution_stats))
 }
 /// Share the same finite prefix/probe contract for ids and complete trigger rows.
 fn trigger_source_limits(
@@ -621,10 +622,10 @@ fn collect_active_trigger_ids(
 ) -> Result<(ExactOwnedRows<TriggerId>, QueryExecutionStats), Error> {
     let (maximum_rows, maximum, work) = trigger_source_limits(params, mode, limits)?;
     let source = state.world().triggers();
-    let mut stats = QueryExecutionStats::default();
+    let mut execution_stats = QueryExecutionStats::default();
     let mut selected = 0usize;
     for id in source.active_trigger_ids_iter().take(maximum_rows) {
-        stats.record_preflighted_item(work, Some(limits.execution_budget()))?;
+        execution_stats.record_preflighted_item(work, Some(limits.execution_budget()))?;
         drop(encode_bounded_frame(id, maximum)?);
         selected = selected.checked_add(1).ok_or(Error::CapacityLimit)?;
     }
@@ -632,11 +633,11 @@ fn collect_active_trigger_ids(
         RetainedDecodeBudget::new::<TriggerId>(selected, limits.max_source_item_bytes())?;
     let mut rows = ExactOwnedRows::new(selected, slot_bytes)?;
     for id in source.active_trigger_ids_iter().take(selected) {
-        stats.record_preflighted_item(work, Some(limits.execution_budget()))?;
+        execution_stats.record_preflighted_item(work, Some(limits.execution_budget()))?;
         let frame = encode_bounded_frame(id, maximum)?;
         rows.push(decode_trigger_row(&frame, &mut graph)?)?;
     }
-    Ok((rows.finish()?, stats))
+    Ok((rows.finish()?, execution_stats))
 }
 /// Own validated identities and metadata without parser staging allocations.
 /// Empty executable vectors and fixed-size typed selectors need no decoder
@@ -723,11 +724,11 @@ fn collect_triggers(
     use std::ops::ControlFlow;
     let (maximum_rows, maximum, work) = trigger_source_limits(params, mode, limits)?;
     let source = state.world().triggers();
-    let mut stats = QueryExecutionStats::default();
+    let mut execution_stats = QueryExecutionStats::default();
     let mut selected = 0usize;
     if maximum_rows != 0 {
         source.visit_borrowed_trigger_sources(|source| {
-            stats.record_preflighted_item(work, Some(limits.execution_budget()))?;
+            execution_stats.record_preflighted_item(work, Some(limits.execution_budget()))?;
             if let Some(source) = source {
                 drop(encode_bounded_frame(
                     &SingularQueryFrame::<Trigger>::new(source),
@@ -747,7 +748,7 @@ fn collect_triggers(
     let mut rows = ExactOwnedRows::new(selected, slot_bytes)?;
     if selected != 0 {
         source.visit_borrowed_trigger_sources(|source| {
-            stats.record_preflighted_item(work, Some(limits.execution_budget()))?;
+            execution_stats.record_preflighted_item(work, Some(limits.execution_budget()))?;
             if let Some(source) = source {
                 rows.push(own_trigger_row(source, maximum, &mut graph)?)?;
             }
@@ -758,7 +759,7 @@ fn collect_triggers(
             })
         })?;
     }
-    Ok((rows.finish()?, stats))
+    Ok((rows.finish()?, execution_stats))
 }
 fn collect_peers(
     params: &QueryParams,
@@ -785,7 +786,7 @@ fn collect_peers(
         return Err(Error::CapacityLimit);
     }
     let mut selected = 0_u64;
-    let mut stats = QueryExecutionStats::default();
+    let mut execution_stats = QueryExecutionStats::default();
     let budget = limits.execution_budget();
     let source_work_per_item = limits
         .max_source_item_bytes()
@@ -793,7 +794,7 @@ fn collect_peers(
         .ok_or(Error::CapacityLimit)?;
     for peer in state.world().peers() {
         let frame = encode_bounded_frame(peer, maximum)?;
-        stats.record_preflighted_item(source_work_per_item, Some(budget))?;
+        execution_stats.record_preflighted_item(source_work_per_item, Some(budget))?;
         drop(frame);
         selected = selected.checked_add(1).ok_or(Error::CapacityLimit)?;
         if selected == maximum_rows {
@@ -805,11 +806,11 @@ fn collect_peers(
         RetainedDecodeBudget::new::<PeerId>(selected, limits.max_source_item_bytes())?;
     let mut rows = ExactOwnedRows::new(selected, slot_bytes)?;
     if selected == 0 {
-        return Ok((rows.finish()?, stats));
+        return Ok((rows.finish()?, execution_stats));
     }
     for peer in state.world().peers() {
         let frame = encode_bounded_frame(peer, maximum)?;
-        stats.record_preflighted_item(source_work_per_item, Some(budget))?;
+        execution_stats.record_preflighted_item(source_work_per_item, Some(budget))?;
         let decode_limit = retained_decode.next_limit()?;
         drop(frame);
         let (owned, allocated) = clone_peer_for_admission(peer, decode_limit)?;
@@ -819,7 +820,7 @@ fn collect_peers(
             break;
         }
     }
-    Ok((rows.finish()?, stats))
+    Ok((rows.finish()?, execution_stats))
 }
 fn peer_prefix_target(fetch: u64, limit: Option<u64>) -> Result<u64, Error> {
     let probe = fetch.checked_add(1).ok_or(Error::CapacityLimit)?;
@@ -1090,7 +1091,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["zdata", "apipeline", "mtime", "bcall"]
         );
-        let (ephemeral, stats) =
+        let (ephemeral, execution_stats) =
             collect_triggers(&params, OrdinaryCursorMode::Ephemeral, limits, &view).unwrap();
         assert_eq!(
             ephemeral
@@ -1101,8 +1102,11 @@ mod tests {
                 .map(|row| norito::encode_canonical(row).unwrap())
                 .collect::<Vec<_>>()
         );
-        assert_eq!(stats.processed_items(), 6);
-        assert_eq!(stats.processed_bytes(), 18 * limits.max_source_item_bytes());
+        assert_eq!(execution_stats.processed_items(), 6);
+        assert_eq!(
+            execution_stats.processed_bytes(),
+            18 * limits.max_source_item_bytes()
+        );
         {
             use iroha_data_model::query::{
                 ErasedIterQuery, QueryBox, QueryRequest, QueryWithParams,
@@ -1140,9 +1144,9 @@ mod tests {
                     .expect("actual server-owned start shape and source adapter");
             }
         }
-        let (stored, stats) =
+        let (stored, execution_stats) =
             collect_triggers(&params, OrdinaryCursorMode::Stored, limits, &view).unwrap();
-        assert_eq!(stats.processed_items(), 8);
+        assert_eq!(execution_stats.processed_items(), 8);
         drop(view);
         {
             let mut block = state.world.block();
@@ -1173,14 +1177,17 @@ mod tests {
             fetch_size: FetchSize::new(Some(nonzero!(2_u64))),
             ..QueryParams::default()
         };
-        let (ids, stats) =
+        let (ids, execution_stats) =
             collect_active_trigger_ids(&params, OrdinaryCursorMode::Stored, limits, &view).unwrap();
         assert_eq!(
             ids.map(|id| id.to_string()).collect::<Vec<_>>(),
             ["zdata", "apipeline", "mtime"]
         );
-        assert_eq!(stats.processed_items(), 6);
-        assert_eq!(stats.processed_bytes(), 18 * limits.max_source_item_bytes());
+        assert_eq!(execution_stats.processed_items(), 6);
+        assert_eq!(
+            execution_stats.processed_bytes(),
+            18 * limits.max_source_item_bytes()
+        );
         let frame = encode_bounded_frame(&"zdata".parse::<TriggerId>().unwrap(), 1024).unwrap();
         assert!(RetainedDecodeBudget::new::<TriggerId>(1, 1).is_err());
         assert!(
@@ -1427,7 +1434,7 @@ mod tests {
                 .parse::<RoleId>()
                 .expect("protocol-bounded role identifier")
         });
-        let (output, stats) =
+        let (output, execution_stats) =
             super::super::apply_query_postprocessing_ephemeral_with_budget_from_stats(
                 values.into_iter(),
                 SelectorTuple::default(),
@@ -1440,7 +1447,7 @@ mod tests {
             )
             .expect("bounded ordinary postprocessing");
         assert!(output.has_more);
-        assert_eq!(stats, source_stats);
+        assert_eq!(execution_stats, source_stats);
     }
     #[test]
     fn peer_adapter_carries_mixed_key_source_work_into_the_final_response_budget() {
@@ -1539,13 +1546,20 @@ mod tests {
                 .with_count_mode(super::super::QueryCountMode::Bounded)
                 .with_ordinary_execution_limits(ordinary),
         };
-        let (response, stats) = request
+        let (response, execution_stats) = request
             .execute_ephemeral_with_stats(view.query_handle(), &view, &ALICE_ID, None)
             .expect("bounded peer query");
         let response_work = super::super::bounded_framed_encoded_len(&response, response_bytes)
             .expect("bounded response length");
-        assert_eq!(stats.processed_items(), 6, "two passes over F + 1 rows");
-        assert_eq!(stats.processed_bytes(), 18 * source_bytes + response_work);
+        assert_eq!(
+            execution_stats.processed_items(),
+            6,
+            "two passes over F + 1 rows"
+        );
+        assert_eq!(
+            execution_stats.processed_bytes(),
+            18 * source_bytes + response_work
+        );
         let QueryResponse::Iterable(output) = response else {
             panic!("expected iterable response")
         };

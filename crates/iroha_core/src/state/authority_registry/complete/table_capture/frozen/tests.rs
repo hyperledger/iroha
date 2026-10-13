@@ -30,8 +30,8 @@ fn limits() -> LeafLimits {
         max_tables: 1,
         max_rows: 8,
         max_payload_bytes: 65536,
-        max_ordered_table_bytes: 131072,
-        max_streamed_value_bytes: 131072,
+        max_ordered_table_bytes: 131_072,
+        max_streamed_value_bytes: 131_072,
     }
 }
 fn path(value: &str) -> StatePath {
@@ -73,8 +73,9 @@ fn every_generated_raw_adapter_matches_its_declared_committed_encoder() {
     let mut block = state.block(header());
     freeze_world(&mut block);
     assert_eq!(
-        require_exact_table_materializers(STATE_FIELDS, TABLE_MATERIALIZERS),
-        Ok(inventory_test_support::canonical_table_ids().len())
+        (require_exact_table_materializers(STATE_FIELDS, TABLE_MATERIALIZERS))
+            .expect("exact complete catalog admitted"),
+        inventory_test_support::canonical_table_ids().len()
     );
     let mut raw_count = 0;
     let mut raw_ids = std::collections::BTreeSet::new();
@@ -151,7 +152,10 @@ fn each_missing_checked_semantic_or_membership_adapter_names_its_exact_output() 
                 .err()
                 .unwrap();
             if matches!(owner, TableMaterializer::TransactionMembership) {
-                assert_eq!(error, Failure::MembershipGroupRequired.into());
+                assert!(matches!(
+                    &(error),
+                    FrozenTableCaptureError(Failure::MembershipGroupRequired)
+                ));
                 assert_eq!(error.missing_adapter(), None);
                 assert!(matches!(
                     table,
@@ -160,7 +164,9 @@ fn each_missing_checked_semantic_or_membership_adapter_names_its_exact_output() 
                 continue;
             }
             assert_eq!(error.missing_adapter(), Some(table));
-            assert_eq!(error, Failure::MissingAdapter(table).into());
+            assert!(
+                matches!(&(error), FrozenTableCaptureError(Failure::MissingAdapter(found)) if *found == table)
+            );
             assert!(error.to_string().ends_with(table));
             missing.push(table);
         }
@@ -196,7 +202,10 @@ fn each_missing_checked_semantic_or_membership_adapter_names_its_exact_output() 
         let error = capture_original_table_once(&block, unknown, limits(), 0)
             .err()
             .unwrap();
-        assert_eq!(error, Failure::UnknownTable.into());
+        assert!(matches!(
+            &(error),
+            FrozenTableCaptureError(Failure::UnknownTable)
+        ));
         assert_eq!(error.missing_adapter(), None);
     }
 }
@@ -289,7 +298,9 @@ fn original_pool_refusal_retry_and_final_drop_preserve_same_private_bytes() {
         let error = capture_original_table_once(&block, "world.smart_contract_state", small, 0)
             .err()
             .unwrap();
-        assert_eq!(error, Failure::Leaf(expected).into());
+        assert!(
+            matches!(&(error), FrozenTableCaptureError(Failure::Leaf(found)) if found == &expected)
+        );
         assert_eq!(budget.reserved_bytes(), baseline);
     }
     let snapshot = capture(&block, "world.smart_contract_state");
@@ -398,7 +409,7 @@ fn real_replacement_keeps_rewound_rows_deletion_and_absent_undo() {
 fn catalog_verifier_dispatch_preserves_bounded_structural_validation() {
     for corrupt in [false, true] {
         let state = State::new_for_testing(
-            *verifier_fixture::world(),
+            verifier_fixture::world(),
             Kura::blank_kura_for_testing(),
             LiveQueryStore::start_test(),
         );

@@ -275,7 +275,7 @@ mod tests {
         assert_eq!(consumer_label, provider_label);
         let bound_network_id = network_id(b"remote-stream-token-genesis-a");
         let foreign_network_id = network_id(b"remote-stream-token-genesis-b");
-        let operator = RemoteStreamTokenOperator::new(key_pair(), bound_network_id.clone());
+        let operator = RemoteStreamTokenOperator::new(key_pair(), bound_network_id);
         let request = request(Some(&operator))?;
         let body = request
             .body()

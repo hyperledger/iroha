@@ -1,23 +1,14 @@
 //! Shared real Parliament corridor, rooted in independently validated native genesis.
 //! The publication harness imports these helpers without collecting unrelated beacon scenarios.
 
-use iroha::query::QueryError;
-use iroha_data_model::sumeragi::PROTOCOL_VERSION;
-use iroha_data_model::{
-    ValidationFail,
-    query::error::{FindError, QueryExecutionFail},
-};
-use iroha_sumeragi::availability::recommended_data_availability_layout;
 use std::{
     collections::BTreeMap,
     num::NonZeroU64,
-    str::FromStr as _,
     time::{Duration, Instant},
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use eyre::{Result, WrapErr as _, eyre};
-use integration_tests::sandbox;
 use iroha::{
     blocking::Client,
     client::{
@@ -29,11 +20,10 @@ use iroha::{
         account::AccountId,
         block::SignedBlock,
         governance::types::{
-            AbiVersion, BallotAttemptId, BallotAttemptStatusV1, BeaconPulseId, BeaconSessionId,
-            BodyElectionAttemptId, BodyInstanceId, BodyInstanceStatusV1, ContractAbiHash,
-            ContractCodeHash, DeliberationPhaseV1, DeployContractProposal, GovernanceAttemptId,
-            GovernanceAttemptStatusV1, GovernanceStageV1, ParliamentAggregateOutcomeV1,
-            ParliamentBody, ParliamentNoResultKindV1, ProposalKind, SortitionRequestV1,
+            BallotAttemptId, BallotAttemptStatusV1, BeaconPulseId, BeaconSessionId,
+            BodyElectionAttemptId, BodyInstanceId, BodyInstanceStatusV1, DeliberationPhaseV1,
+            GovernanceAttemptId, GovernanceAttemptStatusV1, GovernanceStageV1,
+            ParliamentAggregateOutcomeV1, ParliamentBody, ProposalKind, SortitionRequestV1,
             TleSessionId, parliament_ballot_participant_hash_v1, parliament_candidate_root_v1,
         },
         isi::{
@@ -46,32 +36,21 @@ use iroha::{
                 CreateParliamentGovernanceAttemptV1, ParliamentAdvanceBodyPhaseV1,
                 ParliamentBeginBallotOpeningBatchV1, ParliamentBeginInvitationAcceptanceV1,
                 ParliamentCloseBallotRegistrationV1, ParliamentConsumeSortitionPulseBatchV1,
-                ParliamentEndorsePublicFindingV1, ParliamentFailPublicFindingNoResultV1,
-                ParliamentFinalizeOpenedBallotV1, ParliamentFreezeBallotSurvivorsV1,
-                ParliamentFreezeTimedOvnCorpusV1, ParliamentInvitationDecisionV1,
-                ParliamentLifecycleTransitionV1, ParliamentRecordAttemptAbsenceV1,
+                ParliamentEndorsePublicFindingV1, ParliamentFinalizeOpenedBallotV1,
+                ParliamentFreezeBallotSurvivorsV1, ParliamentFreezeTimedOvnCorpusV1,
+                ParliamentInvitationDecisionV1, ParliamentLifecycleTransitionV1,
                 ParliamentRecordInvitationResponseV1, ParliamentRegisterBallotAttemptV1,
                 ParliamentRegisterBallotParticipantV1, ParliamentRegisterSortitionRequestV1,
                 ParliamentSealBodyRosterV1, ParliamentSortitionRequestRegistrationV1,
-                ParliamentTleFinalReleaseSignatureV1, ProposeDeployContract, RegisterCitizen,
+                ParliamentTleFinalReleaseSignatureV1, RegisterCitizen,
                 SubmitParliamentLifecycleTransitionV1,
             },
         },
         parameter::{
             Parameter,
-            system::{
-                ConsensusHandshakeMetadata, SumeragiConsensusMode, SumeragiNposParameters,
-                SumeragiParameter, consensus_metadata,
-            },
+            system::{SumeragiNposParameters, SumeragiParameter},
         },
-        permission::Permission,
-        prelude::{
-            Account, AssetId, FeePaymentIntent, FindAssetById, FindBlocks, Grant,
-            Identifiable as _, Level, QueryBuilderExt as _, Register, SetParameter,
-        },
-        query::dsl::IntoPredicate as _,
-        smart_contract::ContractAddress,
-        sumeragi::SumeragiStatus,
+        prelude::{Account, Level, Register, SetParameter},
     },
 };
 use iroha_core::beacon::GlobalThresholdBeaconSessionBindingV1;
@@ -99,39 +78,35 @@ use iroha_core_timed_ovn::tle::TleKeySessionPublicStateV1;
 use iroha_core_timed_ovn::tle::TlePartialReleaseShareV1;
 use iroha_crypto::timed_ovn::{TimedOvnChoiceV1, TimedOvnRegistrationSecretV1};
 use iroha_data_model::governance::types::PARLIAMENT_TIMED_OVN_BALLOT_RECORD_BYTES_V1 as TIMED_OVN_BALLOT_RECORD_BYTES_V1;
-use iroha_executor_data_model::permission::{
-    governance::CanProposeContractDeployment, smart_contract::CanManageSmartContractCode,
-};
 use iroha_model_base::peer::PeerId;
 use iroha_test_network::{NetworkBuilder, ParliamentBeaconSignerMode, read_on_dedicated_thread};
-use iroha_test_samples::ALICE_ID;
 use norito::codec::Encode as _;
 use rand::{SeedableRng as _, rngs::StdRng};
 
-pub(super) const VALIDATOR_COUNT: usize = 4;
-pub(super) const CITIZEN_COUNT: usize = 24;
-pub(super) const BODY_SEATS: u32 = 3;
+pub const VALIDATOR_COUNT: usize = 4;
+pub const CITIZEN_COUNT: usize = 24;
+pub const BODY_SEATS: u32 = 3;
 // An isolated ordinary transaction executes in the next certified global carrier.
-pub(super) const EXECUTION_CARRIER_BLOCKS: u64 = 1;
+pub const EXECUTION_CARRIER_BLOCKS: u64 = 1;
 // Keep real FastPQ proving enabled, but prevent four local debug daemons from
 // each provisioning a wide Rayon pool on the same host while consensus traffic is live.
-pub(super) const PARLIAMENT_NETWORK_RAYON_THREADS_PER_PEER: i64 = 2;
+pub const PARLIAMENT_NETWORK_RAYON_THREADS_PER_PEER: i64 = 2;
 // Six three-seat bodies can draw eighteen distinct invitees. Keep enough native
 // execution heights for separately signed responses and the exact roster seal.
-pub(super) const INVITATION_PHASE_BLOCKS: u64 = 56;
+pub const INVITATION_PHASE_BLOCKS: u64 = 56;
 // The corridor executes three proof-valid registrations and one proof-invalid
 // early close before the exact close, each in its own certified carrier.
-pub(super) const REGISTRATION_PHASE_BLOCKS: u64 = 15;
-pub(super) const SURVIVOR_PHASE_BLOCKS: u64 = 9;
+pub const REGISTRATION_PHASE_BLOCKS: u64 = 15;
+pub const SURVIVOR_PHASE_BLOCKS: u64 = 9;
 // A replayed survivor freeze and an early corpus freeze each consume one full
 // native transaction lifecycle before the exact corpus-freeze authority point.
-pub(super) const COMMITMENT_PHASE_BLOCKS: u64 = 9;
+pub const COMMITMENT_PHASE_BLOCKS: u64 = 9;
 // The replayed corpus freeze and wrong-pulse opening must terminate before the
 // autonomous release pulse reaches its exact height.
-pub(super) const RELEASE_DELAY_BLOCKS: u64 = 7;
-pub(super) const OPENING_PHASE_BLOCKS: u64 = 9;
-pub(super) const MIN_ENACTMENT_DELAY: u64 = 4;
-pub(super) const MANDATORY_NPOS_EPOCH_LENGTH_BLOCKS: u64 = 8;
+pub const RELEASE_DELAY_BLOCKS: u64 = 7;
+pub const OPENING_PHASE_BLOCKS: u64 = 9;
+pub const MIN_ENACTMENT_DELAY: u64 = 4;
+
 // One signed NPoS epoch length for every converted sortition corridor. A sortition slot
 // is a consensus-native pre-boundary pulse height, so each draw waits for `(h + 1) % L == 0`.
 // The corridors submit at exact heights, one carrier per height, and a native pulse height
@@ -140,44 +115,26 @@ pub(super) const MANDATORY_NPOS_EPOCH_LENGTH_BLOCKS: u64 = 8;
 // public-finding phases with their 8 or 20 block deadline, and two private registration
 // windows of 12 blocks with their failure and restore heights. 128 covers each of those
 // runs with margin while the first slot (height 127) stays reachable by plain carriers.
-pub(super) const CORRIDOR_NPOS_EPOCH_LENGTH_BLOCKS: u64 = 128;
-// Unrelated carriers committed past the retired `request_height + delay` slot by the
-// isolation corridor; the first one lands on the height the retired rule stalled.
-pub(super) const ISOLATION_CARRIERS_PAST_RETIRED_SLOT: u64 = 12;
-// Further carriers committed after the restarted validator has rejoined.
-pub(super) const ISOLATION_CARRIERS_AFTER_RESTART: u64 = 3;
+pub const CORRIDOR_NPOS_EPOCH_LENGTH_BLOCKS: u64 = 128;
+
 // Exact-roster certificates bind their containing height. Leave time to sign
 // and submit against the immediately preceding certified State.
-pub(super) const EXACT_HEIGHT_SUBMISSION_CADENCE: Duration = Duration::from_secs(5);
-pub(super) const PARLIAMENT_NETWORK_STACK_BYTES: usize = 32 * 1024 * 1024;
-pub(super) const TEST_NEXUS_LOCAL_STORAGE_BUDGET_BYTES: i64 = 1_073_741_824;
-pub(super) const FAIL_CLOSED_BEACON_OBSERVATION_WINDOW: Duration = Duration::from_secs(8);
-pub(super) const POSITIVE_BEACON_SIGNER_MODES: [ParliamentBeaconSignerMode; VALIDATOR_COUNT] = [
+pub const EXACT_HEIGHT_SUBMISSION_CADENCE: Duration = Duration::from_secs(5);
+
+pub const TEST_NEXUS_LOCAL_STORAGE_BUDGET_BYTES: i64 = 1_073_741_824;
+
+pub const POSITIVE_BEACON_SIGNER_MODES: [ParliamentBeaconSignerMode; VALIDATOR_COUNT] = [
     ParliamentBeaconSignerMode::Valid,
     ParliamentBeaconSignerMode::Valid,
     ParliamentBeaconSignerMode::Absent,
     ParliamentBeaconSignerMode::Invalid,
 ];
-pub(super) const FAIL_CLOSED_BEACON_SIGNER_MODES: [ParliamentBeaconSignerMode; VALIDATOR_COUNT] = [
-    ParliamentBeaconSignerMode::Valid,
-    ParliamentBeaconSignerMode::Absent,
-    ParliamentBeaconSignerMode::Absent,
-    ParliamentBeaconSignerMode::Invalid,
-];
-pub(super) const CONTRACT_ADDRESS: &str =
-    "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw";
-pub(super) const NO_RESULT_RETRY_CONTRACT_ADDRESS: &str =
-    "irohac1qyqqqqqqqqqqqqputuv64zhf0a0a4hhlqdj2lhnwuzq4xjq3qexfh";
 
 #[path = "support/parliament_submission.rs"]
-mod submission;
-pub(super) use submission::{
-    OPERATION_TIMEOUT, admit_parliament_height_carrier, fee, minimal_contract_artifact,
-    minimal_contract_artifact_with_identity, prepare_parliament_transaction,
-    stage_contract_artifact, submit_parliament_instructions,
-};
+pub mod submission;
+pub use submission::{OPERATION_TIMEOUT, submit_parliament_instructions};
 
-pub(super) fn citizen_keys() -> Vec<KeyPair> {
+pub fn citizen_keys() -> Vec<KeyPair> {
     (0..CITIZEN_COUNT)
         .map(|index| {
             KeyPair::try_from_seed(
@@ -189,7 +146,7 @@ pub(super) fn citizen_keys() -> Vec<KeyPair> {
         .collect()
 }
 
-pub(super) fn citizen_accounts(keys: &[KeyPair]) -> Vec<AccountId> {
+pub fn citizen_accounts(keys: &[KeyPair]) -> Vec<AccountId> {
     let mut accounts = keys
         .iter()
         .map(|key| AccountId::new(key.public_key().clone()))
@@ -198,7 +155,7 @@ pub(super) fn citizen_accounts(keys: &[KeyPair]) -> Vec<AccountId> {
     accounts
 }
 
-pub(super) fn client_for(base: &Client, account: &AccountId, keys: &[KeyPair]) -> Client {
+pub fn client_for(base: &Client, account: &AccountId, keys: &[KeyPair]) -> Client {
     let key = keys
         .iter()
         .find(|key| {
@@ -241,7 +198,7 @@ fn status_retry_delay(error: &iroha::Error, remaining: Duration) -> Option<Durat
 /// A status read that lost the State publication race answers HTTP 503 `status_state_busy`
 /// without publishing a snapshot. That is a property of the read, not of the chain, so it is
 /// retried inside one bounded window; any other failure is returned unchanged.
-pub(super) async fn current_height(client: &Client) -> Result<u64> {
+pub async fn current_height(client: &Client) -> Result<u64> {
     let deadline = Instant::now() + STATUS_RETRY_WINDOW;
     loop {
         match client.client().status().get().await {
@@ -295,12 +252,12 @@ fn status_retry_accepts_only_typed_busy_or_deadline_inside_the_window() {
     }
 }
 
-pub(super) async fn tick(client: &Client, label: impl Into<String>) -> Result<u64> {
-    submit_parliament_instructions(&client, [Log::new(Level::INFO, label.into())]).await?;
+pub async fn tick(client: &Client, label: impl Into<String>) -> Result<u64> {
+    submit_parliament_instructions(client, [Log::new(Level::INFO, label.into())]).await?;
     current_height(client).await
 }
 
-pub(super) async fn next_execution_height(
+pub async fn next_execution_height(
     client: &Client,
     minimum_height: u64,
     label: &str,
@@ -321,7 +278,7 @@ pub(super) async fn next_execution_height(
     }
 }
 
-pub(super) async fn advance_to_height_with_carriers(
+pub async fn advance_to_height_with_carriers(
     network: &iroha_test_network::Network,
     client: &Client,
     target_height: u64,
@@ -341,7 +298,7 @@ pub(super) async fn advance_to_height_with_carriers(
             .checked_add(1)
             .ok_or_else(|| eyre!("{label}: native transaction carrier height overflow"))?;
         admit_parliament_height_carrier(
-            &client,
+            client,
             [Log::new(
                 Level::INFO,
                 format!("{label} admission carrier {carrier_height}"),
@@ -353,43 +310,12 @@ pub(super) async fn advance_to_height_with_carriers(
     }
 }
 
-/// Read one validator's Sumeragi status together with its published native beacon horizon.
-///
-/// The status omits the horizon while its same-cut observation is being refreshed, so an
-/// assertion guarded by `if let Some(..)` could pass without running. This read waits a bounded
-/// time for the horizon and fails when the validator never publishes it.
-pub(super) async fn require_beacon_horizon(
-    client: &Client,
-    label: &str,
-) -> Result<(
-    iroha_data_model::sumeragi::SumeragiStatus,
-    iroha_data_model::sumeragi::BeaconHorizonStatusV1,
-)> {
-    let deadline = Instant::now() + OPERATION_TIMEOUT;
-    loop {
-        let status = read_on_dedicated_thread({
-            let client = client.client().clone();
-            move || client.get_sumeragi_status()
-        })
-        .await?;
-        if let Some(horizon) = status.beacon_horizon {
-            return Ok((status, horizon));
-        }
-        if Instant::now() >= deadline {
-            return Err(eyre!(
-                "{label}: the validator never published its native beacon horizon"
-            ));
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-}
-
 /// Observe one exact finalized height through the client's status projection.
 ///
 /// `ensure_blocks` can return from durable block storage before the status projection
 /// publishes the same height. The projection may therefore trail by a bounded interval,
 /// but it must never pass the expected height.
-pub(super) async fn observe_exact_height(
+pub async fn observe_exact_height(
     client: &Client,
     expected_height: u64,
     label: &str,
@@ -414,7 +340,7 @@ pub(super) async fn observe_exact_height(
     }
 }
 
-pub(super) async fn advance_to_execution_predecessor(
+pub async fn advance_to_execution_predecessor(
     network: &iroha_test_network::Network,
     client: &Client,
     execution_height: u64,
@@ -430,7 +356,7 @@ pub(super) async fn advance_to_execution_predecessor(
     advance_to_height_with_carriers(network, client, authority_height, label).await
 }
 
-pub(super) async fn advance_to_autonomous_predecessor(
+pub async fn advance_to_autonomous_predecessor(
     network: &iroha_test_network::Network,
     client: &Client,
     target_height: u64,
@@ -442,13 +368,13 @@ pub(super) async fn advance_to_autonomous_predecessor(
     advance_to_height_with_carriers(network, client, predecessor_height, label).await
 }
 
-pub(super) async fn submit_transition(
+pub async fn submit_transition(
     client: &Client,
     attempt_id: GovernanceAttemptId,
     transition: ParliamentLifecycleTransitionV1,
 ) -> Result<u64> {
     submit_parliament_instructions(
-        &client,
+        client,
         [SubmitParliamentLifecycleTransitionV1 {
             governance_attempt_id: attempt_id,
             transition,
@@ -458,13 +384,13 @@ pub(super) async fn submit_transition(
     current_height(client).await
 }
 
-pub(super) async fn submit_transitions(
+pub async fn submit_transitions(
     client: &Client,
     attempt_id: GovernanceAttemptId,
     transitions: impl IntoIterator<Item = ParliamentLifecycleTransitionV1>,
 ) -> Result<u64> {
     submit_parliament_instructions(
-        &client,
+        client,
         transitions.into_iter().map(|transition| {
             InstructionBox::from(SubmitParliamentLifecycleTransitionV1 {
                 governance_attempt_id: attempt_id,
@@ -476,7 +402,7 @@ pub(super) async fn submit_transitions(
     current_height(client).await
 }
 
-pub(super) async fn assert_transition_rejected_without_state_change(
+pub async fn assert_transition_rejected_without_state_change(
     client: &Client,
     attempt_id: GovernanceAttemptId,
     transition: ParliamentLifecycleTransitionV1,
@@ -484,13 +410,12 @@ pub(super) async fn assert_transition_rejected_without_state_change(
 ) -> Result<()> {
     let before = read_on_dedicated_thread({
         let client = client.client().clone();
-        let attempt_id = (attempt_id).clone();
         move || client.get_parliament_attempt(attempt_id)
     })
     .await?
     .state_payload_hex;
     if submit_parliament_instructions(
-        &client,
+        client,
         [SubmitParliamentLifecycleTransitionV1 {
             governance_attempt_id: attempt_id,
             transition,
@@ -503,7 +428,6 @@ pub(super) async fn assert_transition_rejected_without_state_change(
     }
     let after = read_on_dedicated_thread({
         let client = client.client().clone();
-        let attempt_id = (attempt_id).clone();
         move || client.get_parliament_attempt(attempt_id)
     })
     .await?
@@ -516,149 +440,20 @@ pub(super) async fn assert_transition_rejected_without_state_change(
     Ok(())
 }
 
-pub(super) async fn assert_governed_contract_absent(
-    client: &Client,
-    contract_address: &ContractAddress,
-    label: &str,
-) -> Result<()> {
-    let response = read_on_dedicated_thread({
-        let client = client.client().clone();
-        let contract_address = (contract_address).clone();
-        move || client.get_gov_contract_response(&contract_address)
-    })
-    .await
-    .wrap_err_with(|| format!("{label}: inactive governed-contract lookup failed"))?;
-    if response.status() != iroha::http::StatusCode::OK {
-        return Err(eyre!(
-            "{label}: expected governed-contract HTTP 200, observed {}",
-            response.status(),
-        ));
-    }
-    let projection: norito::json::Value = norito::json::from_slice(response.body())
-        .wrap_err_with(|| format!("{label}: inactive governed-contract response is not JSON"))?;
-    let object = projection
-        .as_object()
-        .ok_or_else(|| eyre!("{label}: inactive governed-contract response is not an object"))?;
-    if object.len() != 3
-        || object.get("found").and_then(norito::json::Value::as_bool) != Some(false)
-        || object
-            .get("contract_address")
-            .and_then(norito::json::Value::as_str)
-            != Some(contract_address.as_ref())
-        || object
-            .get("dataspace")
-            .and_then(norito::json::Value::as_str)
-            != Some("universal")
-    {
-        return Err(eyre!(
-            "{label}: expected the exact inactive governed-contract projection, got {object:?}"
-        ));
-    }
-    Ok(())
-}
-
-pub(super) async fn assert_governed_contract_binding(
-    client: &Client,
-    contract_address: &ContractAddress,
-    expected_code_hash: ContractCodeHash,
-    expected_abi_hash: ContractAbiHash,
-    label: &str,
-) -> Result<()> {
-    let response = read_on_dedicated_thread({
-        let client = client.client().clone();
-        let contract_address = (contract_address).clone();
-        move || client.get_gov_contract_json(&contract_address)
-    })
-    .await
-    .wrap_err_with(|| format!("{label}: active governed-contract lookup failed"))?;
-    let object = response
-        .as_object()
-        .ok_or_else(|| eyre!("{label}: active governed-contract response is not an object"))?;
-    let expected_subject = contract_address.subject_id().to_string();
-    let expected_code_hash = expected_code_hash.to_hex();
-    let expected_abi_hash = expected_abi_hash.to_hex();
-    let has_exact_entrypoints = object
-        .get("public_entrypoints")
-        .and_then(norito::json::Value::as_array)
-        .is_some_and(|entrypoints| {
-            entrypoints.len() == 1 && entrypoints[0].as_str() == Some("main")
-        });
-    if object.len() != 7
-        || object.get("found").and_then(norito::json::Value::as_bool) != Some(true)
-        || object
-            .get("contract_address")
-            .and_then(norito::json::Value::as_str)
-            != Some(contract_address.as_ref())
-        || object
-            .get("contract_subject_account")
-            .and_then(norito::json::Value::as_str)
-            != Some(expected_subject.as_str())
-        || object
-            .get("dataspace")
-            .and_then(norito::json::Value::as_str)
-            != Some("universal")
-        || object
-            .get("code_hash_hex")
-            .and_then(norito::json::Value::as_str)
-            != Some(expected_code_hash.as_str())
-        || object
-            .get("abi_hash_hex")
-            .and_then(norito::json::Value::as_str)
-            != Some(expected_abi_hash.as_str())
-        || !has_exact_entrypoints
-    {
-        return Err(eyre!(
-            "{label}: expected the exact active governed-contract projection, got {object:?}"
-        ));
-    }
-    Ok(())
-}
-
-pub(super) async fn assert_asset_not_found(
-    client: &Client,
-    asset_id: &AssetId,
-    label: &str,
-) -> Result<()> {
-    let query = FindAssetById::new(asset_id.clone());
-    assert_eq!(
-        query.asset_id(),
-        asset_id,
-        "{label}: bind the exact requested asset"
-    );
-    match read_on_dedicated_thread({
-        let client = client.client().clone();
-        move || Ok(client.query_single(query))
-    })
-    .await?
-    {
-        Err(QueryError::Validation(ValidationFail::QueryFailed(QueryExecutionFail::Find(
-            FindError::Asset(missing),
-        )))) if missing.as_ref() == asset_id => Ok(()),
-        Ok(asset) => Err(eyre!(
-            "{label}: expected asset `{asset_id}` to be absent, but the query returned `{}`",
-            asset.id()
-        )),
-        Err(error) => Err(eyre!(
-            "{label}: expected typed absence of exact asset `{asset_id}`, got {error:?}"
-        )),
-    }
-}
-
-pub(super) async fn assert_timed_ovn_casting_context_not_castable(
+pub async fn assert_timed_ovn_casting_context_not_castable(
     client: &Client,
     ballot_attempt_id: BallotAttemptId,
     label: &str,
 ) -> Result<()> {
+    const PHASE_NOT_CASTABLE: &str = "Parliament timed-OVN casting context is not authorized: \
+        timed-OVN lifecycle is no longer in a casting phase";
     let error = read_on_dedicated_thread({
         let client = client.client().clone();
-        let ballot_attempt_id = (ballot_attempt_id).clone();
         move || client.get_parliament_timed_ovn_casting_context(ballot_attempt_id)
     })
     .await
     .expect_err("a sealed timed-OVN corpus must not return a casting context");
     let rendered = format!("{error:#}");
-    const PHASE_NOT_CASTABLE: &str = "Parliament timed-OVN casting context is not authorized: \
-        timed-OVN lifecycle is no longer in a casting phase";
     if !rendered.contains("400 Bad Request") || !rendered.contains(PHASE_NOT_CASTABLE) {
         return Err(eyre!(
             "{label}: expected the exact sealed-corpus casting-context rejection, got {rendered}"
@@ -667,13 +462,12 @@ pub(super) async fn assert_timed_ovn_casting_context_not_castable(
     Ok(())
 }
 
-pub(super) async fn read_attempt(
+pub async fn read_attempt(
     client: &Client,
     attempt_id: GovernanceAttemptId,
 ) -> Result<ParliamentAttemptStateV1> {
     let response = read_on_dedicated_thread({
         let client = client.client().clone();
-        let attempt_id = (attempt_id).clone();
         move || client.get_parliament_attempt(attempt_id)
     })
     .await?;
@@ -681,7 +475,7 @@ pub(super) async fn read_attempt(
     norito::decode_canonical(&frame).wrap_err("decode canonical Parliament reducer projection")
 }
 
-pub(super) async fn ordered_validator_roster(
+pub async fn ordered_validator_roster(
     network: &iroha_test_network::Network,
     client: &Client,
 ) -> Result<Vec<PeerId>> {
@@ -700,7 +494,7 @@ pub(super) async fn ordered_validator_roster(
     Ok(roster)
 }
 
-pub(super) fn lifecycle_certificate(
+pub fn lifecycle_certificate(
     network: &iroha_test_network::Network,
     ordered_roster: &[PeerId],
     action: ThresholdKeyLifecycleActionV1,
@@ -713,20 +507,18 @@ pub(super) fn lifecycle_certificate(
         network,
         ordered_roster,
         action,
-        None,
-        session_id,
+        (None, session_id),
         transcript_hash,
         public_state,
         effective_height,
     )
 }
 
-pub(super) fn lifecycle_certificate_replacing(
+pub fn lifecycle_certificate_replacing(
     network: &iroha_test_network::Network,
     ordered_roster: &[PeerId],
     action: ThresholdKeyLifecycleActionV1,
-    expected_active_session_id: Option<[u8; 32]>,
-    session_id: [u8; 32],
+    (expected_active_session_id, session_id): (Option<[u8; 32]>, [u8; 32]),
     transcript_hash: [u8; 32],
     public_state: Vec<u8>,
     effective_height: u64,
@@ -738,7 +530,7 @@ pub(super) fn lifecycle_certificate_replacing(
         effective_height,
         network_id: network.network_id(),
         roster_hash: global_threshold_beacon_roster_hash_v1(ordered_roster),
-        committee_size: VALIDATOR_COUNT as u16,
+        committee_size: u16::try_from(VALIDATOR_COUNT).expect("fixture committee size fits u16"),
         quorum: 3,
         session_id,
         transcript_hash,
@@ -776,49 +568,19 @@ pub(super) fn lifecycle_certificate_replacing(
     Ok(ApplyThresholdKeyLifecycleCertificateV1 { certificate })
 }
 
-pub(super) async fn pulse_at(
+pub async fn pulse_at(
     client: &Client,
     height: u64,
     network: &iroha_test_network::Network,
 ) -> Result<iroha::data_model::consensus::FinalizedGlobalThresholdBeaconPulseV1> {
-    exact_block(client, height, &network)
+    exact_block(client, height, network)
         .await?
         .global_beacon_pulse()
-        .cloned()
+        .copied()
         .ok_or_else(|| eyre!("block {height} does not carry a finalized global beacon pulse"))
 }
 
-pub(super) fn signed_consensus_handshake(
-    network: &iroha_test_network::Network,
-) -> Result<ConsensusHandshakeMetadata> {
-    let mut handshakes = network
-        .genesis_isi()
-        .iter()
-        .flatten()
-        .filter_map(|instruction| instruction.as_any().downcast_ref::<SetParameter>())
-        .filter_map(|set_parameter| match set_parameter.inner() {
-            Parameter::Custom(custom)
-                if custom.id() == &consensus_metadata::handshake_meta_id() =>
-            {
-                Some(custom)
-            }
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if handshakes.len() != 1 {
-        return Err(eyre!("expected one signed consensus handshake"));
-    }
-    norito::json::from_str(
-        handshakes
-            .pop()
-            .expect("handshake count checked")
-            .payload()
-            .get(),
-    )
-    .wrap_err("decode signed consensus handshake")
-}
-
-pub(super) fn casting_archive(
+pub fn casting_archive(
     response: &ParliamentTimedOvnCastingContextResponseV1,
     ballot_attempt_id: BallotAttemptId,
 ) -> Result<ParliamentTimedOvnCastingContextArchiveV1> {
@@ -839,7 +601,7 @@ pub(super) fn casting_archive(
     Ok(archive)
 }
 
-pub(super) fn release_projection(
+pub fn release_projection(
     context: &ParliamentTleReleaseContextResponseV1,
 ) -> Result<AuthorizedTleReleaseProjectionV1> {
     context
@@ -904,9 +666,7 @@ pub(super) fn release_projection(
     })
 }
 
-pub(super) fn release_partial(
-    partial: ParliamentTlePartialReleaseShareV1,
-) -> TlePartialReleaseShareV1 {
+pub fn release_partial(partial: &ParliamentTlePartialReleaseShareV1) -> TlePartialReleaseShareV1 {
     TlePartialReleaseShareV1 {
         key_session_id: partial.key_session_id,
         identity_digest: partial.identity_digest,
@@ -920,10 +680,7 @@ pub(super) fn release_partial(
     }
 }
 
-pub(super) fn public_finding_root(
-    attempt_id: GovernanceAttemptId,
-    body: ParliamentBody,
-) -> [u8; 32] {
+pub fn public_finding_root(attempt_id: GovernanceAttemptId, body: ParliamentBody) -> [u8; 32] {
     let body = body.encode();
     Hash::new_from_chunks(&[
         b"iroha.integration.parliament.public-finding.v1\0",
@@ -933,7 +690,7 @@ pub(super) fn public_finding_root(
     .into()
 }
 
-pub(super) async fn exact_block(
+pub async fn exact_block(
     client: &Client,
     height: u64,
     network: &iroha_test_network::Network,
@@ -970,34 +727,16 @@ pub(super) async fn exact_block(
     Ok(block)
 }
 
-pub(super) async fn assert_no_global_beacon_pulse_at(
-    client: &Client,
-    height: u64,
-    label: &str,
-    network: &iroha_test_network::Network,
-) -> Result<()> {
-    let block = exact_block(client, height, &network)
-        .await
-        .wrap_err_with(|| format!("{label}: exact finalized block is unavailable"))?;
-    if block.global_beacon_pulse().is_some() {
-        return Err(eyre!(
-            "{label}: finalized block {height} unexpectedly carries a global beacon pulse"
-        ));
-    }
-    Ok(())
-}
-
-/// Sign one explicit NPoS snapshot whose epoch length is `epoch_length_blocks`.
+/// Sign one explicit `NPoS` snapshot whose epoch length is `epoch_length_blocks`.
 /// This is the genesis recipe of the mandatory-beacon corridors, for any epoch length.
-pub(super) fn with_signed_npos_epoch(
-    builder: NetworkBuilder,
-    epoch_length_blocks: u64,
-) -> NetworkBuilder {
-    let mut npos = SumeragiNposParameters::default();
-    npos.epoch_length_blocks =
-        NonZeroU64::new(epoch_length_blocks).expect("corridor NPoS epoch length is non-zero");
-    npos.evidence_horizon_blocks = epoch_length_blocks * 2;
-    npos.slashing_delay_blocks = epoch_length_blocks;
+pub fn with_signed_npos_epoch(builder: NetworkBuilder, epoch_length_blocks: u64) -> NetworkBuilder {
+    let npos = SumeragiNposParameters {
+        epoch_length_blocks: NonZeroU64::new(epoch_length_blocks)
+            .expect("corridor NPoS epoch length is non-zero"),
+        evidence_horizon_blocks: epoch_length_blocks * 2,
+        slashing_delay_blocks: epoch_length_blocks,
+        ..SumeragiNposParameters::default()
+    };
     npos.validate()
         .expect("corridor NPoS epoch fixture must be valid");
     // Genesis rejects an NPoS snapshot whose epoch length differs from the signed
@@ -1011,9 +750,9 @@ pub(super) fn with_signed_npos_epoch(
         )))
 }
 
-/// Read the NPoS epoch length from independently authenticated finality at the current tip.
+/// Read the `NPoS` epoch length from independently authenticated finality at the current tip.
 /// The claimed status and local configuration never select this value.
-pub(super) async fn certified_npos_epoch_length(
+pub async fn certified_npos_epoch_length(
     network: &iroha_test_network::Network,
     client: &Client,
 ) -> Result<u64> {
@@ -1037,7 +776,7 @@ pub(super) async fn certified_npos_epoch_length(
 }
 
 /// First consensus-native pulse height at or after `earliest`: `(h + 1) % L == 0`.
-pub(super) fn aligned_native_pulse_height(earliest: u64, epoch_length_blocks: u64) -> Result<u64> {
+pub fn aligned_native_pulse_height(earliest: u64, epoch_length_blocks: u64) -> Result<u64> {
     if earliest == 0 || epoch_length_blocks < 3 {
         return Err(eyre!(
             "native pulse alignment needs a height and an NPoS epoch"
@@ -1052,7 +791,7 @@ pub(super) fn aligned_native_pulse_height(earliest: u64, epoch_length_blocks: u6
 /// Slot of a sortition generation registered at `request_height`: the first native pulse
 /// height at or after `max(request_height + delay, previous generation slot + 1)`.
 /// The epoch length comes from certified finality and must equal the attempt's frozen one.
-pub(super) async fn expected_sortition_slot(
+pub async fn expected_sortition_slot(
     network: &iroha_test_network::Network,
     client: &Client,
     attempt_id: GovernanceAttemptId,
@@ -1087,7 +826,7 @@ pub(super) async fn expected_sortition_slot(
 
 /// Governance-local wait: carry the chain to the slot's predecessor, then observe the
 /// consensus-native pre-boundary pulse that every validator finalized at the slot.
-pub(super) async fn await_native_sortition_pulse(
+pub async fn await_native_sortition_pulse(
     network: &iroha_test_network::Network,
     client: &Client,
     slot: u64,
@@ -1099,7 +838,7 @@ pub(super) async fn await_native_sortition_pulse(
     observe_exact_height(client, slot, label).await?;
     let mut pulses = Vec::with_capacity(network.peers().len());
     for peer in network.peers() {
-        pulses.push(pulse_at(&peer.client(), slot, &network).await?);
+        pulses.push(pulse_at(&peer.client(), slot, network).await?);
     }
     if !pulses.windows(2).all(|pair| pair[0] == pair[1]) {
         return Err(eyre!(
@@ -1115,7 +854,7 @@ pub(super) async fn await_native_sortition_pulse(
 
 /// Cross the epoch boundary behind a slot pulse and prove from certified finality that the
 /// same pulse scheduled the successor epoch. Consumption therefore happens after the boundary.
-pub(super) async fn cross_native_boundary_after_pulse(
+pub async fn cross_native_boundary_after_pulse(
     network: &iroha_test_network::Network,
     client: &Client,
     pulse: &iroha::data_model::consensus::FinalizedGlobalThresholdBeaconPulseV1,
@@ -1166,55 +905,27 @@ pub(super) async fn cross_native_boundary_after_pulse(
 }
 
 #[path = "sora_parliament_finality.rs"]
-pub(super) mod finality;
+pub mod finality;
 
 #[path = "sora_parliament_enactment.rs"]
-pub(super) mod enactment;
+pub mod enactment;
 
-/// Prepare the actual seven-body provider governance corridor with independent threshold signers.
-/// The caller must provision four validators and provider genesis inputs before network startup.
-pub(crate) fn publication_parliament_builder(builder: NetworkBuilder) -> NetworkBuilder {
-    enactment::builder(builder).with_config_layer(|layer| {
-        layer
-            .write(["gov", "coordination_council_size"], BODY_SEATS as i64)
-            .write(["gov", "parliament_invitation_phase_blocks"], 68_i64);
-    })
-}
-
-/// Execute a provider proposal through genuine citizen sortition, findings, timed OVN and enactment.
-/// The return coordinates are observed only after all four peers agree on the enacted attempt.
-pub(crate) async fn enact_publication_proposal(
-    network: &iroha_test_network::Network,
-    proposal: ProposalKind,
-) -> Result<(GovernanceAttemptId, u64)> {
-    let ProposalKind::SorafsProviderGovernance(provider) = &proposal else {
+// The caller observes the exact certified carrier height after native admission.
+pub async fn admit_parliament_height_carrier(
+    client: &Client,
+    instructions: [Log; 1],
+) -> Result<()> {
+    let transaction = submission::prepare_parliament_transaction(client, instructions).await?;
+    let admitted_hash = tokio::time::timeout(
+        OPERATION_TIMEOUT,
+        client.account_client().submit_transaction(&transaction),
+    )
+    .await
+    .map_err(|_| eyre!("Parliament carrier admission exceeded {OPERATION_TIMEOUT:?}"))??;
+    if admitted_hash != transaction.hash() {
         return Err(eyre!(
-            "publication corridor requires a provider governance proposal"
+            "Parliament carrier admission substituted the signed hash"
         ));
-    };
-    let preliminary = iroha_data_model::isi::governance::ProposeSorafsProviderGovernance {
-        action: (*provider.action).clone(),
-    };
-    let keys = citizen_keys();
-    let account = citizen_accounts(&keys).remove(0);
-    let proposer = client_for(&network.client(), &account, &keys);
-    let enacted =
-        enactment::enact(network, proposal, vec![preliminary.into()], Some(proposer)).await?;
-    let first = exact_block(&network.client(), enacted.height, &network).await?;
-    for peer in network.peers() {
-        let client = peer.client();
-        let block = exact_block(&client, enacted.height, &network).await?;
-        assert_eq!(block.hash(), first.hash());
-        let attempt = read_attempt(&client, enacted.attempt_id).await?;
-        assert_eq!(attempt.attempt().status, GovernanceAttemptStatusV1::Enacted);
-        assert_eq!(attempt.terminal_height(), Some(enacted.height));
-        let (_, verified) = finality::certified_block(network, &client, enacted.height).await?;
-        assert_eq!(verified.block().hash(), block.hash());
-        assert_eq!(
-            verified.canonical_executed_wire()?,
-            block.clone().with_commit_certificate(None).encode_wire()?,
-            "per-peer enacted execution differs from its authenticated native decision",
-        );
     }
-    Ok((enacted.attempt_id, enacted.height))
+    Ok(())
 }

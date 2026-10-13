@@ -219,9 +219,16 @@ fn semantic_trigger_reader_rejects_changed_action_and_omitted_row() {
         tx.apply();
         block.commit();
     }
-    let before = set
-        .capture_by_call_authority_table(limits, &capture_budget())
-        .expect("bounded trigger table");
+    let before = {
+        let pool = capture_budget();
+        let mut checked = CheckedActions::capture(&set, action_source_work(limits), &pool)
+            .expect("checked original action sources");
+        let outcome = checked.encode(ActionTable::ByCall, limits);
+        let current = checked.matches_current();
+        drop(checked);
+        assert!(current.expect("original action source identities"));
+        outcome.expect("bounded trigger table")
+    };
     assert_eq!(before.row_count(), 1);
     {
         let rows = set.by_call_triggers.view();
@@ -261,9 +268,16 @@ fn semantic_trigger_reader_rejects_changed_action_and_omitted_row() {
         tx.apply();
         block.commit();
     }
-    let changed = set
-        .capture_by_call_authority_table(limits, &capture_budget())
-        .expect("bounded changed trigger table");
+    let changed = {
+        let pool = capture_budget();
+        let mut checked = CheckedActions::capture(&set, action_source_work(limits), &pool)
+            .expect("checked original action sources");
+        let outcome = checked.encode(ActionTable::ByCall, limits);
+        let current = checked.matches_current();
+        drop(checked);
+        assert!(current.expect("original action source identities"));
+        outcome.expect("bounded changed trigger table")
+    };
     assert_ne!(before.root(), changed.root());
     let changed_proof = changed
         .prove_lookup("triggers.by_call", &id)
@@ -287,9 +301,16 @@ fn semantic_trigger_reader_rejects_changed_action_and_omitted_row() {
         tx.apply();
         block.commit();
     }
-    let omitted = set
-        .capture_by_call_authority_table(limits, &capture_budget())
-        .expect("bounded omitted trigger table");
+    let omitted = {
+        let pool = capture_budget();
+        let mut checked = CheckedActions::capture(&set, action_source_work(limits), &pool)
+            .expect("checked original action sources");
+        let outcome = checked.encode(ActionTable::ByCall, limits);
+        let current = checked.matches_current();
+        drop(checked);
+        assert!(current.expect("original action source identities"));
+        outcome.expect("bounded omitted trigger table")
+    };
     assert_eq!(omitted.row_count(), 0);
     let omitted_proof = omitted
         .prove_lookup("triggers.by_call", &id)
@@ -309,16 +330,16 @@ fn semantic_trigger_reader_rejects_changed_action_and_omitted_row() {
 
 #[test]
 fn borrowed_contract_commits_only_bytecode_and_rejects_stale_derived_hash() {
+    #[derive(Encode)]
+    struct OriginalContractOnly {
+        original_contract: IvmBytecode,
+    }
     let blob = halt_blob();
     let entry = IvmBytecodeEntry {
         code_hash: ivm::contract_code_hash(blob.as_ref()),
         original_contract: blob,
         count: NonZeroU64::MIN,
     };
-    #[derive(Encode)]
-    struct OriginalContractOnly {
-        original_contract: IvmBytecode,
-    }
     assert_eq!(
         BorrowedWorldContract::from(&entry).encode(),
         OriginalContractOnly {
@@ -437,18 +458,23 @@ fn trigger_contract_projection_checks_key_hash_and_derived_four_store_count() {
     block.contracts.insert(key, original);
     assert_eq!(project(&block), valid_delta);
     block.commit();
-    let captured = set
-        .capture_contracts_authority_table(
-            LeafLimits {
-                max_tables: 1,
-                max_rows: 8,
-                max_payload_bytes: 4 * 1024,
-                max_ordered_table_bytes: 32 * 1024,
-                max_streamed_value_bytes: 8 * 1024 * 1024,
-            },
-            &capture_budget(),
-        )
-        .expect("validated original contract bytecode has semantic table nodes");
+    let captured = {
+        let pool = capture_budget();
+        let limits = LeafLimits {
+            max_tables: 1,
+            max_rows: 8,
+            max_payload_bytes: 4 * 1024,
+            max_ordered_table_bytes: 32 * 1024,
+            max_streamed_value_bytes: 8 * 1024 * 1024,
+        };
+        let mut checked = CheckedContracts::capture(&set, contract_source_work(limits), &pool)
+            .expect("checked original contract sources");
+        let outcome = checked.encode(limits);
+        let current = checked.matches_current();
+        drop(checked);
+        assert!(current.expect("original contract source identities"));
+        outcome.expect("validated original contract bytecode has semantic table nodes")
+    };
     assert_eq!(captured.row_count(), 1);
 }
 

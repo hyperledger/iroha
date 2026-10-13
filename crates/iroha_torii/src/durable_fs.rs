@@ -25,10 +25,10 @@ fn metadata_identifies_same_directory(left: &fs::Metadata, right: &fs::Metadata)
 ///
 /// This is the durability boundary for atomic rename and unlink operations. Unsupported targets
 /// fail closed instead of claiming that a namespace mutation reached stable storage.
-pub(crate) fn sync_direct_directory(path: &Path) -> io::Result<()> {
+pub fn sync_direct_directory(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
-        return sync_unix_directory(path);
+        sync_unix_directory(path)
     }
     #[cfg(windows)]
     {

@@ -251,14 +251,38 @@ fn full_word_aliases_and_missing_initialization_are_native_faults_without_owners
         ),
     ] {
         let contract = artifact(kind, word, 0, initialized, false);
-        assert_eq!(ordinary(&contract, 10_000).run(), Err(expected.clone()));
+        assert!(matches!(
+            (ordinary(&contract, 10_000).run(), &expected),
+            (Err(VMError::DecodeError), VMError::DecodeError)
+                | (Err(VMError::AssertionFailed), VMError::AssertionFailed)
+        ));
         let budget = AllocationBudget::new(128 * 1024 * 1024);
         let mut parent =
             ExecutionMemoryLease::reserve(&budget, NativeInvocation::allocation_plan().unwrap())
                 .unwrap();
-        assert!(
-            matches!(NativeInvocation::run_public_leaf_root(contract, "main", 10_000, &mut parent, &budget), Err(ivm::execution_packets::CaptureError::Execution(actual)) if actual == expected)
-        );
+        assert!(matches!(
+            (
+                NativeInvocation::run_public_leaf_root(
+                    contract,
+                    "main",
+                    10_000,
+                    &mut parent,
+                    &budget
+                ),
+                expected
+            ),
+            (
+                Err(ivm::execution_packets::CaptureError::Execution(
+                    VMError::DecodeError
+                )),
+                VMError::DecodeError
+            ) | (
+                Err(ivm::execution_packets::CaptureError::Execution(
+                    VMError::AssertionFailed
+                )),
+                VMError::AssertionFailed
+            )
+        ));
         assert_eq!(budget.reserved_bytes(), 0);
     }
 }

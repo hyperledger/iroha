@@ -67,7 +67,7 @@ pub(super) fn codec_original(coordinator: &ManagedProviderCapacity) -> Original 
         "1".parse().unwrap(),
         observed_block_time_ms / 1000,
         observed_block_time_ms / 1000,
-        Default::default(),
+        iroha_model_base::metadata::Metadata::default(),
     );
     let economics = provider_economics::derive_retained(
         &plan,
@@ -106,7 +106,7 @@ fn capacity_original_roundtrip_preserves_large_checkpoint_and_prior_capacity_byt
         1,
         1,
         2,
-        Default::default(),
+        iroha_model_base::metadata::Metadata::default(),
     ));
     // Raw previous bytes exercise codec admission only; no proof validator sees this specimen.
     let directory =
@@ -218,7 +218,7 @@ fn capacity_original_utc_and_fee_terms_never_renew_and_large_components_refuse()
         1,
         1,
         2,
-        Default::default(),
+        iroha_model_base::metadata::Metadata::default(),
     ));
     assert!(
         original

@@ -85,12 +85,12 @@ pub struct NativeAmxBeginRelayReadV1<'v, V: StateReadOnly> {
 ///
 /// # Errors
 /// Genesis selection or a source State whose authenticated root is not Global.
-pub fn begin_amx_relay<'v, V: StateReadOnly>(
-    view: &'v V,
+pub fn begin_amx_relay<V: StateReadOnly>(
+    view: &V,
     height: u64,
     transaction: [u8; 32],
     participant: DataSpaceId,
-) -> Result<NativeAmxBeginRelayReadV1<'v, V>, NativeAmxBeginRelayErrorV1> {
+) -> Result<NativeAmxBeginRelayReadV1<'_, V>, NativeAmxBeginRelayErrorV1> {
     use NativeAmxBeginRelayErrorV1 as Error;
     if height < 2 {
         return Err(Error::Source(

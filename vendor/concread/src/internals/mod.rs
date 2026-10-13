@@ -10,9 +10,4 @@
 //! ⚠️   ⚠️   ⚠️
 
 pub mod bptree;
-pub mod hashmap;
-pub mod hashtrie;
 pub mod lincowcell;
-
-#[cfg(feature = "asynch")]
-pub mod lincowcell_async;

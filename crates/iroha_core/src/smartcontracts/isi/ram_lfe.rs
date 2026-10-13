@@ -4,8 +4,6 @@ use iroha_crypto::{
     BfvIdentifierPublicParameters, Hash, RamLfeBackend, RamLfeVerificationMode,
     decode_bfv_programmed_public_parameters,
 };
-#[cfg(test)]
-use iroha_data_model::ram_lfe::RamLfeExecutionReceiptPayload;
 use iroha_data_model::ram_lfe::{
     RamLfeExecutionReceipt, RamLfeProgramPolicy, RamLfeReceiptAttestation,
 };
@@ -220,6 +218,13 @@ pub(crate) fn validate_program_policy(policy: &RamLfeProgramPolicy) -> Result<()
 /// This mirrors the attestation checks used during identifier-claim admission,
 /// but without any identifier-specific ledger binding checks. Proof mode is
 /// unavailable until a complete program-execution relation is implemented.
+///
+/// # Errors
+///
+/// Returns an error for an unsupported verification mode or backend, a
+/// policy or commitment mismatch, an invalid execution/expiry interval,
+/// invalid opaque-input/output bindings, or an invalid resolver signature.
+/// Canonical encoding failures are also returned.
 pub fn validate_execution_receipt_at(
     receipt: &RamLfeExecutionReceipt,
     program_policy: &RamLfeProgramPolicy,
@@ -337,7 +342,7 @@ mod tests {
     use iroha_data_model::{
         account::AccountId,
         proof::{ProofBox, VerifyingKeyBox},
-        ram_lfe::{RamLfeProgramId, RamLfeReceiptAttestation},
+        ram_lfe::{RamLfeExecutionReceiptPayload, RamLfeProgramId, RamLfeReceiptAttestation},
         zk::{BackendTag, OpenVerifyEnvelope},
     };
     use std::str::FromStr as _;
@@ -508,17 +513,37 @@ mod tests {
             expires_at_ms: None,
         }
     }
-    /// Exercise the real stateless admission boundary with matching policy metadata.
-    fn validate_proof_receipt_at_policy(
+    /// Submit the original adversarial proof and metadata to actual policy and receipt admission.
+    fn validate_proof_receipt(
         proof: &ProofBox,
         execution: &RamLfeExecutionReceiptPayload,
+        verifier: &RamLfeProofVerifierMetadata,
         guardrails: crate::zk::ZkVerifyGuardrails,
     ) -> Result<(), String> {
-        let mut policy = sample_policy();
-        policy.program_id = execution.program_id.clone();
-        policy.backend = execution.backend;
-        policy.commitment.backend = execution.backend;
-        policy.verification_mode = execution.verification_mode;
+        let resolver = KeyPair::try_from_seed(vec![0x72; 32], Algorithm::Ed25519)
+            .expect("deterministic proof-refusal fixture key");
+        let policy = RamLfeProgramPolicy::new(
+            execution.program_id.clone(),
+            AccountId::new(resolver.public_key().clone()),
+            execution.backend,
+            execution.verification_mode,
+            PolicyCommitment {
+                backend: execution.backend,
+                policy_hash: Hash::new(b"unavailable-execution-relation-policy"),
+                // Deliberately incomplete public parameters retain every supplied verifier
+                // field. Proof-mode admission must refuse before attempting to parse them.
+                public_parameters: norito::encode_canonical(verifier)
+                    .expect("encode adversarial verifier metadata"),
+            },
+            resolver.public_key().clone(),
+        );
+        let policy_error = validate_program_policy(&policy)
+            .expect_err("proof mode must fail actual program-policy admission");
+        assert!(
+            policy_error
+                .to_string()
+                .contains(PROOF_RELATION_UNAVAILABLE)
+        );
         let receipt = RamLfeExecutionReceipt {
             payload: execution.clone(),
             attestation: RamLfeReceiptAttestation::Proof(proof.clone()),
@@ -547,9 +572,26 @@ mod tests {
             &key,
             test_guardrails(),
         )
+        .map_err(|error| match error {
+            iroha_core_zk::VerificationAttemptError::Rejected(error) => error,
+            iroha_core_zk::VerificationAttemptError::Deferred(original) => {
+                panic!("unexpected local verification refusal: {original}")
+            }
+        })
         .expect("control is a valid native public-input binding proof");
+        let verifier = RamLfeProofVerifierMetadata {
+            proof_backend: proof.backend.clone(),
+            circuit_id: format!("{}:public-binding-demo", crate::zk::ZK_BACKEND_STARK_FRI_V1),
+            public_inputs_schema_hash: Hash::new(&fixture.public_inputs),
+            verifying_key_bytes: key.bytes,
+        };
         assert_eq!(
-            validate_proof_receipt_at_policy(&proof, &sample_proof_payload(), test_guardrails()),
+            validate_proof_receipt(
+                &proof,
+                &sample_proof_payload(),
+                &verifier,
+                test_guardrails()
+            ),
             Err(PROOF_RELATION_UNAVAILABLE.to_owned()),
         );
     }
@@ -564,14 +606,20 @@ mod tests {
             verifying_key_bytes: vec![0xff],
         };
         assert_eq!(
-            validate_proof_receipt_at_policy(&proof, &sample_proof_payload(), test_guardrails()),
+            validate_proof_receipt(
+                &proof,
+                &sample_proof_payload(),
+                &verifier,
+                test_guardrails()
+            ),
             Err(PROOF_RELATION_UNAVAILABLE.to_owned()),
         );
         let malformed_envelope = sample_proof_box(&verifier, |_| {});
         assert_eq!(
-            validate_proof_receipt_at_policy(
+            validate_proof_receipt(
                 &malformed_envelope,
                 &sample_proof_payload(),
+                &verifier,
                 test_guardrails(),
             ),
             Err(PROOF_RELATION_UNAVAILABLE.to_owned()),
@@ -606,7 +654,7 @@ mod tests {
         let bad_backend = sample_proof_box(&verifier, |envelope| {
             envelope.backend = BackendTag::Stark;
         });
-        let err = validate_proof_receipt_at_policy(&bad_backend, &execution, test_guardrails())
+        let err = validate_proof_receipt(&bad_backend, &execution, &verifier, test_guardrails())
             .expect_err("wrong envelope backend tag must reject before proof parsing");
         assert!(
             err.contains(PROOF_RELATION_UNAVAILABLE),
@@ -615,7 +663,7 @@ mod tests {
         let aux = sample_proof_box(&verifier, |envelope| {
             envelope.aux = b"unbound-ram-lfe-proof-metadata".to_vec();
         });
-        let err = validate_proof_receipt_at_policy(&aux, &execution, test_guardrails())
+        let err = validate_proof_receipt(&aux, &execution, &verifier, test_guardrails())
             .expect_err("non-empty auxiliary bytes must reject before proof parsing");
         assert!(
             err.contains(PROOF_RELATION_UNAVAILABLE),
@@ -624,7 +672,7 @@ mod tests {
         let zero_vk_hash = sample_proof_box(&verifier, |envelope| {
             envelope.vk_hash = [0u8; Hash::LENGTH];
         });
-        let err = validate_proof_receipt_at_policy(&zero_vk_hash, &execution, test_guardrails())
+        let err = validate_proof_receipt(&zero_vk_hash, &execution, &verifier, test_guardrails())
             .expect_err("zero verifier-key hash must reject before proof parsing");
         assert!(
             err.contains(PROOF_RELATION_UNAVAILABLE),
@@ -633,7 +681,7 @@ mod tests {
         let schema_drift = sample_proof_box(&verifier, |envelope| {
             envelope.public_inputs.extend_from_slice(b":schema-drift");
         });
-        let err = validate_proof_receipt_at_policy(&schema_drift, &execution, test_guardrails())
+        let err = validate_proof_receipt(&schema_drift, &execution, &verifier, test_guardrails())
             .expect_err("public-input schema drift must reject before proof parsing");
         assert!(
             err.contains(PROOF_RELATION_UNAVAILABLE),
@@ -642,7 +690,7 @@ mod tests {
         let wrong_vk_hash = sample_proof_box(&verifier, |envelope| {
             envelope.vk_hash = [0xA5; Hash::LENGTH];
         });
-        let err = validate_proof_receipt_at_policy(&wrong_vk_hash, &execution, test_guardrails())
+        let err = validate_proof_receipt(&wrong_vk_hash, &execution, &verifier, test_guardrails())
             .expect_err("wrong verifier-key hash must reject before proof parsing");
         assert!(
             err.contains(PROOF_RELATION_UNAVAILABLE),
@@ -657,8 +705,10 @@ mod tests {
             "halo2/ipa:trusted-setup",
             "halo2/ipa:production-ready",
         ] {
+            let mut verifier = sample_proof_verifier();
+            verifier.proof_backend = backend.to_owned();
             let malformed = ProofBox::new(backend.to_owned().into(), vec![0xFF]);
-            let err = validate_proof_receipt_at_policy(&malformed, &execution, test_guardrails())
+            let err = validate_proof_receipt(&malformed, &execution, &verifier, test_guardrails())
                 .expect_err("non-production backend labels must reject before decoding");
             assert!(
                 err.contains(PROOF_RELATION_UNAVAILABLE),
@@ -681,7 +731,7 @@ mod tests {
         };
         assert_ne!(alternate_bytes, canonical.bytes);
         let alternate = ProofBox::new(canonical.backend, alternate_bytes);
-        let err = validate_proof_receipt_at_policy(&alternate, &execution, test_guardrails())
+        let err = validate_proof_receipt(&alternate, &execution, &verifier, test_guardrails())
             .expect_err("alternate-layout RAM-LFE proof envelope must reject");
         assert!(
             err.contains(PROOF_RELATION_UNAVAILABLE),
@@ -709,7 +759,7 @@ mod tests {
         let proof = sample_proof_box(&verifier, |_| {});
         let mut disabled = test_guardrails();
         disabled.pipa_r_enabled = false;
-        let err = validate_proof_receipt_at_policy(&proof, &execution, disabled)
+        let err = validate_proof_receipt(&proof, &execution, &verifier, disabled)
             .expect_err("disabled native PIPA-R verification must reject");
         assert!(
             err.contains(PROOF_RELATION_UNAVAILABLE),
@@ -717,7 +767,7 @@ mod tests {
         );
         let mut envelope_limited = test_guardrails();
         envelope_limited.pipa_r_max_envelope_bytes = proof.bytes.len().saturating_sub(1);
-        let err = validate_proof_receipt_at_policy(&proof, &execution, envelope_limited)
+        let err = validate_proof_receipt(&proof, &execution, &verifier, envelope_limited)
             .expect_err("oversized envelope must reject before decode");
         assert!(
             err.contains(PROOF_RELATION_UNAVAILABLE),
@@ -725,7 +775,7 @@ mod tests {
         );
         let mut proof_limited = test_guardrails();
         proof_limited.pipa_r_max_proof_bytes = 1;
-        let err = validate_proof_receipt_at_policy(&proof, &execution, proof_limited)
+        let err = validate_proof_receipt(&proof, &execution, &verifier, proof_limited)
             .expect_err("oversized inner proof must reject");
         assert!(
             err.contains(PROOF_RELATION_UNAVAILABLE),
@@ -737,6 +787,7 @@ mod tests {
 #[cfg(test)]
 mod current_hkdf_execution_tests {
     use super::*;
+    use iroha_data_model::ram_lfe::RamLfeExecutionReceiptPayload;
     #[test]
     fn native_hkdf_execution_signature_metadata_and_original_lease_validate() {
         let signer =

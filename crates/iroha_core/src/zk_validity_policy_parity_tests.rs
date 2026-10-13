@@ -753,8 +753,10 @@ fn priced_at(policy: &ZkValidityPolicyV1, proof_bytes: u64, total: u64) -> ZkVal
 fn gas_charged_by_next_block(state: &State, instruction: &InstructionBox) -> (u64, u64) {
     let block = state.block(next_header(state));
     (
-        crate::gas::meter_instructions(core::slice::from_ref(instruction), &block.zk.gas),
-        crate::gas::confidential_gas_cost(instruction, &block.zk.gas),
+        crate::gas::meter_instructions(core::slice::from_ref(instruction), &block.zk.gas)
+            .expect("gas quote must complete for this fixture"),
+        crate::gas::confidential_gas_cost(instruction, &block.zk.gas)
+            .expect("gas quote must complete for this fixture"),
     )
 }
 
@@ -940,6 +942,7 @@ fn proof_bearing_history_is_identical_under_divergent_node_configuration() {
             core::slice::from_ref(&verify(proof.clone())),
             &crate::gas::DEFAULT_ZK_GAS
         )
+        .expect("gas quote must complete for this fixture")
     );
 }
 

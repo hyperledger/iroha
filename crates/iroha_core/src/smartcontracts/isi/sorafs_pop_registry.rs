@@ -224,7 +224,7 @@ fn decode_exact_with_current<T>(
     maximum: usize,
     label: &str,
     state: bool,
-    mut current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
+    current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
 ) -> Result<T, InstructionExecutionError>
 where
     for<'de> T: norito::core::NoritoDeserialize<'de> + norito::core::NoritoSerialize,
@@ -269,7 +269,7 @@ where
             invalid_parameter(message)
         }
     })?;
-    if let (Some(current), Some(allocation_bytes)) = (current.as_deref_mut(), allocation_bytes) {
+    if let (Some(current), Some(allocation_bytes)) = (current, allocation_bytes) {
         current
             .add_nested(allocation_bytes)
             .map_err(InstructionExecutionError::Query)?;
@@ -705,7 +705,7 @@ fn read_nonce_binding(
 fn read_nonce_binding_with_current(
     world: &impl WorldReadOnly,
     nonce_commitment: [u8; 32],
-    mut current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
+    current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
 ) -> Result<Option<NonceBindingStateV1>, InstructionExecutionError> {
     let Some(bytes) = world
         .smart_contract_state()
@@ -713,7 +713,7 @@ fn read_nonce_binding_with_current(
     else {
         return Ok(None);
     };
-    let binding: NonceBindingStateV1 = match current.as_deref_mut() {
+    let binding: NonceBindingStateV1 = match current {
         Some(current) => decode_state_for_current(bytes, "PoP nonce binding", current)?,
         None => decode_state(bytes, "PoP nonce binding")?,
     };
@@ -880,7 +880,7 @@ fn read_revocation_publication_with_current(
 fn read_revocation_record_with_current(
     world: &impl WorldReadOnly,
     nonce_commitment: [u8; 32],
-    mut current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
+    current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
 ) -> Result<Option<PopRevocationRecordV1>, InstructionExecutionError> {
     let Some(bytes) = world
         .smart_contract_state()
@@ -888,7 +888,7 @@ fn read_revocation_record_with_current(
     else {
         return Ok(None);
     };
-    let record: PopRevocationRecordV1 = match current.as_deref_mut() {
+    let record: PopRevocationRecordV1 = match current {
         Some(current) => decode_state_for_current(bytes, "PoP revocation record", current)?,
         None => decode_state(bytes, "PoP revocation record")?,
     };
@@ -998,7 +998,6 @@ fn read_revocation_with_current(
             "PoP revocation record credential binding is invalid",
         ));
     }
-    drop(binding);
     if let Some(current) = current.as_deref_mut() {
         reset_pop_query_current(current, retained_base_bytes)?;
     }
@@ -1014,9 +1013,8 @@ fn read_revocation_with_current(
     if let Some(current) = current.as_deref_mut() {
         reset_pop_query_current(current, retained_base_bytes)?;
     }
-    let record =
-        read_revocation_record_with_current(world, nonce_commitment, current.as_deref_mut())?
-            .ok_or_else(|| corrupt_state("PoP revocation record disappeared during validation"))?;
+    let record = read_revocation_record_with_current(world, nonce_commitment, current)?
+        .ok_or_else(|| corrupt_state("PoP revocation record disappeared during validation"))?;
     if record.credential_commitment != credential_commitment
         || record.list_version != list_version
         || record.commitment_root != commitment_root
@@ -1312,9 +1310,7 @@ fn read_audit_record_with_current(
             &record.recorded_by,
         ),
     };
-    if let (Some(current), Some(record_resident_bytes)) =
-        (current.as_deref_mut(), record_resident_bytes)
-    {
+    if let (Some(current), Some(record_resident_bytes)) = (current, record_resident_bytes) {
         reset_pop_query_current(current, record_resident_bytes)?;
     }
     if record.sequence != sequence
@@ -1377,7 +1373,7 @@ fn read_audit_with_current(
     if let Some(current) = current.as_deref_mut() {
         reset_pop_query_current(current, retained_base_bytes)?;
     }
-    let record = read_audit_record_with_current(world, sequence, current.as_deref_mut())?
+    let record = read_audit_record_with_current(world, sequence, current)?
         .ok_or_else(|| corrupt_state("PoP registry audit link disappeared during validation"))?;
     if record.previous_audit_digest != expected_previous_digest {
         return Err(corrupt_state(
@@ -2504,7 +2500,7 @@ mod tests {
         let sequence = 7_u64;
         let kind = PopRegistryAuditEventKindV1::CredentialBatchCommitted;
         let payload_digest = [0x31; 32];
-        let previous = Some([0x32; 32]);
+        let previous = [0x32; 32];
         let now = NOW;
         for discriminant in [0x02f1, 0x0171, 0, 42] {
             let _guard =
@@ -2516,7 +2512,7 @@ mod tests {
                 legacy.update(&sequence.to_le_bytes());
                 legacy.update(&[kind.digest_tag()]);
                 legacy.update(&[1]);
-                legacy.update(&previous.expect("fixture predecessor"));
+                legacy.update(&previous);
                 legacy.update(&payload_digest);
                 legacy.update(&now.to_le_bytes());
                 legacy.update(
@@ -2526,7 +2522,14 @@ mod tests {
                 );
                 legacy.update(authority_text.as_bytes());
                 assert_eq!(
-                    audit_digest(sequence, kind, payload_digest, previous, now, authority),
+                    audit_digest(
+                        sequence,
+                        kind,
+                        payload_digest,
+                        Some(previous),
+                        now,
+                        authority
+                    ),
                     *legacy.finalize().as_bytes(),
                 );
             }
@@ -2784,7 +2787,7 @@ mod tests {
                 .execute(&authority, &mut stx)
                 .is_err()
         );
-        let stale = batch(
+        let outdated = batch(
             &operator,
             2,
             2,
@@ -2795,7 +2798,7 @@ mod tests {
             Vec::new(),
         );
         assert!(
-            CommitSorafsPopCredentialBatch::new(encode(&stale))
+            CommitSorafsPopCredentialBatch::new(encode(&outdated))
                 .execute(&authority, &mut stx)
                 .is_err()
         );

@@ -10,6 +10,12 @@ enum HeadCheck {
     MaterialOnly,
 }
 
+#[derive(Clone, Copy)]
+struct ProviderHistory {
+    initial: ManagedTransactionFinality,
+    terminal: ManagedTransactionFinality,
+}
+
 impl GeneratedServiceRuntime {
     /// Only independently current native heads select the three sequences. Every prior component
     /// must already exist; only a currently selected component may finish interrupted publication.
@@ -54,11 +60,9 @@ impl GeneratedServiceRuntime {
         #[cfg(all(test, unix))]
         tests::before_bootstrap_reopen();
         let mut parent = self.open_original_bootstrap(&self.authority.prepared)?;
-        let ServiceBootstrapProgress::Complete(history) = parent.recover(deadline)? else {
-            return Err(invalid(
-                "generated bootstrap has incomplete original execution",
-            ));
-        };
+        let history = parent
+            .recover(deadline)?
+            .require_complete("generated bootstrap has incomplete original execution")?;
         let terminal = history.reputation();
         // Custody and component validation may reopen parent selection. Release its sole lock.
         drop(parent);
@@ -109,8 +113,10 @@ impl GeneratedServiceRuntime {
             let component = self.reconstruct_provider(
                 &selection,
                 index,
-                history.provider(provider)?.custody_enrollment(),
-                terminal,
+                ProviderHistory {
+                    initial: history.provider(provider)?.custody_enrollment(),
+                    terminal,
+                },
                 enrollment,
                 &mut custody,
                 deadline,
@@ -121,9 +127,11 @@ impl GeneratedServiceRuntime {
             .try_into()
             .map_err(|_| invalid("current generated provider count differs"))?;
         let required = RequiredTransactions::from_originals(
-            carriers
-                .into_iter()
-                .chain(prepared.iter().map(|value| value.finalized())),
+            carriers.into_iter().chain(
+                prepared
+                    .iter()
+                    .map(super::components::PreparedProviderComponent::finalized),
+            ),
         )?;
         let digests = std::array::from_fn(|index| prepared[index].digest());
         let retentions =
@@ -149,12 +157,15 @@ impl GeneratedServiceRuntime {
         &self,
         selection: &RuntimeSelection,
         index: usize,
-        initial_finality: ManagedTransactionFinality,
-        terminal: ManagedTransactionFinality,
+        history: ProviderHistory,
         selected: RetainedCustodyEnrollment,
         custody: &mut ManagedStreamTokenCustody,
         deadline: Instant,
     ) -> Result<PreparedProviderComponent> {
+        let ProviderHistory {
+            initial: initial_finality,
+            terminal,
+        } = history;
         let sequence = selected.statement().sequence;
         if !(1..=64).contains(&sequence) {
             return Err(invalid(

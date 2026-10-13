@@ -77,7 +77,7 @@ fn completed_case() -> (
     let (directory, storage) = config(&fixture);
     let pins = StreamTokenSignerPinsV1::from_config(
         &storage,
-        &fixture.state.view().chain_id().to_string(),
+        fixture.state.view().chain_id().as_ref(),
         *fixture.state.network_id_ref().as_bytes(),
     )
     .unwrap()
@@ -196,11 +196,8 @@ fn original_completed_check_and_exact_reply_survive_native_floor_capacity_refusa
                 )
                 .unwrap();
             let view = fixture.state.view();
-            let remaining = queue.all_transactions(&view).collect::<Vec<_>>();
-            assert!(
-                remaining.is_empty(),
-                "no replacement or second Check is queued"
-            );
+            let remaining = queue.all_transactions(&view).count();
+            assert!(remaining == 0, "no replacement or second Check is queued");
         }
     }
 }

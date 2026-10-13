@@ -101,15 +101,14 @@ count, history, generation, rotation validity) cannot be derived from the
 body; their only authority is the quorum signature, and SCCP's forgery
 evidence holds the signers to them ([`sccp.md`](sccp.md) §4.9).
 
-**Status.** The `F ‖ body` layout and the consensus suite are the target of
-`sccp.md` revision 5. The types exist in
-`iroha_data_model::sumeragi_finality::certified_result`
-(`SccpFinalityHeaderV1`, `CertifiedResultV1` with `decode` and `check_block`),
-but `decode_checked` does not use them yet, and nodes do not yet certify the
-`F`-bound `R` or sign under the consensus suite (`TODO:` WP-C1, WP-C2). Until
-they do, the as-built result is `R = H("iroha/sumeragi/result/v1" ‖ body)`
-and check 3 decodes the body alone ([`sumeragi.md`](sumeragi.md) Appendix
-E51).
+**Status.** Nodes produce the `F ‖ body` layout and sign the `F`-bound result
+under the consensus suite. `decode_checked` uses
+`iroha_data_model::sumeragi_finality::certified_result::CertifiedResultV1`
+for the same structural, scope and block bindings as the certified-chain
+reader. The body-only layout and its result digest are retired. Component
+verification does not establish whole-node or cross-chain readiness; the
+current qualification and external gates are recorded in [`sccp.md`](sccp.md)
+§12.
 
 ### Contiguous verification
 

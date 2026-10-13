@@ -263,7 +263,7 @@ where
 fn decode_state_with_current<T>(
     bytes: &[u8],
     label: &str,
-    mut current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
+    current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
 ) -> Result<T, InstructionExecutionError>
 where
     for<'de> T: norito::core::NoritoDeserialize<'de> + norito::core::NoritoSerialize,
@@ -300,7 +300,7 @@ where
             corrupt_state(format!("failed to decode {label}: {error}"))
         }
     })?;
-    if let (Some(current), Some(allocation_bytes)) = (current.as_deref_mut(), allocation_bytes) {
+    if let (Some(current), Some(allocation_bytes)) = (current, allocation_bytes) {
         current
             .add_nested(allocation_bytes)
             .map_err(InstructionExecutionError::Query)?;
@@ -1909,7 +1909,7 @@ impl Execute for AdvanceSorafsReserveLifecycle {
                 &policy.policy,
                 &account.terms.provider_account,
             )?;
-            if quote.effective_rent.is_zero() || &spendable_balance >= &quote.effective_rent {
+            if quote.effective_rent.is_zero() || spendable_balance >= quote.effective_rent {
                 return Err(invalid_parameter(
                     "reserve lifecycle cannot age while one whole rent period is affordable",
                 ));
@@ -2898,7 +2898,9 @@ impl ValidSingularQuery for FindSorafsReserveProviders {
                 }
                 let account =
                     validate_provider_record(candidate, provider_id).map_err(query_failure)?;
-                Ok((!after.is_some_and(|cursor| provider_id <= cursor)).then_some(account))
+                Ok(after
+                    .is_none_or(|cursor| provider_id > cursor)
+                    .then_some(account))
             },
         )?;
         let (accounts, has_more, next_after) =
@@ -2951,7 +2953,9 @@ impl ValidSingularQuery for FindSorafsReserveMovements {
                 }
                 let movement =
                     validate_movement_record(candidate, movement_id).map_err(query_failure)?;
-                Ok((!after.is_some_and(|cursor| movement_id <= cursor)).then_some(movement))
+                Ok(after
+                    .is_none_or(|cursor| movement_id > cursor)
+                    .then_some(movement))
             },
         )?;
         let (movements, has_more, next_after) =
@@ -3000,7 +3004,9 @@ impl ValidSingularQuery for FindSorafsReserveAppeals {
                     ));
                 }
                 let appeal = validate_appeal_record(candidate, appeal_id).map_err(query_failure)?;
-                Ok((!after.is_some_and(|cursor| appeal_id <= cursor)).then_some(appeal))
+                Ok(after
+                    .is_none_or(|cursor| appeal_id > cursor)
+                    .then_some(appeal))
             },
         )?;
         let (appeals, has_more, next_after) =

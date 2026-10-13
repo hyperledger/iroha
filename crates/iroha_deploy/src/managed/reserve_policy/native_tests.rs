@@ -73,7 +73,7 @@ fn native_activation() {
     let schema = State::native_world_schema_hash_v1().unwrap();
     let before = before_proof
         .verify(
-            &coordinator.authority.config.chain.to_string(),
+            coordinator.authority.config.chain.as_ref(),
             native.chain.network_id(),
             &manager,
             &policy,
@@ -96,7 +96,7 @@ fn native_activation() {
     // Release the empty Reserve owner while the actual startup graph admits its own child.
     // Reopening must retain both original native identities; no paid transaction is added.
     let reserve_directory_identity = coordinator.authority.directory.identity().unwrap();
-    let reserve_lock_identity = iroha_fs::FileIdentity::of(&coordinator.authority._lock).unwrap();
+    let reserve_lock_identity = iroha_fs::FileIdentity::of(&coordinator.authority.lock).unwrap();
     drop(coordinator);
     let mut bootstrap =
         crate::managed::service_bootstrap::ManagedServiceBootstrap::open(&prepared).unwrap();
@@ -108,7 +108,7 @@ fn native_activation() {
         reserve_directory_identity
     );
     assert_eq!(
-        iroha_fs::FileIdentity::of(&coordinator.authority._lock).unwrap(),
+        iroha_fs::FileIdentity::of(&coordinator.authority.lock).unwrap(),
         reserve_lock_identity
     );
     let original = Original {
@@ -469,7 +469,7 @@ fn native_activation() {
     let proof = native.policy_proof(&manager);
     let verify = |proof: &ReservePolicyProofV1| {
         proof.verify(
-            &coordinator.authority.config.chain.to_string(),
+            coordinator.authority.config.chain.as_ref(),
             native.chain.network_id(),
             &manager,
             &policy,
@@ -521,7 +521,7 @@ fn native_activation() {
     assert!(
         proof
             .verify(
-                &coordinator.authority.config.chain.to_string(),
+                coordinator.authority.config.chain.as_ref(),
                 native.chain.network_id(),
                 &manager,
                 &different_policy,
@@ -541,7 +541,7 @@ fn native_activation() {
     let retained = retained_carrier(
         original.directory(),
         native.chain.network_id(),
-        &coordinator.authority.config.chain.to_string(),
+        coordinator.authority.config.chain.as_ref(),
         &signed,
     )
     .unwrap()

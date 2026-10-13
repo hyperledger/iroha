@@ -12,7 +12,7 @@ mod unix {
 
     /// Standard metadata with a retained handle that pins the sampled filesystem object.
     #[derive(Debug)]
-    pub(crate) struct SecureMetadata {
+    pub struct SecureMetadata {
         metadata: fs::Metadata,
         _identity_handle: File,
     }
@@ -25,14 +25,14 @@ mod unix {
         }
     }
 
-    pub(crate) fn from_file(file: &File) -> io::Result<SecureMetadata> {
+    pub fn from_file(file: &File) -> io::Result<SecureMetadata> {
         Ok(SecureMetadata {
             metadata: file.metadata()?,
             _identity_handle: file.try_clone()?,
         })
     }
 
-    pub(crate) fn from_path(path: &Path) -> io::Result<SecureMetadata> {
+    pub fn from_path(path: &Path) -> io::Result<SecureMetadata> {
         let file = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK | libc::O_NOCTTY)
@@ -45,7 +45,7 @@ mod unix {
 }
 
 #[cfg(unix)]
-pub(crate) use unix::{SecureMetadata, from_file, from_path};
+pub use unix::{SecureMetadata, from_file, from_path};
 
 #[cfg(not(any(unix, windows)))]
 use std::{fs, io, path::Path};
@@ -64,7 +64,7 @@ pub(crate) fn from_path(path: &Path) -> io::Result<SecureMetadata> {
 }
 
 #[cfg(unix)]
-pub(crate) fn same_file(left: &SecureMetadata, right: &SecureMetadata) -> bool {
+pub fn same_file(left: &SecureMetadata, right: &SecureMetadata) -> bool {
     use std::os::unix::fs::MetadataExt as _;
 
     left.dev() == right.dev() && left.ino() == right.ino()
@@ -81,7 +81,7 @@ pub(crate) fn same_file(_left: &SecureMetadata, _right: &SecureMetadata) -> bool
 }
 
 #[cfg(unix)]
-pub(crate) fn unchanged(left: &SecureMetadata, right: &SecureMetadata) -> bool {
+pub fn unchanged(left: &SecureMetadata, right: &SecureMetadata) -> bool {
     use std::os::unix::fs::MetadataExt as _;
 
     same_file(left, right)
@@ -104,7 +104,7 @@ pub(crate) fn unchanged(_left: &SecureMetadata, _right: &SecureMetadata) -> bool
 }
 
 #[cfg(unix)]
-pub(crate) fn is_direct_file(metadata: &SecureMetadata) -> bool {
+pub fn is_direct_file(metadata: &SecureMetadata) -> bool {
     !metadata.file_type().is_symlink() && metadata.file_type().is_file()
 }
 
@@ -119,7 +119,7 @@ pub(crate) fn is_direct_file(_metadata: &SecureMetadata) -> bool {
 }
 
 #[cfg(unix)]
-pub(crate) fn is_direct_directory(metadata: &SecureMetadata) -> bool {
+pub fn is_direct_directory(metadata: &SecureMetadata) -> bool {
     !metadata.file_type().is_symlink() && metadata.file_type().is_dir()
 }
 
@@ -134,13 +134,21 @@ pub(crate) fn is_direct_directory(_metadata: &SecureMetadata) -> bool {
 }
 
 #[cfg(unix)]
-pub(crate) fn number_of_links(metadata: &SecureMetadata) -> Option<u64> {
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the shared platform API represents unavailable link counts as None"
+)]
+pub fn number_of_links(metadata: &SecureMetadata) -> Option<u64> {
     use std::os::unix::fs::MetadataExt as _;
 
     Some(metadata.nlink())
 }
 
 #[cfg(windows)]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the shared platform API represents unavailable link counts as None"
+)]
 pub(crate) fn number_of_links(metadata: &SecureMetadata) -> Option<u64> {
     Some(u64::from(metadata.number_of_links()))
 }

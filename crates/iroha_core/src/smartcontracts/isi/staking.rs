@@ -1057,7 +1057,7 @@ fn schedule_validator_deactivation(
     let activation = record.activation_height;
     record
         .election_exit_height
-        .get_or_insert(boundary.max(activation));
+        .get_or_insert_with(|| boundary.max(activation));
     if retained_committee_obligation {
         // A request is not a certificate. Keep the tenure open until a boundary
         // actually releases both the current and already frozen target seat.
@@ -3029,7 +3029,7 @@ pub(crate) fn indexed_slashable_validator_exposure(
     lane_id: LaneId,
     validator: &AccountId,
     record: &PublicLaneValidatorRecord,
-    liability: ConsensusSlashLiability,
+    liability: &ConsensusSlashLiability,
     share_keys: &[PublicLaneStakeShareKey],
 ) -> Result<Quantity, Attempt<Error>> {
     if !liability.names_registration(world, record)? {
@@ -3189,7 +3189,7 @@ fn unbond_liability_release_height(
             Error::InvariantViolation("public-lane unbond liability height overflows u64".into())
         })
 }
-fn ensure_canonical_pending_unbond(
+pub(crate) fn ensure_canonical_pending_unbond(
     request_id: &Hash,
     pending: &PublicLaneUnbonding,
 ) -> Result<(), Error> {
@@ -3500,7 +3500,7 @@ pub(crate) fn apply_slash_to_validator(
         slash_id,
         amount,
         now_ms,
-        Some(ConsensusSlashLiability::Root(offence_height)),
+        Some(&ConsensusSlashLiability::Root(offence_height)),
         None,
         true,
         true,
@@ -3539,7 +3539,7 @@ pub(crate) fn apply_indexed_consensus_slash_to_validator(
     slash_id: Hash,
     amount: &Quantity,
     now_ms: u64,
-    liability: ConsensusSlashLiability,
+    liability: &ConsensusSlashLiability,
     share_keys: &[PublicLaneStakeShareKey],
 ) -> Result<(), Error> {
     apply_slash_to_validator_inner(
@@ -3564,7 +3564,7 @@ pub(crate) fn apply_indexed_slash_to_validator_without_observability(
     slash_id: Hash,
     amount: &Quantity,
     now_ms: u64,
-    liability: ConsensusSlashLiability,
+    liability: &ConsensusSlashLiability,
     share_keys: &[PublicLaneStakeShareKey],
 ) -> Result<(), Error> {
     apply_slash_to_validator_inner(
@@ -3589,7 +3589,7 @@ fn apply_slash_to_validator_inner(
     slash_id: Hash,
     amount: &Quantity,
     now_ms: u64,
-    liability: Option<ConsensusSlashLiability>,
+    liability: Option<&ConsensusSlashLiability>,
     indexed_share_keys: Option<&[PublicLaneStakeShareKey]>,
     record_execution_evidence: bool,
     record_operational_observability: bool,
@@ -3598,7 +3598,7 @@ fn apply_slash_to_validator_inner(
     if !matches!(liability, Some(ConsensusSlashLiability::Lane { .. })) {
         ensure_canonical_staking_owner(state_transaction, lane_id, "apply_slash_to_validator")?;
     }
-    let offence_height = liability.and_then(ConsensusSlashLiability::offence_height);
+    let offence_height = liability.and_then(|liability| liability.offence_height());
     let deactivation_height = scheduled_validator_deactivation_height(state_transaction, lane_id)
         .map_err(|error| retain_staking_attempt(state_transaction, error))?;
     let dataspace_catalog = state_transaction.nexus.dataspace_catalog.clone();
@@ -7981,6 +7981,7 @@ mod tests {
     }
     #[test]
     fn unregister_peer_rejects_active_validator_tenure() {
+        use iroha_data_model::isi::register::Unregister;
         let state = setup_state();
         let block = new_block();
         let mut state_block = state.block(block.as_ref().header());
@@ -8013,7 +8014,6 @@ mod tests {
         stx.commit_topology
             .get_mut()
             .retain(|peer| peer != &peer_id);
-        use iroha_data_model::isi::register::Unregister;
         let error = Unregister::<Peer>::peer(peer_id.clone())
             .execute(&ALICE_ID, &mut stx)
             .expect_err("active validator tenure must reject peer unregistration");
@@ -8031,6 +8031,7 @@ mod tests {
     }
     #[test]
     fn unregister_peer_preserves_stake_shares() {
+        use iroha_data_model::isi::register::Unregister;
         let state = setup_state();
         let block = new_block();
         let mut state_block = state.block(block.as_ref().header());
@@ -8091,7 +8092,6 @@ mod tests {
         stx.commit_topology
             .get_mut()
             .retain(|peer| peer != &peer_id);
-        use iroha_data_model::isi::register::Unregister;
         let error = Unregister::<Peer>::peer(peer_id.clone())
             .execute(&ALICE_ID, &mut stx)
             .expect_err("retained validator tenure must reject peer unregistration");
@@ -8843,7 +8843,7 @@ mod tests {
             Hash::new("self-pending-priority"),
             &Quantity::from(400_u64),
             0,
-            ConsensusSlashLiability::Root(2),
+            &ConsensusSlashLiability::Root(2),
             &share_keys,
         )
         .expect("an H+1 offence remains slashable from frozen pending custody");

@@ -59,7 +59,7 @@ fn zero_file_create_intent_retains_exact_instance_through_rollback_and_replay() 
             .expect("rollback completes only its exact journal-owned empty storage");
         kura.require_lane_marker_value(
             &kura
-                .read_lane_marker(&&live_blocks.join(MARKER_FILE_NAME))
+                .read_lane_marker(&live_blocks.join(MARKER_FILE_NAME))
                 .unwrap(),
             &live_blocks,
             updated,
@@ -183,7 +183,7 @@ fn create_intent_repairs_authenticated_blocks_before_marker_for_rollback_and_rep
         .expect("repaired rollback instance is complete at its original address");
     kura.require_lane_marker_value(
         &kura
-            .read_lane_marker(&&staged_blocks.join(MARKER_FILE_NAME))
+            .read_lane_marker(&staged_blocks.join(MARKER_FILE_NAME))
             .unwrap(),
         &staged_blocks,
         updated,

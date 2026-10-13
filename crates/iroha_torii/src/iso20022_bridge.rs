@@ -122,7 +122,7 @@ struct IsoBridgeParticipant {
     roles: BTreeSet<IsoParticipantRole>,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct IsoRecordParties {
+pub struct IsoRecordParties {
     originator_participant_id: String,
     counterparty_participant_id: String,
     admitting_participant_id: String,
@@ -159,7 +159,7 @@ pub(crate) struct IsoSuccessfulExecution<'a> {
 }
 /// Opaque authorization tying one lifecycle admission to the exact original record observed.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct IsoLifecycleAuthorization {
+pub struct IsoLifecycleAuthorization {
     parties: IsoRecordParties,
     original: Option<IsoLifecycleOriginalBinding>,
 }
@@ -213,7 +213,7 @@ struct IsoReplayTombstone {
 }
 /// Reason an inbound ISO message could not be durably admitted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum IsoAdmissionError {
+pub enum IsoAdmissionError {
     /// The message or one of its immutable replay identities already exists.
     Duplicate,
     /// Every bounded replay slot is still protected by the configured TTL.
@@ -224,7 +224,7 @@ pub(crate) enum IsoAdmissionError {
     NotAuthorized,
 }
 /// Detached signature covering one exact outbound ISO XML document.
-pub(crate) struct SignedIsoDocument {
+pub struct SignedIsoDocument {
     /// XML bytes that were signed.
     pub(crate) xml: String,
     /// Canonical public key identifying the bridge signer.
@@ -330,9 +330,11 @@ impl IsoMessageMetadata {
     fn inbound(
         profile_id: &str,
         message_type: &str,
-        business_service: Option<String>,
-        business_message_id: Option<String>,
-        uetr: Option<String>,
+        (business_service, business_message_id, uetr): (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
         payload_hash: String,
         reference_snapshot_id: String,
         embedded_signature_detected: bool,
@@ -629,7 +631,7 @@ impl IsoMessageStatus {
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct IsoLifecycleOutcome {
+pub struct IsoLifecycleOutcome {
     referenced_message_id: Option<String>,
     referenced_message_known: bool,
     lifecycle_status_code: Option<String>,
@@ -975,7 +977,7 @@ pub(crate) enum IsoStatusHistoryLimitError {
 }
 /// Failure while applying an admitted ISO lifecycle message.
 #[derive(Debug)]
-pub(crate) enum IsoLifecycleApplyError {
+pub enum IsoLifecycleApplyError {
     /// The message cannot be applied to the currently authorized record.
     Validation(MsgError),
     /// Durable commit state is unavailable or indeterminate and may be retried.
@@ -1796,7 +1798,7 @@ fn normalise_profile_oid_literals(
             &format!("iso_bridge profile `{profile_id}` {field} entry"),
             value,
         )?;
-        if !is_valid_oid_literal(&candidate) {
+        if !is_valid_oid_literal(candidate) {
             eyre::bail!(
                 "iso_bridge profile `{profile_id}` {field} entries must be dotted numeric OIDs"
             );
@@ -2367,7 +2369,7 @@ impl Iso20022BridgeRuntime {
             transaction_hash: original.transaction_hash.clone(),
         };
         drop(original);
-        parties.admitting_participant_id = actor.id.clone();
+        parties.admitting_participant_id.clone_from(&actor.id);
         parties.admitting_operator_key = operator_key.to_string();
         Ok(IsoLifecycleAuthorization {
             parties,
@@ -2464,7 +2466,7 @@ impl Iso20022BridgeRuntime {
             let service = business_service
                 .as_deref()
                 .filter(|service| !service.trim().is_empty())
-                .ok_or_else(|| MsgError::MissingField("AppHdr/BizSvc"))?;
+                .ok_or(MsgError::MissingField("AppHdr/BizSvc"))?;
             if !message_profile.allows_business_service(service) {
                 return Err(MsgError::InvalidValue {
                     field: "AppHdr/BizSvc".to_owned(),
@@ -2491,15 +2493,15 @@ impl Iso20022BridgeRuntime {
                 kind: InvalidValueKind::Enum,
             });
         }
-        self.validate_amount_minor_units(message_profile, parsed)?;
+        Self::validate_amount_minor_units(message_profile, parsed)?;
         if let (Some(currency), Some(amount)) = (
             parsed.field_text("IntrBkSttlmCcy"),
             parsed.field_text("IntrBkSttlmAmt"),
         ) {
             self.settlement_amount(currency, amount)?;
         }
-        self.validate_supplementary_data_limit(message_profile, parsed)?;
-        self.validate_structured_address_mode(message_profile, parsed)?;
+        Self::validate_supplementary_data_limit(message_profile, parsed)?;
+        Self::validate_structured_address_mode(message_profile, parsed)?;
         self.validate_message_reference_data(message_type, parsed)?;
         self.validate_securities_ledger_mapping(profile, message_type, parsed)?;
         let embedded_signature_detected =
@@ -2521,9 +2523,7 @@ impl Iso20022BridgeRuntime {
         Ok(IsoMessageMetadata::inbound(
             &profile.id,
             message_type,
-            business_service,
-            business_message_id,
-            uetr,
+            (business_service, business_message_id, uetr),
             sha256_hex(payload),
             self.reference_data.snapshot_id(),
             embedded_signature_detected,
@@ -2605,7 +2605,7 @@ impl Iso20022BridgeRuntime {
             .duration_since(SystemTime::UNIX_EPOCH)
             .ok()
             .and_then(|age| age.as_millis().checked_add(self.dedupe_ttl.as_millis()))
-            .and_then(|millis| u64::try_from(millis).ok())
+            .and_then(|value| u64::try_from(value).ok())
             .ok_or(IsoAdmissionError::PersistenceUnavailable)?;
         record.replay_expires_at = system_time_from_ms(replay_expires_at_ms)
             .ok_or(IsoAdmissionError::PersistenceUnavailable)?;
@@ -2843,7 +2843,7 @@ impl Iso20022BridgeRuntime {
             .checked_add(2)
             .is_none_or(|bytes| bytes > ISO_CHANGE_REASON_MAX_ENCODED_BYTES_V1)
         {
-            self.report_status_history_limit(
+            Self::report_status_history_limit(
                 message_id,
                 IsoStatusHistoryLimitError::ChangeReasonEncodedBytes,
             );
@@ -2863,10 +2863,11 @@ impl Iso20022BridgeRuntime {
             .map(|_| candidate);
         self.finish_status_transition(message_id, previous, transition)
     }
-    /// Mark the message as fully settled on-ledger.
+    /// Mark a fixture message as settled without a canonical chain observation.
     ///
     /// Returns `false` when the exact history is exhausted.
-    pub fn mark_settled(&self, message_id: &str, settled_at: SystemTime) -> bool {
+    #[cfg(test)]
+    fn mark_settled(&self, message_id: &str, settled_at: SystemTime) -> bool {
         self.mark_settled_with_canonical_hash(message_id, settled_at, None)
     }
     fn mark_settled_with_canonical_hash(
@@ -3068,7 +3069,7 @@ impl Iso20022BridgeRuntime {
         match self.try_mark_accepted(message_id, transaction_hash) {
             Ok(status) => status,
             Err(error) => {
-                self.report_status_history_limit(message_id, error);
+                Self::report_status_history_limit(message_id, error);
                 self.message_status(message_id).unwrap_or_else(|| {
                     let pending = IsoMessageRecordV2::pending(Instant::now());
                     Self::status_snapshot(message_id, &pending)
@@ -3197,7 +3198,7 @@ impl Iso20022BridgeRuntime {
                     return self.commit_record_candidate(message_id, None, record);
                 }
                 Err(error) => {
-                    self.report_status_history_limit(message_id, error);
+                    Self::report_status_history_limit(message_id, error);
                     return false;
                 }
             },
@@ -3234,12 +3235,12 @@ impl Iso20022BridgeRuntime {
         match transition {
             Ok(candidate) => self.commit_record_candidate(message_id, previous.as_ref(), candidate),
             Err(error) => {
-                self.report_status_history_limit(message_id, error);
+                Self::report_status_history_limit(message_id, error);
                 false
             }
         }
     }
-    fn report_status_history_limit(&self, message_id: &str, error: IsoStatusHistoryLimitError) {
+    fn report_status_history_limit(message_id: &str, error: IsoStatusHistoryLimitError) {
         if error == IsoStatusHistoryLimitError::Persistence {
             iroha_logger::error!(
                 message_id_sha256 = %sha256_hex(message_id.as_bytes()),
@@ -3466,7 +3467,7 @@ impl Iso20022BridgeRuntime {
                 detail,
                 applied_transaction.map(|outcome| outcome.settled_at),
             )
-            .map_err(|error| self.lifecycle_apply_error(original_id, error))?
+            .map_err(|error| Self::lifecycle_apply_error(original_id, error))?
         } else {
             ("recorded", None)
         };
@@ -3496,10 +3497,10 @@ impl Iso20022BridgeRuntime {
                     "recorded inbound ISO 20022 {message_type} lifecycle message"
                 )),
             )
-            .map_err(|error| self.lifecycle_apply_error(message_id, error))?;
+            .map_err(|error| Self::lifecycle_apply_error(message_id, error))?;
         let status = Self::status_snapshot(message_id, &lifecycle_mutation.candidate);
         self.commit_lifecycle_operation(original_mutation, lifecycle_mutation)
-            .map_err(|error| self.lifecycle_apply_error(message_id, error))?;
+            .map_err(|error| Self::lifecycle_apply_error(message_id, error))?;
         Ok((
             IsoLifecycleOutcome {
                 referenced_message_id,
@@ -3512,11 +3513,10 @@ impl Iso20022BridgeRuntime {
         ))
     }
     fn lifecycle_apply_error(
-        &self,
         message_id: &str,
         error: IsoStatusHistoryLimitError,
     ) -> IsoLifecycleApplyError {
-        self.report_status_history_limit(message_id, error);
+        Self::report_status_history_limit(message_id, error);
         if error == IsoStatusHistoryLimitError::Persistence {
             IsoLifecycleApplyError::PersistenceUnavailable
         } else {
@@ -3573,10 +3573,9 @@ impl Iso20022BridgeRuntime {
         }
         if self.store_dir.is_some() {
             self.store_retention.is_zero()
-                || match now.duration_since(record.updated_at) {
-                    Ok(age) => age <= self.store_retention,
-                    Err(_) => true,
-                }
+                || now
+                    .duration_since(record.updated_at)
+                    .map_or(true, |age| age <= self.store_retention)
         } else {
             now.duration_since(record.replay_expires_at).is_err()
         }
@@ -3997,7 +3996,7 @@ impl Iso20022BridgeRuntime {
         match status_code
             .map(str::trim)
             .filter(|code| !code.is_empty())
-            .map(|code| code.to_ascii_uppercase())
+            .map(str::to_ascii_uppercase)
             .as_deref()
         {
             Some("ACSC" | "ACCP" | "SETT" | "SETTLED") => {
@@ -5251,7 +5250,7 @@ impl Iso20022BridgeRuntime {
         if !is_real_directory(&messages_dir) {
             return false;
         }
-        let Some(json) = persisted_record_json(message_id, &record) else {
+        let Some(json) = persisted_record_json(message_id, record) else {
             return false;
         };
         let path = messages_dir.join(message_filename(message_id));
@@ -5550,7 +5549,6 @@ impl Iso20022BridgeRuntime {
         Ok(())
     }
     fn validate_amount_minor_units(
-        &self,
         profile: &MessageProfile,
         parsed: &ParsedMessage,
     ) -> Result<(), MsgError> {
@@ -5571,7 +5569,6 @@ impl Iso20022BridgeRuntime {
         Ok(())
     }
     fn validate_supplementary_data_limit(
-        &self,
         profile: &MessageProfile,
         parsed: &ParsedMessage,
     ) -> Result<(), MsgError> {
@@ -5590,7 +5587,6 @@ impl Iso20022BridgeRuntime {
         Ok(())
     }
     fn validate_structured_address_mode(
-        &self,
         profile: &MessageProfile,
         parsed: &ParsedMessage,
     ) -> Result<(), MsgError> {
@@ -5812,7 +5808,7 @@ fn persisted_record_sha256(value: &JsonValue) -> Option<&str> {
         .as_object()
         .and_then(|object| object.get(ISO_PERSISTED_RECORD_DIGEST_FIELD))
         .and_then(JsonValue::as_str)
-        .filter(|digest| is_canonical_sha256_hex(digest))
+        .filter(|value| is_canonical_sha256_hex(value))
 }
 fn lifecycle_journal_mutation(mutation: &IsoPreparedRecordMutation) -> IsoLifecycleJournalMutation {
     let previous = persisted_record_value(&mutation.message_id, &mutation.previous);
@@ -5981,9 +5977,9 @@ fn replay_tombstone_from_value(value: &JsonValue) -> Option<(String, IsoReplayTo
         required_clean_string(object, "message_id")?,
         IsoReplayTombstone {
             expires_at: system_time_from_ms(object.get("expires_at_ms")?.as_u64()?)?,
-            payload_hash: required_nullable_string(object, "payload_hash")?,
-            business_message_id: required_nullable_string(object, "business_message_id")?,
-            uetr: required_nullable_string(object, "uetr")?,
+            payload_hash: required_nullable_string(object, "payload_hash").ok()?,
+            business_message_id: required_nullable_string(object, "business_message_id").ok()?,
+            uetr: required_nullable_string(object, "uetr").ok()?,
         },
     ))
 }
@@ -6216,16 +6212,36 @@ fn clean_persisted_string(raw: &str) -> Option<String> {
 fn required_clean_string(obj: &norito::json::Map, key: &str) -> Option<String> {
     obj.get(key)?.as_str().and_then(clean_persisted_string)
 }
-fn required_nullable_string(obj: &norito::json::Map, key: &str) -> Option<Option<String>> {
-    match obj.get(key)? {
-        JsonValue::Null => Some(None),
-        value => value.as_str().and_then(clean_persisted_string).map(Some),
+/// A persisted key is required even when its value is null.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InvalidPersistedNullableField {
+    Missing,
+    InvalidValue,
+}
+fn required_nullable_string(
+    obj: &norito::json::Map,
+    key: &str,
+) -> Result<Option<String>, InvalidPersistedNullableField> {
+    match obj.get(key).ok_or(InvalidPersistedNullableField::Missing)? {
+        JsonValue::Null => Ok(None),
+        value => value
+            .as_str()
+            .and_then(clean_persisted_string)
+            .map(Some)
+            .ok_or(InvalidPersistedNullableField::InvalidValue),
     }
 }
-fn required_nullable_time_ms(obj: &norito::json::Map, key: &str) -> Option<Option<SystemTime>> {
-    match obj.get(key)? {
-        JsonValue::Null => Some(None),
-        value => value.as_u64().and_then(system_time_from_ms).map(Some),
+fn required_nullable_time_ms(
+    obj: &norito::json::Map,
+    key: &str,
+) -> Result<Option<SystemTime>, InvalidPersistedNullableField> {
+    match obj.get(key).ok_or(InvalidPersistedNullableField::Missing)? {
+        JsonValue::Null => Ok(None),
+        value => value
+            .as_u64()
+            .and_then(system_time_from_ms)
+            .map(Some)
+            .ok_or(InvalidPersistedNullableField::InvalidValue),
     }
 }
 fn persisted_record_from_value(value: &JsonValue) -> Option<(String, IsoMessageRecordV2)> {
@@ -6245,11 +6261,11 @@ fn persisted_record_from_value(value: &JsonValue) -> Option<(String, IsoMessageR
         .get("updated_at_ms")
         .and_then(JsonValue::as_u64)
         .and_then(system_time_from_ms)?;
-    let transaction_hash = required_nullable_string(obj, "transaction_hash")?;
-    let detail = required_nullable_string(obj, "detail")?;
+    let transaction_hash = required_nullable_string(obj, "transaction_hash").ok()?;
+    let detail = required_nullable_string(obj, "detail").ok()?;
     let ledger_tx_queued = obj.get("ledger_tx_queued")?.as_bool()?;
-    let settled_at = required_nullable_time_ms(obj, "settled_at_ms")?;
-    let hold_reason_code = required_nullable_string(obj, "hold_reason_code")?;
+    let settled_at = required_nullable_time_ms(obj, "settled_at_ms").ok()?;
+    let hold_reason_code = required_nullable_string(obj, "hold_reason_code").ok()?;
     let change_reason_values = obj.get("change_reason_codes")?.as_array()?;
     if change_reason_values.len() > ISO_CHANGE_REASON_MAX_ENTRIES_V1 {
         return None;
@@ -6263,7 +6279,7 @@ fn persisted_record_from_value(value: &JsonValue) -> Option<(String, IsoMessageR
     {
         return None;
     }
-    let rejection_reason_code = required_nullable_string(obj, "rejection_reason_code")?;
+    let rejection_reason_code = required_nullable_string(obj, "rejection_reason_code").ok()?;
     let context = context_from_value(obj.get("context")?)?;
     let metadata = metadata_from_value(obj.get("metadata")?)?;
     if context.reported_return.as_ref().is_some_and(|report| {
@@ -6434,7 +6450,7 @@ fn persisted_audit_index_entry_is_valid(value: &JsonValue) -> bool {
             .get("updated_at_ms")
             .and_then(JsonValue::as_u64)
             .is_none()
-        || required_nullable_time_ms(object, "settled_at_ms").is_none()
+        || required_nullable_time_ms(object, "settled_at_ms").is_err()
     {
         return false;
     }
@@ -6448,7 +6464,7 @@ fn persisted_audit_index_entry_is_valid(value: &JsonValue) -> bool {
         "reference_snapshot_id",
     ]
     .into_iter()
-    .all(|key| required_nullable_string(object, key).is_some())
+    .all(|key| required_nullable_string(object, key).is_ok())
 }
 fn load_persisted_audit_index(path: &Path) -> eyre::Result<()> {
     let metadata = match fs::symlink_metadata(path) {
@@ -6791,7 +6807,6 @@ fn read_persisted_json_bounded_with_metadata(
         bytes.try_reserve_exact(read).ok()?;
         bytes.extend_from_slice(&chunk[..read]);
     }
-    drop(reader);
     let actual_bytes = u64::try_from(bytes.len()).ok()?;
     if actual_bytes != opened_metadata.len() {
         return None;
@@ -7573,7 +7588,8 @@ fn reported_return_from_value(value: &JsonValue) -> Option<Option<IsoReportedRet
         return None;
     }
     let disposition = IsoReturnReportDisposition::parse(obj.get("disposition")?.as_str()?)?;
-    let original_transaction_hash = required_nullable_string(obj, "original_transaction_hash")?;
+    let original_transaction_hash =
+        required_nullable_string(obj, "original_transaction_hash").ok()?;
     if let Some(hash) = original_transaction_hash.as_deref() {
         crate::parse_signed_transaction_hash(hash).ok()?;
     }
@@ -7582,7 +7598,7 @@ fn reported_return_from_value(value: &JsonValue) -> Option<Option<IsoReportedRet
     {
         return None;
     }
-    let original_payload_hash = required_nullable_string(obj, "original_payload_hash")?;
+    let original_payload_hash = required_nullable_string(obj, "original_payload_hash").ok()?;
     if original_payload_hash
         .as_deref()
         .is_some_and(|hash| !is_canonical_sha256_hex(hash))
@@ -7615,7 +7631,7 @@ fn reported_return_from_value(value: &JsonValue) -> Option<Option<IsoReportedRet
         original_transaction_hash,
         amount,
         currency,
-        reason_code: required_nullable_string(obj, "reason_code")?,
+        reason_code: required_nullable_string(obj, "reason_code").ok()?,
     }))
 }
 fn reported_return_context(
@@ -7690,51 +7706,50 @@ fn context_from_value(value: &JsonValue) -> Option<IsoMessageContext> {
         return None;
     }
     Some(IsoMessageContext {
-        ledger_id: required_nullable_string(obj, "ledger_id")?,
-        source_account_id: required_nullable_string(obj, "source_account_id")?,
-        source_account_address: required_nullable_string(obj, "source_account_address")?,
-        target_account_id: required_nullable_string(obj, "target_account_id")?,
-        target_account_address: required_nullable_string(obj, "target_account_address")?,
-        asset_definition_id: required_nullable_string(obj, "asset_definition_id")?,
-        asset_id: required_nullable_string(obj, "asset_id")?,
-        settlement_amount: required_nullable_string(obj, "settlement_amount")?,
-        settlement_currency: required_nullable_string(obj, "settlement_currency")?,
-        settlement_date: required_nullable_string(obj, "settlement_date")?,
-        settlement_quantity: required_nullable_string(obj, "settlement_quantity")?,
-        settlement_movement_type: required_nullable_string(obj, "settlement_movement_type")?,
-        settlement_payment_type: required_nullable_string(obj, "settlement_payment_type")?,
-        security_instrument_id: required_nullable_string(obj, "security_instrument_id")?,
-        collateral_obligation_id: required_nullable_string(obj, "collateral_obligation_id")?,
-        collateral_original_amount: required_nullable_string(obj, "collateral_original_amount")?,
-        collateral_original_currency: required_nullable_string(
-            obj,
-            "collateral_original_currency",
-        )?,
+        ledger_id: required_nullable_string(obj, "ledger_id").ok()?,
+        source_account_id: required_nullable_string(obj, "source_account_id").ok()?,
+        source_account_address: required_nullable_string(obj, "source_account_address").ok()?,
+        target_account_id: required_nullable_string(obj, "target_account_id").ok()?,
+        target_account_address: required_nullable_string(obj, "target_account_address").ok()?,
+        asset_definition_id: required_nullable_string(obj, "asset_definition_id").ok()?,
+        asset_id: required_nullable_string(obj, "asset_id").ok()?,
+        settlement_amount: required_nullable_string(obj, "settlement_amount").ok()?,
+        settlement_currency: required_nullable_string(obj, "settlement_currency").ok()?,
+        settlement_date: required_nullable_string(obj, "settlement_date").ok()?,
+        settlement_quantity: required_nullable_string(obj, "settlement_quantity").ok()?,
+        settlement_movement_type: required_nullable_string(obj, "settlement_movement_type").ok()?,
+        settlement_payment_type: required_nullable_string(obj, "settlement_payment_type").ok()?,
+        security_instrument_id: required_nullable_string(obj, "security_instrument_id").ok()?,
+        collateral_obligation_id: required_nullable_string(obj, "collateral_obligation_id").ok()?,
+        collateral_original_amount: required_nullable_string(obj, "collateral_original_amount")
+            .ok()?,
+        collateral_original_currency: required_nullable_string(obj, "collateral_original_currency")
+            .ok()?,
         collateral_original_instrument_id: required_nullable_string(
             obj,
             "collateral_original_instrument_id",
-        )?,
-        collateral_substitute_amount: required_nullable_string(
-            obj,
-            "collateral_substitute_amount",
-        )?,
+        )
+        .ok()?,
+        collateral_substitute_amount: required_nullable_string(obj, "collateral_substitute_amount")
+            .ok()?,
         collateral_substitute_currency: required_nullable_string(
             obj,
             "collateral_substitute_currency",
-        )?,
+        )
+        .ok()?,
         collateral_substitute_instrument_id: required_nullable_string(
             obj,
             "collateral_substitute_instrument_id",
-        )?,
-        collateral_effective_date: required_nullable_string(obj, "collateral_effective_date")?,
-        collateral_substitution_type: required_nullable_string(
-            obj,
-            "collateral_substitution_type",
-        )?,
-        collateral_haircut: required_nullable_string(obj, "collateral_haircut")?,
-        collateral_reason_code: required_nullable_string(obj, "collateral_reason_code")?,
-        plan_execution_order: required_nullable_string(obj, "plan_execution_order")?,
-        plan_atomicity: required_nullable_string(obj, "plan_atomicity")?,
+        )
+        .ok()?,
+        collateral_effective_date: required_nullable_string(obj, "collateral_effective_date")
+            .ok()?,
+        collateral_substitution_type: required_nullable_string(obj, "collateral_substitution_type")
+            .ok()?,
+        collateral_haircut: required_nullable_string(obj, "collateral_haircut").ok()?,
+        collateral_reason_code: required_nullable_string(obj, "collateral_reason_code").ok()?,
+        plan_execution_order: required_nullable_string(obj, "plan_execution_order").ok()?,
+        plan_atomicity: required_nullable_string(obj, "plan_atomicity").ok()?,
         reported_return: reported_return_from_value(obj.get("reported_return")?)?,
         native_payment: native_payment_from_value(obj.get("native_payment")?)?,
     })
@@ -7778,13 +7793,13 @@ fn metadata_from_value(value: &JsonValue) -> Option<IsoMessageMetadata> {
         return None;
     }
     Some(IsoMessageMetadata {
-        profile_id: required_nullable_string(obj, "profile_id")?,
-        message_type: required_nullable_string(obj, "message_type")?,
-        business_service: required_nullable_string(obj, "business_service")?,
-        business_message_id: required_nullable_string(obj, "business_message_id")?,
-        uetr: required_nullable_string(obj, "uetr")?,
-        payload_hash: required_nullable_string(obj, "payload_hash")?,
-        reference_snapshot_id: required_nullable_string(obj, "reference_snapshot_id")?,
+        profile_id: required_nullable_string(obj, "profile_id").ok()?,
+        message_type: required_nullable_string(obj, "message_type").ok()?,
+        business_service: required_nullable_string(obj, "business_service").ok()?,
+        business_message_id: required_nullable_string(obj, "business_message_id").ok()?,
+        uetr: required_nullable_string(obj, "uetr").ok()?,
+        payload_hash: required_nullable_string(obj, "payload_hash").ok()?,
+        reference_snapshot_id: required_nullable_string(obj, "reference_snapshot_id").ok()?,
         embedded_signature_detected: obj.get("embedded_signature_detected")?.as_bool()?,
     })
 }
@@ -7971,8 +7986,8 @@ fn history_from_value(value: &JsonValue) -> Option<IsoStatusHistoryEntry> {
             .get("updated_at_ms")?
             .as_u64()
             .and_then(system_time_from_ms)?,
-        detail: required_nullable_string(obj, "detail")?,
-        reason_code: required_nullable_string(obj, "reason_code")?,
+        detail: required_nullable_string(obj, "detail").ok()?,
+        reason_code: required_nullable_string(obj, "reason_code").ok()?,
     })
 }
 fn string_or_null(value: Option<&str>) -> JsonValue {
@@ -8432,7 +8447,7 @@ fn lifecycle_context(message_type: &str, parsed: &ParsedMessage) -> Option<IsoMe
         context.plan_atomicity.as_deref(),
     ]
     .iter()
-    .any(|value| value.is_some())
+    .any(std::option::Option::is_some)
     .then_some(context)
 }
 fn parsed_text(parsed: &ParsedMessage, field: &str) -> Option<String> {
@@ -9009,10 +9024,10 @@ fn verify_xml_signature_payload_reference(
     )?;
     let payload_span =
         ensure_xml_signature_payload_reference_covers_carrier(full_xml, uri, carrier_span)?;
-    let referenced_xml = xml_signature_reference_target(unsigned_xml, uri)?;
+    let target_xml = xml_signature_reference_target(unsigned_xml, uri)?;
     let canonical_referenced_xml = canonicalize_supported_xml_with_mode(
-        referenced_xml.xml,
-        &referenced_xml.inherited_namespaces,
+        target_xml.xml,
+        &target_xml.inherited_namespaces,
         c14n_mode,
     )?;
     verify_xml_signature_reference_digest_with_namespaces(
@@ -9056,16 +9071,16 @@ fn verify_xml_signature_signed_properties_reference<'a>(
 ) -> Result<VerifiedSignedProperties<'a>, MsgError> {
     let c14n_mode =
         signed_properties_reference_c14n_mode_with_namespaces(reference_xml, inherited_namespaces)?;
-    let referenced_xml = xml_signature_reference_target(signature_xml, uri)?;
+    let target_xml = xml_signature_reference_target(signature_xml, uri)?;
     let signed_properties_namespaces =
-        namespace_bindings_from_attributes(&referenced_xml.inherited_namespaces);
+        namespace_bindings_from_attributes(&target_xml.inherited_namespaces);
     ensure_signed_properties_reference_target_with_namespaces(
-        referenced_xml.xml,
+        target_xml.xml,
         &signed_properties_namespaces,
     )?;
     let canonical_referenced_xml = canonicalize_supported_xml_with_mode(
-        referenced_xml.xml,
-        &referenced_xml.inherited_namespaces,
+        target_xml.xml,
+        &target_xml.inherited_namespaces,
         c14n_mode,
     )?;
     verify_xml_signature_reference_digest_with_namespaces(
@@ -9074,7 +9089,7 @@ fn verify_xml_signature_signed_properties_reference<'a>(
         inherited_namespaces,
     )?;
     Ok(VerifiedSignedProperties {
-        xml: referenced_xml.xml,
+        xml: target_xml.xml,
         inherited_namespaces: signed_properties_namespaces,
     })
 }
@@ -9993,12 +10008,16 @@ fn xml_signature_key_material_with_policy(
         validate_x509_leaf_revocation(
             &certificates,
             evaluation_time,
-            embedded_crl_values,
-            profile.x509_require_crl_revocation_check,
-            &profile.x509_crl_der_base64,
-            embedded_ocsp_response_values,
-            profile.x509_require_ocsp_revocation_check,
-            &profile.x509_ocsp_response_der_base64,
+            (
+                embedded_crl_values,
+                profile.x509_require_crl_revocation_check,
+                &profile.x509_crl_der_base64,
+            ),
+            (
+                embedded_ocsp_response_values,
+                profile.x509_require_ocsp_revocation_check,
+                &profile.x509_ocsp_response_der_base64,
+            ),
         )?;
     }
     Ok(XmlSignatureKeyMaterial {
@@ -10300,12 +10319,16 @@ fn uri_host(uri: &str) -> Option<&str> {
 fn validate_x509_leaf_revocation(
     certificate_chain: &[Vec<u8>],
     evaluation_time: ASN1Time,
-    embedded_crl_values: &[String],
-    x509_require_crl_revocation_check: bool,
-    x509_crl_der_base64: &[String],
-    embedded_ocsp_response_values: &[String],
-    x509_require_ocsp_revocation_check: bool,
-    x509_ocsp_response_der_base64: &[String],
+    (embedded_crl_values, x509_require_crl_revocation_check, x509_crl_der_base64): (
+        &[String],
+        bool,
+        &[String],
+    ),
+    (
+        embedded_ocsp_response_values,
+        x509_require_ocsp_revocation_check,
+        x509_ocsp_response_der_base64,
+    ): (&[String], bool, &[String]),
 ) -> Result<(), MsgError> {
     let has_crl_material = !embedded_crl_values.is_empty() || !x509_crl_der_base64.is_empty();
     let has_ocsp_material =
@@ -10368,7 +10391,7 @@ fn validate_x509_leaf_crl_revocation(
             continue;
         }
         matching_crl_seen = true;
-        verify_x509_crl_signature(&crl, &issuer)?;
+        verify_x509_crl_signature(&crl, issuer)?;
         if crl
             .iter_revoked_certificates()
             .any(|revoked| revoked.raw_serial() == leaf.raw_serial())
@@ -10694,7 +10717,7 @@ fn validate_ocsp_response_signature(
     if response.signature_algorithm_oid != OID_ECDSA_WITH_SHA256_DER {
         return Err(MsgError::ValidationFailed);
     }
-    if ocsp_responder_id_matches_certificate(&response.responder_id, issuer)? {
+    if ocsp_responder_id_matches_certificate(&response.responder_id, issuer) {
         return verify_ocsp_signature_with_certificate(response, issuer);
     }
     for certificate_der in &response.responder_certificates {
@@ -10703,7 +10726,7 @@ fn validate_ocsp_response_signature(
         if !responder.validity().is_valid_at(evaluation_time)
             || responder.issuer() != issuer.subject()
             || !x509_certificate_allows_ocsp_signing(&responder)?
-            || !ocsp_responder_id_matches_certificate(&response.responder_id, &responder)?
+            || !ocsp_responder_id_matches_certificate(&response.responder_id, &responder)
         {
             continue;
         }
@@ -10747,13 +10770,13 @@ fn x509_certificate_allows_ocsp_signing(
 fn ocsp_responder_id_matches_certificate(
     responder_id: &OcspResponderId<'_>,
     certificate: &X509Certificate<'_>,
-) -> Result<bool, MsgError> {
+) -> bool {
     match responder_id {
-        OcspResponderId::ByName(name) => Ok(*name == certificate.subject().as_raw()),
+        OcspResponderId::ByName(name) => *name == certificate.subject().as_raw(),
         OcspResponderId::ByKey(key_hash) => {
             let public_key = certificate.public_key().subject_public_key.data.as_ref();
             let digest = Sha1::digest(public_key);
-            Ok(*key_hash == &digest[..])
+            *key_hash == &digest[..]
         }
     }
 }
@@ -10831,13 +10854,13 @@ fn parse_ocsp_basic_response_der(
         responder_certificates,
     })
 }
-fn parse_ocsp_response_data<'a>(
-    response_data: &'a [u8],
+fn parse_ocsp_response_data(
+    response_data: &[u8],
 ) -> Result<
     (
-        OcspResponderId<'a>,
+        OcspResponderId<'_>,
         ASN1Time,
-        Vec<ParsedOcspSingleResponse<'a>>,
+        Vec<ParsedOcspSingleResponse<'_>>,
     ),
     MsgError,
 > {
@@ -11082,9 +11105,9 @@ fn der_asn1_time(time: DerElement<'_>) -> Result<ASN1Time, MsgError> {
     }
     Ok(time)
 }
-fn x509_leaf_issuer_certificate<'a>(
-    certificate_chain: &'a [Vec<u8>],
-) -> Result<X509Certificate<'a>, MsgError> {
+fn x509_leaf_issuer_certificate(
+    certificate_chain: &[Vec<u8>],
+) -> Result<X509Certificate<'_>, MsgError> {
     let leaf = parse_x509_certificate_der(&certificate_chain[0])?;
     if let Some(issuer_der) = certificate_chain.get(1) {
         let issuer = parse_x509_certificate_der(issuer_der)?;
@@ -11518,7 +11541,7 @@ fn parse_iso_datetime_as_asn1_time(value: &str) -> Result<ASN1Time, MsgError> {
     ASN1Time::from_timestamp(timestamp).map_err(|_| MsgError::ValidationFailed)
 }
 fn parse_ascii_decimal<T: std::str::FromStr>(value: &[u8]) -> Result<T, MsgError> {
-    if value.is_empty() || !value.iter().all(|byte| byte.is_ascii_digit()) {
+    if value.is_empty() || !value.iter().all(u8::is_ascii_digit) {
         return Err(MsgError::ValidationFailed);
     }
     std::str::from_utf8(value)
@@ -11760,7 +11783,7 @@ fn canonicalize_supported_xml_with_mode(
             ensure_supported_xml_name(name)?;
             let mut attributes = parse_supported_xml_attributes(attributes)?;
             if stack.is_empty() {
-                apply_inherited_root_namespaces(name, &mut attributes, inherited_namespaces, mode)?;
+                apply_inherited_root_namespaces(name, &mut attributes, inherited_namespaces, mode);
             }
             ensure_supported_xml_element_namespace(name, &attributes, &in_scope_namespaces)?;
             sort_and_validate_canonical_xml_attributes(&mut attributes, &in_scope_namespaces)?;
@@ -11865,7 +11888,7 @@ fn apply_inherited_root_namespaces(
     attributes: &mut Vec<CanonicalXmlAttribute>,
     inherited_namespaces: &[CanonicalXmlAttribute],
     mode: CanonicalXmlMode,
-) -> Result<(), MsgError> {
+) {
     match mode {
         CanonicalXmlMode::Inclusive => {
             for namespace in inherited_namespaces {
@@ -11901,7 +11924,6 @@ fn apply_inherited_root_namespaces(
             }
         }
     }
-    Ok(())
 }
 fn apply_inherited_namespace(
     attributes: &mut Vec<CanonicalXmlAttribute>,
@@ -12375,10 +12397,7 @@ fn ensure_direct_xml_child_elements_with_comment_policy(
             .unwrap_or((tag_body, ""));
         ensure_supported_xml_name(name)?;
         let local = xml_local_name(name);
-        if !allowed_children
-            .iter()
-            .any(|allowed_child| local == *allowed_child)
-        {
+        if !allowed_children.contains(&local) {
             return Err(MsgError::ValidationFailed);
         }
         cursor = if self_closing {

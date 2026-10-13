@@ -19,8 +19,8 @@ fn retry_delay(error: &iroha::Error, remaining: Duration) -> Option<Duration> {
 
 /// Submit once within the same phase deadline as the surrounding height observations.
 /// HTTP probes, fee quotes, dispatch and finality share this deadline; no write is retried.
-pub(super) fn submit_until<T>(
-    client: iroha::blocking::Client,
+pub fn submit_until<T>(
+    client: &iroha::blocking::Client,
     deadline: Instant,
     submit: impl FnOnce(iroha::blocking::Client) -> Result<T>,
 ) -> Result<T> {
@@ -42,9 +42,9 @@ pub(super) fn submit_until<T>(
 /// Submit once and establish read-after-write visibility on the exact observation peer.
 /// Global finality can be resolved by another coordinator; it does not fence a local read.
 /// Submission and local application consume the same original phase deadline.
-pub(super) fn submit_and_observe_until(
-    client: iroha::blocking::Client,
-    observer: iroha::blocking::Client,
+pub fn submit_and_observe_until(
+    client: &iroha::blocking::Client,
+    observer: &iroha::blocking::Client,
     deadline: Instant,
     submit: impl FnOnce(
         iroha::blocking::Client,
@@ -69,7 +69,7 @@ pub(super) fn submit_and_observe_until(
 /// Public status exposes kind/height only; authenticated Network output owns its reason.
 /// Repeat only absence or pending hints. Every read error, including SDK backpressure,
 /// is preserved because its private retry representation is not a public harness API.
-pub(super) async fn observe_rejected_until(
+pub async fn observe_rejected_until(
     observer: iroha::client::Client,
     hash: iroha_crypto::HashOf<iroha_data_model::transaction::SignedTransaction>,
     original: &iroha::client::TransactionFinalityFailure,
@@ -123,7 +123,7 @@ pub(super) async fn observe_rejected_until(
 
 /// Submit once asynchronously under the original phase deadline.
 /// Preserve the SDK's unresolved transaction identity when its finality wait expires.
-pub(super) async fn submit_async_until<T, F, Fut>(
+pub async fn submit_async_until<T, F, Fut>(
     client: iroha::client::Client,
     deadline: Instant,
     submit: F,
@@ -146,7 +146,7 @@ where
 }
 
 /// Read an authoritative applied height without extending the caller's deadline.
-pub(super) async fn height_until(client: &iroha::client::Client, deadline: Instant) -> Result<u64> {
+pub async fn height_until(client: &iroha::client::Client, deadline: Instant) -> Result<u64> {
     tokio::time::timeout_at(deadline.into(), async {
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -179,7 +179,7 @@ pub(super) async fn height_until(client: &iroha::client::Client, deadline: Insta
 /// Observe every voter concurrently within the same original phase deadline.
 /// The exact bounded committee roster determines both concurrency and result order;
 /// one failed or missing seat cannot be replaced by a smaller successful subset.
-pub(super) async fn heights_until(
+pub async fn heights_until(
     clients: &[iroha::client::Client],
     deadline: Instant,
 ) -> Result<Vec<u64>> {
@@ -196,10 +196,7 @@ pub(super) async fn heights_until(
 }
 
 /// Observe from a dedicated blocking worker with the same classified retry policy.
-pub(super) fn height_until_blocking(
-    client: &iroha::blocking::Client,
-    deadline: Instant,
-) -> Result<u64> {
+pub fn height_until_blocking(client: &iroha::blocking::Client, deadline: Instant) -> Result<u64> {
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         ensure!(!remaining.is_zero(), "committee status deadline elapsed");
@@ -252,9 +249,11 @@ mod status_observation_tests {
         sync::{Arc, Mutex},
     };
 
+    type StatusResponse = (u16, Vec<u8>, Option<&'static str>, Option<&'static str>);
+
     #[derive(Debug)]
     struct StatusTransport {
-        responses: Mutex<VecDeque<(u16, Vec<u8>, Option<&'static str>, Option<&'static str>)>>,
+        responses: Mutex<VecDeque<StatusResponse>>,
         request_budgets: Mutex<Vec<Duration>>,
         consume_request_deadline: bool,
     }
@@ -320,8 +319,8 @@ mod status_observation_tests {
             transaction_ttl: Duration::from_secs(5),
             transaction_status_timeout: Duration::from_secs(10),
             sorafs_alias_cache: iroha::config::AliasCache::default().into_policy(),
-            sorafs_anonymity_policy: Default::default(),
-            sorafs_rollout_phase: Default::default(),
+            sorafs_anonymity_policy: iroha_service_model::soranet::AnonymityPolicy::default(),
+            sorafs_rollout_phase: iroha_service_model::soranet::RolloutPhase::default(),
         };
         iroha::client::Client::builder(config)
             .http_transport(transport)
@@ -458,10 +457,10 @@ mod status_observation_tests {
             ],
         );
         let budget = Duration::from_secs(2);
-        let mut submitted = 0;
-        let observed =
-            submit_and_observe_until(submitter, observer, Instant::now() + budget, |client| {
-                submitted += 1;
+        let mut dispatch_count = 0;
+        let confirmed_hash =
+            submit_and_observe_until(&submitter, &observer, Instant::now() + budget, |client| {
+                dispatch_count += 1;
                 assert_eq!(
                     client.client().endpoint().host_str(),
                     Some("status-observation.invalid")
@@ -471,10 +470,10 @@ mod status_observation_tests {
             })
             .unwrap();
         assert_eq!(
-            submitted, 1,
+            dispatch_count, 1,
             "visibility must not replay the signed submission"
         );
-        assert_eq!(observed, hash);
+        assert_eq!(confirmed_hash, hash);
         let requests = observations.requests.lock().unwrap();
         assert_eq!(
             requests.len(),
@@ -498,8 +497,8 @@ mod status_observation_tests {
         let (observer, observations) =
             application_observer(hash, &[("Applied", "global", "state")]);
         let error = submit_and_observe_until(
-            submitter.clone(),
-            observer,
+            &submitter,
+            &observer,
             Instant::now() + Duration::from_secs(2),
             |_| Ok(hash),
         )
@@ -508,8 +507,8 @@ mod status_observation_tests {
         assert_eq!(observations.requests.lock().unwrap().len(), 1);
         let (observer, observations) = application_observer(hash, &[]);
         let error = submit_and_observe_until(
-            submitter,
-            observer,
+            &submitter,
+            &observer,
             Instant::now() + Duration::from_secs(2),
             |_| Err(eyre::eyre!("original unresolved submission {hash}")),
         )
@@ -718,7 +717,7 @@ mod status_observation_tests {
         let original = iroha::blocking::Client::from_client(builder.build().unwrap()).unwrap();
         let hash = HashOf::from_untyped_unchecked(Hash::prehashed([0x71; Hash::LENGTH]));
         let deadline = Instant::now() + budget;
-        let error = submit_until(original.clone(), deadline, |bounded| {
+        let error = submit_until(&original.clone(), deadline, |bounded| {
             // Exercise a preceding SDK dispatch and the real finality poller on one clone.
             // A paid submit's capability/quote requests use this same transport boundary.
             assert_eq!(bounded.status().get()?.blocks, 69);
@@ -799,6 +798,14 @@ mod status_observation_tests {
 
     #[tokio::test]
     async fn asynchronous_submission_refuses_expired_and_late_success_without_replacing_error() {
+        #[derive(Debug)]
+        struct OriginalDispatch;
+        impl std::fmt::Display for OriginalDispatch {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("original unresolved asynchronous dispatch")
+            }
+        }
+        impl std::error::Error for OriginalDispatch {}
         let original = client(transport([]));
         let error = submit_async_until::<(), _, _>(original.clone(), Instant::now(), |_| async {
             panic!("expired progress cannot invoke submission")
@@ -822,14 +829,6 @@ mod status_observation_tests {
                 .to_string()
                 .contains("committee submission deadline elapsed")
         );
-        #[derive(Debug)]
-        struct OriginalDispatch;
-        impl std::fmt::Display for OriginalDispatch {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.write_str("original unresolved asynchronous dispatch")
-            }
-        }
-        impl std::error::Error for OriginalDispatch {}
         let deadline = Instant::now() + Duration::from_millis(20);
         let error = submit_async_until(original, deadline, |_| async move {
             tokio::time::sleep_until(deadline.into()).await;
@@ -844,7 +843,7 @@ mod status_observation_tests {
     fn submission_phase_deadline_rejects_expired_work_before_dispatch() {
         let transport = transport([]);
         let original = iroha::blocking::Client::from_client(client(transport.clone())).unwrap();
-        let error = submit_until(original, Instant::now(), |_| -> Result<()> {
+        let error = submit_until(&original, Instant::now(), |_| -> Result<()> {
             panic!("expired work must not invoke the submission closure")
         })
         .unwrap_err();
@@ -858,9 +857,17 @@ mod status_observation_tests {
 
     #[test]
     fn submission_phase_deadline_rejects_late_success_and_preserves_submission_error() {
+        #[derive(Debug)]
+        struct OriginalDispatch;
+        impl std::fmt::Display for OriginalDispatch {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("original unresolved dispatch")
+            }
+        }
+        impl std::error::Error for OriginalDispatch {}
         let original = iroha::blocking::Client::from_client(client(transport([]))).unwrap();
         let deadline = Instant::now() + Duration::from_millis(20);
-        let error = submit_until(original.clone(), deadline, |_| {
+        let error = submit_until(&original.clone(), deadline, |_| {
             std::thread::sleep(
                 deadline.saturating_duration_since(Instant::now()) + Duration::from_millis(1),
             );
@@ -872,16 +879,8 @@ mod status_observation_tests {
                 .to_string()
                 .contains("committee submission deadline elapsed")
         );
-        #[derive(Debug)]
-        struct OriginalDispatch;
-        impl std::fmt::Display for OriginalDispatch {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.write_str("original unresolved dispatch")
-            }
-        }
-        impl std::error::Error for OriginalDispatch {}
         let error = submit_until(
-            original,
+            &original,
             Instant::now() + Duration::from_secs(2),
             |_| -> Result<()> { Err(OriginalDispatch.into()) },
         )

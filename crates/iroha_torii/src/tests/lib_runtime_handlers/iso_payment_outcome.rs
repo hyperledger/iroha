@@ -1,10 +1,9 @@
-use iroha_core::tx::external_entrypoint_hash_from_signed_hash as entrypoint_hash;
-
 // ISO lifecycle settlement must use the same authenticated execution outcome as reconciliation.
 
 struct IsoPaymentOutcomeFixture {
     app: SharedAppState,
-    hash: HashOf<SignedTransaction>,
+    transaction_hash: HashOf<SignedTransaction>,
+    entrypoint_hash: HashOf<TransactionEntrypoint>,
     operator: KeyPair,
     config: iroha_config::parameters::actual::IsoBridge,
     pending_payment: Option<SignedTransaction>,
@@ -150,6 +149,7 @@ impl IsoPaymentOutcomeFixture {
             .sign_transaction_payload(payload)
             .expect("signed native payment");
         let hash = transaction.hash();
+        let entrypoint_hash = transaction.hash_as_entrypoint();
         assert!(runtime.update_message_context("outcome-payment", context));
         runtime.mark_accepted("outcome-payment", &hash.to_string());
         let pending_payment = if committed {
@@ -176,7 +176,7 @@ impl IsoPaymentOutcomeFixture {
             }
         }
         assert_eq!(
-            app.state.has_committed_entrypoint(entrypoint_hash(hash)),
+            app.state.has_committed_entrypoint(entrypoint_hash),
             committed
         );
         assert_eq!(
@@ -188,7 +188,8 @@ impl IsoPaymentOutcomeFixture {
         );
         Self {
             app,
-            hash,
+            transaction_hash: hash,
+            entrypoint_hash,
             operator,
             config,
             pending_payment,
@@ -215,8 +216,7 @@ impl IsoPaymentOutcomeFixture {
             HashMap::new(),
             "127.0.0.1:8080".parse().unwrap(),
             body.into(),
-            "pacs.002",
-            "v1/iso20022/pacs002",
+            ("pacs.002", "v1/iso20022/pacs002"),
         )
         .await
     }
@@ -312,7 +312,7 @@ async fn iso_settlement_accepts_successful_payment_without_later_network_traffic
 async fn iso_settlement_rejects_absent_canonical_payment() {
     let fixture = IsoPaymentOutcomeFixture::new(false);
     let mut membership = fixture.app.state.transactions.block_and_revert();
-    membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap());
+    membership.insert_block(BTreeSet::new(), NonZeroUsize::new(2).unwrap());
     membership
         .commit()
         .expect("remove canonical payment membership");
@@ -320,7 +320,7 @@ async fn iso_settlement_rejects_absent_canonical_payment() {
         !fixture
             .app
             .state
-            .has_committed_entrypoint(entrypoint_hash(fixture.hash))
+            .has_committed_entrypoint(fixture.entrypoint_hash)
     );
     assert!(fixture.submit_settlement().await.is_err());
     assert_ne!(
@@ -346,7 +346,7 @@ async fn iso_settlement_rejects_absent_canonical_payment() {
     );
     let mut membership = fixture.app.state.transactions.block_and_revert();
     membership.insert_block(
-        HashSet::from([entrypoint_hash(fixture.hash)]),
+        BTreeSet::from([fixture.entrypoint_hash]),
         NonZeroUsize::new(2).unwrap(),
     );
     membership.commit().expect("restore canonical membership");
@@ -373,7 +373,7 @@ async fn iso_settlement_rejects_conflicting_canonical_carrier() {
         fixture
             .app
             .state
-            .has_committed_entrypoint(entrypoint_hash(fixture.hash))
+            .has_committed_entrypoint(fixture.entrypoint_hash)
     );
     assert!(fixture.submit_settlement().await.is_err());
     assert_ne!(
@@ -456,8 +456,7 @@ async fn iso_reported_return_preserves_native_success_and_balances() {
         HashMap::new(),
         "127.0.0.1:8080".parse().unwrap(),
         body.into(),
-        "pacs.004",
-        "v1/iso20022/pacs004",
+        ("pacs.004", "v1/iso20022/pacs004"),
     )
     .await
     .expect("authenticated external return report");
@@ -471,7 +470,7 @@ async fn iso_reported_return_preserves_native_success_and_balances() {
     );
     assert_eq!(
         external["original_transaction_hash"].as_str(),
-        Some(fixture.hash.to_string().as_str())
+        Some(fixture.transaction_hash.to_string().as_str())
     );
     assert_eq!(external["amount"].as_str(), Some("10"));
     assert_eq!(external["currency"].as_str(), Some("USD"));
@@ -526,8 +525,7 @@ impl IsoPaymentOutcomeFixture {
             HashMap::new(),
             "127.0.0.1:8080".parse().unwrap(),
             body.into(),
-            "pacs.004",
-            "v1/iso20022/pacs004",
+            ("pacs.004", "v1/iso20022/pacs004"),
         )
         .await
     }
@@ -651,7 +649,7 @@ async fn iso_settlement_canonical_success_supersedes_local_rejection_with_exact_
             .message_status("outcome-payment")
             .unwrap()
             .transaction_hash(),
-        Some(fixture.hash.to_string().as_str())
+        Some(fixture.transaction_hash.to_string().as_str())
     );
     fixture
         .submit_settlement()
@@ -671,7 +669,7 @@ async fn iso_settlement_canonical_success_supersedes_local_rejection_with_exact_
 async fn iso_reported_return_canonical_success_supersedes_local_queue_expiry() {
     let fixture = IsoPaymentOutcomeFixture::new(false);
     let runtime = fixture.app.iso_bridge.as_ref().unwrap();
-    assert!(runtime.mark_transaction_expired(&fixture.hash.to_string()));
+    assert!(runtime.mark_transaction_expired(&fixture.transaction_hash.to_string()));
     fixture
         .submit_return()
         .await
@@ -775,8 +773,7 @@ impl IsoPaymentOutcomeFixture {
             HashMap::new(),
             "127.0.0.1:8080".parse().unwrap(),
             body.into(),
-            "pacs.002",
-            "v1/iso20022/pacs002",
+            ("pacs.002", "v1/iso20022/pacs002"),
         )
         .await
     }
@@ -788,7 +785,7 @@ async fn iso_native_two_gateways_recover_one_business_effect_and_honest_rejected
     let mut fixture = IsoPaymentOutcomeFixture::new(false);
     let (app, transaction, _store, config) = fixture.second_gateway("10");
     let attempted = transaction.hash();
-    assert_ne!(attempted, fixture.hash);
+    assert_ne!(attempted, fixture.transaction_hash);
     assert_eq!(fixture.chain.commit(vec![transaction]), vec![false]);
     fixture
         .settle_other_gateway(app.clone())
@@ -809,7 +806,7 @@ async fn iso_native_two_gateways_recover_one_business_effect_and_honest_rejected
     assert_eq!(native["carrier"]["applied"].as_bool(), Some(false));
     assert_eq!(
         native["business_settlement"]["transaction_hash"].as_str(),
-        Some(fixture.hash.to_string().as_str())
+        Some(fixture.transaction_hash.to_string().as_str())
     );
     assert_eq!(native["verified"].as_bool(), Some(true));
     let restored = Iso20022BridgeRuntime::from_config(&config)

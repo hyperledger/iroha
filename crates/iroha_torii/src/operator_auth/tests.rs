@@ -135,8 +135,8 @@ fn base_headers() -> HeaderMap {
     );
     headers
 }
-fn loopback_ip() -> Option<IpAddr> {
-    Some("127.0.0.1".parse().expect("loopback ip"))
+fn loopback_ip() -> IpAddr {
+    "127.0.0.1".parse().expect("loopback ip")
 }
 fn loopback_connect_info() -> ConnectInfo<std::net::SocketAddr> {
     ConnectInfo("127.0.0.1:8080".parse().expect("loopback socket"))
@@ -1058,7 +1058,7 @@ async fn session_header_missing_and_invalid_errors_are_exact_across_auth_paths()
 
     let missing = base_headers();
     let error = auth
-        .authorize_operator_endpoint(&missing, loopback_ip())
+        .authorize_operator_endpoint(&missing, Some(loopback_ip()))
         .await
         .expect_err("ordinary operator routes require a session");
     assert_eq!(error.code, "operator_session_missing");
@@ -1070,7 +1070,7 @@ async fn session_header_missing_and_invalid_errors_are_exact_across_auth_paths()
     let mut invalid = base_headers();
     invalid.insert(HEADER_OPERATOR_SESSION, HeaderValue::from_static(""));
     let error = auth
-        .authorize_operator_endpoint(&invalid, loopback_ip())
+        .authorize_operator_endpoint(&invalid, Some(loopback_ip()))
         .await
         .expect_err("a supplied malformed session is invalid, not missing");
     assert_eq!(error.code, "operator_session_invalid");
@@ -1085,13 +1085,13 @@ async fn session_header_missing_and_invalid_errors_are_exact_across_auth_paths()
     duplicate.append(HEADER_OPERATOR_SESSION, canonical_header.clone());
     duplicate.append(HEADER_OPERATOR_SESSION, canonical_header);
     let error = auth
-        .authorize_operator_endpoint(&duplicate, loopback_ip())
+        .authorize_operator_endpoint(&duplicate, Some(loopback_ip()))
         .await
         .expect_err("duplicate session headers are invalid");
     assert_eq!(error.code, "operator_session_invalid");
 
     let bootstrap = headers_with_operator_token("bootstrap");
-    auth.authorize_bootstrap(&bootstrap, loopback_ip(), ACTION_REGISTER_OPTIONS)
+    auth.authorize_bootstrap(&bootstrap, Some(loopback_ip()), ACTION_REGISTER_OPTIONS)
         .await
         .expect("a missing session preserves first-credential token bootstrap");
     let mut unknown_session_bootstrap = bootstrap.clone();
@@ -1102,7 +1102,7 @@ async fn session_header_missing_and_invalid_errors_are_exact_across_auth_paths()
     let error = auth
         .authorize_bootstrap(
             &unknown_session_bootstrap,
-            loopback_ip(),
+            Some(loopback_ip()),
             ACTION_REGISTER_OPTIONS,
         )
         .await
@@ -1111,7 +1111,11 @@ async fn session_header_missing_and_invalid_errors_are_exact_across_auth_paths()
     let mut malformed_bootstrap = bootstrap;
     malformed_bootstrap.insert(HEADER_OPERATOR_SESSION, HeaderValue::from_static(""));
     let error = auth
-        .authorize_bootstrap(&malformed_bootstrap, loopback_ip(), ACTION_REGISTER_OPTIONS)
+        .authorize_bootstrap(
+            &malformed_bootstrap,
+            Some(loopback_ip()),
+            ACTION_REGISTER_OPTIONS,
+        )
         .await
         .expect_err("bootstrap must not hide a supplied malformed session");
     assert_eq!(error.code, "operator_session_invalid");
@@ -1334,7 +1338,7 @@ async fn operator_auth_registration_login_and_rollover_es256() {
     let auth = build_operator_auth(config, tempdir.path());
     let headers = headers_with_operator_token("bootstrap");
     let ctx = auth
-        .authorize_bootstrap(&headers, loopback_ip(), ACTION_REGISTER_OPTIONS)
+        .authorize_bootstrap(&headers, Some(loopback_ip()), ACTION_REGISTER_OPTIONS)
         .await
         .expect("bootstrap allowed");
     let options = auth.webauthn_registration_options(&ctx).expect("options");
@@ -1353,12 +1357,12 @@ async fn operator_auth_registration_login_and_rollover_es256() {
         .expect("registration");
     assert_eq!(outcome.credentials_total, 1);
     let err = auth
-        .authorize_bootstrap(&headers, loopback_ip(), ACTION_REGISTER_OPTIONS)
+        .authorize_bootstrap(&headers, Some(loopback_ip()), ACTION_REGISTER_OPTIONS)
         .await
         .expect_err("token bootstrap denied after enrollment");
     assert_eq!(err.code, "operator_session_missing");
     let login_ctx = auth
-        .authorize_login(&base_headers(), loopback_ip(), ACTION_LOGIN_OPTIONS)
+        .authorize_login(&base_headers(), Some(loopback_ip()), ACTION_LOGIN_OPTIONS)
         .await
         .expect("login allowed");
     let login_options = auth
@@ -1390,11 +1394,15 @@ async fn operator_auth_registration_login_and_rollover_es256() {
         HEADER_OPERATOR_SESSION,
         HeaderValue::from_str(&session.session_token).expect("session token"),
     );
-    auth.authorize_operator_endpoint(&session_headers, loopback_ip())
+    auth.authorize_operator_endpoint(&session_headers, Some(loopback_ip()))
         .await
         .expect("session accepted");
     let ctx = auth
-        .authorize_bootstrap(&session_headers, loopback_ip(), ACTION_REGISTER_OPTIONS)
+        .authorize_bootstrap(
+            &session_headers,
+            Some(loopback_ip()),
+            ACTION_REGISTER_OPTIONS,
+        )
         .await
         .expect("session bootstrap");
     let options = auth.webauthn_registration_options(&ctx).expect("options");
@@ -2077,11 +2085,11 @@ async fn operator_token_only_bootstraps_credential_enrollment() {
     );
     let auth = build_operator_auth(config, tempdir.path());
     let headers = headers_with_operator_token("operator-token");
-    auth.authorize_bootstrap(&headers, loopback_ip(), ACTION_REGISTER_OPTIONS)
+    auth.authorize_bootstrap(&headers, Some(loopback_ip()), ACTION_REGISTER_OPTIONS)
         .await
         .expect("operator token bootstraps first credential");
     let error = auth
-        .authorize_operator_endpoint(&headers, loopback_ip())
+        .authorize_operator_endpoint(&headers, Some(loopback_ip()))
         .await
         .expect_err("operator token must never authorize an operator route");
     assert_eq!(error.code, "operator_session_missing");
@@ -2154,7 +2162,7 @@ async fn persisted_first_credential_disables_bootstrap_after_restart() {
     let restarted = build_operator_auth(config, tempdir.path());
     let headers = headers_with_operator_token("bootstrap");
     let error = restarted
-        .authorize_bootstrap(&headers, loopback_ip(), ACTION_REGISTER_OPTIONS)
+        .authorize_bootstrap(&headers, Some(loopback_ip()), ACTION_REGISTER_OPTIONS)
         .await
         .expect_err("persisted enrollment must disable bootstrap after restart");
     assert_eq!(error.code, "operator_session_missing");
@@ -2171,7 +2179,7 @@ async fn api_token_never_bootstraps_operator_auth() {
     let mut headers = base_headers();
     headers.insert("x-api-token", HeaderValue::from_static("bootstrap"));
     let error = auth
-        .authorize_bootstrap(&headers, loopback_ip(), ACTION_REGISTER_OPTIONS)
+        .authorize_bootstrap(&headers, Some(loopback_ip()), ACTION_REGISTER_OPTIONS)
         .await
         .expect_err("Torii API tokens must not bootstrap operator auth");
     assert_eq!(error.code, "operator_token_missing");
@@ -2206,13 +2214,13 @@ async fn operator_auth_enforces_mtls_and_lockout() {
         HeaderValue::from_static("cert=present"),
     );
     let _ = auth
-        .authorize_operator_endpoint(&headers, loopback_ip())
+        .authorize_operator_endpoint(&headers, Some(loopback_ip()))
         .await;
     let _ = auth
-        .authorize_operator_endpoint(&headers, loopback_ip())
+        .authorize_operator_endpoint(&headers, Some(loopback_ip()))
         .await;
     let err = auth
-        .authorize_operator_endpoint(&headers, loopback_ip())
+        .authorize_operator_endpoint(&headers, Some(loopback_ip()))
         .await
         .expect_err("locked out");
     assert_eq!(err.code, "operator_auth_locked");
@@ -2586,10 +2594,12 @@ fn es256_signature_verify_rejects_high_s_signature_material() {
         let minuend = i16::from(P256_ORDER[i]) - i16::from(borrow as u8);
         let subtrahend = i16::from(low_s_bytes[32 + i]);
         if minuend >= subtrahend {
-            high_s_bytes[32 + i] = (minuend - subtrahend) as u8;
+            high_s_bytes[32 + i] =
+                u8::try_from(minuend - subtrahend).expect("nonnegative byte difference");
             borrow = 0;
         } else {
-            high_s_bytes[32 + i] = (minuend + 256 - subtrahend) as u8;
+            high_s_bytes[32 + i] =
+                u8::try_from(minuend + 256 - subtrahend).expect("borrowed byte difference");
             borrow = 1;
         }
     }

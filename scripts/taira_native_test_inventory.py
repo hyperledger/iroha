@@ -351,6 +351,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'result_pulses_require_exact_height_network_session_and_parent_bindings',
         'pinned_restoration_reuses_full_boundary_verification_and_one_authority_cursor',
         'historical_pulse_requires_signed_header_bytes_and_complete_native_context',
+        'npos_epoch_schedule_uses_committed_epoch_length',
     )),
     ('native certified prefix authority', 'sumeragi/certified_chain/tests.rs', 'sumeragi/certified_chain/prefix_tests.rs', 'prefix_tests', 'sumeragi::certified_chain::tests::prefix_tests', (
         'streamed_prefix_emits_genesis_execution_anchor_only_after_real_successor',
@@ -581,6 +582,7 @@ NATIVE_CORE_TEST_OWNERS = (
     )),
     ('native canonical prepared intent framing and row identity', 'query/native_context_archive.rs', 'query/native_context_archive/prepared_intents.rs', 'prepared_intents', 'query::native_context_archive::prepared_intents::tests', (
         'borrowed_intent_coordinates_declare_exact_owned_frame_without_erasing_nominal_lifetime',
+        'borrowed_global_intent_keeps_exact_begin_locator_without_a_participant_parent',
         'original_prepared_key_selection_refuses_malformed_and_preserves_transaction',
         'borrowed_prepared_rows_use_canonical_sequence_and_refuse_changed_cardinality',
         'sole_intent_decoder_borrows_original_charged_ranges_and_refuses_framing_or_cumulative_limits',

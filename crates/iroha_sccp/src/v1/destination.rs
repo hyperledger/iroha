@@ -54,9 +54,9 @@
 //! **Arithmetic** (§5.1.2). No call aborts for arithmetic and no value wraps: the two time
 //! sums saturate, a `voidFrozen` range and the supply cap are compared without forming a
 //! value above their width, and X6 bounds what a rotation adds to. The two counters have a
-//! top: `opCount` saturates at `2^64 − 1` ([`bumped_op_count`], §5.1.1), and a sender's
-//! source nonces are `0 ..= 2^64 − 2`, so a stored next nonce of `2^64 − 1` is exhausted
-//! ([`next_source_nonce`], §5.1.7).
+//! top: `opCount` only increments and saturates at `2^64 − 1` ([`bumped_op_count`], §5.1.1).
+//! A sender's source nonces are `0 ..= 2^64 − 2`, so a stored next nonce of `2^64 − 1` is
+//! exhausted ([`next_source_nonce`], §5.1.7).
 //!
 //! **Signatures** (§5.1.3 steps 10–11). Both flavours go through
 //! `iroha_crypto::bls::consensus`, the only API that hashes under `DST_SIG`, and each reports
@@ -77,23 +77,24 @@
 //! A committee root admitted by Taira holds validated keys only (§3.8), so the two flavours
 //! differ on no certificate under a genuine root.
 //!
-//! TODO: the TON contract work package confirms in its Acton harness that the opcode refuses
-//! a signer key that is the identity, is no point or lies outside G1. Until then no shared
-//! TON row pins those inputs; the unit tests of this module and of the Python model do.
+//! The Acton harness and the shared fixture rows pin the opcode's refusal of a signer
+//! key that is the identity, is no point or lies outside G1.
 //!
 //! Not modelled: the chain-identity check (`WrongChain`), the ERC-20 and Jetton surfaces,
 //! value and fee rules, and `transferToTaira` (§5.1.7) as an entry point, because the model
-//! keeps no balances of senders. Its one rule on a counter, the source nonce, is the function
-//! [`next_source_nonce`].
+//! keeps no balances of senders. The source nonce is checked by [`next_source_nonce`];
+//! [`check_ton_burn_payload`] models the complete wrapper and recipient admission that both
+//! TON wallet and minter perform before changing balances or forwarding a notification.
 //!
-//! TODO: the TON contract work package models the bucket round trip of §5.3.4
-//! (`pending_supply`, `sccp_consume`, `sccp_unconsume` and `retries`). Until then a TON
-//! finalize or void has the outcome of the minter's own checks and consumes its nonce at
-//! once. Two error names are therefore model-only on TON and occur in no TON row of the
-//! shared tables: `AlreadyConsumed` stands for the bucket's `sccp_already_consumed` or
-//! `sccp_range_rejected` reply, on which the minter throws nothing, and `TooManyCertificates`
-//! needs a batch that a TON harness never sends, since one `sccp_checkpoint` message carries
-//! one certificate.
+//! TON's asynchronous bucket round trip and bounce recovery of §5.3.4 (`pending_supply`,
+//! `sccp_consume`, `sccp_unconsume` and `retries`) are covered by the contract Acton harness,
+//! including that a bounce never decrements `opCount` and a repeated finalization counts
+//! again. This model gives a TON finalize or void the outcome of the minter's own checks and
+//! consumes its nonce at once. Two error names are therefore model-only on TON and occur in
+//! no TON row of the shared tables: `AlreadyConsumed` stands for the bucket's
+//! `sccp_already_consumed` or `sccp_range_rejected` reply, on which the minter throws nothing.
+//! `TooManyCertificates` needs a batch that a TON harness never sends, since one
+//! `sccp_checkpoint` message carries one certificate.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -109,7 +110,10 @@ use super::{
         signer_indices, signer_key_flags_match, signer_point_is_on_curve, signer_point_sum,
         signer_ys, successor_keys_match,
     },
-    constants::{MAX_BLOCK_LEAVES, MAX_VOID_FROZEN_RANGE_EVM, MAX_VOID_FROZEN_RANGE_TON},
+    constants::{
+        MAX_BLOCK_LEAVES, MAX_TAIRA_ACCOUNT_BYTES, MAX_VOID_FROZEN_RANGE_EVM,
+        MAX_VOID_FROZEN_RANGE_TON,
+    },
     control::{
         ControlLeafV1, applied_fast_pause_until_ms, check_control_constraints,
         control_leaf_unchecked,
@@ -129,6 +133,7 @@ use super::{
     merkle::verify_block_inclusion,
     network::{domain, lane_bytes, route_id},
     payload::{PayloadError, SccpTransferPayloadV1},
+    ton_cell::{Cell, TON_BURN_TO_TAIRA_OP, TonCellError, parse_snake_bytes},
 };
 
 /// `MAX_CERTIFICATES_PER_CALL` (§3.9): the largest `submitCheckpoints` batch.
@@ -1609,6 +1614,31 @@ pub const fn next_source_nonce(stored: u64, expected: u64) -> Result<u64, Destin
         return Err(DestinationError::BadNonce { expected: stored });
     }
     Ok(stored + 1)
+}
+
+/// Admit a TON burn's exact wrapper and complete recipient before any debit or forwarding.
+///
+/// The wrapper is exactly the 32-bit `sccp_burn_to_taira` opcode and one reference. Its
+/// recipient is an ordinary canonical snake of 1..=1024 bytes (§5.3.2, §5.3.4). The ordinary
+/// [`Cell`] type and [`super::ton_cell::cell_from_boc`] reject exotic wrappers and children;
+/// an opaque reference is refused because its admission cannot be verified.
+///
+/// # Errors
+/// `BadBurnPayload` for an absent wrapper or wrong opcode, `BadSnake` for malformed or
+/// unavailable cells, and `BadRecipient` for a recipient exceeding 1024 bytes.
+pub fn check_ton_burn_payload(payload: Option<&Cell>) -> Result<Vec<u8>, DestinationError> {
+    let payload = payload.ok_or(DestinationError::BadBurnPayload)?;
+    if payload.bit_len() != 32 || payload.refs().len() != 1 {
+        return Err(DestinationError::BadSnake);
+    }
+    if payload.data() != TON_BURN_TO_TAIRA_OP.to_be_bytes() {
+        return Err(DestinationError::BadBurnPayload);
+    }
+    let recipient = payload.refs()[0].cell().ok_or(DestinationError::BadSnake)?;
+    parse_snake_bytes(recipient, MAX_TAIRA_ACCOUNT_BYTES).map_err(|error| match error {
+        TonCellError::SnakeTooLong => DestinationError::BadRecipient,
+        _ => DestinationError::BadSnake,
+    })
 }
 
 /// The last nonce of a `voidFrozen` range, when the range is valid (§5.1.8): `1 ≤ count ≤`
@@ -5178,6 +5208,105 @@ mod tests {
             refused(&mut destination, |destination| destination
                 .void_frozen(7, 1, frozen)),
             DestinationError::AlreadyConsumed { nonce: 7 }
+        );
+    }
+
+    #[test]
+    fn ton_burn_admission_checks_the_entire_recipient_and_exact_wrapper() {
+        use super::super::ton_cell::{CellBuilder, CellRef, burn_to_taira_payload, snake_bytes};
+
+        let wrap = |recipient: Cell| {
+            CellBuilder::new()
+                .store_uint(u128::from(TON_BURN_TO_TAIRA_OP), 32)
+                .unwrap()
+                .store_ref(recipient)
+                .unwrap()
+                .build()
+        };
+        for len in [1, 127, 128, MAX_TAIRA_ACCOUNT_BYTES] {
+            let recipient = vec![0x42; len];
+            let payload = burn_to_taira_payload(&recipient).unwrap();
+            assert_eq!(check_ton_burn_payload(Some(&payload)), Ok(recipient));
+        }
+        assert_eq!(
+            check_ton_burn_payload(None),
+            Err(DestinationError::BadBurnPayload)
+        );
+        for len in [MAX_TAIRA_ACCOUNT_BYTES + 1, 12_700] {
+            let payload = wrap(snake_bytes(&vec![0x42; len]).unwrap());
+            assert_eq!(
+                check_ton_burn_payload(Some(&payload)),
+                Err(DestinationError::BadRecipient)
+            );
+        }
+        let tail = snake_bytes(&[0x42]).unwrap();
+        let short_continuation = CellBuilder::new()
+            .store_bytes(&[0x42; 126])
+            .unwrap()
+            .store_ref(tail.clone())
+            .unwrap()
+            .build();
+        let non_byte = CellBuilder::new().store_uint(1, 9).unwrap().build();
+        let two_refs = CellBuilder::new()
+            .store_bytes(&[0x42; 127])
+            .unwrap()
+            .store_ref(tail.clone())
+            .unwrap()
+            .store_ref(tail.clone())
+            .unwrap()
+            .build();
+        let opaque = CellBuilder::new()
+            .store_bytes(&[0x42; 127])
+            .unwrap()
+            .store_ref(CellRef::opaque([1; 32], 0))
+            .unwrap()
+            .build();
+        for recipient in [
+            CellBuilder::new().build(),
+            short_continuation,
+            non_byte,
+            two_refs,
+            opaque,
+        ] {
+            assert_eq!(
+                check_ton_burn_payload(Some(&wrap(recipient))),
+                Err(DestinationError::BadSnake)
+            );
+        }
+        let wrong_op = CellBuilder::new()
+            .store_uint(0, 32)
+            .unwrap()
+            .store_ref(tail.clone())
+            .unwrap()
+            .build();
+        assert_eq!(
+            check_ton_burn_payload(Some(&wrong_op)),
+            Err(DestinationError::BadBurnPayload)
+        );
+        for extra_bits in [false, true] {
+            let mut wrapper = CellBuilder::new();
+            wrapper
+                .store_uint(u128::from(TON_BURN_TO_TAIRA_OP), 32)
+                .unwrap()
+                .store_ref(tail.clone())
+                .unwrap();
+            if extra_bits {
+                wrapper.store_bit(false).unwrap();
+            } else {
+                wrapper.store_ref(tail.clone()).unwrap();
+            }
+            assert_eq!(
+                check_ton_burn_payload(Some(&wrapper.build())),
+                Err(DestinationError::BadSnake)
+            );
+        }
+        let missing_ref = CellBuilder::new()
+            .store_uint(u128::from(TON_BURN_TO_TAIRA_OP), 32)
+            .unwrap()
+            .build();
+        assert_eq!(
+            check_ton_burn_payload(Some(&missing_ref)),
+            Err(DestinationError::BadSnake)
         );
     }
 

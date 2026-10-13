@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const SOURCE: &str = r#"
+const SOURCE: &str = r"
 seiyaku Counter { permission Update;
     state int count;
     hajimari() { count = 0; }
@@ -18,7 +18,7 @@ seiyaku Counter { permission Update;
     view fn current() authorize(anyone) -> int { return count; }
     view fn plus(int delta) authorize(anyone) -> int { return count + delta; }
 }
-"#;
+";
 
 fn fixture_config(origin: &str) -> iroha::config::Config {
     let source = format!(

@@ -1,4 +1,4 @@
-//! CLI coverage for the SoraFS reference validator.
+//! CLI coverage for the `SoraFS` reference validator.
 use assert_cmd::cargo::cargo_bin_cmd;
 use ed25519_dalek::{Signature, Signer, SigningKey};
 use iroha_crypto::{

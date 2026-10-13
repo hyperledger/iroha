@@ -144,13 +144,13 @@ pub(in crate::sumeragi) fn fixed_lane_chain_with_config(
     // Fixture publications retire charged State generations into the shared collector.
     // Retain their real EBR lifetime through each exact baseline assertion, including when
     // unrelated Rayon work collects epochs. Reader buffers/shared controls reclaim directly.
-    let epoch = crossbeam_epoch::pin();
     use iroha_crypto::{Algorithm, KeyPair};
     use iroha_data_model::{
         parameter::Parameter,
         sumeragi_lanes::{SumeragiFixedLane, SumeragiLaneMember, SumeragiLanePolicy},
     };
     use iroha_model_base::{peer::PeerId, topology::DataSpaceId};
+    let epoch = crossbeam_epoch::pin();
     let mut members = (41..45)
         .map(|seed| {
             let key = KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal);
@@ -213,7 +213,7 @@ fn historical_lane_authority_retains_original_creation_bytes_and_prepaid_config_
     let instance = super::super::lanes::lane_instance(
         &*crypto,
         &chain.network_id(),
-        &chain.state().chain_id_ref().to_string(),
+        chain.state().chain_id_ref().as_ref(),
         &record,
     );
     let provider = NativeLaneStoreAuthorities::new(Arc::clone(chain.state()), Arc::clone(&crypto));
@@ -496,4 +496,46 @@ fn creation_tip_is_pending_until_the_authenticated_activation_height() {
             .unwrap()
             .is_some()
     );
+}
+
+#[test]
+fn state_view_failure_preserves_terminal_typed_cause_without_retry_authority() {
+    use crate::state::{LaneLifecycleError, StateViewError};
+    for original in [
+        StateViewError::Changed,
+        StateViewError::Poisoned,
+        StateViewError::Runtime(LaneLifecycleError::RuntimeCatalog(
+            "invalid original catalog".into(),
+        )),
+    ] {
+        let expected = original.to_string();
+        let Attempt::Rejected(error) = state_view_error(original) else {
+            panic!("terminal original cause")
+        };
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        let retained = error
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<StateViewError>()
+            .unwrap();
+        assert_eq!(retained.to_string(), expected);
+        assert!(!matches!(retained, StateViewError::Busy(_)));
+    }
+}
+
+#[test]
+fn state_view_runtime_capacity_preserves_original_execution_refusal() {
+    use crate::state::{LaneLifecycleError, StateViewError};
+    let budget = iroha_allocation::AllocationBudget::new(1);
+    let held = budget.try_reserve_bytes(1).unwrap();
+    let original = budget.try_reserve_bytes(1).unwrap_err();
+    let Attempt::Deferred(retained) = state_view_error(StateViewError::Runtime(
+        LaneLifecycleError::NposPolicy(Attempt::Deferred(original.clone().into())),
+    )) else {
+        panic!("original runtime execution refusal")
+    };
+    assert_eq!(retained.allocation_refusal(), Some(&original));
+    assert_eq!(budget.reserved_bytes(), 1);
+    drop(held);
+    assert_eq!(budget.reserved_bytes(), 0);
 }

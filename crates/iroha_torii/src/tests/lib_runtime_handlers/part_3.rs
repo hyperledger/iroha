@@ -620,8 +620,7 @@ async fn certified_transaction_batch_invalid_later_signature_does_not_admit_pref
         ),
     )
     .await
-    .err()
-    .expect("invalid later signature rejects before any dispatch");
+    .expect_err("invalid later signature rejects before any dispatch");
     let response = error.into_response();
     assert_eq!(
         torii_response_header(&response, "x-iroha-reject-code"),

@@ -23,10 +23,10 @@ fn custody_admission_context_at(
 ) {
     let mut context = token_test_context();
     let mut app = Arc::try_unwrap(context.app).unwrap_or_else(|_| panic!("exclusive test app"));
-    let fixture = match now {
-        Some(now) => SignedFixture::for_api_at([0xAB; 32], 7, TestSignerMode::Sign, now),
-        None => SignedFixture::for_api([0xAB; 32], 7, TestSignerMode::Sign),
-    };
+    let fixture = now.map_or_else(
+        || SignedFixture::for_api([0xAB; 32], 7, TestSignerMode::Sign),
+        |now| SignedFixture::for_api_at([0xAB; 32], 7, TestSignerMode::Sign, now),
+    );
     let issuer = fixture.issuer().unwrap();
     assert_eq!(
         context.verifying_key_hex,
@@ -151,16 +151,17 @@ async fn car_route_fresh_admissions_have_unique_challenges_and_exact_final_quota
             .unwrap();
         assert!(!bytes.is_empty());
     }
-    let requests = signer.requests.lock().unwrap();
-    let admissions = &requests[before..];
-    assert_eq!(admissions.len(), 2);
-    assert!(
-        admissions
-            .iter()
-            .all(|request| request.phase == CustodyPhase::BeforeAdmission)
-    );
-    assert_ne!(admissions[0].challenge, admissions[1].challenge);
-    drop(requests);
+    {
+        let requests = signer.requests.lock().unwrap();
+        let admissions = &requests[before..];
+        assert_eq!(admissions.len(), 2);
+        assert!(
+            admissions
+                .iter()
+                .all(|request| request.phase == CustodyPhase::BeforeAdmission)
+        );
+        assert_ne!(admissions[0].challenge, admissions[1].challenge);
+    }
     let requests = admission.requests();
     assert_eq!(requests.len(), 2);
     for request in requests {

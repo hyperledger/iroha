@@ -1296,7 +1296,7 @@ mod tests {
                 .clone();
         assert_ne!(
             original,
-            configuration_fingerprint(4, &local, &driver, &[first.clone()])
+            configuration_fingerprint(4, &local, &driver, std::slice::from_ref(&first))
         );
         assert_eq!(
             configuration_fingerprint(4, &local, &driver, &[first.clone(), second.clone()]),
@@ -1304,7 +1304,7 @@ mod tests {
         );
     }
 
-    use std::{collections::HashMap, num::NonZeroU64, time::Duration};
+    use std::{collections::BTreeMap, num::NonZeroU64, time::Duration};
 
     use iroha_crypto::HashOf;
     use iroha_crypto::{Algorithm, bls_normal_pop_prove};
@@ -1338,7 +1338,7 @@ mod tests {
     /// The in-memory transport: every node's handle, filled once the nodes start.
     /// Missing routes and temporary ingress refusals retain their original send occurrence.
     #[derive(Default)]
-    struct Registry(parking_lot::Mutex<HashMap<CoreKey, Arc<SumeragiIngress>>>);
+    struct Registry(parking_lot::Mutex<BTreeMap<CoreKey, Arc<SumeragiIngress>>>);
 
     struct MemNet {
         from: CoreKey,
@@ -1916,7 +1916,7 @@ mod tests {
     /// The key of an account whose default route is the second of two shards (an elastic lane
     /// next to lane 0).
     fn second_shard_key() -> KeyPair {
-        (1u8..)
+        (1_u8..=u8::MAX)
             .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519))
             .find(|key| {
                 crate::sumeragi::lanes::routing::default_shard(
@@ -2506,6 +2506,7 @@ mod tests {
     /// whose result differs from re-execution stops the replay.
     #[test]
     fn replay_rejects_a_block_whose_certified_result_differs() {
+        use iroha_sumeragi::crypto::{Crypto as _, Signer as _};
         let chain = chain(4, 200);
         let disks = disks(&chain);
         let validators = start_all(&chain, &disks, true);
@@ -2600,7 +2601,6 @@ mod tests {
         forged.result = Hash32([0xAB; 32]);
         // This negative must reach execution comparison, not fail earlier on a stale
         // signature. The original committee signs the wrong result over the real block.
-        use iroha_sumeragi::crypto::{Crypto as _, Signer as _};
         let committee = schedule::scheduled_committee(state.view().world(), 2)
             .expect("authenticated original committee");
         let preimage = forged.preimage();

@@ -1,0 +1,7 @@
+error: couldn't read `/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/allocation_trace/generated_workspace.rs`: No such file or directory (os error 2)
+  --> /Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/allocation_trace/driver.rs:13:1
+   |
+13 | mod workspace;
+   | ^^^^^^^^^^^^^^
+
+Error writing files: failed to resolve mod `workspace`: /Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/allocation_trace/generated_workspace.rs does not exist

@@ -61,7 +61,8 @@ fn contract_code_management_manager_sponsors_registration_and_meters_every_instr
             Grant::account_permission(contract_deployment_permission(), builder.clone()).into(),
         ];
         let expected_gas =
-            crate::gas::meter_instructions(&instructions, &crate::gas::DEFAULT_ZK_GAS);
+            crate::gas::meter_instructions(&instructions, &crate::gas::DEFAULT_ZK_GAS)
+                .expect("gas quote must complete for this fixture");
         let transaction = TransactionBuilder::new(
             state.network_id,
             manager.clone(),

@@ -136,18 +136,6 @@ fn published_terminal_records_share_exact_owner_and_keep_current_foreign_and_act
 
 #[test]
 fn shared_terminal_records_close_fresh_metadata_before_an_epoch_error() {
-    let _resources = crate::managed::native_test_guard();
-    let (_fixture, history) = shared_snapshot_tests::history_with_bodies(2);
-    let native = history.current_history().unwrap();
-    let oldest = native.test_oldest_retained_history();
-    let published = PublishedBodyRead::new(&history).unwrap();
-    let snapshot = SnapshotReadPass {
-        head: &history.bodies.last().unwrap().snapshots,
-    };
-    let directory = Arc::clone(&history.bodies[0].directory);
-    let original = metadata::test_read_component(&directory, None, "closed.nrt")
-        .unwrap()
-        .unwrap();
     struct Restore {
         directory: Arc<PrivateDirectory>,
         bytes: zeroize::Zeroizing<Vec<u8>>,
@@ -163,6 +151,18 @@ fn shared_terminal_records_close_fresh_metadata_before_an_epoch_error() {
             .unwrap();
         }
     }
+    let _resources = crate::managed::native_test_guard();
+    let (_fixture, history) = shared_snapshot_tests::history_with_bodies(2);
+    let native = history.current_history().unwrap();
+    let oldest = native.test_oldest_retained_history();
+    let published = PublishedBodyRead::new(&history).unwrap();
+    let snapshot = SnapshotReadPass {
+        head: &history.bodies.last().unwrap().snapshots,
+    };
+    let directory = Arc::clone(&history.bodies[0].directory);
+    let original = metadata::test_read_component(&directory, None, "closed.nrt")
+        .unwrap()
+        .unwrap();
     let restore = Restore {
         directory,
         bytes: zeroize::Zeroizing::new(original),

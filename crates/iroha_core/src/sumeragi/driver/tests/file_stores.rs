@@ -60,14 +60,14 @@ impl crate::sumeragi::records::Faults for Flaky {
             FsStep::CreateTemp | FsStep::WriteTempRest | FsStep::SyncFile | FsStep::Rename
         );
         if write
-            && n % self.every == 0
+            && n.is_multiple_of(self.every)
             && self
                 .budget
                 .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |b| b.checked_sub(1))
                 .is_ok()
         {
             let k = self.injected.fetch_add(1, Ordering::SeqCst);
-            return Err(std::io::Error::from_raw_os_error(if k % 2 == 0 {
+            return Err(std::io::Error::from_raw_os_error(if k.is_multiple_of(2) {
                 28
             } else {
                 5

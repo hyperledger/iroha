@@ -210,10 +210,8 @@ fn consume_origin<T: norito::codec::Encode>(
     let scope = match crate::executor::root_scope::execution_root_scope(state) {
         Ok(scope) => scope,
         Err(_) => {
-            if let Some(original) = state.execution_deferral() {
-                return Err(state.attempt_error_to_instruction_error(
-                    crate::execution_attempt::ExecutionAttemptError::Deferred(original),
-                ));
+            if state.is_execution_deferred() {
+                return Err(invariant("local Musubi root read did not complete"));
             }
             return Err(invariant(
                 "Musubi pin-outbox requires the original Global root",

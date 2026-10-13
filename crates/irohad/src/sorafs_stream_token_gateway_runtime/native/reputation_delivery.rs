@@ -9,14 +9,14 @@ use iroha_data_model::{
 /// One publication-leased decision; terminal outcomes never carry a signing recipe.
 enum DeliveryStep {
     Closed,
-    Append(SignedTransaction),
+    Append(Box<SignedTransaction>),
     CheckExpiry,
 }
 
 impl NativeGateway {
     fn delivery_step(
         &self,
-        original: Record,
+        original: &Record,
         deadline: Instant,
         may_submit: bool,
     ) -> Result<DeliveryStep, Error> {
@@ -27,7 +27,7 @@ impl NativeGateway {
             self.qualification,
             self.transactions.operator().clone(),
             self.transactions.observer().clone(),
-            original,
+            *original,
             deadline,
         )
         .map_err(observation_error)?;
@@ -46,7 +46,7 @@ impl NativeGateway {
         // same signed Check; signing the Append is entered once, only after the final fence.
         let consume = |proof: Verified| {
             proof.consume_for_reputation_delivery(
-                &original,
+                original,
                 || self.time(),
                 |delivery| match delivery.disposition() {
                     Disposition::Delivered { .. }
@@ -60,6 +60,7 @@ impl NativeGateway {
                     Disposition::Pending => self
                         .transactions
                         .sign_reputation_delivery(&delivery, deadline)
+                        .map(Box::new)
                         .map(DeliveryStep::Append),
                 },
             )
@@ -77,7 +78,7 @@ impl StreamTokenReputationDeliveryV1 for NativeGateway {
     fn configured_qualification(&self) -> Qualification {
         self.qualification
     }
-    fn deliver(&self, record: Record, deadline: Instant) -> Result<(), Error> {
+    fn deliver(&self, record: &Record, deadline: Instant) -> Result<(), Error> {
         let step = self.delivery_step(record, deadline, true)?;
         let submitted = match step {
             DeliveryStep::Closed => return self.check_deadline(deadline),

@@ -500,7 +500,7 @@ fn install_assembly_enforces_exactly_two_f_plus_one_distinct_signers() {
     ));
     assert!(matches!(
         context
-            .assemble_from_ranges(height, &ranges[..quorum + 1])
+            .assemble_from_ranges(height, &ranges[..=quorum])
             .err(),
         Some(GlobalBeaconCeremonyErrorV1::Quorum)
     ));
@@ -536,7 +536,7 @@ fn install_assembly_enforces_exactly_two_f_plus_one_distinct_signers() {
         .expect("Core verifier");
     for signatures in [
         signatures[..quorum - 1].to_vec(),
-        signatures[..quorum + 1].to_vec(),
+        signatures[..=quorum].to_vec(),
         signatures[..quorum].iter().rev().cloned().collect(),
     ] {
         assert!(matches!(

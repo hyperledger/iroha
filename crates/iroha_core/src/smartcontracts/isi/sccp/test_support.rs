@@ -163,6 +163,21 @@ impl SampleInstructions {
         }
     }
 
+    /// Return a bounded forged-mint proof submission.
+    pub(crate) fn forged_mint() -> iroha_data_model::isi::sccp::ProveSccpForgedMintV1 {
+        iroha_data_model::isi::sccp::ProveSccpForgedMintV1 {
+            network: SccpNetworkV1::BscMainnet,
+            revision: 1,
+            proof: iroha_data_model::sccp::reconciliation::SccpForgedMintProofV1 {
+                source: SccpSourceProofBytesV1::new(vec![1]).unwrap(),
+                payload: iroha_data_model::sccp::reconciliation::SccpForgedMintPayloadV1::new(
+                    vec![1],
+                )
+                .unwrap(),
+            },
+        }
+    }
+
     /// Return a light-client advance.
     pub(crate) fn advance() -> AdvanceSccpLightClientV1 {
         AdvanceSccpLightClientV1 {
@@ -185,10 +200,20 @@ impl SampleInstructions {
     pub(crate) fn all() -> Vec<InstructionBox> {
         vec![
             Self::initialize().into(),
+            iroha_data_model::isi::sccp::AcceptSccpPausePanelSeatV1 { panel_seq: 1 }.into(),
+            iroha_data_model::isi::sccp::EndorseSccpFastPauseV1 {
+                network_id: network_id(1),
+                network: SccpNetworkV1::EthereumMainnet,
+                panel_id: [1; 32],
+                head: 0,
+                incident_digest: [2; 32],
+            }
+            .into(),
             Self::record().into(),
             Self::inbound().into(),
             Self::settle().into(),
             Self::void().into(),
+            Self::forged_mint().into(),
             Self::advance().into(),
             Self::equivocation().into(),
             SubmitSccpForgeryEvidenceV1 {
@@ -277,7 +302,7 @@ pub(crate) fn sample_generation(
                 .expect("48-byte BLS key")
         })
         .collect::<Vec<[u8; 48]>>();
-    keys.sort();
+    keys.sort_unstable();
     let parameters = SccpParametersV1::taira_default();
     let time = u64::from(seed) * 1_000;
     SccpCommitteeGenerationV1 {
@@ -418,7 +443,7 @@ pub(crate) fn populate_every_sccp_map(
         (network, 1, u64::from(seed)),
         SccpControlRecordV1 {
             track: 1,
-            parliament_paused: seed % 2 == 0,
+            parliament_paused: seed.is_multiple_of(2),
             fast_pause_until_ms: 0,
             height,
             commitment_index: 1,
@@ -470,15 +495,21 @@ pub(crate) fn populate_every_sccp_map(
             state_hash: word(seed),
         },
     );
-    block.sccp_light_client_sets.insert(
-        (network, u64::from(seed)),
-        SccpLcConsensusSetV1 {
-            set_id: u64::from(seed),
-            valid_from_source_height: height,
-            superseded_at_source_ms: None,
-            set_bytes: vec![seed; 16],
-        },
-    );
+    let lc_set = SccpLcConsensusSetV1 {
+        set_id: u64::from(seed),
+        valid_from_source_height: height,
+        superseded_at_source_ms: None,
+        set_bytes: vec![seed; 16],
+    };
+    let lc_set = super::light_client_set::RetainedSccpLcSet::admit(
+        (&lc_set).into(),
+        block.sccp_light_client_sets.allocation_budget(),
+    )
+    .unwrap();
+    block
+        .sccp_light_client_sets
+        .try_insert_admitted((network, u64::from(seed)), lc_set)
+        .unwrap();
     block.sccp_light_client_checkpoints.insert(
         (network, height),
         SccpLcCheckpointV1 {
@@ -826,7 +857,7 @@ pub(crate) fn sample_generation_at(
                 .expect("48-byte key")
         })
         .collect::<Vec<[u8; 48]>>();
-    keys.sort();
+    keys.sort_unstable();
     let params = SccpParametersV1::taira_default();
     let start_timestamp_ms = start_height.saturating_mul(4_000);
     SccpCommitteeGenerationV1 {

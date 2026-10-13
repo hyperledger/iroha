@@ -426,7 +426,7 @@ fn collect_storage_security_bindings(
     }
     if let Some(pins) = iroha_torii::sorafs::StreamTokenSignerPinsV1::from_config(
         storage,
-        &config.common.chain.to_string(),
+        config.common.chain.as_ref(),
         *NetworkId::from_genesis_hash(config.genesis.expected_hash).as_bytes(),
     )
     .map_err(|_| {

@@ -10,23 +10,23 @@ use iroha_data_model::{nft::NftId, nft_market::NftSaleStatusV1};
 use mv::storage::StorageReadOnly;
 
 #[derive(Default, Debug, crate::json_macros::JsonDeserialize)]
-pub(crate) struct NftOfferListParams {
+pub struct NftOfferListParams {
     /// Exclusive exact native offer hash; scans remain bounded even with filters.
     pub cursor: Option<Hash>,
     /// Optional exact NFT filter.
     pub nft_id: Option<NftId>,
 }
-pub(crate) fn capabilities(app: &SharedAppState) -> Result<Response, Error> {
+pub fn capabilities(app: &SharedAppState) -> Response {
     let view = app.state.view();
-    Ok(crate::utils::JsonBody(norito::json!({
+    crate::utils::JsonBody(norito::json!({
         "version": 1, "network_id": (view.network_id()),
         "protocol_id": (iroha_core::smartcontracts::isi::nft_market::nft_market_profile_id_v1()),
         "qualified": (iroha_core::smartcontracts::isi::nft_market::nft_market_qualified_v1()),
         "native_nft_market": true,
     }))
-    .into_response())
+    .into_response()
 }
-pub(crate) fn get(app: &SharedAppState, id: &str) -> Result<Response, Error> {
+pub fn get(app: &SharedAppState, id: &str) -> Result<Response, Error> {
     let id: Hash = id
         .parse()
         .map_err(|_| crate::routing::conversion_error("invalid NFT offer hash".into()))?;
@@ -36,7 +36,7 @@ pub(crate) fn get(app: &SharedAppState, id: &str) -> Result<Response, Error> {
     };
     Ok(crate::utils::JsonBody(record.clone()).into_response())
 }
-pub(crate) fn list(app: &SharedAppState, params: NftOfferListParams) -> Result<Response, Error> {
+pub fn list(app: &SharedAppState, params: NftOfferListParams) -> Response {
     let view = app.state.view();
     let mut rows = Vec::new();
     let mut next = None;
@@ -68,9 +68,9 @@ pub(crate) fn list(app: &SharedAppState, params: NftOfferListParams) -> Result<R
         }
         rows.push(record.clone());
     }
-    Ok(crate::utils::JsonBody(norito::json!({
+    crate::utils::JsonBody(norito::json!({
         "version": 1, "network_id": (view.network_id()), "items": rows,
         "next_cursor": (if more { next } else { None }), "has_more": more,
     }))
-    .into_response())
+    .into_response()
 }

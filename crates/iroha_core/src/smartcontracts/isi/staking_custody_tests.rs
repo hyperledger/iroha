@@ -7,7 +7,7 @@ fn register_custody_fixture(
 ) -> (AccountId, AccountId, AssetId) {
     let (validator, delegator, escrow, definition) = prepare_accounts(stx);
     RegisterPublicLaneValidator {
-        monetary_plan: fixture_registration_plan(&stx, lane, &validator, Quantity::from(amount)),
+        monetary_plan: fixture_registration_plan(stx, lane, &validator, Quantity::from(amount)),
         lane_id: lane,
         peer_id: validator_peer_id(&validator),
         validator: validator.clone(),

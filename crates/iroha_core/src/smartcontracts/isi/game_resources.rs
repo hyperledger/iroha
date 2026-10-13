@@ -269,7 +269,9 @@ mod tests {
             application_data: vec![0],
             dnf_at_tick: None,
         };
-        assert!(prepare_admission(&st, &session, &participant, &[clause.clone()]).is_err());
+        assert!(
+            prepare_admission(&st, &session, &participant, std::slice::from_ref(&clause)).is_err()
+        );
         let error = JoinGameSessionV1 {
             session_id: session.session_id,
             input_key: participant.input_key,
@@ -308,7 +310,7 @@ mod tests {
             )
             .unwrap();
             session.item_stakes.push(GameItemStakeV1 {
-                slot: slot as u8,
+                slot: u8::try_from(slot).expect("fixture value fits u8"),
                 nft_id,
                 custody: record.custody,
                 metadata_hash: record.metadata_hash,

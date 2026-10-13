@@ -1,0 +1,87 @@
+{
+  "source_id": "044ecda041aefe175861344d821d019d88d38004b9c2297e68d6dafb8b8e65cb",
+  "source_manifest": "/tmp/ballot-b6-source.sha256",
+  "source_files": 223,
+  "source_hashes_still_match": true,
+  "binaries": [
+    {
+      "configuration": "accel",
+      "path": "/tmp/ballot-b6-qualify-accel",
+      "sha256": "d87bf0aef83005fb18857d865dd551d1b5e7ae268be63382ce6cb9e81ba22830"
+    },
+    {
+      "configuration": "portable",
+      "path": "/tmp/ballot-b6-qualify-portable",
+      "sha256": "70916ec8896ebe94560a8a968e6e69ce031b4494d94957e1c81af780ca4fa894"
+    }
+  ],
+  "runs": [
+    {
+      "path": "/tmp/ballot-b6-mac-accel-candidate31.jsonl",
+      "sha256": "ddd206936a9437469cc9f650a902f632eba35ef4d951ac63c65505cac11bb4ee",
+      "count": 31,
+      "proofs": 124,
+      "archived_path": "mac-accel-candidate31.jsonl"
+    },
+    {
+      "path": "/tmp/ballot-b6-mac-accel-comparator3.jsonl",
+      "sha256": "e1f445a2e0ca1116d690bce9301ff9718c78989df50085aba782d788591ca2d8",
+      "count": 3,
+      "proofs": 12,
+      "archived_path": "mac-accel-comparator3.jsonl"
+    },
+    {
+      "path": "/tmp/ballot-b6-mac-portable-candidate31.jsonl",
+      "sha256": "c5cca6e04b9b6a28a26d6ee4bcc0a612369a7b17aafe9335e287d3e86e003d7c",
+      "count": 31,
+      "proofs": 124,
+      "archived_path": "mac-portable-candidate31.jsonl"
+    },
+    {
+      "path": "/tmp/ballot-b6-mac-portable-comparator3.jsonl",
+      "sha256": "3264b3ca751cc2be41918cf5263369b1ea9922f036aa73974276c80a4cee7604",
+      "count": 3,
+      "proofs": 12,
+      "archived_path": "mac-portable-comparator3.jsonl"
+    }
+  ],
+  "parity": [
+    {
+      "row": "candidate",
+      "proofs": 124,
+      "shake256_32_and_retry_counter_equal": true
+    },
+    {
+      "row": "comparator",
+      "proofs": 12,
+      "shake256_32_and_retry_counter_equal": true
+    }
+  ],
+  "machine": {
+    "recorded_at_utc": "2026-10-13T02:32:20.936628+00:00",
+    "cwd": "/Users/mtakemiya/dev/iroha",
+    "git_head": "7293699d16d465cab551a69e57861226f81834f9",
+    "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)\nbinary: rustc\ncommit-hash: 01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf\ncommit-date: 2026-02-11\nhost: aarch64-apple-darwin\nrelease: 1.93.1\nLLVM version: 21.1.8\n",
+    "cargo": "cargo 1.93.1 (083ac5135 2025-12-15)",
+    "os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0.1\nBuildVersion:\t\t26A434\n",
+    "hardware": "Apple M2 Ultra\n24\n24\n206158430208\n",
+    "source_manifest": "/tmp/ballot-b6-source.sha256",
+    "source_manifest_sha256": "044ecda041aefe175861344d821d019d88d38004b9c2297e68d6dafb8b8e65cb",
+    "scope": "Rust sources and manifests of local normal/build/dev dependencies from cargo tree, wrapper/config/toolchain, qualification runner/docs; registry sources identified through Cargo.lock checksums. Shared dirty checkout; manifest takes precedence over Git HEAD.",
+    "limitations": "Not an isolated machine; other agent tasks may build or run. Requested Rust allocator bytes exclude stack/native heap/RSS; fixed phase order, no coldprocess. Source files checked again after runs."
+  },
+  "build_command_prefix": "scripts/cargo_fast.sh --target-slot parliament-ballot --incremental --",
+  "build_command_suffix": "build --release -p iroha_parliament_ballot_proof --example qualify [--features accel]",
+  "run_command": "/tmp/ballot-b6-qualify-{accel|portable} --row {candidate|comparator} --samples {31|3} --source-id 044ecda041aefe175861344d821d019d88d38004b9c2297e68d6dafb8b8e65cb --run-id mac-m2-ultra-{accel|portable}-{candidate31|comparator3}",
+  "validation_commands": [
+    "scripts/cargo_fast.sh --target-slot parliament-ballot --incremental -- test --release -p iroha_parliament_ballot_proof --example qualify [--features accel] -- --test-threads=1",
+    "scripts/cargo_fast.sh --target-slot parliament-ballot --incremental -- clippy -p iroha_parliament_ballot_proof --all-targets [--features accel] -- -D warnings",
+    "scripts/check_no_legacy_codec.sh",
+    "rustfmt --check --edition 2024 crates/iroha_parliament_ballot_proof/examples/qualify.rs"
+  ],
+  "qualification": false,
+  "isolation": "Concurrent development tasks ran on the same M2 Ultra. Portable helper compilation and strictclippy overlapped some early candidate accel samples; portable release build overlapped early comparator accel samples. Other agent builds/device preparation also active. No isolation, CPU/cache flush, cool-down protocol or controlled thermal baseline.",
+  "source_manifest_archived": "mac-source.sha256",
+  "source_check_after_runs": "mac-source-check-after.txt",
+  "binary_archival": "Binary hashes retained; generated executables stay in the temporary workspace and are not repository artifacts."
+}

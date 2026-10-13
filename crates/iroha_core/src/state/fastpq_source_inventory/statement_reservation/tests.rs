@@ -111,7 +111,6 @@ fn complete_same_entry_measurement_matches_actual_frames_and_retry_replaces_usag
     assert_eq!(usage.transcripts, 2);
     assert_eq!(usage.deltas, 2);
     assert_eq!(quantity_materializer_invocations_for_testing(), calls);
-    drop(attempt);
     assert_eq!(budget.committed_usage(), None);
     let bundle = &archive[&hash];
     let bytes = encoded_bundle(bundle);
@@ -297,7 +296,7 @@ fn aborted_failed_and_retried_attempts_preserve_the_previous_complete_reservatio
     let usage = first.usage();
     first.materialize_diagnostic(&block).unwrap();
     let calls = quantity_materializer_invocations_for_testing();
-    drop(owner.prepare(&block, &archive).unwrap());
+    let _prepared = owner.prepare(&block, &archive).unwrap();
     assert_eq!(owner.committed_usage(), Some(usage));
     let injected: Result<(), String> = owner
         .prepare(&block, &archive)
@@ -362,7 +361,6 @@ fn changed_private_paths_are_remeasured_and_failed_growth_keeps_prior_usage() {
     assert_eq!(broad.committed_usage(), Some(grown_usage));
     let retry = broad.prepare(&block, &archive).unwrap();
     assert_eq!(retry.usage(), usage);
-    drop(retry);
     assert_eq!(broad.committed_usage(), Some(grown_usage));
 }
 

@@ -246,7 +246,7 @@ struct ToriiFanoutNoritoDecodePlan {
     temporary_charge_bytes: usize,
 }
 mod torii_app_fanout_norito_dto_sealed {
-    pub(super) trait Sealed {}
+    pub trait Sealed {}
 }
 /// Closed set of Torii response DTOs whose complete decode and source graphs
 /// have been audited against [`ToriiFanoutNoritoDecodePlan`].

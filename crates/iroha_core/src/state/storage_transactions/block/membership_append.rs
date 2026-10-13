@@ -143,7 +143,7 @@ impl<I: AppendIo> ReplayStore<I> {
     fn new(io: I, codec: MembershipRecordCodec) -> Result<Self, MembershipAppendStoreError> {
         let start = io.start_offset();
         let end = io.reserved_end();
-        if start > end || start % RECORD_BYTES != 0 || end % RECORD_BYTES != 0 {
+        if start > end || !start.is_multiple_of(RECORD_BYTES) || !end.is_multiple_of(RECORD_BYTES) {
             return Err(MembershipAppendStoreError::Capacity);
         }
         Ok(Self {
@@ -433,7 +433,9 @@ impl<'kura> PreparedMembershipAppend<'kura> {
             Err(_) => return Err((range, MembershipAppendError::DemandOverflow)),
         };
         // Validate immutable scalar geometry before taking ownership of the range.
-        if range.start_offset() % RECORD_BYTES != 0 || range.reserved_end() % RECORD_BYTES != 0 {
+        if !range.start_offset().is_multiple_of(RECORD_BYTES)
+            || !range.reserved_end().is_multiple_of(RECORD_BYTES)
+        {
             return Err((range, MembershipAppendStoreError::Capacity.into()));
         }
         let start = range.start_offset();

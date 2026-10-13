@@ -209,7 +209,10 @@ impl NativeFrameBinding {
             } else {
                 // Inline storage owns its buffer here; subsequent native decoding retains
                 // this inherited cumulative scope and accounts for its separate graph.
-                norito::core::reserve_decode_allocation(length).map_err(Error::NoritoFrame)?;
+                norito::core::classify_decode_attempt(|| {
+                    norito::core::reserve_decode_allocation(length)
+                })
+                .map_err(Error::CodecAttempt)?;
                 let mut bytes = NativeFrameDestination::new(length, budget)?;
                 store.read_block_data(slot.start, bytes.as_mut())?;
                 bytes
@@ -366,6 +369,7 @@ impl Kura {
             }))
     }
 
+    #[cfg(test)]
     /// Read the exact frame of an already authenticated original execution graph.
     /// The caller admits its full stored length first. No second decoded graph is constructed.
     pub(crate) fn read_authenticated_execution_wire(
@@ -482,6 +486,7 @@ mod native_execution_read_tests {
     #[test]
     fn native_original_frame_admission_preserves_cumulative_allocation_on_both_stores() {
         for evicted in [false, true] {
+            const PROBE_LIMIT: usize = 16 * 1024 * 1024;
             let mut chain =
                 CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
             chain.commit(Vec::new());
@@ -519,7 +524,6 @@ mod native_execution_read_tests {
             });
             // Include the real repeated durable-marker decodes; source metadata is not free.
             // Probe cumulative consumption without guessing those current codec allocations.
-            const PROBE_LIMIT: usize = 16 * 1024 * 1024;
             let limits =
                 norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, PROBE_LIMIT, 64);
             let exact = norito::with_decode_limits_scope(limits, || {
@@ -537,22 +541,40 @@ mod native_execution_read_tests {
             let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, exact, 64);
             norito::with_decode_limits_scope(limits, || {
                 assert_eq!(read(length as u64).unwrap().unwrap().as_slice(), wire);
-                assert!(matches!(
-                    read(length as u64),
-                    Err(Error::NoritoFrame(
-                        norito::Error::TotalAllocationExceeded { .. }
-                    ))
-                ));
+                let error = read(length as u64).unwrap_err();
+                let Error::CodecAttempt(error) = error else {
+                    panic!("original observed native input quota: {error:?}");
+                };
+                let original = error
+                    .local_refusal()
+                    .expect("genuine enclosing quota owner");
+                assert_eq!(
+                    original.kind(),
+                    norito::core::DecodeLocalRefusalKind::EnclosingLimit
+                );
+                assert!(
+                    matches!(original.resource_error(), norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit } if attempted > limit)
+                );
+                assert_eq!(error.into_local_refusal().unwrap(), original);
             });
             let limits =
                 norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, exact - 1, 64);
             norito::with_decode_limits_scope(limits, || {
-                assert!(matches!(
-                    read(length as u64),
-                    Err(Error::NoritoFrame(
-                        norito::Error::TotalAllocationExceeded { .. }
-                    ))
-                ));
+                let error = read(length as u64).unwrap_err();
+                let Error::CodecAttempt(error) = error else {
+                    panic!("original observed native input quota: {error:?}");
+                };
+                let original = error
+                    .local_refusal()
+                    .expect("genuine enclosing quota owner");
+                assert_eq!(
+                    original.kind(),
+                    norito::core::DecodeLocalRefusalKind::EnclosingLimit
+                );
+                assert!(
+                    matches!(original.resource_error(), norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit } if attempted > limit)
+                );
+                assert_eq!(error.into_local_refusal().unwrap(), original);
             });
             assert_eq!(read(length as u64).unwrap().unwrap().as_slice(), wire);
         }
@@ -995,5 +1017,35 @@ impl Kura {
         store.read_block_data(slot.start, &mut bytes).unwrap();
         *bytes.last_mut().expect("native frame is nonempty") ^= 1;
         store.write_block_data(slot.start, &bytes).unwrap();
+    }
+}
+
+#[cfg(any(test, feature = "iroha-core-tests"))]
+impl Kura {
+    /// Replace only the original durable frame's certificate, preserving its header and
+    /// exact occupied slot extent. The hash/index and cached executed source stay unchanged.
+    pub fn replace_native_certificate_for_test(
+        &self,
+        height: NonZeroUsize,
+        certificate: iroha_data_model::block::CommitCertificate,
+    ) {
+        let mut store = self.block_store.lock();
+        let slot = store
+            .read_block_index(u64::try_from(height.get() - 1).unwrap())
+            .unwrap();
+        assert!(!slot.is_evicted());
+        let mut bytes = vec![0; usize::try_from(slot.length).unwrap()];
+        store.read_block_data(slot.start, &mut bytes).unwrap();
+        let mut original = iroha_data_model::block::decode_framed_signed_block(&bytes).unwrap();
+        let original_hash = original.hash();
+        original.set_commit_certificate(Some(certificate));
+        assert_eq!(original.hash(), original_hash, "only certificate changes");
+        let replacement = original.encode_wire().unwrap();
+        assert_eq!(
+            replacement.len(),
+            bytes.len(),
+            "original occupied slot extent"
+        );
+        store.write_block_data(slot.start, &replacement).unwrap();
     }
 }

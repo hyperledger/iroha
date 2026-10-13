@@ -185,7 +185,13 @@ fn parse_layout(raw: &[u8]) -> Result<Layout, norito::Error> {
                 return Err(norito::Error::LengthMismatch);
             }
             let table = byte_range(bytes, table_field, 0, MAX_AVAILABILITY_FRAME_BYTES)?;
-            let payload = byte_range(bytes, payload_field, 1, MAX_DA_PAYLOAD_SIZE_BYTES as usize)?;
+            let payload = byte_range(
+                bytes,
+                payload_field,
+                1,
+                usize::try_from(MAX_DA_PAYLOAD_SIZE_BYTES)
+                    .map_err(|_| norito::Error::LengthMismatch)?,
+            )?;
             Ok((header, table, payload))
         })?;
     // This checks the complete canonical schema, flags, padding, lengths and exact field bytes

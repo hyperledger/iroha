@@ -2,7 +2,7 @@
 //!
 //! These records carry exact original bytes and immutable generation attribution. Decoding or
 //! passing a shape check never authenticates a committee, certificate, anchor or offender.
-//! Core must join the retained generation, verify the exact native CommitQC relation, select
+//! Core must join the retained generation, verify the exact native `CommitQC` relation, select
 //! the first E1–E4 mismatch and apply deduplication before recording any evidence or hold.
 
 use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, account::AccountId};
@@ -203,6 +203,10 @@ pub struct SccpForgeryRecordV1 {
 
 impl SccpForgeryRecordV1 {
     /// Check structural invariants without accepting a signature or inventing attribution.
+    ///
+    /// # Errors
+    /// Rejects zero generation coordinates, invalid offender count or ordering,
+    /// out-of-range signers, duplicate members and invalid activation heights.
     pub fn validate_shape(&self) -> Result<(), SccpNativeDataError> {
         if self.generation == 0 || self.start_height == 0 {
             return Err(SccpNativeDataError::ZeroGenerationCoordinate);

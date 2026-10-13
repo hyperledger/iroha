@@ -198,11 +198,8 @@ mod tests {
         let telemetry = MaybeTelemetry::for_tests();
         telemetry
             .metrics()
-            .await
             .set_lane_block_height("lane-0", "global", 3);
-        let rendered = super::handle_metrics(&telemetry)
-            .await
-            .expect("metrics should render");
+        let rendered = super::handle_metrics(&telemetry).expect("metrics should render");
         assert!(
             rendered.contains("nexus_lane_block_height"),
             "lane metrics are part of every first-release Nexus exposition"
@@ -507,7 +504,6 @@ mod tests {
         let telemetry = MaybeTelemetry::for_tests();
         let expected = telemetry
             .metrics()
-            .await
             .status_snapshot(&crate::build_identity_test_fixture::build_identity().status());
         let response = super::handle_status(
             &crate::build_identity_test_fixture::build_identity().status(),

@@ -203,11 +203,15 @@ fn preverify_budget_and_size_accept_the_committed_limit_and_reject_one_byte_more
         let state = state_with(node.clone(), &policy);
         let mut block = state.block(header());
         let mut transaction = block.transaction();
-        let at_budget = transaction.preverify_proof(&proof(64), None, 0, None, None, true);
+        let at_budget = transaction
+            .preverify_proof(&proof(64), None, 0, None, None, true)
+            .expect("preverification policy verdict must complete");
         assert_ne!(at_budget, PreverifyResult::PreverifyBudgetExceeded);
         assert_ne!(at_budget, PreverifyResult::ProofTooBig);
         assert_eq!(
-            transaction.preverify_proof(&proof(65), None, 0, None, None, true),
+            transaction
+                .preverify_proof(&proof(65), None, 0, None, None, true)
+                .expect("preverification policy verdict must complete"),
             PreverifyResult::PreverifyBudgetExceeded
         );
         // Size: with the budget unlimited, exactly the maximum is not refused
@@ -215,11 +219,15 @@ fn preverify_budget_and_size_accept_the_committed_limit_and_reject_one_byte_more
         let state = state_with(node, &size_only);
         let mut block = state.block(header());
         let mut transaction = block.transaction();
-        let at_size = transaction.preverify_proof(&proof(512), None, 0, None, None, true);
+        let at_size = transaction
+            .preverify_proof(&proof(512), None, 0, None, None, true)
+            .expect("preverification policy verdict must complete");
         assert_ne!(at_size, PreverifyResult::ProofTooBig);
         assert_ne!(at_size, PreverifyResult::PreverifyBudgetExceeded);
         assert_eq!(
-            transaction.preverify_proof(&proof(513), None, 0, None, None, true),
+            transaction
+                .preverify_proof(&proof(513), None, 0, None, None, true)
+                .expect("preverification policy verdict must complete"),
             PreverifyResult::ProofTooBig
         );
     }

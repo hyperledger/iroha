@@ -95,7 +95,7 @@ fn first_staged_carrier_and_alias_are_borrowed_without_publishing_or_inventing_m
     ));
     // The canonical carrier owner decides whether this distinct signed alias is
     // authenticated. Storage must retain exactly its staged identities.
-    block.insert_block(HashSet::from([carrier, signed_alias]), height(1));
+    block.insert_block(BTreeSet::from([carrier, signed_alias]), height(1));
     let transition = block.membership_transition().unwrap();
     assert_eq!(transition.committed_height(), 0);
     assert_eq!(transition.predecessor_height(), 0);
@@ -133,7 +133,7 @@ fn promotion_and_latest_shadowing_have_exact_cold_and_incremental_membership() {
         ])
     );
     assert_eq!(predecessor(&block), before);
-    block.insert_block(HashSet::from([older, new]), height(3));
+    block.insert_block(BTreeSet::from([older, new]), height(3));
     let transition = block.membership_transition().unwrap();
     let expected = Membership::from([
         (older, height(3)),
@@ -168,7 +168,7 @@ fn replacement_distinguishes_tip_removals_from_the_logical_predecessor() {
         Membership::from([(restored, height(1)), (retained, height(1))])
     );
     assert_eq!(tip.get(&restored), Some(&height(2)));
-    block.insert_block(HashSet::from([shared, new]), height(2));
+    block.insert_block(BTreeSet::from([shared, new]), height(2));
     let transition = block.membership_transition().unwrap();
     assert_eq!(transition.committed_height(), 2);
     assert_eq!(transition.predecessor_height(), 1);
@@ -213,7 +213,7 @@ fn repeated_identical_publication_preserves_history_for_later_replacement() {
     for _ in 0..3 {
         let mut block = storage.block();
         let before = committed(&block);
-        block.insert_block(HashSet::from([tip_only, prior]), height(2));
+        block.insert_block(BTreeSet::from([tip_only, prior]), height(2));
         let transition = block.membership_transition().unwrap();
         assert_eq!(
             transition.predecessor_height(),
@@ -229,16 +229,13 @@ fn repeated_identical_publication_preserves_history_for_later_replacement() {
             &original_latest,
             &storage.latest_block.load_full().unwrap()
         ));
-        assert_eq!(
-            storage.blocks.read().get(&prior).map(|entry| *entry),
-            Some(height(1))
-        );
+        assert_eq!(storage.blocks.read().get(&prior).copied(), Some(height(1)));
         assert!(storage.blocks.read().get(&tip_only).is_none());
     }
     let mut replacement = storage.block_and_revert();
     let parent = predecessor(&replacement);
     assert_eq!(parent, Membership::from([(prior, height(1))]));
-    replacement.insert_block(HashSet::new(), height(2));
+    replacement.insert_block(BTreeSet::new(), height(2));
     let transition = replacement.membership_transition().unwrap();
     assert_eq!(staged(&transition), parent);
     assert!(changes(&transition, false).is_empty());
@@ -268,7 +265,7 @@ fn wrong_height_and_missing_stage_refuse_transition_without_mutating_membership(
             block.membership_transition(),
             Err(TransactionsBlockError::MissingInsertBlock)
         ));
-        block.insert_block(HashSet::from([key(41)]), height(wrong));
+        block.insert_block(BTreeSet::from([key(41)]), height(wrong));
         assert!(matches!(
             block.membership_transition(),
             Err(TransactionsBlockError::HeightMismatch { .. })
@@ -281,7 +278,7 @@ fn wrong_height_and_missing_stage_refuse_transition_without_mutating_membership(
         assert_eq!(committed(&storage.block()), original);
     }
     let mut changed_same_height = storage.block();
-    changed_same_height.insert_block(HashSet::from([key(42)]), height(1));
+    changed_same_height.insert_block(BTreeSet::from([key(42)]), height(1));
     assert!(matches!(
         changed_same_height.membership_transition(),
         Err(TransactionsBlockError::HeightMismatch { .. })
@@ -296,7 +293,7 @@ fn borrowed_visit_error_and_unwind_cannot_publish_or_poison_storage() {
     commit(&storage, 1, &[key(50), key(51)]);
     let mut block = storage.block();
     let original = committed(&block);
-    block.insert_block(HashSet::from([key(52), key(53)]), height(2));
+    block.insert_block(BTreeSet::from([key(52), key(53)]), height(2));
     let transition = block.membership_transition().unwrap();
     let expected = staged(&transition);
     let mut calls = 0;
@@ -334,7 +331,7 @@ fn incremental_changes_do_not_emit_untouched_history_or_current_tip_promotion() 
     commit(&storage, 2, &[key(900)]);
     let mut block = storage.block();
     let original = committed(&block);
-    block.insert_block(HashSet::from([key(100), key(901)]), height(3));
+    block.insert_block(BTreeSet::from([key(100), key(901)]), height(3));
     let transition = block.membership_transition().unwrap();
     let updates = changes(&transition, true);
     assert_eq!(updates.len(), 2);
@@ -348,13 +345,13 @@ fn staged_snapshot_matches_actual_forward_idempotent_and_replacement_publication
     let (older, repeated, tip_only, replacement) = (key(1000), key(1001), key(1002), key(1003));
     commit(&storage, 1, &[older, repeated]);
     let mut forward = storage.block();
-    forward.insert_block(HashSet::from([repeated, tip_only]), height(2));
+    forward.insert_block(BTreeSet::from([repeated, tip_only]), height(2));
     let encoded = norito::json::to_json(&forward).unwrap();
     forward.commit().unwrap();
     assert_eq!(encoded, norito::json::to_json(&storage).unwrap());
     let before_repeat = encoded;
     let mut repeated_commit = storage.block();
-    repeated_commit.insert_block(HashSet::from([tip_only, repeated]), height(2));
+    repeated_commit.insert_block(BTreeSet::from([tip_only, repeated]), height(2));
     let repeated_snapshot = norito::json::to_json(&repeated_commit).unwrap();
     assert_eq!(
         before_repeat, repeated_snapshot,
@@ -363,7 +360,7 @@ fn staged_snapshot_matches_actual_forward_idempotent_and_replacement_publication
     repeated_commit.commit().unwrap();
     assert_eq!(before_repeat, norito::json::to_json(&storage).unwrap());
     let mut reverted = storage.block_and_revert();
-    reverted.insert_block(HashSet::from([replacement]), height(2));
+    reverted.insert_block(BTreeSet::from([replacement]), height(2));
     let projection = reverted.membership_transition().unwrap();
     let expected = staged(&projection);
     drop(projection);
@@ -420,7 +417,7 @@ fn maximum_height_allows_exact_repeat_and_replacement_but_refuses_advance() {
     commit(&storage, usize::MAX, &[older, tip]);
     let expected = committed(&storage.block());
     let mut repeated = storage.block();
-    repeated.insert_block(HashSet::from([older, tip]), height(usize::MAX));
+    repeated.insert_block(BTreeSet::from([older, tip]), height(usize::MAX));
     assert!(repeated.validate_commit().is_ok());
     let transition = repeated.membership_transition().unwrap();
     assert_eq!(transition.predecessor_height(), usize::MAX);
@@ -429,7 +426,7 @@ fn maximum_height_allows_exact_repeat_and_replacement_but_refuses_advance() {
     repeated.commit().unwrap();
     assert_eq!(committed(&storage.block()), expected);
     let mut impossible_advance = storage.block();
-    impossible_advance.insert_block(HashSet::from([new]), height(usize::MAX));
+    impossible_advance.insert_block(BTreeSet::from([new]), height(usize::MAX));
     assert!(matches!(
         impossible_advance.membership_transition(),
         Err(TransactionsBlockError::HeightOverflow)
@@ -444,7 +441,7 @@ fn maximum_height_allows_exact_repeat_and_replacement_but_refuses_advance() {
         predecessor(&replacement),
         Membership::from([(older, height(usize::MAX - 1))])
     );
-    replacement.insert_block(HashSet::from([new]), height(usize::MAX));
+    replacement.insert_block(BTreeSet::from([new]), height(usize::MAX));
     let transition = replacement.membership_transition().unwrap();
     assert_eq!(transition.predecessor_height(), usize::MAX - 1);
     let after = staged(&transition);
@@ -478,7 +475,7 @@ fn replacement_lookup_matches_actual_predecessor_and_staged_membership() {
         assert_eq!(block.get(&abandoned), None);
         assert_eq!(committed_view.get(&shadowed), Some(height(2)));
         assert_eq!(committed_view.get(&abandoned), Some(height(2)));
-        block.insert_block(HashSet::from([shadowed, replacement]), height(2));
+        block.insert_block(BTreeSet::from([shadowed, replacement]), height(2));
         let after = staged(&block.membership_transition().unwrap());
         for key in keys {
             assert_eq!(block.get(&key), after.get(&key).copied());

@@ -49,14 +49,14 @@ fn all_register_paths_include_cold_dirty_rebuilds_without_any_heap_request() {
             &commitment
         ));
     }
-    assert_eq!(
+    assert!(matches!(
         vm.registers.merkle_path(256),
         Err(VMError::RegisterOutOfBounds)
-    );
-    assert_eq!(
+    ));
+    assert!(matches!(
         vm.registers.merkle_root_and_path(usize::MAX),
         Err(VMError::RegisterOutOfBounds)
-    );
+    ));
     let requests = stop_log_requests();
     assert_eq!(
         requests, 0,

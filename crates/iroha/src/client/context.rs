@@ -31,6 +31,8 @@ pub struct ClientBuilder {
     pub account: AccountId,
     /// The configured HTTP headers.
     pub headers: HashMap<String, String>,
+    // Typed credential from Config or the setter, kept outside mutable defaults until build.
+    configured_api_token: Option<crate::secrecy::SecretString>,
     /// The configured operator signing key.
     pub operator_key_pair: Option<KeyPair>,
     /// The transaction nonce policy.
@@ -82,12 +84,6 @@ impl ClientBuilder {
             sorafs_rollout_phase,
         } = configuration;
         let mut headers = HashMap::new();
-        if let Some(api_token) = api_token {
-            headers.insert(
-                String::from("X-API-Token"),
-                api_token.expose_secret().to_owned(),
-            );
-        }
         if let Some(basic_auth) = basic_auth {
             let credentials = format!(
                 "{}:{}",
@@ -114,6 +110,7 @@ impl ClientBuilder {
             default_anonymity_policy: sorafs_anonymity_policy,
             rollout_phase: sorafs_rollout_phase,
             headers,
+            configured_api_token: api_token,
             operator_key_pair: None,
             wire_format_preference: WireFormatPreference::default(),
             http_transport: None,
@@ -122,6 +119,14 @@ impl ClientBuilder {
     }
 
     pub(super) fn from_client(client: &Client) -> Self {
+        let mut headers = client.headers.clone();
+        // Only the exact canonical header from Config or the typed setter retains provenance. A missing
+        // header fails closed; neither ambient headers nor another case spelling can create it.
+        let configured_api_token = client
+            .has_configured_api_token
+            .then(|| headers.remove("x-api-token"))
+            .flatten()
+            .map(crate::secrecy::SecretString::new);
         Self {
             chain: client.chain.clone(),
             network_id: client.network_id,
@@ -133,7 +138,8 @@ impl ClientBuilder {
             transaction_status_timeout: client.transaction_status_timeout,
             torii_request_timeout: client.torii_request_timeout,
             account: client.account.clone(),
-            headers: client.headers.clone(),
+            headers,
+            configured_api_token,
             operator_key_pair: client.operator_key_pair.clone(),
             add_transaction_nonce: client.add_transaction_nonce,
             alias_cache_policy: client.alias_cache_policy,
@@ -155,6 +161,21 @@ impl ClientBuilder {
         }
         headers.extend(self.headers);
         self.headers = headers;
+        self
+    }
+
+    /// Replace or clear the owner-held Torii listener credential.
+    ///
+    /// This removes every case spelling of `X-API-Token` from generic header
+    /// defaults. `None` clears the typed credential; `Some` installs its replacement
+    /// when the client is built. Clearing generic headers alone does not clear a
+    /// typed credential. Call this explicitly when rebinding to another origin.
+    /// The listener credential does not authorize an operator or account identity.
+    #[must_use]
+    pub fn api_token(mut self, api_token: Option<crate::secrecy::SecretString>) -> Self {
+        self.headers
+            .retain(|name, _| !name.eq_ignore_ascii_case("x-api-token"));
+        self.configured_api_token = api_token;
         self
     }
 
@@ -190,6 +211,16 @@ impl ClientBuilder {
         if self.account_chain_discriminant == 0 {
             return Err(AuthorityContextError::InvalidAddressDiscriminant.into());
         }
+        let has_configured_api_token = self.configured_api_token.is_some();
+        if let Some(token) = self.configured_api_token.take() {
+            // Direct mutation of the public builder headers cannot replace the typed owner
+            // credential or add a case-variant duplicate. Ordinary ambient headers retain
+            // their existing behavior when no typed credential was selected.
+            self.headers
+                .retain(|name, _| !name.eq_ignore_ascii_case("x-api-token"));
+            self.headers
+                .insert("x-api-token".to_owned(), token.expose_secret().to_owned());
+        }
         let mut headers = HashMap::with_capacity(self.headers.len());
         for (name, value) in self.headers {
             let name = http::header::HeaderName::from_bytes(name.as_bytes())
@@ -216,6 +247,7 @@ impl ClientBuilder {
             torii_request_timeout: self.torii_request_timeout,
             account: self.account,
             headers: self.headers,
+            has_configured_api_token,
             operator_key_pair: self.operator_key_pair,
             add_transaction_nonce: self.add_transaction_nonce,
             alias_cache_policy: self.alias_cache_policy,

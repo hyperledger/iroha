@@ -18,7 +18,10 @@ pub(crate) fn response(packet: &VerifierExchangeV1, outcome: &str) -> Vec<u8> {
         "refusal_code": (norito::json::Value::Null),
     });
     let bytes = norito::json::to_vec(&value).unwrap();
-    let mut frame = (bytes.len() as u32).to_le_bytes().to_vec();
+    let mut frame = u32::try_from(bytes.len())
+        .expect("fixture value fits u32")
+        .to_le_bytes()
+        .to_vec();
     frame.extend(bytes);
     frame
 }

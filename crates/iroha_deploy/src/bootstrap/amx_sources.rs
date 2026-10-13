@@ -35,20 +35,20 @@ struct Identity {
     chain_id: String,
     genesis_hash: Hash,
     successor_hash: Hash,
-    directory_identity: LocalObjectIdentity,
-    genesis_identity: LocalFileSnapshot,
-    successor_identity: LocalFileSnapshot,
+    directory: LocalObjectIdentity,
+    genesis_file: LocalFileSnapshot,
+    successor_file: LocalFileSnapshot,
 }
 
 /// Borrow the caller's authenticated release and original private attachment directory.
-pub(crate) struct AmxSourceSelection<'a> {
+pub struct AmxSourceSelection<'a> {
     pub(crate) bootstrap: &'a AuthenticatedBootstrap,
     pub(crate) attachment: &'a PrivateDirectory,
     pub(crate) deadline: Instant,
 }
 
 /// Closed immutable file custody; no response-selected network or verifier is retained.
-pub(crate) struct ParentBootstrapSources {
+pub struct ParentBootstrapSources {
     directory: PrivateDirectory,
     identity: Identity,
     originals: [RetainedFile; 3],
@@ -126,9 +126,9 @@ impl AmxSourceSelection<'_> {
             chain_id: release.chain_id.clone(),
             genesis_hash: Hash::new(&genesis),
             successor_hash: Hash::new(&successor),
-            directory_identity: staging.identity()?.local_parts(),
-            genesis_identity: FileSnapshot::of(&staging.open_read(G1)?, true)?.local_parts(),
-            successor_identity: FileSnapshot::of(&staging.open_read(H2)?, true)?.local_parts(),
+            directory: staging.identity()?.local_parts(),
+            genesis_file: FileSnapshot::of(&staging.open_read(G1)?, true)?.local_parts(),
+            successor_file: FileSnapshot::of(&staging.open_read(H2)?, true)?.local_parts(),
         };
         let record = norito::encode_canonical(&identity)
             .map_err(|_| BootstrapError::Invalid("cannot encode AMX source identity"))?;
@@ -180,12 +180,12 @@ impl ParentBootstrapSources {
         ];
         let identity: Identity = decode(&directory.read(RECORD, MAX_RECORD)?, MAX_RECORD)?;
         let release = bootstrap.release();
-        if identity.network_name != release.network_name
-            || identity.generation != release.generation
-            || identity.network_id != spec.parent_network_id
-            || identity.network_id != release.network_id
-            || identity.chain_id != release.chain_id
-        {
+        let matches_parent = identity.network_id == spec.parent_network_id;
+        let matches_release = identity.network_name == release.network_name
+            && identity.generation == release.generation
+            && identity.network_id == release.network_id
+            && identity.chain_id == release.chain_id;
+        if !matches_parent || !matches_release {
             return Err(BootstrapError::Invalid(
                 "retained AMX sources differ from selected parent generation",
             ));
@@ -242,9 +242,9 @@ impl ParentBootstrapSources {
             || current.chain_id != self.identity.chain_id
             || current.genesis_hash != self.identity.genesis_hash
             || current.successor_hash != self.identity.successor_hash
-            || current.directory_identity != self.identity.directory_identity
-            || current.genesis_identity != self.identity.genesis_identity
-            || current.successor_identity != self.identity.successor_identity
+            || current.directory != self.identity.directory
+            || current.genesis_file != self.identity.genesis_file
+            || current.successor_file != self.identity.successor_file
             || Hash::new(&genesis) != self.identity.genesis_hash
             || Hash::new(&successor) != self.identity.successor_hash
         {
@@ -269,11 +269,11 @@ impl ParentBootstrapSources {
     // replacing all local anchors. Live reads retain the separate DEP2 descriptor fences.
     #[cfg(not(all(test, sumeragi_deploy_mutation = "DEP5")))]
     fn require_original_local_objects(&self) -> Result<()> {
-        if self.directory.identity()?.local_parts() != self.identity.directory_identity
+        if self.directory.identity()?.local_parts() != self.identity.directory
             || FileSnapshot::of(self.originals[1].file(), true)?.local_parts()
-                != self.identity.genesis_identity
+                != self.identity.genesis_file
             || FileSnapshot::of(self.originals[2].file(), true)?.local_parts()
-                != self.identity.successor_identity
+                != self.identity.successor_file
         {
             return Err(BootstrapError::Invalid(
                 "AMX source objects differ from their original local publication",

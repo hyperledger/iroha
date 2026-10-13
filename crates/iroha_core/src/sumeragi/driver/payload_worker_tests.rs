@@ -151,7 +151,7 @@ pub(super) struct Fixture {
     pub(super) signers: Vec<Arc<dyn Signer>>,
     pub(super) blocks: Blocks,
     pub(super) bodies: FileBodyStore,
-    _dir: tempfile::TempDir,
+    directory: tempfile::TempDir,
 }
 impl Fixture {
     pub(super) fn new() -> Self {
@@ -195,7 +195,7 @@ impl Fixture {
             signers,
             blocks,
             bodies,
-            _dir: dir,
+            directory: dir,
         }
     }
     pub(super) fn worker(&self) -> PayloadWorker {
@@ -210,7 +210,7 @@ impl Fixture {
     }
     fn install_committed_body(&mut self) {
         let committed = FileBodyStore::open(
-            &self._dir.path().join("committed"),
+            &self.directory.path().join("committed"),
             &self.source.instance(),
             self.crypto.clone(),
             BodyLimits::default(),

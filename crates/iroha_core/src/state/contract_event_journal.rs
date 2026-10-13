@@ -126,7 +126,7 @@ impl ContractEventJournal {
                 .as_ref()
                 .is_none_or(|entries| len == entries.capacity())
             {
-                let capacity = len.checked_mul(2).unwrap_or(usize::MAX).max(1);
+                let capacity = len.saturating_mul(2).max(1);
                 let mut replacement = ChargedBuffer::new(capacity, budget).map_err(allocation)?;
                 if let Some(mut original) = self.entries.take() {
                     for entry in original.drain_all() {

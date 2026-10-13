@@ -1070,7 +1070,7 @@ impl KagemushaWalletRecoveryCapsuleV1 {
         self.custody_digest
     }
 
-    /// Opaque public identifier P_bytes(kgwcapc1, canonical(C)) signed by the receipt.
+    /// Opaque public identifier `P_bytes(kgwcapc1, canonical(C))` signed by the receipt.
     #[must_use]
     pub const fn receipt_commitment(&self) -> [u8; 32] {
         self.receipt_commitment

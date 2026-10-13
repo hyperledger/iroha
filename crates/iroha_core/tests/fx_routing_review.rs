@@ -479,9 +479,11 @@ fn fx_state_view_rejects_active_sns_dataspace_without_canonical_lane() {
         view.world(),
         LEDGER_TIME_MS,
     );
-    let expected = RoutingResolveError::NoLaneForDataspace {
-        dataspace_id: dynamic_dataspace,
-    };
-    assert_eq!(queue_plan, Err(expected.clone()));
-    assert_eq!(block_plan, Err(expected));
+    for plan in [queue_plan, block_plan] {
+        assert!(matches!(
+            plan,
+            Err(RoutingResolveError::NoLaneForDataspace { dataspace_id })
+                if dataspace_id == dynamic_dataspace
+        ));
+    }
 }

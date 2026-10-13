@@ -63,7 +63,7 @@ fn all_images(world: &World) -> Vec<(&'static str, String)> {
     with_world_overlay_fields!(images, world)
 }
 
-fn prepare<'a, A>(journal: DetachedWorld<A>, target: &'a World) -> PreparedWorld<'a, A, ()> {
+fn prepare<A>(journal: DetachedWorld<A>, target: &World) -> PreparedWorld<'_, A, ()> {
     journal
         .try_prepare_publication(target, |_, _| Ok::<_, ()>(()))
         .unwrap_or_else(|(_, error, _)| panic!("World preparation refused: {error:?}"))

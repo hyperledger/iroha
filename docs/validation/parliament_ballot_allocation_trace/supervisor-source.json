@@ -1,0 +1,19 @@
+{
+  "schema": "parliament-allocation-source-freeze-v1",
+  "files": {
+    "scripts/prepare_parliament_ballot_allocation_trace.py": "5c43ed16bbe9fc2c80978ebdb55d45dd7c0cbffd6df9fc58ede4d1cd92007a63",
+    "scripts/check_parliament_ballot_allocation_trace.py": "d7c53457faf9149275b7a46046458778bc7a9771e46148dba8cc5dd5f4b7bf46",
+    "scripts/parliament_ballot_allocation_cases.py": "0fee72e9408a7ba0a3d4e63c86ae00b51deda28ed7ef36ba678865e37b82ba56",
+    "scripts/parliament_ballot_allocation_match.py": "8725000f8c22d370be44356230f014004f60a227f1818ac4a37e4d990ded5fb4",
+    "scripts/parliament_ballot_arena_frontend.py": "ff47c90b8a031dd2f3a3a842b1d3011f141e342e52da7ed3b6c1effe03783f95",
+    "scripts/parliament_ballot_arena_backend.py": "fa36699604949a1e870b43f260592e7c9f9a31be715c1baf28d5acdf38e76b48",
+    "scripts/parliament_ballot_arena_model.py": "e19cc5c1860cb48e47899455a50b3fb9660d56f0c5fa94f68aadfae3ac5d9872",
+    "scripts/check_parliament_ballot_resource_contract.py": "545a0655dd83dd5e19bdc428d90841dbf416afd0c523eec3992fba6bd15ade02",
+    "scripts/tests/parliament_ballot_allocation_cases_test.py": "317a8e325b5f9f513108519867d942239a00940e6e2c379d7804292b9c8528e6",
+    "scripts/tests/parliament_ballot_allocation_match_test.py": "7980462981ec531eaf0794d5ff997ea14d7ca8cb9387856f4f4e8aee848d0986",
+    "scripts/tests/parliament_ballot_allocation_prepare_test.py": "9f1e6964b3f86cded8078030bf50ab5dbd981a31b027924324e33c754dd7893d",
+    "scripts/tests/parliament_ballot_allocation_trace_test.py": "7a8d30ae02124ed6b8248ea1e6fc0facc88eed9edbb48f886567c0aa6e036ea1"
+  },
+  "profile_qualified": false,
+  "complete_workspace_certificate": false
+}

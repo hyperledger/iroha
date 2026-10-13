@@ -928,9 +928,10 @@ impl ReferenceDataSnapshots {
         let Some(record) = record else {
             return Err(ReferenceDataError::NotFound {
                 kind: DatasetKind::CashLeg,
-                value: payment_key.map_or(currency_key.clone(), |payment| {
-                    format!("{currency_key}:{payment}")
-                }),
+                value: payment_key.map_or_else(
+                    || currency_key.clone(),
+                    |payment| format!("{currency_key}:{payment}"),
+                ),
             });
         };
         if record.asset_definition_id.is_some() {
@@ -1549,16 +1550,14 @@ fn load_dataset_streaming<T: Default>(
                 object.parse_value_with_parser(|parser| {
                     let mut sequence = json::SeqVisitor::new(parser)?;
                     while !sequence.is_finished() {
-                        budget
-                            .charge_record(kind)
-                            .map_err(|error| json_message(error))?;
+                        budget.charge_record(kind).map_err(json_message)?;
                         let entry = sequence.next_element::<Value>()?.ok_or_else(|| {
                             json::Error::Message(format!(
                                 "{} entries array ended unexpectedly",
                                 kind.label()
                             ))
                         })?;
-                        insert(&mut loaded, entry, budget).map_err(|error| json_message(error))?;
+                        insert(&mut loaded, entry, budget).map_err(json_message)?;
                     }
                     sequence.finish()
                 })?;
@@ -1892,8 +1891,10 @@ mod tests {
                 "entries":[{"isin":42}]
             }"#,
         );
-        let mut budget = ReferenceDataLoadBudget::default();
-        budget.remaining_records = 0;
+        let mut budget = ReferenceDataLoadBudget {
+            remaining_records: 0,
+            ..Default::default()
+        };
         let error = load_isin_crosswalk(file.path(), &mut budget).unwrap_err();
         assert!(error.to_string().contains("aggregate limit"));
     }

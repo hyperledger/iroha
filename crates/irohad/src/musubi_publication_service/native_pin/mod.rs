@@ -15,6 +15,7 @@ mod inventory;
 pub(super) mod slot;
 
 pub use authorization::NativePinAuthorizationV1;
+pub(super) use authorization::ReservedFeesV1;
 
 use super::{
     MusubiPublicationFinalizedArchiveRegistrationQueryV1,
@@ -64,11 +65,15 @@ pub enum NativeMusubiPinPhaseV1 {
 }
 
 /// Local progress or a genuine exact successful pin readback. Queue acceptance is not finality.
+#[expect(
+    variant_size_differences,
+    reason = "finality carries one boxed receipt pointer while pending polls need only their phase"
+)]
 pub enum NativeMusubiPinProgressV1 {
     /// No successful pin current-readback is available yet.
     Pending(NativeMusubiPinPhaseV1),
     /// The sole native source reader authenticated the original input and current pin record.
-    Finalized(NativeMusubiFinalizedPinV1),
+    Finalized(Box<NativeMusubiFinalizedPinV1>),
 }
 
 /// Exact original envelope and native pin record read at one current local cut.
@@ -356,10 +361,10 @@ impl NativeMusubiPinCoordinatorV1 {
                 round.operation.id == id,
                 "another native operation owns the active round"
             );
-            if let Some(slot) = &round.slot {
-                if slot.signed().is_some() {
-                    slot.persist_signed()?;
-                }
+            if let Some(slot) = &round.slot
+                && slot.signed().is_some()
+            {
+                slot.persist_signed()?;
             }
         }
         drop(self.round.take());
@@ -413,11 +418,11 @@ impl NativeMusubiPinCoordinatorV1 {
             self.store.require_active_operation(&operation)?;
             self.signer
                 .recheck_finalized_archive(&operation.source()?)?;
-            if let Some(slot) = self.store.open_slot(&operation, SlotKind::Pin)? {
-                if slot.exposed()? {
-                    drop(slot);
-                    return self.recover_operation(&operation);
-                }
+            if let Some(slot) = self.store.open_slot(&operation, SlotKind::Pin)?
+                && slot.exposed()?
+            {
+                drop(slot);
+                return self.recover_operation(&operation);
             }
             let now = clock.current_time_ms()?;
             operation.authorization.ensure_live(now)?;
@@ -455,7 +460,7 @@ impl NativeMusubiPinCoordinatorV1 {
                 self.perform_goal(
                     &round.operation,
                     round.goal,
-                    readback,
+                    &readback,
                     clock,
                     deadline.min(round.deadline),
                 )
@@ -463,10 +468,10 @@ impl NativeMusubiPinCoordinatorV1 {
         }
     }
     fn reconcile_retained(&mut self) -> Result<()> {
-        if let Some(slot) = &self.retained {
-            if slot.signed().is_some() {
-                slot.persist_signed()?;
-            }
+        if let Some(slot) = &self.retained
+            && slot.signed().is_some()
+        {
+            slot.persist_signed()?;
         }
         drop(self.retained.take());
         Ok(())
@@ -527,13 +532,13 @@ impl NativeMusubiPinCoordinatorV1 {
             Goal::Advance => Some(SlotKind::Advance),
             _ => None,
         };
-        if let Some(kind) = control {
-            if let Some(slot) = self.store.open_slot(&operation, kind)? {
-                ensure!(
-                    !slot.exposed()?,
-                    "original native Advance remains exposed; await its exact native effect"
-                );
-            }
+        if let Some(kind) = control
+            && let Some(slot) = self.store.open_slot(&operation, kind)?
+        {
+            ensure!(
+                !slot.exposed()?,
+                "original native Advance remains exposed; await its exact native effect"
+            );
         }
         let height = u64::try_from(view.block_hashes().len())?;
         ensure!(
@@ -605,10 +610,10 @@ impl NativeMusubiPinCoordinatorV1 {
         {
             // Persist a successful signature before relinquishing its live owner. No old round,
             // retained bytes or elapsed deadline can be converted into another prepared stage.
-            if let Some(slot) = &round.slot {
-                if slot.signed().is_some() {
-                    slot.persist_signed()?;
-                }
+            if let Some(slot) = &round.slot
+                && slot.signed().is_some()
+            {
+                slot.persist_signed()?;
             }
             return Ok(None);
         }
@@ -722,7 +727,7 @@ impl NativeMusubiPinCoordinatorV1 {
         &mut self,
         operation: &Operation,
         goal: Goal,
-        readback: MusubiPinOutboxCurrentReadbackV1,
+        readback: &MusubiPinOutboxCurrentReadbackV1,
         clock: &mut dyn MusubiPublicationServiceClockV1,
         deadline: Instant,
     ) -> Result<NativeMusubiPinProgressV1> {
@@ -907,13 +912,13 @@ impl NativeMusubiPinCoordinatorV1 {
             finalized_height: u64::try_from(height.get())?,
         };
         let record = self.reader.read_current_pin(&query)?;
-        Ok(NativeMusubiPinProgressV1::Finalized(
+        Ok(NativeMusubiPinProgressV1::Finalized(Box::new(
             NativeMusubiFinalizedPinV1 {
                 operation: operation.id,
                 query,
                 record,
             },
-        ))
+        )))
     }
 }
 

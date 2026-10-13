@@ -19,10 +19,7 @@ fn detached(owner: &BlockHashes, replace: bool, appends: &[u8]) -> DetachedBlock
     block.detach()
 }
 
-fn prepare<'target>(
-    journal: DetachedBlockHashes,
-    owner: &'target BlockHashes,
-) -> PreparedBlockHashes<'target, ()> {
+fn prepare(journal: DetachedBlockHashes, owner: &BlockHashes) -> PreparedBlockHashes<'_, ()> {
     journal
         .try_prepare_publication(owner, |_, _| Ok::<_, &str>(()))
         .unwrap_or_else(|(_, error, _)| panic!("hash publication preparation: {error:?}"))
@@ -306,7 +303,7 @@ fn late_hash_refusal_releases_prepared_membership_before_exact_retry() {
     let entrypoint = HashOf::from_untyped_unchecked(Hash::new(b"publication membership"));
     let mut block = membership.block();
     block.insert_block(
-        std::collections::HashSet::from([entrypoint]),
+        std::collections::BTreeSet::from([entrypoint]),
         NonZeroUsize::new(1).unwrap(),
     );
     let journal = block.prepare_commit().unwrap().detach();

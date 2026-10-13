@@ -24,8 +24,8 @@ pub(in crate::state) fn record(name: &str) -> ContractAliasBindingRecord {
     }
 }
 
-pub(in crate::state) fn fixture() -> Box<World> {
-    let mut world = Box::new(World::default());
+pub(in crate::state) fn fixture() -> World {
+    let mut world = World::default();
     let (id, account) = Account::new(ALICE_ID.clone())
         .build(&ALICE_ID)
         .into_key_value();

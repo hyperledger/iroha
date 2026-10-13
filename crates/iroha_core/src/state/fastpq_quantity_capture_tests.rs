@@ -202,7 +202,10 @@ fn source_with_fee(
 ) -> (SignedBlock, Hash) {
     let mut transaction = TransactionBuilder::new(state.network_id, ALICE_ID.clone(), fee);
     transaction.set_creation_time(
-        quantity_successor_header(state).creation_time() - Duration::from_millis(1),
+        quantity_successor_header(state)
+            .creation_time()
+            .checked_sub(Duration::from_millis(1))
+            .unwrap(),
     );
     let transaction = transaction
         .with_instructions(body)
@@ -629,7 +632,10 @@ fn assert_exact_applied_measurement(archive: &QuantityCandidateArchive) {
         expected.statement_bytes += full.statement_bytes;
     }
     assert!(archive.base_usage.is_none());
-    assert_eq!(expected.entries as usize, archive.entries.len());
+    assert_eq!(
+        usize::try_from(expected.entries).expect("fixture value fits usize"),
+        archive.entries.len()
+    );
     assert_eq!(archive.usage, expected);
 }
 
@@ -657,7 +663,10 @@ fn distinct_signed_entries_retain_exact_independent_counters() {
             FeePaymentIntent::authority(vec![], None),
         );
         transaction.set_creation_time(
-            quantity_successor_header(&state).creation_time() - Duration::from_millis(1),
+            quantity_successor_header(&state)
+                .creation_time()
+                .checked_sub(Duration::from_millis(1))
+                .unwrap(),
         );
         let transaction = transaction
             .with_instructions(body)
@@ -716,16 +725,17 @@ fn body_and_real_pipeline_fee_replace_one_complete_entry_counter() {
         transaction.apply();
         setup.commit_world_overlay_for_testing().unwrap();
     }
-    let mut gas = iroha_config::parameters::actual::Gas::default();
-    gas.tech_account_id = BOB_ID.to_string();
-    gas.accepted_assets = vec![alice.definition().canonical_address()];
-    gas.units_per_gas = vec![GasRate {
-        asset: alice.definition().canonical_address(),
-        units_per_gas: 1,
-        twap_local_per_xor: Numeric::one(),
-        liquidity: GasLiquidity::Tier1,
-        volatility: GasVolatility::Stable,
-    }];
+    let gas = iroha_config::parameters::actual::Gas {
+        tech_account_id: BOB_ID.to_string(),
+        accepted_assets: vec![alice.definition().canonical_address()],
+        units_per_gas: vec![GasRate {
+            asset: alice.definition().canonical_address(),
+            units_per_gas: 1,
+            twap_local_per_xor: Numeric::one(),
+            liquidity: GasLiquidity::Tier1,
+            volatility: GasVolatility::Stable,
+        }],
+    };
     {
         let mut parameters = state.world.parameters.block();
         for parameter in crate::pipeline_gas_policy::parameters_for_testing(gas) {
@@ -740,7 +750,8 @@ fn body_and_real_pipeline_fee_replace_one_complete_entry_counter() {
         Mint::asset_quantity(2_u32, alice.clone()).into(),
         Transfer::asset_quantity(alice.clone(), 1_u32, BOB_ID.clone()).into(),
     ];
-    let gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS);
+    let gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS)
+        .expect("gas quote must complete for this fixture");
     assert!(gas > 0 && gas < 1_000_000_000);
     let fee = Quantity::from(gas);
     let (source, call) = source_with_fee(
@@ -2080,9 +2091,7 @@ fn callback_error_and_unwind_discard_new_tape_while_transaction_rollback_preserv
                 let result: Result<(), Error> =
                     transaction.apply_with_quantity_candidate(Ok(prepared), |transaction| {
                         apply_owned_test_mint(transaction, alice);
-                        if unwind {
-                            panic!("interrupt after final original port");
-                        }
+                        assert!(!unwind, "interrupt after final original port");
                         Err(Error::InvariantViolation(
                             "return after final original port".into(),
                         ))
@@ -2404,7 +2413,12 @@ fn with_sealed_quantity_source_census(
             ALICE_ID.clone(),
             FeePaymentIntent::authority(vec![], None),
         );
-        transaction.set_creation_time(header.creation_time() - Duration::from_millis(1));
+        transaction.set_creation_time(
+            header
+                .creation_time()
+                .checked_sub(Duration::from_millis(1))
+                .unwrap(),
+        );
         let signed = transaction
             .with_instructions(body)
             .sign(ALICE_KEYPAIR.private_key());
@@ -2503,7 +2517,7 @@ fn original_quantity_census_retains_ordered_success_empty_and_rejected_sources_w
             );
             assert_ne!(row.effects_digest, Hash::new(&native));
             assert_eq!(row.frame_bytes, u64::try_from(native.len()).unwrap());
-            assert_eq!(row.effect_count, if index == 0 { 1 } else { 0 });
+            assert_eq!(row.effect_count, u32::from(index == 0));
         }
         assert_eq!(
             block.world.assets.get(alice).unwrap().as_ref(),
@@ -2761,7 +2775,10 @@ fn bob_account_removal_source(state: &State, repeat: bool) -> (SignedBlock, Hash
         FeePaymentIntent::authority(vec![], None),
     );
     transaction.set_creation_time(
-        quantity_successor_header(state).creation_time() - Duration::from_millis(1),
+        quantity_successor_header(state)
+            .creation_time()
+            .checked_sub(Duration::from_millis(1))
+            .unwrap(),
     );
     let mut body = vec![InstructionBox::from(Unregister::account(BOB_ID.clone()))];
     if repeat {
@@ -2860,7 +2877,7 @@ fn signed_account_removal_captures_original_supply_first_burn_and_exact_source_c
         plan.consume_balance(&bob, &Quantity::from(amount), &Quantity::zero())
             .unwrap()
             .applied();
-        assert_eq!(plan.finish(), Ok(()));
+        assert!(matches!(plan.finish(), Ok(())));
         assert_eq!(pool.reserved_bytes(), baseline);
         assert_exact_applied_measurement(&block.fastpq_quantity_candidate);
         block
@@ -3354,7 +3371,7 @@ fn signed_empty_definition_retirement_has_no_dummy_balance_burn_and_exact_one_sh
                 plan.consume_retirement(&empty, Some(asset.incarnation), Some(&zero))
                     .unwrap()
                     .applied();
-                assert_eq!(plan.finish(), Ok(()));
+                assert!(matches!(plan.finish(), Ok(())));
             }
             1 => {
                 assert!(plan.consume_retirement(&empty, None, Some(&zero)).is_err());
@@ -3803,7 +3820,7 @@ fn lifecycle_order_ordinary_growing_prefixes_remain_linear_without_allocation() 
 fn lifecycle_order_mixed_chronology_has_charged_n_log_n_work_and_exact_refund() {
     let groups = 2048usize;
     let burns: Vec<_> = (0..groups)
-        .map(|i| chronology_work_burn(i as u32))
+        .map(|i| chronology_work_burn(u32::try_from(i).expect("fixture value fits u32")))
         .collect();
     for reverse in [false, true] {
         let mut effects = burns.clone();
@@ -4248,12 +4265,13 @@ fn world_local_original_deferral_after_owned_retirement_rolls_back_all_disposabl
         let original = original_budget.try_reserve_bytes(1).unwrap_err();
         transaction.world.defer_execution(original.clone());
         transaction.defer_execution(ivm::error::ExecutionDeferral::AllocationUnavailable);
-        let retained = transaction.execution_deferral().unwrap();
+        let retained = transaction.borrow_execution_deferral().unwrap();
         assert_eq!(retained.allocation_refusal(), Some(&original));
         assert_eq!(
             retained.reason(),
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
+        drop(retained);
         transaction.apply();
         drop(occupied);
         assert_eq!(original_budget.reserved_bytes(), 0);
@@ -4489,7 +4507,7 @@ fn mandatory_journal_uses_native_typed_effects_independently_of_optional_archive
             let prepared = prepare_owned_test_mint(&mut transaction, alice, call);
             assert!(prepared.journal.is_ok());
             assert_eq!(prepared.archive.is_err(), starve_archive);
-            assert!(transaction.execution_deferral().is_none());
+            assert!(!transaction.is_execution_deferred());
             // Release only the unrelated diagnostic pressure; the actual already
             // prepared original journal/permits retain their unchanged credits.
             drop(pressure);
@@ -4575,9 +4593,9 @@ fn mandatory_journal_shortage_retains_original_refusal_and_never_runs_business_c
             .journal
             .as_ref()
             .err()
-            .expect("original mandatory admission refusal")
-            .clone();
-        assert!(refusal.allocation_refusal().is_some());
+            .expect("original mandatory admission refusal");
+        let original_reason = refusal.reason();
+        let original_allocation = refusal.allocation_refusal().unwrap().clone();
         let mut called = false;
         assert!(
             transaction
@@ -4588,7 +4606,10 @@ fn mandatory_journal_shortage_retains_original_refusal_and_never_runs_business_c
                 .is_err()
         );
         assert!(!called);
-        assert_eq!(transaction.execution_deferral(), Some(refusal));
+        let retained = transaction.borrow_execution_deferral().unwrap();
+        assert_eq!(retained.reason(), original_reason);
+        assert_eq!(retained.allocation_refusal(), Some(&original_allocation));
+        drop(retained);
         assert_eq!(
             transaction
                 .pending_fastpq_quantity_candidate

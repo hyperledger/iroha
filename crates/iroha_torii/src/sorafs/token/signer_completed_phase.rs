@@ -113,6 +113,10 @@ impl<'a> Received<'a> {
         }
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "Refusal returns the original custody owner without allocating on the refusal path."
+    )]
     fn authenticate(mut self) -> Result<Authenticated<'a>, Refused<'a>> {
         let result = (|| {
             if Instant::now() >= self.deadline {

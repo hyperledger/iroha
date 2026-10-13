@@ -15,7 +15,6 @@ use iroha_model_base::topology::DataSpaceId;
 use std::num::NonZeroU32;
 
 fn private_chain() -> CertifiedTestChain {
-    let ds = DataSpaceId::new(u64::MAX - 15);
     use iroha_data_model::{
         Registrable,
         account::{Account, AccountId},
@@ -27,6 +26,7 @@ fn private_chain() -> CertifiedTestChain {
         domain::Domain,
         parameter::Parameter,
     };
+    let ds = DataSpaceId::new(u64::MAX - 15);
     let clock = iroha_crypto::KeyPair::from_seed(vec![0xCC; 32], iroha_crypto::Algorithm::Ed25519);
     let owner = AccountId::new(clock.public_key().clone());
     let domain =
@@ -176,7 +176,7 @@ fn compact_export_rejects_global_roots_and_oversized_native_quorums() {
     let mut private = private_chain();
     let proposal = private.proposal(Some(1_100), vec![]);
     let refusal = private
-        .begin_proposal(proposal, Default::default())
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
         .unwrap()
         .publish(Signers::All)
         .unwrap_err();
@@ -215,12 +215,51 @@ fn original_private_export_refusal_preserves_read_owner_and_exact_custody_retry(
                 let ExportError::Deferred(reason) = error else {
                     panic!("an unfinished export read cannot reject custody: {error:?}");
                 };
-                assert_eq!(reason, original);
+                assert_eq!(reason.reason(), original.reason());
+                assert_eq!(reason.phase(), original.phase());
+                let actual_decode = reason.decode_refusal().expect("export decoder cause");
+                let original_decode = original
+                    .decode_refusal()
+                    .expect("independent source decoder cause");
+                assert_eq!(actual_decode.kind(), original_decode.kind());
+                assert_eq!(
+                    actual_decode.resource_error(),
+                    original_decode.resource_error()
+                );
+                assert_eq!(
+                    actual_decode.allocation_bytes(),
+                    original_decode.allocation_bytes()
+                );
+                assert_ne!(
+                    actual_decode, original_decode,
+                    "separate canonical read observers retain distinct original owners"
+                );
+                assert!(
+                    reason.verification_refusal().is_none()
+                        && original.verification_refusal().is_none()
+                );
                 assert!(
                     reason.allocation_refusal().is_none(),
                     "the decode counter has no release owner"
                 );
             }
+            let retained_decode = original
+                .decode_refusal()
+                .expect("original decoder cause")
+                .clone();
+            let retained_reason = original.reason();
+            let retained_phase = original.phase();
+            let mapped =
+                ExportError::from(ExecutionAttemptError::<ChainReadError>::Deferred(original));
+            let ExportError::Deferred(mapped) = mapped else {
+                panic!("single-source adapter must retain original refusal")
+            };
+            assert_eq!(mapped.reason(), retained_reason);
+            assert_eq!(mapped.phase(), retained_phase);
+            assert_eq!(mapped.decode_refusal(), Some(&retained_decode));
+            assert!(
+                mapped.allocation_refusal().is_none() && mapped.verification_refusal().is_none()
+            );
             assert_eq!(view.height(), 2);
         },
     );

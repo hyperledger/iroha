@@ -33,7 +33,7 @@ impl InstalledNetworkProfile {
         network_name: String,
         public_key: PublicKey,
         minimum_serial: u64,
-        checkpoint_url: String,
+        checkpoint_url: &str,
     ) -> Result<Self> {
         let trust = ReleaseTrust::new(network_name, public_key, minimum_serial)?;
         if checkpoint_url.len() > MAX_CHECKPOINT_URL_BYTES {
@@ -41,7 +41,7 @@ impl InstalledNetworkProfile {
                 "installed checkpoint URL exceeds byte bound",
             ));
         }
-        let url = Url::parse(&checkpoint_url)
+        let url = Url::parse(checkpoint_url)
             .map_err(|_| BootstrapError::Invalid("invalid installed checkpoint URL"))?;
         if url.as_str() != checkpoint_url
             || url.scheme() != "https"
@@ -168,7 +168,7 @@ impl InstalledNetworkProfiles {
                         record.network_name,
                         record.public_key,
                         record.minimum_serial,
-                        record.checkpoint_url,
+                        &record.checkpoint_url,
                     )
                 })
                 .collect::<Result<_>>()?,

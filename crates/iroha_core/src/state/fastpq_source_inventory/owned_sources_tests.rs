@@ -117,16 +117,17 @@ fn fixture_with_effects_in_root(
         // Nexus admission retains the canonical XOR identity even when its fee
         // is zero. The independently signed PipelineGas charge uses this asset.
         fees.fee_sink_account_id = BOB_ID.to_string();
-        let mut gas = iroha_config::parameters::actual::Gas::default();
-        gas.tech_account_id = BOB_ID.to_string();
-        gas.accepted_assets = vec![asset.canonical_address()];
-        gas.units_per_gas = vec![GasRate {
-            asset: asset.canonical_address(),
-            units_per_gas: 1,
-            twap_local_per_xor: Numeric::one(),
-            liquidity: GasLiquidity::Tier1,
-            volatility: GasVolatility::Stable,
-        }];
+        let gas = iroha_config::parameters::actual::Gas {
+            tech_account_id: BOB_ID.to_string(),
+            accepted_assets: vec![asset.canonical_address()],
+            units_per_gas: vec![GasRate {
+                asset: asset.canonical_address(),
+                units_per_gas: 1,
+                twap_local_per_xor: Numeric::one(),
+                liquidity: GasLiquidity::Tier1,
+                volatility: GasVolatility::Stable,
+            }],
+        };
         fee_parameters.extend(crate::pipeline_gas_policy::parameters_for_testing(gas));
     }
     let nexus = state.nexus_snapshot();
@@ -191,16 +192,17 @@ fn fixture_with_effects_in_root(
         nexus.fees.per_gas_unit_fee = Quantity::zero();
         let genesis_authority = AccountId::new(config.genesis_key.public_key().clone());
         nexus.fees.fee_sink_account_id = genesis_authority.to_string();
-        let mut gas = iroha_config::parameters::actual::Gas::default();
-        gas.tech_account_id = genesis_authority.to_string();
-        gas.accepted_assets = vec![asset.canonical_address()];
-        gas.units_per_gas = vec![GasRate {
-            asset: asset.canonical_address(),
-            units_per_gas: 1,
-            twap_local_per_xor: Numeric::one(),
-            liquidity: GasLiquidity::Tier2,
-            volatility: GasVolatility::Stable,
-        }];
+        let gas = iroha_config::parameters::actual::Gas {
+            tech_account_id: genesis_authority.to_string(),
+            accepted_assets: vec![asset.canonical_address()],
+            units_per_gas: vec![GasRate {
+                asset: asset.canonical_address(),
+                units_per_gas: 1,
+                twap_local_per_xor: Numeric::one(),
+                liquidity: GasLiquidity::Tier2,
+                volatility: GasVolatility::Stable,
+            }],
+        };
         config
             .genesis_parameters
             .extend(crate::pipeline_gas_policy::parameters_for_testing(gas));
@@ -408,7 +410,8 @@ fn fixture_with_effects_in_root(
         ))],
         vec![Unregister::trigger("owned_inventory_absent".parse().unwrap()).into()],
     ] {
-        let gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS);
+        let gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("gas quote must complete for this fixture");
         let mut tx = TransactionBuilder::new(
             state.network_id,
             ALICE_ID.clone(),
@@ -425,7 +428,12 @@ fn fixture_with_effects_in_root(
                 fee_and_protocol.then(|| NonZeroU64::new(gas).unwrap()),
             ),
         );
-        tx.set_creation_time(header.creation_time() - std::time::Duration::from_millis(1));
+        tx.set_creation_time(
+            header
+                .creation_time()
+                .checked_sub(std::time::Duration::from_millis(1))
+                .unwrap(),
+        );
         let mut tx = tx.with_instructions(body);
         if let Some(dataspace) = private_dataspace {
             let view = state.view();
@@ -676,10 +684,10 @@ fn known_rejected_call_capture_and_typed_protocol_extra_remain_owned() {
         let Executable::Instructions(body) = transaction.instructions() else {
             panic!("instruction fee fixture")
         };
-        Quantity::from(crate::gas::meter_instructions(
-            body.as_ref(),
-            &crate::gas::DEFAULT_ZK_GAS,
-        ))
+        Quantity::from(
+            crate::gas::meter_instructions(body.as_ref(), &crate::gas::DEFAULT_ZK_GAS)
+                .expect("gas quote must complete for this fixture"),
+        )
     };
     let success_fee = gas_fee(0);
     let rejected_fee = gas_fee(1);
@@ -832,7 +840,7 @@ fn unknown_internal_capture_and_changed_known_capture_refuse_and_latch() {
         assert_eq!(actual_capture.route(), FastpqSourceRouteV1::Unrouted);
         // Corrupt facts captured by the actual Pipeline transfer. These are
         // hostile state mutations, never an admitted replacement source owner.
-        block.fastpq_source_captures = Default::default();
+        block.fastpq_source_captures = crate::fastpq::FastpqSourceCaptureAccumulator::default();
         if mutation != 3 {
             let hash = if mutation == 0 {
                 Hash::new(b"unowned internal execution call")
@@ -875,7 +883,7 @@ fn unknown_internal_capture_and_changed_known_capture_refuse_and_latch() {
         };
         assert_eq!(error, expected);
         block.fastpq_transcripts.clear();
-        block.fastpq_source_captures = Default::default();
+        block.fastpq_source_captures = crate::fastpq::FastpqSourceCaptureAccumulator::default();
         assert!(
             block
                 .seal_execution_outputs(&mut source, |block, source, _| seal_metadata(

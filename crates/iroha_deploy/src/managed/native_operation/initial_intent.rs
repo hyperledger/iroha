@@ -5,7 +5,7 @@
 
 use super::{attempts::FirstReservation, *};
 
-/// Sole successful CreateNew publication, borrowed from its original native operation owner.
+/// Sole successful `CreateNew` publication, borrowed from its original native operation owner.
 /// It is neither serializable nor Clone and grants no wallet preparation or dispatch authority.
 pub(in crate::managed) struct PublishedInitialIntent<'a> {
     directory: &'a PrivateDirectory,

@@ -38,7 +38,7 @@ use super::{
 use crate::state::StateReadOnly;
 
 /// Why a current portable proof could not be served.
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum ProofError {
     /// No current certified frame can be read for this height.
     #[error(transparent)]
@@ -286,7 +286,7 @@ pub fn build_checkpoint(
     let genesis = proof_from_chain(&chain, 1)?;
     let mut verifier = SumeragiFinalityVerifier::new(
         chain.genesis(),
-        &view.chain_id().to_string(),
+        view.chain_id().as_ref(),
         genesis.committee.clone(),
     )?;
     for at in 1..=height {
@@ -303,7 +303,7 @@ pub fn build_checkpoint(
         verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(
             &checkpoint,
             view.network_id(),
-            &view.chain_id().to_string(),
+            view.chain_id().as_ref(),
         )?;
     }
     Err(ProofError::UnverifiedCommittee(height))
@@ -789,7 +789,6 @@ mod tests {
     }
     #[test]
     fn original_checkpoint_binary_refusal_is_local_and_retries_exact_original_source() {
-        use crate::execution_attempt::ExecutionDeferred;
         use iroha_data_model::block::decode_framed_signed_block;
         use ivm::error::ExecutionDeferral;
         let mut chain = CertifiedTestChain::start(TestChainConfig::new(World::default(), 10_000))
@@ -830,9 +829,9 @@ mod tests {
         let error =
             norito::with_decode_limits_scope(limits(0), || read().map_err(ProofError::from))
                 .unwrap_err();
-        let expected = ExecutionDeferred::from(ExecutionDeferral::ActiveMemoryCapacity);
+        let expected = ExecutionDeferral::ActiveMemoryCapacity;
         assert!(
-            matches!(&error, ProofError::Deferred(local) if local == &expected),
+            matches!(&error, ProofError::Deferred(local) if local.reason() == expected && local.decode_refusal().is_some()),
             "{error:?}"
         );
         assert_eq!(checkpoint.encode_canonical().unwrap(), original);
@@ -841,18 +840,20 @@ mod tests {
             retried.export_checkpoint(checkpoint.tip()).unwrap(),
             checkpoint
         );
-        let (retained, retried_with_outer) =
-            norito::with_decode_limits_scope(limits(8 * 1024 * 1024), || {
+        let (retained, retried_with_outer) = norito::with_decode_limits_scope(
+            limits(8 * 1024 * 1024),
+            || {
                 let inner = norito::with_decode_limits_scope(limits(0), read).unwrap_err();
                 let retained = ProofError::from(inner);
                 assert!(
-                    matches!(&retained, ProofError::Deferred(local) if local == &expected),
+                    matches!(&retained, ProofError::Deferred(local) if local.reason() == expected && local.decode_refusal().is_some()),
                     "the original inner refusal survives its caller scope: {retained:?}"
                 );
                 (retained, read().unwrap())
-            });
+            },
+        );
         assert!(
-            matches!(&retained, ProofError::Deferred(local) if local == &expected),
+            matches!(&retained, ProofError::Deferred(local) if local.reason() == expected && local.decode_refusal().is_some()),
             "the captured original refusal survives all caller scopes: {retained:?}"
         );
         assert_eq!(
@@ -922,7 +923,7 @@ mod tests {
         let mut verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(
             &checkpoint,
             &chain.network_id(),
-            &view.chain_id().to_string(),
+            view.chain_id().as_ref(),
         )
         .unwrap();
         let next = build_proof(&view, 3).unwrap();
@@ -1020,6 +1021,8 @@ impl From<iroha_data_model::sumeragi_finality::FinalityReadError> for ProofError
         use iroha_data_model::sumeragi_finality::FinalityReadError;
         match error {
             FinalityReadError::Invalid(error) => Self::Portable(error),
+            FinalityReadError::ScratchLimit(original) => Self::Deferred(original.into()),
+            FinalityReadError::Allocator(original) => Self::Deferred(original.into()),
             FinalityReadError::DecodeResource(original) => {
                 let completed = |error: norito::core::DecodeAttemptError| {
                     Self::Portable(FinalityError(error.to_string()))

@@ -1,0 +1,564 @@
+{
+  "all_inputs_panic_free_proved": false,
+  "complete_stack_bound_bytes": null,
+  "complete_workspace_certificate": false,
+  "input_changes": {},
+  "inputs": {
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/resource_contract/workspace.rs": "875e767119f2f462bf0608c57dcadfd3838cbea1e8c7585c1bdb5605cbaa0dca",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/README.md": "e1561a264c7959148ad31e0da92bef9a9cae3e1da1bd314f1b2ab906ea7e6461",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/SHA256SUMS": "2391e094d9d8ef33d246815280906e36c295bce1c8a6703e834140c3e526f1ca",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel-command.txt": "0d044fbf4b84b472d3aaf11c5dcdf0a6547344a0239148fd90d698b1fa415121",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel.json": "b12dbfda88d10da8790afa3d27f1a1d77fbabfc609dcc09432b6d8afb94647e7",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel/disassembly.txt": "d80e13b92b4beaf4cd94ea9a64fd854b01f37b0babd8390ecbd52371c4b2f0b2",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel/starts.txt": "e113b57f45727c125efab55dc43f78f7f289f97f749c0b6315d21f9d42ba634e",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel/stubs.txt": "1e98eccff5bf0060d9a2a239bcc2d82e30c508f3b0d7e240ae4604ae26da6ba3",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel/unwind.txt": "61e8bd873d4cb31dc058bf1910f3f0f95f91cb95b898e212084ac73efc43bdc2",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/parliament_ballot_stack_audit.py.template": "a14cfb28a381e9bcaa449f01e5a8b8fcc4ac04f134d1fc0cb5522c87961d452f",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/parliament_ballot_stack_audit_test.py.template": "019be367b0d6c8f1407f0821c1282453ff98e331729e98d8175a6bcd7f0b5b33",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable-command.txt": "8d28f7998fb864652b514d66fe357c15d45a3068884badfd69c4cabc8f0d74fa",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable.json": "f683d2ec53728edb6e1552df345ebd0ecc07b85cff3e26679b7b6ba42ee3ed5b",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable/disassembly.txt": "2d13c24d142324fa565afd99f3191a8ef434ba945b32fb23d6f78de0642a3cf6",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable/starts.txt": "c7ea85f2a878ec378fa450fd111ec3e7b803563787bdb5c2f934e3eaa0ab6e18",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable/stubs.txt": "cecee0936f7f7e3a5a5f96e6ecfd6ffa9861a1d5c873e84d90a419b502735b69",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable/unwind.txt": "5ec247c2343b47edc2a152f340f29984faa32f97c25a5331036bc5a7971dc91f",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/receipt.json": "4c270e5b687b30c91db4d34aa1ad3fe3cd31244c55c12e8d42f3376ac257e18c",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/tests.txt": "df9e28e05d90b973065157bbe55007b3fc1a0794a0d63cf989ec77d6b3adfd43",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_indirect_targets/README.md": "323059bd5337e31a20c22606aa9eb1da55f8fbd5efc1d68d06757dc683459e79",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_indirect_targets/SHA256SUMS": "f6f40750ef8ce232549a4a338d36d476966987ba1dff9afd78cb72b749aa2b85",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_indirect_targets/accel-rebases.txt": "f01b8d766914b45d5dae26c0e20a209f765500cb3531460a50f269c430383850",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_indirect_targets/catalog.json": "3cad64efdedc92d8dd0a1401ce07a1c81a170554889018a1b80ea581af2be1b9",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_indirect_targets/parliament_ballot_indirect_targets.py.template": "b6f6086f5abd9a3f6b4e099b4a911a264aa168792c230b3981437649e0fa2149",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_indirect_targets/parliament_ballot_indirect_targets_test.py.template": "18e3bb949ed6bda94233f062cc9f352d8d9dfd39d0902d1e45dfbbdeea0efa01",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_indirect_targets/portable-rebases.txt": "654df712ffa745da2357aedfc4e2bcb1e03836bf4973143565f199dbd49df892",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_indirect_targets/tests.txt": "69227a3a28b50fd1a1dc7b6766c8bd59d0b558cef6c38f91817eb39382fdc634",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_indirect_targets/validation-receipt.json": "d22bdeca620b4d1bc281225e1d5a471ac6765a71900fcf5e9b23f4b42173fcfa",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_resource_contract/build-receipt.json": "10e64b2cba1339214c1c1df53a02f0a4b4f26855098bf1839d1b604c4952201e",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/README.md": "713db5656d69c35a1501cf0b0c984ed4ed8a3a0cddbfa4ea2526325b89717f02",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/SHA256SUMS": "5d88c20ed5e2e0f8451ba6f68160ac9a653ed950ab11d0198960d0ad773a9564",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/alloc-alloc.rs.template": "cd8a5946b4c44338c451d1bb4c47e3109ea08ae7e3c58397e0879e4fe099572b",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/core-panicking.rs.template": "805a33d479ebcdf2c640f43fb01b7a6707038bc248b4830d15f30a8a60d40303",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/parliament_ballot_stack_frontiers.py.template": "053fd3a50071408faba23b12d5f9144fc8d0d4fa87ba7ad126ee3e7838ca1a5d",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/parliament_ballot_stack_frontiers_test.py.template": "7c290e70e9d9c5afad733b79cde35c96602a8e5a1ed1dab46c5c8f5850aa5b89",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/report.json": "90c2bd1dbdd3ba4839fa8705922a3ff1ea4854ec0578eec2a7787e6ffecbe30f",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/tests.txt": "4cfcd66179ed487df4129ec54d6a4740d94fe60875b0ec11d0bc2f339f5866b4",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/validation-receipt.json": "3a4136a9e291685ad00721b0b6f00e9fb87e4f14fb9e7cd4fa40eef66f536535",
+    "/Users/mtakemiya/dev/iroha/scripts/parliament_ballot_allocator_activation.py": "83d59d7c3bd2f05121d0674bf24a9cea92df45f39c67a68e308de0f41c31dfe0",
+    "/opt/homebrew/Cellar/python@3.11/3.11.17/Frameworks/Python.framework/Versions/3.11/bin/python3.11": "bff9a674241830f21e8e2933b7d9563a0b61f60ea0f3206964d0fcccd9ab8fd6",
+    "/tmp/parliament-resource-contract/resource-accel": "72b7fb66d5eb308b70c0cbeb9716226113a8621c419249b6613a010d14b877b5",
+    "/tmp/parliament-resource-contract/resource-portable": "aee963a937b52c999a74c6a831b6ea64289305bd2ac99ad542a8892530a98ee0"
+  },
+  "limitations": [
+    "Unresolved aliases/opaque writers remain UNKNOWN unconditionally; no whole-binary points-to proof.",
+    "Four explicit allocation arms only; free provenance, native hidden work, failure handlers, traps, fallthroughs and unwinding remain open.",
+    "Reservation::verify called directly without the worker activation has no activation guarantee."
+  ],
+  "modes": {
+    "accel": {
+      "activation_store": "0x100001a8c",
+      "binary_sha256": "72b7fb66d5eb308b70c0cbeb9716226113a8621c419249b6613a010d14b877b5",
+      "calls_between_activation_and_verification_requiring_noninterference": [
+        {
+          "address": "0x100001a9c",
+          "detail": "0x1000059f0 <alloc::vec::from_elem::h278889498b8c4d5c>",
+          "kind": "bl"
+        },
+        {
+          "address": "0x100001aa8",
+          "detail": "0x1000042a0 <std::io::default_read_exact::h22758510ef6e4954>",
+          "kind": "bl"
+        },
+        {
+          "address": "0x100001b74",
+          "detail": "0x10002f718 <_$LT$std..fs..File$u20$as$u20$std..io..Read$GT$::read::h97139ce44b16d7e1>",
+          "kind": "bl"
+        }
+      ],
+      "checked_native_allocation_sites": [
+        {
+          "address": "0x1000013f0",
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 0,
+          "detail": "_malloc",
+          "false_successor": "0x1000013d4",
+          "function": "__rustc::__rust_alloc",
+          "kind": "native_edge",
+          "load": {
+            "address": "0x1000013a0",
+            "instruction": "ldaprb w8, [x8]",
+            "kind": "load"
+          },
+          "maximum_modeled_caller_sp_bytes": 12432,
+          "native_category": "system_allocator",
+          "status": "PASS_UNDER_PREMISES",
+          "true_successor": "0x1000013a8",
+          "zero_branch": "0x1000013a4"
+        },
+        {
+          "address": "0x10000141c",
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 32,
+          "detail": "_posix_memalign",
+          "false_successor": "0x1000013d4",
+          "function": "__rustc::__rust_alloc",
+          "kind": "native_edge",
+          "load": {
+            "address": "0x1000013a0",
+            "instruction": "ldaprb w8, [x8]",
+            "kind": "load"
+          },
+          "maximum_modeled_caller_sp_bytes": 12464,
+          "native_category": "system_allocator",
+          "status": "PASS_UNDER_PREMISES",
+          "true_successor": "0x1000013a8",
+          "zero_branch": "0x1000013a4"
+        },
+        {
+          "address": "0x100002538",
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 0,
+          "detail": "_malloc",
+          "false_successor": "0x10000251c",
+          "function": "_$LT$resource_contract..workspace..Routed$u20$as$u20$core..alloc..global..GlobalAlloc$GT$::alloc::h4e7b871b37e11b54",
+          "kind": "native_edge",
+          "load": {
+            "address": "0x1000024e8",
+            "instruction": "ldaprb w8, [x8]",
+            "kind": "load"
+          },
+          "maximum_modeled_caller_sp_bytes": 9584,
+          "native_category": "system_allocator",
+          "status": "PASS_UNDER_PREMISES",
+          "true_successor": "0x1000024f0",
+          "zero_branch": "0x1000024ec"
+        },
+        {
+          "address": "0x100002564",
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 32,
+          "detail": "_posix_memalign",
+          "false_successor": "0x10000251c",
+          "function": "_$LT$resource_contract..workspace..Routed$u20$as$u20$core..alloc..global..GlobalAlloc$GT$::alloc::h4e7b871b37e11b54",
+          "kind": "native_edge",
+          "load": {
+            "address": "0x1000024e8",
+            "instruction": "ldaprb w8, [x8]",
+            "kind": "load"
+          },
+          "maximum_modeled_caller_sp_bytes": 9616,
+          "native_category": "system_allocator",
+          "status": "PASS_UNDER_PREMISES",
+          "true_successor": "0x1000024f0",
+          "zero_branch": "0x1000024ec"
+        }
+      ],
+      "conditional_system_frontier_count_after": 10,
+      "conditional_system_frontier_count_before": 14,
+      "failure_native_trap_unwind_frontiers_retained": true,
+      "flag": {
+        "address": "0x1000d4d50",
+        "n_type": 30,
+        "section": 16,
+        "symbol": "__ZN17resource_contract9workspace6ACTIVE17hcb87049fa906b95fE.0"
+      },
+      "known_clear_before_call": false,
+      "known_writer_in_reservation_graph": false,
+      "literal_reference_catalog": [
+        {
+          "address": "0x100001398",
+          "function": "__rustc::__rust_alloc",
+          "function_address": "0x100001388",
+          "instructions": [
+            "adrp x8, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x8, x8, #0xd50"
+          ],
+          "register": "x8"
+        },
+        {
+          "address": "0x1000017b4",
+          "function": "resource_contract::workspace::run::had6006352aff7351",
+          "function_address": "0x1000015e0",
+          "instructions": [
+            "adrp x8, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x8, x8, #0xd50"
+          ],
+          "register": "x8"
+        },
+        {
+          "address": "0x100001960",
+          "function": "resource_contract::workspace::worker::h2e05ae2318fbaa23",
+          "function_address": "0x1000018c0",
+          "instructions": [
+            "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x20, x20, #0xd50"
+          ],
+          "register": "x20"
+        },
+        {
+          "address": "0x100001a84",
+          "function": "resource_contract::workspace::worker::h2e05ae2318fbaa23",
+          "function_address": "0x1000018c0",
+          "instructions": [
+            "adrp x9, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x9, x9, #0xd50"
+          ],
+          "register": "x9"
+        },
+        {
+          "address": "0x100001b10",
+          "function": "resource_contract::workspace::worker::h2e05ae2318fbaa23",
+          "function_address": "0x1000018c0",
+          "instructions": [
+            "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x20, x20, #0xd50"
+          ],
+          "register": "x20"
+        },
+        {
+          "address": "0x1000024e0",
+          "function": "_$LT$resource_contract..workspace..Routed$u20$as$u20$core..alloc..global..GlobalAlloc$GT$::alloc::h4e7b871b37e11b54",
+          "function_address": "0x1000024d4",
+          "instructions": [
+            "adrp x8, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x8, x8, #0xd50"
+          ],
+          "register": "x8"
+        },
+        {
+          "address": "0x100005a24",
+          "function": "alloc::vec::from_elem::h278889498b8c4d5c",
+          "function_address": "0x1000059f0",
+          "instructions": [
+            "adrp x8, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x8, x8, #0xd50"
+          ],
+          "register": "x8"
+        },
+        {
+          "address": "0x100005a74",
+          "function": "alloc::vec::from_elem::h278889498b8c4d5c",
+          "function_address": "0x1000059f0",
+          "instructions": [
+            "adrp x8, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x8, x8, #0xd50"
+          ],
+          "register": "x8"
+        },
+        {
+          "address": "0x100005c00",
+          "function": "_$LT$alloc..vec..Vec$LT$T$GT$$u20$as$u20$alloc..vec..spec_from_iter..SpecFromIter$LT$T$C$I$GT$$GT$::from_iter::hc81d5a87a21fece3",
+          "function_address": "0x100005b24",
+          "instructions": [
+            "adrp x8, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x8, x8, #0xd50"
+          ],
+          "register": "x8"
+        }
+      ],
+      "local_checks": "PASS",
+      "reservation_call": "0x100001ba0",
+      "resolved_stores": [
+        {
+          "address": "0x1000017bc",
+          "function": "resource_contract::workspace::run::had6006352aff7351",
+          "function_address": "0x1000015e0",
+          "instruction": "stlrb wzr, [x8]",
+          "kind": "store",
+          "value": 0
+        },
+        {
+          "address": "0x100001a8c",
+          "function": "resource_contract::workspace::worker::h2e05ae2318fbaa23",
+          "function_address": "0x1000018c0",
+          "instruction": "stlrb w8, [x9]",
+          "kind": "store",
+          "value": 1
+        },
+        {
+          "address": "0x100001b34",
+          "function": "resource_contract::workspace::worker::h2e05ae2318fbaa23",
+          "function_address": "0x1000018c0",
+          "instruction": "stlrb wzr, [x20]",
+          "kind": "store",
+          "value": 0
+        }
+      ],
+      "true_store_dominates_call": true,
+      "unconditional_activation": "UNKNOWN",
+      "unconditional_frontier_count_unchanged": true,
+      "whole_binary_alias_or_callback_proof": false,
+      "worker_entry": "0x1000018c0"
+    },
+    "portable": {
+      "activation_store": "0x100002944",
+      "binary_sha256": "aee963a937b52c999a74c6a831b6ea64289305bd2ac99ad542a8892530a98ee0",
+      "calls_between_activation_and_verification_requiring_noninterference": [
+        {
+          "address": "0x100002954",
+          "detail": "0x100000bf4 <alloc::vec::from_elem::h69a9bd27fa98f2e9>",
+          "kind": "bl"
+        },
+        {
+          "address": "0x100002960",
+          "detail": "0x100004558 <std::io::default_read_exact::had8f1a4694b3a81d>",
+          "kind": "bl"
+        },
+        {
+          "address": "0x100002a2c",
+          "detail": "0x10003178c <_$LT$std..fs..File$u20$as$u20$std..io..Read$GT$::read::h97139ce44b16d7e1>",
+          "kind": "bl"
+        }
+      ],
+      "checked_native_allocation_sites": [
+        {
+          "address": "0x1000022ac",
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 0,
+          "detail": "_malloc",
+          "false_successor": "0x100002290",
+          "function": "__rustc::__rust_alloc",
+          "kind": "native_edge",
+          "load": {
+            "address": "0x10000225c",
+            "instruction": "ldaprb w8, [x8]",
+            "kind": "load"
+          },
+          "maximum_modeled_caller_sp_bytes": 14208,
+          "native_category": "system_allocator",
+          "status": "PASS_UNDER_PREMISES",
+          "true_successor": "0x100002264",
+          "zero_branch": "0x100002260"
+        },
+        {
+          "address": "0x1000022d8",
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 32,
+          "detail": "_posix_memalign",
+          "false_successor": "0x100002290",
+          "function": "__rustc::__rust_alloc",
+          "kind": "native_edge",
+          "load": {
+            "address": "0x10000225c",
+            "instruction": "ldaprb w8, [x8]",
+            "kind": "load"
+          },
+          "maximum_modeled_caller_sp_bytes": 14240,
+          "native_category": "system_allocator",
+          "status": "PASS_UNDER_PREMISES",
+          "true_successor": "0x100002264",
+          "zero_branch": "0x100002260"
+        },
+        {
+          "address": "0x1000033f0",
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 0,
+          "detail": "_malloc",
+          "false_successor": "0x1000033d4",
+          "function": "_$LT$resource_contract..workspace..Routed$u20$as$u20$core..alloc..global..GlobalAlloc$GT$::alloc::h50127b8327fbd3d4",
+          "kind": "native_edge",
+          "load": {
+            "address": "0x1000033a0",
+            "instruction": "ldaprb w8, [x8]",
+            "kind": "load"
+          },
+          "maximum_modeled_caller_sp_bytes": 9584,
+          "native_category": "system_allocator",
+          "status": "PASS_UNDER_PREMISES",
+          "true_successor": "0x1000033a8",
+          "zero_branch": "0x1000033a4"
+        },
+        {
+          "address": "0x10000341c",
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 32,
+          "detail": "_posix_memalign",
+          "false_successor": "0x1000033d4",
+          "function": "_$LT$resource_contract..workspace..Routed$u20$as$u20$core..alloc..global..GlobalAlloc$GT$::alloc::h50127b8327fbd3d4",
+          "kind": "native_edge",
+          "load": {
+            "address": "0x1000033a0",
+            "instruction": "ldaprb w8, [x8]",
+            "kind": "load"
+          },
+          "maximum_modeled_caller_sp_bytes": 9616,
+          "native_category": "system_allocator",
+          "status": "PASS_UNDER_PREMISES",
+          "true_successor": "0x1000033a8",
+          "zero_branch": "0x1000033a4"
+        }
+      ],
+      "conditional_system_frontier_count_after": 10,
+      "conditional_system_frontier_count_before": 14,
+      "failure_native_trap_unwind_frontiers_retained": true,
+      "flag": {
+        "address": "0x1000d4d50",
+        "n_type": 30,
+        "section": 16,
+        "symbol": "__ZN17resource_contract9workspace6ACTIVE17hf7b411e316540dd9E.0"
+      },
+      "known_clear_before_call": false,
+      "known_writer_in_reservation_graph": false,
+      "literal_reference_catalog": [
+        {
+          "address": "0x100000c28",
+          "function": "alloc::vec::from_elem::h69a9bd27fa98f2e9",
+          "function_address": "0x100000bf4",
+          "instructions": [
+            "adrp x8, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x8, x8, #0xd50"
+          ],
+          "register": "x8"
+        },
+        {
+          "address": "0x100000c78",
+          "function": "alloc::vec::from_elem::h69a9bd27fa98f2e9",
+          "function_address": "0x100000bf4",
+          "instructions": [
+            "adrp x8, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x8, x8, #0xd50"
+          ],
+          "register": "x8"
+        },
+        {
+          "address": "0x100000e04",
+          "function": "_$LT$alloc..vec..Vec$LT$T$GT$$u20$as$u20$alloc..vec..spec_from_iter..SpecFromIter$LT$T$C$I$GT$$GT$::from_iter::h0e3982c234c0dba2",
+          "function_address": "0x100000d28",
+          "instructions": [
+            "adrp x8, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x8, x8, #0xd50"
+          ],
+          "register": "x8"
+        },
+        {
+          "address": "0x100002254",
+          "function": "__rustc::__rust_alloc",
+          "function_address": "0x100002244",
+          "instructions": [
+            "adrp x8, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x8, x8, #0xd50"
+          ],
+          "register": "x8"
+        },
+        {
+          "address": "0x100002670",
+          "function": "resource_contract::workspace::run::h4fcdfa18b681b739",
+          "function_address": "0x10000249c",
+          "instructions": [
+            "adrp x8, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x8, x8, #0xd50"
+          ],
+          "register": "x8"
+        },
+        {
+          "address": "0x100002818",
+          "function": "resource_contract::workspace::worker::h5a4e432b92764ca9",
+          "function_address": "0x100002778",
+          "instructions": [
+            "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x20, x20, #0xd50"
+          ],
+          "register": "x20"
+        },
+        {
+          "address": "0x10000293c",
+          "function": "resource_contract::workspace::worker::h5a4e432b92764ca9",
+          "function_address": "0x100002778",
+          "instructions": [
+            "adrp x9, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x9, x9, #0xd50"
+          ],
+          "register": "x9"
+        },
+        {
+          "address": "0x1000029c8",
+          "function": "resource_contract::workspace::worker::h5a4e432b92764ca9",
+          "function_address": "0x100002778",
+          "instructions": [
+            "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x20, x20, #0xd50"
+          ],
+          "register": "x20"
+        },
+        {
+          "address": "0x100003398",
+          "function": "_$LT$resource_contract..workspace..Routed$u20$as$u20$core..alloc..global..GlobalAlloc$GT$::alloc::h50127b8327fbd3d4",
+          "function_address": "0x10000338c",
+          "instructions": [
+            "adrp x8, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+            "add x8, x8, #0xd50"
+          ],
+          "register": "x8"
+        }
+      ],
+      "local_checks": "PASS",
+      "reservation_call": "0x100002a58",
+      "resolved_stores": [
+        {
+          "address": "0x100002678",
+          "function": "resource_contract::workspace::run::h4fcdfa18b681b739",
+          "function_address": "0x10000249c",
+          "instruction": "stlrb wzr, [x8]",
+          "kind": "store",
+          "value": 0
+        },
+        {
+          "address": "0x100002944",
+          "function": "resource_contract::workspace::worker::h5a4e432b92764ca9",
+          "function_address": "0x100002778",
+          "instruction": "stlrb w8, [x9]",
+          "kind": "store",
+          "value": 1
+        },
+        {
+          "address": "0x1000029ec",
+          "function": "resource_contract::workspace::worker::h5a4e432b92764ca9",
+          "function_address": "0x100002778",
+          "instruction": "stlrb wzr, [x20]",
+          "kind": "store",
+          "value": 0
+        }
+      ],
+      "true_store_dominates_call": true,
+      "unconditional_activation": "UNKNOWN",
+      "unconditional_frontier_count_unchanged": true,
+      "whole_binary_alias_or_callback_proof": false,
+      "worker_entry": "0x100002778"
+    }
+  },
+  "no_rebuild_or_worker_execution": true,
+  "observed_at_utc": "2026-10-13T08:56:46.028704+00:00",
+  "premises": [
+    "Correct source/compiler linkage and memory-safe execution of the frozen image.",
+    "The private flag address is not exported; ordinary opaque callees, native code, callbacks and other threads do not write it or reenter a flag-writing worker/setup path. This is an explicit noninterference premise, not proved from finite observations.",
+    "Ordinary calls preserve AArch64 callee-saved registers and return as modeled. Exceptional/unwind continuations remain outside this normal-path calculation.",
+    "Existing source-conditional provider target sets and failure-entry boundary premises remain unchanged."
+  ],
+  "profile_qualified": false,
+  "schema": "parliament-allocator-activation-v1",
+  "source_contract": {
+    "accesses": [
+      {
+        "line": 30,
+        "text": "static ACTIVE: AtomicBool = AtomicBool::new(false);"
+      },
+      {
+        "line": 41,
+        "text": "if ACTIVE.load(Ordering::Acquire) {"
+      },
+      {
+        "line": 248,
+        "text": "ACTIVE.store(false, Ordering::Release);"
+      },
+      {
+        "line": 301,
+        "text": "ACTIVE.store(false, Ordering::Release);"
+      },
+      {
+        "line": 341,
+        "text": "ACTIVE.store(true, Ordering::Release);"
+      }
+    ],
+    "private_no_address_export_at_source": true,
+    "scope": "Exact reviewed file and source-level privacy, not whole-binary alias analysis."
+  },
+  "status": "PASS_UNDER_PREMISES"
+}

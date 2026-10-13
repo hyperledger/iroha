@@ -18,10 +18,15 @@ fn direct_local_mapper_keeps_original_nested_owner_without_physical_allocation()
     original.set_limit_bytes(original.reserved_bytes());
     let capacity = original.try_reserve_bytes(1).unwrap_err();
     for source in [
-        VMError::AllocationDeferred(capacity),
+        VMError::AllocationDeferred(capacity.clone()),
         VMError::ExecutionDeferred(ivm::error::ExecutionDeferral::TraceOwnerUnavailable),
     ] {
-        let expected = source.clone();
+        let expected_reason = source.execution_deferral().unwrap();
+        let expected_allocation = match &source {
+            VMError::AllocationDeferred(original) => Some(original.clone()),
+            VMError::ExecutionDeferred(_) => None,
+            _ => unreachable!("exact fixture variants"),
+        };
         let error = VMError::Metered {
             gas: 31,
             source: Box::new(VMError::Metered {
@@ -37,7 +42,13 @@ fn direct_local_mapper_keeps_original_nested_owner_without_physical_allocation()
         let ExecutionAttemptError::Deferred(owner) = attempt.unwrap() else {
             panic!("a local refusal cannot become a completed validation diagnostic");
         };
-        assert_eq!(owner.into_vm_error(), expected);
+        assert_eq!(owner.reason(), expected_reason);
+        assert_eq!(owner.allocation_refusal(), expected_allocation.as_ref());
+        match (owner.into_vm_error(), expected_allocation) {
+            (VMError::AllocationDeferred(actual), Some(expected)) => assert_eq!(actual, expected),
+            (VMError::ExecutionDeferred(actual), None) => assert_eq!(actual, expected_reason),
+            _ => panic!("diagnostic mapping changed its original local owner"),
+        }
         assert!(vm.last_diagnostic().is_none());
     }
     drop(vm);

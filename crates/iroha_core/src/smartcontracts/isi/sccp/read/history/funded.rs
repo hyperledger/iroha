@@ -237,7 +237,8 @@ impl SccpHistoryNodeCache {
                 .ok_or(SccpHistoryReadError::Inconsistent)?,
         )
         .map_err(|_| SccpHistoryReadError::Inconsistent)?;
-        if count == 0 || count > CHUNK as usize {
+        if count == 0 || count > usize::try_from(CHUNK).expect("4096-entry anchor chunk fits usize")
+        {
             return Err(SccpHistoryReadError::Inconsistent);
         }
         scratch.truncate(0);
@@ -397,7 +398,7 @@ impl HistoryDraft<'_> {
         array_bytes(self.new_capacity.unwrap_or(0))
     }
     pub(crate) fn request_demand(&self) -> Result<usize, AllocationRefusal> {
-        array_bytes(CHUNK as usize)?
+        array_bytes(usize::try_from(CHUNK).expect("4096-entry anchor chunk fits usize"))?
             .checked_add(array_bytes(self.path_len)?)
             .ok_or(AllocationRefusal::DemandOverflow)
     }
@@ -415,7 +416,10 @@ impl HistoryDraft<'_> {
         expected: Option<(Hash, Hash)>,
     ) -> Result<RetainedSccpHistoryPath, SccpHistoryReadError> {
         // All actual allocations precede cache mutation; a physical failure preserves it.
-        let mut scratch = ChargedBuffer::from_reservation(CHUNK as usize, reservation)?;
+        let mut scratch = ChargedBuffer::from_reservation(
+            usize::try_from(CHUNK).expect("4096-entry anchor chunk fits usize"),
+            reservation,
+        )?;
         let mut path = ChargedBuffer::from_reservation(self.path_len, reservation)?;
         let replacement = if let Some(capacity) = self.new_capacity {
             let mut nodes = ChargedBuffer::from_reservation(capacity, cache_reservation)?;

@@ -1,0 +1,3511 @@
+{
+  "complete_stack_bound_bytes": null,
+  "complete_workspace_certificate": false,
+  "flag_partition": {
+    "fallback_NZCV": "0010",
+    "in_range": "P >= H and P - H < N",
+    "nontermination_fault_unwind_absence_proved": false,
+    "rows": [
+      {
+        "B_LO_taken": false,
+        "CCMP_C": 1,
+        "SUBS_C": 1,
+        "expected_contains": false,
+        "pointer_below_heap": false,
+        "wrapped_difference_below_bytes": false
+      },
+      {
+        "B_LO_taken": true,
+        "CCMP_C": 0,
+        "SUBS_C": 1,
+        "expected_contains": true,
+        "pointer_below_heap": false,
+        "wrapped_difference_below_bytes": true
+      },
+      {
+        "B_LO_taken": false,
+        "CCMP_C": 1,
+        "SUBS_C": 0,
+        "expected_contains": false,
+        "pointer_below_heap": true,
+        "wrapped_difference_below_bytes": false
+      },
+      {
+        "B_LO_taken": false,
+        "CCMP_C": 1,
+        "SUBS_C": 0,
+        "expected_contains": false,
+        "pointer_below_heap": true,
+        "wrapped_difference_below_bytes": true
+      }
+    ],
+    "system_when_local_block_returns": "ARENA == null or P < H or P - H >= N",
+    "word_bits": 64
+  },
+  "input_changes": {},
+  "inputs": {
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/resource_contract/arena.rs": "1c4a2faceaee40bfd74dd7b956c62fa2a906eaee3edc7e0ab69bce88c164eaa8",
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/resource_contract/workspace.rs": "875e767119f2f462bf0608c57dcadfd3838cbea1e8c7585c1bdb5605cbaa0dca",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_allocator_activation/README.md": "c8ea245b9003fbd2a734014593937b8beb49082e986fe018a96d1849d4117814",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_allocator_activation/SHA256SUMS": "ba6f2024e158a7bdcd4918a2f227cede6a1f33f251e46f32cd207441d8805d02",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_allocator_activation/analysis.txt": "90083f1f76480445cad4673a9893dabe45e73670accf2bc1bf847ff6f2da9ccc",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_allocator_activation/analysis/report.json": "a8ac71f6b5d0e473496d9931652c7eda435d860c90c04120aad4cfd9da225e06",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_allocator_activation/analysis/workspace.rs.template": "875e767119f2f462bf0608c57dcadfd3838cbea1e8c7585c1bdb5605cbaa0dca",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_allocator_activation/parliament_ballot_allocator_activation.py.template": "83d59d7c3bd2f05121d0674bf24a9cea92df45f39c67a68e308de0f41c31dfe0",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_allocator_activation/parliament_ballot_allocator_activation_test.py.template": "f08a5ce8d3259c1d66ffff205fce537b17571e29fa86c4b72e6c46bdddbadb7c",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_allocator_activation/tests.txt": "d5270d73d347a26ca693fcc935ca13188ec250d2fa940fb9e322d14615579956",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_allocator_activation/validation-receipt.json": "142ab92353af90c6c2589cce5689d8b2bc9470814f3405325e7b16008ceb7a00",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/README.md": "e1561a264c7959148ad31e0da92bef9a9cae3e1da1bd314f1b2ab906ea7e6461",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/SHA256SUMS": "2391e094d9d8ef33d246815280906e36c295bce1c8a6703e834140c3e526f1ca",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel-command.txt": "0d044fbf4b84b472d3aaf11c5dcdf0a6547344a0239148fd90d698b1fa415121",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel.json": "b12dbfda88d10da8790afa3d27f1a1d77fbabfc609dcc09432b6d8afb94647e7",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel/disassembly.txt": "d80e13b92b4beaf4cd94ea9a64fd854b01f37b0babd8390ecbd52371c4b2f0b2",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel/starts.txt": "e113b57f45727c125efab55dc43f78f7f289f97f749c0b6315d21f9d42ba634e",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel/stubs.txt": "1e98eccff5bf0060d9a2a239bcc2d82e30c508f3b0d7e240ae4604ae26da6ba3",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel/unwind.txt": "61e8bd873d4cb31dc058bf1910f3f0f95f91cb95b898e212084ac73efc43bdc2",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/parliament_ballot_stack_audit.py.template": "a14cfb28a381e9bcaa449f01e5a8b8fcc4ac04f134d1fc0cb5522c87961d452f",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/parliament_ballot_stack_audit_test.py.template": "019be367b0d6c8f1407f0821c1282453ff98e331729e98d8175a6bcd7f0b5b33",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable-command.txt": "8d28f7998fb864652b514d66fe357c15d45a3068884badfd69c4cabc8f0d74fa",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable.json": "f683d2ec53728edb6e1552df345ebd0ecc07b85cff3e26679b7b6ba42ee3ed5b",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable/disassembly.txt": "2d13c24d142324fa565afd99f3191a8ef434ba945b32fb23d6f78de0642a3cf6",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable/starts.txt": "c7ea85f2a878ec378fa450fd111ec3e7b803563787bdb5c2f934e3eaa0ab6e18",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable/stubs.txt": "cecee0936f7f7e3a5a5f96e6ecfd6ffa9861a1d5c873e84d90a419b502735b69",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable/unwind.txt": "5ec247c2343b47edc2a152f340f29984faa32f97c25a5331036bc5a7971dc91f",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/receipt.json": "4c270e5b687b30c91db4d34aa1ad3fe3cd31244c55c12e8d42f3376ac257e18c",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/tests.txt": "df9e28e05d90b973065157bbe55007b3fc1a0794a0d63cf989ec77d6b3adfd43",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_resource_contract/build-receipt.json": "10e64b2cba1339214c1c1df53a02f0a4b4f26855098bf1839d1b604c4952201e",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/README.md": "713db5656d69c35a1501cf0b0c984ed4ed8a3a0cddbfa4ea2526325b89717f02",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/SHA256SUMS": "5d88c20ed5e2e0f8451ba6f68160ac9a653ed950ab11d0198960d0ad773a9564",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/alloc-alloc.rs.template": "cd8a5946b4c44338c451d1bb4c47e3109ea08ae7e3c58397e0879e4fe099572b",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/core-panicking.rs.template": "805a33d479ebcdf2c640f43fb01b7a6707038bc248b4830d15f30a8a60d40303",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/parliament_ballot_stack_frontiers.py.template": "053fd3a50071408faba23b12d5f9144fc8d0d4fa87ba7ad126ee3e7838ca1a5d",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/parliament_ballot_stack_frontiers_test.py.template": "7c290e70e9d9c5afad733b79cde35c96602a8e5a1ed1dab46c5c8f5850aa5b89",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/report.json": "90c2bd1dbdd3ba4839fa8705922a3ff1ea4854ec0578eec2a7787e6ffecbe30f",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/tests.txt": "4cfcd66179ed487df4129ec54d6a4740d94fe60875b0ec11d0bc2f339f5866b4",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/validation-receipt.json": "3a4136a9e291685ad00721b0b6f00e9fb87e4f14fb9e7cd4fa40eef66f536535",
+    "/Users/mtakemiya/dev/iroha/scripts/parliament_ballot_free_predicates.py": "f276c277f771b35a816906d573c7dde55588d0a9e183ba38c230b49e1ba0bea3",
+    "/opt/homebrew/Cellar/python@3.11/3.11.17/Frameworks/Python.framework/Versions/3.11/bin/python3.11": "bff9a674241830f21e8e2933b7d9563a0b61f60ea0f3206964d0fcccd9ab8fd6",
+    "/tmp/parliament-resource-contract/resource-accel": "72b7fb66d5eb308b70c0cbeb9716226113a8621c419249b6613a010d14b877b5",
+    "/tmp/parliament-resource-contract/resource-portable": "aee963a937b52c999a74c6a831b6ea64289305bd2ac99ad542a8892530a98ee0"
+  },
+  "limitations": [
+    "No pointer ownership, arena non-null lifetime, all-input allocation correspondence or native endpoint bound is proved.",
+    "Lock termination, faults, traps, callbacks, failure paths and unwind behavior remain open.",
+    "Contains checks range only; range membership does not establish a live allocation or a correct layout.",
+    "All ten unconditional free frontiers in each original Reservation graph remain OPEN."
+  ],
+  "modes": {
+    "accel": {
+      "all_input_allocation_correspondence": false,
+      "arena_symbol": {
+        "address": "0x1000d4d48",
+        "n_type": 30,
+        "section": 16,
+        "symbol": "__ZN17resource_contract9workspace5ARENA17hd5007422d2dbd288E"
+      },
+      "binary_sha256": "72b7fb66d5eb308b70c0cbeb9716226113a8621c419249b6613a010d14b877b5",
+      "free_frontiers_after": 10,
+      "free_frontiers_before": 10,
+      "local_checks": "PASS",
+      "sites": [
+        {
+          "address": "0x1000014ac",
+          "arena_load": "0x100001454",
+          "arena_symbol_register": "x9",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 0,
+          "conditional_compare": "0x100001498",
+          "detail": "_free",
+          "function": "__rustc::__rust_dealloc",
+          "heap_offset": 0,
+          "in_range_branch": "0x10000149c",
+          "in_range_successor": "0x1000014b0",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 10688,
+          "native_category": "system_allocator",
+          "null_branch": "0x100001458",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "classification": "allocator_ABI_input",
+            "instruction": "0x100001448",
+            "op": "mov",
+            "operands": "x8, x0"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100001454",
+              "op": "ldapr",
+              "operands": "x0, [x9]"
+            },
+            {
+              "address": "0x100001458",
+              "op": "cbz",
+              "operands": "x0, 0x1000014a0 <__rustc::__rust_dealloc+0x64>"
+            },
+            {
+              "address": "0x10000145c",
+              "op": "mov",
+              "operands": "w10, #0x0"
+            },
+            {
+              "address": "0x100001460",
+              "op": "add",
+              "operands": "x11, x0, #0x50"
+            },
+            {
+              "address": "0x100001464",
+              "op": "mov",
+              "operands": "w9, #0x1"
+            },
+            {
+              "address": "0x100001468",
+              "op": "casab",
+              "operands": "w10, w9, [x11]"
+            },
+            {
+              "address": "0x10000146c",
+              "op": "cmp",
+              "operands": "w10, #0x0"
+            },
+            {
+              "address": "0x100001470",
+              "op": "b.eq",
+              "operands": "0x100001488 <__rustc::__rust_dealloc+0x4c>"
+            },
+            {
+              "address": "0x100001474",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100001478",
+              "op": "mov",
+              "operands": "w10, #0x0"
+            },
+            {
+              "address": "0x10000147c",
+              "op": "add",
+              "operands": "x11, x0, #0x50"
+            },
+            {
+              "address": "0x100001480",
+              "op": "casab",
+              "operands": "w10, w9, [x11]"
+            },
+            {
+              "address": "0x100001484",
+              "op": "cbnz",
+              "operands": "w10, 0x100001474 <__rustc::__rust_dealloc+0x38>"
+            },
+            {
+              "address": "0x100001488",
+              "op": "ldr",
+              "operands": "x9, [x0]"
+            },
+            {
+              "address": "0x10000148c",
+              "op": "ldr",
+              "operands": "x10, [x0, #0x10]"
+            },
+            {
+              "address": "0x100001490",
+              "op": "subs",
+              "operands": "x9, x8, x9"
+            },
+            {
+              "address": "0x100001494",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100001498",
+              "op": "ccmp",
+              "operands": "x9, x10, #0x2, hs"
+            },
+            {
+              "address": "0x10000149c",
+              "op": "b.lo",
+              "operands": "0x1000014b0 <__rustc::__rust_dealloc+0x74>"
+            },
+            {
+              "address": "0x1000014a0",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x1000014a4",
+              "op": "ldp",
+              "operands": "x29, x30, [sp, #0x20]"
+            },
+            {
+              "address": "0x1000014a8",
+              "op": "add",
+              "operands": "sp, sp, #0x30"
+            },
+            {
+              "address": "0x1000014ac",
+              "op": "b",
+              "operands": "0x100059128 <dyld_stub_binder+0x100059128>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x10000144c",
+            "function": "__rustc::__rust_dealloc",
+            "function_address": "0x10000143c",
+            "instructions": [
+              "adrp x9, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x9, x9, #0xd48"
+            ],
+            "register": "x9"
+          },
+          "system_pointer_move": "0x1000014a0",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100001490"
+        },
+        {
+          "address": "0x100001570",
+          "arena_load": "0x100001520",
+          "arena_symbol_register": "x8",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 80,
+          "conditional_compare": "0x100001564",
+          "detail": "_free",
+          "function": "__rustc::__rust_realloc",
+          "heap_offset": 0,
+          "in_range_branch": "0x100001568",
+          "in_range_successor": "0x100001578",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 9408,
+          "native_category": "system_allocator",
+          "null_branch": "0x100001524",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "classification": "allocator_ABI_input",
+            "instruction": "0x1000014f0",
+            "op": "mov",
+            "operands": "x21, x0"
+          },
+          "pointer_register": "x21",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100001520",
+              "op": "ldapr",
+              "operands": "x0, [x8]"
+            },
+            {
+              "address": "0x100001524",
+              "op": "cbz",
+              "operands": "x0, 0x10000156c <__rustc::__rust_realloc+0x9c>"
+            },
+            {
+              "address": "0x100001528",
+              "op": "mov",
+              "operands": "w9, #0x0"
+            },
+            {
+              "address": "0x10000152c",
+              "op": "add",
+              "operands": "x10, x0, #0x50"
+            },
+            {
+              "address": "0x100001530",
+              "op": "mov",
+              "operands": "w8, #0x1"
+            },
+            {
+              "address": "0x100001534",
+              "op": "casab",
+              "operands": "w9, w8, [x10]"
+            },
+            {
+              "address": "0x100001538",
+              "op": "cmp",
+              "operands": "w9, #0x0"
+            },
+            {
+              "address": "0x10000153c",
+              "op": "b.eq",
+              "operands": "0x100001554 <__rustc::__rust_realloc+0x84>"
+            },
+            {
+              "address": "0x100001540",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100001544",
+              "op": "mov",
+              "operands": "w9, #0x0"
+            },
+            {
+              "address": "0x100001548",
+              "op": "add",
+              "operands": "x10, x0, #0x50"
+            },
+            {
+              "address": "0x10000154c",
+              "op": "casab",
+              "operands": "w9, w8, [x10]"
+            },
+            {
+              "address": "0x100001550",
+              "op": "cbnz",
+              "operands": "w9, 0x100001540 <__rustc::__rust_realloc+0x70>"
+            },
+            {
+              "address": "0x100001554",
+              "op": "ldr",
+              "operands": "x8, [x0]"
+            },
+            {
+              "address": "0x100001558",
+              "op": "ldr",
+              "operands": "x9, [x0, #0x10]"
+            },
+            {
+              "address": "0x10000155c",
+              "op": "subs",
+              "operands": "x8, x21, x8"
+            },
+            {
+              "address": "0x100001560",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100001564",
+              "op": "ccmp",
+              "operands": "x8, x9, #0x2, hs"
+            },
+            {
+              "address": "0x100001568",
+              "op": "b.lo",
+              "operands": "0x100001578 <__rustc::__rust_realloc+0xa8>"
+            },
+            {
+              "address": "0x10000156c",
+              "op": "mov",
+              "operands": "x0, x21"
+            },
+            {
+              "address": "0x100001570",
+              "op": "bl",
+              "operands": "0x100059128 <dyld_stub_binder+0x100059128>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100001518",
+            "function": "__rustc::__rust_realloc",
+            "function_address": "0x1000014d0",
+            "instructions": [
+              "adrp x8, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x8, x8, #0xd48"
+            ],
+            "register": "x8"
+          },
+          "system_pointer_move": "0x10000156c",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x10000155c"
+        },
+        {
+          "address": "0x100003e94",
+          "arena_load": "0x100003e3c",
+          "arena_symbol_register": "x10",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 0,
+          "conditional_compare": "0x100003e80",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..vote..VoteStatement$GT$::h7642045bb25d175b",
+          "heap_offset": 0,
+          "in_range_branch": "0x100003e84",
+          "in_range_successor": "0x100003e98",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2032,
+          "native_category": "system_allocator",
+          "null_branch": "0x100003e40",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x100003e2c",
+                  "load": "0x100003e28",
+                  "nonzero_successor": "0x100003e30",
+                  "opcode": "cbz",
+                  "zero_successor": "0x100003eb4"
+                }
+              ],
+              "offset": 0,
+              "pointer_word_offset": 8,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x100003e30",
+            "op": "ldr",
+            "operands": "x8, [x0, #0x8]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100003e3c",
+              "op": "ldapr",
+              "operands": "x0, [x10]"
+            },
+            {
+              "address": "0x100003e40",
+              "op": "cbz",
+              "operands": "x0, 0x100003e88 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..vote..VoteStatement$GT$::h7642045bb25d175b+0x6c>"
+            },
+            {
+              "address": "0x100003e44",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100003e48",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100003e4c",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x100003e50",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100003e54",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100003e58",
+              "op": "b.eq",
+              "operands": "0x100003e70 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..vote..VoteStatement$GT$::h7642045bb25d175b+0x54>"
+            },
+            {
+              "address": "0x100003e5c",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100003e60",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100003e64",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100003e68",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100003e6c",
+              "op": "cbnz",
+              "operands": "w11, 0x100003e5c <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..vote..VoteStatement$GT$::h7642045bb25d175b+0x40>"
+            },
+            {
+              "address": "0x100003e70",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100003e74",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100003e78",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x100003e7c",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100003e80",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100003e84",
+              "op": "b.lo",
+              "operands": "0x100003e98 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..vote..VoteStatement$GT$::h7642045bb25d175b+0x7c>"
+            },
+            {
+              "address": "0x100003e88",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100003e8c",
+              "op": "ldp",
+              "operands": "x29, x30, [sp, #0x20]"
+            },
+            {
+              "address": "0x100003e90",
+              "op": "add",
+              "operands": "sp, sp, #0x30"
+            },
+            {
+              "address": "0x100003e94",
+              "op": "b",
+              "operands": "0x100059128 <dyld_stub_binder+0x100059128>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100003e34",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..vote..VoteStatement$GT$::h7642045bb25d175b",
+            "function_address": "0x100003e1c",
+            "instructions": [
+              "adrp x10, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x10, x10, #0xd48"
+            ],
+            "register": "x10"
+          },
+          "system_pointer_move": "0x100003e88",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100003e78"
+        },
+        {
+          "address": "0x100003f38",
+          "arena_load": "0x100003ee8",
+          "arena_symbol_register": "x20",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 64,
+          "conditional_compare": "0x100003f2c",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662",
+          "heap_offset": 0,
+          "in_range_branch": "0x100003f30",
+          "in_range_successor": "0x100003fa0",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2096,
+          "native_category": "system_allocator",
+          "null_branch": "0x100003eec",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x100003ee0",
+                  "load": "0x100003ed4",
+                  "nonzero_successor": "0x100003ee4",
+                  "opcode": "cbz",
+                  "zero_successor": "0x100003f3c"
+                }
+              ],
+              "offset": 0,
+              "pointer_word_offset": 8,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x100003ee4",
+            "op": "ldr",
+            "operands": "x8, [x19, #0x8]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100003ee8",
+              "op": "ldapr",
+              "operands": "x0, [x20]"
+            },
+            {
+              "address": "0x100003eec",
+              "op": "cbz",
+              "operands": "x0, 0x100003f34 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x74>"
+            },
+            {
+              "address": "0x100003ef0",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100003ef4",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100003ef8",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x100003efc",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100003f00",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100003f04",
+              "op": "b.eq",
+              "operands": "0x100003f1c <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x5c>"
+            },
+            {
+              "address": "0x100003f08",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100003f0c",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100003f10",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100003f14",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100003f18",
+              "op": "cbnz",
+              "operands": "w11, 0x100003f08 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x48>"
+            },
+            {
+              "address": "0x100003f1c",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100003f20",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100003f24",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x100003f28",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100003f2c",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100003f30",
+              "op": "b.lo",
+              "operands": "0x100003fa0 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0xe0>"
+            },
+            {
+              "address": "0x100003f34",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100003f38",
+              "op": "bl",
+              "operands": "0x100059128 <dyld_stub_binder+0x100059128>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100003ed8",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662",
+            "function_address": "0x100003ec0",
+            "instructions": [
+              "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x20, x20, #0xd48"
+            ],
+            "register": "x20"
+          },
+          "system_pointer_move": "0x100003f34",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100003f24"
+        },
+        {
+          "address": "0x100003f98",
+          "arena_load": "0x100003f48",
+          "arena_symbol_register": "x20",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 64,
+          "conditional_compare": "0x100003f8c",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662",
+          "heap_offset": 0,
+          "in_range_branch": "0x100003f90",
+          "in_range_successor": "0x100003fc4",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2096,
+          "native_category": "system_allocator",
+          "null_branch": "0x100003f4c",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x100003f40",
+                  "load": "0x100003f3c",
+                  "nonzero_successor": "0x100003f44",
+                  "opcode": "cbz",
+                  "zero_successor": "0x100003fdc"
+                },
+                {
+                  "branch": "0x100003fbc",
+                  "load": "0x100003fb8",
+                  "nonzero_successor": "0x100003f44",
+                  "opcode": "cbnz",
+                  "zero_successor": "0x100003fc0"
+                }
+              ],
+              "offset": 24,
+              "pointer_word_offset": 32,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x100003f44",
+            "op": "ldr",
+            "operands": "x8, [x19, #0x20]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100003f48",
+              "op": "ldapr",
+              "operands": "x0, [x20]"
+            },
+            {
+              "address": "0x100003f4c",
+              "op": "cbz",
+              "operands": "x0, 0x100003f94 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0xd4>"
+            },
+            {
+              "address": "0x100003f50",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100003f54",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100003f58",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x100003f5c",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100003f60",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100003f64",
+              "op": "b.eq",
+              "operands": "0x100003f7c <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0xbc>"
+            },
+            {
+              "address": "0x100003f68",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100003f6c",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100003f70",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100003f74",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100003f78",
+              "op": "cbnz",
+              "operands": "w11, 0x100003f68 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0xa8>"
+            },
+            {
+              "address": "0x100003f7c",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100003f80",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100003f84",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x100003f88",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100003f8c",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100003f90",
+              "op": "b.lo",
+              "operands": "0x100003fc4 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x104>"
+            },
+            {
+              "address": "0x100003f94",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100003f98",
+              "op": "bl",
+              "operands": "0x100059128 <dyld_stub_binder+0x100059128>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100003ed8",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662",
+            "function_address": "0x100003ec0",
+            "instructions": [
+              "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x20, x20, #0xd48"
+            ],
+            "register": "x20"
+          },
+          "system_pointer_move": "0x100003f94",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100003f84"
+        },
+        {
+          "address": "0x100004038",
+          "arena_load": "0x100003fe8",
+          "arena_symbol_register": "x20",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 64,
+          "conditional_compare": "0x10000402c",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662",
+          "heap_offset": 0,
+          "in_range_branch": "0x100004030",
+          "in_range_successor": "0x1000040a0",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2096,
+          "native_category": "system_allocator",
+          "null_branch": "0x100003fec",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x100003fe0",
+                  "load": "0x100003fdc",
+                  "nonzero_successor": "0x100003fe4",
+                  "opcode": "cbz",
+                  "zero_successor": "0x10000403c"
+                }
+              ],
+              "offset": 48,
+              "pointer_word_offset": 56,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x100003fe4",
+            "op": "ldr",
+            "operands": "x8, [x19, #0x38]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100003fe8",
+              "op": "ldapr",
+              "operands": "x0, [x20]"
+            },
+            {
+              "address": "0x100003fec",
+              "op": "cbz",
+              "operands": "x0, 0x100004034 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x174>"
+            },
+            {
+              "address": "0x100003ff0",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100003ff4",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100003ff8",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x100003ffc",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100004000",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100004004",
+              "op": "b.eq",
+              "operands": "0x10000401c <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x15c>"
+            },
+            {
+              "address": "0x100004008",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x10000400c",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100004010",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100004014",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100004018",
+              "op": "cbnz",
+              "operands": "w11, 0x100004008 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x148>"
+            },
+            {
+              "address": "0x10000401c",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100004020",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100004024",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x100004028",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x10000402c",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100004030",
+              "op": "b.lo",
+              "operands": "0x1000040a0 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x1e0>"
+            },
+            {
+              "address": "0x100004034",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100004038",
+              "op": "bl",
+              "operands": "0x100059128 <dyld_stub_binder+0x100059128>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100003ed8",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662",
+            "function_address": "0x100003ec0",
+            "instructions": [
+              "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x20, x20, #0xd48"
+            ],
+            "register": "x20"
+          },
+          "system_pointer_move": "0x100004034",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100004024"
+        },
+        {
+          "address": "0x100004098",
+          "arena_load": "0x100004048",
+          "arena_symbol_register": "x20",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 64,
+          "conditional_compare": "0x10000408c",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662",
+          "heap_offset": 0,
+          "in_range_branch": "0x100004090",
+          "in_range_successor": "0x1000040c4",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2096,
+          "native_category": "system_allocator",
+          "null_branch": "0x10000404c",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x100004040",
+                  "load": "0x10000403c",
+                  "nonzero_successor": "0x100004044",
+                  "opcode": "cbz",
+                  "zero_successor": "0x1000040dc"
+                },
+                {
+                  "branch": "0x1000040bc",
+                  "load": "0x1000040b8",
+                  "nonzero_successor": "0x100004044",
+                  "opcode": "cbnz",
+                  "zero_successor": "0x1000040c0"
+                }
+              ],
+              "offset": 72,
+              "pointer_word_offset": 80,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x100004044",
+            "op": "ldr",
+            "operands": "x8, [x19, #0x50]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100004048",
+              "op": "ldapr",
+              "operands": "x0, [x20]"
+            },
+            {
+              "address": "0x10000404c",
+              "op": "cbz",
+              "operands": "x0, 0x100004094 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x1d4>"
+            },
+            {
+              "address": "0x100004050",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100004054",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100004058",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x10000405c",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100004060",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100004064",
+              "op": "b.eq",
+              "operands": "0x10000407c <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x1bc>"
+            },
+            {
+              "address": "0x100004068",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x10000406c",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100004070",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100004074",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100004078",
+              "op": "cbnz",
+              "operands": "w11, 0x100004068 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x1a8>"
+            },
+            {
+              "address": "0x10000407c",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100004080",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100004084",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x100004088",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x10000408c",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100004090",
+              "op": "b.lo",
+              "operands": "0x1000040c4 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x204>"
+            },
+            {
+              "address": "0x100004094",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100004098",
+              "op": "bl",
+              "operands": "0x100059128 <dyld_stub_binder+0x100059128>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100003ed8",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662",
+            "function_address": "0x100003ec0",
+            "instructions": [
+              "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x20, x20, #0xd48"
+            ],
+            "register": "x20"
+          },
+          "system_pointer_move": "0x100004094",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100004084"
+        },
+        {
+          "address": "0x100004138",
+          "arena_load": "0x1000040e8",
+          "arena_symbol_register": "x20",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 64,
+          "conditional_compare": "0x10000412c",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662",
+          "heap_offset": 0,
+          "in_range_branch": "0x100004130",
+          "in_range_successor": "0x1000041a8",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2096,
+          "native_category": "system_allocator",
+          "null_branch": "0x1000040ec",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x1000040e0",
+                  "load": "0x1000040dc",
+                  "nonzero_successor": "0x1000040e4",
+                  "opcode": "cbz",
+                  "zero_successor": "0x10000413c"
+                }
+              ],
+              "offset": 96,
+              "pointer_word_offset": 104,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x1000040e4",
+            "op": "ldr",
+            "operands": "x8, [x19, #0x68]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x1000040e8",
+              "op": "ldapr",
+              "operands": "x0, [x20]"
+            },
+            {
+              "address": "0x1000040ec",
+              "op": "cbz",
+              "operands": "x0, 0x100004134 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x274>"
+            },
+            {
+              "address": "0x1000040f0",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x1000040f4",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x1000040f8",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x1000040fc",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100004100",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100004104",
+              "op": "b.eq",
+              "operands": "0x10000411c <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x25c>"
+            },
+            {
+              "address": "0x100004108",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x10000410c",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100004110",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100004114",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100004118",
+              "op": "cbnz",
+              "operands": "w11, 0x100004108 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x248>"
+            },
+            {
+              "address": "0x10000411c",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100004120",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100004124",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x100004128",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x10000412c",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100004130",
+              "op": "b.lo",
+              "operands": "0x1000041a8 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x2e8>"
+            },
+            {
+              "address": "0x100004134",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100004138",
+              "op": "bl",
+              "operands": "0x100059128 <dyld_stub_binder+0x100059128>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100003ed8",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662",
+            "function_address": "0x100003ec0",
+            "instructions": [
+              "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x20, x20, #0xd48"
+            ],
+            "register": "x20"
+          },
+          "system_pointer_move": "0x100004134",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100004124"
+        },
+        {
+          "address": "0x1000041a4",
+          "arena_load": "0x100004148",
+          "arena_symbol_register": "x20",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 0,
+          "conditional_compare": "0x10000418c",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662",
+          "heap_offset": 0,
+          "in_range_branch": "0x100004190",
+          "in_range_successor": "0x1000041cc",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2032,
+          "native_category": "system_allocator",
+          "null_branch": "0x10000414c",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x100004140",
+                  "load": "0x10000413c",
+                  "nonzero_successor": "0x100004144",
+                  "opcode": "cbz",
+                  "zero_successor": "0x1000041e4"
+                },
+                {
+                  "branch": "0x1000041c4",
+                  "load": "0x1000041c0",
+                  "nonzero_successor": "0x100004144",
+                  "opcode": "cbnz",
+                  "zero_successor": "0x1000041c8"
+                }
+              ],
+              "offset": 120,
+              "pointer_word_offset": 128,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x100004144",
+            "op": "ldr",
+            "operands": "x8, [x19, #0x80]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100004148",
+              "op": "ldapr",
+              "operands": "x0, [x20]"
+            },
+            {
+              "address": "0x10000414c",
+              "op": "cbz",
+              "operands": "x0, 0x100004194 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x2d4>"
+            },
+            {
+              "address": "0x100004150",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100004154",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100004158",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x10000415c",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100004160",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100004164",
+              "op": "b.eq",
+              "operands": "0x10000417c <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x2bc>"
+            },
+            {
+              "address": "0x100004168",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x10000416c",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100004170",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100004174",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100004178",
+              "op": "cbnz",
+              "operands": "w11, 0x100004168 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x2a8>"
+            },
+            {
+              "address": "0x10000417c",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100004180",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100004184",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x100004188",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x10000418c",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100004190",
+              "op": "b.lo",
+              "operands": "0x1000041cc <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662+0x30c>"
+            },
+            {
+              "address": "0x100004194",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100004198",
+              "op": "ldp",
+              "operands": "x29, x30, [sp, #0x30]"
+            },
+            {
+              "address": "0x10000419c",
+              "op": "ldp",
+              "operands": "x20, x19, [sp, #0x20]"
+            },
+            {
+              "address": "0x1000041a0",
+              "op": "add",
+              "operands": "sp, sp, #0x40"
+            },
+            {
+              "address": "0x1000041a4",
+              "op": "b",
+              "operands": "0x100059128 <dyld_stub_binder+0x100059128>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100003ed8",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::he70d82beace98662",
+            "function_address": "0x100003ec0",
+            "instructions": [
+              "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x20, x20, #0xd48"
+            ],
+            "register": "x20"
+          },
+          "system_pointer_move": "0x100004194",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100004184"
+        },
+        {
+          "address": "0x10000426c",
+          "arena_load": "0x10000421c",
+          "arena_symbol_register": "x10",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 64,
+          "conditional_compare": "0x100004260",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..registration..RegistrationStatement$GT$::h775ba85c3dd64108",
+          "heap_offset": 0,
+          "in_range_branch": "0x100004264",
+          "in_range_successor": "0x100004274",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2096,
+          "native_category": "system_allocator",
+          "null_branch": "0x100004220",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x10000420c",
+                  "load": "0x100004208",
+                  "nonzero_successor": "0x100004210",
+                  "opcode": "cbz",
+                  "zero_successor": "0x10000428c"
+                }
+              ],
+              "offset": 0,
+              "pointer_word_offset": 8,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x100004210",
+            "op": "ldr",
+            "operands": "x8, [x19, #0x8]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x10000421c",
+              "op": "ldapr",
+              "operands": "x0, [x10]"
+            },
+            {
+              "address": "0x100004220",
+              "op": "cbz",
+              "operands": "x0, 0x100004268 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..registration..RegistrationStatement$GT$::h775ba85c3dd64108+0x74>"
+            },
+            {
+              "address": "0x100004224",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100004228",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x10000422c",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x100004230",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100004234",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100004238",
+              "op": "b.eq",
+              "operands": "0x100004250 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..registration..RegistrationStatement$GT$::h775ba85c3dd64108+0x5c>"
+            },
+            {
+              "address": "0x10000423c",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100004240",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100004244",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100004248",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x10000424c",
+              "op": "cbnz",
+              "operands": "w11, 0x10000423c <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..registration..RegistrationStatement$GT$::h775ba85c3dd64108+0x48>"
+            },
+            {
+              "address": "0x100004250",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100004254",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100004258",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x10000425c",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100004260",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100004264",
+              "op": "b.lo",
+              "operands": "0x100004274 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..registration..RegistrationStatement$GT$::h775ba85c3dd64108+0x80>"
+            },
+            {
+              "address": "0x100004268",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x10000426c",
+              "op": "bl",
+              "operands": "0x100059128 <dyld_stub_binder+0x100059128>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100004214",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..registration..RegistrationStatement$GT$::h775ba85c3dd64108",
+            "function_address": "0x1000041f4",
+            "instructions": [
+              "adrp x10, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x10, x10, #0xd48"
+            ],
+            "register": "x10"
+          },
+          "system_pointer_move": "0x100004268",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100004258"
+        }
+      ],
+      "unconditional_ownership": "UNKNOWN"
+    },
+    "portable": {
+      "all_input_allocation_correspondence": false,
+      "arena_symbol": {
+        "address": "0x1000d4d48",
+        "n_type": 30,
+        "section": 16,
+        "symbol": "__ZN17resource_contract9workspace5ARENA17h72114bc4bc894eb6E"
+      },
+      "binary_sha256": "aee963a937b52c999a74c6a831b6ea64289305bd2ac99ad542a8892530a98ee0",
+      "free_frontiers_after": 10,
+      "free_frontiers_before": 10,
+      "local_checks": "PASS",
+      "sites": [
+        {
+          "address": "0x100001b40",
+          "arena_load": "0x100001ae8",
+          "arena_symbol_register": "x10",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 0,
+          "conditional_compare": "0x100001b2c",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..vote..VoteStatement$GT$::h26aba6a20a1381be",
+          "heap_offset": 0,
+          "in_range_branch": "0x100001b30",
+          "in_range_successor": "0x100001b44",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2032,
+          "native_category": "system_allocator",
+          "null_branch": "0x100001aec",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x100001ad8",
+                  "load": "0x100001ad4",
+                  "nonzero_successor": "0x100001adc",
+                  "opcode": "cbz",
+                  "zero_successor": "0x100001b60"
+                }
+              ],
+              "offset": 0,
+              "pointer_word_offset": 8,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x100001adc",
+            "op": "ldr",
+            "operands": "x8, [x0, #0x8]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100001ae8",
+              "op": "ldapr",
+              "operands": "x0, [x10]"
+            },
+            {
+              "address": "0x100001aec",
+              "op": "cbz",
+              "operands": "x0, 0x100001b34 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..vote..VoteStatement$GT$::h26aba6a20a1381be+0x6c>"
+            },
+            {
+              "address": "0x100001af0",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001af4",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001af8",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x100001afc",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001b00",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001b04",
+              "op": "b.eq",
+              "operands": "0x100001b1c <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..vote..VoteStatement$GT$::h26aba6a20a1381be+0x54>"
+            },
+            {
+              "address": "0x100001b08",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100001b0c",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001b10",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001b14",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001b18",
+              "op": "cbnz",
+              "operands": "w11, 0x100001b08 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..vote..VoteStatement$GT$::h26aba6a20a1381be+0x40>"
+            },
+            {
+              "address": "0x100001b1c",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100001b20",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100001b24",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x100001b28",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100001b2c",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100001b30",
+              "op": "b.lo",
+              "operands": "0x100001b44 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..vote..VoteStatement$GT$::h26aba6a20a1381be+0x7c>"
+            },
+            {
+              "address": "0x100001b34",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100001b38",
+              "op": "ldp",
+              "operands": "x29, x30, [sp, #0x20]"
+            },
+            {
+              "address": "0x100001b3c",
+              "op": "add",
+              "operands": "sp, sp, #0x30"
+            },
+            {
+              "address": "0x100001b40",
+              "op": "b",
+              "operands": "0x10005b19c <dyld_stub_binder+0x10005b19c>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100001ae0",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..vote..VoteStatement$GT$::h26aba6a20a1381be",
+            "function_address": "0x100001ac8",
+            "instructions": [
+              "adrp x10, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x10, x10, #0xd48"
+            ],
+            "register": "x10"
+          },
+          "system_pointer_move": "0x100001b34",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100001b24"
+        },
+        {
+          "address": "0x100001be4",
+          "arena_load": "0x100001b94",
+          "arena_symbol_register": "x20",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 64,
+          "conditional_compare": "0x100001bd8",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d",
+          "heap_offset": 0,
+          "in_range_branch": "0x100001bdc",
+          "in_range_successor": "0x100001c4c",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2096,
+          "native_category": "system_allocator",
+          "null_branch": "0x100001b98",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x100001b8c",
+                  "load": "0x100001b80",
+                  "nonzero_successor": "0x100001b90",
+                  "opcode": "cbz",
+                  "zero_successor": "0x100001be8"
+                }
+              ],
+              "offset": 0,
+              "pointer_word_offset": 8,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x100001b90",
+            "op": "ldr",
+            "operands": "x8, [x19, #0x8]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100001b94",
+              "op": "ldapr",
+              "operands": "x0, [x20]"
+            },
+            {
+              "address": "0x100001b98",
+              "op": "cbz",
+              "operands": "x0, 0x100001be0 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x74>"
+            },
+            {
+              "address": "0x100001b9c",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001ba0",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001ba4",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x100001ba8",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001bac",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001bb0",
+              "op": "b.eq",
+              "operands": "0x100001bc8 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x5c>"
+            },
+            {
+              "address": "0x100001bb4",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100001bb8",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001bbc",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001bc0",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001bc4",
+              "op": "cbnz",
+              "operands": "w11, 0x100001bb4 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x48>"
+            },
+            {
+              "address": "0x100001bc8",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100001bcc",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100001bd0",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x100001bd4",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100001bd8",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100001bdc",
+              "op": "b.lo",
+              "operands": "0x100001c4c <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0xe0>"
+            },
+            {
+              "address": "0x100001be0",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100001be4",
+              "op": "bl",
+              "operands": "0x10005b19c <dyld_stub_binder+0x10005b19c>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100001b84",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d",
+            "function_address": "0x100001b6c",
+            "instructions": [
+              "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x20, x20, #0xd48"
+            ],
+            "register": "x20"
+          },
+          "system_pointer_move": "0x100001be0",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100001bd0"
+        },
+        {
+          "address": "0x100001c44",
+          "arena_load": "0x100001bf4",
+          "arena_symbol_register": "x20",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 64,
+          "conditional_compare": "0x100001c38",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d",
+          "heap_offset": 0,
+          "in_range_branch": "0x100001c3c",
+          "in_range_successor": "0x100001c70",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2096,
+          "native_category": "system_allocator",
+          "null_branch": "0x100001bf8",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x100001bec",
+                  "load": "0x100001be8",
+                  "nonzero_successor": "0x100001bf0",
+                  "opcode": "cbz",
+                  "zero_successor": "0x100001c88"
+                },
+                {
+                  "branch": "0x100001c68",
+                  "load": "0x100001c64",
+                  "nonzero_successor": "0x100001bf0",
+                  "opcode": "cbnz",
+                  "zero_successor": "0x100001c6c"
+                }
+              ],
+              "offset": 24,
+              "pointer_word_offset": 32,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x100001bf0",
+            "op": "ldr",
+            "operands": "x8, [x19, #0x20]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100001bf4",
+              "op": "ldapr",
+              "operands": "x0, [x20]"
+            },
+            {
+              "address": "0x100001bf8",
+              "op": "cbz",
+              "operands": "x0, 0x100001c40 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0xd4>"
+            },
+            {
+              "address": "0x100001bfc",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001c00",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001c04",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x100001c08",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001c0c",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001c10",
+              "op": "b.eq",
+              "operands": "0x100001c28 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0xbc>"
+            },
+            {
+              "address": "0x100001c14",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100001c18",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001c1c",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001c20",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001c24",
+              "op": "cbnz",
+              "operands": "w11, 0x100001c14 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0xa8>"
+            },
+            {
+              "address": "0x100001c28",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100001c2c",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100001c30",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x100001c34",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100001c38",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100001c3c",
+              "op": "b.lo",
+              "operands": "0x100001c70 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x104>"
+            },
+            {
+              "address": "0x100001c40",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100001c44",
+              "op": "bl",
+              "operands": "0x10005b19c <dyld_stub_binder+0x10005b19c>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100001b84",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d",
+            "function_address": "0x100001b6c",
+            "instructions": [
+              "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x20, x20, #0xd48"
+            ],
+            "register": "x20"
+          },
+          "system_pointer_move": "0x100001c40",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100001c30"
+        },
+        {
+          "address": "0x100001ce4",
+          "arena_load": "0x100001c94",
+          "arena_symbol_register": "x20",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 64,
+          "conditional_compare": "0x100001cd8",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d",
+          "heap_offset": 0,
+          "in_range_branch": "0x100001cdc",
+          "in_range_successor": "0x100001d4c",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2096,
+          "native_category": "system_allocator",
+          "null_branch": "0x100001c98",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x100001c8c",
+                  "load": "0x100001c88",
+                  "nonzero_successor": "0x100001c90",
+                  "opcode": "cbz",
+                  "zero_successor": "0x100001ce8"
+                }
+              ],
+              "offset": 48,
+              "pointer_word_offset": 56,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x100001c90",
+            "op": "ldr",
+            "operands": "x8, [x19, #0x38]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100001c94",
+              "op": "ldapr",
+              "operands": "x0, [x20]"
+            },
+            {
+              "address": "0x100001c98",
+              "op": "cbz",
+              "operands": "x0, 0x100001ce0 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x174>"
+            },
+            {
+              "address": "0x100001c9c",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001ca0",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001ca4",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x100001ca8",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001cac",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001cb0",
+              "op": "b.eq",
+              "operands": "0x100001cc8 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x15c>"
+            },
+            {
+              "address": "0x100001cb4",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100001cb8",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001cbc",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001cc0",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001cc4",
+              "op": "cbnz",
+              "operands": "w11, 0x100001cb4 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x148>"
+            },
+            {
+              "address": "0x100001cc8",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100001ccc",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100001cd0",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x100001cd4",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100001cd8",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100001cdc",
+              "op": "b.lo",
+              "operands": "0x100001d4c <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x1e0>"
+            },
+            {
+              "address": "0x100001ce0",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100001ce4",
+              "op": "bl",
+              "operands": "0x10005b19c <dyld_stub_binder+0x10005b19c>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100001b84",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d",
+            "function_address": "0x100001b6c",
+            "instructions": [
+              "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x20, x20, #0xd48"
+            ],
+            "register": "x20"
+          },
+          "system_pointer_move": "0x100001ce0",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100001cd0"
+        },
+        {
+          "address": "0x100001d44",
+          "arena_load": "0x100001cf4",
+          "arena_symbol_register": "x20",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 64,
+          "conditional_compare": "0x100001d38",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d",
+          "heap_offset": 0,
+          "in_range_branch": "0x100001d3c",
+          "in_range_successor": "0x100001d70",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2096,
+          "native_category": "system_allocator",
+          "null_branch": "0x100001cf8",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x100001cec",
+                  "load": "0x100001ce8",
+                  "nonzero_successor": "0x100001cf0",
+                  "opcode": "cbz",
+                  "zero_successor": "0x100001d88"
+                },
+                {
+                  "branch": "0x100001d68",
+                  "load": "0x100001d64",
+                  "nonzero_successor": "0x100001cf0",
+                  "opcode": "cbnz",
+                  "zero_successor": "0x100001d6c"
+                }
+              ],
+              "offset": 72,
+              "pointer_word_offset": 80,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x100001cf0",
+            "op": "ldr",
+            "operands": "x8, [x19, #0x50]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100001cf4",
+              "op": "ldapr",
+              "operands": "x0, [x20]"
+            },
+            {
+              "address": "0x100001cf8",
+              "op": "cbz",
+              "operands": "x0, 0x100001d40 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x1d4>"
+            },
+            {
+              "address": "0x100001cfc",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001d00",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001d04",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x100001d08",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001d0c",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001d10",
+              "op": "b.eq",
+              "operands": "0x100001d28 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x1bc>"
+            },
+            {
+              "address": "0x100001d14",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100001d18",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001d1c",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001d20",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001d24",
+              "op": "cbnz",
+              "operands": "w11, 0x100001d14 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x1a8>"
+            },
+            {
+              "address": "0x100001d28",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100001d2c",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100001d30",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x100001d34",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100001d38",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100001d3c",
+              "op": "b.lo",
+              "operands": "0x100001d70 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x204>"
+            },
+            {
+              "address": "0x100001d40",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100001d44",
+              "op": "bl",
+              "operands": "0x10005b19c <dyld_stub_binder+0x10005b19c>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100001b84",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d",
+            "function_address": "0x100001b6c",
+            "instructions": [
+              "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x20, x20, #0xd48"
+            ],
+            "register": "x20"
+          },
+          "system_pointer_move": "0x100001d40",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100001d30"
+        },
+        {
+          "address": "0x100001de4",
+          "arena_load": "0x100001d94",
+          "arena_symbol_register": "x20",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 64,
+          "conditional_compare": "0x100001dd8",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d",
+          "heap_offset": 0,
+          "in_range_branch": "0x100001ddc",
+          "in_range_successor": "0x100001e54",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2096,
+          "native_category": "system_allocator",
+          "null_branch": "0x100001d98",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x100001d8c",
+                  "load": "0x100001d88",
+                  "nonzero_successor": "0x100001d90",
+                  "opcode": "cbz",
+                  "zero_successor": "0x100001de8"
+                }
+              ],
+              "offset": 96,
+              "pointer_word_offset": 104,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x100001d90",
+            "op": "ldr",
+            "operands": "x8, [x19, #0x68]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100001d94",
+              "op": "ldapr",
+              "operands": "x0, [x20]"
+            },
+            {
+              "address": "0x100001d98",
+              "op": "cbz",
+              "operands": "x0, 0x100001de0 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x274>"
+            },
+            {
+              "address": "0x100001d9c",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001da0",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001da4",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x100001da8",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001dac",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001db0",
+              "op": "b.eq",
+              "operands": "0x100001dc8 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x25c>"
+            },
+            {
+              "address": "0x100001db4",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100001db8",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001dbc",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001dc0",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001dc4",
+              "op": "cbnz",
+              "operands": "w11, 0x100001db4 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x248>"
+            },
+            {
+              "address": "0x100001dc8",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100001dcc",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100001dd0",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x100001dd4",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100001dd8",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100001ddc",
+              "op": "b.lo",
+              "operands": "0x100001e54 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x2e8>"
+            },
+            {
+              "address": "0x100001de0",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100001de4",
+              "op": "bl",
+              "operands": "0x10005b19c <dyld_stub_binder+0x10005b19c>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100001b84",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d",
+            "function_address": "0x100001b6c",
+            "instructions": [
+              "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x20, x20, #0xd48"
+            ],
+            "register": "x20"
+          },
+          "system_pointer_move": "0x100001de0",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100001dd0"
+        },
+        {
+          "address": "0x100001e50",
+          "arena_load": "0x100001df4",
+          "arena_symbol_register": "x20",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 0,
+          "conditional_compare": "0x100001e38",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d",
+          "heap_offset": 0,
+          "in_range_branch": "0x100001e3c",
+          "in_range_successor": "0x100001e78",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2032,
+          "native_category": "system_allocator",
+          "null_branch": "0x100001df8",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x100001dec",
+                  "load": "0x100001de8",
+                  "nonzero_successor": "0x100001df0",
+                  "opcode": "cbz",
+                  "zero_successor": "0x100001e90"
+                },
+                {
+                  "branch": "0x100001e70",
+                  "load": "0x100001e6c",
+                  "nonzero_successor": "0x100001df0",
+                  "opcode": "cbnz",
+                  "zero_successor": "0x100001e74"
+                }
+              ],
+              "offset": 120,
+              "pointer_word_offset": 128,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x100001df0",
+            "op": "ldr",
+            "operands": "x8, [x19, #0x80]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100001df4",
+              "op": "ldapr",
+              "operands": "x0, [x20]"
+            },
+            {
+              "address": "0x100001df8",
+              "op": "cbz",
+              "operands": "x0, 0x100001e40 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x2d4>"
+            },
+            {
+              "address": "0x100001dfc",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001e00",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001e04",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x100001e08",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001e0c",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001e10",
+              "op": "b.eq",
+              "operands": "0x100001e28 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x2bc>"
+            },
+            {
+              "address": "0x100001e14",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100001e18",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001e1c",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001e20",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001e24",
+              "op": "cbnz",
+              "operands": "w11, 0x100001e14 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x2a8>"
+            },
+            {
+              "address": "0x100001e28",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100001e2c",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100001e30",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x100001e34",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100001e38",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100001e3c",
+              "op": "b.lo",
+              "operands": "0x100001e78 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d+0x30c>"
+            },
+            {
+              "address": "0x100001e40",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100001e44",
+              "op": "ldp",
+              "operands": "x29, x30, [sp, #0x30]"
+            },
+            {
+              "address": "0x100001e48",
+              "op": "ldp",
+              "operands": "x20, x19, [sp, #0x20]"
+            },
+            {
+              "address": "0x100001e4c",
+              "op": "add",
+              "operands": "sp, sp, #0x40"
+            },
+            {
+              "address": "0x100001e50",
+              "op": "b",
+              "operands": "0x10005b19c <dyld_stub_binder+0x10005b19c>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100001b84",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..credential..RegistrationContext$GT$::h9b6573d365d7556d",
+            "function_address": "0x100001b6c",
+            "instructions": [
+              "adrp x20, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x20, x20, #0xd48"
+            ],
+            "register": "x20"
+          },
+          "system_pointer_move": "0x100001e40",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100001e30"
+        },
+        {
+          "address": "0x100001f18",
+          "arena_load": "0x100001ec8",
+          "arena_symbol_register": "x10",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 64,
+          "conditional_compare": "0x100001f0c",
+          "detail": "_free",
+          "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..registration..RegistrationStatement$GT$::h9797d8a791d380f7",
+          "heap_offset": 0,
+          "in_range_branch": "0x100001f10",
+          "in_range_successor": "0x100001f20",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 2096,
+          "native_category": "system_allocator",
+          "null_branch": "0x100001ecc",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "base_is_original_ABI_input_under_ordinary_call_semantics": true,
+            "capacity_word": {
+              "guards": [
+                {
+                  "branch": "0x100001eb8",
+                  "load": "0x100001eb4",
+                  "nonzero_successor": "0x100001ebc",
+                  "opcode": "cbz",
+                  "zero_successor": "0x100001f38"
+                }
+              ],
+              "offset": 0,
+              "pointer_word_offset": 8,
+              "source_layout_correspondence_is_premise": true,
+              "zero_branch_cannot_reach_pointer_load": true
+            },
+            "classification": "container_pointer_word",
+            "instruction": "0x100001ebc",
+            "op": "ldr",
+            "operands": "x8, [x19, #0x8]"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100001ec8",
+              "op": "ldapr",
+              "operands": "x0, [x10]"
+            },
+            {
+              "address": "0x100001ecc",
+              "op": "cbz",
+              "operands": "x0, 0x100001f14 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..registration..RegistrationStatement$GT$::h9797d8a791d380f7+0x74>"
+            },
+            {
+              "address": "0x100001ed0",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001ed4",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001ed8",
+              "op": "mov",
+              "operands": "w10, #0x1"
+            },
+            {
+              "address": "0x100001edc",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001ee0",
+              "op": "cmp",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001ee4",
+              "op": "b.eq",
+              "operands": "0x100001efc <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..registration..RegistrationStatement$GT$::h9797d8a791d380f7+0x5c>"
+            },
+            {
+              "address": "0x100001ee8",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100001eec",
+              "op": "mov",
+              "operands": "w11, #0x0"
+            },
+            {
+              "address": "0x100001ef0",
+              "op": "add",
+              "operands": "x12, x0, #0x50"
+            },
+            {
+              "address": "0x100001ef4",
+              "op": "casab",
+              "operands": "w11, w10, [x12]"
+            },
+            {
+              "address": "0x100001ef8",
+              "op": "cbnz",
+              "operands": "w11, 0x100001ee8 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..registration..RegistrationStatement$GT$::h9797d8a791d380f7+0x48>"
+            },
+            {
+              "address": "0x100001efc",
+              "op": "ldr",
+              "operands": "x10, [x0]"
+            },
+            {
+              "address": "0x100001f00",
+              "op": "ldr",
+              "operands": "x11, [x0, #0x10]"
+            },
+            {
+              "address": "0x100001f04",
+              "op": "subs",
+              "operands": "x10, x8, x10"
+            },
+            {
+              "address": "0x100001f08",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100001f0c",
+              "op": "ccmp",
+              "operands": "x10, x11, #0x2, hs"
+            },
+            {
+              "address": "0x100001f10",
+              "op": "b.lo",
+              "operands": "0x100001f20 <core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..registration..RegistrationStatement$GT$::h9797d8a791d380f7+0x80>"
+            },
+            {
+              "address": "0x100001f14",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100001f18",
+              "op": "bl",
+              "operands": "0x10005b19c <dyld_stub_binder+0x10005b19c>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100001ec0",
+            "function": "core::ptr::drop_in_place$LT$iroha_parliament_ballot_proof..registration..RegistrationStatement$GT$::h9797d8a791d380f7",
+            "function_address": "0x100001ea0",
+            "instructions": [
+              "adrp x10, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x10, x10, #0xd48"
+            ],
+            "register": "x10"
+          },
+          "system_pointer_move": "0x100001f14",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100001f04"
+        },
+        {
+          "address": "0x100002368",
+          "arena_load": "0x100002310",
+          "arena_symbol_register": "x9",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 0,
+          "conditional_compare": "0x100002354",
+          "detail": "_free",
+          "function": "__rustc::__rust_dealloc",
+          "heap_offset": 0,
+          "in_range_branch": "0x100002358",
+          "in_range_successor": "0x10000236c",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 10688,
+          "native_category": "system_allocator",
+          "null_branch": "0x100002314",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "classification": "allocator_ABI_input",
+            "instruction": "0x100002304",
+            "op": "mov",
+            "operands": "x8, x0"
+          },
+          "pointer_register": "x8",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x100002310",
+              "op": "ldapr",
+              "operands": "x0, [x9]"
+            },
+            {
+              "address": "0x100002314",
+              "op": "cbz",
+              "operands": "x0, 0x10000235c <__rustc::__rust_dealloc+0x64>"
+            },
+            {
+              "address": "0x100002318",
+              "op": "mov",
+              "operands": "w10, #0x0"
+            },
+            {
+              "address": "0x10000231c",
+              "op": "add",
+              "operands": "x11, x0, #0x50"
+            },
+            {
+              "address": "0x100002320",
+              "op": "mov",
+              "operands": "w9, #0x1"
+            },
+            {
+              "address": "0x100002324",
+              "op": "casab",
+              "operands": "w10, w9, [x11]"
+            },
+            {
+              "address": "0x100002328",
+              "op": "cmp",
+              "operands": "w10, #0x0"
+            },
+            {
+              "address": "0x10000232c",
+              "op": "b.eq",
+              "operands": "0x100002344 <__rustc::__rust_dealloc+0x4c>"
+            },
+            {
+              "address": "0x100002330",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100002334",
+              "op": "mov",
+              "operands": "w10, #0x0"
+            },
+            {
+              "address": "0x100002338",
+              "op": "add",
+              "operands": "x11, x0, #0x50"
+            },
+            {
+              "address": "0x10000233c",
+              "op": "casab",
+              "operands": "w10, w9, [x11]"
+            },
+            {
+              "address": "0x100002340",
+              "op": "cbnz",
+              "operands": "w10, 0x100002330 <__rustc::__rust_dealloc+0x38>"
+            },
+            {
+              "address": "0x100002344",
+              "op": "ldr",
+              "operands": "x9, [x0]"
+            },
+            {
+              "address": "0x100002348",
+              "op": "ldr",
+              "operands": "x10, [x0, #0x10]"
+            },
+            {
+              "address": "0x10000234c",
+              "op": "subs",
+              "operands": "x9, x8, x9"
+            },
+            {
+              "address": "0x100002350",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100002354",
+              "op": "ccmp",
+              "operands": "x9, x10, #0x2, hs"
+            },
+            {
+              "address": "0x100002358",
+              "op": "b.lo",
+              "operands": "0x10000236c <__rustc::__rust_dealloc+0x74>"
+            },
+            {
+              "address": "0x10000235c",
+              "op": "mov",
+              "operands": "x0, x8"
+            },
+            {
+              "address": "0x100002360",
+              "op": "ldp",
+              "operands": "x29, x30, [sp, #0x20]"
+            },
+            {
+              "address": "0x100002364",
+              "op": "add",
+              "operands": "sp, sp, #0x30"
+            },
+            {
+              "address": "0x100002368",
+              "op": "b",
+              "operands": "0x10005b19c <dyld_stub_binder+0x10005b19c>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x100002308",
+            "function": "__rustc::__rust_dealloc",
+            "function_address": "0x1000022f8",
+            "instructions": [
+              "adrp x9, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x9, x9, #0xd48"
+            ],
+            "register": "x9"
+          },
+          "system_pointer_move": "0x10000235c",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x10000234c"
+        },
+        {
+          "address": "0x10000242c",
+          "arena_load": "0x1000023dc",
+          "arena_symbol_register": "x8",
+          "bytes_offset": 16,
+          "callee_stack_bytes": null,
+          "caller_depth_bytes": 80,
+          "conditional_compare": "0x100002420",
+          "detail": "_free",
+          "function": "__rustc::__rust_realloc",
+          "heap_offset": 0,
+          "in_range_branch": "0x100002424",
+          "in_range_successor": "0x100002434",
+          "kind": "native_edge",
+          "local_predicate_status": "PASS_UNDER_PREMISES",
+          "lock_offset": 80,
+          "maximum_modeled_caller_sp_bytes": 9408,
+          "native_category": "system_allocator",
+          "null_branch": "0x1000023e0",
+          "ordinary_cfg_bypass_absent": true,
+          "pointer_origin": {
+            "allocation_provenance_proved": false,
+            "classification": "allocator_ABI_input",
+            "instruction": "0x1000023ac",
+            "op": "mov",
+            "operands": "x21, x0"
+          },
+          "pointer_register": "x21",
+          "same_pointer_forwarded": true,
+          "snippet": [
+            {
+              "address": "0x1000023dc",
+              "op": "ldapr",
+              "operands": "x0, [x8]"
+            },
+            {
+              "address": "0x1000023e0",
+              "op": "cbz",
+              "operands": "x0, 0x100002428 <__rustc::__rust_realloc+0x9c>"
+            },
+            {
+              "address": "0x1000023e4",
+              "op": "mov",
+              "operands": "w9, #0x0"
+            },
+            {
+              "address": "0x1000023e8",
+              "op": "add",
+              "operands": "x10, x0, #0x50"
+            },
+            {
+              "address": "0x1000023ec",
+              "op": "mov",
+              "operands": "w8, #0x1"
+            },
+            {
+              "address": "0x1000023f0",
+              "op": "casab",
+              "operands": "w9, w8, [x10]"
+            },
+            {
+              "address": "0x1000023f4",
+              "op": "cmp",
+              "operands": "w9, #0x0"
+            },
+            {
+              "address": "0x1000023f8",
+              "op": "b.eq",
+              "operands": "0x100002410 <__rustc::__rust_realloc+0x84>"
+            },
+            {
+              "address": "0x1000023fc",
+              "op": "isb",
+              "operands": ""
+            },
+            {
+              "address": "0x100002400",
+              "op": "mov",
+              "operands": "w9, #0x0"
+            },
+            {
+              "address": "0x100002404",
+              "op": "add",
+              "operands": "x10, x0, #0x50"
+            },
+            {
+              "address": "0x100002408",
+              "op": "casab",
+              "operands": "w9, w8, [x10]"
+            },
+            {
+              "address": "0x10000240c",
+              "op": "cbnz",
+              "operands": "w9, 0x1000023fc <__rustc::__rust_realloc+0x70>"
+            },
+            {
+              "address": "0x100002410",
+              "op": "ldr",
+              "operands": "x8, [x0]"
+            },
+            {
+              "address": "0x100002414",
+              "op": "ldr",
+              "operands": "x9, [x0, #0x10]"
+            },
+            {
+              "address": "0x100002418",
+              "op": "subs",
+              "operands": "x8, x21, x8"
+            },
+            {
+              "address": "0x10000241c",
+              "op": "stlurb",
+              "operands": "wzr, [x0, #0x50]"
+            },
+            {
+              "address": "0x100002420",
+              "op": "ccmp",
+              "operands": "x8, x9, #0x2, hs"
+            },
+            {
+              "address": "0x100002424",
+              "op": "b.lo",
+              "operands": "0x100002434 <__rustc::__rust_realloc+0xa8>"
+            },
+            {
+              "address": "0x100002428",
+              "op": "mov",
+              "operands": "x0, x21"
+            },
+            {
+              "address": "0x10000242c",
+              "op": "bl",
+              "operands": "0x10005b19c <dyld_stub_binder+0x10005b19c>"
+            }
+          ],
+          "symbol_materialization": {
+            "address": "0x1000023d4",
+            "function": "__rustc::__rust_realloc",
+            "function_address": "0x10000238c",
+            "instructions": [
+              "adrp x8, 0x1000d4000 <dyld_stub_binder+0x1000d4000>",
+              "add x8, x8, #0xd48"
+            ],
+            "register": "x8"
+          },
+          "system_pointer_move": "0x100002428",
+          "unconditional_frontier": "OPEN",
+          "unsigned_subtract": "0x100002418"
+        }
+      ],
+      "unconditional_ownership": "UNKNOWN"
+    }
+  },
+  "no_rebuild_or_execution": true,
+  "observed_at_utc": "2026-10-13T09:28:07.972690+00:00",
+  "premises": [
+    "Correct disassembly/source/compiler correspondence and ordinary ARM64 instruction/call semantics.",
+    "Valid memory, immutable live arena bounds, correct GlobalAlloc caller pointer/layout/liveness contract.",
+    "Opaque calls, native callbacks and other threads preserve private state and callee-saved registers; no adversarial reentry.",
+    "Container word identification is source/compiler conditional; Rust field offsets are not stable ABI."
+  ],
+  "profile_qualified": false,
+  "schema": "parliament-free-predicates-v1",
+  "source_contains_expression": "address >= start && address - start < inner.bytes",
+  "status": "PASS_UNDER_PREMISES"
+}

@@ -71,7 +71,7 @@ fn generated_provider_admission_and_price_require_original_genesis_and_real_h2()
     let observed = native.observe(&authority);
     let tip = observed.verified_tip().unwrap();
     assert_eq!(tip.height(), 2);
-    tip.verify_global_scope(plan.network_id(), &authority.config.chain.to_string())
+    tip.verify_global_scope(plan.network_id(), authority.config.chain.as_ref())
         .unwrap();
     assert_eq!(tip.block().network_entrypoint_count(), 1);
     assert_eq!(

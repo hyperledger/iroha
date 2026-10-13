@@ -2158,13 +2158,13 @@ fn validate_soracloud_fhe_full_bootstrap_bfv_native_air_merkle_path(
             "{opening_label} {path_label} Merkle path depth mismatch"
         )));
     }
-    let expected_dir_bytes = (expected_depth + 7) / 8;
+    let expected_dir_bytes = expected_depth.div_ceil(8);
     if path.dirs.len() != expected_dir_bytes {
         return Err(invalid_parameter(format!(
             "{opening_label} {path_label} Merkle path direction byte count mismatch"
         )));
     }
-    if expected_depth % 8 != 0 {
+    if !expected_depth.is_multiple_of(8) {
         let allowed_mask = (1_u8 << (expected_depth % 8)) - 1;
         if path.dirs.last().copied().unwrap_or_default() & !allowed_mask != 0 {
             return Err(invalid_parameter(format!(
@@ -2196,50 +2196,59 @@ fn verify_soracloud_fhe_full_bootstrap_arithmetic_stark_air(
     public_padding_context: Option<BfvFullBootstrapNativeAirPublicPaddingContext>,
     guardrails: crate::zk::ZkVerifyGuardrails,
     outer_proof_bytes_len: usize,
-) -> Result<bool, InstructionExecutionError> {
+) -> Result<bool, crate::zk::VerificationAttemptError<InstructionExecutionError>> {
     if envelope.backend != BackendTag::Stark {
         return Err(invalid_parameter(format!(
             "{label} proof envelope must declare STARK backend"
-        )));
+        )))
+        .map_err(crate::zk::VerificationAttemptError::Rejected);
     }
     if !guardrails.stark_enabled {
         return Err(invalid_parameter(format!(
             "{label} native BFV AIR STARK verification is disabled by the committed ZK validity policy"
-        )));
+        ))).map_err(crate::zk::VerificationAttemptError::Rejected);
     }
     if outer_proof_bytes_len > guardrails.stark_max_envelope_bytes {
         return Err(invalid_parameter(format!(
             "{label} proof exceeds the committed STARK envelope byte cap"
-        )));
+        )))
+        .map_err(crate::zk::VerificationAttemptError::Rejected);
     }
     if envelope.proof_bytes.len() > guardrails.stark_max_envelope_bytes {
         return Err(invalid_parameter(format!(
             "{label} STARK public-input wrapper exceeds the committed STARK envelope byte cap"
-        )));
+        )))
+        .map_err(crate::zk::VerificationAttemptError::Rejected);
     }
-    let open =
-        norito::decode_canonical::<StarkFriOpenProofV1>(&envelope.proof_bytes).map_err(|err| {
-            invalid_parameter(format!("invalid {label} STARK public-input wrapper: {err}"))
-        })?;
+    let open = crate::zk::verification_attempt::codec_attempt(
+        || norito::decode_canonical::<StarkFriOpenProofV1>(&envelope.proof_bytes),
+        |err| invalid_parameter(format!("invalid {label} STARK public-input wrapper: {err}")),
+    )?;
     if open.envelope_bytes.len() > guardrails.stark_max_proof_bytes {
         return Err(invalid_parameter(format!(
             "{label} native BFV AIR envelope exceeds the committed STARK proof byte cap"
-        )));
+        )))
+        .map_err(crate::zk::VerificationAttemptError::Rejected);
     }
     let native: crate::zk_stark::StarkVerifyEnvelopeV1 =
-        norito::decode_canonical(&open.envelope_bytes).map_err(|err| {
-            invalid_parameter(format!(
-                "{label} native AIR envelope must decode as STARK/FRI v1: {err}"
-            ))
-        })?;
+        crate::zk::verification_attempt::codec_attempt(
+            || norito::decode_canonical(&open.envelope_bytes),
+            |err| {
+                invalid_parameter(format!(
+                    "{label} native AIR envelope must decode as STARK/FRI v1: {err}"
+                ))
+            },
+        )?;
     if native.transcript_label == crate::zk::STARK_OPEN_VERIFY_AIR_TRANSCRIPT_LABEL_V1 {
         validate_soracloud_fhe_stark_native_air_binding(label, backend, envelope, statement_hash)?;
         return Err(invalid_parameter(format!(
             "{label} proof requires a dedicated BFV full-bootstrap arithmetic STARK/AIR proof; {FHE_FULL_BOOTSTRAP_GENERIC_BINDING_AIR_REJECTED}"
-        )));
+        ))).map_err(crate::zk::VerificationAttemptError::Rejected);
     }
-    let mut limits = crate::zk_stark::StarkVerifierLimits::default();
-    limits.max_envelope_bytes = guardrails.stark_max_proof_bytes;
+    let limits = crate::zk_stark::StarkVerifierLimits {
+        max_envelope_bytes: guardrails.stark_max_proof_bytes,
+        ..crate::zk_stark::StarkVerifierLimits::default()
+    };
     validate_soracloud_fhe_full_bootstrap_bfv_native_air_boundary_with_limits(
         label,
         statement_hash,
@@ -2259,10 +2268,10 @@ fn verify_soracloud_fhe_full_bootstrap_arithmetic_stark_air(
         public_padding_context.trace_material_digest,
         public_padding_context.slot_index,
         public_padding_context.bound_mode,
-    ) {
+    ).map_err(crate::zk::VerificationAttemptError::Deferred)? {
         return Err(invalid_parameter(format!(
             "{label} native BFV AIR shared public-padding verifier rejected public openings"
-        )));
+        ))).map_err(crate::zk::VerificationAttemptError::Rejected);
     }
     let expected_trace_rows = public_padding_context
         .expected_trace_rows
@@ -2314,10 +2323,10 @@ fn verify_soracloud_fhe_full_bootstrap_arithmetic_stark_air(
         expected_trace_rows,
         expected_composition_values,
         &expected_base_indices,
-    ) {
+    ).map_err(crate::zk::VerificationAttemptError::Deferred)? {
         return Err(invalid_parameter(format!(
             "{label} native BFV AIR explicit STARK verifier rejected governed trace material"
-        )));
+        ))).map_err(crate::zk::VerificationAttemptError::Rejected);
     }
     Ok(true)
 }
@@ -3497,7 +3506,8 @@ fn verify_soracloud_fhe_full_bootstrap_execution_proof_backend(
             Some(public_padding_context),
             crate::zk_guardrails::guardrails_from_config(&state_transaction.zk),
             attachment.proof.bytes.len(),
-        )?;
+        )
+        .map_err(|error| state_transaction.attempt_error_to_instruction_error(error.into()))?;
         state_transaction
             .register_confidential_proof(attachment.proof.bytes.len())
             .map_err(|err| {
@@ -4965,8 +4975,7 @@ fn load_admitted_bundle(
         .cloned()
         .ok_or_else(|| {
             invalid_parameter(format!(
-                "service `{}` revision `{service_version}` has not been admitted",
-                service_name
+                "service `{service_name}` revision `{service_version}` has not been admitted"
             ))
         })
 }
@@ -5267,8 +5276,7 @@ pub(crate) fn write_soracloud_service_lease_usage(
             let delta = replica_accounted_egress_bytes - checkpoint.accounted_egress_bytes;
             let elapsed_blocks = block_height.saturating_sub(checkpoint.last_updated_height);
             let maximum_delta = elapsed_blocks
-                .checked_mul(SORA_SERVICE_LEASE_MAX_EGRESS_BYTES_PER_REPORTER_BLOCK_V1)
-                .unwrap_or(u64::MAX);
+                .saturating_mul(SORA_SERVICE_LEASE_MAX_EGRESS_BYTES_PER_REPORTER_BLOCK_V1);
             if delta > maximum_delta {
                 return Err(invalid_parameter(format!(
                     "reporter `{reporter}` egress delta {delta} exceeds the {maximum_delta}-byte bound for {elapsed_blocks} elapsed consensus blocks"
@@ -5724,9 +5732,10 @@ fn write_consensus_verified_soracloud_mailbox_message(
         .soracloud_mailbox_messages
         .iter()
         .filter(|(message_id, existing)| {
+            let unexpired = existing.expires_at_height > message.enqueue_height;
             existing.to_service == message.to_service
                 && existing.to_handler == message.to_handler
-                && existing.expires_at_height > message.enqueue_height
+                && unexpired
                 && !state_transaction
                     .world
                     .soracloud_runtime_receipts
@@ -7065,16 +7074,16 @@ fn reconcile_inrou_service_placements(
         .world
         .soracloud_inrou_host_capabilities
         .iter()
-        .filter_map(|(validator_account_id, capability)| {
-            (!capability.can_host_replicas_at(now_ms)
+        .filter(|&(validator_account_id, capability)| {
+            !capability.can_host_replicas_at(now_ms)
                 || require_inrou_host_peer_binding(
                     validator_account_id,
                     &capability.peer_id,
                     state_transaction,
                 )
-                .is_err())
-            .then(|| validator_account_id.clone())
+                .is_err()
         })
+        .map(|(validator_account_id, _capability)| validator_account_id.clone())
         .collect::<Vec<_>>();
     for validator_account_id in stale_capability_accounts {
         state_transaction
@@ -7297,8 +7306,7 @@ fn reconcile_inrou_service_placements(
         let last_error =
             (available_placement_count < usize::from(desired_replica_count)).then(|| {
                 format!(
-                    "{} of {} replica hosts are available using {} eligible validators",
-                    available_placement_count, desired_replica_count, eligible_validator_count
+                    "{available_placement_count} of {desired_replica_count} replica hosts are available using {eligible_validator_count} eligible validators"
                 )
             });
         let record = SoraInrouServicePlacementRecordV1 {
@@ -8105,7 +8113,21 @@ fn binding_state_totals(
 }
 const REGISTERED_SORACLOUD_BFV_BACKEND: &str = "fhe/bfv-rns/v1";
 fn u64_bit_width(value: u64) -> u16 {
-    (u64::BITS - value.leading_zeros()) as u16
+    u16::try_from(u64::BITS - value.leading_zeros()).expect("u64 bit width fits u16")
+}
+#[cfg(test)]
+#[test]
+fn bfv_u64_bit_width_covers_full_scalar_range() {
+    for (value, expected) in [
+        (0, 0),
+        (1, 1),
+        (255, 8),
+        (256, 9),
+        (1_u64 << 63, 64),
+        (u64::MAX, 64),
+    ] {
+        assert_eq!(u64_bit_width(value), expected);
+    }
 }
 fn validate_registered_soracloud_bfv_descriptor(
     param_set: &FheParamSetV1,
@@ -9520,7 +9542,7 @@ fn carry_inrou_placement_across_atomic_upgrade(
     else {
         return Ok(());
     };
-    placement.service_version = service_version.to_owned();
+    service_version.clone_into(&mut placement.service_version);
     record_inrou_service_placement(state_transaction, placement)
 }
 fn next_service_process_generation(
@@ -11648,7 +11670,7 @@ impl Execute for isi::JoinSoracloudHfSharedLease {
             .soracloud_hf_sources
             .get(&source_id)
             .cloned()
-            .unwrap_or(SoraHfSourceRecordV1 {
+            .unwrap_or_else(|| SoraHfSourceRecordV1 {
                 schema_version: SORA_HF_SOURCE_RECORD_VERSION_V1,
                 source_id,
                 repo_id: repo_id.clone(),
@@ -11656,8 +11678,10 @@ impl Execute for isi::JoinSoracloudHfSharedLease {
                 created_at_ms: now_ms,
                 updated_at_ms: now_ms,
             });
-        source_record.repo_id = repo_id.clone();
-        source_record.resolved_revision = resolved_revision.clone();
+        source_record.repo_id.clone_from(&repo_id);
+        source_record
+            .resolved_revision
+            .clone_from(&resolved_revision);
         source_record.updated_at_ms = now_ms;
 
         let member_key = (pool_id.to_string(), authority.to_string());
@@ -11776,7 +11800,7 @@ impl Execute for isi::JoinSoracloudHfSharedLease {
                 &mut existing_members,
                 state_transaction,
             )?;
-            let mut member = existing_member.unwrap_or(SoraHfSharedLeaseMemberV1 {
+            let mut member = existing_member.unwrap_or_else(|| SoraHfSharedLeaseMemberV1 {
                 schema_version: SORA_HF_SHARED_LEASE_MEMBER_VERSION_V1,
                 pool_id,
                 source_id,
@@ -12123,8 +12147,10 @@ impl Execute for isi::RenewSoracloudHfSharedLease {
                     .into(),
                 )
             })?;
-        source_record.repo_id = repo_id.clone();
-        source_record.resolved_revision = resolved_revision.clone();
+        source_record.repo_id.clone_from(&repo_id);
+        source_record
+            .resolved_revision
+            .clone_from(&resolved_revision);
         let mut pool = state_transaction
             .world
             .soracloud_hf_shared_lease_pools
@@ -14284,7 +14310,9 @@ impl Execute for isi::CheckpointSoracloudTrainingJob {
             ));
         }
         if self.completed_step != job_record.target_steps
-            && self.completed_step % job_record.checkpoint_interval_steps != 0
+            && !self
+                .completed_step
+                .is_multiple_of(job_record.checkpoint_interval_steps)
         {
             return Err(InstructionExecutionError::InvariantViolation(
                 format!(
@@ -14339,7 +14367,9 @@ impl Execute for isi::CheckpointSoracloudTrainingJob {
                 .into(),
             ));
         }
-        job_record.service_version = deployment.current_service_version.clone();
+        job_record
+            .service_version
+            .clone_from(&deployment.current_service_version);
         job_record.compute_consumed_units = next_compute_total;
         job_record.storage_consumed_bytes = next_storage_total;
         job_record.completed_steps = self.completed_step;
@@ -14439,7 +14469,9 @@ impl Execute for isi::RetrySoracloudTrainingJob {
                 .into(),
             ));
         }
-        job_record.service_version = deployment.current_service_version.clone();
+        job_record
+            .service_version
+            .clone_from(&deployment.current_service_version);
         job_record.retry_count = job_record.retry_count.saturating_add(1);
         job_record.status = SoraTrainingJobStatusV1::RetryPending;
         job_record.last_failure_reason = Some(reason.clone());
@@ -14804,9 +14836,13 @@ impl Execute for isi::RegisterSoracloudModelWeight {
                 current_version: None,
                 updated_sequence: sequence,
             });
-        registry_record.service_version = deployment.current_service_version.clone();
+        registry_record
+            .service_version
+            .clone_from(&deployment.current_service_version);
         registry_record.updated_sequence = sequence;
-        artifact_record.service_version = deployment.current_service_version.clone();
+        artifact_record
+            .service_version
+            .clone_from(&deployment.current_service_version);
         artifact_record.weight_version = Some(weight_version.clone());
         artifact_record.consumed_by_version = Some(weight_version.clone());
         record_model_weight_version(
@@ -14928,11 +14964,15 @@ impl Execute for isi::PromoteSoracloudModelWeight {
                     .into(),
             ));
         };
-        weight_record.service_version = deployment.current_service_version.clone();
+        weight_record
+            .service_version
+            .clone_from(&deployment.current_service_version);
         weight_record.promoted_sequence = Some(sequence);
         weight_record.gate_report_hash = Some(self.gate_report_hash);
         weight_record.promoted_by = Some(self.provenance.signer.clone());
-        registry_record.service_version = deployment.current_service_version.clone();
+        registry_record
+            .service_version
+            .clone_from(&deployment.current_service_version);
         registry_record.current_version = Some(weight_version.clone());
         registry_record.updated_sequence = sequence;
         let parent_version = weight_record.parent_version.clone();
@@ -15023,7 +15063,9 @@ impl Execute for isi::RollbackSoracloudModelWeight {
                     .into(),
             ));
         };
-        registry_record.service_version = deployment.current_service_version.clone();
+        registry_record
+            .service_version
+            .clone_from(&deployment.current_service_version);
         registry_record.current_version = Some(target_version.clone());
         registry_record.updated_sequence = sequence;
         let parent_version = weight_record.parent_version.clone();
@@ -15278,10 +15320,10 @@ impl Execute for isi::FinalizeSoracloudUploadedModelBundle {
             .world
             .soracloud_model_weight_versions
             .iter()
-            .filter_map(|((stored_service, stored_model, _version), record)| {
-                (stored_service == service_name.as_ref() && stored_model == model_name.as_str())
-                    .then(|| record.clone())
+            .filter(|&((stored_service, stored_model, _version), _record)| {
+                stored_service == service_name.as_ref() && stored_model == model_name.as_str()
             })
+            .map(|((_stored_service, _stored_model, _version), record)| record.clone())
             .collect::<Vec<_>>();
         if existing_versions
             .iter()
@@ -15308,7 +15350,9 @@ impl Execute for isi::FinalizeSoracloudUploadedModelBundle {
                     .map(|record| record.weight_version.clone())
             })
         };
-        registry_record.service_version = deployment.current_service_version.clone();
+        registry_record
+            .service_version
+            .clone_from(&deployment.current_service_version);
         registry_record.current_version = Some(weight_version.clone());
         registry_record.updated_sequence = weight_sequence;
         record_model_weight_version(
@@ -15534,7 +15578,9 @@ impl Execute for isi::AdvanceSoracloudRollout {
                 )?;
                 rollout.stage = SoraRolloutStageV1::RolledBack;
                 rollout.traffic_percent = 0;
-                deployment.current_service_version = baseline_version.clone();
+                deployment
+                    .current_service_version
+                    .clone_from(&baseline_version);
                 deployment.current_service_manifest_hash = bundle.service_manifest_hash();
                 deployment.current_container_manifest_hash = bundle.container_manifest_hash();
                 deployment.process_generation = process_generation;
@@ -16161,9 +16207,15 @@ impl Execute for isi::ApplySoracloudOrderedMailboxResult {
             }
         }
         if let Some(runtime_state) = result.runtime_state.as_ref()
-            && (runtime_state.service_name != receipt.service_name
-                || runtime_state.active_service_version != receipt.service_version
-                || runtime_state.materialized_bundle_hash != bundle.container.bundle_hash)
+            && (
+                &runtime_state.service_name,
+                &runtime_state.active_service_version,
+                &runtime_state.materialized_bundle_hash,
+            ) != (
+                &receipt.service_name,
+                &receipt.service_version,
+                &bundle.container.bundle_hash,
+            )
         {
             return Err(InstructionExecutionError::InvariantViolation(
                 format!(
@@ -16426,14 +16478,17 @@ fn build_soracloud_fhe_full_bootstrap_execution_native_air_envelope_bytes_from_p
             "FHE full-bootstrap execution native AIR envelope generation failed: {err}"
         ))
     })?;
-    let mut limits = crate::zk_stark::StarkVerifierLimits::default();
-    limits.max_envelope_bytes =
-        SORACLOUD_FHE_FULL_BOOTSTRAP_EXECUTION_PROOF_MAX_NATIVE_ENVELOPE_BYTES;
+    let limits = crate::zk_stark::StarkVerifierLimits {
+        max_envelope_bytes: SORACLOUD_FHE_FULL_BOOTSTRAP_EXECUTION_PROOF_MAX_NATIVE_ENVELOPE_BYTES,
+        ..Default::default()
+    };
     if !crate::zk_stark::verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(
         &envelope_bytes,
         &limits,
         prover_input_material,
-    ) {
+    )
+    .expect("test prover verification must complete")
+    {
         return Err(invalid_parameter(
             "FHE full-bootstrap execution native AIR envelope shared BFV verifier rejected release-prover material",
         ));
@@ -16501,9 +16556,10 @@ fn validate_soracloud_fhe_full_bootstrap_execution_native_air_envelope_bytes_for
                 .clone(),
         ),
     };
-    let mut limits = crate::zk_stark::StarkVerifierLimits::default();
-    limits.max_envelope_bytes =
-        SORACLOUD_FHE_FULL_BOOTSTRAP_EXECUTION_PROOF_MAX_NATIVE_ENVELOPE_BYTES;
+    let limits = crate::zk_stark::StarkVerifierLimits {
+        max_envelope_bytes: SORACLOUD_FHE_FULL_BOOTSTRAP_EXECUTION_PROOF_MAX_NATIVE_ENVELOPE_BYTES,
+        ..Default::default()
+    };
     validate_soracloud_fhe_full_bootstrap_bfv_native_air_boundary_with_limits(
         "FHE full-bootstrap execution proof",
         statement_hash,
@@ -16518,7 +16574,7 @@ fn validate_soracloud_fhe_full_bootstrap_execution_native_air_envelope_bytes_for
         public_padding_context.trace_material_digest,
         slot_index,
         bound_mode,
-    ) {
+    ).expect("test prover verification must complete") {
         return Err(invalid_parameter(
             "FHE full-bootstrap execution native AIR envelope shared public-padding verifier rejected release-prover public openings",
         ));
@@ -16558,7 +16614,7 @@ fn validate_soracloud_fhe_full_bootstrap_execution_native_air_envelope_bytes_for
         &arithmetic_trace_material.rows,
         &arithmetic_air_evaluation_material.composition_values,
         &expected_base_indices,
-    ) {
+    ).expect("test prover verification must complete") {
         return Err(invalid_parameter(
             "FHE full-bootstrap execution native AIR envelope replay rejected release-prover trace material",
         ));

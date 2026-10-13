@@ -162,7 +162,7 @@ impl Facts {
                 let current = state.world.$name.view();
                 let undo = state.world.$name.predecessor_view();
                 let actual = if previous {
-                    undo.get().as_ref().unwrap_or(current.get())
+                    undo.get().as_ref().unwrap_or_else(|| current.get())
                 } else {
                     current.get()
                 };
@@ -178,7 +178,7 @@ impl Facts {
         let current = state.world.sccp_anchor_open.view();
         let undo = state.world.sccp_anchor_open.predecessor_view();
         let actual = if previous {
-            undo.get().as_ref().unwrap_or(current.get())
+            undo.get().as_ref().unwrap_or_else(|| current.get())
         } else {
             current.get()
         };

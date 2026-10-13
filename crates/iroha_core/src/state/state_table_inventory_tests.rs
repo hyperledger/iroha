@@ -1751,6 +1751,11 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         owner: UseOwner::Accumulator("sccp_message_accumulator"),
     },
     ConstructionUse {
+        path: "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/keeper.rs",
+        uses: &[("anchor_node", 2)],
+        owner: UseOwner::Accumulator("sccp_anchor_accumulator"),
+    },
+    ConstructionUse {
         path: "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs",
         uses: &[("HistoryAccumulator", 2)],
         owner: UseOwner::Roots(&["sccp_certified_history_root"]),
@@ -1872,6 +1877,14 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         path: "crates/iroha_core/src/telemetry.rs",
         uses: &[("ConfidentialTree", 5)],
         owner: UseOwner::Accumulator("confidential_note_tree"),
+    },
+    ConstructionUse {
+        path: "crates/iroha_core/src/telemetry/classified_status.rs",
+        uses: &[("MerkleTree", 1)],
+        owner: UseOwner::Other(
+            Use::Test,
+            "Inline telemetry test replaces the output tree to verify rejection of a stale classified-result cache",
+        ),
     },
     ConstructionUse {
         path: "crates/iroha_core/src/validation_fee_rewards/head_tree.rs",
@@ -2015,7 +2028,10 @@ fn rust_sources(scope: &[&str]) -> Vec<String> {
     fn walk(root: &Path, relative: &str, out: &mut Vec<String>) {
         let path = root.join(relative);
         if path.is_file() {
-            if relative.ends_with(".rs") {
+            if std::path::Path::new(relative)
+                .extension()
+                .is_some_and(|extension| extension == "rs")
+            {
                 out.push(relative.to_owned());
             }
             return;
@@ -7142,10 +7158,12 @@ fn tracked_inventory_matches_the_source() {
 #[test]
 #[ignore = "writes specs/state_table_inventory.json; run it to accept an intended change"]
 fn regenerate_state_table_inventory() {
-    assert!(
-        cfg!(feature = "telemetry"),
-        "regenerate with the node feature set: the tracked inventory lists state.telemetry"
-    );
+    const {
+        assert!(
+            cfg!(feature = "telemetry"),
+            "regenerate with the node feature set: the tracked inventory lists state.telemetry"
+        );
+    }
     let path = repository().join(INVENTORY_PATH);
     let generated = generate();
     // A canonical no-op must preserve the fixture timestamp and Cargo's input
@@ -8670,8 +8688,8 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
             "transaction_membership_root",
         ),
         (
-            "crates/iroha_core/src/smartcontracts/isi/triggers/set_authority_capture.rs",
-            "capture_data_authority_table",
+            "crates/iroha_core/src/smartcontracts/isi/triggers/set_contract_capture/actions.rs",
+            "capture_frozen_action_authority_table",
             "state_table_substrate",
         ),
     ] {
@@ -8684,6 +8702,18 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
             "{name}"
         );
     }
+    // Borrowing the retained Begin proof graph creates no new root or authority.
+    let original_begin = STATE_HASH_FUNCTIONS
+        .iter()
+        .find(|listed| {
+            listed.path == "crates/iroha_core/src/query/native_receipts/amx_begins.rs"
+                && listed.name == "original_begin"
+        })
+        .expect("the original Begin record reader is listed");
+    assert!(matches!(
+        original_begin.owner,
+        UseOwner::Other(Use::Record, reason) if !reason.is_empty()
+    ));
     for (header, target) in [
         ("impl<'a> A for B<'a> where B: C", Some("B<'a>")),
         ("impl<T: X<Y>> Holder<T>", Some("Holder<T>")),
@@ -8893,24 +8923,22 @@ fn state_hash_scan_actual_amx_complete_keeps_its_original_listing() {
     let path = "crates/iroha_core/src/query/native_receipts/amx_read.rs";
     let text = source(path);
     let (_, code) = split_source(&text);
-    let matched: Vec<_> = fn_signatures(&code)
+    let matched = fn_signatures(&code)
         .into_iter()
         .filter(|signature| {
             signature.name == "complete" && signature.reads_state && signature.returns_hash
         })
-        .collect();
+        .count();
     assert_eq!(
-        matched.len(),
-        1,
+        matched, 1,
         "original AMX complete State-reader must remain scanned"
     );
-    let listed: Vec<_> = STATE_HASH_FUNCTIONS
+    let listed = STATE_HASH_FUNCTIONS
         .iter()
         .filter(|listed| listed.path == path && listed.name == "complete")
-        .collect();
+        .count();
     assert_eq!(
-        listed.len(),
-        1,
+        listed, 1,
         "original AMX complete must retain its exact registry entry"
     );
 }

@@ -1,10 +1,10 @@
 use crate::{
     Outcome, RunArgs,
     genesis::profile::{
-        GenesisProfile, PUBLIC_XOR_ALIAS, PUBLIC_XOR_DOMAIN, ProfileDefaults,
-        TAIRA_XOR_ASSET_DEFINITION_ID, TAIRA_XOR_SCALE, known_chain_discriminant_for_chain_id,
-        parse_vrf_seed_hex, profile_defaults, profile_requires_npos,
-        reject_retired_public_chain_id, resolve_public_xor_asset_definition_id, resolve_vrf_seed,
+        GenesisProfile, PUBLIC_XOR_ALIAS, PUBLIC_XOR_DOMAIN, ProfileDefaults, TAIRA_XOR_SCALE,
+        known_chain_discriminant_for_chain_id, parse_vrf_seed_hex, profile_defaults,
+        profile_requires_npos, reject_retired_public_chain_id,
+        resolve_public_xor_asset_definition_id, resolve_vrf_seed,
     },
     tui,
 };
@@ -72,11 +72,11 @@ fn append_lane_policy(
     genesis: RawGenesisTransaction,
     policy: SumeragiLanePolicy,
 ) -> color_eyre::Result<RawGenesisTransaction> {
-    Ok(genesis
+    genesis
         .into_builder()
         .append_parameter(Parameter::Custom(policy.into_custom_parameter()))
         .build_raw()?
-        .with_consensus_meta()?)
+        .with_consensus_meta()
 }
 
 /// Generate a genesis configuration and standard-output in JSON format
@@ -96,6 +96,10 @@ pub struct Args {
     /// NPoS manifests; `iroha3-taira` defaults to its live XOR id.
     #[clap(long, value_name = "BASE58")]
     xor_asset_definition_id: Option<String>,
+    /// Install the SCCP genesis profile and reserve a fresh nonce in this persistent
+    /// reset-history directory. Requires NPoS and a global root; retain the history across resets.
+    #[clap(long, value_name = "PATH")]
+    sccp_reset_history: Option<PathBuf>,
     /// Optional path (relative to output) to the executor bytecode file (.to).
     /// If omitted, no executor upgrade is included in genesis.
     #[clap(long, value_name = "PATH")]
@@ -470,7 +474,7 @@ fn append_public_xor_binding(
         .into_builder()
         .append_parameter(Parameter::Custom(npos.into_custom_parameter()));
     if has_domain && has_asset_definition && alias_bound {
-        return Ok(builder.build_raw()?.with_consensus_meta()?);
+        return builder.build_raw()?.with_consensus_meta();
     }
     builder = builder.next_transaction();
     if !has_domain {
@@ -496,7 +500,7 @@ fn append_public_xor_binding(
             ),
         );
     }
-    Ok(builder.build_raw()?.with_consensus_meta()?)
+    builder.build_raw()?.with_consensus_meta()
 }
 fn public_xor_numeric_spec() -> NumericSpec {
     NumericSpec::fractional(TAIRA_XOR_SCALE)
@@ -562,6 +566,7 @@ impl<T: Write> RunArgs<T> for Args {
             chain_id,
             vrf_seed_hex,
             xor_asset_definition_id,
+            sccp_reset_history,
             executor,
             ivm_dir,
             genesis_public_key,
@@ -629,6 +634,10 @@ impl<T: Write> RunArgs<T> for Args {
         if let Some(path) = lane_policy {
             genesis = append_lane_policy(genesis, load_lane_policy(&path)?)?;
         }
+        if let Some(history) = sccp_reset_history {
+            let nonce = iroha_deploy::genesis::sccp::fresh_reset_nonce(&history)?;
+            genesis = iroha_deploy::genesis::sccp::append_profile(genesis, nonce)?;
+        }
         let chain_discriminant = profile_defaults
             .as_ref()
             .and_then(|defaults| defaults.chain_discriminant)
@@ -660,7 +669,7 @@ impl<T: Write> RunArgs<T> for Args {
 #[cfg(test)]
 mod consensus_manifest_tests {
     use super::*;
-    use crate::genesis::CompleteTestGenesisBuilder as _;
+    use crate::genesis::{CompleteTestGenesisBuilder as _, TAIRA_XOR_ASSET_DEFINITION_ID};
     use iroha_test_samples::SAMPLE_GENESIS_ACCOUNT_KEYPAIR;
 
     #[test]
@@ -692,10 +701,9 @@ mod consensus_manifest_tests {
                     if let Some(register) = instruction
                         .as_any()
                         .downcast_ref::<Register<AssetDefinition>>()
+                        && register.object.id == xor
                     {
-                        if register.object.id == xor {
-                            return Some(&register.object);
-                        }
+                        return Some(&register.object);
                     }
                     instruction
                         .as_any()
@@ -1309,5 +1317,5 @@ fn generate_synthetic(
         }
     }
     let manifest = builder.build_raw()?.with_consensus_mode(consensus_mode);
-    Ok(manifest.with_consensus_meta()?)
+    manifest.with_consensus_meta()
 }

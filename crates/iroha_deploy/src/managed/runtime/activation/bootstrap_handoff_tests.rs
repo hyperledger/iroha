@@ -24,10 +24,10 @@ fn assert_held(path: &std::path::Path) {
     let directory = PrivateDirectory::open_exact(path).unwrap();
     match directory.open_existing_lock("operation.lock") {
         Ok(lock) => assert!(lock.try_lock().is_err()),
-        Err(error) => {
-            assert!(cfg!(windows));
-            assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
-        }
+        #[cfg(windows)]
+        Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock),
+        #[cfg(not(windows))]
+        Err(error) => panic!("retained operation lock must open: {error}"),
     }
 }
 fn assert_free(path: &std::path::Path) {
@@ -196,9 +196,11 @@ fn handoff_keeps_literal_active_decode_and_owned_parent_cold_admission() {
         let parent = inherited.then(|| ManagedServiceBootstrap::open(&prepared).unwrap());
         let context = DecodeBudgetContext::new(limits(ample));
         let (owner, count) = cold_captures(|| {
-            context.with(|| match parent {
-                Some(parent) => parent.into_generated_runtime(),
-                None => GeneratedServiceRuntime::open(&prepared),
+            context.with(|| {
+                parent.map_or_else(
+                    || GeneratedServiceRuntime::open(&prepared),
+                    crate::managed::service_bootstrap::ManagedServiceBootstrap::into_generated_runtime,
+                )
             })
         });
         assert_eq!(count, 1);
@@ -276,7 +278,7 @@ fn activation_cancellation_after_handoff_retains_epoch_and_releases_both_locks()
     assert!(matches!(result, Err(failure) if failure == selected.progress.cancelled()));
     assert_eq!(captures, 1);
     let (original, epoch) = saved.borrow_mut().take().unwrap();
-    let initial = PrivateDirectory::open_exact(&bootstrap_path.join("initial")).unwrap();
+    let initial = PrivateDirectory::open_exact(bootstrap_path.join("initial")).unwrap();
     assert_eq!(initial.read("original.nrt", 512 * 1024).unwrap(), original);
     let epochs = initial.open_child("epochs").unwrap();
     assert_eq!(epochs.read("0001.nrt", 64 * 1024).unwrap(), epoch);

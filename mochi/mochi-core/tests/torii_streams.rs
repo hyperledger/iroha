@@ -3,7 +3,6 @@ use iroha_data_model::{
     block,
     events::{EventBox, stream::EventMessage},
 };
-use iroha_version::codec::EncodeVersioned;
 use mochi_core::torii::{EventCategory, ToriiError, decode_norito};
 const BLOCK_WIRE_FIXTURE: &[u8] = include_bytes!("fixtures/canonical_block_wire.bin");
 const EVENT_MESSAGE_FIXTURE: &[u8] = include_bytes!("fixtures/canonical_event_message.bin");
@@ -15,9 +14,18 @@ fn canonical_block_fixture_roundtrips_via_wire_helpers() {
         .canonical_wire()
         .expect("emit canonical wire representation");
     assert_eq!(canonical_wire.as_framed(), BLOCK_WIRE_FIXTURE);
-    let versioned = block.encode_versioned();
-    assert_eq!(canonical_wire.version(), versioned[0]);
-    assert_eq!(canonical_wire.payload(), &versioned[1..]);
+    let encoded = block.encode_wire().expect("encode canonical block frame");
+    assert_eq!(encoded, BLOCK_WIRE_FIXTURE);
+    assert_eq!(canonical_wire.version(), block::SignedBlock::WIRE_VERSION);
+    assert_eq!(canonical_wire.version(), encoded[0]);
+    assert_eq!(
+        canonical_wire.payload(),
+        &encoded[1 + norito::core::Header::SIZE..]
+    );
+    assert_eq!(
+        block::decode_framed_signed_block(&encoded).expect("decode re-encoded canonical block"),
+        block
+    );
 }
 #[test]
 fn canonical_event_fixture_produces_expected_category() {

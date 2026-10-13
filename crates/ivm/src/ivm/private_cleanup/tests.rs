@@ -150,9 +150,8 @@ fn diagnostic_refusal_precedes_every_lifecycle_mutation_and_retry() {
         vm.memory
             .install_diagnostic_access_recorder(diagnostic.shared())
             .unwrap();
-        assert_eq!(
-            transition(&mut vm, action),
-            Err(VMError::ExecutionDeferred(
+        assert!(
+            matches!(transition(&mut vm, action), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
                 ExecutionDeferral::ActiveMemoryCapacity
             )),
             "{action:?}"
@@ -193,12 +192,12 @@ fn invalid_range_rejects_before_zeroing_an_earlier_valid_range() {
         let registers = vm.registers.snapshot();
         let tags = vm.registers.snapshot_tags();
         let root = vm.memory.root();
-        assert_eq!(
+        assert!(matches!(
             transition(&mut vm, action),
             Err(VMError::ExecutionDeferred(
-                ExecutionDeferral::LocalInvariantViolation,
+                ExecutionDeferral::LocalInvariantViolation
             ))
-        );
+        ));
         assert_secret_bytes(&vm);
         assert_eq!(vm.private_memory_bytes, ranges);
         assert_eq!(vm.registers.snapshot(), registers);

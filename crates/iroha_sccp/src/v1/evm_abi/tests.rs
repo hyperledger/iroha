@@ -5,6 +5,59 @@ use crate::v1::{
     hashes::keccak256,
 };
 const TAIRA: [u8; 32] = [0x11; 32];
+
+#[test]
+fn published_certificate_logs_bind_canonical_bytes_and_indexed_identity() {
+    let fixture: norito::json::Value = norito::json::from_str(include_str!(
+        "../../../../../fixtures/sccp/finality_v1.json"
+    ))
+    .unwrap();
+    for fixture in fixture["certificates"].as_array().unwrap() {
+        let bytes = |field: &str| {
+            crate::test_support::ethereum::hex_bytes(fixture["evm"][field].as_str().unwrap())
+        };
+        let header = bytes("header");
+        let parsed = crate::v1::finality::SccpFinalityHeaderV1::parse(&header).unwrap();
+        let topics = [
+            TOPIC_CERTIFICATE,
+            word_u64(parsed.height()),
+            word_u64(parsed.generation()),
+        ];
+        let data = encode_tokens(&[
+            AbiToken::Bytes(bytes("qc")),
+            AbiToken::Bytes(header),
+            AbiToken::Bytes(bytes("signature")),
+        ]);
+        let event = CertificateLogV1::decode(&topics, &data).unwrap();
+        assert_eq!(event.height, parsed.height());
+        assert_eq!(event.generation, parsed.generation());
+        let compressed = crate::v1::committee::signature_from_evm192(&event.signature).unwrap();
+        assert_eq!(
+            compressed.as_slice(),
+            crate::test_support::ethereum::hex_bytes(
+                fixture["aggregate_signature"]["compressed"]
+                    .as_str()
+                    .unwrap()
+            )
+        );
+        let mut wrong_topic = topics;
+        wrong_topic[1] = word_u64(parsed.height() + 1);
+        assert!(CertificateLogV1::decode(&wrong_topic, &data).is_err());
+        wrong_topic = topics;
+        wrong_topic[2][0] = 1;
+        assert!(CertificateLogV1::decode(&wrong_topic, &data).is_err());
+        for length in [0, data.len() - 1] {
+            assert!(CertificateLogV1::decode(&topics, &data[..length]).is_err());
+        }
+        let mut trailing = data.clone();
+        trailing.push(0);
+        assert!(CertificateLogV1::decode(&topics, &trailing).is_err());
+        let mut alias = data.clone();
+        alias[32..64].copy_from_slice(&data[..32]);
+        assert!(CertificateLogV1::decode(&topics, &alias).is_err());
+        assert!(CertificateLogV1::decode(&topics[..2], &data).is_err());
+    }
+}
 fn word_hex(data: &[u8], index: usize) -> String {
     crate::v1::hashes::to_hex(&data[index * WORD..(index + 1) * WORD])
 }
@@ -853,6 +906,56 @@ fn voided_log_roundtrip() {
     let mut dirty = topics;
     dirty[2][0] = 1;
     assert_eq!(VoidedLogV1::decode(&dirty, &data), Err(AbiError::DirtyWord));
+}
+
+#[test]
+fn finalized_log_roundtrip_and_strict_fields() {
+    let log = FinalizedLogV1 {
+        message_id: [7; 32],
+        nonce: u64::MAX,
+        recipient: [4; 20],
+        token_amount: u128::MAX,
+    };
+    let (topics, data) = log.encode();
+    assert_eq!(
+        topics[0],
+        keccak256(&[b"SccpFinalized(bytes32,uint64,address,uint256)"])
+    );
+    assert_eq!(FinalizedLogV1::decode(&topics, &data), Ok(log));
+    assert_eq!(
+        FinalizedLogV1::decode(&topics[..3], &data),
+        Err(AbiError::WrongTopicCount)
+    );
+    let mut changed = topics.clone();
+    changed[0] = TOPIC_VOIDED;
+    assert_eq!(
+        FinalizedLogV1::decode(&changed, &data),
+        Err(AbiError::WrongTopic)
+    );
+    for index in [2, 3] {
+        let mut dirty = topics.clone();
+        dirty[index][0] = 1;
+        assert_eq!(
+            FinalizedLogV1::decode(&dirty, &data),
+            Err(AbiError::DirtyWord)
+        );
+    }
+    for length in [0, 31, 33, 64] {
+        assert_eq!(
+            FinalizedLogV1::decode(&topics, &vec![0; length]),
+            Err(AbiError::BadLength)
+        );
+    }
+    assert_eq!(
+        FinalizedLogV1::decode(&topics, &[0; 32]),
+        Err(AbiError::BadAmount)
+    );
+    let mut overflow = data;
+    overflow[15] = 1;
+    assert_eq!(
+        FinalizedLogV1::decode(&topics, &overflow),
+        Err(AbiError::BadAmount)
+    );
 }
 
 #[test]

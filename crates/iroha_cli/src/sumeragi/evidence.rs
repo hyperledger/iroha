@@ -196,7 +196,7 @@ mod tests {
             iroha_crypto::KeyPair::try_from_seed(vec![44; 32], iroha_crypto::Algorithm::BlsNormal)
                 .unwrap();
         EvidenceRecord {
-            evidence: RecordedEvidenceV1::SccpForgery(SccpForgeryRecordV1 {
+            evidence: RecordedEvidenceV1::SccpForgery(Box::new(SccpForgeryRecordV1 {
                 evidence: SubmitSccpForgeryEvidenceV1 {
                     qc: [0xa1; 116],
                     header: [0xb2; 221],
@@ -216,7 +216,7 @@ mod tests {
                     validator: AccountId::new(key.public_key().clone()),
                     activation_height: 19,
                 }],
-            }),
+            })),
             attribution: EvidenceAttribution {
                 scope: EvidenceScope::SccpGeneration { generation: 7 },
                 instance: [1; 32],

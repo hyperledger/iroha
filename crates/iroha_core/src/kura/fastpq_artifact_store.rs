@@ -1101,9 +1101,7 @@ mod tests {
                 &iroha_config::parameters::actual::LaneConfig::default(),
             );
             assert!(reopened.is_err(), "{invalid}");
-            let error = reopened
-                .err()
-                .expect("invalid FASTPQ inventory fails startup");
+            let error = reopened.expect_err("invalid FASTPQ inventory fails startup");
             assert!(
                 matches!(&error, Error::IO(source, _) if source.to_string().contains("FASTPQ")),
                 "{invalid}: {error}"

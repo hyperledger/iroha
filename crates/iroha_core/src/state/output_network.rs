@@ -408,6 +408,10 @@ fn execute_network_attempt_with_amx<'attempt>(
             crate::smartcontracts::isi::sccp::hold::committed_time_ms(state)
                 .map_err(|error| error.to_string())?,
         ) == Some(crate::smartcontracts::isi::sccp::admission::SccpExemptClassV1::ForgeryEvidence);
+    let requires_keepalive_success = crate::smartcontracts::isi::sccp::keepalive::payload(input)
+        .is_some_and(|payload| {
+            crate::smartcontracts::isi::sccp::keepalive::count(&payload.instructions) != 0
+        });
     state.retain_fastpq_source_invocation(Hash::from(input.execution_call_hash()))?;
     let gas_before = state.gas_used_in_block;
     let gas_limit = state.gas_limit_per_block;
@@ -440,9 +444,9 @@ fn execute_network_attempt_with_amx<'attempt>(
         },
         Err(reason) => Err(reason),
     };
-    if let Some(reason) = transaction.execution_deferral() {
-        return Err(ExecutionAttemptError::Deferred(reason));
-    }
+    transaction
+        .ensure_execution_ready()
+        .map_err(ExecutionAttemptError::Deferred)?;
     if transaction.fastpq_source_quota.intrinsic_rejected()? {
         result = Err(TransactionRejectionReason::Validation(
             ValidationFail::NotPermitted(
@@ -472,7 +476,9 @@ fn execute_network_attempt_with_amx<'attempt>(
             )),
         ));
     }
-    if requires_forgery_success && let Err(reason) = &result {
+    if (requires_forgery_success || requires_keepalive_success)
+        && let Err(reason) = &result
+    {
         // Every local refusal above has already returned Deferred, and storage admission
         // has been checked. This is a completed deterministic failure: drop the original
         // transaction overlay without recording a rejection fee, output or partial evidence.
@@ -482,7 +488,12 @@ fn execute_network_attempt_with_amx<'attempt>(
         while let Some(source) = cause.source() {
             cause = source;
         }
-        return Err(format!("SCCP forgery evidence failed at execution (R-EX): {cause}").into());
+        let kind = if requires_keepalive_success {
+            "Keepalive failed at execution (K2)"
+        } else {
+            "SCCP forgery evidence failed at execution (R-EX)"
+        };
+        return Err(format!("{kind}: {cause}").into());
     }
     if let Err(reason) = result {
         transaction
@@ -571,11 +582,16 @@ fn execute_network_attempt_with_amx<'attempt>(
         ReservedExecutionOutput::Accepted(row) => (row, !journal_overflow),
         ReservedExecutionOutput::OutputLimit(row) => (row, false),
     };
-    if requires_forgery_success && !apply {
+    if (requires_forgery_success || requires_keepalive_success) && !apply {
         // A completed callback/event/output limit can reject an otherwise successful
         // handler. It is also R-EX: never publish a failed carrier without its evidence.
         // Original local reservation and journal refusals returned above remain local.
-        return Err("SCCP forgery output failed at execution (R-EX)".into());
+        return Err(if requires_keepalive_success {
+            "Keepalive output failed at execution (K3)"
+        } else {
+            "SCCP forgery output failed at execution (R-EX)"
+        }
+        .into());
     }
     if apply {
         let transaction = attempt
@@ -689,7 +705,16 @@ fn complete_network_rejection<
             #[cfg(test)]
             let settled = fee_decode_test_scope::run(|| {
                 let settled = settle(transaction, signed);
-                (settled, transaction.execution_deferral())
+                (
+                    settled,
+                    transaction.borrow_execution_deferral().map(|original| {
+                        (
+                            original.reason(),
+                            original.decode_refusal().cloned(),
+                            original.allocation_refusal().is_some(),
+                        )
+                    }),
+                )
             });
             #[cfg(not(test))]
             let settled = settle(transaction, signed);
@@ -698,7 +723,7 @@ fn complete_network_rejection<
             // completed result or quota failure. Dropping the output producer poisons
             // this disposable block; recovery retries from the original parent State.
             if !cfg!(all(test, sumeragi_core_mutation = "HC244"))
-                && let Some(original) = transaction.execution_deferral()
+                && let Err(original) = transaction.ensure_execution_ready()
             {
                 return Err(ExecutionAttemptError::Deferred(original));
             }
@@ -771,7 +796,16 @@ fn settle_rejection_penalties(
     let applied = penalty_decode_test_scope::run(|| {
         let applied =
             StateBlock::stage_rejected_governance_ballot_penalties_v1(transaction, penalties);
-        (applied, transaction.execution_deferral())
+        (
+            applied,
+            transaction.borrow_execution_deferral().map(|original| {
+                (
+                    original.reason(),
+                    original.decode_refusal().cloned(),
+                    original.allocation_refusal().is_some(),
+                )
+            }),
+        )
     });
     #[cfg(not(test))]
     let applied = StateBlock::stage_rejected_governance_ballot_penalties_v1(transaction, penalties);
@@ -779,7 +813,7 @@ fn settle_rejection_penalties(
     // original local refusal lives only in this disposable transaction. Extract it
     // before quota/result projection or dropping the overlay can lose that owner.
     if !cfg!(all(test, sumeragi_core_mutation = "HC245"))
-        && let Some(original) = transaction.execution_deferral()
+        && let Err(original) = transaction.ensure_execution_ready()
     {
         return Err(ExecutionAttemptError::Deferred(original));
     }
@@ -876,14 +910,18 @@ fn require_rejection_fragment(
 /// Exercise a real cumulative decoder refusal only at the original fee-settlement boundary.
 #[cfg(test)]
 pub(super) mod fee_decode_test_scope {
-    use crate::execution_attempt::ExecutionDeferred;
+    type RefusalObservation = (
+        ivm::error::ExecutionDeferral,
+        Option<norito::core::DecodeLocalRefusal>,
+        bool,
+    );
     use std::cell::RefCell;
 
     #[derive(Default)]
     struct Probe {
         enabled: bool,
         calls: usize,
-        deferred: Option<ExecutionDeferred>,
+        deferred: Option<RefusalObservation>,
     }
 
     thread_local! {
@@ -895,7 +933,7 @@ pub(super) mod fee_decode_test_scope {
 
     impl Guard {
         /// Observe the actual fee invocation and its transaction-local refusal.
-        pub(crate) fn observe(&self) -> (usize, Option<ExecutionDeferred>) {
+        pub(crate) fn observe(&self) -> (usize, Option<RefusalObservation>) {
             PROBE.with(|probe| {
                 let probe = probe.borrow();
                 (probe.calls, probe.deferred.clone())
@@ -923,7 +961,7 @@ pub(super) mod fee_decode_test_scope {
     }
 
     /// Run the original fee settlement and observe its actual retained refusal.
-    pub(super) fn run<T>(settle: impl FnOnce() -> (T, Option<ExecutionDeferred>)) -> T {
+    pub(super) fn run<T>(settle: impl FnOnce() -> (T, Option<RefusalObservation>)) -> T {
         if !PROBE.with(|probe| probe.borrow().enabled) {
             return settle().0;
         }
@@ -945,14 +983,18 @@ pub(super) mod fee_decode_test_scope {
 /// Exercise a real cumulative decoder refusal only at the original penalty-settlement boundary.
 #[cfg(test)]
 pub(super) mod penalty_decode_test_scope {
-    use crate::execution_attempt::ExecutionDeferred;
+    type RefusalObservation = (
+        ivm::error::ExecutionDeferral,
+        Option<norito::core::DecodeLocalRefusal>,
+        bool,
+    );
     use std::cell::RefCell;
 
     #[derive(Default)]
     struct Probe {
         enabled: bool,
         calls: usize,
-        deferred: Option<ExecutionDeferred>,
+        deferred: Option<RefusalObservation>,
     }
 
     thread_local! {
@@ -964,7 +1006,7 @@ pub(super) mod penalty_decode_test_scope {
 
     impl Guard {
         /// Observe the actual penalty invocation and its transaction-local refusal.
-        pub(crate) fn observe(&self) -> (usize, Option<ExecutionDeferred>) {
+        pub(crate) fn observe(&self) -> (usize, Option<RefusalObservation>) {
             PROBE.with(|probe| {
                 let probe = probe.borrow();
                 (probe.calls, probe.deferred.clone())
@@ -992,7 +1034,7 @@ pub(super) mod penalty_decode_test_scope {
     }
 
     /// Run the original penalty settlement and observe its actual retained refusal.
-    pub(super) fn run<T>(settle: impl FnOnce() -> (T, Option<ExecutionDeferred>)) -> T {
+    pub(super) fn run<T>(settle: impl FnOnce() -> (T, Option<RefusalObservation>)) -> T {
         if !PROBE.with(|probe| probe.borrow().enabled) {
             return settle().0;
         }

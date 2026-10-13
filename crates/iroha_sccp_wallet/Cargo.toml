@@ -11,6 +11,7 @@ workspace = true
 
 # Never linked into irohad: `ci/dependency_budget.json` forbids the `sccp_wallet` layer there.
 [dependencies]
+iroha = { workspace = true }
 iroha_sccp = { workspace = true }
 iroha_sccp_rpc = { workspace = true }
 iroha_data_model = { workspace = true, default-features = false }

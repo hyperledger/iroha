@@ -32,24 +32,24 @@ fn original_genesis_authenticates_current_height_report_and_exact_signer_interse
     let evidence = conflict(&chain, 2);
     let view = chain.state().view();
     let mut reads = Vec::new();
-    let verified = verify_from_state(&view, &evidence, |count, bytes| {
+    let authenticated = verify_from_state(&view, &evidence, |count, bytes| {
         reads.push((count, bytes));
         Ok(())
     })
     .unwrap();
-    assert_eq!(verified.tip(), view.native_execution_tip().unwrap());
-    assert_eq!(verified.instance(), chain.instance());
-    assert_eq!(verified.height(), 2);
-    assert!(verified.safety_violation());
+    assert_eq!(authenticated.tip(), view.native_execution_tip().unwrap());
+    assert_eq!(authenticated.instance(), chain.instance());
+    assert_eq!(authenticated.height(), 2);
+    assert!(authenticated.safety_violation());
     assert_eq!(
-        verified
+        authenticated
             .offenders()
             .iter()
             .map(|offender| offender.signer)
             .collect::<Vec<_>>(),
         [1, 2]
     );
-    for offender in verified.offenders() {
+    for offender in authenticated.offenders() {
         assert_eq!(
             &offender.peer_id,
             &chain.validators()[offender.signer as usize].0
@@ -63,9 +63,9 @@ fn original_genesis_authenticates_current_height_report_and_exact_signer_interse
         .unwrap()
         .height_config()
         .unwrap();
-    assert_eq!(verified.epoch(), config.epoch.id);
+    assert_eq!(authenticated.epoch(), config.epoch.id);
     assert_eq!(
-        verified.authority_generation(),
+        authenticated.authority_generation(),
         config.epoch.authority_generation
     );
     assert_eq!(reads.len(), 1);
@@ -83,13 +83,13 @@ fn old_subject_uses_original_history_after_schedule_window_advances() {
     let view = chain.state().view();
     assert!(view.world().consensus_schedule().ready(2).is_err());
     let mut reads = 0;
-    let verified = verify_from_state(&view, &evidence, |count, _| {
+    let authenticated = verify_from_state(&view, &evidence, |count, _| {
         reads += count;
         Ok(())
     })
     .unwrap();
-    assert_eq!(verified.height(), 2);
-    assert_eq!(verified.tip().height(), 4);
+    assert_eq!(authenticated.height(), 2);
+    assert_eq!(authenticated.tip().height(), 4);
     assert_eq!(
         reads, 4,
         "one reverse walk includes the tip and original genesis"
@@ -345,22 +345,22 @@ fn original_history_refuses_false_parent_qc_reports_and_preserves_signed_safety_
     };
     sign_qc(&mut first);
     sign_qc(&mut second);
-    let verified = verify_from_state(
+    let authenticated = verify_from_state(
         &view,
         &Evidence::ConflictingCertificates(first, second),
         |_, _| Ok(()),
     )
     .unwrap();
-    assert!(verified.safety_violation());
+    assert!(authenticated.safety_violation());
     assert_eq!(
-        verified
+        authenticated
             .offenders()
             .iter()
             .map(|offender| offender.signer)
             .collect::<Vec<_>>(),
         [1, 2]
     );
-    assert_eq!(verified.tip(), original_tip);
+    assert_eq!(authenticated.tip(), original_tip);
     assert_eq!(view.native_execution_tip(), Some(original_tip));
     assert_eq!(
         chain.state().view().native_execution_tip(),

@@ -156,7 +156,7 @@ pub(in crate::managed) fn native_configured_gateway(
         ServiceAuthority::open_provider(prepared, provider, ProviderPurpose::InitialGatewaySetup)
             .unwrap();
     let manager = authority.config.clone();
-    let mut native = NativeFixture::from_generated(&prepared, &authority);
+    let mut native = NativeFixture::from_generated(prepared, &authority);
     let log = quote_instructions(
         &native,
         &manager,

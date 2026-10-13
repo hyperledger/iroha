@@ -1277,6 +1277,10 @@ SCCP_BEGIN_CALL = (
     "crate::smartcontracts::isi::sccp::hook::begin_block(&mut sb)\n"
     "            .map_err(StateBlockStartError::Storage)?;"
 )
+SCCP_LAPSE_CALL = (
+    "crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mut sb)\n"
+    "            .map_err(StateBlockStartError::Storage)?;"
+)
 
 
 def test_block_start_phase_helpers_preserve_original_order_and_custody() -> None:
@@ -1376,7 +1380,8 @@ def test_shared_start_construction_retains_exact_original_owner(
     "missing_expiry", "missing_enactment", "duplicate", "swapped",
     "wrong_height", "conditional", "late_before_flag", "late_after_execution",
     "missing_sccp_begin", "duplicate_sccp_begin", "sccp_begin_after_enactment",
-    "conditional_sccp_begin",
+    "conditional_sccp_begin", "missing_sccp_lapse", "duplicate_sccp_lapse",
+    "sccp_lapse_before_enactment", "conditional_sccp_lapse", "foreign_sccp_lapse",
 ))
 def test_block_start_phase_calls_reject_disconnected_or_late_owners(mutation: str) -> None:
     """Valid Rust statement changes cannot disconnect helpers or defer them until after execution."""
@@ -1404,6 +1409,17 @@ def test_block_start_phase_calls_reject_disconnected_or_late_owners(mutation: st
             ENACTMENT_CALL, SCCP_BEGIN_CALL, 1).replace("PHASE_SWAP", ENACTMENT_CALL, 1)
     elif mutation == "conditional_sccp_begin":
         mutated = source.replace(SCCP_BEGIN_CALL, "if false { " + SCCP_BEGIN_CALL + " }", 1)
+    elif mutation == "missing_sccp_lapse":
+        mutated = source.replace(SCCP_LAPSE_CALL, "", 1)
+    elif mutation == "duplicate_sccp_lapse":
+        mutated = source.replace(SCCP_LAPSE_CALL, SCCP_LAPSE_CALL * 2, 1)
+    elif mutation == "sccp_lapse_before_enactment":
+        mutated = source.replace(SCCP_LAPSE_CALL, "PHASE_SWAP", 1).replace(
+            ENACTMENT_CALL, SCCP_LAPSE_CALL, 1).replace("PHASE_SWAP", ENACTMENT_CALL, 1)
+    elif mutation == "conditional_sccp_lapse":
+        mutated = source.replace(SCCP_LAPSE_CALL, "if false { " + SCCP_LAPSE_CALL + " }", 1)
+    elif mutation == "foreign_sccp_lapse":
+        mutated = source.replace(SCCP_LAPSE_CALL, SCCP_LAPSE_CALL.replace("&mut sb", "&mut other"), 1)
     else:
         anchor = ("        sb.start_of_block_effects_applied = true;" if mutation == "late_before_flag"
                   else "\n        let result = after_start(&mut sb, continuation).map_err(StateBlockStartError::Stage)?;")
@@ -1449,6 +1465,8 @@ def test_block_start_phase_bodies_reject_changed_height_or_rollback(
     (EXPIRY_CALL, "Self::apply_block_start_private_settlement_expiry(&mut sb, now_h).unwrap();"),
     (ENACTMENT_CALL, "Self::apply_block_start_parliament_enactments(&mut sb, now_h).unwrap();"),
     (SCCP_BEGIN_CALL, "crate::smartcontracts::isi::sccp::hook::begin_block(&mut sb).unwrap();"),
+    (SCCP_LAPSE_CALL,
+     "crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mut sb).unwrap();"),
     ("\n        let result = after_start(&mut sb, continuation).map_err(StateBlockStartError::Stage)?", "\n        let result = after_start(&mut sb, continuation).unwrap()"),
     ("\n            let result = after_start(&mut sb, continuation).map_err(StateBlockStartError::Stage)?", "\n            let result = after_start(&mut sb, continuation).unwrap()"),
 ))
@@ -1636,11 +1654,11 @@ def test_prepared_commit_rejects_refusal_publication_or_replay_regressions(
         changed = commit.replace(original,
                                  "let effects = replacement_effects;\n            " + original, 1)
     elif mutation == "geometry_refusal":
-        geometry = guard.section(commit, "if let Err(err) = geometry_result {",
+        geometry = guard.section(commit, "if let Err(error) = geometry.apply(geometry_lease.lease()) {",
                                  "autoscale_start.elapsed()", STATE_PATH)
-        assert geometry.count("return Err(TransactionsBlockError::from(err));") == 1
+        assert geometry.count("return Err(TransactionsBlockError::from(error));") == 1
         changed = commit.replace(geometry,
-                                 geometry.replace("return Err(TransactionsBlockError::from(err));", "", 1), 1)
+                                 geometry.replace("return Err(TransactionsBlockError::from(error));", "", 1), 1)
     elif mutation == "hash_prepare_refusal":
         anchor = guard.section(commit, "            block_hashes\n                .try_prepare_publication()",
                                "            world\n                .try_prepare_frozen_publication()", PUBLICATION_PATH)
@@ -1673,8 +1691,10 @@ def test_prepared_commit_rejects_refusal_publication_or_replay_regressions(
             "block_hashes.publish_prepared();", "world.publish_prepared();", 1).replace(
                 "SWAP_COMMIT", "block_hashes.publish_prepared();", 1)
     elif mutation in ("writer_removed", "generation_removed", "writer_early_drop", "conditional_world"):
-        publication = guard.section(commit, "        let autoscale_storage_hold =",
-                                    "        if let Some(post) = lifecycle_post_publication.as_mut()", STATE_PATH)
+        preparation = guard.rust_item(commit, "        if prepared_geometry.is_some() {", PUBLICATION_PATH)
+        tail = commit[commit.index(preparation) + len(preparation):]
+        publication = guard.rust_item(
+            tail, "        {\n            let state_write_lock_wait_start", PUBLICATION_PATH)
         if mutation == "writer_removed":
             replacement = publication.replace("let _state_write_lock = write_fence.lock();", "", 1)
         elif mutation == "generation_removed":
@@ -3150,6 +3170,11 @@ def test_parliament_pulse_isolation_evidence_baseline_and_entrypoint() -> None:
      ".is_some_and(|(_, output)| output.result.is_ok())", ".is_some()"),
     (guard.BEACON_EXECUTION_TESTS_PATH, "fn invalid(",
      "Some(ExecOutcome::Invalid)", "Some(_)"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn invalid(",
+     "executor.execute(candidate, &hash, false)", "executor.execute(candidate, &hash, true)"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "                &requested_nothing,\n                &hash,\n                false",
+     "                &requested_nothing,\n                &hash,\n                true"),
     # The native obligation with or without a pending slot.
     (guard.BEACON_EXECUTION_TESTS_PATH, NPOS_TEST,
      'assert!(refusal.contains("Invalid"), "{refusal}");',
@@ -3864,3 +3889,122 @@ def test_production_checker_enforces_pulse_isolation_state_and_model_pins(
     )
     with pytest.raises(RuntimeError, match=message):
         guard.main()
+
+
+KURA_RETAINED_PATH = "crates/iroha_core/src/kura/publication_lease/retained.rs"
+KURA_CALLBACK_TESTS_PATH = "crates/iroha_core/src/state/publication_effect_kura_tests.rs"
+
+
+@pytest.mark.parametrize("path,declaration,original,replacement", (
+    (PUBLICATION_PATH, None,
+     "geometry_cleanup: crate::kura::KuraPublicationSlot::new(&state.kura),",
+     "geometry_cleanup: crate::kura::KuraPublicationSlot::new(&other.kura),"),
+    (PUBLICATION_PATH, None,
+     "    geometry_cleanup: crate::kura::KuraPublicationSlot<'state>,",
+     "    unrelated_cleanup: crate::kura::KuraPublicationSlot<'state>,"),
+    (PUBLICATION_PATH, None,
+     "let mut geometry_lease = geometry_cleanup.physical_scope();",
+     "let mut geometry_lease = other_cleanup.physical_scope();"),
+    (PUBLICATION_PATH, None,
+     "let mut geometry_lease = geometry_cleanup.physical_scope();\n"
+     "        let mut effect_locks = effect_cleanup.physical_scope();",
+     "let mut effect_locks = effect_cleanup.physical_scope();\n"
+     "        let mut geometry_lease = geometry_cleanup.physical_scope();"),
+    (PUBLICATION_PATH, None, "if prepared_geometry.is_some() {", "if true {"),
+    (PUBLICATION_PATH, "        if prepared_geometry.is_some() {",
+     "            })?;", "            }).unwrap();"),
+    (PUBLICATION_PATH, "        if prepared_geometry.is_some() {",
+     "TransactionsBlockError::PublicationBusy(wait)",
+     "TransactionsBlockError::SnapshotObservationChanged"),
+    (PUBLICATION_PATH, None,
+     "effect_locks\n                .try_prepare()\n"
+     "                .map_err(|(_, wait)| TransactionsBlockError::PublicationBusy(wait))?;",
+     "effect_locks.prepare_blocking();"),
+    (PUBLICATION_PATH, None,
+     ".map_err(|(_, wait)| TransactionsBlockError::PublicationBusy(wait))?;",
+     ".map_err(|(_, wait)| TransactionsBlockError::PublicationBusy(wait)).unwrap();"),
+    (PUBLICATION_PATH, None,
+     "            effect_locks\n                .try_prepare()",
+     "            *irreversible = true;\n            effect_locks\n                .try_prepare()"),
+    (PUBLICATION_PATH, None, "geometry.apply(geometry_lease.lease())", "geometry.apply(other_lease)"),
+    (PUBLICATION_PATH, None, "        effect_locks.release_writers();", ""),
+    (PUBLICATION_PATH, None, "        drop(geometry_lease);", ""),
+    (PUBLICATION_PATH, "    fn attempt_original_publication(",
+     "        drop(geometry_lease);", "        geometry_cleanup.retire_notices();\n        drop(geometry_lease);"),
+    (PUBLICATION_PATH, "            Err(payload) => {",
+     "                mv::BlockRetirement::release_writers(self);", ""),
+    (PUBLICATION_PATH, "            Err(payload) => {",
+     ".geometry_cleanup\n                    .retire_notices();", ".geometry_cleanup.release_writers();"),
+    (PUBLICATION_PATH, "    fn try_publish_inner(",
+     "        let terminal = original.poisoned || original.published;",
+     "        original.geometry_cleanup.retire_notices();\n"
+     "        let terminal = original.poisoned || original.published;"),
+    (PUBLICATION_PATH, "    fn try_publish_inner(",
+     "            .geometry_cleanup\n            .retire_notices();",
+     "            .geometry_cleanup.release_writers();"),
+    (KURA_RETAINED_PATH, "impl Drop for Acquisition<'_, '_>",
+     "self.fences.release_into(self.releases);", "drop(&mut self.fences);"),
+    (KURA_RETAINED_PATH, "impl Drop for KuraPhysicalScope<'_, '_>",
+     "self.0.release_writers();", "self.0.release_writers(); self.0.retire_notices();"),
+    (KURA_RETAINED_PATH, "    fn release_into(",
+     "guard.try_release_into(batch).is_ok()", "guard.try_release_into(other_batch).is_ok()"),
+    (KURA_RETAINED_PATH, "    fn release_into(",
+     'if cfg!(all(test, sumeragi_core_mutation = "HC274")) {', 'if true {'),
+    (KURA_RETAINED_PATH, "    pub(crate) fn try_prepare(",
+     "releases: &mut self.releases,", "releases: &mut other_releases,"),
+    (KURA_RETAINED_PATH, "    pub(crate) fn try_prepare(",
+     ".prepare_publication_fences(&mut acquisition.fences)?;",
+     ".prepare_publication_fences(&mut acquisition.fences).unwrap();"),
+    (KURA_RETAINED_PATH, "    fn release_writers(",
+     "lease.fences.release_into(&mut self.releases);", "drop(lease);"),
+    (KURA_RETAINED_PATH, "    pub(crate) fn retire_notices(",
+     "self.lease.is_none()", "true"),
+    (KURA_RETAINED_PATH, "    pub(crate) fn retire_notices(",
+     "self.kura.prune_lock.deferred_releases()", "self.kura.sidecar_lock.deferred_releases()"),
+    (KURA_CALLBACK_TESTS_PATH,
+     "fn original_kura_partial_refusal_callbacks_follow_all_state_siblings()",
+     "check_kura_release(true, false);", "check_kura_release(false, false);"),
+    (KURA_CALLBACK_TESTS_PATH,
+     "fn original_kura_unwind_callbacks_follow_all_state_siblings()",
+     "check_kura_release(false, true);", "check_kura_release(false, false);"),
+))
+@pytest.mark.parametrize("decoy", ("", "/* {original} */"))
+def test_publication_keeps_original_kura_release_custody(
+    path: str, declaration: str | None, original: str, replacement: str, decoy: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Foreign, early, blocking, or lost ownership fails even with an intact comment."""
+    original_read = guard.read
+    source = original_read(path)
+    publication = original_read(PUBLICATION_PATH)
+    guard.require_publication_kura_cleanup(publication)
+    body = source if declaration is None else guard.rust_item(source, declaration, path)
+    assert body.count(original) == 1
+    changed = source.replace(body, body.replace(
+        original, decoy.format(original=original) + replacement, 1), 1)
+    assert changed != source
+    monkeypatch.setattr(guard, "read", lambda requested:
+                        changed if requested == path else original_read(requested))
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        guard.require_publication_kura_cleanup(changed if path == PUBLICATION_PATH else publication)
+
+
+@pytest.mark.parametrize("original,replacement", (
+    ("PreparedStartup::prepare(config, genesis).await?", "PreparedStartup::prepare(config, genesis).await.unwrap()"),
+    ("PreparedStartup::prepare(config, genesis).await?", "PreparedStartup::prepare(other_config, genesis).await?"),
+    ("            prepared,", "            other_prepared,"),
+    ("            runtime_deps,", "            other_runtime_deps,"),
+    ("            musubi_publication_factory,", "            other_factory,"),
+    ("        .await\n", "\n"),
+))
+def test_threshold_startup_delegates_only_its_prepared_runtime(
+    original: str, replacement: str,
+) -> None:
+    """The public startup wrapper must await activation of its exact prepared inputs."""
+    runtime_deps, daemon = _readiness_sources()
+    guard.require_threshold_signer_startup_readiness(runtime_deps, daemon)
+    body = guard.rust_item(daemon, "pub(crate) async fn start_with_runtime_deps(", DAEMON_PATH)
+    assert body.count(original) == 1
+    changed = daemon.replace(body, body.replace(original, replacement, 1), 1)
+    with pytest.raises(RuntimeError, match="propagate original preparation"):
+        guard.require_threshold_signer_startup_readiness(runtime_deps, changed)

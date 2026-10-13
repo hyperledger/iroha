@@ -655,3 +655,6 @@ pipeline_sig_bls_agg_multi	pipeline_sig_bls_agg_multi	BLS signature micro-batche
 pipeline_sig_bls_deterministic	pipeline_sig_bls_deterministic	BLS signature micro-batches verified via deterministic per-signature path in latest block	registered
 pipeline_sig_bls_agg_same_total	pipeline_sig_bls_agg_same_total	Cumulative BLS same-message aggregate verification attempts labeled by lane and result	registered
 pipeline_sig_bls_agg_multi_total	pipeline_sig_bls_agg_multi_total	Cumulative BLS multi-message aggregate verification attempts labeled by lane and result	registered
+sccp_keeper_unconfigured	sccp_keeper_unconfigured	Whether the enabled SCCP keeper could not load its local signing key	registered
+sccp_keeper_needs_recovery	sccp_keeper_needs_recovery	Whether the inbound light client requires Parliament recovery (frozen or aged)	registered
+sccp_keeper_poll_success	sccp_keeper_poll_success	Result of the latest remote keeper attempt (1 success, 0 refused), independently per duty	registered

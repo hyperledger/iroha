@@ -94,7 +94,7 @@ fn direct_amx_consent_wrappers_require_exact_immutable_private_root() {
             iroha_executor_data_model::permission::amx::CanPrepareAmx { approval: foreign }.into();
         for instruction in direct_instructions(permission) {
             assert!(ensure_instruction_scope(&instruction, &mut tx).is_err());
-            assert!(tx.execution_deferral().is_none());
+            assert!(!tx.is_execution_deferred());
         }
     }
 }
@@ -126,7 +126,7 @@ fn amx_consent_scope_does_not_whitelist_roles_unrelated_or_inexact_permissions()
     ] {
         for instruction in direct_instructions(permission) {
             assert!(ensure_instruction_scope(&instruction, &mut tx).is_err());
-            assert!(tx.execution_deferral().is_none());
+            assert!(!tx.is_execution_deferred());
         }
     }
 }
@@ -146,7 +146,7 @@ fn amx_consent_scope_decode_refusal_retains_retryable_execution() {
     );
     assert!(result.is_err());
     assert!(
-        tx.execution_deferral().is_some(),
+        tx.is_execution_deferred(),
         "a local approval decode refusal must not commit a scope rejection"
     );
 }

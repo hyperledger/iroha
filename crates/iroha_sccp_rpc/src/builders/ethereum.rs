@@ -38,8 +38,7 @@ use iroha_sccp::{
     ethereum_source::{
         EthereumLogV1, EthereumNativeLightClientBootstrapV1, EthereumNativeLightClientUpdateV1,
         EthereumNativeMptProofV1, EthereumReceiptV1, decode_execution_header, encode_receipt,
-        mpt_proof, mpt_root, rlp_encode_bytes, rlp_encode_list, rlp_encode_u64,
-        rlp_encode_uint_bytes,
+        rlp_encode_bytes, rlp_encode_list, rlp_encode_u64, rlp_encode_uint_bytes,
     },
     light_client::{
         ethereum::{
@@ -49,7 +48,6 @@ use iroha_sccp::{
         },
         profile::{
             ETHEREUM_MAX_ANCESTRY_HEADERS, ETHEREUM_MAX_BACKFILL_HEADERS, EthereumChainProfileV1,
-            SccpChainProfilesV1,
         },
         proof::{SccpLcAdvanceV1, SccpLcBootstrapDataV1, SccpLcSegmentV1, SccpSourceProofV1},
     },
@@ -185,17 +183,17 @@ fn light_client_header(value: &Value, fork: EthereumFork) -> Result<LightClientH
         withdrawals_root: hex_fixed(execution, "withdrawals_root")?,
     };
     let execution_branch: [Root; 4] = roots(value, "execution_branch")?;
-    let deneb = || -> Result<Box<DenebExecutionPayloadHeader>, BuildError> {
-        Ok(Box::new(DenebExecutionPayloadHeader {
-            capella: capella.clone(),
+    let deneb = || -> Result<DenebExecutionPayloadHeader, BuildError> {
+        Ok(DenebExecutionPayloadHeader {
+            capella,
             blob_gas_used: decimal(execution, "blob_gas_used")?,
             excess_blob_gas: decimal(execution, "excess_blob_gas")?,
-        }))
+        })
     };
     Ok(match fork {
         EthereumFork::Capella => LightClientHeader::Capella {
             beacon,
-            execution: Box::new(capella.clone()),
+            execution: capella,
             execution_branch,
         },
         EthereumFork::Deneb => LightClientHeader::Deneb {
@@ -229,10 +227,9 @@ fn committee(value: &Value) -> Result<SyncCommittee, BuildError> {
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(SyncCommittee::new(
-        Box::new(
-            keys.try_into()
-                .map_err(|_| json("a sync committee has 512 keys"))?,
-        ),
+        keys.as_slice()
+            .try_into()
+            .map_err(|_| json("a sync committee has 512 keys"))?,
         BlsPublicKey::new(hex_fixed(value, "aggregate_pubkey")?),
     ))
 }
@@ -483,6 +480,7 @@ pub fn evm_headers_at(execution: &EvmClient, numbers: &[u64]) -> Result<Vec<Vec<
 pub fn evm_event_block(
     execution: &EvmClient,
     tx_hash: &[u8; 32],
+    max_proof_bytes: usize,
 ) -> Result<EvmEventBlockV1, BuildError> {
     let receipt = execution
         .transaction_receipt(tx_hash)?
@@ -497,20 +495,8 @@ pub fn evm_event_block(
         )));
     }
     let header = checked_header_rlp(&block)?;
-    let receipts = execution
-        .block_receipts(BlockId::Hash(receipt.block_hash))?
-        .ok_or_else(|| BuildError::Unavailable("the block receipts are not served".into()))?;
-    let entries: Vec<(Vec<u8>, Vec<u8>)> = receipts
-        .iter()
-        .map(|entry| (rlp_encode_u64(entry.transaction_index), receipt_rlp(entry)))
-        .collect();
-    if mpt_root(&entries) != Some(block.header.receipts_root) {
-        return Err(BuildError::Inconsistent(
-            "the served receipts do not rebuild the receipts root".into(),
-        ));
-    }
-    let receipt_proof = mpt_proof(&entries, &rlp_encode_u64(receipt.transaction_index))
-        .ok_or_else(|| BuildError::Inconsistent("the receipt is not in its block".into()))?;
+    let receipt_proof =
+        execution.block_receipt_proof(&block, receipt.transaction_index, max_proof_bytes)?;
     Ok(EvmEventBlockV1 {
         header,
         number,
@@ -550,7 +536,11 @@ pub trait EthereumSource {
     /// # Errors
     ///
     /// Any endpoint failure, a transaction that is not mined, or an inconsistent response.
-    fn event_block(&self, tx_hash: &[u8; 32]) -> Result<EvmEventBlockV1, BuildError>;
+    fn event_block(
+        &self,
+        tx_hash: &[u8; 32],
+        max_proof_bytes: usize,
+    ) -> Result<EvmEventBlockV1, BuildError>;
 
     /// Hash-checked execution header RLPs of blocks `first..=last`, ascending (empty when
     /// `first > last`).
@@ -787,14 +777,12 @@ fn header_bound(param: u32, hard: usize) -> u64 {
 /// finality nor any retained checkpoint (with at most
 /// [`super::MAX_BACKFILL_SEGMENTS`] backfills) reaches.
 pub fn build_evidence<S: EthereumSource + ?Sized>(
+    profile: &EthereumChainProfileV1,
     source: &S,
     tx_hash: &[u8; 32],
     event: EthereumEventV1,
     taira: &dyn TairaLightClientView,
 ) -> Result<SourceEvidenceV1, BuildError> {
-    // TODO(B11): build under the profile version active on the target Taira (Torii
-    // capabilities) rather than the newest compiled one.
-    let profile = SccpChainProfilesV1::latest().ethereum;
     let light_client = taira.light_client()?;
     let max_headers = header_bound(
         light_client.params.max_ancestry_headers,
@@ -804,7 +792,7 @@ pub fn build_evidence<S: EthereumSource + ?Sized>(
         light_client.params.max_backfill_headers,
         ETHEREUM_MAX_BACKFILL_HEADERS,
     );
-    let block = source.event_block(tx_hash)?;
+    let block = source.event_block(tx_hash, light_client.params.max_proof_bytes as usize)?;
     let selector = event.selector();
     let mut failures = Vec::new();
     // 1. The latest finality update.
@@ -823,7 +811,7 @@ pub fn build_evidence<S: EthereumSource + ?Sized>(
              advance it first"
         ));
     } else {
-        for kind in ancestry_candidates(&profile, block.number, &finalized, max_headers) {
+        for kind in ancestry_candidates(profile, block.number, &finalized, max_headers) {
             match build_ancestry(source, kind, &block, &finalized) {
                 Ok(ancestry) => {
                     return Ok(SourceEvidenceV1 {
@@ -863,7 +851,7 @@ pub fn build_evidence<S: EthereumSource + ?Sized>(
     let anchor_at = |source_height| {
         EthereumProofAnchorV1::StoredCheckpoint(EthereumStoredCheckpointRefV1 { source_height })
     };
-    for kind in ancestry_candidates(&profile, block.number, &stored, max_headers) {
+    for kind in ancestry_candidates(profile, block.number, &stored, max_headers) {
         match build_ancestry(source, kind, &block, &stored) {
             Ok(ancestry) => {
                 return Ok(SourceEvidenceV1 {
@@ -914,6 +902,7 @@ pub fn build_evidence<S: EthereumSource + ?Sized>(
 
 /// Ethereum evidence builder over one beacon endpoint and one execution endpoint.
 pub struct EthereumBuilder {
+    profile: EthereumChainProfileV1,
     beacon: BeaconClient,
     execution: EvmClient,
 }
@@ -921,22 +910,36 @@ pub struct EthereumBuilder {
 impl EthereumBuilder {
     /// A builder over `beacon` and `execution`.
     #[must_use]
-    pub fn new(beacon: BeaconClient, execution: EvmClient) -> Self {
-        Self { beacon, execution }
+    pub fn new(
+        profile: EthereumChainProfileV1,
+        beacon: BeaconClient,
+        execution: EvmClient,
+    ) -> Self {
+        Self {
+            profile,
+            beacon,
+            execution,
+        }
+    }
+
+    /// Select the profile resolved from the current committed Taira cut before building.
+    pub fn set_profile(&mut self, profile: EthereumChainProfileV1) {
+        self.profile = profile;
     }
 
     /// Moves the beacon and the execution client to their next endpoints, for a caller whose
     /// build failed on the data it was served or whose verification rejected what was built.
     pub fn rotate_endpoints(&self) {
-        self.beacon.transport().rotate_preferred();
+        // Enumerate execution endpoints within each beacon endpoint, including mixed
+        // pairs. Lockstep rotation would miss healthy pairs when list lengths share factors.
         self.execution.transport().rotate_preferred();
+        if self.execution.transport().endpoints().preferred() == 0 {
+            self.beacon.transport().rotate_preferred();
+        }
     }
 
-    // TODO(B11): build under the profile version active on the target Taira (Torii
-    // capabilities) rather than the newest compiled one.
-    fn schedule() -> Result<ForkSchedule, BuildError> {
-        SccpChainProfilesV1::latest()
-            .ethereum
+    fn schedule(&self) -> Result<ForkSchedule, BuildError> {
+        self.profile
             .schedule()
             .map_err(|error| BuildError::Inconsistent(format!("fork schedule: {error:?}")))
     }
@@ -964,7 +967,7 @@ impl EthereumSource for EthereumBuilder {
             .beacon
             .transport()
             .get_json("/eth/v1/beacon/light_client/finality_update")?;
-        update_from_beacon_json(&response, &Self::schedule()?)
+        update_from_beacon_json(&response, &self.schedule()?)
     }
 
     fn committee_updates(
@@ -972,7 +975,7 @@ impl EthereumSource for EthereumBuilder {
         start_period: u64,
         count: u64,
     ) -> Result<Vec<EthereumNativeLightClientUpdateV1>, BuildError> {
-        let schedule = Self::schedule()?;
+        let schedule = self.schedule()?;
         let response = self.beacon.transport().get_json(&format!(
             "/eth/v1/beacon/light_client/updates?start_period={start_period}&count={count}"
         ))?;
@@ -985,8 +988,12 @@ impl EthereumSource for EthereumBuilder {
             .collect()
     }
 
-    fn event_block(&self, tx_hash: &[u8; 32]) -> Result<EvmEventBlockV1, BuildError> {
-        evm_event_block(&self.execution, tx_hash)
+    fn event_block(
+        &self,
+        tx_hash: &[u8; 32],
+        max_proof_bytes: usize,
+    ) -> Result<EvmEventBlockV1, BuildError> {
+        evm_event_block(&self.execution, tx_hash, max_proof_bytes)
     }
 
     fn headers(&self, first: u64, last: u64) -> Result<Vec<Vec<u8>>, BuildError> {
@@ -1000,8 +1007,7 @@ impl EthereumSource for EthereumBuilder {
         event: u64,
         event_hash: [u8; 32],
     ) -> Result<EthereumHistoryProofV1, BuildError> {
-        // TODO(B11): the history contract of the profile version active on the target Taira.
-        let profile = SccpChainProfilesV1::latest().ethereum;
+        let profile = &self.profile;
         let window = profile.history_serve_window;
         if window == 0 {
             return Err(BuildError::Unavailable(
@@ -1034,6 +1040,18 @@ impl EthereumSource for EthereumBuilder {
 }
 
 impl SourceChainBuilder for EthereumBuilder {
+    fn source_attempts(&self) -> usize {
+        self.beacon
+            .transport()
+            .endpoints()
+            .len()
+            .saturating_mul(self.execution.transport().endpoints().len())
+    }
+
+    fn rotate_endpoints(&self) {
+        EthereumBuilder::rotate_endpoints(self);
+    }
+
     fn network(&self) -> SccpNetworkV1 {
         SccpNetworkV1::EthereumMainnet
     }
@@ -1059,7 +1077,7 @@ impl SourceChainBuilder for EthereumBuilder {
     ) -> Result<SourceEvidenceV1, BuildError> {
         match event {
             SourceEventRefV1::Evm { tx_hash, event } => {
-                build_evidence(self, tx_hash, *event, light_client)
+                build_evidence(&self.profile, self, tx_hash, *event, light_client)
             }
             SourceEventRefV1::Ton { .. } => {
                 Err(BuildError::Inconsistent("not an Ethereum event".into()))
@@ -1079,7 +1097,8 @@ mod tests {
     fn rotating_moves_both_clients_to_their_next_endpoints() {
         use crate::builders::test_support::two_endpoint_transport;
 
-        let builder = EthereumBuilder::new(
+        let mut builder = EthereumBuilder::new(
+            iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().ethereum,
             BeaconClient::new(two_endpoint_transport()),
             EvmClient::new(two_endpoint_transport()),
         );
@@ -1089,11 +1108,20 @@ mod tests {
                 builder.execution.transport().endpoints().preferred(),
             )
         };
+        let mut selected = builder.profile;
+        selected.supported_until_epoch = 1;
+        builder.set_profile(selected);
+        assert_eq!(builder.profile, selected);
         assert_eq!(preferred(&builder), (0, 0));
+        builder.rotate_endpoints();
+        assert_eq!(preferred(&builder), (0, 1));
+        builder.rotate_endpoints();
+        assert_eq!(preferred(&builder), (1, 0));
         builder.rotate_endpoints();
         assert_eq!(preferred(&builder), (1, 1));
         builder.rotate_endpoints();
         assert_eq!(preferred(&builder), (0, 0));
+        assert_eq!(builder.source_attempts(), 4);
     }
 
     #[test]
@@ -1154,7 +1182,7 @@ mod tests {
     #[test]
     fn ancestry_candidates_follow_the_windows() {
         use EthereumAncestryKindV1::{HeaderChain, HistoryContract, SameBlock};
-        let profile = SccpChainProfilesV1::latest().ethereum;
+        let profile = iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().ethereum;
         let prague = profile
             .history_contract_active_from_ms()
             .expect("activation");

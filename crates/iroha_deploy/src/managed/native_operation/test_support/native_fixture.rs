@@ -23,7 +23,7 @@ use iroha_core::{
         ValidSingularQuery,
         isi::query::{QueryLimits, validate_fresh_query_for_client_world_parts},
     },
-    state::{AllocationBudget, State, StateReadOnly},
+    state::{State, StateReadOnly},
     sumeragi::{
         finality::{FinalityProofReader, build_attestation, build_proof, with_proof_reader},
         lanes::merge::NoLanes,
@@ -183,7 +183,7 @@ impl NativeFixture {
             root.path().join("genesis.json"),
         )
         .unwrap();
-        let _discriminant = staged_genesis_chain_discriminant(&manifest);
+        let discriminant = staged_genesis_chain_discriminant(&manifest);
         let signed = root
             .read(
                 "genesis.signed.nrt",
@@ -259,7 +259,7 @@ impl NativeFixture {
             chain,
             validators,
             signed,
-            _discriminant,
+            _discriminant: discriminant,
             _root: root,
         }
     }
@@ -288,7 +288,9 @@ impl NativeFixture {
     }
     pub(in crate::managed) fn policy_proof(&self, manager: &AccountId) -> ReservePolicyProofV1 {
         let tip = self.chain.committed(self.chain.height());
-        let budget = AllocationBudget::new(32 * 1024 * 1024);
+        // Borrow the original State pool: certified storage rejects foreign scopes.
+        let budget = self.chain.state().ivm_execution_budget();
+        let retained_bytes = budget.reserved_bytes();
         let (bytes, charge) = self
             .chain
             .state()
@@ -317,7 +319,7 @@ impl NativeFixture {
         let proof = ReservePolicyProofV1::decode_frame(&bytes).unwrap();
         drop(bytes);
         drop(charge);
-        assert_eq!(budget.reserved_bytes(), 0);
+        assert_eq!(budget.reserved_bytes(), retained_bytes);
         proof
     }
 }
@@ -329,7 +331,9 @@ impl NativeFixture {
         provider: ProviderId,
     ) -> ReserveAccountProofV1 {
         let tip = self.chain.committed(self.chain.height());
-        let budget = AllocationBudget::new(32 * 1024 * 1024);
+        // Borrow the original State pool: certified storage rejects foreign scopes.
+        let budget = self.chain.state().ivm_execution_budget();
+        let retained_bytes = budget.reserved_bytes();
         let (bytes, charge) = self
             .chain
             .state()
@@ -361,7 +365,7 @@ impl NativeFixture {
         let proof = ReserveAccountProofV1::decode_frame(&bytes).unwrap();
         drop(bytes);
         drop(charge);
-        assert_eq!(budget.reserved_bytes(), 0);
+        assert_eq!(budget.reserved_bytes(), retained_bytes);
         proof
     }
 }
@@ -657,7 +661,7 @@ fn read_response(
             assert_eq!(signed.payload.network_id(), *state.network_id_ref());
             let view = state.view();
             validate_fresh_query_for_client_world_parts(
-                signed.payload.into_parts().1, manager, view.world(), state.latest_block_header_fast(),
+                signed.payload.into_parts().1, manager, view.world(), state.latest_block_header_fast().as_ref(),
                 QueryLimits::from_pipeline(view.pipeline()), &state.ivm_execution_budget(),
             ).unwrap();
             // Validation consumes the request. Execute the same bounded original bytes.

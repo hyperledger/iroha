@@ -75,7 +75,7 @@ impl norito::core::SerializePayload for LookupProbe<'_> {
                     Err(failure.original)
                 }
             }
-            Err(_) => panic!("only the actual inherited codec refusal is expected"),
+            Err(error) => panic!("only the actual inherited codec refusal is expected: {error:?}"),
         }
     }
 }
@@ -236,7 +236,7 @@ fn fixed_counter_removal_and_empty_scan_pay_every_consumed_cell() {
             hash: other,
             count: 0,
         });
-        let result = checked.count_matches(&key, &NonZeroU64::MIN);
+        let result = checked.count_matches(&key, NonZeroU64::MIN);
         assert_eq!(checked.work.observed.compare, 2);
         if amount == 188 {
             assert_eq!(result, Err(TriggerContractError::WorkLimit));
@@ -770,7 +770,7 @@ fn cold_and_warm_borrowed_key_comparisons_and_fixed_counter_tails_do_not_allocat
         let allocations = allocations_during(|| {
             outcomes = Some((
                 checked.increment(&hash),
-                checked.count_matches(&hash, &expected),
+                checked.count_matches(&hash, expected),
                 checked.empty(),
             ));
         });

@@ -9,14 +9,14 @@ use iroha_core::{
 use iroha_data_model::sumeragi::finality::NativeFinalityLimits;
 use norito::json::{BoundedJsonError, JsonWriteSink};
 
-pub(crate) fn capacity() -> Error {
+pub fn capacity() -> Error {
     Error::Query(iroha_data_model::ValidationFail::QueryFailed(
         iroha_data_model::query::error::QueryExecutionFail::CapacityLimit,
     ))
 }
 
 // One current-cut acquisition under the request's unchanged decode and source allowance.
-pub(crate) fn current_global_tip(
+pub fn current_global_tip(
     view: &impl StateReadOnly,
     height: u64,
     limits: NativeFinalityLimits,
@@ -85,7 +85,7 @@ pub(crate) fn current_root_tip(
     Ok(certified.into_committed())
 }
 
-pub(crate) struct EncodedBody {
+pub struct EncodedBody {
     bytes: iroha_allocation::ChargedBuffer<u8>,
     pub(crate) memory: Option<QueryFanoutMemoryReservation>,
 }
@@ -155,7 +155,7 @@ impl JsonWriteSink for CountJson {
         self.depth = self.depth.saturating_sub(1);
     }
 }
-pub(crate) fn encode_canonical<T: norito::core::NoritoSerialize>(
+pub fn encode_canonical<T: norito::core::NoritoSerialize>(
     payload: &T,
     limit: usize,
     budget: &AllocationBudget,
@@ -174,7 +174,7 @@ pub(crate) fn encode_canonical<T: norito::core::NoritoSerialize>(
     Ok(writer.0)
 }
 
-pub(crate) fn encode<T: norito::core::NoritoSerialize + norito::json::JsonSerialize>(
+pub fn encode<T: norito::core::NoritoSerialize + norito::json::JsonSerialize>(
     payload: &T,
     format: ResponseFormat,
     limit: usize,
@@ -211,7 +211,7 @@ pub(crate) fn encode<T: norito::core::NoritoSerialize + norito::json::JsonSerial
 }
 
 /// Prepay both committee vector layouts and their original key/PoP backing.
-pub(crate) fn native_committee_original_bytes<'a>(
+pub fn native_committee_original_bytes<'a>(
     expected: usize,
     members: impl IntoIterator<Item = (&'a iroha_crypto::PublicKey, &'a [u8])>,
 ) -> Result<usize, Error> {

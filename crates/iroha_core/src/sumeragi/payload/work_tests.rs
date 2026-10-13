@@ -21,12 +21,14 @@ fn native_lane_merge_is_work_without_a_direct_network_execution_leaf() {
         2,
         0,
     ));
-    let mut context = BlockExecutionContextBundle::default();
-    context.lane_merge = Some(SumeragiLaneMergeSection {
-        merges: vec![merge],
-        time_floor_ms: 1,
-        merged_count: 0,
-    });
+    let context = BlockExecutionContextBundle {
+        lane_merge: Some(SumeragiLaneMergeSection {
+            merges: vec![merge],
+            time_floor_ms: 1,
+            merged_count: 0,
+        }),
+        ..Default::default()
+    };
     builder.set_execution_context(Some(context));
     let block = builder.build(iroha_data_model::block::BlockSignatures::default());
     assert_eq!(block.network_entrypoint_count(), 0);
@@ -53,7 +55,7 @@ fn outputs_and_empty_context_cannot_create_proposal_work() {
     builder.set_execution_context(Some(BlockExecutionContextBundle::default()));
     let block = builder.build(iroha_data_model::block::BlockSignatures::default());
     assert!(!block.has_consensus_work());
-    assert_eq!(encode(&block), Err(PayloadError::EmptyBlock));
+    assert!(matches!(encode(&block), Err(PayloadError::EmptyBlock)));
     assert!(matches!(
         decode(&block.encode_wire().unwrap()),
         Err(PayloadError::EmptyBlock)

@@ -141,6 +141,10 @@ pub mod quic {
     }
     /// Checked QUIC flow-control limits shared by client and server endpoints.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    #[expect(
+        clippy::struct_field_names,
+        reason = "field names expose byte units at the public QUIC configuration boundary"
+    )]
     pub struct FlowControlGeometry {
         /// Credit granted to each individual stream.
         pub stream_receive_window_bytes: u64,

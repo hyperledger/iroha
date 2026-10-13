@@ -25,9 +25,10 @@ use iroha_data_model::{
     transaction::SignedTransaction,
 };
 use iroha_fs::PrivateDirectory;
+#[cfg(test)]
+use iroha_wallet::operations::BoundedTransactionOptions;
 use iroha_wallet::operations::{
-    AccountService, BoundedTransactionOptions, OperationStatus,
-    ProviderCapacityDeclarationSelection,
+    AccountService, OperationStatus, ProviderCapacityDeclarationSelection,
 };
 use sorafs_manifest::capacity::CapacityDeclarationV1;
 use std::time::Instant;
@@ -66,10 +67,10 @@ pub struct ManagedProviderCapacityProgress {
 }
 
 // Fixed borrowed parent intent, not a caller eligibility callback or decoded authority.
-struct FundingSelection<'a> {
-    partition: &'a ReserveProviderAccountV1,
-    credit: &'a ProviderCreditRecord,
-    minimum_height: u64,
+pub(in crate::managed) struct FundingSelection<'a> {
+    pub(in crate::managed) partition: &'a ReserveProviderAccountV1,
+    pub(in crate::managed) credit: &'a ProviderCreditRecord,
+    pub(in crate::managed) minimum_height: u64,
 }
 impl FundingSelection<'_> {
     fn validate(
@@ -137,6 +138,7 @@ impl ManagedProviderCapacity {
     /// Retain the generated declaration against fresh native economic and predecessor facts.
     /// Bootstrap selects policy from its prior owner; users supply no declaration or amount.
     /// Native declaration registration is a replacement, without atomic capacity CAS.
+    #[cfg(test)]
     pub(crate) fn declare(
         &mut self,
         policy: &ReserveAuthorityPolicyV1,
@@ -182,6 +184,7 @@ impl ManagedProviderCapacity {
         Ok(Some(owner))
     }
 
+    #[cfg(test)]
     fn declare_original(
         &mut self,
         policy: &ReserveAuthorityPolicyV1,
@@ -268,13 +271,15 @@ impl ManagedProviderCapacity {
             .map_err(|_| invalid("cannot open capacity wallet"))?;
         let account = authorization.bind_account(account)?;
         attempts::generated(
-            &directory,
-            purpose,
-            original.digest()?,
-            &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
-            authorization,
-            deadline,
-            None,
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: &directory,
+                purpose,
+                semantic: original.digest()?,
+                scope: &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+                authorization,
+                deadline,
+                body_expiry: None,
+            },
             |attempt| {
                 account
                     .inspect_provider_capacity_declaration_preparation_in_parent(
@@ -526,7 +531,7 @@ impl ManagedProviderCapacity {
         };
         let needs_prepare = retained.is_none();
         if let Some(transaction) = &retained
-            && let Some(finalized) = self.authority.retained_finality(&directory, transaction)?
+            && let Some(finalized) = self.authority.retained_finality(directory, transaction)?
         {
             self.validate_carrier(&original, &finalized)?;
             let current = if observe_current {
@@ -603,7 +608,7 @@ impl ManagedProviderCapacity {
         }
         let transaction = match retained {
             Some(transaction) => transaction,
-            None => self.verify_wallet(&directory, &original, deadline)?,
+            None => self.verify_wallet(directory, &original, deadline)?,
         };
         let request = original.request(deadline);
         let mut report = account
@@ -638,7 +643,7 @@ impl ManagedProviderCapacity {
         let finalized = if report.status == OperationStatus::Applied {
             if let Some(observed) = &observed {
                 self.authority.advance_carrier(
-                    &directory,
+                    directory,
                     &original.checkpoint,
                     &transaction,
                     &report,
@@ -761,7 +766,7 @@ impl ManagedProviderCapacity {
             .map_err(|_| invalid("invalid original capacity checkpoint"))?;
         tip.verify_global_scope(
             self.authority.config.network_id,
-            &self.authority.config.chain.to_string(),
+            self.authority.config.chain.as_ref(),
         )
         .map_err(|_| invalid("original capacity checkpoint is not selected Global root"))?;
         if tip.header().creation_time_ms != original.observed_block_time_ms {

@@ -102,8 +102,14 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(index, scope)| AtomicSettlementMovement {
-                source: AssetId::with_scope(asset.clone(), account(index as u8), *scope),
-                recipient: account(index.wrapping_add(1) as u8),
+                source: AssetId::with_scope(
+                    asset.clone(),
+                    account(u8::try_from(index).expect("fixture value fits u8")),
+                    *scope,
+                ),
+                recipient: account(
+                    u8::try_from(index.wrapping_add(1)).expect("fixture value fits u8"),
+                ),
                 quantity: Quantity::from(index as u64 + 42),
             })
             .collect::<Vec<_>>();

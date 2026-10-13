@@ -96,8 +96,16 @@ fn final_usage_real_proof_binds_all_25_rows_and_both_admission_routes() {
     let fixture = fixture();
     for backend in [ZK_BACKEND_NATIVE_PIPA_R, KAIGI_USAGE_BACKEND_V1] {
         let (proof, vk) = valid_envelope(backend);
-        assert!(native_pipa_r::validate_key(backend, KAIGI_USAGE_CIRCUIT_ID_V1, &vk).is_ok());
-        assert!(verify_backend(backend, &proof, Some(&vk)), "{backend}");
+        assert!(
+            native_pipa_r::validate_key(backend, KAIGI_USAGE_CIRCUIT_ID_V1, &vk)
+                .map_err(crate::verification::expect_rejected)
+                .is_ok()
+        );
+        assert!(
+            verify_backend(backend, &proof, Some(&vk))
+                .expect("verification attempt must complete for this semantic fixture"),
+            "{backend}"
+        );
     }
     // Both entry points delegate to the same exact relation. Mutate every
     // network/call/host/root/metric limb and C/U through its generic entry point.
@@ -110,7 +118,8 @@ fn final_usage_real_proof_binds_all_25_rows_and_both_admission_routes() {
             &[&instance],
         );
         assert!(
-            !verify_backend(ZK_BACKEND_NATIVE_PIPA_R, &proof, Some(&vk)),
+            !verify_backend(ZK_BACKEND_NATIVE_PIPA_R, &proof, Some(&vk))
+                .expect("verification attempt must complete for this semantic fixture"),
             "usage row {row}"
         );
     }
@@ -132,7 +141,8 @@ fn final_usage_rejects_old_single_output_and_all_nonexact_shapes() {
     for columns in shapes {
         let (proof, vk) = envelope(ZK_BACKEND_NATIVE_PIPA_R, fixture.vk_bytes.clone(), &columns);
         assert!(
-            !verify_backend(ZK_BACKEND_NATIVE_PIPA_R, &proof, Some(&vk)),
+            !verify_backend(ZK_BACKEND_NATIVE_PIPA_R, &proof, Some(&vk))
+                .expect("verification attempt must complete for this semantic fixture"),
             "shape {:?}",
             columns.iter().map(|c| c.len()).collect::<Vec<_>>()
         );
@@ -159,12 +169,15 @@ fn final_usage_rejects_k8_aliases_and_wrong_canonical_key() {
             ZK_BACKEND_NATIVE_PIPA_R.to_owned(),
             norito::encode_canonical(&outer).unwrap(),
         );
-        assert!(!verify_backend(
-            ZK_BACKEND_NATIVE_PIPA_R,
-            &changed,
-            Some(&vk)
-        ));
-        assert!(native_pipa_r::validate_key(ZK_BACKEND_NATIVE_PIPA_R, alias, &vk).is_err());
+        assert!(
+            !verify_backend(ZK_BACKEND_NATIVE_PIPA_R, &changed, Some(&vk))
+                .expect("verification attempt must complete for this semantic fixture")
+        );
+        assert!(
+            native_pipa_r::validate_key(ZK_BACKEND_NATIVE_PIPA_R, alias, &vk)
+                .map_err(crate::verification::expect_rejected)
+                .is_err()
+        );
     }
     let mut old_k: native_pipa_r::CompiledVerifyingKeyV1 =
         norito::decode_canonical(&fixture.vk_bytes).unwrap();
@@ -177,13 +190,13 @@ fn final_usage_rejects_k8_aliases_and_wrong_canonical_key() {
             KAIGI_USAGE_CIRCUIT_ID_V1,
             &changed_vk
         )
+        .map_err(crate::verification::expect_rejected)
         .is_err()
     );
-    assert!(!verify_backend(
-        ZK_BACKEND_NATIVE_PIPA_R,
-        &changed,
-        Some(&changed_vk)
-    ));
+    assert!(
+        !verify_backend(ZK_BACKEND_NATIVE_PIPA_R, &changed, Some(&changed_vk))
+            .expect("verification attempt must complete for this semantic fixture")
+    );
     // Same k and curve with a foreign typed-instance descriptor: accepting
     // a parseable key or merely its domain size would miss this substitution.
     let params =
@@ -211,11 +224,11 @@ fn final_usage_rejects_k8_aliases_and_wrong_canonical_key() {
             KAIGI_USAGE_CIRCUIT_ID_V1,
             &changed_vk
         )
+        .map_err(crate::verification::expect_rejected)
         .is_err()
     );
-    assert!(!verify_backend(
-        ZK_BACKEND_NATIVE_PIPA_R,
-        &changed,
-        Some(&changed_vk)
-    ));
+    assert!(
+        !verify_backend(ZK_BACKEND_NATIVE_PIPA_R, &changed, Some(&changed_vk))
+            .expect("verification attempt must complete for this semantic fixture")
+    );
 }

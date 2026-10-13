@@ -376,55 +376,52 @@ impl ManagedStore {
                     .map_err(|error| Error::Invalid(error.to_string()))
             })
             .transpose()?;
-        let retained = match previous {
-            Some(retained) => {
-                if matches!(generation_policy, GenerationPolicy::CreateOnly) {
-                    return Err(Error::Invalid(format!(
-                        "managed environment `{}` already exists; select or start it explicitly",
-                        request.name
-                    )));
-                }
-                if retained.prepared.service_profile != request.service_profile {
-                    return Err(Error::Invalid(
-                        "managed generation has a different immutable service profile".into(),
-                    ));
-                }
-                if retained.root_kind != root_kind {
-                    return Err(Error::Invalid(
-                        "managed generation has a different immutable root identity".into(),
-                    ));
-                }
-                validate_prepared(
-                    &request.name,
-                    directory.path(),
-                    &retained.prepared,
-                    &root_kind,
-                )?;
-                if retained.launcher.blake3 != launcher.blake3
-                    || retained.daemon.blake3 != daemon.blake3
-                {
-                    return Err(Error::Invalid("managed generation uses different binary contents; select its original matching installation".into()));
-                }
-                retained
+        let retained = if let Some(retained) = previous {
+            if matches!(generation_policy, GenerationPolicy::CreateOnly) {
+                return Err(Error::Invalid(format!(
+                    "managed environment `{}` already exists; select or start it explicitly",
+                    request.name
+                )));
             }
-            None => {
-                if matches!(generation_policy, GenerationPolicy::RetainOnly(_)) {
-                    return Err(Error::Invalid(
-                        "retained managed generation disappeared; refusing to replace its identity"
-                            .into(),
-                    ));
-                }
-                let ports = LocalnetPorts::reserve()?;
-                let retained = if let Some(sources) = amx_sources.as_ref() {
-                    generation::prepare_with_amx(
-                        &directory, request, root_kind, launcher, daemon, &ports, sources,
-                    )?
-                } else {
-                    generation::prepare(&directory, request, root_kind, launcher, daemon, &ports)?
-                };
-                reservations = Some(ports);
-                retained
+            if retained.prepared.service_profile != request.service_profile {
+                return Err(Error::Invalid(
+                    "managed generation has a different immutable service profile".into(),
+                ));
             }
+            if retained.root_kind != root_kind {
+                return Err(Error::Invalid(
+                    "managed generation has a different immutable root identity".into(),
+                ));
+            }
+            validate_prepared(
+                &request.name,
+                directory.path(),
+                &retained.prepared,
+                &root_kind,
+            )?;
+            if retained.launcher.blake3 != launcher.blake3
+                || retained.daemon.blake3 != daemon.blake3
+            {
+                return Err(Error::Invalid("managed generation uses different binary contents; select its original matching installation".into()));
+            }
+            retained
+        } else {
+            if matches!(generation_policy, GenerationPolicy::RetainOnly(_)) {
+                return Err(Error::Invalid(
+                    "retained managed generation disappeared; refusing to replace its identity"
+                        .into(),
+                ));
+            }
+            let ports = LocalnetPorts::reserve()?;
+            let retained = if let Some(sources) = amx_sources.as_ref() {
+                generation::prepare_with_amx(
+                    &directory, request, root_kind, launcher, daemon, &ports, sources,
+                )?
+            } else {
+                generation::prepare(&directory, request, root_kind, launcher, daemon, &ports)?
+            };
+            reservations = Some(ports);
+            retained
         };
         if let Some(sources) = amx_sources.as_ref() {
             sources
@@ -868,6 +865,7 @@ fn ownership_contended(error: &std::io::Error) -> bool {
     cfg!(windows) && error.kind() == std::io::ErrorKind::WouldBlock
 }
 
+#[cfg(test)]
 pub(super) fn pin_binary(path: &Path) -> Result<BinaryPin> {
     super::program::NativeProgram::capture(path)?.pin()
 }
@@ -943,7 +941,7 @@ pub(super) fn validate_prepared(
         if !confined_path(root, &peer.config_path)?
             || !configs.insert(peer.config_path.clone())
             || peer.log_name.contains(['/', '\\'])
-            || !peer.log_name.ends_with(".log")
+            || Path::new(&peer.log_name).extension() != Some(std::ffi::OsStr::new("log"))
             || peer.log_name.starts_with('.')
             || peer.log_name == "supervisor.log"
             || !logs.insert(peer.log_name.clone())
@@ -1008,36 +1006,33 @@ fn retained_status(
     context: ManagedContext,
     foreground_handoff: bool,
 ) -> Result<ManagedStatus> {
-    match directory.read_optional(STATUS, MAX_METADATA)? {
-        Some(bytes) => {
-            let mut last: ManagedStatus = decode(&bytes)?;
-            if last.context != context {
-                return Err(Error::Invalid(
-                    "retained status belongs to another context".into(),
-                ));
-            }
-            if last.phase != ManagedPhase::Stopped {
-                if foreground_handoff
-                    && last.phase == ManagedPhase::Starting
-                    && file_owned(directory, "operation.lock")?
-                {
-                    // The foreground operation publishes Starting before native spawn; its
-                    // lock distinguishes that small handoff window from a crashed owner.
-                    last.running_peers = 0;
-                    return Ok(last);
-                }
-                if last.phase != ManagedPhase::Failed {
-                    last.failure = Some(
-                        "the background controller stopped unexpectedly; inspect its retained log"
-                            .into(),
-                    );
-                }
-                last.phase = ManagedPhase::Failed;
+    if let Some(bytes) = directory.read_optional(STATUS, MAX_METADATA)? {
+        let mut last: ManagedStatus = decode(&bytes)?;
+        if last.context != context {
+            return Err(Error::Invalid(
+                "retained status belongs to another context".into(),
+            ));
+        }
+        if last.phase != ManagedPhase::Stopped {
+            if foreground_handoff
+                && last.phase == ManagedPhase::Starting
+                && file_owned(directory, "operation.lock")?
+            {
+                // The foreground operation publishes Starting before native spawn; its
+                // lock distinguishes that small handoff window from a crashed owner.
                 last.running_peers = 0;
                 return Ok(last);
             }
+            if last.phase != ManagedPhase::Failed {
+                last.failure = Some(
+                    "the background controller stopped unexpectedly; inspect its retained log"
+                        .into(),
+                );
+            }
+            last.phase = ManagedPhase::Failed;
+            last.running_peers = 0;
+            return Ok(last);
         }
-        None => {}
     }
     Ok(ManagedStatus {
         context,

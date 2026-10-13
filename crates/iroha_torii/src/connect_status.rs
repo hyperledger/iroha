@@ -3,7 +3,7 @@
 ///
 /// Unknown, duplicate, empty, and malformed parameters are rejected so the protocol-authenticated
 /// session route cannot fall through to aggregate node status or admit an ambiguous signed target.
-pub(crate) fn parse_session_status_sid(raw_query: Option<&str>) -> Result<String, &'static str> {
+pub fn parse_session_status_sid(raw_query: Option<&str>) -> Result<String, &'static str> {
     let raw = raw_query.ok_or("connect: sid query is required")?;
     if raw.is_empty() {
         return Err("connect: sid query is required");

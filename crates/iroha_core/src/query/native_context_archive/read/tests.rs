@@ -238,6 +238,7 @@ fn returning_archive_cancels_pending_bytes_but_preserves_completed_byte_owner() 
 #[test]
 #[cfg(unix)]
 fn original_intent_read_shares_exact_descriptor_capacity_and_prefix_custody() {
+    use std::os::unix::fs::MetadataExt as _;
     let original = vec![0x42; 5_000];
     let budget = AllocationBudget::new(original.len());
     let (directory, read) = fixture(&original, budget.clone());
@@ -257,7 +258,6 @@ fn original_intent_read_shares_exact_descriptor_capacity_and_prefix_custody() {
     ));
     assert!(read.has_pinned_source());
     let metadata = read.read.file.as_ref().unwrap().metadata().unwrap();
-    use std::os::unix::fs::MetadataExt as _;
     let identity = (metadata.dev(), metadata.ino());
     fs::rename(&path, directory.path().join("original-held-intent")).unwrap();
     fs::write(&path, vec![0x66; original.len()]).unwrap();

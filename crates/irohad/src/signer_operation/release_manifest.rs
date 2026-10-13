@@ -34,6 +34,15 @@ use zeroize::Zeroize as _;
 pub(super) mod ceremony;
 use ceremony::{ReleaseManifestCeremonyV1, ReleaseManifestMessageV1};
 
+/// Independently reviewed release coordinates and the audit head they must extend.
+#[derive(Clone, Copy)]
+pub struct SignerReleaseManifestReviewV1 {
+    /// Exact reviewed manifest identity, extent and release coordinates.
+    pub expected: SignerReleaseManifestExpectedV1,
+    /// Original authenticated audit head preceding this release operation.
+    pub previous_audit: SignerOperationAuditHeadV1,
+}
+
 /// Secret-free failures of exact release signing and durable recovery.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SignerReleaseManifestErrorV1 {
@@ -113,10 +122,13 @@ impl SignerReleaseManifestServiceV1 {
         record: Vec<u8>,
         trust: SignerCustodyTrustV1,
         source: Option<Arc<dyn SignerOperationStateSourceV1>>,
-        expected: SignerReleaseManifestExpectedV1,
-        previous_audit: SignerOperationAuditHeadV1,
+        review: SignerReleaseManifestReviewV1,
         journal: SignerReceiptJournalV1,
     ) -> Result<Self, SignerReleaseManifestErrorV1> {
+        let SignerReleaseManifestReviewV1 {
+            expected,
+            previous_audit,
+        } = review;
         let source = source.ok_or(SignerOperationErrorV1::StateUnavailable)?;
         Self::validate_inputs(&binding, &expected, previous_audit, &journal)?;
         let coordinator = SignerOperationCoordinatorV1::from_software_supervisor_credential(
@@ -225,7 +237,7 @@ impl SignerReleaseManifestServiceV1 {
             }
             let message =
                 ceremony.message(&operation.check(), *purpose, &signatures.0, signing_anchor)?;
-            signatures.push(&mut operation, message)?;
+            signatures.push(&mut operation, &message)?;
         }
         let (provenance, commitment) = ceremony.completion(
             &operation.check(),
@@ -375,7 +387,7 @@ impl WorkingSignatures {
     fn push(
         &mut self,
         operation: &mut SignerOperationV1<'_>,
-        message: ReleaseManifestMessageV1<'_, '_>,
+        message: &ReleaseManifestMessageV1<'_, '_>,
     ) -> Result<(), SignerReleaseManifestErrorV1> {
         message.validate_operation(&operation.check())?;
         if usize::from(message.ordinal()) != self.0.len() + 1

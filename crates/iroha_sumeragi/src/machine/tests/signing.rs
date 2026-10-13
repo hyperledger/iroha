@@ -14,9 +14,51 @@ struct RefusingSigner {
     inner: FakeSigner,
     refused: AtomicBool,
     attempts: Mutex<Vec<Vec<u8>>>,
+    prepares: Mutex<Vec<ObservedPrepare>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ObservedPrepare {
+    preimage: Vec<u8>,
+    instance: Hash32,
+    epoch: crate::types::EpochId,
+    height: u64,
+    block_hash: Hash32,
+    result: Hash32,
+    certified: bool,
 }
 
 impl Signer for RefusingSigner {
+    fn sign_prepare(
+        &self,
+        request: &crate::prepare_admission::PrepareSigningRequest,
+        admission: &crate::prepare_admission::ExecutionAdmission,
+    ) -> Result<Signature, SigningError> {
+        let preimage = crate::preimage::vote_preimage(
+            VoteKind::Prepare,
+            &request.instance(),
+            &request.epoch(),
+            request.height(),
+            request.view(),
+            &request.block_hash(),
+            &request.result(),
+        );
+        self.prepares.lock().unwrap().push(ObservedPrepare {
+            preimage: preimage.clone(),
+            instance: request.instance(),
+            epoch: request.epoch(),
+            height: request.height(),
+            block_hash: request.block_hash(),
+            result: request.result(),
+            certified: request.certified(),
+        });
+        #[cfg(sumeragi_mutation = "MS71")]
+        let _ = admission;
+        #[cfg(not(sumeragi_mutation = "MS71"))]
+        admission.check(request)?;
+        self.sign(&preimage)
+    }
+
     fn public_key(&self) -> &PublicKey {
         self.inner.public_key()
     }
@@ -35,10 +77,119 @@ fn refuse(h: &mut H) -> Arc<RefusingSigner> {
         inner: h.signers[0].clone(),
         refused: AtomicBool::new(true),
         attempts: Mutex::new(Vec::new()),
+        prepares: Mutex::new(Vec::new()),
     });
     let me = h.core.me.unwrap();
     h.core.keys[me.slot].signer = Some(signer.clone());
     signer
+}
+
+#[test]
+fn det_prepare_context_uses_later_authenticated_qc_with_cached_valid_result() {
+    let mut h = H::new(4, pick::set_a(0));
+    let block = h.block(0, b"completed result later receives its actual PrepareQC");
+    let proposal = h.proposal(0, &block, None);
+    h.deliver(h.leader(0), WireMessage::Proposal(Box::new(proposal)));
+    let signer = refuse(&mut h);
+    let first = h.exec_all();
+    assert_refused(&first, SigningKind::Prepare);
+    let original = signer.prepares.lock().unwrap()[0].clone();
+    assert!(
+        !original.certified,
+        "an uncertified successful execution grants no clock exemption"
+    );
+    assert_eq!(
+        (
+            original.instance,
+            original.epoch,
+            original.height,
+            original.block_hash
+        ),
+        (I, h.config(1).epoch.id, 1, h.bh(&block))
+    );
+    assert_eq!(
+        original.preimage,
+        crate::preimage::vote_preimage(
+            VoteKind::Prepare,
+            &original.instance,
+            &original.epoch,
+            original.height,
+            0,
+            &original.block_hash,
+            &original.result,
+        )
+    );
+    let qc = h.qc_q(VoteKind::Prepare, 0, &block);
+    assert_eq!(qc.result, original.result);
+    h.deliver(h.others(1, &[])[0], WireMessage::Qc(qc));
+    assert!(
+        matches!(h.core.exec.get(&original.block_hash), Some(super::super::ExecState::Valid { admission }) if admission.result() == original.result)
+    );
+    signer.prepares.lock().unwrap().clear();
+    h.core.try_prepare();
+    let observed = signer.prepares.lock().unwrap().clone();
+    assert_eq!(observed.len(), 1);
+    assert!(
+        observed[0].certified,
+        "cached Valid must use the subsequently authenticated exact PrepareQC"
+    );
+    assert_eq!(observed[0].preimage, original.preimage);
+    assert!(
+        h.core.mine.prepare.is_none(),
+        "local signing refusal still creates no vote"
+    );
+    // An authenticated certificate for one pair grants no exemption to another result/hash.
+    let me = h.core.me.unwrap();
+    h.core.record_vote(
+        me,
+        VoteKind::Prepare,
+        (original.block_hash, Hash32([0xfa; 32])),
+    );
+    h.core
+        .record_vote(me, VoteKind::Prepare, (Hash32([0xfb; 32]), original.result));
+    let observed = signer.prepares.lock().unwrap();
+    assert_eq!(
+        observed.len(),
+        1,
+        "substituted source must not reach the signer"
+    );
+}
+
+#[test]
+fn det_prepare_context_restart_reservation_alone_is_uncertified() {
+    let mut h = H::new(4, pick::set_a(0));
+    let block = h.block(0, b"durable reservation without any PrepareQC");
+    let proposal = h.proposal(0, &block, None);
+    h.deliver(h.leader(0), WireMessage::Proposal(Box::new(proposal)));
+    let signer = refuse(&mut h);
+    h.exec_all();
+    let original = signer.prepares.lock().unwrap()[0].clone();
+    assert!(
+        !original.certified,
+        "a restarted durable Prepare reservation must not grant certified clock exemption"
+    );
+    let durable = h.durable().unwrap();
+    assert!(durable.prepare.is_some());
+    assert!(durable.prepare_signature.is_none());
+    assert!(durable.lock.is_none());
+    signer.prepares.lock().unwrap().clear();
+    let init = h.init(vec![(
+        durable.key.clone(),
+        RecordState::Present(durable.encode(&h.v.crypto).unwrap()),
+        false,
+    )]);
+    let (core, actions) = Core::new(
+        h.local,
+        init,
+        vec![signer.clone()],
+        Box::new(h.v.crypto.clone()),
+        h.budget.clone(),
+        h.now,
+    )
+    .unwrap();
+    assert!(signer.prepares.lock().unwrap().is_empty());
+    assert!(core.mine.prepare.is_none());
+    assert!(votes(&actions).is_empty());
 }
 
 fn assert_refused(actions: &[Action], kind: SigningKind) {

@@ -141,7 +141,7 @@ impl Fixture {
             lane: LaneId::new(2),
             dataspace: DataSpaceId::new(0),
             incarnation: [0x73; 32],
-            params: Default::default(),
+            params: iroha_data_model::parameter::system::SumeragiParameters::default(),
             committee: keys
                 .iter()
                 .map(|key| SumeragiLaneMember {
@@ -236,7 +236,7 @@ impl Fixture {
         )
         .complete()
         .unwrap_or_else(|(_, error)| panic!("empty original lane recovery: {error}"));
-        let Some(ExecOutcome::Valid { result, .. }) =
+        let Ok(Some(ExecOutcome::Valid { result, .. })) =
             executor.execute(&block, &block.hash(&*crypto), false)
         else {
             panic!("original lane execution must be valid");
@@ -266,7 +266,11 @@ impl Fixture {
         fixture
     }
     fn resign(&mut self, count: usize) {
-        self.qc.signers = Bitmap::from_indices(4, (0..count).map(|index| index as u32)).unwrap();
+        self.qc.signers = Bitmap::from_indices(
+            4,
+            (0..count).map(|index| u32::try_from(index).expect("fixture value fits u32")),
+        )
+        .unwrap();
         let preimage = self.qc.preimage();
         let signatures = self.keys[..count]
             .iter()
@@ -403,7 +407,7 @@ fn anchor_history_refusal_retains_exact_source_through_lane_evidence_retry() {
     let pointer = fixture.body.payload().as_slice().as_ptr();
     for _ in 0..2 {
         assert!(
-            matches!(verify(), Err(LaneEntryError::AnchorDeferred(reason)) if reason == expected)
+            matches!(verify(), Err(LaneEntryError::AnchorDeferred(reason)) if reason.reason() == expected.reason() && reason.phase() == expected.phase() && reason.allocation_refusal() == expected.allocation_refusal() && reason.decode_refusal().is_none() && reason.verification_refusal().is_none())
         );
         assert_eq!(fixture.body.payload().as_slice().as_ptr(), pointer);
     }

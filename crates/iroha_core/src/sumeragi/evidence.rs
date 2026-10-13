@@ -831,7 +831,7 @@ pub(crate) fn observe(
         return Ok(false);
     }
     super::evidence_history::verify_from_state(&view, native, |_, _| Ok(()))?;
-    if generation != state.state_view_generation() || generation % 2 != 0 {
+    if generation != state.state_view_generation() || !generation.is_multiple_of(2) {
         return Ok(false);
     }
     let mut pending = state.native_pending_evidence.lock();
@@ -1000,7 +1000,7 @@ impl PreparedStakingEffects<'_> {
         if !std::ptr::eq(self.state, original)
             || self.generation != generation
             || original.state_view_generation() != generation
-            || generation % 2 != 0
+            || !generation.is_multiple_of(2)
             || self.header != block.header()
             || self.tip != state.native_execution_tip()
             || self.effects_hash != block.npos_consensus_effects().map(HashOf::new)
@@ -1083,7 +1083,7 @@ pub(crate) fn prepare<'state>(
             .map_err(EvidencePreparationError::from)
             .map_err(BlockValidationError::EvidencePreparation)?
     };
-    if state.state_view_generation() != generation || generation % 2 != 0 {
+    if state.state_view_generation() != generation || !generation.is_multiple_of(2) {
         return Err(BlockValidationError::LocalStorageRecoveryRequired {
             reason: "native evidence parent changed during pristine preparation".into(),
         });

@@ -167,20 +167,12 @@ fn actual_global_disk_budget_counts_pending_and_transferred_segment_bytes_once()
     let mut range = kura
         .reserve_membership_range(1)
         .expect("exact finite disk fit");
-    assert_eq!(
-        kura.all_publication_budget_reserved_bytes()
-            .expect("joined original reservation"),
-        184
-    );
+    assert_eq!(kura.membership_storage.pending_bytes(), 184);
     assert_eq!(
         range.write_at(0, &[3; 184]).expect("physical transfer"),
         184
     );
-    assert_eq!(
-        kura.all_publication_budget_reserved_bytes()
-            .expect("physical bytes no longer pending"),
-        0
-    );
+    assert_eq!(kura.membership_storage.pending_bytes(), 0);
     assert_eq!(
         kura.kura_disk_usage_bytes()
             .expect("actual complete file bytes"),

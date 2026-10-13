@@ -27,14 +27,13 @@ impl ManagedServiceBootstrap {
         let inventory = ServiceChildInventory::begin(&self.authority)?;
         let reserve_complete = dependencies.is_some_and(|value| value.reserve_complete);
         let complete = dependencies.is_some_and(|value| value.reputation_complete);
-        if let Some(frontiers) = dependencies {
-            if frontiers.reputation_complete
-                && (!frontiers.reserve_complete || frontiers.providers.iter().any(Option::is_some))
-            {
-                return Err(invalid("bootstrap dependency frontiers disagree"));
-            }
+        if let Some(frontiers) = dependencies
+            && frontiers.reputation_complete
+            && (!frontiers.reserve_complete || frontiers.providers.iter().any(Option::is_some))
+        {
+            return Err(invalid("bootstrap dependency frontiers disagree"));
         }
-        self.census_network(
+        Self::census_network(
             &inventory,
             NetworkPurpose::InitialReservePolicy,
             "set",
@@ -68,7 +67,7 @@ impl ManagedServiceBootstrap {
                 let later =
                     !reserve_complete || first_incomplete.is_some_and(|first| index > first);
                 match *step {
-                    ServiceBootstrapStep::CustodyPolicy { .. } => self.census_provider(
+                    ServiceBootstrapStep::CustodyPolicy { .. } => Self::census_provider(
                         &inventory,
                         provider_id,
                         ProviderPurpose::Custody,
@@ -76,7 +75,7 @@ impl ManagedServiceBootstrap {
                         later,
                         !complete,
                     )?,
-                    ServiceBootstrapStep::CustodyEnrollment { .. } => self.census_provider(
+                    ServiceBootstrapStep::CustodyEnrollment { .. } => Self::census_provider(
                         &inventory,
                         provider_id,
                         ProviderPurpose::Custody,
@@ -84,7 +83,7 @@ impl ManagedServiceBootstrap {
                         later,
                         !complete,
                     )?,
-                    ServiceBootstrapStep::ReserveAccount { .. } => self.census_provider(
+                    ServiceBootstrapStep::ReserveAccount { .. } => Self::census_provider(
                         &inventory,
                         provider_id,
                         ProviderPurpose::ReserveAccountRegistration,
@@ -102,7 +101,7 @@ impl ManagedServiceBootstrap {
                             (ProviderPurpose::InitialProviderCredit, "install"),
                             (ProviderPurpose::ProviderCapacityDeclaration, "declare"),
                         ] {
-                            self.census_provider(
+                            Self::census_provider(
                                 &inventory,
                                 provider_id,
                                 purpose,
@@ -112,7 +111,7 @@ impl ManagedServiceBootstrap {
                             )?;
                         }
                     }
-                    ServiceBootstrapStep::ProviderIngest { .. } => self.census_provider(
+                    ServiceBootstrapStep::ProviderIngest { .. } => Self::census_provider(
                         &inventory,
                         provider_id,
                         ProviderPurpose::InitialProviderIngestAuthority,
@@ -120,7 +119,7 @@ impl ManagedServiceBootstrap {
                         later,
                         false,
                     )?,
-                    ServiceBootstrapStep::Gateway { .. } => self.census_provider(
+                    ServiceBootstrapStep::Gateway { .. } => Self::census_provider(
                         &inventory,
                         provider_id,
                         ProviderPurpose::InitialGatewaySetup,
@@ -135,7 +134,7 @@ impl ManagedServiceBootstrap {
         let providers_complete = dependencies.is_some_and(|value| {
             value.reserve_complete && value.providers.iter().all(Option::is_none)
         });
-        self.census_network(
+        Self::census_network(
             &inventory,
             NetworkPurpose::InitialReputationPolicy,
             "setup",
@@ -144,7 +143,6 @@ impl ManagedServiceBootstrap {
         inventory.finish()
     }
     fn census_network(
-        &self,
         inventory: &ServiceChildInventory<'_>,
         purpose: NetworkPurpose,
         operation: &str,
@@ -157,7 +155,6 @@ impl ManagedServiceBootstrap {
         Ok(())
     }
     fn census_provider(
-        &self,
         inventory: &ServiceChildInventory<'_>,
         provider: ProviderId,
         purpose: ProviderPurpose,
@@ -224,22 +221,17 @@ fn census(
             "bootstrap purpose contains unknown or out-of-order material",
         ));
     }
-    if later {
-        match directory.open_child_optional(operation)? {
-            Some(child) => {
-                // Enrollment history and composite funding own their outer directories;
-                // the fixed-purpose children are born with an explicit Unselected image.
-                let empty = if matches!(operation, "enroll" | "funding") {
-                    require_empty(&child)
-                } else {
-                    crate::managed::native_operation::attempts::metadata::require_unselected(&child)
-                };
-                empty.map_err(|_| {
-                    invalid("later bootstrap material exists behind an incomplete prerequisite")
-                })?
-            }
-            None => {}
-        }
+    if later && let Some(child) = directory.open_child_optional(operation)? {
+        // Enrollment history and composite funding own their outer directories;
+        // the fixed-purpose children are born with an explicit Unselected image.
+        let empty = if matches!(operation, "enroll" | "funding") {
+            require_empty(&child)
+        } else {
+            crate::managed::native_operation::attempts::metadata::require_unselected(&child)
+        };
+        empty.map_err(|_| {
+            invalid("later bootstrap material exists behind an incomplete prerequisite")
+        })?
     }
     if directory.entries(if custody { 131 } else { 66 })? != names {
         return Err(invalid(

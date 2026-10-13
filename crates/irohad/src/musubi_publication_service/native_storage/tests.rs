@@ -289,7 +289,7 @@ fn storage_copy_charges_one_frame_and_its_independently_measured_decoded_graph()
         else {
             panic!("allocation usage probe must refuse without charging");
         };
-        attempted as usize - budget - 1
+        usize::try_from(attempted).expect("fixture bytes fit usize") - budget - 1
     });
     let exact = frame.len() + decoded_bytes;
     let limits = norito::DecodeLimits::new(65536, 65536, 65536, exact, 128);
@@ -300,4 +300,14 @@ fn storage_copy_charges_one_frame_and_its_independently_measured_decoded_graph()
             "copy cannot renew inherited allowance"
         );
     });
+}
+
+#[test]
+fn native_storage_decode_budget_matches_the_archive_ceiling() {
+    let limits = decode_limits().expect("native storage limits fit the supported host");
+    assert_eq!(
+        u64::try_from(limits.max_total_allocated_bytes()).expect("budget fits u64"),
+        8 * MUSUBI_MAX_CAR_BYTES_V1,
+    );
+    assert_eq!(limits.max_nesting_depth(), 64);
 }

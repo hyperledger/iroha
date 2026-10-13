@@ -31,7 +31,7 @@ use std::{
 };
 
 pub(super) struct Fixture {
-    pub(super) _temporary: tempfile::TempDir,
+    pub(super) temporary: tempfile::TempDir,
     prepared: PreparedLocalnet,
     authority: ServiceAuthority,
     pub(super) operation: PrivateDirectory,
@@ -77,17 +77,17 @@ impl Fixture {
             ServiceAuthority::open_network(&prepared, NetworkPurpose::InitialReservePolicy)
                 .unwrap();
         let policy = policy(&authority);
-        let options = authorization
-            .as_ref()
-            .map(|value| value.test_terms().options(deadline))
-            .unwrap_or_else(|| BoundedTransactionOptions {
+        let options = authorization.as_ref().map_or_else(
+            || BoundedTransactionOptions {
                 fee_payment: FeePaymentIntent::authority(Vec::new(), None),
                 max_total_fees: BTreeMap::from([(
                     policy.asset_definition.clone(),
                     Quantity::from(1_000_u64),
                 )]),
                 deadline,
-            });
+            },
+            |value| value.test_terms().options(deadline),
+        );
         let terms = Terms::new(now_ms().unwrap() + 1_200_000, &options).unwrap();
         let operation = if publish_original {
             authority.directory.create_child("set").unwrap()
@@ -106,7 +106,7 @@ impl Fixture {
         }
         let wallet = AccountService::new(authority.config.clone()).unwrap();
         Self {
-            _temporary: temporary,
+            temporary,
             prepared,
             authority,
             operation,
@@ -531,13 +531,15 @@ fn live_unsigned_prefix_keeps_its_original_terms_and_request_under_a_current_epo
         let entered = std::cell::Cell::new(false);
         let mut peers = UnavailablePeers::start(&fixture.prepared);
         generated(
-            &fixture.operation,
-            Purpose::ReservePolicy,
-            fixture.semantic,
-            &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
-            &grant,
-            fixture.deadline,
-            None,
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: &fixture.operation,
+                purpose: Purpose::ReservePolicy,
+                semantic: fixture.semantic,
+                scope: &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+                authorization: &grant,
+                deadline: fixture.deadline,
+                body_expiry: None,
+            },
             |attempt| fixture.inspect(attempt),
             |_| panic!("live original cannot be retired"),
             |attempt, _, _| Ok(fixture.retain(attempt)),
@@ -601,13 +603,15 @@ fn cancellation_during_genuine_native_prerequisite_cannot_retain_request_or_comm
     let grant = cap.test_child(Purpose::ReservePolicy).unwrap();
     let entered = std::cell::Cell::new(false);
     let error = generated(
-        &fixture.operation,
-        Purpose::ReservePolicy,
-        fixture.semantic,
-        &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
-        &grant,
-        fixture.deadline,
-        None,
+        crate::managed::native_operation::attempts::GeneratedSelection {
+            operation: &fixture.operation,
+            purpose: Purpose::ReservePolicy,
+            semantic: fixture.semantic,
+            scope: &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+            authorization: &grant,
+            deadline: fixture.deadline,
+            body_expiry: None,
+        },
         |attempt| fixture.inspect(attempt),
         |_| panic!("no predecessor"),
         |_, _, _| panic!("cancelled prerequisite cannot reach request retention"),
@@ -617,7 +621,7 @@ fn cancellation_during_genuine_native_prerequisite_cannot_retain_request_or_comm
             let proof = native.policy_proof(&fixture.authority.config.account);
             let current = proof
                 .verify(
-                    &fixture.authority.config.chain.to_string(),
+                    fixture.authority.config.chain.as_ref(),
                     fixture.authority.config.network_id,
                     &fixture.authority.config.account,
                     &fixture.policy,
@@ -775,13 +779,15 @@ fn expired_missing_or_request_only_prefix_requires_a_live_epoch_and_preserves_it
             .unwrap();
         let observed = std::cell::Cell::new(false);
         generated(
-            &fixture.operation,
-            Purpose::ReservePolicy,
-            fixture.semantic,
-            &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
-            &grant,
-            fixture.deadline,
-            None,
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: &fixture.operation,
+                purpose: Purpose::ReservePolicy,
+                semantic: fixture.semantic,
+                scope: &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+                authorization: &grant,
+                deadline: fixture.deadline,
+                body_expiry: None,
+            },
             |attempt| fixture.inspect(attempt),
             |attempt| {
                 fixture
@@ -803,7 +809,7 @@ fn expired_missing_or_request_only_prefix_requires_a_live_epoch_and_preserves_it
                 let current = native
                     .policy_proof(&fixture.authority.config.account)
                     .verify(
-                        &fixture.authority.config.chain.to_string(),
+                        fixture.authority.config.chain.as_ref(),
                         fixture.authority.config.network_id,
                         &fixture.authority.config.account,
                         &fixture.policy,
@@ -1419,7 +1425,7 @@ fn full_bound_revalidation_preserves_originals_and_refuses_record_or_directory_s
         )
         .unwrap()
         .unwrap();
-        let saved = fixture._temporary.path().join("displaced-attempt");
+        let saved = fixture.temporary.path().join("displaced-attempt");
         std::fs::rename(last.directory.path(), &saved).unwrap();
         let root = fixture.operation.open_child("attempts").unwrap();
         let substitute = root.create_child("0064").unwrap();
@@ -1509,6 +1515,7 @@ fn reserved_empty_tail_keeps_original_parser_semantics_without_losing_published_
 
 #[test]
 fn retained_reparse_admits_canonical_append_and_refuses_changed_original_custody() {
+    use crate::managed::native_operation::authorization::DispatchAuthorization;
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::build(true);
     let before = fixture.history().unwrap();
@@ -1630,7 +1637,7 @@ fn retained_reparse_admits_canonical_append_and_refuses_changed_original_custody
     // A genuine live epoch reserves an exact successor but no child or wallet is created.
     // Restoring the earlier published root remains a valid ordinary prefix, yet cannot erase
     // the higher reservation observed by this still-owned parser input.
-    use crate::managed::native_operation::authorization::DispatchAuthorization;
+
     let grant = fixture
         .authorization
         .as_ref()
@@ -1964,7 +1971,7 @@ fn missing_mandatory_image_or_original_refuses_before_republication_or_wallet_ef
     for name in [metadata::FILE, "original.nrt"] {
         let history = fixture.history().unwrap();
         let path = fixture.operation.path().join(name);
-        let held = fixture._temporary.path().join(format!("held-{name}"));
+        let held = fixture.temporary.path().join(format!("held-{name}"));
         std::fs::rename(&path, &held).unwrap();
         let validated_pending = Cell::new(false);
         assert!(

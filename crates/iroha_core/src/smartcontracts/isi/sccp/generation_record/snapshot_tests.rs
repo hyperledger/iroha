@@ -43,7 +43,7 @@ fn nested_account_graph_is_retained_once_and_wire_is_unchanged() {
     );
     let reader = owner.clone();
     assert_eq!(budget.reserved_bytes(), bytes);
-    assert!(std::ptr::eq(&*owner, &*reader));
+    assert!(std::ptr::eq(&raw const *owner, &raw const *reader));
     drop(owner);
     assert_eq!(budget.reserved_bytes(), bytes);
     assert_eq!(&*reader, &source);
@@ -91,10 +91,19 @@ fn ended_and_progress_records_do_not_mutate_retained_predecessors() {
     assert_eq!(ended.end, Some(end));
     assert_eq!(ended.dest_cleared_lc, None);
     assert_eq!(cleared.dest_cleared_lc, Some(ended.deadline_ms + 1));
-    assert!(std::ptr::eq(&*original, &*ended));
+    assert!(std::ptr::eq(&raw const *original, &raw const *ended));
+    let mut members = [None; 31];
+    for (slot, member) in members.iter_mut().zip(&source.members) {
+        *slot = member.as_ref().map(|member| MemberRef {
+            lane_id: member.lane_id,
+            validator: &member.validator,
+            activation_height: member.activation_height,
+        });
+    }
     assert_eq!(
         budget.reserved_bytes(),
-        RetainedSccpGeneration::admission_demand(&source).unwrap()
+        RetainedSccpGeneration::allocation_demand(&source.keys, &members[..source.members.len()])
+            .unwrap()
     );
     let mut invalid = ended.clone();
     invalid.dest_cleared_lc = Some(0);
@@ -259,7 +268,7 @@ fn direct_snapshot_restores_lifecycle_without_copying_or_mutating_immutable_body
     let bytes = budget.reserved_bytes();
     let mut changed = original.clone();
     changed.dest_cleared_lc = Some(source.deadline_ms + 2);
-    assert!(std::ptr::eq(&*original, &*changed));
+    assert!(std::ptr::eq(&raw const *original, &raw const *changed));
     assert_eq!(budget.reserved_bytes(), bytes);
     assert_eq!(original.dest_cleared_lc, source.dest_cleared_lc);
     assert_ne!(original, changed);

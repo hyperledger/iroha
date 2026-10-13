@@ -85,6 +85,10 @@ pub struct EnrollmentIssuerV1<R> {
 
 /// Exact journal initialization scope for the explicit provisioning owner.
 /// Ordinary service startup opens an existing scope and never calls journal initialization.
+///
+/// # Errors
+///
+/// Returns an invalid-input error if `scope` is all zero bytes.
 pub fn enrollment_issuer_journal_scope_v1(scope: [u8; 32]) -> Result<Vec<u8>> {
     if scope == [0; 32] {
         return Err(Invalid);
@@ -211,7 +215,7 @@ impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
         // it unchanged needs no live provider, worker or signer dependency.
         let terminal = prior
             .as_ref()
-            .is_some_and(|prior| prior.refusal().or(prior.worker_refusal()).is_some());
+            .is_some_and(|prior| prior.refusal().or_else(|| prior.worker_refusal()).is_some());
         if !terminal {
             self.current(&dispatch)?;
         }

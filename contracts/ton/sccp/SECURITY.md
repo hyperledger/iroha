@@ -37,6 +37,11 @@ and the bounded fast pause are independent; only their effective combination
 blocks finalization. Checkpoints, voids, burns and further authenticated controls
 remain governed by their own checks.
 
+The native control suite replays every TON destination-effect scenario from
+`fixtures/sccp/control_v1.json`. Independent Rust and Python generators produce
+identical certificates and expected outcomes; the contract replay compares events,
+pause state, checkpoint state, supply and consumed nonces at each step.
+
 Direct and historical message proofs bind the exact block root and message
 count; historical mode additionally proves the block under the certified history
 root. Transfer decoding checks destination, revision, recipient and amount.
@@ -57,25 +62,51 @@ consumption only from their minter. Canonical deployment starts inactive, and an
 already activated index is never activated again. Recreating a deleted bucket
 therefore cannot clear the authority required to replay a mint or void.
 
-Finalization reserves pending supply before asking a bucket to consume. A
-successful response transfers pending supply to total supply and sends a
-bounceable mint. Failed or duplicate consumption releases pending supply;
-bounced mint delivery removes the unminted supply and requests unconsumption.
-Recorded retries preserve failed unconsumption/activation work. Callback senders
-are checked against the canonical bucket or wallet address. These rules rely on
-TON's authenticated bounced-message semantics.
+Finalization reserves pending supply and one of 512 prepaid operation slots
+before dispatch; activation batches reserve every slot before the first send.
+Operation ids never repeat. Each destination atomically retains a bounded
+receipt with its effect. The minter advances through authenticated Prepared,
+Drop and Dropped messages, binding the canonical sender, operation, stage and
+attempt. It frees a slot only after receipt deletion is confirmed. Lost ACKs
+keep custody; retries query or delete the receipt, and replay an original effect
+only after its authenticated bounce proved failure. Missing receipts fail
+closed because a possibly successful wallet could have been deleted and
+recreated. Stale ACKs or deletion requests cannot affect a newer receipt.
 
-Burns require the canonical SCCP burn payload. Only the owner's canonical wallet
-can send the accepted notification. A rejected burn restores the wallet balance.
-Frozen-range voids consume their bounded range atomically without minting.
+Mint failure burns only the unminted total supply and changes the existing row
+to retained unconsume. Original-bounce handlers perform no outgoing action or
+new allocation. A concurrent retry cannot change the original response address:
+each in-flight exchange carries its own response and query id. TON's
+[ordering rules](https://ton.org/tblkch.pdf) (§§2.2.9–2.2.11) and
+[validator ordering check](https://github.com/ton-blockchain/ton/blob/master/validator/impl/validate-query.cpp)
+apply to the tested IHR-disabled headers. Safety does not infer failure from an
+absent receipt, and activation chains explicitly wait for completion.
+
+Burns require the canonical SCCP burn payload. Before debiting or forwarding,
+the wallet validates the ordinary wrapper's exact opcode and single reference,
+then the entire ordinary recipient snake: maximal 127-byte chunks, no extra
+bits or references, and 1..=1024 bytes in total. The minter repeats these checks
+and accepts notifications only from the owner's canonical wallet. A rejected
+burn restores the wallet balance. Frozen-range voids consume their bounded range
+atomically without minting.
 
 ## Value and validation
 
-The fee model bounds verification, callback, forwarding and storage costs before
-starting work. `raw_reserve` retains `MINTER_FLOOR` and `BUCKET_FLOOR`;
-per-operation quotes cover retained minter,
-bucket and wallet state. Current measured gas belongs in `gas-baseline.json` and
-must be regenerated with the pinned Acton toolchain after contract changes.
+The fee model computes verification, callback, forwarding and storage allowances
+from the current TON price configuration before starting work. Minter entry
+operations fund the step and any floor deficit; burns and bucket replies retain
+the prior balance without charging that deficit. `raw_reserve` mode 2 retains
+the minter's funded `MINTER_FLOOR` and prior balance within the admitted step budget;
+buckets reserve the greater of `BUCKET_FLOOR` and their prior balance. Quotes
+include seven days of storage grace. Maximum custody is prepaid for 100 years
+at current prices: minter 2,380 cells/790,000 bits, bucket 1,080 cells/83,000 bits,
+wallet 1,080 cells/86,000 bits. All three graphs include the full 512-entry
+capacity; native tests enforce both upper bounds and at most 5% headroom.
+Capacity is checked before effects, with no eviction or unbounded retry map.
+A mid-flight price change can require a newly funded retry, preserving the
+operation and receipt across failed deliveries.
+Current measured gas belongs in `gas-baseline.json` and must be regenerated with
+the pinned Acton toolchain after contract changes.
 
 The emulator suite covers native BLS verification and rotation, checkpoint
 retention/latching, controls, deadline/cap boundaries, canonical cells, replay,

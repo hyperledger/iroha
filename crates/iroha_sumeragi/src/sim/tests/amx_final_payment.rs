@@ -39,6 +39,22 @@ fn last_payment(seed: u64) -> Scenario {
 }
 
 #[test]
+fn amx_final_payment_client_expiry_uses_the_certified_wall_epoch() {
+    let mut world = World::new(last_payment(0));
+    world.now = 2_000;
+    world.amx_tick();
+    let amx = world.amx.as_ref().unwrap();
+    assert_eq!(amx.txs.len(), 1);
+    let transaction = amx.txs.values().next().unwrap();
+    let wall = crate::sim::driver::Clock::default().local(world.now);
+    assert_eq!(
+        transaction.expires_at_ms,
+        wall + amx.config.expires_after_ms
+    );
+    assert!(transaction.expires_at_ms > u64::try_from(world.wall_ms(0)).unwrap());
+}
+
+#[test]
 fn amx_final_payment_recovers_lost_relayer_jobs_without_unrelated_work() {
     let mut scenario = last_payment(0);
     scenario.script.push((5_000, Fault::Crash(0)));
@@ -122,21 +138,16 @@ fn amx_final_payment_due_job_rebuilds_after_relayer_restart_without_background_w
     let amx = world.amx.as_ref().unwrap();
     assert_eq!(amx.seen.begun.len(), 1);
     let (&tx, (_, _, expires_at_ms)) = amx.seen.begun.first_key_value().unwrap();
-    let &(outcome, decision_height, decided_at) = amx
+    let &(outcome, height, decided_at) = amx
         .seen
         .decided
         .get(&tx)
         .expect("reconstructed original expiry work must close the final obligation");
     assert_eq!(outcome, Outcome::Abort);
-    let certified_time = world
-        .clock_guard
-        .as_ref()
-        .unwrap()
-        .certified
-        .iter()
-        .find(|block| block.inst == 0 && block.height == decision_height)
-        .expect("the Abort has an authenticated block timestamp");
-    assert!(certified_time.t >= *expires_at_ms && decided_at >= 30_000);
+    let decision = world.oracle.refs[0].get(&height).unwrap();
+    let certified = amx.exec_of(0, &decision.result).unwrap();
+    assert!(certified.block_time_ms >= *expires_at_ms);
+    assert!(decided_at >= 30_000);
     assert_eq!(
         amx.seen.settled.get(&(1, tx)).map(|value| value.0),
         Some(Outcome::Abort)

@@ -84,7 +84,7 @@ fn reserve_creator_reuses_immutable_original_and_holds_the_exact_native_purpose(
     assert!(create(&parent).is_err());
     let directory = expected.directory.retain().unwrap();
     let identity = directory.identity().unwrap();
-    let lock_identity = FileIdentity::of(&expected._lock).unwrap();
+    let lock_identity = FileIdentity::of(&expected.lock).unwrap();
     let names = directory.entries(2).unwrap();
     let lock_bytes = directory.read("operation.lock", 4096).unwrap();
     let config = expected.config.clone();
@@ -112,7 +112,7 @@ fn reserve_creator_reuses_immutable_original_and_holds_the_exact_native_purpose(
     assert!(matches!(&actual.profile, AuthorityProfile::Shared(_)));
     assert!(actual.checkpoint_import_scope().is_none());
     assert_eq!(actual.directory.identity().unwrap(), identity);
-    assert_eq!(FileIdentity::of(&actual._lock).unwrap(), lock_identity);
+    assert_eq!(FileIdentity::of(&actual.lock).unwrap(), lock_identity);
     assert_eq!(actual.config.chain, config.chain);
     assert_eq!(actual.config.network_id, config.network_id);
     assert_eq!(actual.config.account, config.account);
@@ -142,7 +142,7 @@ fn reserve_creator_reuses_immutable_original_and_holds_the_exact_native_purpose(
     parent.peers.reverse();
     let retry = ordinary(&parent).unwrap();
     assert_eq!(retry.directory.identity().unwrap(), identity);
-    assert_eq!(FileIdentity::of(&retry._lock).unwrap(), lock_identity);
+    assert_eq!(FileIdentity::of(&retry.lock).unwrap(), lock_identity);
     drop(retry);
     assert_eq!(directory.entries(2).unwrap(), names);
     assert_eq!(directory.read("operation.lock", 4096).unwrap(), lock_bytes);
@@ -156,7 +156,7 @@ fn reserve_creator_refuses_fresh_profile_native_substitution_and_closes_parent_e
     let _guard = crate::managed::native_test_guard();
     let (temporary, parent) = fixture();
     let parent_identity = parent.directory.identity().unwrap();
-    let parent_lock_identity = FileIdentity::of(&parent._lock).unwrap();
+    let parent_lock_identity = FileIdentity::of(&parent.lock).unwrap();
     let mut peers = UnavailablePeers::start(&parent.prepared);
     let generation =
         PrivateDirectory::open_exact(parent.prepared.context.client_config.parent().unwrap())
@@ -192,7 +192,7 @@ fn reserve_creator_refuses_fresh_profile_native_substitution_and_closes_parent_e
     let child = create(&parent).unwrap();
     let directory = child.directory.retain().unwrap();
     let identity = directory.identity().unwrap();
-    let lock_identity = FileIdentity::of(&child._lock).unwrap();
+    let lock_identity = FileIdentity::of(&child.lock).unwrap();
     let lock_bytes = directory.read("operation.lock", 4096).unwrap();
     #[cfg(unix)]
     {
@@ -240,10 +240,10 @@ fn reserve_creator_refuses_fresh_profile_native_substitution_and_closes_parent_e
                 lock.try_lock().is_err(),
                 "real successful child Result still owns its native lock"
             ),
-            Err(error) => {
-                assert!(cfg!(windows));
-                assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
-            }
+            #[cfg(windows)]
+            Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock),
+            #[cfg(not(windows))]
+            Err(error) => panic!("retained operation lock must open: {error}"),
         }
         generation_for_hook
             .write_atomic("peer3.toml", &hook_changed, PublishMode::Replace)
@@ -264,7 +264,7 @@ fn reserve_creator_refuses_fresh_profile_native_substitution_and_closes_parent_e
         .unwrap();
     let retry = create(&parent).unwrap();
     assert_eq!(retry.directory.identity().unwrap(), identity);
-    assert_eq!(FileIdentity::of(&retry._lock).unwrap(), lock_identity);
+    assert_eq!(FileIdentity::of(&retry.lock).unwrap(), lock_identity);
     retry.validate_profile().unwrap();
     drop(retry);
     assert_eq!(directory.read("operation.lock", 4096).unwrap(), lock_bytes);
@@ -274,7 +274,7 @@ fn reserve_creator_refuses_fresh_profile_native_substitution_and_closes_parent_e
     );
     assert_eq!(parent.directory.identity().unwrap(), parent_identity);
     assert_eq!(
-        FileIdentity::of(&parent._lock).unwrap(),
+        FileIdentity::of(&parent.lock).unwrap(),
         parent_lock_identity
     );
     assert_eq!(
@@ -302,7 +302,7 @@ fn reserve_creator_preserves_full_active_decode_and_owned_parent_fallback() {
     assert!(matches!(&expected.profile, AuthorityProfile::Owned(_)));
     let directory = expected.directory.retain().unwrap();
     let identity = directory.identity().unwrap();
-    let lock_identity = FileIdentity::of(&expected._lock).unwrap();
+    let lock_identity = FileIdentity::of(&expected.lock).unwrap();
     let charge = usize::try_from(baseline.consumed_allocated_bytes()).unwrap();
     assert!(charge > 0);
     drop(expected);
@@ -314,7 +314,7 @@ fn reserve_creator_preserves_full_active_decode_and_owned_parent_fallback() {
     assert!(actual.checkpoint_import_scope().is_none());
     assert_eq!(exact.consumed_allocated_bytes(), charge as u64);
     assert_eq!(actual.directory.identity().unwrap(), identity);
-    assert_eq!(FileIdentity::of(&actual._lock).unwrap(), lock_identity);
+    assert_eq!(FileIdentity::of(&actual.lock).unwrap(), lock_identity);
     drop(actual);
     for allocated in [0, charge - 1] {
         let expected_budget = DecodeBudgetContext::new(limits(allocated));
@@ -353,7 +353,7 @@ fn reserve_creator_preserves_full_active_decode_and_owned_parent_fallback() {
     assert!(matches!(&actual.profile, AuthorityProfile::Shared(_)));
     assert!(actual.checkpoint_import_scope().is_none());
     assert_eq!(actual.directory.identity().unwrap(), identity);
-    assert_eq!(FileIdentity::of(&actual._lock).unwrap(), lock_identity);
+    assert_eq!(FileIdentity::of(&actual.lock).unwrap(), lock_identity);
     actual.validate_profile().unwrap();
     drop(actual);
     parent.validate_profile().unwrap();

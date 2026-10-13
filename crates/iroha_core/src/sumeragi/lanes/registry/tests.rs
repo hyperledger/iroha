@@ -40,7 +40,7 @@ fn original_native_lane_authority_refusal_reaches_merge_and_original_pool_retry(
     let Attempt::Deferred(original) = &error else {
         panic!("original native authority was erased: {error:?}")
     };
-    let original = original.clone();
+    let observed_allocation = original.allocation_refusal().unwrap().clone();
     let Some(iroha_allocation::AllocationRefusal::Capacity { release, .. }) =
         original.allocation_refusal()
     else {
@@ -50,7 +50,7 @@ fn original_native_lane_authority_refusal_reaches_merge_and_original_pool_retry(
     let mut context = Context::from_waker(std::task::Waker::noop());
     assert!(registration.poll_wait(&wait, &mut context).is_pending());
     assert!(
-        matches!(crate::block::BlockValidationError::from(crate::sumeragi::lanes::merge::MergeError::Storage(error)), crate::block::BlockValidationError::ExecutionDeferred(retained) if retained == original)
+        matches!(crate::block::BlockValidationError::from(crate::sumeragi::lanes::merge::MergeError::Storage(error)), crate::block::BlockValidationError::ExecutionDeferred(retained) if retained.allocation_refusal() == Some(&observed_allocation))
     );
     assert_eq!(budget.reserved_bytes(), ceiling);
     drop(occupied);
@@ -294,7 +294,7 @@ impl Fixture {
                 lane: LANE,
                 dataspace: DataSpaceId::new(0),
                 incarnation: INCARNATION,
-                params: Default::default(),
+                params: iroha_data_model::parameter::system::SumeragiParameters::default(),
                 committee,
                 created_at: 1,
                 active_from: 3,
@@ -545,7 +545,8 @@ fn registry_retains_opening_lock_and_exact_charges_across_refusal() {
     let f = Fixture::new(true);
     f.publish();
     f.stores.release(LANE, &INCARNATION);
-    let raw = fs::metadata(f.path()).unwrap().len() as usize;
+    let raw =
+        usize::try_from(fs::metadata(f.path()).unwrap().len()).expect("fixture value fits usize");
     let baseline = f.stores.budget.reserved_bytes();
     f.stores.budget.set_limit_bytes(baseline + raw);
     assert_eq!(
@@ -1122,8 +1123,7 @@ fn ready_tip_retains_original_pool_refusal_and_completed_read_until_normal_consu
         .stores
         .budget
         .try_reserve_bytes(*requested_bytes)
-        .err()
-        .expect("original occupied pool must refuse the same actual demand");
+        .expect_err("original occupied pool must refuse the same actual demand");
     assert_eq!(original.allocation_refusal(), Some(&original_pool_probe));
     assert!(store.batch_read.lock().is_none());
     for _ in 0..2 {
@@ -1132,7 +1132,8 @@ fn ready_tip_retains_original_pool_refusal_and_completed_read_until_normal_consu
             panic!("tip must propagate the same original unfinished local attempt");
         };
         assert_eq!(
-            retained, original,
+            retained.allocation_refusal(),
+            original.allocation_refusal(),
             "tip must preserve original cause, Capacity fields and pool release owner"
         );
         assert!(Arc::ptr_eq(

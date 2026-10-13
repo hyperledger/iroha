@@ -2,7 +2,7 @@
 //!
 //! This is the producer's own Check, distinct from Torii's independently prepared Check.
 //! No stage repeats observer I/O, transaction signing/submission or a completed signature.
-//! TODO: Queue/finalize_check pre-return ambiguity, broker reply transport custody, nested
+//! TODO: `Queue/finalize_check` pre-return ambiguity, broker reply transport custody, nested
 //! custody codec provenance and original-pool funding for existing cloned/boxed/codec graphs
 //! remain separate gates. This process-local owner is not a durable recovery journal.
 
@@ -46,7 +46,7 @@ pub(super) fn observe(
     };
     let prepared = observer
         .source
-        .prepare_check(reviewed, phase)
+        .prepare_check(&reviewed, phase)
         .map_err(|_| Error::Unavailable)?;
     // Capture this exact prepared owner's absolute lifetime before it is consumed.
     let deadline = prepared.deadline();
@@ -96,7 +96,7 @@ impl CompletedObservation<'_> {
         let mut delay = Duration::from_millis(1);
         loop {
             match self.advance() {
-                Ok(false) => continue,
+                Ok(false) => (),
                 Ok(true) => {
                     let Some(Stage::Encoded { reply, .. }) = self.stage.take() else {
                         unreachable!("only the encoded stage can complete")
@@ -157,7 +157,7 @@ impl CompletedObservation<'_> {
                         operation_id,
                         signing_payload_digest,
                         signing_payload_size,
-                        completed_operation: Box::new(completed.clone()),
+                        completed_operation: Box::new(*completed),
                     },
                 )?;
                 self.stage = Some(Stage::Unsigned(body));

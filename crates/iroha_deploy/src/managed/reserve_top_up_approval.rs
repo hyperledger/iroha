@@ -1,4 +1,4 @@
-//! Managed approval of a proven original provider TopUp, using the sole decision wallet journal.
+//! Managed approval of a proven original provider `TopUp`, using the sole decision wallet journal.
 //!
 //! Every call requires the original private request evidence again. Journal fields are retained
 //! claims, never an alternate decoder or constructor for that evidence. Native Decide owns Pending
@@ -54,7 +54,7 @@ mod tests;
 /// These are caller claims until the current native account proof independently verifies them.
 #[derive(Clone, Debug)]
 pub struct ManagedReserveTopUpApprovalIntent {
-    /// Complete selected active policy; it may have rotated since the original TopUp request.
+    /// Complete selected active policy; it may have rotated since the original `TopUp` request.
     pub policy: ReserveAuthorityPolicyV1,
     /// Complete current predecessor partition, including its possibly lagged policy digest.
     pub partition: ReserveProviderAccountV1,
@@ -64,7 +64,7 @@ pub struct ManagedReserveTopUpApprovalIntent {
     pub rationale: String,
 }
 
-/// Historical native approval of one authenticated original TopUp request.
+/// Historical native approval of one authenticated original `TopUp` request.
 ///
 /// Private construction joins both exact original envelopes to independently certified successful
 /// execution. It proves the native approval and its historical transfer, never current reserve
@@ -83,7 +83,7 @@ impl ManagedHistoricalReserveTopUpApproval {
     pub fn original(&self) -> &ManagedTransactionFinality {
         &self.original
     }
-    /// Independently authenticated original TopUp whose unique movement id was decided.
+    /// Independently authenticated original `TopUp` whose unique movement id was decided.
     #[must_use]
     pub fn request(&self) -> &ManagedHistoricalReserveTopUp {
         &self.request
@@ -124,7 +124,7 @@ impl ManagedReserveTopUpApprovalProgress {
     }
 }
 
-/// Closed manager approval owner for the generated provider's proven original TopUp.
+/// Closed manager approval owner for the generated provider's proven original `TopUp`.
 ///
 /// The manager signs and pays decision fees. Native execution alone resolves the Pending movement,
 /// transfers provider principal and updates the reserve ledger atomically. Every call requires the
@@ -203,7 +203,7 @@ impl ManagedReserveTopUpApproval {
             self.validate_original(history, &original)?;
             return Ok(original);
         }
-        attempts::metadata::require_unselected(&directory)?;
+        attempts::metadata::require_unselected(directory)?;
         let (verifier, current) = self.observe(&intent.policy, deadline)?;
         if current.height() < history.original().height
             || current.current() != Some(&intent.partition)
@@ -275,13 +275,15 @@ impl ManagedReserveTopUpApproval {
             .map_err(|_| invalid("cannot open funding wallet"))?;
         let account = authorization.bind_account(account)?;
         attempts::generated(
-            &directory,
-            purpose,
-            original.digest()?,
-            &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
-            authorization,
-            deadline,
-            None,
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: &directory,
+                purpose,
+                semantic: original.digest()?,
+                scope: &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+                authorization,
+                deadline,
+                body_expiry: None,
+            },
             |attempt| {
                 account
                     .inspect_reserve_movement_decision_preparation_in_parent(
@@ -426,18 +428,19 @@ impl ManagedReserveTopUpApproval {
                         std::ffi::OsStr::new("transaction"),
                         &intent.request(attempt.terms(), deadline),
                     )
-                    .map_err(|_error| {
+                    .map_err(|error| {
                         #[cfg(test)]
                         {
                             use std::io::Write as _;
                             let mut output = std::io::stderr().lock();
-                            for (index, cause) in _error.chain().enumerate() {
+                            for (index, cause) in error.chain().enumerate() {
                                 let _ = writeln!(
                                     output,
                                     "retained funding wallet inspection: purpose=FundingApproval; cause[{index}]={cause}",
                                 );
                             }
                         }
+                        drop(error);
                         invalid("retained funding attempt history changed")
                     })
             })
@@ -467,7 +470,7 @@ impl ManagedReserveTopUpApproval {
         let needs_prepare = retained.is_none();
         if let Some(transaction) = &retained
             && let Some(historical) =
-                self.retained_historical(history, &directory, &original, transaction)?
+                self.retained_historical(history, directory, &original, transaction)?
         {
             let current = if observe_current {
                 self.observe(&original.policy, deadline)
@@ -545,7 +548,7 @@ impl ManagedReserveTopUpApproval {
         }
         let transaction = match retained {
             Some(transaction) => transaction,
-            None => self.verify_wallet(&directory, &original, deadline)?,
+            None => self.verify_wallet(directory, &original, deadline)?,
         };
         let request = original.request(deadline);
         let mut report = account
@@ -577,7 +580,7 @@ impl ManagedReserveTopUpApproval {
             && let Some(observed) = &observed
         {
             self.authority.advance_carrier(
-                &directory,
+                directory,
                 &original.checkpoint,
                 &transaction,
                 &report,
@@ -587,7 +590,7 @@ impl ManagedReserveTopUpApproval {
         }
         // A public status/finality report never mints historical authority. Reopen the retained
         // independently authenticated carrier and bind its exact single signed instruction.
-        let historical = self.retained_historical(history, &directory, &original, &transaction)?;
+        let historical = self.retained_historical(history, directory, &original, &transaction)?;
         let current = super::native_operation::optional_current(
             observe_current,
             observed.as_ref(),

@@ -192,8 +192,8 @@ impl Fixture {
     }
     // This engine fixture supplies terminal inputs, not a claim of signed journal authority.
     // The World adapter and certified handler/proof fixtures authenticate the actual source.
-    fn delivery(&self, record: Record) -> DeliveryState {
-        let source_digest = *Hash::new(norito::encode_canonical(&record).unwrap()).as_ref();
+    fn delivery(&self, record: &Record) -> DeliveryState {
+        let source_digest = *Hash::new(norito::encode_canonical(record).unwrap()).as_ref();
         let original = match self.rows.values.get(&GatewayRowKey::Admission(
             record.outcome.binding.gateway_sequence,
         )) {
@@ -213,7 +213,7 @@ impl Fixture {
             },
         }
     }
-    fn ack(&mut self, record: Record, now: u64) -> Ack {
+    fn ack(&mut self, record: &Record, now: u64) -> Ack {
         let execution = self.execution(now);
         let delta = transition::acknowledge(
             self.input(&execution),
@@ -227,7 +227,7 @@ impl Fixture {
         };
         result
     }
-    fn release(&mut self, record: Record, now: u64) -> Ack {
+    fn release(&mut self, record: &Record, now: u64) -> Ack {
         let execution = self.execution(now);
         let delta = transition::release_lease(self.input(&execution), &self.rows, record).unwrap();
         let TransitionResult::Released(result) = self.apply(delta) else {
@@ -263,7 +263,7 @@ fn gateway_transition_replay_preserves_original_rows_and_acknowledged_result() {
     assert_eq!(fixture.admit(&request, NOW + 200), original);
     assert_eq!(fixture.head, head);
     assert_eq!(fixture.rows.values, rows);
-    assert_eq!(fixture.ack(original, NOW + 201), Ack::Acknowledged);
+    assert_eq!(fixture.ack(&original, NOW + 201,), Ack::Acknowledged);
     let execution = fixture.execution(NOW + 202);
     let delta = transition::admit(fixture.input(&execution), &fixture.rows, &request).unwrap();
     let TransitionResult::Admission(replay) = &delta.result else {
@@ -287,7 +287,7 @@ fn gateway_transition_quota_windows_use_execution_time_and_release_never_refunds
     let mut one = request("quota-one", NOW);
     one.quota.as_mut().unwrap().requests_per_minute = 1;
     let first = fixture.admit(&one, NOW + 5_000);
-    assert_eq!(fixture.release(first, NOW + 5_001), Ack::Acknowledged);
+    assert_eq!(fixture.release(&first, NOW + 5_001,), Ack::Acknowledged);
     let mut two = request("quota-two", NOW + 60_000);
     two.quota = one.quota.clone();
     two.quota.as_mut().unwrap().observed_at_epoch = two.validated_at_unix_ms / 1_000;
@@ -320,7 +320,7 @@ fn gateway_transition_byte_rate_and_concurrency_are_atomic() {
         concurrent.outcome.status,
         Status::ProviderViolation(Violation::ConcurrencyLimitExceeded)
     );
-    assert_eq!(fixture.release(first, NOW), Ack::Acknowledged);
+    assert_eq!(fixture.release(&first, NOW,), Ack::Acknowledged);
     let mut third = request("bytes-third", NOW + 999);
     third.quota = first_request.quota.clone();
     let denied = fixture.admit(&third, NOW + 999);
@@ -378,7 +378,7 @@ fn gateway_transition_expiry_is_bounded_and_keeps_permanent_history() {
     assert_eq!(fixture.expire(at, 1), 1);
     assert_eq!(fixture.head.live_tokens, 0);
     assert_eq!(fixture.expire(at, 1), 0);
-    assert_eq!(fixture.release(record, at), Ack::ExactReplay);
+    assert_eq!(fixture.release(&record, at,), Ack::ExactReplay);
     let execution = fixture.execution(at);
     assert_eq!(
         transition::admit(fixture.input(&execution), &fixture.rows, &request).unwrap_err(),
@@ -436,10 +436,10 @@ fn gateway_transition_rotation_preserves_original_policy_and_drains_disabled_gat
         transition::admit(fixture.input(&execution), &fixture.rows, &request).unwrap_err(),
         TransitionError::Unavailable
     );
-    assert_eq!(fixture.ack(record, NOW + 2), Ack::Acknowledged);
-    assert_eq!(fixture.release(record, NOW + 2), Ack::Acknowledged);
-    assert_eq!(fixture.ack(record, NOW + 3), Ack::ExactReplay);
-    assert_eq!(fixture.release(record, NOW + 3), Ack::ExactReplay);
+    assert_eq!(fixture.ack(&record, NOW + 2,), Ack::Acknowledged);
+    assert_eq!(fixture.release(&record, NOW + 2,), Ack::Acknowledged);
+    assert_eq!(fixture.ack(&record, NOW + 3,), Ack::ExactReplay);
+    assert_eq!(fixture.release(&record, NOW + 3,), Ack::ExactReplay);
 }
 
 #[test]
@@ -458,7 +458,7 @@ fn gateway_transition_capacity_never_evicts_pending_or_live_rows() {
         TransitionError::Capacity
     );
     assert_eq!(fixture.rows.values, before);
-    fixture.ack(first, NOW);
+    fixture.ack(&first, NOW);
     let mut second = second;
     second.quota.as_mut().unwrap().token_id = "22".repeat(16);
     let execution = fixture.execution(NOW);
@@ -480,8 +480,8 @@ fn gateway_transition_ack_order_and_substituted_lease_fail_closed() {
         transition::acknowledge(
             fixture.input(&execution),
             &fixture.rows,
-            second,
-            fixture.delivery(second)
+            &second,
+            fixture.delivery(&second,)
         )
         .unwrap_err(),
         TransitionError::Conflict
@@ -489,11 +489,11 @@ fn gateway_transition_ack_order_and_substituted_lease_fail_closed() {
     let mut changed = first;
     changed.lease_id = second.lease_id;
     assert_eq!(
-        transition::release_lease(fixture.input(&execution), &fixture.rows, changed).unwrap_err(),
+        transition::release_lease(fixture.input(&execution), &fixture.rows, &changed).unwrap_err(),
         TransitionError::Conflict
     );
-    fixture.ack(first, NOW);
-    fixture.ack(second, NOW);
+    fixture.ack(&first, NOW);
+    fixture.ack(&second, NOW);
     assert_eq!(fixture.head.acknowledged_through_sequence, 2);
 }
 
@@ -621,7 +621,7 @@ fn gateway_transition_source_rows_roundtrip_and_old_deltas_conflict() {
 fn gateway_transition_rejects_corrupt_terminal_history_and_impossible_clocks() {
     let mut fixture = Fixture::new();
     let record = fixture.admit(&request("terminal-original", NOW), NOW);
-    fixture.release(record, NOW + 1);
+    fixture.release(&record, NOW + 1);
     let key = GatewayRowKey::LeaseTerminal(record.lease_id.unwrap());
     let Some(GatewayRow::LeaseTerminal(original)) = fixture.rows.values.get(&key).cloned() else {
         panic!("terminal fact");
@@ -649,7 +649,7 @@ fn gateway_transition_rejects_corrupt_terminal_history_and_impossible_clocks() {
             .insert(key.clone(), GatewayRow::LeaseTerminal(terminal));
         let execution = fixture.execution(NOW + 2);
         assert_eq!(
-            transition::release_lease(fixture.input(&execution), &fixture.rows, record)
+            transition::release_lease(fixture.input(&execution), &fixture.rows, &record)
                 .unwrap_err(),
             TransitionError::CorruptHistory
         );
@@ -740,7 +740,7 @@ fn gateway_transition_new_worker_or_terminal_lease_cannot_reuse_serving_admissio
         transition::admit(fixture.input(&execution), &fixture.rows, &another_worker).unwrap_err(),
         TransitionError::Conflict
     );
-    assert_eq!(fixture.release(record, NOW + 1), Ack::Acknowledged);
+    assert_eq!(fixture.release(&record, NOW + 1,), Ack::Acknowledged);
     let execution = fixture.execution(NOW + 2);
     assert_eq!(
         transition::admit(fixture.input(&execution), &fixture.rows, &request).unwrap_err(),
@@ -752,7 +752,7 @@ fn gateway_transition_new_worker_or_terminal_lease_cannot_reuse_serving_admissio
         panic!("retained callback");
     };
     assert_eq!(retained.record, record);
-    assert_eq!(fixture.ack(record, NOW + 2), Ack::Acknowledged);
+    assert_eq!(fixture.ack(&record, NOW + 2,), Ack::Acknowledged);
 }
 
 #[test]
@@ -800,7 +800,7 @@ fn gateway_transition_missing_live_quota_does_not_reset_concurrency() {
             active: true
         })
     )));
-    assert_eq!(fixture.release(record, at), Ack::ExactReplay);
+    assert_eq!(fixture.release(&record, at,), Ack::ExactReplay);
 }
 
 #[test]
@@ -813,8 +813,8 @@ fn gateway_transition_current_operator_and_retained_execution_positions_are_chec
         transition::acknowledge(
             fixture.input(&execution),
             &fixture.rows,
-            record,
-            fixture.delivery(record)
+            &record,
+            fixture.delivery(&record,)
         )
         .unwrap_err(),
         TransitionError::BindingMismatch
@@ -824,7 +824,7 @@ fn gateway_transition_current_operator_and_retained_execution_positions_are_chec
     });
     execution.authority = account(1);
     assert_eq!(
-        transition::release_lease(fixture.input(&execution), &fixture.rows, record).unwrap_err(),
+        transition::release_lease(fixture.input(&execution), &fixture.rows, &record).unwrap_err(),
         TransitionError::BindingMismatch
     );
     execution.authority = account(3);
@@ -851,8 +851,8 @@ fn gateway_transition_current_operator_and_retained_execution_positions_are_chec
             transition::acknowledge(
                 fixture.input(&execution),
                 &fixture.rows,
-                record,
-                fixture.delivery(record)
+                &record,
+                fixture.delivery(&record,)
             )
             .unwrap_err(),
             TransitionError::CorruptHistory
@@ -865,8 +865,8 @@ fn gateway_transition_current_operator_and_retained_execution_positions_are_chec
     let delta = transition::acknowledge(
         fixture.input(&execution),
         &fixture.rows,
-        record,
-        fixture.delivery(record),
+        &record,
+        fixture.delivery(&record),
     )
     .unwrap();
     assert_eq!(
@@ -897,8 +897,8 @@ fn gateway_transition_lower_caps_preserve_usage_until_obligations_drain() {
         transition::admit(fixture.input(&execution), &fixture.rows, &next).unwrap_err(),
         TransitionError::Capacity
     );
-    fixture.ack(first, NOW + 1);
-    fixture.ack(second, NOW + 1);
+    fixture.ack(&first, NOW + 1);
+    fixture.ack(&second, NOW + 1);
     let mut third = next;
     third.quota.as_mut().unwrap().token_id = "33".repeat(16);
     third.token_body_digest = Some([0x77; 32]);
@@ -923,7 +923,7 @@ fn acknowledgement_retains_original_execution_and_rejects_missing_history() {
     let mut fixture = Fixture::new();
     let request = request("ack-retained", NOW);
     let record = fixture.admit(&request, NOW);
-    assert_eq!(fixture.ack(record, NOW + 1), Ack::Acknowledged);
+    assert_eq!(fixture.ack(&record, NOW + 1,), Ack::Acknowledged);
     let key = GatewayRowKey::Acknowledgement(1);
     let original = fixture
         .rows
@@ -931,16 +931,16 @@ fn acknowledgement_retains_original_execution_and_rejects_missing_history() {
         .get(&key)
         .cloned()
         .expect("original ack");
-    assert_eq!(fixture.ack(record, NOW + 2), Ack::ExactReplay);
+    assert_eq!(fixture.ack(&record, NOW + 2,), Ack::ExactReplay);
     assert_eq!(fixture.rows.values.get(&key), Some(&original));
     let execution = fixture.execution(NOW + 3);
-    let mut substituted_delivery = fixture.delivery(record);
+    let mut substituted_delivery = fixture.delivery(&record);
     substituted_delivery.source_digest[0] ^= 1;
     assert_eq!(
         transition::acknowledge(
             fixture.input(&execution),
             &fixture.rows,
-            record,
+            &record,
             substituted_delivery
         ),
         Err(TransitionError::Conflict),
@@ -953,8 +953,8 @@ fn acknowledgement_retains_original_execution_and_rejects_missing_history() {
         transition::acknowledge(
             fixture.input(&execution),
             &fixture.rows,
-            record,
-            fixture.delivery(record)
+            &record,
+            fixture.delivery(&record,)
         ),
         Err(TransitionError::CorruptHistory)
     );
@@ -970,8 +970,8 @@ fn acknowledgement_retains_original_execution_and_rejects_missing_history() {
         transition::acknowledge(
             fixture.input(&execution),
             &fixture.rows,
-            record,
-            fixture.delivery(record)
+            &record,
+            fixture.delivery(&record,)
         ),
         Err(TransitionError::CorruptHistory)
     );

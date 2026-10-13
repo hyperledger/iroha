@@ -297,8 +297,8 @@ mod tests {
 
     #[test]
     fn installed_network_profiles_require_the_exact_bundle_without_defaults() {
-        let _resources = super::super::native_test_guard();
         use crate::bootstrap::{InstalledNetworkProfiles, NETWORK_PROFILES_FILENAME};
+        let _resources = super::super::native_test_guard();
 
         let temporary = tempfile::tempdir().unwrap();
         let directory = PrivateDirectory::open_or_create(temporary.path().join("bundle")).unwrap();
@@ -337,9 +337,10 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn relocated_and_renamed_app_uses_only_its_exact_resources() {
-        let _resources = super::super::native_test_guard();
         use super::super::{NativeBundleLayout, macos_info_plist};
         use crate::bootstrap::{InstalledNetworkProfiles, NETWORK_PROFILES_FILENAME};
+        let _resources = super::super::native_test_guard();
+
         let temporary = tempfile::tempdir().unwrap();
         let bundle = temporary.path().join("assembled");
         let layout = NativeBundleLayout::MacOs;
@@ -396,8 +397,9 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn packaged_runtime_rejects_indirect_application_resources_and_metadata() {
-        let _resources = super::super::native_test_guard();
         use std::os::unix::fs::symlink;
+        let _resources = super::super::native_test_guard();
+
         let temporary = tempfile::tempdir().unwrap();
         let contents = temporary.path().join("Mochi.app/Contents");
         let programs = contents.join("MacOS");

@@ -331,12 +331,12 @@ fn authoritative_lane_fixture(mode: AuthoritativeLaneFixtureMode) -> Authoritati
         }
     }
     // The original signed, executed genesis retains the physical Kura body and State result.
-    let committed = app
+    let committed_block = app
         .state
         .view()
         .canonical_block_by_height(NonZeroUsize::new(1).expect("height one"))
         .expect("authority fixture has a canonical signed height-one Kura body");
-    assert_eq!(committed.header().height().get(), 1);
+    assert_eq!(committed_block.header().height().get(), 1);
     let route = RoutingDecision::new(LaneId::SINGLE, DataSpaceId::UNIVERSAL);
     let committee = app
         .state
@@ -1682,7 +1682,7 @@ async fn forward_incoming_torii_proxy_request_reaches_authoritative_peer() {
     // request is accepted and inspected; no peer sockets are started here.
     let (network, mut actor) = iroha_core::IrohaNetwork::actor_admission_for_tests(
         local_peer_id.clone(),
-        std::collections::HashSet::from([authoritative_peer_id.clone()]),
+        std::collections::BTreeSet::from([authoritative_peer_id.clone()]),
         std::num::NonZeroUsize::new(1).expect("one forwarded request"),
     );
     {

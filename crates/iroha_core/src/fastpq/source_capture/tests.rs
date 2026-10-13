@@ -259,11 +259,20 @@ fn prepares_complete_ordered_diagnostics_and_exact_canonical_statement_digests()
         })
         .collect::<Vec<_>>();
     for (statement_index, leaf) in leaves.iter().enumerate() {
-        assert_eq!(leaf.statement_index, statement_index as u32);
+        assert_eq!(
+            leaf.statement_index,
+            u32::try_from(statement_index).expect("fixture value fits u32")
+        );
         let (entry_index, transcript_count) = expected[statement_index];
-        assert_eq!(leaf.entry_index, entry_index as u32);
+        assert_eq!(
+            leaf.entry_index,
+            u32::try_from(entry_index).expect("fixture value fits u32")
+        );
         assert_eq!(leaves.len(), expected.len());
-        assert_eq!(leaf.entry_transcript_count, transcript_count as u32);
+        assert_eq!(
+            leaf.entry_transcript_count,
+            u32::try_from(transcript_count).expect("fixture value fits u32")
+        );
         assert_eq!(leaf.entry_hash, entries[entry_index].entry_hash);
         assert_eq!(leaf.route, entries[entry_index].route);
         assert_eq!(leaf.execution_kind, entries[entry_index].execution_kind);
@@ -367,7 +376,10 @@ fn empty_diagnostics_include_nontransfer_entries_without_statement_budget() {
             bounds,
         )
         .unwrap();
-        assert_eq!(manifest.executed_entry_count, count as u32);
+        assert_eq!(
+            manifest.executed_entry_count,
+            u32::try_from(count).expect("fixture value fits u32")
+        );
         assert_eq!(manifest.statement_count, 0);
         assert!(leaves.is_empty());
         assert_eq!(

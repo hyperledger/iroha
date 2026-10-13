@@ -11,7 +11,7 @@ use norito::json::{Map, Value};
 use super::{ReportError, Result};
 
 /// Read a required JSON object field.
-pub(super) fn require_object<'a>(map: &'a Map, key: &str, path: &Path) -> Result<&'a Map> {
+pub fn require_object<'a>(map: &'a Map, key: &str, path: &Path) -> Result<&'a Map> {
     map.get(key).map_or_else(
         || {
             Err(ReportError::MissingField {
@@ -31,7 +31,7 @@ pub(super) fn require_object<'a>(map: &'a Map, key: &str, path: &Path) -> Result
     )
 }
 /// Read a required unsigned integer field.
-pub(super) fn require_u64(map: &Map, key: &str, path: &Path) -> Result<u64> {
+pub fn require_u64(map: &Map, key: &str, path: &Path) -> Result<u64> {
     map.get(key).map_or_else(
         || {
             Err(ReportError::MissingField {
@@ -50,7 +50,7 @@ pub(super) fn require_u64(map: &Map, key: &str, path: &Path) -> Result<u64> {
     )
 }
 /// Read a required floating-point field.
-pub(super) fn require_f64(map: &Map, key: &str, path: &Path) -> Result<f64> {
+pub fn require_f64(map: &Map, key: &str, path: &Path) -> Result<f64> {
     map.get(key).map_or_else(
         || {
             Err(ReportError::MissingField {
@@ -69,7 +69,7 @@ pub(super) fn require_f64(map: &Map, key: &str, path: &Path) -> Result<f64> {
     )
 }
 /// Read a required string field.
-pub(super) fn require_string(map: &Map, key: &str, path: &Path) -> Result<String> {
+pub fn require_string(map: &Map, key: &str, path: &Path) -> Result<String> {
     map.get(key).map_or_else(
         || {
             Err(ReportError::MissingField {
@@ -89,7 +89,7 @@ pub(super) fn require_string(map: &Map, key: &str, path: &Path) -> Result<String
     )
 }
 /// Name the JSON type of `value` for diagnostics.
-pub(super) fn value_type(value: &Value) -> &'static str {
+pub fn value_type(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "bool",

@@ -246,10 +246,10 @@ impl Execute for ExpireAmxV1 {
 impl Execute for RelayAmxPreparedV1 {
     fn execute(
         self,
-        _authority: &AccountId,
+        authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        execute_relay_prepared_original(&self, _authority, state_transaction)
+        execute_relay_prepared_original(&self, authority, state_transaction)
     }
 }
 

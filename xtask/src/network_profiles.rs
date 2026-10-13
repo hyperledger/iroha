@@ -136,15 +136,16 @@ fn selected(bytes: &[u8], release_commit: Option<&str>) -> Result<Selection, Box
 
 impl Selection {
     /// Stage at the profile path selected by the canonical bundle layout.
+    #[cfg(test)]
     pub(crate) fn stage(&self, path: &Path) -> Result<(), Box<dyn Error>> {
         std::fs::create_dir_all(path.parent().ok_or("profiles have no parent")?)?;
-        std::fs::write(&path, &self.bytes)?;
+        std::fs::write(path, &self.bytes)?;
         self.verify_installed(path)
     }
 
     /// Re-read and compare the exact retained image at the canonical layout path.
     pub(crate) fn verify_installed(&self, path: &Path) -> Result<(), Box<dyn Error>> {
-        let bytes = InstalledNetworkProfiles::load(&path)?.encode_installation()?;
+        let bytes = InstalledNetworkProfiles::load(path)?.encode_installation()?;
         if bytes.as_slice() != self.bytes {
             return Err(
                 "installed network profiles differ from original packaging selection".into(),

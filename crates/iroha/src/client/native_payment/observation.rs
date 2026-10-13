@@ -73,10 +73,10 @@ pub(super) trait PaymentSource: Send + Sync {
         &'a self,
         id: &'a iroha_data_model::isi::SettlementId,
     ) -> WorkflowFuture<'a, Result<Option<PaymentLocator>, NativePaymentObservationError>>;
-    fn carrier<'a>(
-        &'a self,
+    fn carrier(
+        &self,
         hash: HashOf<SignedTransaction>,
-    ) -> WorkflowFuture<'a, Result<CarrierLocation, NativePaymentObservationError>>;
+    ) -> WorkflowFuture<'_, Result<CarrierLocation, NativePaymentObservationError>>;
     fn proof(
         &self,
         height: NonZeroU64,
@@ -106,10 +106,10 @@ impl PaymentSource for OnlinePaymentSource {
             }
         })
     }
-    fn carrier<'a>(
-        &'a self,
+    fn carrier(
+        &self,
         hash: HashOf<SignedTransaction>,
-    ) -> WorkflowFuture<'a, Result<CarrierLocation, NativePaymentObservationError>> {
+    ) -> WorkflowFuture<'_, Result<CarrierLocation, NativePaymentObservationError>> {
         Box::pin(async move {
             let response = self
                 .0
@@ -278,6 +278,7 @@ impl NativePaymentLedger {
             .network_entrypoints()
             .enumerate()
             .find_map(|(index, entry)| {
+                let index = u32::try_from(index).ok()?;
                 let TransactionEntrypoint::External(transaction) = entry else {
                     return None;
                 };
@@ -300,9 +301,9 @@ impl NativePaymentLedger {
                 (intent.settlement_id == self.request.intent.settlement_id
                     && block
                         .block()
-                        .network_output_at(index as u32)
+                        .network_output_at(index)
                         .is_some_and(|(_, output)| output.result.is_ok()))
-                .then_some(index as u32)
+                .then_some(index)
             })
             .ok_or(NativePaymentObservationError::CandidateMismatch)?;
         let receipt = VerifiedPaymentReceipt::verify_recovered(
@@ -332,13 +333,14 @@ impl NativePaymentLedger {
             .network_entrypoints()
             .enumerate()
             .find_map(|(index, entry)| {
+                let index = u32::try_from(index).ok()?;
                 let TransactionEntrypoint::External(transaction) = entry else {
                     return None;
                 };
                 (transaction.hash() == hash
                     && Hash::from(transaction.hash_as_entrypoint()).as_ref()
                         == &identity.entrypoint_hash)
-                    .then_some(index as u32)
+                    .then_some(index)
             })
             .ok_or(NativePaymentObservationError::CandidateMismatch)?;
         let evidence = evidence(block.block(), index)?;
@@ -360,13 +362,12 @@ impl NativePaymentLedger {
             if let Err(TransactionRejectionReason::Validation(ValidationFail::SettlementReplay(
                 replay,
             ))) = &evidence.result().0
+                && replay.settlement_id == self.request.intent.settlement_id
             {
-                if replay.settlement_id == self.request.intent.settlement_id {
-                    *lock(&self.replay)? = Some(PaymentLocator {
-                        height: replay.committed_block_height,
-                        block_hash: replay.committed_block_hash,
-                    });
-                }
+                *lock(&self.replay)? = Some(PaymentLocator {
+                    height: replay.committed_block_height,
+                    block_hash: replay.committed_block_hash,
+                });
             }
             Ok(CommittedOutcome::Rejected {
                 detail: "independently authenticated execution rejected this exact signed carrier"
@@ -406,10 +407,10 @@ impl WorkflowLedger for NativePaymentLedger {
                 Ok(outcome) => outcome,
                 Err(error) => {
                     let detail = error.to_string();
-                    if let Ok(mut slot) = lock(&self.error) {
-                        if slot.is_none() {
-                            *slot = Some(error);
-                        }
+                    if let Ok(mut slot) = lock(&self.error)
+                        && slot.is_none()
+                    {
+                        *slot = Some(error);
                     }
                     CommittedOutcome::ReadFailed { detail }
                 }

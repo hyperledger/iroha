@@ -8,11 +8,11 @@ use iroha_torii_shared::mcp as wire;
 use norito::json::{Map, Value};
 
 /// Native stateless MCP protocol revision served by Torii.
-pub(crate) const MODERN_PROTOCOL_VERSION: &str = wire::MODERN_PROTOCOL_VERSION;
+pub const MODERN_PROTOCOL_VERSION: &str = wire::MODERN_PROTOCOL_VERSION;
 
-pub(crate) const HEADER_PROTOCOL_VERSION: &str = wire::HEADER_PROTOCOL_VERSION;
-pub(crate) const HEADER_METHOD: &str = wire::HEADER_METHOD;
-pub(crate) const HEADER_NAME: &str = wire::HEADER_NAME;
+pub const HEADER_PROTOCOL_VERSION: &str = wire::HEADER_PROTOCOL_VERSION;
+pub const HEADER_METHOD: &str = wire::HEADER_METHOD;
+pub const HEADER_NAME: &str = wire::HEADER_NAME;
 
 const META_PROTOCOL_VERSION: &str = wire::META_PROTOCOL_VERSION;
 const META_CLIENT_INFO: &str = wire::META_CLIENT_INFO;
@@ -32,14 +32,14 @@ const MCP_UNSUPPORTED_PROTOCOL_VERSION: i64 = -32022;
 
 /// Header and body metadata validated before semantic MCP dispatch.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ValidatedRequest {
+pub struct ValidatedRequest {
     /// Exact JSON-RPC method mirrored by `Mcp-Method`.
     pub(crate) method: String,
 }
 
 /// Closed transport-error classes mapped to reviewed Torii HTTP responses.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ValidationErrorKind {
+pub enum ValidationErrorKind {
     /// The request object itself is malformed.
     InvalidRequest,
     /// Required per-request MCP metadata is malformed or missing.
@@ -53,8 +53,8 @@ pub(crate) enum ValidationErrorKind {
 }
 
 /// One bounded, protocol-native error produced before tool dispatch.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct ValidationError {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ValidationError {
     /// Error class used to select the reviewed HTTP response contract.
     pub(crate) kind: ValidationErrorKind,
     /// JSON-RPC error response body.
@@ -62,7 +62,7 @@ pub(crate) struct ValidationError {
 }
 
 /// Validate one stateless MCP Streamable HTTP request.
-pub(crate) fn validate_request(
+pub fn validate_request(
     headers: &HeaderMap,
     request: &Value,
 ) -> Result<ValidatedRequest, ValidationError> {
@@ -536,7 +536,7 @@ fn error_response(id: Option<Value>, code: i64, message: &str, data: Option<Valu
 }
 
 /// Add fields required or recommended on successful modern MCP results.
-pub(crate) fn decorate_modern_response(method: &str, response: &mut Value) {
+pub fn decorate_modern_response(method: &str, response: &mut Value) {
     let Some(result) = response
         .as_object_mut()
         .and_then(|response| response.get_mut("result"))

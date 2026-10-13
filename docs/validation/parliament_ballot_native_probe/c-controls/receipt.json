@@ -1,0 +1,492 @@
+{
+  "binaries": {
+    "libnp.dylib": "4f52aa5640a87c2cc8ce15218a30e6faeff190bfb24476790e1c53058bb1bb1d",
+    "np_controls": "957afb861c52e655f54395991e19ea0c8c15ae7f5c82c5fd51460946089443b2",
+    "np_unit": "b0445416184ed30d8ba04c6f22aff875030e0736df62bf895bba79419719a1c5"
+  },
+  "commands": [
+    {
+      "command": [
+        "xcrun",
+        "--find",
+        "clang"
+      ],
+      "exit": 0,
+      "label": "find-clang",
+      "stderr": "",
+      "stdout": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang\n"
+    },
+    {
+      "command": [
+        "xcrun",
+        "--show-sdk-path"
+      ],
+      "exit": 0,
+      "label": "find-sdk",
+      "stderr": "",
+      "stdout": "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk\n"
+    },
+    {
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang",
+        "--version"
+      ],
+      "exit": 0,
+      "label": "clang-version",
+      "stderr": "",
+      "stdout": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n"
+    },
+    {
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang",
+        "-isysroot",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk",
+        "-std=c11",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-fno-builtin",
+        "-dynamiclib",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/native_probe/np_interpose.c",
+        "-o",
+        "/private/tmp/parliament-native-controls-20261013-final/libnp.dylib"
+      ],
+      "exit": 0,
+      "label": "build-interposer",
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang",
+        "-isysroot",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk",
+        "-std=c11",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-fno-builtin",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/native_probe/np_controls.c",
+        "/private/tmp/parliament-native-controls-20261013-final/libnp.dylib",
+        "-o",
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls"
+      ],
+      "exit": 0,
+      "label": "build-controls",
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang",
+        "-isysroot",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk",
+        "-std=c11",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-fno-builtin",
+        "-Wno-unused-function",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/native_probe/np_unit.c",
+        "-o",
+        "/private/tmp/parliament-native-controls-20261013-final/np_unit"
+      ],
+      "exit": 0,
+      "label": "build-unit",
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "nm",
+        "-u",
+        "/private/tmp/parliament-native-controls-20261013-final/libnp.dylib"
+      ],
+      "exit": 0,
+      "label": "interposer-imports",
+      "stderr": "",
+      "stdout": "_aligned_alloc\n_calloc\n_free\n_mach_vm_allocate\n_mach_vm_deallocate\n_mach_vm_map\n_malloc\n_malloc_zone_calloc\n_malloc_zone_free\n_malloc_zone_malloc\n_malloc_zone_memalign\n_malloc_zone_realloc\n_malloc_zone_valloc\n_mmap\n_munmap\n_posix_memalign\n_realloc\n_valloc\n_vm_allocate\n_vm_deallocate\n_vm_map\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_unit",
+        "overflow"
+      ],
+      "exit": 0,
+      "label": "unit-overflow",
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_unit",
+        "product"
+      ],
+      "exit": 0,
+      "label": "unit-product",
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_unit",
+        "collision"
+      ],
+      "exit": 0,
+      "label": "unit-collision",
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_unit",
+        "wrong_order"
+      ],
+      "exit": 0,
+      "label": "unit-wrong_order",
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_unit",
+        "sealed"
+      ],
+      "exit": 0,
+      "label": "unit-sealed",
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_unit",
+        "concurrent"
+      ],
+      "exit": 0,
+      "label": "unit-concurrent",
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_unit",
+        "nested"
+      ],
+      "exit": 0,
+      "label": "unit-nested",
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "malloc"
+      ],
+      "exit": 0,
+      "label": "control-malloc",
+      "stderr": "",
+      "stdout": "{\"case\":\"malloc\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[1,77,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[1,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[13,25797205104,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "calloc"
+      ],
+      "exit": 0,
+      "label": "control-calloc",
+      "stderr": "",
+      "stdout": "{\"case\":\"calloc\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[1,77,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[1,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25793404016,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "realloc"
+      ],
+      "exit": 0,
+      "label": "control-realloc",
+      "stderr": "",
+      "stdout": "{\"case\":\"realloc\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[1,19,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[1,77,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[1,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25793272944,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "free"
+      ],
+      "exit": 0,
+      "label": "control-free",
+      "stderr": "",
+      "stdout": "{\"case\":\"free\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[1,77,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[1,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[13,25796844656,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "posix_memalign"
+      ],
+      "exit": 0,
+      "label": "control-posix_memalign",
+      "stderr": "",
+      "stdout": "{\"case\":\"posix_memalign\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[1,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[1,128,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25792781424,0],[1,4194304,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "aligned_alloc"
+      ],
+      "exit": 0,
+      "label": "control-aligned_alloc",
+      "stderr": "",
+      "stdout": "{\"case\":\"aligned_alloc\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[1,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[1,128,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25793059952,0],[1,4194304,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "valloc"
+      ],
+      "exit": 0,
+      "label": "control-valloc",
+      "stderr": "",
+      "stdout": "{\"case\":\"valloc\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[1,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[1,77,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25792912496,0],[1,4194304,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "malloc_zone_malloc"
+      ],
+      "exit": 0,
+      "label": "control-malloc_zone_malloc",
+      "stderr": "",
+      "stdout": "{\"case\":\"malloc_zone_malloc\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[1,77,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[1,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25793092720,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "malloc_zone_calloc"
+      ],
+      "exit": 0,
+      "label": "control-malloc_zone_calloc",
+      "stderr": "",
+      "stdout": "{\"case\":\"malloc_zone_calloc\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[1,77,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[1,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25792584816,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "malloc_zone_realloc"
+      ],
+      "exit": 0,
+      "label": "control-malloc_zone_realloc",
+      "stderr": "",
+      "stdout": "{\"case\":\"malloc_zone_realloc\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[1,19,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[1,77,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[1,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25792765040,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "malloc_zone_free"
+      ],
+      "exit": 0,
+      "label": "control-malloc_zone_free",
+      "stderr": "",
+      "stdout": "{\"case\":\"malloc_zone_free\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[1,77,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[1,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25793256560,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "malloc_zone_memalign"
+      ],
+      "exit": 0,
+      "label": "control-malloc_zone_memalign",
+      "stderr": "",
+      "stdout": "{\"case\":\"malloc_zone_memalign\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[1,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[1,128,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25793027184,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "malloc_zone_valloc"
+      ],
+      "exit": 0,
+      "label": "control-malloc_zone_valloc",
+      "stderr": "",
+      "stdout": "{\"case\":\"malloc_zone_valloc\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[1,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[1,77,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25793240176,0],[1,4194304,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "mmap"
+      ],
+      "exit": 0,
+      "label": "control-mmap",
+      "stderr": "",
+      "stdout": "{\"case\":\"mmap\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[1,16384,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[1,16384,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25793174640,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "munmap"
+      ],
+      "exit": 0,
+      "label": "control-munmap",
+      "stderr": "",
+      "stdout": "{\"case\":\"munmap\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[1,16384,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[1,16384,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[13,25797074032,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "mach_vm_allocate"
+      ],
+      "exit": 0,
+      "label": "control-mach_vm_allocate",
+      "stderr": "",
+      "stdout": "{\"case\":\"mach_vm_allocate\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[1,16384,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25792846960,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[1,16384,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "mach_vm_map"
+      ],
+      "exit": 0,
+      "label": "control-mach_vm_map",
+      "stderr": "",
+      "stdout": "{\"case\":\"mach_vm_map\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25793469552,0],[1,16384,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[1,16384,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "mach_vm_deallocate"
+      ],
+      "exit": 0,
+      "label": "control-mach_vm_deallocate",
+      "stderr": "",
+      "stdout": "{\"case\":\"mach_vm_deallocate\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[1,16384,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25793535088,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[1,16384,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "vm_allocate"
+      ],
+      "exit": 0,
+      "label": "control-vm_allocate",
+      "stderr": "",
+      "stdout": "{\"case\":\"vm_allocate\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25793469552,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[1,16384,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[1,16384,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "vm_map"
+      ],
+      "exit": 0,
+      "label": "control-vm_map",
+      "stderr": "",
+      "stdout": "{\"case\":\"vm_map\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25792961648,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[1,16384,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[1,16384,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "vm_deallocate"
+      ],
+      "exit": 0,
+      "label": "control-vm_deallocate",
+      "stderr": "",
+      "stdout": "{\"case\":\"vm_deallocate\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25792683120,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[1,16384,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[1,16384,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "empty"
+      ],
+      "exit": 0,
+      "label": "control-empty",
+      "stderr": "",
+      "stdout": "{\"case\":\"empty\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25792814192,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "outside"
+      ],
+      "exit": 0,
+      "label": "control-outside",
+      "stderr": "",
+      "stdout": "{\"case\":\"outside\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[28,6311,0],[0,0,0],[1,77,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[23,0,0],[0,0,0],[1,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25793502320,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "unadmitted"
+      ],
+      "exit": 0,
+      "label": "control-unadmitted",
+      "stderr": "",
+      "stdout": "{\"case\":\"unadmitted\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":0,\"invalid_flags\":0,\"transitions\":8,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25792863344,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "terminal"
+      ],
+      "exit": 0,
+      "label": "control-terminal",
+      "stderr": "",
+      "stdout": "{\"case\":\"terminal\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":1,\"invalid_flags\":0,\"transitions\":10,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[1,77,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[1,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[0,0,0],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25793518704,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    },
+    {
+      "command": [
+        "/private/tmp/parliament-native-controls-20261013-final/np_controls",
+        "failure"
+      ],
+      "exit": 0,
+      "label": "control-failure",
+      "stderr": "",
+      "stdout": "{\"case\":\"failure\",\"control_passed\":true,\"abi_version\":1,\"phase_before_seal\":2,\"invalid_flags\":0,\"transitions\":14,\"profile_qualified\":false,\"endpoints\":[{\"name\":\"malloc\",\"phases\":[[27,6234,0],[0,0,0],[0,0,0]]},{\"name\":\"calloc\",\"phases\":[[28,1636,0],[0,0,0],[0,0,0]]},{\"name\":\"realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"free\",\"phases\":[[22,0,0],[0,0,0],[0,0,0]]},{\"name\":\"posix_memalign\",\"phases\":[[4,256,0],[0,0,0],[0,0,0]]},{\"name\":\"aligned_alloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_malloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_calloc\",\"phases\":[[137,3296,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_realloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_free\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_memalign\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"malloc_zone_valloc\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mmap\",\"phases\":[[1,32768,0],[1,0,1],[0,0,0]]},{\"name\":\"munmap\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_map\",\"phases\":[[12,25793256560,0],[0,0,0],[0,0,0]]},{\"name\":\"mach_vm_deallocate\",\"phases\":[[1,1048576,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_allocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_map\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]},{\"name\":\"vm_deallocate\",\"phases\":[[0,0,0],[0,0,0],[0,0,0]]}]}\n"
+    }
+  ],
+  "compiler": {
+    "path": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang",
+    "sha256": "1590ac950a3d627817d09ade5cb60b2115f17a72182a3141e010b4bcc482a0c9"
+  },
+  "complete_native_coverage": false,
+  "complete_workspace_certificate": false,
+  "control_environment": {
+    "DYLD_INSERT_LIBRARIES": "/private/tmp/parliament-native-controls-20261013-final/libnp.dylib"
+  },
+  "controls_passed": true,
+  "endpoint_positive_controls": 21,
+  "finished_unix": 1791875790.328227,
+  "host": {
+    "machine": "arm64",
+    "macos_version": "27.0.1"
+  },
+  "internal_unit_scenarios": 7,
+  "profile_qualified": false,
+  "schema": "parliament-native-probe-controls-v1",
+  "scope_failure_controls": 5,
+  "sdk_declaration_headers": {
+    "mach/mach.h": "3380446992e918d0a7b8a3aaceef66094e8f4b47c01b42c4362720ac2fda8b4e",
+    "mach/mach_vm.h": "e30059fbf2083226bc7cb63c8a8f3e4f596baedb838df6dadc6c886c9ed7b390",
+    "mach/vm_map.h": "a9cf5d0bdfc9abfa5068998d2ed87d463643f493ef258d5f7564e2a9c9106e92",
+    "malloc/malloc.h": "30b32f3e32fb6769eadb9f0a93005513950980365b8a8882706b9a309ef6d460",
+    "stdlib.h": "7995a2df951dd1fdbd9fd4ec38900b79ef1797655ff239728fdbac56bb9bd7ff",
+    "sys/mman.h": "07adbf7f11a601e6461ca508a2deca037103008600608f8dbe93a4b0887d46e9"
+  },
+  "sdk_header_scope": "selected direct declarations, not transitive SDK/runtime implementation coverage",
+  "sources_after": {
+    "README.md": "e52a29de44c0e1e2d4b0e48593f3aab9ae36c587bd4445edffa9e13d134754ce",
+    "np_api.h": "229be37094bb175c64888b8aac2a23b7d9ffad0f15f6a4deac8a04bef3f2ad38",
+    "np_controls.c": "7736916f9a284340448fff3df890e94678b0d8de69e5503c8740b2f00e68e99d",
+    "np_interpose.c": "fe0328c359b1dcb3db57ee2cac0843c648be644732a80e897d7399372dd5307e",
+    "np_unit.c": "f1e54f425e926a54cfe79a962b343a57175034fae97adbdb7494bd32115d519e",
+    "run_controls.py": "5113b34c6e38d3f9480c298d07bb03b08763920a9ee5ea6a47a1994d8bdb4c1d",
+    "test_controls.py": "a8adbb35f51757ad4de1a0601df9f0173932df7bd3106f27d0c3f979c9bbf496"
+  },
+  "sources_before": {
+    "README.md": "e52a29de44c0e1e2d4b0e48593f3aab9ae36c587bd4445edffa9e13d134754ce",
+    "np_api.h": "229be37094bb175c64888b8aac2a23b7d9ffad0f15f6a4deac8a04bef3f2ad38",
+    "np_controls.c": "7736916f9a284340448fff3df890e94678b0d8de69e5503c8740b2f00e68e99d",
+    "np_interpose.c": "fe0328c359b1dcb3db57ee2cac0843c648be644732a80e897d7399372dd5307e",
+    "np_unit.c": "f1e54f425e926a54cfe79a962b343a57175034fae97adbdb7494bd32115d519e",
+    "run_controls.py": "5113b34c6e38d3f9480c298d07bb03b08763920a9ee5ea6a47a1994d8bdb4c1d",
+    "test_controls.py": "a8adbb35f51757ad4de1a0601df9f0173932df7bd3106f27d0c3f979c9bbf496"
+  },
+  "started_unix": 1791875788.9975622
+}

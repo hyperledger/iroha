@@ -170,7 +170,7 @@ fn geometry(name: &str, frames: u64, length: u64) -> Check<(u64, u64)> {
         let words = add(base, framed_words(name_len)?)?;
         total = add(total, mul(count, add(words, words % 2)?)?)?;
         first = end;
-        end = end.checked_mul(10).unwrap_or(u64::MAX);
+        end = end.saturating_mul(10);
         digits += 1;
     }
     Ok((add(mul(mul(frames, length)?, 8)?, names)?, total))
@@ -240,15 +240,14 @@ pub(super) fn retired_fields(report: &Value) -> Check {
     if let Some(staging) = report.get("column_staging") {
         validate_staging(staging)?;
     }
-    if let Some(heuristics) = report.get("metal_heuristics") {
-        if heuristics.get("poseidon_batch_multiplier").is_some()
+    if let Some(heuristics) = report.get("metal_heuristics")
+        && (heuristics.get("poseidon_batch_multiplier").is_some()
             || heuristics
                 .get("batch_columns")
                 .and_then(|v| v.get("poseidon"))
-                .is_some()
-        {
-            return Err("unused scalar scheduling geometry is not benchmark evidence".into());
-        }
+                .is_some())
+    {
+        return Err("unused scalar scheduling geometry is not benchmark evidence".into());
     }
     match report {
         Value::Object(map) => {

@@ -36,6 +36,11 @@ impl Kura {
         self.invalidate_pending_budget_cache();
     }
     /// Run storage-budget accounting without storing a block.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if prune/canonical recovery is required, existing storage
+    /// cannot be resolved, or the block exceeds available storage capacity.
     pub fn check_storage_budget_for_bench(&self, block: &SignedBlock) -> Result<()> {
         let _prune_guard = self.prune_lock.lock();
         self.ensure_prune_recovery_not_required()?;
@@ -298,7 +303,7 @@ impl Debug for BlockStore {
             .field("mmap_len", &self.data_mmap_len)
             .field("commit_marker_count", &self.commit_marker_count)
             .field("commit_marker_pending", &self.commit_marker_pending)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl BlockStore {

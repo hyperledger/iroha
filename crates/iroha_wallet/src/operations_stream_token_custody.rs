@@ -367,14 +367,13 @@ impl CustodyExpectation<'_> {
         // Keep a newly decoded Plan alive through the comparison, as in the original
         // verifier. Inherited decoder callers always take this same decode/lifetime path.
         let retained: Plan;
-        let timestamp = match previous {
-            Some(timestamp) => timestamp,
-            None => {
-                #[cfg(test)]
-                PLAN_READ_WORK.with(|work| work.set((work.get().0 + 1, work.get().1)));
-                retained = decode_bounded(bytes, MAX_PLAN_BYTES)?;
-                RetainedPlanTimestamp(retained.validated_at_unix_ms)
-            }
+        let timestamp = if let Some(timestamp) = previous {
+            timestamp
+        } else {
+            #[cfg(test)]
+            PLAN_READ_WORK.with(|work| work.set((work.get().0 + 1, work.get().1)));
+            retained = decode_bounded(bytes, MAX_PLAN_BYTES)?;
+            RetainedPlanTimestamp(retained.validated_at_unix_ms)
         };
         // Always admit the newly supplied request, build its exact expected Plan, and
         // compare its canonical bytes and fee terms at the original error positions.

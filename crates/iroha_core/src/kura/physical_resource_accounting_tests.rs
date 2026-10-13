@@ -11,7 +11,7 @@ fn limits() -> EvidenceResourceLimits {
     }
 }
 
-fn initialize_physical(inventory: &Inventory, counts: IndexResourceCounts) {
+fn initialize_physical(inventory: &Inventory, counts: &IndexResourceCounts) {
     inventory
         .initialize(
             inventory.reconciliation_generation().unwrap(),
@@ -23,7 +23,7 @@ fn initialize_physical(inventory: &Inventory, counts: IndexResourceCounts) {
         .unwrap();
 }
 
-fn mutation<'a>(inventory: &'a Inventory, paths: Vec<PathBuf>) -> PhysicalResourceMutation<'a> {
+fn mutation(inventory: &Inventory, paths: Vec<PathBuf>) -> PhysicalResourceMutation<'_> {
     let token = inventory.begin(physical_resource_mask()).unwrap();
     PhysicalResourceMutation {
         mutation: token,
@@ -80,7 +80,7 @@ fn physical_bytes_include_real_data_headers_and_temporary_records_once() {
         counts
     );
     let inventory = Inventory::default();
-    initialize_physical(&inventory, counts);
+    initialize_physical(&inventory, &counts);
     assert_eq!(
         inventory.try_snapshot().unwrap_err(),
         Unavailable::Unregistered
@@ -143,7 +143,7 @@ fn disjoint_physical_writers_publish_checked_deltas_without_overlapping_byte_sna
     let inventory = Inventory::default();
     initialize_physical(
         &inventory,
-        physical_resource_tree_usage(&root, limits()).unwrap(),
+        &physical_resource_tree_usage(&root, limits()).unwrap(),
     );
     let left = mutation(&inventory, vec![data.clone()]);
     let right = mutation(&inventory, vec![index.clone()]);
@@ -179,7 +179,7 @@ fn interrupted_or_invalid_physical_completion_never_publishes_partial_success() 
     let inventory = Inventory::default();
     initialize_physical(
         &inventory,
-        physical_resource_tree_usage(&root, limits()).unwrap(),
+        &physical_resource_tree_usage(&root, limits()).unwrap(),
     );
     let interrupted = mutation(&inventory, vec![data.clone()]);
     fs::write(&data, [2_u8; 17]).unwrap();
@@ -191,7 +191,7 @@ fn interrupted_or_invalid_physical_completion_never_publishes_partial_success() 
     );
     initialize_physical(
         &inventory,
-        physical_resource_tree_usage(&root, limits()).unwrap(),
+        &physical_resource_tree_usage(&root, limits()).unwrap(),
     );
     assert_eq!(
         inventory
@@ -262,10 +262,10 @@ fn physical_observation_rejects_symlinks_hardlinks_and_linked_absence() {
     assert!(physical_resource_tree_usage(&linked, limits()).is_err());
 }
 
-fn target_mutation<'a>(
-    inventory: &'a Inventory,
+fn target_mutation(
+    inventory: &Inventory,
     target: PhysicalResourceTarget,
-) -> std::result::Result<PhysicalResourceMutation<'a>, Unavailable> {
+) -> std::result::Result<PhysicalResourceMutation<'_>, Unavailable> {
     PhysicalResourceMutation {
         mutation: inventory.begin(physical_resource_mask()).unwrap(),
         before: [ResourceUsage::default(); resource_inventory::FAMILY_COUNT],
@@ -307,7 +307,7 @@ fn physical_path_mutation_rejects_replaced_existing_parent() {
     let inventory = Inventory::default();
     initialize_physical(
         &inventory,
-        physical_resource_tree_usage(&root, limits()).unwrap(),
+        &physical_resource_tree_usage(&root, limits()).unwrap(),
     );
     assert_physical_components_match(&inventory, &root);
     let guard = mutation(&inventory, vec![data.clone()]);
@@ -334,7 +334,7 @@ fn physical_startup_tree_rejects_replaced_root_under_unchanged_parent() {
     let inventory = Inventory::default();
     initialize_physical(
         &inventory,
-        physical_resource_tree_usage(&root, limits()).unwrap(),
+        &physical_resource_tree_usage(&root, limits()).unwrap(),
     );
     assert_physical_components_match(&inventory, &root);
     let guard = target_mutation(
@@ -357,7 +357,7 @@ fn physical_absent_leaf_creation_retains_existing_ancestor_identity() {
     let inventory = Inventory::default();
     initialize_physical(
         &inventory,
-        physical_resource_tree_usage(&root, limits()).unwrap(),
+        &physical_resource_tree_usage(&root, limits()).unwrap(),
     );
     assert_physical_components_match(&inventory, &root);
     let guard = mutation(&inventory, vec![data.clone()]);
@@ -384,7 +384,7 @@ fn physical_absent_leaf_rejects_replaced_existing_ancestor() {
     let inventory = Inventory::default();
     initialize_physical(
         &inventory,
-        physical_resource_tree_usage(&root, limits()).unwrap(),
+        &physical_resource_tree_usage(&root, limits()).unwrap(),
     );
     assert_physical_components_match(&inventory, &root);
     let guard = mutation(&inventory, vec![data.clone()]);
@@ -406,7 +406,7 @@ fn physical_deletion_requires_the_counted_root_absent() {
         let inventory = Inventory::default();
         initialize_physical(
             &inventory,
-            physical_resource_tree_usage(&root, limits()).unwrap(),
+            &physical_resource_tree_usage(&root, limits()).unwrap(),
         );
         assert_physical_components_match(&inventory, &root);
         let guard = target_mutation(
@@ -445,7 +445,7 @@ fn physical_deletion_rejects_replaced_parent_even_when_counted_path_is_absent() 
     let inventory = Inventory::default();
     initialize_physical(
         &inventory,
-        physical_resource_tree_usage(&root, limits()).unwrap(),
+        &physical_resource_tree_usage(&root, limits()).unwrap(),
     );
     assert_physical_components_match(&inventory, &root);
     let guard = target_mutation(
@@ -470,7 +470,7 @@ fn physical_exact_move_publishes_full_stable_and_temporary_vector() {
     let inventory = Inventory::default();
     initialize_physical(
         &inventory,
-        physical_resource_tree_usage(&root, limits()).unwrap(),
+        &physical_resource_tree_usage(&root, limits()).unwrap(),
     );
     assert_physical_components_match(&inventory, &root);
     let guard = mutation(&inventory, vec![stable.clone(), temporary.clone()]);
@@ -503,7 +503,7 @@ fn physical_tree_move_observes_both_disjoint_roots_and_rejects_overlap() {
     let inventory = Inventory::default();
     initialize_physical(
         &inventory,
-        physical_resource_tree_usage(&root, limits()).unwrap(),
+        &physical_resource_tree_usage(&root, limits()).unwrap(),
     );
     assert_physical_components_match(&inventory, &root);
     let guard = target_mutation(

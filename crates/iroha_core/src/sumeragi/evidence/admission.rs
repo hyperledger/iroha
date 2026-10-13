@@ -124,10 +124,13 @@ impl ReplayFence {
         signers: &[OriginalSigner],
     ) -> Result<bool, EvidenceAdmissionError> {
         if !self.retained
-            || self.instance != attribution.instance
-            || self.epoch != attribution.epoch
-            || self.context != attribution.context_id
-            || self.generation != attribution.authority_generation
+            || (self.instance, self.epoch, self.context, self.generation)
+                != (
+                    attribution.instance,
+                    attribution.epoch,
+                    attribution.context_id,
+                    attribution.authority_generation,
+                )
         {
             return Ok(false);
         }
@@ -178,7 +181,7 @@ impl AdmissionRead {
         {
             return Err(EvidencePreparationError::OriginalHistoryPending.into());
         }
-        if !std::ptr::eq(view.ivm, &state.ivm)
+        if !std::ptr::eq(view.ivm, &raw const state.ivm)
             || !view
                 .pipeline_ivm_prepared_cache
                 .execution_budget()
@@ -454,7 +457,7 @@ impl AdmissionRead {
             }
             if self.candidates.as_slice()[..index].iter().any(|candidate| {
                 shares_offender(
-                    &candidate
+                    candidate
                         .verified
                         .as_ref()
                         .expect("earlier complete candidate")

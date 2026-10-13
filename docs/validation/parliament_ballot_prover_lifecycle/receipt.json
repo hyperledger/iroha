@@ -1,0 +1,127 @@
+{
+  "binary_identities": {
+    "example-accel": {
+      "built_path": "target/cargo-fast/parliament-lifecycle/release/examples/prover_lifecycle",
+      "retained_path": "/tmp/parliament-prover-lifecycle/supplement/example-accel",
+      "sha256": "3e7f422587c909d0ecd025f939c06f71fd39897be0cd107409d50d4b39d55bbc"
+    },
+    "example-portable": {
+      "built_path": "target/cargo-fast/parliament-lifecycle/release/examples/prover_lifecycle",
+      "retained_path": "/tmp/parliament-prover-lifecycle/final/example-portable",
+      "sha256": "d848f5e8873c72de0ba61ec1ebf80c76622522ef0815d4dc3f00cadfe3c7932c"
+    },
+    "test-accel": {
+      "built_path": "target/cargo-fast/parliament-lifecycle/release/deps/prover_lifecycle-2a6c2814ca392f5f",
+      "retained_path": "/tmp/parliament-prover-lifecycle/final/test-accel",
+      "sha256": "e1da4983d066588e11c104f2cf93c2bfcc08cce9454fcb7857f8665f60e147a8"
+    },
+    "test-portable": {
+      "built_path": "target/cargo-fast/parliament-lifecycle/release/deps/prover_lifecycle-43300262da341a55",
+      "retained_path": "/tmp/parliament-prover-lifecycle/final/test-portable",
+      "sha256": "220131848dcb7017b08200c21a1cb46cafd63ac60e061d19b47d0a30836cd088"
+    }
+  },
+  "component_tests_passed": true,
+  "initial_scope_drift": "attempts/prebuild-guard.json",
+  "limitations": [
+    "Public deterministic fixture inputs; no production entropy or live credentials.",
+    "Registration and S=3 vote, both rows and modes; no phone or roster-size cancellation qualification.",
+    "Selected secret48/tape112/witness4480or6688/proof initialized ranges only; no backend/provider/compiler/register/stack/caller-copy erasure certificate.",
+    "No panic, abort, process kill, detached work, or forced cancellation cleanup claim.",
+    "8MiB requested thread stack is not a measured cap. Native TLS and allocator costs are not bounded by this experiment.",
+    "Cargo test harness uses its normal panic strategy; no unwind result is treated as erasure evidence."
+  ],
+  "profile_qualified": false,
+  "scope": "Standalone finish-and-discard component evidence. No library, protocol, Core, SDK or gate changes.",
+  "single_source_stable_campaign": false,
+  "source_reconstruction": "source-reconstruction.json",
+  "supplemental_checks_passed": true,
+  "supplemental_source": {
+    "count": 243,
+    "manifest": "supplemental/source.sha256",
+    "norito_lib_sha256": "43d86d2a44695a01f837835000636ee7d0e983d2a10922105140f5c29ecca8d4",
+    "receipt": "supplemental/receipt.json",
+    "sha256": "d69e9435e7958df4e1d3ec0a397c2167f77da5e03f19c70ed66f6370757c969c",
+    "source_changes": {}
+  },
+  "test_source": {
+    "count": 242,
+    "manifest": "test-campaign/source.sha256",
+    "norito_lib_sha256": "b7d640fdc4463bdcc4ce14acfcc4dc72b1239c48d06a7a6fa24f5d99bbee765e",
+    "note": "Both test command intervals passed before/after guards. The enclosing campaign later stopped on source drift during accelerated Clippy; that raw receipt deliberately keeps passed=false.",
+    "receipt": "test-campaign/receipt.json",
+    "sha256": "1c1b08bd757712a4f146188569c0d6fd5897dd1662c6b0edbddcf1bf3de59c06"
+  },
+  "test_to_supplement_delta": "test-to-supplement-norito.patch",
+  "tests": {
+    "accel": {
+      "cancellation_to_finish_samples": [
+        {
+          "milliseconds": 255.669,
+          "role": "Registration",
+          "row": "Candidate",
+          "samples": 1
+        },
+        {
+          "milliseconds": 381.632,
+          "role": "Vote",
+          "row": "Candidate",
+          "samples": 1
+        },
+        {
+          "milliseconds": 459.272,
+          "role": "Registration",
+          "row": "Comparator",
+          "samples": 1
+        },
+        {
+          "milliseconds": 579.141,
+          "role": "Vote",
+          "row": "Comparator",
+          "samples": 1
+        }
+      ],
+      "failed": 0,
+      "fixture_controls": 4,
+      "in_prover_cancellations": 4,
+      "log": "test-campaign/test-accel.txt",
+      "passed": 8,
+      "registration_and_vote_s3": true
+    },
+    "portable": {
+      "cancellation_to_finish_samples": [
+        {
+          "milliseconds": 394.691,
+          "role": "Registration",
+          "row": "Candidate",
+          "samples": 1
+        },
+        {
+          "milliseconds": 626.753,
+          "role": "Vote",
+          "row": "Candidate",
+          "samples": 1
+        },
+        {
+          "milliseconds": 2037.395,
+          "role": "Registration",
+          "row": "Comparator",
+          "samples": 1
+        },
+        {
+          "milliseconds": 2914.21,
+          "role": "Vote",
+          "row": "Comparator",
+          "samples": 1
+        }
+      ],
+      "failed": 0,
+      "fixture_controls": 4,
+      "in_prover_cancellations": 4,
+      "log": "test-campaign/test-portable.txt",
+      "passed": 8,
+      "registration_and_vote_s3": true
+    }
+  },
+  "whole_secret_erasure_qualified": false
+}

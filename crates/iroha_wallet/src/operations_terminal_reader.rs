@@ -84,7 +84,7 @@ impl<'account> CustodyPreparationReader<'account> {
         // Taking the sole entry before I/O makes every refusal/absence clear it. No success or
         // source observation is lent across this call; exact bytes are freshly read lazily in
         // the original Request -> Payload -> Operation -> Retired -> dispatch order.
-        let previous = self.previous.take();
+        let mut previous = self.previous.take();
         let _profile =
             ChainDiscriminantGuard::enter(self.account.config.account_chain_discriminant);
         let (inspection, next) =
@@ -95,7 +95,7 @@ impl<'account> CustodyPreparationReader<'account> {
                 let (retained, observed) = Retained::read_with_recipe(
                     &journal,
                     &self.account.config,
-                    ReadRecipe::Terminal(previous),
+                    ReadRecipe::Terminal(&mut previous),
                 )?;
                 // Keep the exact purpose gate before the fresh expectation. The optional
                 // timestamp belongs to these just-observed Request bytes, not this caller.

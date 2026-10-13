@@ -19,7 +19,7 @@ use crate::ethereum_native::{
     LightClientUpdate, NextSyncCommitteeBranch, NextSyncCommitteeProof, Root,
     SYNC_COMMITTEE_BITS_BYTES, SYNC_COMMITTEE_SIZE, SyncAggregate, SyncCommittee,
 };
-use alloc::{collections::BTreeSet, vec::Vec};
+use alloc::vec::Vec;
 use core::fmt;
 use tiny_keccak::{Hasher as _, Keccak};
 /// Maximum explicit nodes in one Merkle-Patricia proof.
@@ -231,7 +231,7 @@ impl EthereumNativeCapellaExecutionHeaderV1 {
             gas_limit: self.gas_limit,
             gas_used: self.gas_used,
             timestamp: self.timestamp,
-            extra_data: ExtraData::new(self.extra_data.clone())?,
+            extra_data: ExtraData::new(&self.extra_data)?,
             base_fee_per_gas: self.base_fee_per_gas,
             block_hash: self.block_hash,
             transactions_root: self.transactions_root,
@@ -368,11 +368,11 @@ impl EthereumNativeLightClientHeaderV1 {
                 Some(EthereumNativeExecutionHeaderV1::Capella(execution)),
             ) => Ok(LightClientHeader::Capella {
                 beacon,
-                execution: Box::new(execution.to_native()?),
+                execution: execution.to_native()?,
                 execution_branch: fixed_roots::<4>(&self.execution_branch, "execution branch")?,
             }),
             (fork, Some(EthereumNativeExecutionHeaderV1::Deneb(execution))) => {
-                let execution = Box::new(execution.to_native()?);
+                let execution = execution.to_native()?;
                 let execution_branch =
                     fixed_roots::<4>(&self.execution_branch, "execution branch")?;
                 match fork {
@@ -482,23 +482,23 @@ impl EthereumNativeSyncCommitteeV1 {
                 "sync committee length",
             ));
         }
-        let public_keys = self
-            .public_keys
-            .iter()
-            .map(|key| {
-                <[u8; 48]>::try_from(key.as_slice())
-                    .map(BlsPublicKey::new)
-                    .map_err(|_| EthereumExecutionError::MalformedWire("sync committee public key"))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let public_keys = <[BlsPublicKey; SYNC_COMMITTEE_SIZE]>::try_from(public_keys)
-            .map_err(|_| EthereumExecutionError::MalformedWire("sync committee length"))?;
+        #[expect(
+            clippy::large_stack_arrays,
+            reason = "The protocol fixes 512 keys; conversion must not allocate an unadmitted committee"
+        )]
+        let mut public_keys = [BlsPublicKey::new([0; 48]); SYNC_COMMITTEE_SIZE];
+        for (output, key) in public_keys.iter_mut().zip(&self.public_keys) {
+            *output =
+                BlsPublicKey::new(<[u8; 48]>::try_from(key.as_slice()).map_err(|_| {
+                    EthereumExecutionError::MalformedWire("sync committee public key")
+                })?);
+        }
         let aggregate_public_key = <[u8; 48]>::try_from(self.aggregate_public_key.as_slice())
             .map_err(|_| {
                 EthereumExecutionError::MalformedWire("sync committee aggregate public key")
             })?;
         Ok(SyncCommittee::new(
-            Box::new(public_keys),
+            &public_keys,
             BlsPublicKey::new(aggregate_public_key),
         ))
     }
@@ -726,6 +726,8 @@ pub enum EthereumMptRoleV1 {
 /// Errors produced by the Ethereum wire conversions and execution-layer openings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EthereumExecutionError {
+    /// Local physical backing for a detached convenience operation was unavailable.
+    ResourceLimit,
     /// A fixed-width or fork-shaped wire field was malformed.
     MalformedWire(&'static str),
     /// A consensus-layer SSZ rule failed during conversion.
@@ -761,6 +763,7 @@ impl From<EthereumLightClientError> for EthereumExecutionError {
 impl fmt::Display for EthereumExecutionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::ResourceLimit => formatter.write_str("native Ethereum allocation unavailable"),
             Self::MalformedWire(field) => {
                 write!(formatter, "malformed Ethereum wire field: {field}")
             }
@@ -925,20 +928,38 @@ pub(crate) fn parse_single_rlp(bytes: &[u8]) -> Option<RlpItem<'_>> {
     let item = parse_rlp_item_at(bytes, &mut cursor)?;
     (cursor == bytes.len()).then_some(item)
 }
-pub(crate) fn parse_rlp_list(bytes: &[u8], max_items: usize) -> Option<Vec<RlpItem<'_>>> {
+pub(crate) fn parse_rlp_list(bytes: &[u8], max_items: usize) -> Option<RlpItems<'_>> {
     let RlpItem::List { payload, .. } = parse_single_rlp(bytes)? else {
         return None;
     };
     parse_rlp_list_payload(payload, max_items)
 }
-fn parse_rlp_list_payload(payload: &[u8], max_items: usize) -> Option<Vec<RlpItem<'_>>> {
+/// Fixed protocol field table; receipt log collections use a separately admitted owner.
+pub(crate) struct RlpItems<'a> {
+    items: [RlpItem<'a>; MAX_EXECUTION_HEADER_FIELDS],
+    len: usize,
+}
+impl<'a> core::ops::Deref for RlpItems<'a> {
+    type Target = [RlpItem<'a>];
+    fn deref(&self) -> &Self::Target {
+        &self.items[..self.len]
+    }
+}
+fn parse_rlp_list_payload(payload: &[u8], max_items: usize) -> Option<RlpItems<'_>> {
+    if max_items > MAX_EXECUTION_HEADER_FIELDS {
+        return None;
+    }
     let mut cursor = 0usize;
-    let mut items = Vec::new();
+    let mut items = RlpItems {
+        items: [RlpItem::Bytes { payload: &[] }; MAX_EXECUTION_HEADER_FIELDS],
+        len: 0,
+    };
     while cursor < payload.len() {
         if items.len() == max_items {
             return None;
         }
-        items.push(parse_rlp_item_at(payload, &mut cursor)?);
+        items.items[items.len] = parse_rlp_item_at(payload, &mut cursor)?;
+        items.len += 1;
     }
     (cursor == payload.len()).then_some(items)
 }
@@ -948,7 +969,7 @@ pub(crate) const fn rlp_bytes(item: RlpItem<'_>) -> Option<&[u8]> {
         RlpItem::List { .. } => None,
     }
 }
-pub(crate) fn rlp_list_items(item: RlpItem<'_>, max_items: usize) -> Option<Vec<RlpItem<'_>>> {
+pub(crate) fn rlp_list_items(item: RlpItem<'_>, max_items: usize) -> Option<RlpItems<'_>> {
     match item {
         RlpItem::List { payload, .. } => parse_rlp_list_payload(payload, max_items),
         RlpItem::Bytes { .. } => None,
@@ -1037,32 +1058,45 @@ fn key_nibbles(bytes: &[u8]) -> Vec<u8> {
     }
     nibbles
 }
-fn decode_compact_path(bytes: &[u8]) -> Option<(bool, Vec<u8>)> {
-    if bytes.is_empty() {
-        return None;
+#[derive(Clone, Copy)]
+struct Nibbles<'a> {
+    bytes: &'a [u8],
+    start: usize,
+}
+impl Nibbles<'_> {
+    fn len(self) -> usize {
+        self.bytes.len() * 2 - self.start
     }
-    let nibbles = key_nibbles(bytes);
-    let flag = *nibbles.first()?;
-    if flag > 3 {
-        return None;
+    fn is_empty(self) -> bool {
+        self.len() == 0
     }
-    let is_leaf = flag & 2 != 0;
-    let odd = flag & 1 != 0;
-    if odd {
-        Some((is_leaf, nibbles.get(1..)?.to_vec()))
-    } else {
-        if nibbles.get(1) != Some(&0) {
-            return None;
-        }
-        Some((is_leaf, nibbles.get(2..)?.to_vec()))
+    fn get(self, index: usize) -> Option<u8> {
+        let index = self.start.checked_add(index)?;
+        self.bytes
+            .get(index / 2)
+            .map(|byte| if index % 2 == 0 { byte >> 4 } else { byte & 15 })
     }
 }
-#[derive(Clone)]
-enum MptNodeReference {
+fn decode_compact_path(bytes: &[u8]) -> Option<(bool, Nibbles<'_>)> {
+    let first = *bytes.first()?;
+    let flag = first >> 4;
+    if flag > 3 || (flag & 1 == 0 && first & 15 != 0) {
+        return None;
+    }
+    Some((
+        flag & 2 != 0,
+        Nibbles {
+            bytes,
+            start: if flag & 1 == 0 { 2 } else { 1 },
+        },
+    ))
+}
+#[derive(Clone, Copy)]
+enum MptNodeReference<'a> {
     Hash(H256),
-    Inline(Vec<u8>),
+    Inline(&'a [u8]),
 }
-fn child_reference(item: RlpItem<'_>) -> Result<Option<MptNodeReference>, ()> {
+fn child_reference(item: RlpItem<'_>) -> Result<Option<MptNodeReference<'_>>, ()> {
     match item {
         RlpItem::Bytes { payload: [] } => Ok(None),
         RlpItem::Bytes { payload, .. } => {
@@ -1072,9 +1106,7 @@ fn child_reference(item: RlpItem<'_>) -> Result<Option<MptNodeReference>, ()> {
             }
             Ok(Some(MptNodeReference::Hash(hash)))
         }
-        RlpItem::List { raw, .. } if raw.len() < 32 => {
-            Ok(Some(MptNodeReference::Inline(raw.to_vec())))
-        }
+        RlpItem::List { raw, .. } if raw.len() < 32 => Ok(Some(MptNodeReference::Inline(raw))),
         RlpItem::List { .. } => Err(()),
     }
 }
@@ -1086,8 +1118,7 @@ fn validate_mpt_proof_bounds(
         return Err(EthereumExecutionError::MptProofBounds(role));
     }
     let mut total = 0usize;
-    let mut seen = BTreeSet::new();
-    for node in &proof.nodes {
+    for (index, node) in proof.nodes.iter().enumerate() {
         if node.is_empty() || node.len() > MAX_MPT_NODE_BYTES {
             return Err(EthereumExecutionError::MptProofBounds(role));
         }
@@ -1097,19 +1128,19 @@ fn validate_mpt_proof_bounds(
         if total > MAX_MPT_PROOF_BYTES {
             return Err(EthereumExecutionError::MptProofBounds(role));
         }
-        if !seen.insert(node.as_slice()) {
+        if proof.nodes[..index].iter().any(|previous| previous == node) {
             return Err(EthereumExecutionError::DuplicateMptNode(role));
         }
     }
     Ok(())
 }
-fn resolve_mpt_node_reference(
-    reference: MptNodeReference,
-    proof: &EthereumNativeMptProofV1,
+fn resolve_mpt_node_reference<'a>(
+    reference: MptNodeReference<'a>,
+    proof: &'a EthereumNativeMptProofV1,
     proof_cursor: &mut usize,
     first_node: bool,
     role: EthereumMptRoleV1,
-) -> Result<Vec<u8>, EthereumExecutionError> {
+) -> Result<&'a [u8], EthereumExecutionError> {
     match reference {
         MptNodeReference::Hash(expected_hash) => {
             let raw = proof
@@ -1122,7 +1153,7 @@ fn resolve_mpt_node_reference(
             if keccak(raw) != expected_hash || (!first_node && raw.len() < 32) {
                 return Err(EthereumExecutionError::MptNodeReferenceMismatch(role));
             }
-            Ok(raw.clone())
+            Ok(raw)
         }
         MptNodeReference::Inline(raw) => Ok(raw),
     }
@@ -1142,11 +1173,26 @@ pub fn verify_mpt_inclusion(
     proof: &EthereumNativeMptProofV1,
     role: EthereumMptRoleV1,
 ) -> Result<Vec<u8>, EthereumExecutionError> {
+    verify_mpt_inclusion_ref(root, key, proof, role).map(<[u8]>::to_vec)
+}
+/// Borrow an authenticated trie value from its original proof owner without copying any node.
+///
+/// # Errors
+/// Returns the same canonical path, bound, and reference errors as [`verify_mpt_inclusion`].
+pub fn verify_mpt_inclusion_ref<'a>(
+    root: H256,
+    key: &[u8],
+    proof: &'a EthereumNativeMptProofV1,
+    role: EthereumMptRoleV1,
+) -> Result<&'a [u8], EthereumExecutionError> {
     if root.iter().all(|byte| *byte == 0) || root == EMPTY_TRIE_ROOT {
         return Err(EthereumExecutionError::EmptyTrieRoot(role));
     }
     validate_mpt_proof_bounds(proof, role)?;
-    let path = key_nibbles(key);
+    let path = Nibbles {
+        bytes: key,
+        start: 0,
+    };
     let mut path_cursor = 0usize;
     let mut proof_cursor = 0usize;
     let mut expected = MptNodeReference::Hash(root);
@@ -1155,8 +1201,7 @@ pub fn verify_mpt_inclusion(
     loop {
         let raw = resolve_mpt_node_reference(expected, proof, &mut proof_cursor, first_node, role)?;
         first_node = false;
-        let items =
-            parse_rlp_list(&raw, 17).ok_or(EthereumExecutionError::NonCanonicalMpt(role))?;
+        let items = parse_rlp_list(raw, 17).ok_or(EthereumExecutionError::NonCanonicalMpt(role))?;
         match items.len() {
             17 => {
                 previous_was_extension = false;
@@ -1182,9 +1227,12 @@ pub fn verify_mpt_inclusion(
                     if proof_cursor != proof.nodes.len() {
                         return Err(EthereumExecutionError::UnusedMptNodes(role));
                     }
-                    return Ok(value.to_vec());
+                    return Ok(value);
                 }
-                let nibble = usize::from(path[path_cursor]);
+                let nibble = usize::from(
+                    path.get(path_cursor)
+                        .ok_or(EthereumExecutionError::MptKeyMismatch(role))?,
+                );
                 path_cursor += 1;
                 expected = child_reference(items[nibble])
                     .map_err(|()| EthereumExecutionError::NonCanonicalMpt(role))?
@@ -1198,10 +1246,10 @@ pub fn verify_mpt_inclusion(
                 if !is_leaf && (partial_path.is_empty() || previous_was_extension) {
                     return Err(EthereumExecutionError::NonCanonicalMpt(role));
                 }
-                let remaining = path
-                    .get(path_cursor..)
-                    .ok_or(EthereumExecutionError::MptKeyMismatch(role))?;
-                if !remaining.starts_with(&partial_path) {
+                if partial_path.len() > path.len().saturating_sub(path_cursor)
+                    || (0..partial_path.len())
+                        .any(|offset| path.get(path_cursor + offset) != partial_path.get(offset))
+                {
                     return Err(EthereumExecutionError::MptKeyMismatch(role));
                 }
                 path_cursor = path_cursor
@@ -1217,7 +1265,7 @@ pub fn verify_mpt_inclusion(
                     if proof_cursor != proof.nodes.len() {
                         return Err(EthereumExecutionError::UnusedMptNodes(role));
                     }
-                    return Ok(value.to_vec());
+                    return Ok(value);
                 }
                 expected = child_reference(items[1])
                     .map_err(|()| EthereumExecutionError::NonCanonicalMpt(role))?
@@ -1484,56 +1532,122 @@ pub struct EthereumReceiptV1 {
 ///
 /// Returns [`EthereumExecutionError::MalformedReceipt`].
 pub fn decode_receipt(bytes: &[u8]) -> Result<EthereumReceiptV1, EthereumExecutionError> {
+    let memory = crate::native_memory::Memory::detached();
+    let receipt = memory
+        .finish(decode_receipt_native(bytes, &memory))
+        .map_err(|error| match error {
+            crate::native_memory::AttemptError::Protocol(error) => error,
+            crate::native_memory::AttemptError::Allocation(_) => {
+                EthereumExecutionError::ResourceLimit
+            }
+        })?;
+    Ok(EthereumReceiptV1 {
+        tx_type: receipt.tx_type,
+        success: receipt.success,
+        cumulative_gas_used: receipt.cumulative_gas_used,
+        logs: receipt
+            .logs
+            .iter()
+            .map(|log| EthereumLogV1 {
+                address: log.address,
+                topics: log.topics().to_vec(),
+                data: log.data.to_vec(),
+            })
+            .collect(),
+    })
+}
+
+/// Receipt log borrowing the original authenticated proof bytes.
+#[derive(Clone, Copy)]
+pub(crate) struct EthereumLogRef<'a> {
+    pub(crate) address: [u8; 20],
+    topics: [H256; MAX_LOG_TOPICS],
+    topic_count: usize,
+    pub(crate) data: &'a [u8],
+}
+impl EthereumLogRef<'_> {
+    pub(crate) fn topics(&self) -> &[H256] {
+        &self.topics[..self.topic_count]
+    }
+}
+/// Indexed borrowed log descriptors retain their actual original allocation owner.
+pub(crate) struct EthereumReceiptOwner<'a> {
+    pub(crate) tx_type: u8,
+    pub(crate) success: bool,
+    pub(crate) cumulative_gas_used: u64,
+    pub(crate) logs: crate::native_memory::Buffer<EthereumLogRef<'a>>,
+}
+pub(crate) fn decode_receipt_native<'a>(
+    bytes: &'a [u8],
+    memory: &crate::native_memory::Memory<'_>,
+) -> Result<EthereumReceiptOwner<'a>, EthereumExecutionError> {
+    let bad = EthereumExecutionError::MalformedReceipt;
     let (tx_type, body) = match bytes.first() {
         Some(&first) if (0x01..=0x7f).contains(&first) => (first, &bytes[1..]),
         Some(&first) if first >= 0xc0 => (0, bytes),
-        _ => return Err(EthereumExecutionError::MalformedReceipt),
+        _ => return Err(bad),
     };
-    let fields = parse_rlp_list(body, 4).ok_or(EthereumExecutionError::MalformedReceipt)?;
+    let fields = parse_rlp_list(body, 4).ok_or(bad)?;
     if fields.len() != 4 {
-        return Err(EthereumExecutionError::MalformedReceipt);
+        return Err(bad);
     }
     let success = match rlp_bytes(fields[0]) {
         Some([]) => false,
         Some([1]) => true,
-        _ => return Err(EthereumExecutionError::MalformedReceipt),
+        _ => return Err(bad),
     };
-    let cumulative_gas_used =
-        canonical_u64(fields[1]).ok_or(EthereumExecutionError::MalformedReceipt)?;
+    let cumulative_gas_used = canonical_u64(fields[1]).ok_or(bad)?;
     if rlp_bytes(fields[2]).map(<[u8]>::len) != Some(256) {
-        return Err(EthereumExecutionError::MalformedReceipt);
+        return Err(bad);
     }
-    let logs = rlp_list_items(fields[3], MAX_RECEIPT_LOGS)
-        .ok_or(EthereumExecutionError::MalformedReceipt)?
-        .into_iter()
-        .map(decode_log)
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(EthereumReceiptV1 {
+    let RlpItem::List { payload, .. } = fields[3] else {
+        return Err(bad);
+    };
+    // Validate cardinality before admitting the exact descriptor table; payload bytes stay borrowed.
+    let mut cursor = 0;
+    let mut count = 0;
+    while cursor < payload.len() {
+        parse_rlp_item_at(payload, &mut cursor).ok_or(bad)?;
+        count += 1;
+        if count > MAX_RECEIPT_LOGS {
+            return Err(bad);
+        }
+    }
+    let mut logs = memory
+        .buffer(count)
+        .ok_or(EthereumExecutionError::ResourceLimit)?;
+    cursor = 0;
+    while cursor < payload.len() {
+        let item = parse_rlp_item_at(payload, &mut cursor).ok_or(bad)?;
+        logs.push(decode_log_ref(item)?)
+            .ok_or(EthereumExecutionError::ResourceLimit)?;
+    }
+    Ok(EthereumReceiptOwner {
         tx_type,
         success,
         cumulative_gas_used,
         logs,
     })
 }
-fn decode_log(item: RlpItem<'_>) -> Result<EthereumLogV1, EthereumExecutionError> {
-    let fields = rlp_list_items(item, 3).ok_or(EthereumExecutionError::MalformedReceipt)?;
+fn decode_log_ref(item: RlpItem<'_>) -> Result<EthereumLogRef<'_>, EthereumExecutionError> {
+    let bad = EthereumExecutionError::MalformedReceipt;
+    let fields = rlp_list_items(item, 3).ok_or(bad)?;
     if fields.len() != 3 {
-        return Err(EthereumExecutionError::MalformedReceipt);
+        return Err(bad);
     }
     let address = rlp_bytes(fields[0])
         .and_then(|bytes| <[u8; 20]>::try_from(bytes).ok())
-        .ok_or(EthereumExecutionError::MalformedReceipt)?;
-    let topics = rlp_list_items(fields[1], MAX_LOG_TOPICS)
-        .ok_or(EthereumExecutionError::MalformedReceipt)?
-        .into_iter()
-        .map(|topic| rlp_h256(topic).ok_or(EthereumExecutionError::MalformedReceipt))
-        .collect::<Result<Vec<_>, _>>()?;
-    let data = rlp_bytes(fields[2])
-        .ok_or(EthereumExecutionError::MalformedReceipt)?
-        .to_vec();
-    Ok(EthereumLogV1 {
+        .ok_or(bad)?;
+    let items = rlp_list_items(fields[1], MAX_LOG_TOPICS).ok_or(bad)?;
+    let mut topics = [[0; 32]; MAX_LOG_TOPICS];
+    for (index, topic) in items.iter().enumerate() {
+        topics[index] = rlp_h256(*topic).ok_or(bad)?;
+    }
+    let data = rlp_bytes(fields[2]).ok_or(bad)?;
+    Ok(EthereumLogRef {
         address,
         topics,
+        topic_count: items.len(),
         data,
     })
 }

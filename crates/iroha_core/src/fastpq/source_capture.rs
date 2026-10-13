@@ -3,10 +3,14 @@
 //! These input/resource checks grant no source finality or D7 authority. The sole D7
 //! producer uses the original complete-effect journal, independently of this tape.
 
+#[cfg(test)]
 use std::collections::BTreeMap;
 
+#[cfg(test)]
 use fastpq_prover::gadgets::public_transfer_statement::PublicTransferLimits;
+#[cfg(test)]
 use iroha_crypto::Hash;
+#[cfg(test)]
 use iroha_data_model::fastpq::TransferTranscript;
 
 #[cfg(test)]
@@ -48,6 +52,7 @@ pub struct FastpqSourceStatementBuildLimits {
 /// Validate complete archive shape and cumulative input limits before ownership hashing.
 /// Counts complete canonical frames, including supplied private paths, without allocating
 /// their output buffers. Serializer-internal scratch is separate from that frame allocation.
+#[cfg(test)]
 fn measure_fastpq_source_transcript_inputs(
     transcripts: &BTreeMap<Hash, Vec<TransferTranscript>>,
     limits: FastpqSourceStatementBuildLimits,
@@ -61,6 +66,7 @@ fn measure_fastpq_source_transcript_inputs(
 }
 
 /// Shared borrowed-bundle counting pass for archives and logical-entry reservations.
+#[cfg(test)]
 fn measure_fastpq_source_bundle_inputs<'a>(
     transcripts: impl IntoIterator<Item = (&'a Hash, &'a [TransferTranscript])>,
     limits: FastpqSourceStatementBuildLimits,
@@ -121,6 +127,7 @@ fn measure_fastpq_source_bundle_inputs<'a>(
 }
 
 /// Validate complete archive shape and input caps without allocating output frames.
+#[cfg(test)]
 pub(crate) fn preflight_fastpq_source_transcripts(
     transcripts: &BTreeMap<Hash, Vec<TransferTranscript>>,
     limits: FastpqSourceStatementBuildLimits,
@@ -133,6 +140,7 @@ pub(crate) use budget::FastpqSourceTranscriptUsage;
 #[cfg(test)]
 pub(crate) use budget::measure_fastpq_source_statement_usage;
 
+#[cfg(test)]
 fn source_statement_public_limits(
     limits: FastpqSourceStatementBuildLimits,
 ) -> Result<PublicTransferLimits, String> {

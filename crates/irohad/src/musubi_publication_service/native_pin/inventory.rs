@@ -44,7 +44,7 @@ impl Operation {
         ensure!(
             self.id != [0; 32]
                 && self.context_digest != [0; 32]
-                && (1..=MAX_OPERATIONS as u32).contains(&self.ordinal),
+                && (1..=u32::try_from(MAX_OPERATIONS)?).contains(&self.ordinal),
             "native pin operation coordinates are invalid"
         );
         self.authorization.validate()?;
@@ -76,6 +76,7 @@ pub(super) struct Inventory {
     pub(super) digest: [u8; 32],
     pub(super) signed_pins: u32,
     pub(super) operations: u32,
+    #[cfg(test)]
     pub(super) bytes: u64,
     pub(super) reserved_bytes: u64,
 }
@@ -205,6 +206,7 @@ impl Store {
             digest: digest.finalize().into(),
             signed_pins,
             operations,
+            #[cfg(test)]
             bytes,
             reserved_bytes,
         })
@@ -214,7 +216,8 @@ impl Store {
         operation.validate(&self.original)?;
         let before = self.inventory(None)?;
         ensure!(
-            before.operations < MAX_OPERATIONS as u32 && operation.ordinal == before.operations + 1,
+            before.operations < u32::try_from(MAX_OPERATIONS)?
+                && operation.ordinal == before.operations + 1,
             "native pin operation inventory is full or nonsequential"
         );
         ensure!(

@@ -98,7 +98,7 @@ async fn submit_and_observe(
 }
 
 /// Seed identities and permissions; real XOR funding waits for its signed genesis definition.
-pub(super) fn genesis(mut builder: NetworkBuilder) -> Result<NetworkBuilder> {
+pub fn genesis(mut builder: NetworkBuilder) -> Result<NetworkBuilder> {
     let xor: AssetDefinitionId = defaults::nexus::staking::stake_asset_id().parse()?;
     let escrow = citizenship_escrow()?;
     builder = builder
@@ -133,7 +133,7 @@ pub(super) fn genesis(mut builder: NetworkBuilder) -> Result<NetworkBuilder> {
 }
 
 /// Fund exact account-owned XOR after bootstrap, then bind each citizen's own signed bond.
-pub(super) async fn fund_and_register_citizens(
+pub async fn fund_and_register_citizens(
     network: &sandbox::SerializedNetwork,
     admin: &Client,
     xor: &AssetDefinitionId,
@@ -317,13 +317,13 @@ pub(super) async fn fund_and_register_citizens(
 }
 
 /// Admit a real canonical contract proposal before the committee selection cutoff.
-pub(super) async fn stage_proposal(admin: &Client) -> Result<ProposalKind> {
+pub async fn stage_proposal(admin: &Client) -> Result<ProposalKind> {
     let artifact = parliament_submission::minimal_contract_artifact_with_identity(
         "CommitteePreparationPulse",
         "integration-tests",
     );
     let (code_hash, abi_hash) =
-        parliament_submission::stage_contract_artifact(admin, &artifact).await?;
+        parliament_contract::stage_contract_artifact(admin, &artifact).await?;
     let contract_address: ContractAddress = ADDRESS.parse()?;
     let proposal = ProposalKind::DeployContract(DeployContractProposal {
         proposal_operator: admin.client().account().clone(),
@@ -425,7 +425,7 @@ fn verified_pulse(
 }
 
 /// One registered Parliament sortition generation that waits on the native boundary pulse.
-pub(super) struct PendingSortition {
+pub struct PendingSortition {
     id: GovernanceAttemptId,
     elections: Vec<BodyElectionAttemptId>,
     requests: Vec<SortitionRequestV1>,
@@ -438,7 +438,7 @@ pub(super) struct PendingSortition {
 /// The request is governance-local: its frozen slot is the consensus-native pre-boundary
 /// pulse height of the epoch that rotates the committee and its beacon key session, so the
 /// request creates no pulse of its own and nothing here waits for one.
-pub(super) async fn request(
+pub async fn request(
     admin: &Client,
     preparation: &ValidatorCommitteePreparationV1,
     current_session: &GlobalThresholdBeaconKeySessionV1,
@@ -508,8 +508,10 @@ pub(super) async fn request(
             && requests
                 .iter()
                 .all(|request| request.pulse_height == pulse_height
-                    && request.candidate_count == CITIZENS as u32
-                    && request.target_seats == BODY_SEATS as u32
+                    && request.candidate_count
+                        == u32::try_from(CITIZENS).expect("fixture citizen count fits u32")
+                    && request.target_seats
+                        == u32::try_from(BODY_SEATS).expect("fixture seat count fits u32")
                     && request.request_height > preparation.selection_height
                     && request.request_height + delay <= pulse_height
                     && pulse_height - (request.request_height + delay) < epoch_length)
@@ -532,7 +534,7 @@ pub(super) async fn request(
 /// new authority generation must still succeed, verified against the session retained
 /// under the pulse's own session id.
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn consume_after_rotation(
+pub async fn consume_after_rotation(
     network: &sandbox::SerializedNetwork,
     admin: &Client,
     rotated_voters: &BTreeSet<PeerId>,
@@ -617,19 +619,21 @@ pub(super) async fn consume_after_rotation(
             "the pulse must be consumed under the rotated committee and its new key session"
         );
     }
-    let consumed = attempt(admin, pending.id).await?;
+    let final_attempt = attempt(admin, pending.id).await?;
     let governance_seed = global_threshold_beacon_governance_seed_v1(pulse, pending.pulse_height);
     ensure!(
         governance_seed != pulse.seed
             && pending
                 .elections
                 .iter()
-                .all(|id| consumed
+                .all(|id| final_attempt
                     .election(id)
                     .is_some_and(|election| election.pulse_id()
                         == Some(BeaconPulseId::new(pulse.pulse_id))
                         && election.pulse_output() == Some(governance_seed)
-                        && election.primary_assignments().len() == BODY_SEATS as usize)),
+                        && election.primary_assignments().len()
+                            == usize::try_from(BODY_SEATS)
+                                .expect("fixture seat count fits usize"))),
         "every genuine Parliament body must consume the exact domain-separated boundary pulse against its retained session"
     );
     Ok(())
@@ -685,7 +689,7 @@ fn require_paid_and_applied(
 
 /// The sortition slot is the boundary pulse: one certified pulse feeds both the committee
 /// election of the successor epoch and the governance draw, under separate domains.
-pub(super) fn verify_boundary(
+pub fn verify_boundary(
     chain: &[CertifiedBlock],
     pending: &PendingSortition,
     current_session: &GlobalThresholdBeaconKeySessionV1,
@@ -893,8 +897,8 @@ mod tests {
             transaction_ttl: WAIT,
             transaction_status_timeout: WAIT,
             sorafs_alias_cache: iroha::config::AliasCache::default().into_policy(),
-            sorafs_anonymity_policy: Default::default(),
-            sorafs_rollout_phase: Default::default(),
+            sorafs_anonymity_policy: iroha_service_model::soranet::AnonymityPolicy::default(),
+            sorafs_rollout_phase: iroha_service_model::soranet::RolloutPhase::default(),
         };
         Client::from_client(
             iroha::client::Client::builder(config)

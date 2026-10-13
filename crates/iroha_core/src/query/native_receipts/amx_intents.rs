@@ -227,10 +227,10 @@ pub struct NativeAmxPreparedRelayReadV1<'v, V: StateReadOnly> {
 ///
 /// # Errors
 /// The height is genesis/outside the captured history, or the original archive cannot open.
-pub fn prepared_amx_relays<'v, V: StateReadOnly>(
-    view: &'v V,
+pub fn prepared_amx_relays<V: StateReadOnly>(
+    view: &V,
     height: u64,
-) -> Result<NativeAmxPreparedRelayReadV1<'v, V>, NativeAmxPreparedRelayErrorV1> {
+) -> Result<NativeAmxPreparedRelayReadV1<'_, V>, NativeAmxPreparedRelayErrorV1> {
     let index = height
         .checked_sub(1)
         .and_then(|index| usize::try_from(index).ok())

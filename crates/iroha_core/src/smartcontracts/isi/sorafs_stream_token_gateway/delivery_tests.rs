@@ -46,6 +46,10 @@ fn signed_append(
         .unwrap()
 }
 
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the cancellation instruction owns the supplied original record"
+)]
 fn cancel(fixture: &mut Fixture, record: StreamTokenGatewayAdmissionRecordV1, seed: u8) -> bool {
     let (source, _) = source(fixture, &record);
     let action = fixture.instruction(Action::CancelReputationDelivery {
@@ -197,7 +201,7 @@ fn native_delivery_terminal_order_never_counterfeits_a_successful_append() {
     );
 
     let delivered = admit(&mut fixture, "append-before-cancel");
-    fixture.deliver_reputation(delivered);
+    fixture.deliver_reputation(&delivered);
     let before = source(&fixture, &delivered).1;
     assert!(cancel(&mut fixture, delivered, 1));
     assert_eq!(
@@ -367,7 +371,7 @@ fn native_delivery_signed_payload_substitution_and_extra_instruction_fail_closed
         source(&fixture, &record).1.disposition,
         Disposition::Pending
     );
-    fixture.deliver_reputation(record);
+    fixture.deliver_reputation(&record);
     let delivered = source(&fixture, &record).1;
     let grant = Grant::account_permission(
         Permission::from(CanRecordSorafsReputationJournal),
@@ -544,7 +548,7 @@ fn ordinary_recorder_policy_rejects_extra_signed_instructions_without_changing_h
     ));
     assert_eq!(source(&fixture, &first).0.recorder_policy, original);
     assert!(fixture.commit(1, vec![instruction]));
-    fixture.deliver_reputation(first);
+    fixture.deliver_reputation(&first);
     assert_eq!(
         source(&fixture, &first).0.recorder_policy,
         original,
@@ -660,7 +664,7 @@ fn native_delivery_source_watermark_prevents_same_block_policy_reassignment() {
         1,
         vec![SetSorafsReputationJournalAuthorityPolicy::new(next).into()]
     ));
-    fixture.deliver_reputation(second);
+    fixture.deliver_reputation(&second);
     assert_eq!(source(&fixture, &second).0.recorder_policy, policy);
 }
 

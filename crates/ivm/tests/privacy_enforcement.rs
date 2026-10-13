@@ -139,9 +139,8 @@ fn escrow_and_merkle_host_boundaries_reject_private_secondary_arguments() {
         vm.set_host(DefaultHost::new());
         vm.set_register(private_register, 7);
         vm.registers.set_tag(private_register, true);
-        assert_eq!(
-            vm.run(),
-            Err(VMError::PrivacyViolation),
+        assert!(
+            matches!(vm.run(), Err(VMError::PrivacyViolation)),
             "syscall {syscall:#x} accepted private r{private_register} across the public host boundary"
         );
     }
@@ -258,9 +257,8 @@ fn value_dependent_arithmetic_traps_reject_private_operands_before_reading_value
             vm.set_register(2, denominator);
             vm.registers.set_tag(1, true);
             vm.registers.set_tag(2, true);
-            assert_eq!(
-                vm.run(),
-                Err(VMError::PrivacyViolation),
+            assert!(
+                matches!(vm.run(), Err(VMError::PrivacyViolation)),
                 "opcode {opcode:#x} exposed a private value-dependent outcome for {numerator}/{denominator}"
             );
             let remaining = vm.remaining_gas();
@@ -282,7 +280,7 @@ fn value_dependent_arithmetic_traps_reject_private_operands_before_reading_value
         vm.load_program(&program).expect("load private abs fixture");
         vm.set_register(1, value);
         vm.registers.set_tag(1, true);
-        assert_eq!(vm.run(), Err(VMError::PrivacyViolation));
+        assert!(matches!(vm.run(), Err(VMError::PrivacyViolation)));
     }
 }
 #[test]
@@ -298,7 +296,7 @@ fn zk_assertions_reject_private_predicates_independent_of_truth_value() {
                 .expect("load private assertion fixture");
             vm.set_register(1, value);
             vm.registers.set_tag(1, true);
-            assert_eq!(vm.run(), Err(VMError::PrivacyViolation));
+            assert!(matches!(vm.run(), Err(VMError::PrivacyViolation)));
             let remaining = vm.remaining_gas();
             if let Some(expected) = expected_remaining {
                 assert_eq!(remaining, expected, "private assertion leaked through gas");
@@ -317,7 +315,7 @@ fn zk_assertions_reject_private_predicates_independent_of_truth_value() {
         vm.set_register(2, right);
         vm.registers.set_tag(1, true);
         vm.registers.set_tag(2, true);
-        assert_eq!(vm.run(), Err(VMError::PrivacyViolation));
+        assert!(matches!(vm.run(), Err(VMError::PrivacyViolation)));
         let remaining = vm.remaining_gas();
         if let Some(expected) = expected_remaining {
             assert_eq!(remaining, expected, "private equality leaked through gas");
@@ -562,7 +560,11 @@ fn output_sanitization_restores_registers_when_prepare_or_quote_fails() {
         vm.set_host(host);
         vm.set_register(10, 0xC0FF_EE);
         vm.registers.set_tag(10, true);
-        assert_eq!(vm.run(), Err(expected));
+        assert!(matches!(
+            (vm.run(), expected),
+            (Err(VMError::DecodeError), VMError::DecodeError)
+                | (Err(VMError::OutOfGas), VMError::OutOfGas)
+        ));
         assert_eq!(vm.register(10), 0xC0FF_EE);
         assert!(vm.registers.tag(10));
     }
@@ -592,7 +594,7 @@ fn host_cannot_return_a_private_tag_through_an_ordinary_public_output() {
     vm.load_program(&raw_zk_program(&[scall(syscalls::SYSCALL_CURRENT_TIME_MS)]))
         .expect("load private host-output fixture");
     vm.set_host(PrivateOutputHost);
-    assert_eq!(vm.run(), Err(VMError::PrivacyViolation));
+    assert!(matches!(vm.run(), Err(VMError::PrivacyViolation)));
     assert!(vm.registers.tag(10), "the VM must not launder the host tag");
 }
 #[test]
@@ -758,7 +760,7 @@ fn typed_int_decimal_and_quantity_commitments_execute_and_bind_nominal_kind() {
         .load_program(&decimal_artifact)
         .expect("load decimal commitment artifact");
     common::select_kotodama_entrypoint(&mut wrong_kind, &decimal_artifact, "commitment");
-    assert_eq!(wrong_kind.run(), Err(VMError::NoritoInvalid));
+    assert!(matches!(wrong_kind.run(), Err(VMError::NoritoInvalid)));
     assert_eq!(
         wrong_kind.alloc_heap(1).expect("probe untouched heap"),
         Memory::HEAP_START,
@@ -809,9 +811,8 @@ fn poseidon_opcodes_never_declassify_private_operands() {
         let mut all_private = IVM::new(100_000);
         all_private.set_host(int_private_host(&vec![7; operands.len()]));
         all_private.load_program(&program).unwrap();
-        assert_eq!(
-            all_private.run(),
-            Err(VMError::PrivacyViolation),
+        assert!(
+            matches!(all_private.run(), Err(VMError::PrivacyViolation)),
             "{label} accepted all-private operands"
         );
         if operands.len() > 1 {
@@ -825,9 +826,8 @@ fn poseidon_opcodes_never_declassify_private_operands() {
                     11 + u64::try_from(offset).expect("small operand index"),
                 );
             }
-            assert_eq!(
-                mixed.run(),
-                Err(VMError::PrivacyViolation),
+            assert!(
+                matches!(mixed.run(), Err(VMError::PrivacyViolation)),
                 "{label} accepted mixed-visibility operands"
             );
         }
@@ -877,7 +877,7 @@ fn zk_field_inverse_rejects_private_operand_independent_of_invertibility() {
         vm.load_program(&program).unwrap();
         vm.set_register(1, value);
         vm.registers.set_tag(1, true);
-        assert_eq!(vm.run(), Err(VMError::PrivacyViolation));
+        assert!(matches!(vm.run(), Err(VMError::PrivacyViolation)));
         let remaining = vm.remaining_gas();
         if let Some(expected) = expected_remaining {
             assert_eq!(remaining, expected, "private inverse leaked through gas");
@@ -977,9 +977,8 @@ fn signature_opcodes_reject_private_tlv_header_payload_and_checksum_bytes() {
                 vm.set_register(register, pointer);
                 vm.registers.set_tag(register, false);
             }
-            assert_eq!(
-                vm.run(),
-                Err(VMError::PrivacyViolation),
+            assert!(
+                matches!(vm.run(), Err(VMError::PrivacyViolation)),
                 "signature opcode {opcode:#x} converted private TLV bytes at offset {private_offset} into a public verification result"
             );
         }
@@ -1042,26 +1041,26 @@ fn megabyte_public_tlv_privacy_preflight_checks_ranges_before_gas_debit() {
         )
     };
     let (public_result, public_prepares, public_calls, envelope_len, public_gas) = run(None);
-    assert_eq!(public_result, Err(VMError::OutOfGas));
+    assert!(matches!(public_result, Err(VMError::OutOfGas)));
     assert_eq!(public_prepares, 1);
     assert_eq!(public_calls, 0);
     let (unrelated_result, unrelated_prepares, unrelated_calls, _, unrelated_gas) =
         run(Some(envelope_len));
-    assert_eq!(unrelated_result, Err(VMError::OutOfGas));
+    assert!(matches!(unrelated_result, Err(VMError::OutOfGas)));
     assert_eq!(unrelated_prepares, 1);
     assert_eq!(unrelated_calls, 0);
     assert_eq!(unrelated_gas, public_gas);
     let overlapping_offset = 7 + 512 * 1024;
     let (overlap_result, overlap_prepares, overlap_calls, _, overlap_gas) =
         run(Some(overlapping_offset));
-    assert_eq!(overlap_result, Err(VMError::PrivacyViolation));
+    assert!(matches!(overlap_result, Err(VMError::PrivacyViolation)));
     assert_eq!(overlap_prepares, 0);
     assert_eq!(overlap_calls, 0);
     assert_eq!(overlap_gas, public_gas);
     for boundary_offset in [0, envelope_len - 1] {
         let (boundary_result, boundary_prepares, boundary_calls, _, boundary_gas) =
             run(Some(boundary_offset));
-        assert_eq!(boundary_result, Err(VMError::PrivacyViolation));
+        assert!(matches!(boundary_result, Err(VMError::PrivacyViolation)));
         assert_eq!(boundary_prepares, 0);
         assert_eq!(boundary_calls, 0);
         assert_eq!(boundary_gas, public_gas);
@@ -1228,7 +1227,7 @@ fn non_zk_run_rejects_injected_private_register_state() {
     vm.set_register(2, 0xCAFE_BABE_DEAD_BEEF);
     vm.registers.set_tag(2, true);
 
-    assert_eq!(vm.run(), Err(VMError::PrivacyViolation));
+    assert!(matches!(vm.run(), Err(VMError::PrivacyViolation)));
 }
 #[test]
 fn runtime_template_restores_private_stack_tags_with_their_bytes() {
@@ -1248,5 +1247,8 @@ fn runtime_template_restores_private_stack_tags_with_their_bytes() {
     vm.run().unwrap();
     assert_eq!(vm.register(3), 0xCAFE_BABE_DEAD_BEEF);
     assert!(vm.registers.tag(3));
-    assert_eq!(vm.ensure_public_register(3), Err(VMError::PrivacyViolation));
+    assert!(matches!(
+        vm.ensure_public_register(3),
+        Err(VMError::PrivacyViolation)
+    ));
 }

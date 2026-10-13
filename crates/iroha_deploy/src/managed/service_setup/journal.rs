@@ -270,6 +270,7 @@ impl Original {
     }
 }
 impl Selected<Original> {
+    #[cfg(test)]
     pub(super) fn matches(
         &self,
         intent: &Intent,
@@ -310,7 +311,7 @@ fn decode_original(bytes: &[u8]) -> Result<Original> {
             40,
         ),
     )
-    .map_err(|error| std::io::Error::other(error))?;
+    .map_err(std::io::Error::other)?;
     original.validate()?;
     Ok(original)
 }

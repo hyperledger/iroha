@@ -37,10 +37,10 @@ impl PaymentSource for Source {
     ) -> WorkflowFuture<'a, Result<Option<PaymentLocator>, NativePaymentObservationError>> {
         Box::pin(async { Ok(self.visible.load(Ordering::Relaxed).then_some(self.locator)) })
     }
-    fn carrier<'a>(
-        &'a self,
+    fn carrier(
+        &self,
         _: HashOf<SignedTransaction>,
-    ) -> WorkflowFuture<'a, Result<CarrierLocation, NativePaymentObservationError>> {
+    ) -> WorkflowFuture<'_, Result<CarrierLocation, NativePaymentObservationError>> {
         Box::pin(async {
             Ok(if self.exact_absence.load(Ordering::Relaxed) {
                 CarrierLocation::Absent
@@ -609,20 +609,14 @@ async fn native_payment_preserves_resource_error_and_resumes_exact_carrier() {
     let error = operation.submit(&options()).await.unwrap_err();
     assert!(matches!(
         error,
-        NativePaymentError::Observation {
-            cause: NativePaymentObservationError::Encoding(norito::Error::AllocationFailed { .. }),
-            ..
-        }
+        NativePaymentError::Observation { cause, .. } if matches!(cause.as_ref(), NativePaymentObservationError::Encoding(norito::Error::AllocationFailed { .. }))
     ));
     assert_eq!(account.dispatches.load(Ordering::Relaxed), 1);
     assert!(matches!(
         operation.recover(&options()).await.unwrap_err(),
-        NativePaymentError::Observation {
-            cause: NativePaymentObservationError::Encoding(norito::Error::AllocationFailed {
+        NativePaymentError::Observation { cause, .. } if matches!(cause.as_ref(), NativePaymentObservationError::Encoding(norito::Error::AllocationFailed {
                 bytes: 17
-            }),
-            ..
-        }
+            }))
     ));
     drop(operation);
     source.fail_read.store(false, Ordering::Relaxed);
@@ -679,10 +673,7 @@ async fn native_payment_original_recovery_binds_intent_fees_and_stored_completio
         .unwrap();
     assert!(matches!(
         operation.recover(&options()).await.unwrap_err(),
-        NativePaymentError::Observation {
-            cause: NativePaymentObservationError::CompletionMismatch,
-            ..
-        }
+        NativePaymentError::Observation { cause, .. } if matches!(cause.as_ref(), NativePaymentObservationError::CompletionMismatch)
     ));
     assert_eq!(account.dispatches.load(Ordering::Relaxed), 0);
 
@@ -701,10 +692,7 @@ async fn native_payment_original_recovery_binds_intent_fees_and_stored_completio
     );
     assert!(matches!(
         operation.resume(&options()).await.unwrap_err(),
-        NativePaymentError::Observation {
-            cause: NativePaymentObservationError::FeeAuthorizationMismatch,
-            ..
-        }
+        NativePaymentError::Observation { cause, .. } if matches!(cause.as_ref(), NativePaymentObservationError::FeeAuthorizationMismatch)
     ));
     assert_eq!(account.dispatches.load(Ordering::Relaxed), 0);
 }
@@ -835,10 +823,7 @@ async fn native_payment_rejected_retry_recovers_original_without_relabeling_carr
     };
     assert!(matches!(
         handle.submit(&limited).await.unwrap_err(),
-        NativePaymentError::Observation {
-            cause: NativePaymentObservationError::ReadBudgetExhausted,
-            ..
-        }
+        NativePaymentError::Observation { cause, .. } if matches!(cause.as_ref(), NativePaymentObservationError::ReadBudgetExhausted)
     ));
     let settled = handle.resume(&options()).await.unwrap();
     assert_eq!(settled.receipt.transaction_hash(), original.hash());
@@ -879,12 +864,9 @@ async fn native_payment_changed_terms_never_dispatch() {
     );
     assert!(matches!(
         handle.submit(&options()).await.unwrap_err(),
-        NativePaymentError::Observation {
-            cause: NativePaymentObservationError::Receipt(
+        NativePaymentError::Observation { cause, .. } if matches!(cause.as_ref(), NativePaymentObservationError::Receipt(
                 super::super::PaymentReceiptVerificationError::IntentMismatch
-            ),
-            ..
-        }
+            ))
     ));
     assert_eq!(account.dispatches.load(Ordering::Relaxed), 0);
 }
@@ -1133,4 +1115,23 @@ async fn native_payment_rejected_resume_ignores_new_identity_authorization_optio
     let attempts = &journal.steps[0].transaction.as_ref().unwrap().attempts;
     assert_eq!(attempts.len(), 1);
     assert_eq!(attempts[0].identity.as_ref(), Some(&identity(&transaction)));
+}
+
+#[test]
+fn native_payment_error_retains_typed_cause_without_inline_progress_graph() {
+    use std::error::Error as _;
+    let cause =
+        NativePaymentObservationError::Encoding(norito::Error::AllocationFailed { bytes: 17 });
+    let expected = cause.to_string();
+    let error = NativePaymentError::from(cause);
+    assert!(std::mem::size_of::<NativePaymentError>() <= 128);
+    assert_eq!(error.source().unwrap().to_string(), expected);
+    let NativePaymentError::Observation { cause, progress } = error else {
+        panic!("observation conversion retains its original typed cause");
+    };
+    assert!(matches!(
+        cause.as_ref(),
+        NativePaymentObservationError::Encoding(norito::Error::AllocationFailed { bytes: 17 })
+    ));
+    assert!(progress.is_none());
 }

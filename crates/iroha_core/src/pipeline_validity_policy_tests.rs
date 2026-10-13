@@ -376,7 +376,7 @@ fn install_node_pipeline_keeps_local_resources_and_ignores_validity_values() {
         "every validity value is reported"
     );
     assert_eq!(
-        local_resources_of(&state.installed_pipeline()),
+        local_resources_of(state.installed_pipeline()),
         local_resources_of(&node)
     );
     assert_eq!(
@@ -781,6 +781,7 @@ fn amx_budgets_accept_exactly_the_committed_budget_and_reject_one_unit_above() {
     let default_node = Pipeline::default();
     for node in [None, Some(divergent_node_pipeline(&default_node))] {
         // The limits the host of a block enforces come from the committed policy.
+        type Edit = fn(&mut PipelineValidityPolicyV1);
         let limits_of = |policy: &PipelineValidityPolicyV1| {
             let mut state = state_with(Some(policy));
             if let Some(node) = node.clone() {
@@ -848,7 +849,6 @@ fn amx_budgets_accept_exactly_the_committed_budget_and_reject_one_unit_above() {
         // Each unit cost: one nanosecond more per instruction, per memory
         // access or per syscall moves the same program over the budget by
         // exactly its count of that unit.
-        type Edit = fn(&mut PipelineValidityPolicyV1);
         let unit_costs: [(Edit, u64); 3] = [
             (|policy| policy.amx_per_instruction_ns += 1, instructions),
             (|policy| policy.amx_per_memory_access_ns += 1, loads),
@@ -961,7 +961,8 @@ fn divergent_local_fee_settings_cannot_change_certified_history_or_gas() {
         let instructions = logs(2);
         let before = chain.state().view().pipeline().gas.clone();
         assert_eq!(before, iroha_config::parameters::actual::Gas::default());
-        let gas = crate::gas::meter_instructions(&instructions, &chain.state().view().zk().gas);
+        let gas = crate::gas::meter_instructions(&instructions, &chain.state().view().zk().gas)
+            .expect("gas quote must complete for this fixture");
         let transaction = chain.sign(&ALICE_KEYPAIR, instructions, 1);
         assert_eq!(chain.commit(vec![transaction]), vec![true]);
         let observation = (
@@ -1082,7 +1083,9 @@ fn committed_fees_use_one_predecessor_for_quotes_execution_and_effects() {
         ];
         let work = logs(1);
         let gas = crate::gas::meter_instructions(&change, &chain.state().view().zk().gas)
-            + crate::gas::meter_instructions(&work, &chain.state().view().zk().gas);
+            .expect("gas quote must complete for this fixture")
+            + crate::gas::meter_instructions(&work, &chain.state().view().zk().gas)
+                .expect("gas quote must complete for this fixture");
         assert!(gas > 0, "the regression must actually settle a fee");
         let change_tx = quoted(&chain, change, 1);
         let same_block = quoted(&chain, work.clone(), 2);

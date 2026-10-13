@@ -6,8 +6,8 @@ use iroha_core::{
     kura::Kura,
     query::store::LiveQueryStore,
     queue::evaluate_policy_plan_with_nexus_and_world_at,
-    smartcontracts::isi::sccp::{self, admission, fees, generation, hook, leaves, params, store},
-    state::{State, World},
+    smartcontracts::isi::sccp::{self, admission, fees, hook, leaves, params, store},
+    state::{State, StateReadOnly, World},
 };
 use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
 use iroha_data_model::{
@@ -218,30 +218,53 @@ fn a_network_without_sccp_is_unchanged() {
     assert!(store::routes::is_empty(world));
     assert!(store::committee_generations::is_empty(world));
     assert_eq!(*store::committee_current::get(world), 0);
-    assert!(!generation::heartbeat_due(
-        world,
-        header(2).creation_time_ms
-    ));
+    let committed_time_ms = view
+        .native_execution_tip()
+        .map(iroha_core::state::NativeExecutionTip::creation_time_ms);
+    assert_eq!(
+        committed_time_ms, None,
+        "the blank chain has no committed time"
+    );
     let transaction = signed(vec![
         iroha_data_model::isi::Log::new(iroha_data_model::Level::INFO, "ordinary".to_owned())
             .into(),
     ]);
-    assert_eq!(admission::classify(world, &view, 2, &transaction), Ok(None));
+    assert_eq!(
+        admission::classify(world, &view, 2, &transaction).unwrap(),
+        None
+    );
     assert!(!admission::allows_unregistered_authority(
         transaction.instructions()
     ));
     assert!(admission::block_exempt_cap_ok(world, &[]));
-    assert!(!fees::exempt_on_success(world, transaction.payload()));
+    assert!(!fees::exempt_on_success(
+        world,
+        transaction.payload(),
+        committed_time_ms
+    ));
     let log = InstructionBox::from(iroha_data_model::isi::Log::new(
         iroha_data_model::Level::INFO,
         "ordinary".to_owned(),
     ));
     assert!(!sccp::is_sccp_instruction(&*log));
     drop(view);
-    let mut block = state.try_block(header(2)).expect("open block");
-    let finality = hook::finalize_block(&mut block, &header(2), None, SumeragiRootScope::Global)
-        .expect("inactive without SCCP");
-    assert!(!finality.is_active());
-    assert_eq!(finality.height(), 2);
-    assert!(store::block_commitments::is_empty(&block.world));
+    // Exercise the actual lifecycle owner before and after a heartbeat interval:
+    // elapsed time cannot create a generation on a network without SCCP.
+    let initial_time = header(2).creation_time_ms;
+    let after_heartbeat = initial_time + SccpParametersV1::taira_default().committee_heartbeat_ms;
+    for timestamp_ms in [initial_time, after_heartbeat, u64::MAX] {
+        let candidate = BlockHeader::new(NonZeroU64::new(2).unwrap(), None, None, timestamp_ms, 0);
+        let mut block = state.try_block(candidate).expect("open block");
+        hook::begin_block(&mut block).expect("inactive block start without SCCP");
+        let finality =
+            hook::finalize_block(&mut block, &candidate, None, SumeragiRootScope::Global)
+                .expect("inactive without SCCP");
+        assert!(!finality.is_active());
+        assert!(!finality.is_rotation());
+        assert_eq!(finality.height(), 2);
+        assert!(store::block_commitments::is_empty(&block.world));
+        assert!(store::committee_generations::is_empty(&block.world));
+        assert_eq!(*store::committee_current::get(&block.world), 0);
+        assert_eq!(*store::liability_clock::get(&block.world), 0);
+    }
 }

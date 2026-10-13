@@ -98,7 +98,7 @@ fn selected(original: &Original, kind: Stage) -> SelectedStage {
             original.economics.expected_settlement.clone(),
             original.economics.onboarding_epoch,
             original.economics.observed_epoch,
-            Default::default(),
+            iroha_model_base::metadata::Metadata::default(),
         )
     });
     SelectedStage {
@@ -202,7 +202,7 @@ fn original_and_create_only_stage_reopen_preserve_full_inputs_and_reject_substit
             2 => changed.observed_block_time_ms += 1000,
             3 => changed.pricing.version += 1,
             _ => changed.movement_id = [0; 32],
-        };
+        }
         assert!(changed.validate(&plan).is_err());
     }
     let mut changed = original.clone();
@@ -216,7 +216,7 @@ fn original_and_create_only_stage_reopen_preserve_full_inputs_and_reject_substit
             1 => changed.partition.reserve_balance = "25".parse().unwrap(),
             2 => changed.credit.as_mut().unwrap().onboarding_epoch += 1,
             _ => changed.credit = None,
-        };
+        }
         assert!(changed.validate(Stage::Credit, &original).is_err());
     }
     let mut opts = original
@@ -452,7 +452,7 @@ fn unfinished_parent_refuses_held_later_purpose_and_preserves_same_source_retry(
         )
         .unwrap();
         let install = metadata::ensure_operation(&later.directory, "install").unwrap();
-        (later._lock, install)
+        (later.lock, install)
     };
     for step in [FundingStep::Request, FundingStep::Approval] {
         assert_eq!(
@@ -484,4 +484,20 @@ fn unfinished_parent_refuses_held_later_purpose_and_preserves_same_source_retry(
     assert_eq!(install.read("original.nrt", 1).unwrap().as_slice(), &[0xA5]);
     assert!(!install.path().join("attempts").exists());
     assert_eq!(funding.entries(3).unwrap(), original_names);
+}
+
+#[test]
+fn incomplete_funding_diagnostic_preserves_each_original_step() {
+    for step in [
+        FundingStep::Request,
+        FundingStep::Approval,
+        FundingStep::Credit,
+        FundingStep::Capacity,
+    ] {
+        let progress = ProviderFundingProgress::Unprepared {
+            step,
+            status: iroha_wallet::operations::OperationStatus::Absent,
+        };
+        assert_eq!(progress.diagnostic(), format!("{step:?}: Absent"));
+    }
 }

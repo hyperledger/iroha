@@ -43,9 +43,10 @@ fn both_fee_kinds_keep_every_status_and_non_fee_rows_are_excluded() {
         for kind in 0..3 {
             let mut row = proposal(kind, 41 + ordinal as u64);
             row.status = status;
-            world
-                .governance_proposals
-                .insert([3 * ordinal as u8 + kind; 32], row);
+            world.governance_proposals.insert(
+                [3 * u8::try_from(ordinal).expect("fixture value fits u8") + kind; 32],
+                row,
+            );
         }
     }
     world.rebuild_governance_read_indexes().unwrap();

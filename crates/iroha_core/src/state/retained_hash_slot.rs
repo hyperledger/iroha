@@ -3,12 +3,40 @@ use super::*;
 use concread::bptree::{BptreeMapAbandonment, BptreeMapCommitSlot, BptreeMapOwnedAcquisition};
 use iroha_allocation::release::{DeferredRelease, ReleaseGuard};
 
+#[cfg_attr(
+    not(any(test, feature = "iroha-core-tests", feature = "bench")),
+    expect(
+        dead_code,
+        reason = "TODO: connect aggregate hash acquisition; retain the original physical writer and its release guard"
+    )
+)]
 type Acquired<'a> =
     ReleaseGuard<'a, BptreeMapOwnedAcquisition<'a, usize, HashOf<BlockHeader>, BlockHashMode>>;
+#[cfg_attr(
+    not(any(test, feature = "iroha-core-tests", feature = "bench")),
+    expect(
+        dead_code,
+        reason = "TODO: connect aggregate hash preparation; retain its exact native commit slot and release guard"
+    )
+)]
 type Preparing<'a> =
     ReleaseGuard<'a, BptreeMapCommitSlot<'a, usize, HashOf<BlockHeader>, BlockHashMode>>;
+#[cfg_attr(
+    not(any(test, feature = "iroha-core-tests", feature = "bench")),
+    expect(
+        dead_code,
+        reason = "TODO: connect aggregate hash abort; retain abandoned payload ownership through outer writer release"
+    )
+)]
 type Abandoned = BptreeMapAbandonment<usize, HashOf<BlockHeader>, BlockHashMode>;
 
+#[cfg_attr(
+    not(any(test, feature = "iroha-core-tests", feature = "bench")),
+    expect(
+        dead_code,
+        reason = "TODO: connect aggregate hash acquisition; retain every original phase through failure and unwind"
+    )
+)]
 enum Phase<'a> {
     Original(DetachedBlockHashes),
     Acquired(Acquired<'a>),
@@ -18,6 +46,13 @@ enum Phase<'a> {
 
 /// This slot must be installed in the owner of all enclosing physical fences
 /// before `try_prepare` is called. Returning cleanup only on success is insufficient.
+#[cfg_attr(
+    not(any(test, feature = "iroha-core-tests", feature = "bench")),
+    expect(
+        dead_code,
+        reason = "TODO: connect aggregate hash acquisition; install this original slot before admission or physical writer acquisition"
+    )
+)]
 pub(crate) struct RetainedHashSlot<'a, I> {
     target: &'a BlockHashes,
     phase: Option<Phase<'a>>,
@@ -36,6 +71,13 @@ pub(crate) struct RetainedHashSlot<'a, I> {
     writer_release: Option<DeferredRelease>,
 }
 
+#[cfg_attr(
+    not(any(test, feature = "iroha-core-tests", feature = "bench")),
+    expect(
+        dead_code,
+        reason = "TODO: connect aggregate hash acquisition; keep exact predecessor validation, retry recovery and release ordering"
+    )
+)]
 impl<'a, I> RetainedHashSlot<'a, I> {
     pub(crate) fn new(original: DetachedBlockHashes, target: &'a BlockHashes) -> Self {
         Self {

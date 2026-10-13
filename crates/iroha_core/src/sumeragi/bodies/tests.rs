@@ -155,9 +155,9 @@ fn publication_refusal_keeps_the_actual_original_owners_and_encoded_pointer() {
     let owner_pointers = |store: &FileBodyStore| {
         let mut pending = store.pending_write.lock();
         let original = pending.as_mut().unwrap();
-        let payload = original.body().payload().as_slice().as_ptr();
-        let frame = original.body().availability().as_slice().as_ptr();
-        let encoded = original.prepare(&budget).unwrap().as_ptr();
+        let payload = original.prepared.body().payload().as_slice().as_ptr();
+        let frame = original.prepared.body().availability().as_slice().as_ptr();
+        let encoded = original.prepared.prepare(&budget).unwrap().as_ptr();
         (payload, frame, encoded)
     };
     let pointers = owner_pointers(&store);
@@ -190,4 +190,569 @@ fn store_requires_the_independent_original_pool_and_source_instance() {
     )
     .unwrap();
     assert!(store.begin_read(wrong_source).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn opened_body_store_refuses_replaced_instance_directory_and_retries_original() {
+    let root = tempfile::tempdir().unwrap();
+    let (body, source, budget) = fixture(1025);
+    let store = open(root.path(), &source, &budget);
+    let original_path = store.dir().to_owned();
+    let retained_path = root.path().join("original-body-instance");
+    fs::rename(&original_path, &retained_path).unwrap();
+    fs::create_dir(&original_path).unwrap();
+    let replacement = open(root.path(), &source, &budget);
+    let charged = budget.reserved_bytes();
+    let pointer = body.payload().as_slice().as_ptr();
+    let error = store
+        .put(&source.block_hash(), &body)
+        .expect_err("original body store accepted a replaced custody namespace");
+    assert_eq!(error.kind(), io::ErrorKind::Other);
+    assert_eq!(budget.reserved_bytes(), charged);
+    assert!(store.pending_write.lock().is_none());
+    assert_eq!(body.payload().as_slice().as_ptr(), pointer);
+    assert_eq!(fs::read_dir(&original_path).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(&retained_path).unwrap().count(), 1);
+    assert_eq!(replacement.bytes().unwrap(), 0);
+    assert!(replacement.heights().unwrap().is_empty());
+    assert_eq!(store.bytes().unwrap_err().kind(), io::ErrorKind::Other);
+    assert_eq!(store.heights().unwrap_err().kind(), io::ErrorKind::Other);
+    assert!(
+        matches!(store.begin_read(source.clone()), Err(BodyReadError::Io(error)) if error.kind() == io::ErrorKind::Other)
+    );
+    assert_eq!(
+        store.prune_through(source.height()).unwrap_err().kind(),
+        io::ErrorKind::Other
+    );
+    assert!(!store.retirement_authorized(source.height()));
+    assert!(!replacement.retirement_authorized(source.height()));
+    drop(replacement);
+    let foreign = root.path().join("replacement-body-instance");
+    fs::rename(&original_path, &foreign).unwrap();
+    fs::rename(&retained_path, &original_path).unwrap();
+    store.put(&source.block_hash(), &body).unwrap();
+    assert_eq!(restored(&store, source.clone(), &budget), body);
+    assert_eq!(body.payload().as_slice().as_ptr(), pointer);
+    assert!(store.bytes().unwrap() > 0);
+    assert_eq!(store.heights().unwrap(), [source.height()]);
+    assert_eq!(fs::read_dir(&foreign).unwrap().count(), 1);
+    assert!(!store.retirement_authorized(source.height()));
+}
+
+#[cfg(unix)]
+#[test]
+fn body_store_lock_replacement_and_hardlinks_refuse_original_operations() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let root = tempfile::tempdir().unwrap();
+    let (body, source, budget) = fixture(1025);
+    let store = open(root.path(), &source, &budget);
+    let selected = store.dir.join(LOCK_NAME);
+    let original = root.path().join("original-lock");
+    fs::rename(&selected, &original).unwrap();
+    fs::write(&selected, []).unwrap();
+    fs::set_permissions(&selected, fs::Permissions::from_mode(0o600)).unwrap();
+    let replacement = open(root.path(), &source, &budget);
+    let charged = budget.reserved_bytes();
+    assert_eq!(
+        store.put(&source.block_hash(), &body).unwrap_err().kind(),
+        io::ErrorKind::Other
+    );
+    assert_eq!(store.bytes().unwrap_err().kind(), io::ErrorKind::Other);
+    assert_eq!(store.heights().unwrap_err().kind(), io::ErrorKind::Other);
+    assert_eq!(
+        store.prune_through(source.height()).unwrap_err().kind(),
+        io::ErrorKind::Other
+    );
+    assert!(!store.retirement_authorized(source.height()));
+    assert!(store.pending_write.lock().is_none());
+    assert_eq!(budget.reserved_bytes(), charged);
+    assert_eq!(replacement.bytes().unwrap(), 0);
+    drop(replacement);
+    fs::remove_file(&selected).unwrap();
+    fs::rename(&original, &selected).unwrap();
+    fs::hard_link(&selected, &original).unwrap();
+    assert_eq!(
+        store.put(&source.block_hash(), &body).unwrap_err().kind(),
+        io::ErrorKind::PermissionDenied
+    );
+    assert!(store.pending_write.lock().is_none());
+    fs::remove_file(&original).unwrap();
+    store.put(&source.block_hash(), &body).unwrap();
+    assert_eq!(restored(&store, source, &budget), body);
+}
+
+#[cfg(unix)]
+struct ReplaceBodyNamespace {
+    selected: PathBuf,
+    original: PathBuf,
+    boundary: FsStep,
+    armed: AtomicBool,
+}
+#[cfg(unix)]
+impl Faults for ReplaceBodyNamespace {
+    fn before(&self, step: FsStep, _path: &Path) -> io::Result<()> {
+        if step == self.boundary && self.armed.swap(false, Ordering::SeqCst) {
+            fs::rename(&self.selected, &self.original)?;
+            fs::create_dir(&self.selected)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn body_publication_retains_original_bytes_across_root_and_height_substitution() {
+    for (boundary, height_only) in [
+        (FsStep::CreateDir, false),
+        (FsStep::CreateTemp, false),
+        (FsStep::CreateTemp, true),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let (body, source, budget) = fixture(1025);
+        let instance = root
+            .path()
+            .join("bodies")
+            .join(hex::encode(source.instance().0));
+        let selected = if height_only {
+            instance.join(height_name(source.height()))
+        } else {
+            instance.clone()
+        };
+        let faults = Arc::new(ReplaceBodyNamespace {
+            selected,
+            original: root.path().join("original"),
+            boundary,
+            armed: AtomicBool::new(false),
+        });
+        let store = FileBodyStore::open_with_faults(
+            root.path(),
+            &source.instance(),
+            Arc::new(BlsCrypto::new()),
+            BodyLimits::default(),
+            budget.clone(),
+            faults.clone(),
+        )
+        .unwrap();
+        faults.armed.store(true, Ordering::SeqCst);
+        assert_eq!(
+            store.put(&source.block_hash(), &body).unwrap_err().kind(),
+            io::ErrorKind::Other
+        );
+        assert!(!faults.armed.load(Ordering::SeqCst));
+        assert_eq!(fs::read_dir(&faults.selected).unwrap().count(), 0);
+        let pointer = store
+            .pending_write
+            .lock()
+            .as_mut()
+            .unwrap()
+            .prepared
+            .prepare(&budget)
+            .unwrap()
+            .as_ptr();
+        let charged = budget.reserved_bytes();
+        assert_eq!(
+            store.put(&source.block_hash(), &body).unwrap_err().kind(),
+            io::ErrorKind::Other
+        );
+        assert_eq!(fs::read_dir(&faults.selected).unwrap().count(), 0);
+        // The original encoded owner remains present; repair only its exact namespace.
+        assert_eq!(
+            store
+                .pending_write
+                .lock()
+                .as_ref()
+                .unwrap()
+                .prepared
+                .body()
+                .payload()
+                .as_slice()
+                .as_ptr(),
+            body.payload().as_slice().as_ptr()
+        );
+        assert_eq!(budget.reserved_bytes(), charged);
+        fs::remove_dir(&faults.selected).unwrap();
+        fs::rename(&faults.original, &faults.selected).unwrap();
+        assert_eq!(
+            store
+                .pending_write
+                .lock()
+                .as_mut()
+                .unwrap()
+                .prepared
+                .prepare(&budget)
+                .unwrap()
+                .as_ptr(),
+            pointer
+        );
+        store.put(&source.block_hash(), &body).unwrap();
+        assert!(store.pending_write.lock().is_none());
+        assert_eq!(restored(&store, source, &budget), body);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn retained_body_reader_refuses_replaced_root_and_same_byte_foreign_file_then_retries() {
+    let root = tempfile::tempdir().unwrap();
+    let (body, source, budget) = fixture(1025);
+    let store = open(root.path(), &source, &budget);
+    store.put(&source.block_hash(), &body).unwrap();
+    let mut read = store.begin_read(source.clone()).unwrap();
+    let charged = budget.reserved_bytes();
+    let original_root = root.path().join("original-instance");
+    fs::rename(&store.dir, &original_root).unwrap();
+    fs::create_dir(&store.dir).unwrap();
+    assert!(
+        matches!(read.poll(&budget), Err(BodyReadError::Io(error)) if error.kind()==io::ErrorKind::Other)
+    );
+    assert_eq!(budget.reserved_bytes(), charged);
+    fs::remove_dir(&store.dir).unwrap();
+    fs::rename(&original_root, &store.dir).unwrap();
+    let selected = store.dir.join(height_name(source.height()));
+    let original_height = root.path().join("original-height");
+    fs::rename(&selected, &original_height).unwrap();
+    fs::create_dir(&selected).unwrap();
+    let name = hex::encode(source.block_hash().0);
+    fs::copy(original_height.join(&name), selected.join(&name)).unwrap();
+    assert!(
+        matches!(read.poll(&budget), Err(BodyReadError::Io(error)) if error.kind()==io::ErrorKind::Other)
+    );
+    let retained = budget.reserved_bytes();
+    assert!(
+        retained > charged,
+        "the exact original read backing must remain funded"
+    );
+    assert!(
+        matches!(read.poll(&budget), Err(BodyReadError::Io(error)) if error.kind()==io::ErrorKind::Other)
+    );
+    assert_eq!(budget.reserved_bytes(), retained);
+    fs::remove_file(selected.join(&name)).unwrap();
+    fs::remove_dir(&selected).unwrap();
+    fs::rename(&original_height, &selected).unwrap();
+    let BodyReadPoll::Ready(restoration) = read.poll(&budget).unwrap() else {
+        panic!("original read must resume")
+    };
+    assert_eq!(read.source(), &source);
+    assert_eq!(
+        restoration
+            .complete(&budget, &BlsCrypto::new())
+            .unwrap_or_else(|(_, error)| panic!("original signed body: {error:?}")),
+        body
+    );
+    assert!(matches!(read.poll(&budget), Err(BodyReadError::Completed)));
+}
+
+#[test]
+fn original_body_read_can_be_pruned_and_reports_only_actual_missing_source() {
+    let root = tempfile::tempdir().unwrap();
+    let (body, source, budget) = fixture(1025);
+    let store = open(root.path(), &source, &budget);
+    store.put(&source.block_hash(), &body).unwrap();
+    let mut read = store.begin_read(source.clone()).unwrap();
+    let charged = budget.reserved_bytes();
+    budget.set_limit_bytes(charged);
+    assert!(matches!(
+        read.poll(&budget).unwrap(),
+        BodyReadPoll::Pending(_)
+    ));
+    store.prune_through(source.height()).unwrap();
+    assert!(store.retirement_authorized(source.height()));
+    assert_eq!(store.bytes().unwrap(), 0);
+    assert!(store.heights().unwrap().is_empty());
+    budget.set_limit_bytes(1 << 25);
+    assert!(
+        matches!(read.poll(&budget), Err(BodyReadError::Io(error)) if error.kind()==io::ErrorKind::NotFound)
+    );
+    assert_eq!(read.source(), &source);
+    drop(read);
+    assert_eq!(budget.reserved_bytes(), charged);
+}
+
+#[test]
+fn distinct_body_handles_share_one_capacity_lock_and_retained_loser_retries_after_prune() {
+    let root = tempfile::tempdir().unwrap();
+    let (first_body, first_source, first_budget) = fixture(1025);
+    let (second_body, second_source, second_budget) = fixture(3000);
+    assert_eq!(first_source.instance(), second_source.instance());
+    assert_ne!(first_source.block_hash(), second_source.block_hash());
+    let encoded_len = |body: &AvailableBody, budget: &AllocationBudget| {
+        u64::try_from(
+            PreparedBodyWrite::new(body.clone())
+                .prepare(budget)
+                .unwrap()
+                .len(),
+        )
+        .unwrap()
+    };
+    let limit =
+        encoded_len(&first_body, &first_budget).max(encoded_len(&second_body, &second_budget));
+    let first = FileBodyStore::open(
+        root.path(),
+        &first_source.instance(),
+        Arc::new(BlsCrypto::new()),
+        BodyLimits { max_bytes: limit },
+        first_budget.clone(),
+    )
+    .unwrap();
+    let second = FileBodyStore::open(
+        root.path(),
+        &second_source.instance(),
+        Arc::new(BlsCrypto::new()),
+        BodyLimits { max_bytes: limit },
+        second_budget.clone(),
+    )
+    .unwrap();
+    let start = std::sync::Barrier::new(2);
+    let (first_result, second_result) = std::thread::scope(|scope| {
+        let one = scope.spawn(|| {
+            start.wait();
+            first.put(&first_source.block_hash(), &first_body)
+        });
+        let two = scope.spawn(|| {
+            start.wait();
+            second.put(&second_source.block_hash(), &second_body)
+        });
+        (one.join().unwrap(), two.join().unwrap())
+    });
+    assert_ne!(first_result.is_ok(), second_result.is_ok());
+    let (loser, source, body, budget, failure) = if first_result.is_err() {
+        (
+            &first,
+            first_source,
+            &first_body,
+            &first_budget,
+            first_result,
+        )
+    } else {
+        (
+            &second,
+            second_source,
+            &second_body,
+            &second_budget,
+            second_result,
+        )
+    };
+    assert_eq!(failure.unwrap_err().kind(), io::ErrorKind::StorageFull);
+    assert!(loser.bytes().unwrap() <= limit);
+    let pointer = loser
+        .pending_write
+        .lock()
+        .as_mut()
+        .unwrap()
+        .prepared
+        .prepare(budget)
+        .unwrap()
+        .as_ptr();
+    let charged = budget.reserved_bytes();
+    loser.prune_through(source.height()).unwrap();
+    assert_eq!(loser.bytes().unwrap(), 0);
+    assert_eq!(
+        loser
+            .pending_write
+            .lock()
+            .as_mut()
+            .unwrap()
+            .prepared
+            .prepare(budget)
+            .unwrap()
+            .as_ptr(),
+        pointer
+    );
+    assert_eq!(budget.reserved_bytes(), charged);
+    loser.put(&source.block_hash(), body).unwrap();
+    assert!(loser.pending_write.lock().is_none());
+    assert_eq!(&restored(loser, source, budget), body);
+}
+
+#[test]
+fn explicit_retirement_releases_only_pending_height_and_preserves_original_publication_bytes() {
+    let root = tempfile::tempdir().unwrap();
+    let (body, source, budget) = fixture(1025);
+    let faults = Arc::new(FailPublishedSync::default());
+    let store = FileBodyStore::open_with_faults(
+        root.path(),
+        &source.instance(),
+        Arc::new(BlsCrypto::new()),
+        BodyLimits::default(),
+        budget.clone(),
+        faults.clone(),
+    )
+    .unwrap();
+    faults.0.store(true, Ordering::SeqCst);
+    assert!(store.put(&source.block_hash(), &body).is_err());
+    assert!(
+        store
+            .pending_write
+            .lock()
+            .as_ref()
+            .unwrap()
+            .directory
+            .is_some()
+    );
+    let pointer = store
+        .pending_write
+        .lock()
+        .as_mut()
+        .unwrap()
+        .prepared
+        .prepare(&budget)
+        .unwrap()
+        .as_ptr();
+    let charged = budget.reserved_bytes();
+    faults.0.store(false, Ordering::SeqCst);
+    store.prune_through(source.height()).unwrap();
+    assert!(store.retirement_authorized(source.height()));
+    assert!(
+        store
+            .pending_write
+            .lock()
+            .as_ref()
+            .unwrap()
+            .directory
+            .is_none()
+    );
+    assert_eq!(
+        store
+            .pending_write
+            .lock()
+            .as_mut()
+            .unwrap()
+            .prepared
+            .prepare(&budget)
+            .unwrap()
+            .as_ptr(),
+        pointer
+    );
+    assert_eq!(budget.reserved_bytes(), charged);
+    assert_eq!(store.bytes().unwrap(), 0);
+    store.put(&source.block_hash(), &body).unwrap();
+    assert_eq!(restored(&store, source, &budget), body);
+}
+
+#[test]
+fn body_publication_refund_callbacks_reenter_only_after_both_original_locks_release() {
+    use iroha_allocation::{AllocationRefusal, release::ReleaseRegistration};
+    use std::{
+        panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
+        sync::atomic::AtomicUsize,
+        task::{Context, Poll, Wake, Waker},
+    };
+
+    struct Probe {
+        store: Arc<FileBodyStore>,
+        calls: AtomicUsize,
+        pending_free: AtomicBool,
+        operation_free: AtomicBool,
+        read_bytes: AtomicU64,
+        unwind: bool,
+    }
+    impl Wake for Probe {
+        fn wake(self: Arc<Self>) {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let pending = self.store.pending_write.try_lock();
+            let pending_free = pending.is_some();
+            self.pending_free.store(pending_free, Ordering::SeqCst);
+            // Probe the actual original operation lock without blocking. This path is
+            // unchanged throughout this test; namespace substitution is tested above.
+            let operation = File::open(self.store.dir().join(".custody.lock")).unwrap();
+            let operation_free = operation.try_lock().is_ok();
+            self.operation_free.store(operation_free, Ordering::SeqCst);
+            drop(operation);
+            drop(pending);
+            // The old cleanup order must fail an assertion, never hang this test.
+            if pending_free && operation_free {
+                self.read_bytes
+                    .store(self.store.bytes().unwrap(), Ordering::SeqCst);
+            }
+            if self.unwind {
+                resume_unwind(Box::new("original body refund callback unwound"));
+            }
+        }
+    }
+
+    for unwind in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let (body, source, budget) = fixture(1025);
+        let original_reserved = budget.reserved_bytes();
+        let original_limit = budget.limit_bytes();
+        let faults = Arc::new(FailPublishedSync::default());
+        let store = Arc::new(
+            FileBodyStore::open_with_faults(
+                root.path(),
+                &source.instance(),
+                Arc::new(BlsCrypto::new()),
+                BodyLimits::default(),
+                budget.clone(),
+                faults.clone(),
+            )
+            .unwrap(),
+        );
+        faults.0.store(true, Ordering::SeqCst);
+        assert!(store.put(&source.block_hash(), &body).is_err());
+        let bytes = fs::read(store.body_path(source.height(), &source.block_hash())).unwrap();
+        let charged = budget.reserved_bytes();
+        assert!(charged > original_reserved);
+        let mut registration = ReleaseRegistration::from_reservation(
+            &mut budget
+                .try_reserve(ReleaseRegistration::allocation_layout())
+                .unwrap(),
+        )
+        .unwrap();
+        let probe = Arc::new(Probe {
+            store: store.clone(),
+            calls: AtomicUsize::new(0),
+            pending_free: AtomicBool::new(false),
+            operation_free: AtomicBool::new(false),
+            read_bytes: AtomicU64::new(0),
+            unwind,
+        });
+        let waker = Waker::from(probe.clone());
+        budget.set_limit_bytes(budget.reserved_bytes());
+        let AllocationRefusal::Capacity { release, .. } = budget.try_reserve_bytes(1).unwrap_err()
+        else {
+            panic!("exact original capacity refusal supplies the callback observation");
+        };
+        assert_eq!(
+            registration.poll_wait(&release, &mut Context::from_waker(&waker)),
+            Poll::Pending
+        );
+        faults.0.store(false, Ordering::SeqCst);
+        let result = catch_unwind(AssertUnwindSafe(|| store.put(&source.block_hash(), &body)));
+        if unwind {
+            assert_eq!(
+                result.unwrap_err().downcast_ref::<&'static str>(),
+                Some(&"original body refund callback unwound")
+            );
+        } else {
+            result.unwrap().unwrap();
+        }
+        assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
+        assert!(
+            probe.pending_free.load(Ordering::SeqCst)
+                && probe.operation_free.load(Ordering::SeqCst),
+            "original body publication refund ran under a storage lock"
+        );
+        assert_eq!(
+            probe.read_bytes.load(Ordering::SeqCst),
+            u64::try_from(bytes.len()).unwrap()
+        );
+        assert!(store.pending_write.lock().is_none());
+        assert_eq!(
+            budget.reserved_bytes(),
+            original_reserved + ReleaseRegistration::allocation_layout().size()
+        );
+        assert_eq!(
+            registration.poll_wait(&release, &mut Context::from_waker(&waker)),
+            Poll::Ready(())
+        );
+        assert_eq!(
+            fs::read(store.body_path(source.height(), &source.block_hash())).unwrap(),
+            bytes
+        );
+        budget.set_limit_bytes(original_limit);
+        assert_eq!(restored(&store, source, &budget), body);
+        drop(registration);
+        assert_eq!(budget.reserved_bytes(), original_reserved);
+    }
 }

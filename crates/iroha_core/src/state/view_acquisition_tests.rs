@@ -144,9 +144,10 @@ fn complete_state_view_defers_world_and_configuration_callbacks_beyond_fences() 
             drop(releases.try_view_once().unwrap());
             assert!(!world_probe.called.load(Ordering::SeqCst));
             assert!(!config_probe.called.load(Ordering::SeqCst));
-            if unwind {
-                panic!("exercise reader release through the original outer fences");
-            }
+            assert!(
+                !unwind,
+                "exercise reader release through the original outer fences"
+            )
         }));
         assert_eq!(result.is_err(), unwind);
         assert!(world_probe.called.load(Ordering::SeqCst));
@@ -182,31 +183,41 @@ fn execution_pool_lookup_does_not_acquire_or_release_the_configuration_reader() 
 #[test]
 fn snapshot_runtime_adapters_preserve_original_decoder_refusal() {
     use crate::{
-        execution_attempt::{ExecutionAttemptError as Attempt, norito_decode_attempt_error},
+        execution_attempt::{ExecutionAttemptError as Attempt, canonical_decode_attempt_error},
         snapshot::SnapshotCaptureError,
         state::storage_transactions::TransactionsBlockError,
     };
     let original = norito::with_decode_limits_scope(
         norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
         || {
-            let error = norito::core::reserve_decode_allocation(1).unwrap_err();
+            let error = norito::core::classify_decode_attempt(|| {
+                norito::core::reserve_decode_allocation(1)
+            })
+            .unwrap_err();
             let Attempt::Deferred(reason) =
-                norito_decode_attempt_error(error, |error| error.to_string())
+                canonical_decode_attempt_error(error, |error| error.to_string())
             else {
                 panic!("the actual bounded decoder must refuse locally");
             };
             reason
         },
     );
+    let captured = original
+        .decode_refusal()
+        .expect("genuine captured decoder owner")
+        .clone();
     let failure = || {
         SnapshotCaptureError::Runtime(Box::new(LaneLifecycleError::NposPolicy(Attempt::Deferred(
-            original.clone(),
+            crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+                ivm::VMError::DecodeDeferred(captured.clone()),
+            )
+            .unwrap(),
         ))))
     };
     assert!(matches!(MergeLedgerCommitError::from(failure()),
-        MergeLedgerCommitError::StateView(StateViewError::Runtime(LaneLifecycleError::NposPolicy(Attempt::Deferred(reason)))) if reason == original));
+        MergeLedgerCommitError::StateView(StateViewError::Runtime(LaneLifecycleError::NposPolicy(Attempt::Deferred(reason)))) if reason.reason() == original.reason() && reason.phase() == original.phase() && reason.decode_refusal() == Some(&captured) && reason.allocation_refusal().is_none() && reason.verification_refusal().is_none()));
     assert!(matches!(TransactionsBlockError::from(failure()),
-        TransactionsBlockError::ExecutionDeferred(reason) if reason == original));
+        TransactionsBlockError::ExecutionDeferred(reason) if reason.reason() == original.reason() && reason.phase() == original.phase() && reason.decode_refusal() == Some(&captured) && reason.allocation_refusal().is_none() && reason.verification_refusal().is_none()));
     assert!(matches!(
         TransactionsBlockError::from(SnapshotCaptureError::Runtime(Box::new(
             LaneLifecycleError::Storage("completed invalid runtime".into())
@@ -308,9 +319,10 @@ fn generated_world_held_release_slots_keep_exact_sources_beyond_state_fences() {
                     .all(|probe| !probe.called.load(Ordering::SeqCst))
             );
             assert_eq!(budget.reserved_bytes(), occupied);
-            if unwind {
-                panic!("retire the exact generated owners after the original fences unwind");
-            }
+            assert!(
+                !unwind,
+                "retire the exact generated owners after the original fences unwind"
+            )
         }));
         assert_eq!(result.is_err(), unwind);
         assert!(

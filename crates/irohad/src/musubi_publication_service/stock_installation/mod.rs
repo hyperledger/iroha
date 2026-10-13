@@ -37,7 +37,7 @@ use std::{
 type Cache = Arc<tokio::sync::RwLock<iroha_torii::sorafs::ProviderAdvertCache>>;
 
 /// Select the sole explicit or configured factory without giving a default profile side effects.
-pub(crate) fn select_factory(
+pub fn select_factory(
     config: &MusubiPublication,
     context: Option<&MusubiPublicationPrivateServiceContextV1>,
     cache: Option<Cache>,

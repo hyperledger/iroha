@@ -928,7 +928,8 @@ pub mod sccp_instruction_enum {
         isi::{
             Instruction, InstructionBox,
             sccp::{
-                AdvanceSccpLightClientV1, InitializeSccpV1, RecordSccpMessage,
+                AcceptSccpPausePanelSeatV1, AdvanceSccpLightClientV1, EndorseSccpFastPauseV1,
+                InitializeSccpV1, ProveSccpForgedMintV1, RecordSccpMessage,
                 ReportSccpLightClientEquivocationV1, SettleSccpV1, SubmitSccpForgeryEvidenceV1,
                 SubmitSccpInboundMessageV1, SubmitSccpOutboundVoidV1,
             },
@@ -937,6 +938,7 @@ pub mod sccp_instruction_enum {
             inbound::SccpSourceProofBytesV1,
             light_client::{SccpLcAdvanceBytesV1, SccpLcEvidenceBytesV1},
             params::SccpParametersV1,
+            reconciliation::{SccpForgedMintPayloadV1, SccpForgedMintProofV1},
         },
     };
     use iroha_primitives::numeric::Numeric;
@@ -1017,6 +1019,36 @@ pub mod sccp_instruction_enum {
         }
     }
 
+    /// Populated permissionless forged-mint proof with its canonical payload preimage.
+    pub fn accept_panel() -> AcceptSccpPausePanelSeatV1 {
+        AcceptSccpPausePanelSeatV1 { panel_seq: 7 }
+    }
+
+    pub fn endorse_pause() -> EndorseSccpFastPauseV1 {
+        EndorseSccpFastPauseV1 {
+            network_id: crate::NetworkId::from_genesis_hash(iroha_crypto::HashOf::<
+                crate::block::BlockHeader,
+            >::from_untyped_unchecked(
+                iroha_crypto::Hash::new([7; 32])
+            )),
+            network: SccpNetworkV1::EthereumMainnet,
+            panel_id: [8; 32],
+            head: 9,
+            incident_digest: [10; 32],
+        }
+    }
+
+    pub fn prove_forged_mint() -> ProveSccpForgedMintV1 {
+        ProveSccpForgedMintV1 {
+            network: SccpNetworkV1::BscMainnet,
+            revision: 1,
+            proof: SccpForgedMintProofV1 {
+                source: SccpSourceProofBytesV1::new(vec![1, 2, 3]).expect("bounded source proof"),
+                payload: SccpForgedMintPayloadV1::new(vec![2, 1, 0, 0]).expect("bounded payload"),
+            },
+        }
+    }
+
     /// Every SCCP v1 instruction with its expected wire id.
     pub fn boxed_samples() -> Vec<(&'static str, InstructionBox)> {
         vec![
@@ -1049,6 +1081,18 @@ pub mod sccp_instruction_enum {
                 "iroha.instruction.v1::sccp::SubmitSccpForgeryEvidenceV1",
                 submit_forgery().into(),
             ),
+            (
+                "iroha.instruction.v1::sccp::ProveSccpForgedMintV1",
+                prove_forged_mint().into(),
+            ),
+            (
+                "iroha.instruction.v1::sccp::AcceptSccpPausePanelSeatV1",
+                accept_panel().into(),
+            ),
+            (
+                "iroha.instruction.v1::sccp::EndorseSccpFastPauseV1",
+                endorse_pause().into(),
+            ),
         ]
     }
 
@@ -1056,7 +1100,7 @@ pub mod sccp_instruction_enum {
     fn sccp_instructions_use_their_v1_wire_ids() {
         let registry = crate::instruction_registry::default();
         let samples = boxed_samples();
-        assert_eq!(samples.len(), 8, "the complete SCCP v1 instruction set");
+        assert_eq!(samples.len(), 11, "the complete SCCP v1 instruction set");
         for (wire_id, instruction) in &samples {
             let type_name = Instruction::id(&**instruction);
             assert!(
@@ -1108,6 +1152,9 @@ pub mod sccp_instruction_enum {
             capture(advance()),
             capture(report_equivocation()),
             capture(submit_forgery()),
+            capture(prove_forged_mint()),
+            capture(accept_panel()),
+            capture(endorse_pause()),
             capture(crate::isi::chain::Keepalive {}),
         ];
         for row in rows {
@@ -1209,6 +1256,9 @@ pub mod sccp_instruction_enum {
                 "iroha.instruction.v1::sccp::AdvanceSccpLightClientV1",
                 "iroha.instruction.v1::sccp::ReportSccpLightClientEquivocationV1",
                 "iroha.instruction.v1::sccp::SubmitSccpForgeryEvidenceV1",
+                "iroha.instruction.v1::sccp::ProveSccpForgedMintV1",
+                "iroha.instruction.v1::sccp::AcceptSccpPausePanelSeatV1",
+                "iroha.instruction.v1::sccp::EndorseSccpFastPauseV1",
             ]
         );
     }

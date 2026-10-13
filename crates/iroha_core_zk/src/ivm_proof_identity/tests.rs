@@ -87,14 +87,28 @@ fn reserved_ivm_registry_records_reject_before_inline_material() {
     let control = record(&format!("{backend}:tenant:my-ivm-execution-v1/binding"));
     assert!(
         validate_and_prepare_verifying_key_record_v1(&id, &control)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) =>
+                    panic!("unexpected local verification refusal: {original}"),
+            })
             .expect("valid off-ledger generic record")
             .is_none()
     );
     for relation in RESERVED_RELATIONS {
         let circuit = format!("{backend}:{relation}");
         let error = validate_and_prepare_verifying_key_record_v1(&id, &record(&circuit))
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect_err("an off-ledger commitment cannot reserve an IVM binding identity");
-        assert!(error.contains("not admitted"), "{circuit}: {error}");
+        assert!(
+            error.to_string().contains("not admitted"),
+            "{circuit}: {error}"
+        );
     }
 }
 
@@ -126,20 +140,35 @@ fn reserved_ivm_native_material_rejects_interior_and_snake_case_components() {
     let backend = ZK_BACKEND_STARK_FRI_V1;
     let control = format!("{backend}:tenant:my-ivm-execution-v1/binding");
     crate::validate_stark_fri_verifying_key_v1(backend, &control, &key(&control).bytes)
+        .map_err(|error| match error {
+            crate::VerificationAttemptError::Rejected(error) => error,
+            crate::VerificationAttemptError::Deferred(original) => {
+                panic!("unexpected local verification refusal: {original}")
+            }
+        })
         .expect("real canonical generic material control");
     for relation in RESERVED_RELATIONS {
         let circuit = format!("{backend}:{relation}");
         let payload = key_payload(&circuit);
         let vk = key(&circuit);
         assert!(
-            crate::validate_stark_fri_verifying_key_v1(backend, &circuit, &vk.bytes).is_err(),
+            crate::validate_stark_fri_verifying_key_v1(backend, &circuit, &vk.bytes)
+                .map_err(|error| match error {
+                    crate::VerificationAttemptError::Rejected(error) => error,
+                    crate::VerificationAttemptError::Deferred(original) =>
+                        panic!("unexpected local verification refusal: {original}"),
+                })
+                .is_err(),
             "registry material admitted {circuit}"
         );
         let error = crate::stark::validate_stark_fri_canonical_verifying_key_payload(
             &payload, &circuit, "test",
         )
         .expect_err("direct native material cannot bypass registry identity rejection");
-        assert!(error.contains("IVM execution"), "{circuit}: {error}");
+        assert!(
+            error.to_string().contains("IVM execution"),
+            "{circuit}: {error}"
+        );
         assert!(
             crate::prove_stark_fri_open_verify_envelope(
                 backend,
@@ -167,7 +196,10 @@ fn reserved_ivm_native_material_rejects_interior_and_snake_case_components() {
             Default::default(),
         )
         .expect_err("direct native AIR prover cannot bypass the common identity guard");
-        assert!(error.contains("IVM execution"), "{circuit}: {error}");
+        assert!(
+            error.to_string().contains("IVM execution"),
+            "{circuit}: {error}"
+        );
     }
 }
 
@@ -186,6 +218,11 @@ fn reserved_ivm_valid_public_binding_control_verifies() {
     let id = VerifyingKeyId::new(backend, "generic-binding-control");
     assert!(
         validate_and_prepare_verifying_key_record_v1(&id, &record)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) =>
+                    panic!("unexpected local verification refusal: {original}"),
+            })
             .expect("real inline generic record")
             .is_some()
     );
@@ -210,6 +247,12 @@ fn reserved_ivm_valid_public_binding_control_verifies() {
             stark_max_proof_bytes: 1024 * 1024,
         },
     )
+    .map_err(|error| match error {
+        crate::VerificationAttemptError::Rejected(error) => error,
+        crate::VerificationAttemptError::Deferred(original) => {
+            panic!("unexpected local verification refusal: {original}")
+        }
+    })
     .expect("generic near-miss proves and verifies its actual public binding relation");
     assert_eq!(
         verified.relation(),

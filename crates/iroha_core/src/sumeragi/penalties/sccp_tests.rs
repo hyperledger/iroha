@@ -91,10 +91,12 @@ fn sccp_penalty_uses_captured_tuple_start_and_record_delay_without_generation_or
             .0
             .is_empty()
     );
-    let (actions, index) = applier
-        .derive_npos_penalty_actions(&penalty_header(2))
-        .unwrap();
-    assert_eq!(actions.len(), 2);
+    let result = applier.derive_npos_penalty_actions(&penalty_header(2));
+    assert!(
+        result.as_ref().is_ok_and(|(actions, _)| actions.len() == 2),
+        "SC21 forged height cannot replace original generation liability start"
+    );
+    let (actions, index) = result.unwrap();
     assert!(
         matches!(&actions[0], NposPenaltyAction::ConsensusSlash(slash)
         if slash.evidence_key == key && slash.validator == validator
@@ -166,6 +168,31 @@ fn sccp_penalty_uses_captured_tuple_start_and_record_delay_without_generation_or
             .get(&asset)
             .map_or_else(Quantity::zero, |value| value.as_ref().clone()),
         sink_before
+    );
+}
+
+#[test]
+fn sccp_penalty_ignores_late_peer_mapping_and_keeps_original_g6_custody() {
+    let (state, key, original) = sccp_penalty_fixture(1);
+    let late = add_validator_record(&state, &roster()[2]);
+    let mut registrations = state.world.public_lane_validators.block();
+    registrations
+        .get_mut(&(LaneId::SINGLE, original.clone()))
+        .unwrap()
+        .peer_id = roster()[3].clone();
+    let replacement = registrations
+        .get_mut(&(LaneId::SINGLE, late.clone()))
+        .unwrap();
+    replacement.peer_id = roster()[1].clone();
+    replacement.activation_height = 20;
+    registrations.commit();
+    let result = PenaltyApplier::new(&state, None).derive_npos_penalty_actions(&penalty_header(2));
+    assert!(
+        matches!(result.as_ref().ok().and_then(|(actions, _)| actions.first()),
+        Some(NposPenaltyAction::ConsensusSlash(slash))
+        if slash.evidence_key == key && slash.validator == original
+            && slash.validator != late && slash.amount == Quantity::from(10_000_u64)),
+        "SC21 only the original captured registration remains slashable"
     );
 }
 

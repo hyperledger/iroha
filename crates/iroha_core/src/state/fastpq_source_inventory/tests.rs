@@ -34,6 +34,10 @@ pub(super) fn state() -> State {
 /// Acquire State first, then bind the real original recorder before any block effects.
 /// These component fixtures have no signed carrier; their transcript/output mutations
 /// remain test inputs and do not manufacture a publishable execution source owner.
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the acquired block owns the supplied header independently of the caller"
+)]
 pub(super) fn recorded_block(
     state: &State,
     header: BlockHeader,
@@ -338,7 +342,8 @@ fn missing_extra_empty_and_misidentified_transcripts_latch_failure() {
                 block.fastpq_transcripts.clear();
             }
             1 => {
-                block.fastpq_source_captures = Default::default();
+                block.fastpq_source_captures =
+                    crate::fastpq::FastpqSourceCaptureAccumulator::default();
             }
             2 => {
                 block.fastpq_transcripts.get_mut(&hash).unwrap().clear();
@@ -358,7 +363,7 @@ fn missing_extra_empty_and_misidentified_transcripts_latch_failure() {
             .unwrap_err();
         assert_eq!(block.fastpq_source_inventory(), Err(error.as_str()));
         block.fastpq_transcripts.clear();
-        block.fastpq_source_captures = Default::default();
+        block.fastpq_source_captures = crate::fastpq::FastpqSourceCaptureAccumulator::default();
         assert!(
             block
                 .finalize_fastpq_source_inventory(&[], &[], &[])

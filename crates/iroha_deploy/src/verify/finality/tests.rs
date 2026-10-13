@@ -959,7 +959,7 @@ fn epoch_boundaries_use_exact_native_quorums_without_application_seals() {
         assert_eq!(verifier.verify_qc(&qc), Ok(()));
         sign_qc(&mut qc, &current.keys, &seats(0..committee.q() - 1));
         assert!(verifier.verify_qc(&qc).is_err());
-        sign_qc(&mut qc, &current.keys, &seats(0..committee.q() + 1));
+        sign_qc(&mut qc, &current.keys, &seats(0..=committee.q()));
         assert!(verifier.verify_qc(&qc).is_err());
     }
     let mut verifier = chain.verifier();
@@ -1720,7 +1720,7 @@ fn lagging_checkpoint_is_caught_up_across_observations_before_any_publish() {
         assert!(
             matches!(
                 result,
-                Err(FinalityError::CatchingUp { verified, claimed: 8 }) if verified == reached
+                Err(FinalityError::CatchingUp { verified: certified_tip, claimed: 8 }) if certified_tip == reached
             ),
             "{result:?}"
         );
@@ -1811,9 +1811,9 @@ fn durable_parent_observation_retains_bounded_certified_progress_but_never_readi
             matches!(
                 result,
                 Err(BootstrapError::Finality(FinalityError::CatchingUp {
-                    verified,
+                    verified: certified_tip,
                     claimed: 8,
-                })) if verified == reached
+                })) if certified_tip == reached
             ),
             "{result:?}"
         );
@@ -1893,7 +1893,7 @@ fn managed_custody_retains_catching_up_prefix_without_claiming_freshness() {
             },
         );
         assert!(
-            matches!(&result, Err(FinalityError::CatchingUp { verified, .. }) if *verified == expected)
+            matches!(&result, Err(FinalityError::CatchingUp { verified: certified_tip, .. }) if *certified_tip == expected)
         );
         assert!(retain_observation(&directory, &mut verifier, result).is_err());
         let bytes = directory
@@ -2366,7 +2366,9 @@ fn checkpoint_npos_refusal_follows_a_completed_original_binary_read() {
         assert_eq!(checkpoint.encode_canonical().unwrap(), original);
     });
     let validation_cost = usize::try_from(validation.consumed_allocated_bytes()).unwrap();
-    assert!(validation_cost > 0);
+    // Epoch shape validation now retains only bounded inline snapshots; it does
+    // not decode a detached committee graph or consume the original decoder owner.
+    assert_eq!(validation_cost, 0);
     let before_policy_cost = validation_cost.checked_add(original_binary_cost).unwrap();
     assert!(before_policy_cost < ceiling);
     norito::with_decode_limits_scope(limits(before_policy_cost), || {
@@ -2437,7 +2439,7 @@ fn verified_tip_memo_is_shared_by_clones_without_changing_equality_or_advancemen
     ));
     assert!(verifier.verified_tip.get().is_none());
     assert_eq!(verifier, independent);
-    let verified = verifier.verified_tip().unwrap();
+    let certified_tip = verifier.verified_tip().unwrap();
     let borrowed = verifier.verified_tip_ref().unwrap();
     assert!(std::ptr::eq(borrowed, verifier.verified_tip.get().unwrap()));
     assert!(std::ptr::eq(borrowed, cloned.verified_tip_ref().unwrap()));
@@ -2445,21 +2447,21 @@ fn verified_tip_memo_is_shared_by_clones_without_changing_equality_or_advancemen
         borrowed,
         independent.verified_tip_ref().unwrap()
     ));
-    assert_eq!(borrowed.context_id(), verified.context_id());
+    assert_eq!(borrowed.context_id(), certified_tip.context_id());
     assert_eq!(
-        verified.block().encode_wire().unwrap(),
+        certified_tip.block().encode_wire().unwrap(),
         chain.proof(2).block_wire
     );
     assert!(cloned.verified_tip.get().is_some());
     assert!(independent.verified_tip.get().is_some());
     assert_eq!(
         independent.verified_tip.get().unwrap().context_id(),
-        verified.context_id()
+        certified_tip.context_id()
     );
     assert_eq!(verifier, independent);
     assert_eq!(
         cloned.verified_tip().unwrap().context_id(),
-        verified.context_id()
+        certified_tip.context_id()
     );
     cloned
         .advance(&Source::new(&chain), chain.proof(3))
@@ -2509,9 +2511,12 @@ fn verified_tip_memo_is_replaced_by_catch_up_and_successful_observation() {
     assert!(verifier.verified_tip.get().is_some());
     assert!(!Arc::ptr_eq(&verifier.checkpoint, &caught_up.checkpoint));
     assert_eq!(caught_up.checkpoint().height(), 4);
-    let verified = verifier.verified_tip().unwrap();
-    assert_eq!(verified.height(), 5);
-    assert_eq!(verified.header().hash(), chain.proof(5).block_header.hash());
+    let certified_tip = verifier.verified_tip().unwrap();
+    assert_eq!(certified_tip.height(), 5);
+    assert_eq!(
+        certified_tip.header().hash(),
+        chain.proof(5).block_header.hash()
+    );
     assert_eq!(caught_up.verified_tip().unwrap().height(), 4);
     assert_eq!(original.verified_tip().unwrap().height(), 2);
     assert_eq!(original_tip.height(), 2);
@@ -2721,14 +2726,14 @@ fn checkpoint_import_retains_authenticated_tip_without_redecode_or_fresh_witness
             .verify_global_scope(chain.anchor.network_id, "foreign-chain")
             .is_err()
     );
-    let verified = norito::with_decode_limits_scope(no_allocation, || imported.verified_tip())
+    let certified_tip = norito::with_decode_limits_scope(no_allocation, || imported.verified_tip())
         .expect("the successful import already authenticated this exact tip");
     assert_eq!(
-        verified.block().encode_wire().unwrap(),
+        certified_tip.block().encode_wire().unwrap(),
         chain.proof(2).block_wire
     );
     assert_eq!(
-        verified.context_id(),
+        certified_tip.context_id(),
         original.verified_tip().unwrap().context_id()
     );
     assert_eq!(checkpoint.encode_canonical().unwrap(), original_bytes);

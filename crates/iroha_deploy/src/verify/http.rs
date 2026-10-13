@@ -148,10 +148,11 @@ impl FinalitySource for HttpFinalitySource {
                 .get_sumeragi_finality_attestation(height, *challenge, peer, self.root_scope)
                 .map(FinalityAttestation::Authenticated)
                 .map_err(|error| {
-                    match error.downcast_ref::<BridgeFinalityAttestationTipMismatch>() {
-                        Some(progress) => TipRead::Progress(progress.response().applied_height),
-                        None => TipRead::Failed,
-                    }
+                    error
+                        .downcast_ref::<BridgeFinalityAttestationTipMismatch>()
+                        .map_or(TipRead::Failed, |progress| {
+                            TipRead::Progress(progress.response().applied_height)
+                        })
                 })
         })
     }
@@ -251,9 +252,11 @@ fn concurrent_reads<T: Sync, R: Send>(
                 .collect::<Vec<_>>();
             handles
                 .into_iter()
-                .map(|handle| match handle {
-                    Ok(handle) => handle.join().unwrap_or(Err(HttpFinalityError::Worker)),
-                    Err(_) => Err(HttpFinalityError::Worker),
+                .map(|handle| {
+                    handle.map_or_else(
+                        |_| Err(HttpFinalityError::Worker),
+                        |handle| handle.join().unwrap_or(Err(HttpFinalityError::Worker)),
+                    )
                 })
                 .collect::<Vec<_>>()
         }));

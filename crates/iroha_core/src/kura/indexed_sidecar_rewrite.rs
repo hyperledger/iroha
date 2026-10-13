@@ -20,7 +20,7 @@ impl Kura {
         Self::rewrite_indexed_sidecars(
             data_path,
             index_path,
-            IndexedSidecarRewrite::RetainNewest {
+            IndexedSidecarRewrite::Newest {
                 retention,
                 pinned_height,
             },
@@ -43,10 +43,11 @@ impl Kura {
         Self::rewrite_indexed_sidecars(
             data_path,
             index_path,
-            IndexedSidecarRewrite::RetainNewestWindow { retention },
+            IndexedSidecarRewrite::NewestWindow { retention },
             kind,
         )
     }
+    #[cfg(test)]
     fn prune_indexed_sidecars_through_terminal_frontier_with_required_heights(
         data_path: &Path,
         index_path: &Path,
@@ -69,7 +70,7 @@ impl Kura {
         Self::rewrite_indexed_sidecars(
             data_path,
             index_path,
-            IndexedSidecarRewrite::RetainAfterTerminalFrontier {
+            IndexedSidecarRewrite::AfterTerminalFrontier {
                 terminal_height,
                 retention,
                 required_heights,
@@ -129,10 +130,8 @@ impl Kura {
                 return false;
             }
         };
-        let strict_retained_rewrite = matches!(
-            rewrite,
-            IndexedSidecarRewrite::RetainAfterTerminalFrontier { .. }
-        );
+        let strict_retained_rewrite =
+            matches!(rewrite, IndexedSidecarRewrite::AfterTerminalFrontier { .. });
         if index_len != layout.aligned_len {
             iroha_logger::warn!(
                 len = index_len,
@@ -146,10 +145,8 @@ impl Kura {
             }
         }
         let total_entries = layout.entry_count;
-        let compacted_prefix_rewrite = matches!(
-            rewrite,
-            IndexedSidecarRewrite::RetainAfterTerminalFrontier { .. }
-        );
+        let compacted_prefix_rewrite =
+            matches!(rewrite, IndexedSidecarRewrite::AfterTerminalFrontier { .. });
         let (
             mut keep_from,
             mut source_start,
@@ -160,7 +157,7 @@ impl Kura {
             operation,
             window_data_byte_limit,
         ) = match rewrite {
-            IndexedSidecarRewrite::RetainNewest {
+            IndexedSidecarRewrite::Newest {
                 retention,
                 pinned_height,
             } => {
@@ -180,7 +177,7 @@ impl Kura {
                 )
             }
             #[cfg(test)]
-            IndexedSidecarRewrite::RetainNewestWindow { retention } => {
+            IndexedSidecarRewrite::NewestWindow { retention } => {
                 let retention_u64 = retention.get() as u64;
                 let source_start = total_entries.saturating_sub(retention_u64);
                 let Some(output_base_height) = layout.base_height.checked_add(source_start) else {
@@ -204,7 +201,7 @@ impl Kura {
                     Some(256 * 1024 * 1024),
                 )
             }
-            IndexedSidecarRewrite::RetainAfterTerminalFrontier {
+            IndexedSidecarRewrite::AfterTerminalFrontier {
                 terminal_height,
                 retention,
                 required_heights,
@@ -853,15 +850,15 @@ impl Kura {
         }
         let retained = match rewrite {
             #[cfg(test)]
-            IndexedSidecarRewrite::RetainNewestWindow { .. } => output_entries,
-            IndexedSidecarRewrite::RetainNewest { .. } => output_entries
+            IndexedSidecarRewrite::NewestWindow { .. } => output_entries,
+            IndexedSidecarRewrite::Newest { .. } => output_entries
                 .saturating_sub(keep_from)
                 .saturating_add(u64::from(pinned_height.is_some_and(|height| {
                     height
                         .checked_sub(layout.base_height)
                         .is_some_and(|relative| relative < output_entries && relative < keep_from)
                 }))),
-            IndexedSidecarRewrite::RetainAfterTerminalFrontier { .. } => {
+            IndexedSidecarRewrite::AfterTerminalFrontier { .. } => {
                 let output_end = source_start.saturating_add(output_entries);
                 output_end
                     .saturating_sub(keep_from.max(source_start))

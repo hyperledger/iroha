@@ -94,8 +94,6 @@ use iroha_model_base::{topology::DataSpaceId, topology::LaneId};
 use iroha_primitives::{numeric::Quantity, time::TimeSource};
 #[cfg(feature = "telemetry")]
 use iroha_torii_shared::status::NexusLaneTeuBuckets;
-#[cfg(any(test, feature = "telemetry"))]
-use ivm::ProgramMetadata;
 use mv::storage::StorageReadOnly;
 #[cfg(test)]
 use norito::core as ncore;
@@ -117,7 +115,7 @@ pub(crate) use router::{
 #[cfg(test)]
 use std::sync::mpsc;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fmt,
     num::{NonZeroU64, NonZeroUsize},
     str::FromStr,
@@ -453,7 +451,10 @@ pub struct Queue {
     routing_plans: DashMap<EntrypointHash, RoutingPlan>,
     /// Cached encoded length per queued transaction hash.
     tx_encoded_len: DashMap<EntrypointHash, usize>,
-    /// Cached proposal gas cost per queued transaction hash.
+    /// Admission-time proposal gas cost, also used as the entry's TEU weight.
+    /// Routing/catalog refresh transfers this same quote without repricing it. Runtime-dependent
+    /// IVM executables use the signed gas bound, including proved overlays; native instructions
+    /// use the committed schedule observed by admission.
     tx_gas_cost: DashMap<EntrypointHash, u64>,
     /// Canonical admission timestamp in milliseconds for tracked transactions.
     tx_enqueued_at_ms: DashMap<EntrypointHash, u64>,
@@ -958,8 +959,6 @@ struct PendingTeu {
     teu: u64,
     tx_count: usize,
 }
-#[cfg(any(test, feature = "telemetry"))]
-const IVM_TEU_FALLBACK: u64 = 5_000;
 /// Handle that observers can clone to subscribe to queue backpressure updates.
 #[derive(Clone, Debug)]
 pub struct BackpressureHandle {
@@ -978,7 +977,7 @@ impl BackpressureHandle {
     }
 }
 /// Queue push error
-#[derive(Error, Clone, Debug, displaydoc::Display)]
+#[derive(Error, Debug, displaydoc::Display)]
 #[allow(variant_size_differences)]
 pub enum Error {
     /// Local admission did not complete: {0}
@@ -1187,6 +1186,33 @@ impl QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, '_> {
         transaction: &SignedTransaction,
     ) -> Result<Option<SccpAdmissionKeysV1>, Error> {
         use crate::smartcontracts::isi::sccp::{admission::SccpExemptClassV1, fees};
+        crate::smartcontracts::isi::sccp::fast_pause::admit(
+            self.view.world(),
+            *self.view.network_id(),
+            transaction.payload(),
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(self.view).map_err(
+                |error| Error::AdmissionInvariant {
+                    reason: error.to_string(),
+                },
+            )?,
+        )
+        .map_err(|error| Error::NexusFeeAdmissionRejected {
+            code: FeeRejectionCode::OperationNotAllowed,
+            reason: error.to_string(),
+        })?;
+        let keepalive = crate::smartcontracts::isi::sccp::keepalive::admit(
+            self.view.world(),
+            transaction.payload(),
+            self.next_block_height,
+            u64::try_from(queue.time_source.get_unix_time().as_millis()).unwrap_or(u64::MAX),
+        )
+        .map_err(|reject| Error::NexusFeeAdmissionRejected {
+            code: FeeRejectionCode::OperationNotAllowed,
+            reason: reject.to_string(),
+        })?;
+        if keepalive.is_some() {
+            return Ok(keepalive);
+        }
         if matches!(
             fees::exempt_class(
                 self.view.world(),
@@ -1207,9 +1233,12 @@ impl QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, '_> {
             self.next_block_height,
             transaction,
         )
-        .map_err(|reject| Error::NexusFeeAdmissionRejected {
-            code: FeeRejectionCode::OperationNotAllowed,
-            reason: reject.to_string(),
+        .map_err(|reject| match reject.deferred {
+            Some(original) => Error::Deferred(original),
+            None => Error::NexusFeeAdmissionRejected {
+                code: FeeRejectionCode::OperationNotAllowed,
+                reason: reject.to_string(),
+            },
         })
     }
     fn manifest_authority_eligible_lanes(
@@ -1272,6 +1301,77 @@ impl QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, '_> {
     }
 }
 impl Queue {
+    /// Retain a fresh, still-due Keepalive or retire this authority's obsolete pending source.
+    /// The normal removal owner releases its pending index, routing and fee reservations.
+    /// # Errors
+    /// Preserves unavailable due-work observations; no missing Parliament result is false.
+    pub fn has_fresh_pending_keepalive(
+        &self,
+        view: &StateView<'_>,
+        authority: &AccountId,
+        wall_ms: u64,
+    ) -> Result<bool, crate::smartcontracts::isi::sccp::keepalive::DueWorkUnavailable> {
+        use crate::smartcontracts::isi::sccp::keepalive;
+        let _guard = self.push_remove_lock.lock();
+        let holder = self.pending_sccp_exempt.lock().keepalive_holder(authority);
+        let Some(hash) = holder else {
+            return Ok(false);
+        };
+        let Some(queued) = self.txs.get(&hash) else {
+            return Err(keepalive::DueWorkUnavailable);
+        };
+        let Some(signed) = Self::sccp_signed_transaction(queued.as_accepted().entrypoint()) else {
+            return Err(keepalive::DueWorkUnavailable);
+        };
+        let candidate = signed
+            .payload()
+            .creation_time_ms
+            .checked_add(1)
+            .ok_or(keepalive::DueWorkUnavailable)?;
+        let next_height = u64::try_from(view.height())
+            .unwrap_or(u64::MAX)
+            .saturating_add(1);
+        let clock =
+            keepalive::clock_parameters(view.world()).map_err(|_| keepalive::DueWorkUnavailable)?;
+        let stale = keepalive::needs_fresh_carrier(candidate, wall_ms, clock.due_work_max_lag_ms);
+        let retain = !stale && keepalive::due(view.world(), next_height, candidate)?;
+        drop(queued);
+        if !retain {
+            self.remove_pending_hash_locked(hash, None);
+        }
+        Ok(retain)
+    }
+
+    /// Whether any authority already supplies a fresh, provably-due signed shared carrier.
+    /// Missing due observations grant no exemption and do not prevent a keeper from supplying
+    /// its own independently due carrier. This local read never modifies another authority.
+    pub fn has_any_fresh_pending_keepalive(&self, view: &StateView<'_>, wall_ms: u64) -> bool {
+        use crate::smartcontracts::isi::sccp::keepalive;
+        let Ok(clock) = keepalive::clock_parameters(view.world()) else {
+            return false;
+        };
+        let _guard = self.push_remove_lock.lock();
+        let pending = self.pending_sccp_exempt.lock();
+        let height = u64::try_from(view.height())
+            .unwrap_or(u64::MAX)
+            .saturating_add(1);
+        pending.keepalive_holders().any(|hash| {
+            let Some(queued) = self.txs.get(&hash) else {
+                return false;
+            };
+            let Some(signed) = Self::sccp_signed_transaction(queued.as_accepted().entrypoint())
+            else {
+                return false;
+            };
+            let Some(candidate) = signed.payload().creation_time_ms.checked_add(1) else {
+                return false;
+            };
+            signed.payload().creation_time_ms <= wall_ms
+                && !keepalive::needs_fresh_carrier(candidate, wall_ms, clock.due_work_max_lag_ms)
+                && keepalive::due(view.world(), height, candidate) == Ok(true)
+        })
+    }
+
     /// Return the configured retained-byte budget for the queue.
     pub fn max_retained_bytes(&self) -> NonZeroU64 {
         self.max_retained_bytes
@@ -1319,7 +1419,7 @@ impl Queue {
         self.untrack_expiry_hash(&hash);
         if let Some(tx) = removed.as_ref() {
             self.untrack_active_transaction();
-            if let Some(authority) = tx.as_ref().as_ref().authority_opt() {
+            if let Some(authority) = tx.as_ref().authority_opt() {
                 self.decrease_per_user_tx_count(authority);
             }
             #[cfg(feature = "telemetry")]
@@ -1388,6 +1488,11 @@ impl Queue {
     }
 
     /// Admit an ordered batch, reporting the first failure after publishing its accepted prefix.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first transaction whose routing-plan validation or queue
+    /// admission fails, after retaining the previously accepted prefix.
     pub fn push_batch_with_lane_with_state_and_routing_plans(
         &self,
         txs: Vec<(AcceptedTransaction<'static>, RoutingPlan)>,
@@ -1532,6 +1637,10 @@ impl Queue {
         tx.entrypoint_bytes()
     }
     /// Quarantine an empty queue while startup authenticates its State.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if the queue already contains pending transactions.
     pub fn enter_emergency_fast_startup(&self) -> std::io::Result<()> {
         let _guard = self.push_remove_lock.lock();
         if self.active_len() != 0 {
@@ -1547,16 +1656,19 @@ impl Queue {
     fn signed_executable_proposal_gas_cost(
         signed: &iroha_data_model::transaction::SignedTransaction,
         zk_gas: &ConfidentialGas,
-    ) -> Result<u64, ProposalGasCostError> {
+    ) -> Result<u64, crate::execution_attempt::ExecutionAttemptError<ProposalGasCostError>> {
         let executable = signed.instructions();
         if executable.requires_transaction_gas_limit() {
             return iroha_data_model::transaction::require_transaction_gas_limit(
                 signed.fee_payment_intent(),
             )
-            .map_err(|_| ProposalGasCostError::MissingSignedGasLimit);
+            .map_err(|_| ProposalGasCostError::MissingSignedGasLimit.into());
         }
         match executable {
-            Executable::Instructions(batch) => Ok(gas::meter_instructions(batch.as_ref(), zk_gas)),
+            Executable::Instructions(batch) => gas::meter_instructions(batch.as_ref(), zk_gas)
+                .map_err(|original| {
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(original.into())
+                }),
             Executable::Batch(items) => {
                 let instructions = items
                     .iter()
@@ -1565,10 +1677,12 @@ impl Queue {
                         ExecutableBatchItem::ContractCall(_) => None,
                     })
                     .collect::<Vec<_>>();
-                Ok(gas::meter_instructions(&instructions, zk_gas))
+                gas::meter_instructions(&instructions, zk_gas).map_err(|original| {
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(original.into())
+                })
             }
             Executable::ContractCall(_) | Executable::Ivm(_) | Executable::IvmProved(_) => {
-                Err(ProposalGasCostError::MissingSignedGasLimit)
+                Err(ProposalGasCostError::MissingSignedGasLimit.into())
             }
         }
     }
@@ -1585,7 +1699,7 @@ impl Queue {
     pub(crate) fn compute_proposal_gas_cost(
         tx: &AcceptedTransaction<'_>,
         zk_gas: &ConfidentialGas,
-    ) -> Result<u64, ProposalGasCostError> {
+    ) -> Result<u64, crate::execution_attempt::ExecutionAttemptError<ProposalGasCostError>> {
         match tx.entrypoint() {
             iroha_data_model::transaction::TransactionEntrypoint::External(signed) => {
                 Self::signed_executable_proposal_gas_cost(signed, zk_gas)
@@ -1888,7 +2002,8 @@ impl Queue {
         rules: &GovernanceRules,
         tx: &CheckedTransaction<'_>,
     ) -> Result<(), Error> {
-        if let Executable::Instructions(instructions) = tx.as_ref().as_ref().instructions()
+        if let Some(signed) = tx.as_ref().external()
+            && let Executable::Instructions(instructions) = signed.instructions()
             && instructions_allow_multisig_envelope_authority(instructions)
         {
             return Ok(());
@@ -1934,7 +2049,12 @@ impl Queue {
                     .downcast_ref::<CancelRuntimeUpgrade>()
                     .is_some()
         };
-        match tx.as_ref().as_ref().instructions() {
+        let Some(signed) = tx.as_ref().external() else {
+            // A sealed commitment contains no executable; its reveal is inspected as
+            // the same signed body as an ordinary external transaction.
+            return false;
+        };
+        match signed.instructions() {
             Executable::Instructions(instructions) => instructions.iter().any(contains),
             Executable::Batch(items) => items.iter().any(|item| match item {
                 ExecutableBatchItem::Instruction(instruction) => contains(instruction),
@@ -1944,7 +2064,9 @@ impl Queue {
         }
     }
     fn tx_touches_manifest_protected_namespace_surface(tx: &CheckedTransaction<'_>) -> bool {
-        let signed = tx.as_ref().as_ref();
+        let Some(signed) = tx.as_ref().external() else {
+            return false;
+        };
         let metadata = signed.metadata();
         let has_governance_contract_address =
             metadata.get(&*GOV_CONTRACT_ADDRESS_METADATA_KEY).is_some();
@@ -2111,7 +2233,10 @@ impl Queue {
         if rules.protected_namespaces.is_empty() {
             return Ok(false);
         }
-        let signed = tx.as_ref().as_ref();
+        let Some(signed) = tx.as_ref().external() else {
+            // Commitment admission cannot inspect a body that has not been revealed.
+            return Ok(false);
+        };
         let metadata = signed.metadata();
         let metadata_governance_contract_address = metadata
             .get(&*GOV_CONTRACT_ADDRESS_METADATA_KEY)
@@ -2321,7 +2446,9 @@ impl Queue {
         rules: &GovernanceRules,
         tx: &CheckedTransaction<'_>,
     ) -> Result<bool, Error> {
-        let signed = tx.as_ref().as_ref();
+        let Some(signed) = tx.as_ref().external() else {
+            return Ok(false);
+        };
         if !Self::tx_contains_runtime_upgrade_instruction(tx) {
             return Ok(false);
         }
@@ -2636,8 +2763,9 @@ impl Queue {
     ) -> bool {
         let binding = self.sumeragi_wake.lock();
         match binding.as_ref() {
-            Some(SumeragiQueueWake::Reserved { budget, .. })
-            | Some(SumeragiQueueWake::Node { budget, .. }) => budget.same_pool(original),
+            Some(
+                SumeragiQueueWake::Reserved { budget, .. } | SumeragiQueueWake::Node { budget, .. },
+            ) => budget.same_pool(original),
             Some(SumeragiQueueWake::Retired { .. }) | None => false,
             #[cfg(test)]
             Some(SumeragiQueueWake::Probe(_)) => true,
@@ -3003,7 +3131,8 @@ impl Queue {
                 }
                 Ok(false) => {}
                 Err(reason) => {
-                    pending_status_fault.get_or_insert((tx_ref.hash_as_entrypoint(), reason));
+                    pending_status_fault
+                        .get_or_insert_with(|| (tx_ref.hash_as_entrypoint(), reason));
                 }
             }
         }
@@ -3056,7 +3185,7 @@ impl Queue {
             cursor.next_index = 0;
         }
         let start = cursor.next_index;
-        let mut seen = HashSet::with_capacity(remaining.min(age_ring.len().saturating_sub(start)));
+        let mut seen = BTreeSet::new();
         let mut sccp_budget = SccpExemptBlockBudgetV1::new(state_view.world());
         let pending = age_ring
             .iter()
@@ -3064,10 +3193,10 @@ impl Queue {
             .take(remaining)
             .filter_map(|(hash, enqueued_at)| {
                 if !seen.insert(*hash)
-                    || !self
+                    || self
                         .queued_tx_enqueued_at_ms
                         .get(hash)
-                        .is_some_and(|row| *row == *enqueued_at)
+                        .is_none_or(|row| *row != *enqueued_at)
                 {
                     return None;
                 }
@@ -3084,8 +3213,11 @@ impl Queue {
                 // Preserve all such candidates in this bounded window: only the global
                 // selector, after original-parent verification, may spend its quota.
                 // They are universal/global inputs, never native-lane work.
-                (class == Some(SccpExemptClassV1::ForgeryEvidence) || sccp_budget.admit(class))
-                    .then(|| tx.value().clone())
+                (matches!(
+                    class,
+                    Some(SccpExemptClassV1::ForgeryEvidence | SccpExemptClassV1::Keepalive)
+                ) || sccp_budget.admit(class))
+                .then(|| tx.value().clone())
             })
             .collect::<Vec<_>>();
         cursor.next_index = start.saturating_add(remaining).min(age_ring.len());
@@ -3357,6 +3489,11 @@ impl Queue {
     ///
     /// This is used by Torii ingress proxying to compute the authoritative lane
     /// before deciding whether the request can be executed locally.
+    ///
+    /// # Errors
+    ///
+    /// Propagates routing-policy, stale-plan, unavailable-route, and original
+    /// resource-deferral errors from [`Self::route_plan_with_state`].
     pub fn route_with_state(
         &self,
         tx: &AcceptedTransaction<'_>,
@@ -3369,6 +3506,12 @@ impl Queue {
     ///
     /// This is used by Torii, gossip, and block proposal paths to preserve native AMX
     /// participant legs alongside the coordinator route.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if retained transaction identity or routing plans are
+    /// stale, current policy cannot resolve an executable route, or an original
+    /// state resource defers resolution.
     pub fn route_plan_with_state(
         &self,
         tx: &AcceptedTransaction<'_>,
@@ -3429,6 +3572,11 @@ impl Queue {
     /// Resolve the complete routing plan for an exact unsigned payload.
     ///
     /// Native AMX participant legs are retained alongside the coordinator route.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if policy or authoritative targets cannot resolve a
+    /// valid admitted route, including original state-resource deferrals.
     pub fn route_payload_plan_with_state(
         &self,
         payload: &TransactionPayload,
@@ -3799,16 +3947,18 @@ impl Queue {
             {
                 let authority_rules = manifest_authority_rules.as_ref().unwrap_or(policy_rules);
                 let alias = status.alias.clone();
-                let allows_multisig_envelope_authority =
-                    match checked.as_accepted().as_ref().instructions() {
+                let allows_multisig_envelope_authority = checked
+                    .as_accepted()
+                    .external()
+                    .is_some_and(|signed| match signed.instructions() {
                         Executable::Instructions(instructions) => {
-                            instructions_allow_multisig_envelope_authority(&instructions)
+                            instructions_allow_multisig_envelope_authority(instructions)
                         }
                         Executable::ContractCall(_)
                         | Executable::IvmProved(_)
                         | Executable::Ivm(_)
                         | Executable::Batch(_) => false,
-                    };
+                    });
                 let governance_sensitive =
                     Self::tx_requires_manifest_validator_gating(policy_rules, &checked);
                 if governance_sensitive {
@@ -4073,14 +4223,21 @@ impl Queue {
         let proposal_gas_cost = Self::compute_proposal_gas_cost(checked.as_accepted(), &zk_gas)
             .map_err(|error| Failure {
                 tx: Box::new(checked.as_accepted().clone()),
-                err: Error::NexusFeeAdmissionRejected {
-                    code: FeeRejectionCode::InvalidGasLimit,
-                    reason: error.to_string(),
+                err: match error {
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(original) => {
+                        Error::Deferred(original)
+                    }
+                    crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
+                        Error::NexusFeeAdmissionRejected {
+                            code: FeeRejectionCode::InvalidGasLimit,
+                            reason: error.to_string(),
+                        }
+                    }
                 },
             })?;
         let enqueued_at_ms = self.validation_timestamp_ms(checked.as_accepted());
         #[cfg(feature = "telemetry")]
-        let pending_teu = Self::compute_teu_weight(checked.as_accepted(), &zk_gas);
+        let pending_teu = proposal_gas_cost;
         Ok(PreparedQueueAdmission {
             checked,
             hash,
@@ -4235,7 +4392,10 @@ impl Queue {
                 self.tx_gas_cost.insert(hash, proposal_gas_cost);
                 self.track_expiry_hash(hash);
                 if let Some(authority) = authority {
-                    self.apply_per_user_tx_count_increments(HashMap::from([(authority, 1)]));
+                    self.txs_per_user
+                        .entry(authority)
+                        .and_modify(|count| *count = count.saturating_add(1))
+                        .or_insert(1);
                 }
                 #[cfg(feature = "telemetry")]
                 self.record_teu_enqueue_locked(
@@ -4858,112 +5018,20 @@ impl Queue {
             .get(account_id)
             .map_or(0, |count| *count.value())
     }
-    fn apply_per_user_tx_count_increments(&self, increments: HashMap<AccountId, usize>) {
-        for (account_id, delta) in increments {
-            if delta == 0 {
-                continue;
-            }
-            self.txs_per_user
-                .entry(account_id)
-                .and_modify(|count| *count = count.saturating_add(delta))
-                .or_insert(delta);
-        }
-    }
     #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))]
     fn publish_backpressure_state(&self, queued: usize, telemetry: Option<&StateTelemetry>) {
         let _ = self.refresh_backpressure_state(queued, telemetry);
     }
-    #[cfg(any(test, feature = "telemetry"))]
-    fn compute_teu_weight(tx: &AcceptedTransaction<'static>, zk_gas: &ConfidentialGas) -> u64 {
-        use iroha_data_model::transaction::Executable;
-        match tx.entrypoint() {
-            iroha_data_model::transaction::TransactionEntrypoint::External(signed) => {
-                match signed.instructions() {
-                    Executable::Instructions(batch) => {
-                        let instructions: Vec<_> = batch.iter().map(Clone::clone).collect();
-                        gas::meter_instructions(&instructions, zk_gas)
-                    }
-                    Executable::ContractCall(_) => {
-                        crate::executor::transaction_gas_limit(signed).unwrap_or(0)
-                    }
-                    Executable::Batch(items) => {
-                        if items
-                            .iter()
-                            .any(|item| matches!(item, ExecutableBatchItem::ContractCall(_)))
-                        {
-                            crate::executor::transaction_gas_limit(signed).unwrap_or(0)
-                        } else {
-                            let instructions = signed
-                                .instructions()
-                                .explicit_instructions()
-                                .cloned()
-                                .collect::<Vec<_>>();
-                            gas::meter_instructions(&instructions, zk_gas)
-                        }
-                    }
-                    Executable::IvmProved(proved) => {
-                        gas::meter_instructions(proved.overlay.as_ref(), zk_gas)
-                    }
-                    Executable::Ivm(bytecode) => Self::compute_ivm_teu_weight(bytecode.as_ref()),
-                }
-            }
-            iroha_data_model::transaction::TransactionEntrypoint::SealedCommitment(_) => {
-                gas::meter_sealed_transaction_commitment(tx.encoded_len())
-            }
-            iroha_data_model::transaction::TransactionEntrypoint::SealedReveal(reveal) => {
-                match reveal.signed_transaction().instructions() {
-                    Executable::Instructions(batch) => {
-                        let instructions: Vec<_> = batch.iter().map(Clone::clone).collect();
-                        gas::meter_instructions(&instructions, zk_gas)
-                    }
-                    Executable::ContractCall(_) => {
-                        crate::executor::transaction_gas_limit(reveal.signed_transaction())
-                            .unwrap_or(0)
-                    }
-                    Executable::Batch(items) => {
-                        if items
-                            .iter()
-                            .any(|item| matches!(item, ExecutableBatchItem::ContractCall(_)))
-                        {
-                            crate::executor::transaction_gas_limit(reveal.signed_transaction())
-                                .unwrap_or(0)
-                        } else {
-                            let instructions = reveal
-                                .signed_transaction()
-                                .instructions()
-                                .explicit_instructions()
-                                .cloned()
-                                .collect::<Vec<_>>();
-                            gas::meter_instructions(&instructions, zk_gas)
-                        }
-                    }
-                    Executable::IvmProved(proved) => {
-                        gas::meter_instructions(proved.overlay.as_ref(), zk_gas)
-                    }
-                    Executable::Ivm(bytecode) => Self::compute_ivm_teu_weight(bytecode.as_ref()),
-                }
-            }
-        }
-    }
-    #[cfg(any(test, feature = "telemetry"))]
-    fn compute_ivm_teu_weight(bytecode: &[u8]) -> u64 {
-        match ProgramMetadata::parse(bytecode) {
-            Ok(parsed) => {
-                let max_cycles = parsed.metadata.max_cycles;
-                if max_cycles == 0 {
-                    IVM_TEU_FALLBACK
-                } else {
-                    max_cycles
-                }
-            }
-            Err(err) => {
-                warn!(
-                    ?err,
-                    "Failed to parse IVM metadata while deriving TEU weight; using fallback"
-                );
-                IVM_TEU_FALLBACK
-            }
-        }
+    /// Preserve the admitted quote across route refresh. Missing metadata is an accepted-work
+    /// invariant, never a zero-cost input or permission to decode/reprice for telemetry.
+    fn admitted_proposal_gas_cost(
+        &self,
+        hash: &EntrypointHash,
+    ) -> Result<u64, crate::execution_attempt::ExecutionDeferred> {
+        self.tx_gas_cost
+            .get(hash)
+            .map(|cost| *cost)
+            .ok_or_else(|| ivm::error::ExecutionDeferral::LocalInvariantViolation.into())
     }
     #[cfg(feature = "telemetry")]
     fn record_teu_enqueue_locked(&self, hash: EntrypointHash, info: TxTeuInfo) {
@@ -5160,6 +5228,18 @@ impl Queue {
                         height,
                     ) {
                         Ok(plan) => {
+                            let admitted_gas = match self.admitted_proposal_gas_cost(&hash) {
+                                Ok(cost) => cost,
+                                Err(original) => {
+                                    fault.get_or_insert((
+                                        hash,
+                                        RoutingResolveError::Deferred(original),
+                                    ));
+                                    continue;
+                                }
+                            };
+                            #[cfg(not(feature = "telemetry"))]
+                            let _ = admitted_gas;
                             #[cfg(feature = "telemetry")]
                             {
                                 let route = plan.coordinator_route();
@@ -5169,10 +5249,7 @@ impl Queue {
                                     TxTeuInfo {
                                         lane_id: route.lane_id,
                                         dataspace_id: route.dataspace_id,
-                                        teu: Self::compute_teu_weight(
-                                            tx.as_accepted(),
-                                            &view.zk.gas,
-                                        ),
+                                        teu: admitted_gas,
                                     },
                                 );
                             }
@@ -5198,6 +5275,7 @@ impl Queue {
                         &reason,
                         None,
                     );
+                    return;
                 }
                 #[cfg(feature = "telemetry")]
                 self.publish_teu_backlog_metrics(Some(view.telemetry));
@@ -5927,11 +6005,14 @@ pub mod tests {
             ))],
             Metadata::default(),
         );
-        assert_eq!(
-            queue.router.read().try_route(&tx),
-            Err(RoutingResolveError::UnknownDataspace {
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(queue.router.read().try_route(&tx))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::UnknownDataspace {
                 dataspace_id: unknown_dataspace,
-            })
+            }),
+            format_args!("completed routing rejection"),
         );
     }
     impl Queue {
@@ -5960,9 +6041,9 @@ pub mod tests {
             cfg: Config,
             time_source: &TimeSource,
             router: Arc<dyn LaneRouter>,
-            routes: &[(LaneId, DataSpaceId)],
+            route_bindings: &[(LaneId, DataSpaceId)],
         ) -> Self {
-            let (lane_catalog, dataspace_catalog) = Self::test_catalogs_for_routes(routes);
+            let (lane_catalog, dataspace_catalog) = Self::test_catalogs_for_routes(route_bindings);
             let mut queue = Self::from_config_with_router_limits_and_catalogs(
                 cfg,
                 tokio::sync::broadcast::Sender::new(1),
@@ -6342,8 +6423,10 @@ pub mod tests {
             ],
         )
         .expect("lane catalog");
-        let mut nexus = Nexus::default();
-        nexus.lane_catalog = lane_catalog.clone();
+        let mut nexus = Nexus {
+            lane_catalog: lane_catalog.clone(),
+            ..Default::default()
+        };
         nexus.routing_policy.default_lane = retired_lane;
         nexus.routing_policy.default_dataspace = DataSpaceId::UNIVERSAL;
         let NexusRoutingFixture {
@@ -6971,7 +7054,7 @@ pub mod tests {
         }
     }
     struct MutableRouter {
-        decision: Arc<parking_lot::RwLock<Result<RoutingDecision, RoutingResolveError>>>,
+        decision: Arc<parking_lot::RwLock<Result<RoutingDecision, DataSpaceId>>>,
     }
     impl MutableRouter {
         fn new(decision: RoutingDecision) -> Self {
@@ -6982,11 +7065,14 @@ pub mod tests {
         fn set(&self, decision: RoutingDecision) {
             *self.decision.write() = Ok(decision);
         }
-        fn set_error(&self, err: RoutingResolveError) {
-            *self.decision.write() = Err(err);
+        fn set_unknown_dataspace(&self, dataspace_id: DataSpaceId) {
+            *self.decision.write() = Err(dataspace_id);
         }
         fn current(&self) -> Result<RoutingDecision, RoutingResolveError> {
-            self.decision.read().clone()
+            self.decision
+                .read()
+                .clone()
+                .map_err(|dataspace_id| RoutingResolveError::UnknownDataspace { dataspace_id })
         }
     }
     impl LaneRouter for MutableRouter {
@@ -7060,12 +7146,16 @@ pub mod tests {
             policy_lane,
             dataspace,
         )));
-        let mut routes = vec![(policy_lane, dataspace)];
+        let mut route_bindings = vec![(policy_lane, dataspace)];
         if conflicting_lane_is_active {
-            routes.push((conflicting_lane, dataspace));
+            route_bindings.push((conflicting_lane, dataspace));
         }
-        let queue =
-            Queue::test_with_router_for_routes(config_factory(), time_source, router, &routes);
+        let queue = Queue::test_with_router_for_routes(
+            config_factory(),
+            time_source,
+            router,
+            &route_bindings,
+        );
 
         let (primary, primary_keypair) = gen_account_in("wonderland");
         let (secondary, _) = gen_account_in("wonderland");
@@ -7115,7 +7205,7 @@ pub mod tests {
         nexus.fees.per_instruction_fee = Quantity::zero();
         nexus.fees.per_gas_unit_fee = Quantity::zero();
         queue.install_test_router_metadata_for_nexus(&nexus);
-        let mut state = if autoscale_lane.is_some() {
+        let state = if autoscale_lane.is_some() {
             // Deliberately model a future lane that production startup refuses.
             let state = State::new(
                 world_with_test_domains(),
@@ -7134,7 +7224,7 @@ pub mod tests {
             )
         };
         for authority in [&primary, &secondary, &outsider, &conflicting_validator] {
-            register_test_authority(&mut state, authority);
+            register_test_authority(&state, authority);
         }
 
         let policy_metadata_key =
@@ -7147,7 +7237,6 @@ pub mod tests {
                     metadata_key: Some(policy_metadata_key.clone()),
                     allowed_ids: Some(BTreeSet::from([RUNTIME_UPGRADE_ALLOWED_ID.to_owned()])),
                 }),
-                ..GovernanceHooks::default()
             },
             ..GovernanceRules::default()
         };
@@ -7784,6 +7873,7 @@ pub mod tests {
     }
     include!("queue/nexus_reconfigure_manifest_reload_tests.rs");
     include!("queue/privacy_governance_compliance_tests.rs");
+    include!("queue/signed_governance_entrypoint_tests.rs");
     #[tokio::test]
     async fn governance_manifest_enforces_quorum_metadata() {
         let kura = Kura::blank_kura_for_testing();
@@ -8610,7 +8700,6 @@ pub mod tests {
                     metadata_key: None,
                     allowed_ids: None,
                 }),
-                ..GovernanceHooks::default()
             },
             ..GovernanceRules::default()
         };
@@ -8688,7 +8777,6 @@ pub mod tests {
                     metadata_key: Some(metadata_key.clone()),
                     allowed_ids: Some(allowed_ids),
                 }),
-                ..GovernanceHooks::default()
             },
             ..GovernanceRules::default()
         };
@@ -9078,6 +9166,7 @@ pub mod tests {
         include!("queue/resident_owner_tests.rs");
     }
     include!("queue/current_admission_tests.rs");
+    include!("queue/keepalive_tests.rs");
     include!("queue/domain_admission_tests.rs");
     include!("queue/resource_contract_tests.rs");
     #[test]
@@ -9461,8 +9550,9 @@ pub mod tests {
             original_frame.as_slice()
         );
         assert_eq!(
-            Queue::compute_proposal_gas_cost(&snapshot[0], &gas::DEFAULT_ZK_GAS),
-            Ok(expected_gas)
+            Queue::compute_proposal_gas_cost(&snapshot[0], &gas::DEFAULT_ZK_GAS)
+                .expect("completed proposal gas quote"),
+            expected_gas
         );
         drop(snapshot);
         assert_eq!(*queue.tx_encoded_len.get(&hash).unwrap(), encoded_len);
@@ -9528,7 +9618,10 @@ pub mod tests {
             crate::tx::exact_signed_transaction_hash(committed.entrypoint()),
             None
         );
-        assert_eq!(SignedTransaction::from(revealed.clone()), signed);
+        assert_eq!(
+            revealed.clone().into_entrypoint(),
+            revealed.entrypoint().clone()
+        );
         assert_eq!(revealed.creation_time(), external.creation_time());
         assert_eq!(revealed.time_to_live(), external.time_to_live());
         assert_eq!(committed.creation_time(), Duration::ZERO);
@@ -9563,20 +9656,15 @@ pub mod tests {
             &mut |_| true
         ));
         assert_eq!(
-            Queue::compute_proposal_gas_cost(&revealed, &gas::DEFAULT_ZK_GAS),
+            Queue::compute_proposal_gas_cost(&revealed, &gas::DEFAULT_ZK_GAS)
+                .expect("completed proposal gas quote"),
             Queue::compute_proposal_gas_cost(&external, &gas::DEFAULT_ZK_GAS)
-        );
-        assert_eq!(
-            Queue::compute_teu_weight(&revealed, &gas::DEFAULT_ZK_GAS),
-            Queue::compute_teu_weight(&external, &gas::DEFAULT_ZK_GAS)
+                .expect("completed proposal gas quote")
         );
         let commitment_cost = gas::meter_sealed_transaction_commitment(committed.encoded_len());
         assert_eq!(
-            Queue::compute_proposal_gas_cost(&committed, &gas::DEFAULT_ZK_GAS),
-            Ok(commitment_cost)
-        );
-        assert_eq!(
-            Queue::compute_teu_weight(&committed, &gas::DEFAULT_ZK_GAS),
+            Queue::compute_proposal_gas_cost(&committed, &gas::DEFAULT_ZK_GAS)
+                .expect("completed proposal gas quote"),
             commitment_cost
         );
     }
@@ -9600,9 +9688,13 @@ pub mod tests {
         };
         let missing_limit =
             build_unchecked(Executable::Ivm(IvmBytecode::from_compiled(vec![0])), None);
-        assert_eq!(
-            Queue::compute_proposal_gas_cost(&missing_limit, &gas::DEFAULT_ZK_GAS),
-            Err(ProposalGasCostError::MissingSignedGasLimit),
+        assert!(
+            matches!(
+                Queue::compute_proposal_gas_cost(&missing_limit, &gas::DEFAULT_ZK_GAS),
+                Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+                    ProposalGasCostError::MissingSignedGasLimit
+                ))
+            ),
             "an invariant violation must not become zero-cost proposal work"
         );
         let missing_signed = missing_limit.external().expect("external fixture").clone();
@@ -9619,10 +9711,14 @@ pub mod tests {
                 missing_salt,
             )),
         ));
-        assert_eq!(
-            Queue::compute_proposal_gas_cost(&missing_reveal, &gas::DEFAULT_ZK_GAS),
-            Err(ProposalGasCostError::MissingSignedGasLimit),
-            "wrapping an invalid runtime gas owner in a sealed reveal must not make it free",
+        assert!(
+            matches!(
+                Queue::compute_proposal_gas_cost(&missing_reveal, &gas::DEFAULT_ZK_GAS),
+                Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+                    ProposalGasCostError::MissingSignedGasLimit
+                ))
+            ),
+            "wrapping an invalid runtime gas owner in a sealed reveal must not make it free"
         );
         let invocation = iroha_data_model::transaction::executable::ContractInvocation {
             contract_address: "irohac1qyqqqqqqqqqqqqputuv64zhf0a0a4hhlqdj2lhnwuzq4xjq3qexfh"
@@ -9653,20 +9749,23 @@ pub mod tests {
         for executable in runtime_executables {
             let accepted = build_unchecked(executable, Some(signed_limit));
             assert_eq!(
-                Queue::compute_proposal_gas_cost(&accepted, &gas::DEFAULT_ZK_GAS),
-                Ok(signed_limit.get()),
+                Queue::compute_proposal_gas_cost(&accepted, &gas::DEFAULT_ZK_GAS)
+                    .expect("completed proposal gas quote"),
+                signed_limit.get(),
                 "every runtime-dependent executable must consume its signed upper bound"
             );
         }
         let native_instruction = sample_unregister_instruction();
-        let native_expected = gas::meter_instruction(&native_instruction, &gas::DEFAULT_ZK_GAS);
+        let native_expected = gas::meter_instruction(&native_instruction, &gas::DEFAULT_ZK_GAS)
+            .expect("native gas quote");
         let native = build_unchecked(
             Executable::Instructions(vec![native_instruction].into()),
             Some(NonZeroU64::new(999).expect("non-zero ignored native limit")),
         );
         assert_eq!(
-            Queue::compute_proposal_gas_cost(&native, &gas::DEFAULT_ZK_GAS),
-            Ok(native_expected),
+            Queue::compute_proposal_gas_cost(&native, &gas::DEFAULT_ZK_GAS)
+                .expect("completed proposal gas quote"),
+            native_expected,
             "deterministic native work remains charged by the instruction meter"
         );
     }

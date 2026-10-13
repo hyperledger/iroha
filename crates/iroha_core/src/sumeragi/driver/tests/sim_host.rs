@@ -331,7 +331,7 @@ impl Host for DriverHost {
                 durable: ok,
                 deferred: None,
             }),
-            Done::Executed { outcome, .. } => Completion::Exec(ExecDone::Executed(outcome)),
+            Done::Executed { outcome, .. } => Completion::Exec(ExecDone::Executed(Ok(outcome))),
             Done::Discarded { .. } => Completion::Exec(ExecDone::Discarded),
             Done::Prepared { result, .. } => Completion::Exec(ExecDone::Prepared(Ok(result))),
             Done::Committed { config, .. } => {

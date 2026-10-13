@@ -32,7 +32,7 @@ const FEED_HOST: &str = "compliance.example";
 const FEED_PIN: [u8; 32] = [7; 32];
 
 /// Independent catalog and gateway identities, retained only in this disposable test process.
-pub(super) struct PublicationComplianceFixture {
+pub struct PublicationComplianceFixture {
     root: PathBuf,
     catalog_key: KeyPair,
     gateway_keys: Vec<KeyPair>,
@@ -50,7 +50,12 @@ impl PublicationComplianceFixture {
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
         let catalog_key = KeyPair::try_from_seed(vec![0xD0; 32], Algorithm::Ed25519)?;
         let gateway_keys = (0..count)
-            .map(|index| KeyPair::try_from_seed(vec![0xD1 + index as u8; 32], Algorithm::Ed25519))
+            .map(|index| {
+                KeyPair::try_from_seed(
+                    vec![0xD1 + u8::try_from(index).expect("fixture provider index fits u8"); 32],
+                    Algorithm::Ed25519,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let signer = |signer_id: String, key: &KeyPair| -> Result<_> {
             Ok(GatewayComplianceTrustedSignerV1 {
@@ -81,7 +86,7 @@ impl PublicationComplianceFixture {
     }
 
     /// Register and grant the ordinary operator role to an already registered universal account.
-    pub fn genesis_instructions(&self, operator: &AccountId) -> Result<Vec<InstructionBox>> {
+    pub fn genesis_instructions(operator: &AccountId) -> Result<Vec<InstructionBox>> {
         // Role::new explicitly grants the registered role to its initial account.
         Ok(vec![
             Register::role(Role::new(
@@ -122,7 +127,9 @@ impl PublicationComplianceFixture {
             ),
             (
                 "feed_transport_provider_revision".into(),
-                (GATEWAY_COMPLIANCE_FEED_TRANSPORT_REVISION_V1 as i64).into(),
+                (i64::try_from(GATEWAY_COMPLIANCE_FEED_TRANSPORT_REVISION_V1)
+                    .expect("transport revision fits TOML integer"))
+                .into(),
             ),
             (
                 "feed_transport_provider_policy_digest_hex".into(),
@@ -243,8 +250,7 @@ impl PublicationComplianceFixture {
             network,
             base,
             operator,
-            "stage",
-            "stage",
+            ("stage", "stage"),
             norito::json::to_vec(&catalog)?,
             digest,
         )
@@ -267,8 +273,7 @@ impl PublicationComplianceFixture {
             network,
             base,
             operator,
-            "acknowledge",
-            "acknowledge",
+            ("acknowledge", "acknowledge"),
             norito::json::to_vec(&acknowledgement)?,
             digest,
         )
@@ -282,8 +287,7 @@ impl PublicationComplianceFixture {
             network,
             base,
             operator,
-            "promote",
-            &target,
+            ("promote", &target),
             Vec::new(),
             digest,
         )
@@ -311,8 +315,7 @@ async fn mutate(
     network: &NetworkId,
     base: &str,
     operator: &KeyPair,
-    action: &str,
-    target: &str,
+    (action, target): (&str, &str),
     body: Vec<u8>,
     digest: [u8; 32],
 ) -> Result<()> {

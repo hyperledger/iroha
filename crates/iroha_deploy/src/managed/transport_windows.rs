@@ -21,10 +21,6 @@ use windows_sys::Win32::System::{
     Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW},
 };
 
-pub(crate) fn supported() -> Result<()> {
-    Ok(())
-}
-
 pub(crate) fn detach(command: &mut Command) {
     command.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
 }

@@ -367,7 +367,7 @@ fn capsule_primitive_matches_seven_independent_reference_vectors() {
             "08a7f46714db21631748b4f9de69b00400812de3b738c9d72a026023af07dc0b",
         ),
         (
-            524288,
+            524_288,
             false,
             "0100000000000000000000000000000000000000000000000000000000000000",
             "8efa151993f8e0097aef8139b54a8cedf9d31f87c550a385df3d1f6bce2cb160",

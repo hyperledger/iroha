@@ -83,7 +83,7 @@ impl<'a> ReleaseManifestCeremonyV1<'a> {
     }
 
     /// Derive only the next allowed message after verifying every previous canonical signature.
-    /// The provenance anchor is captured after AuditRecord and retained unchanged for Response.
+    /// The provenance anchor is captured after `AuditRecord` and retained unchanged for Response.
     pub(in crate::signer_operation) fn message(
         &self,
         check: &SignerOperationReservationCheckV1<'_>,

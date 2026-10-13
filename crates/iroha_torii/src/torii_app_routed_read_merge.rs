@@ -93,6 +93,10 @@ fn should_keep_authoritative_global_item(
     Ok(route_is_public_or_universal(app, route))
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn filter_non_authoritative_global_portfolio_rows(
     app: &AppState,
     endpoint: ToriiReadEndpointV1,
@@ -203,6 +207,10 @@ fn filter_non_authoritative_global_portfolio_rows(
     Ok(payloads)
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn list_items_from_payload<'a>(
     payload: &'a Value,
     context: &'static str,
@@ -217,6 +225,10 @@ fn list_items_from_payload<'a>(
     Err(torii_internal_json_error(context))
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn list_items_from_owned_payload(
     payload: Value,
     context: &'static str,
@@ -230,6 +242,10 @@ fn list_items_from_owned_payload(
     }
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn merged_list_response(
     payloads: Vec<Value>,
     _endpoint: ToriiReadEndpointV1,
@@ -278,6 +294,10 @@ fn merged_list_response(
     Ok(response)
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn merged_account_read_response(
     payloads: Vec<ToriiBoundedNoritoPayload<AccountReadResponse>>,
     format: ResponseFormat,
@@ -328,6 +348,10 @@ fn merged_account_read_response(
     }
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn merged_singleton_response(
     payloads: Vec<Value>,
     routed_by: &'static str,
@@ -367,6 +391,10 @@ fn merged_singleton_response(
     }
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn pipeline_status_payload_rank(payload: &Value) -> Result<u8, Response> {
     let kind = payload
         .as_object()
@@ -390,6 +418,10 @@ fn pipeline_status_payload_rank(payload: &Value) -> Result<u8, Response> {
     }
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn pipeline_status_payload_tie_break(payload: &Value) -> Result<(u8, u64), Response> {
     let object = payload.as_object().ok_or_else(|| {
         torii_internal_json_error("routed pipeline status payload must be a JSON object")
@@ -424,6 +456,10 @@ fn pipeline_status_payload_tie_break(payload: &Value) -> Result<(u8, u64), Respo
     Ok((source_rank, block_height))
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn pipeline_status_payload_hash(payload: &Value) -> Result<&str, Response> {
     payload
         .as_object()
@@ -434,6 +470,10 @@ fn pipeline_status_payload_hash(payload: &Value) -> Result<&str, Response> {
         })
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn merged_pipeline_status_response(
     payloads: Vec<Value>,
     routed_by: &'static str,
@@ -485,6 +525,10 @@ fn merged_pipeline_status_response(
     Ok(response)
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn authorize_alias_resolve_index_payloads(
     app: &SharedAppState,
     caller: Option<&AccountId>,
@@ -542,6 +586,10 @@ fn authorize_alias_resolve_index_payloads(
     Ok(payloads)
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn merged_alias_resolve_index_response(
     payloads: Vec<Value>,
     routed_by: &'static str,
@@ -610,6 +658,10 @@ fn merged_alias_resolve_index_response(
     Ok(response)
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn merged_alias_lookup_by_account_response(
     payloads: Vec<Value>,
     routed_by: &'static str,
@@ -776,6 +828,10 @@ fn merged_alias_lookup_by_account_response(
     Ok(response)
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn merged_space_directory_bindings_response(
     payloads: Vec<Value>,
     routed_by: &'static str,
@@ -1078,6 +1134,10 @@ mod routed_read_merge_regression_tests {
     }
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn merged_portfolio_response(
     payloads: Vec<Value>,
     routed_by: &'static str,
@@ -1175,6 +1235,10 @@ fn merged_portfolio_response(
     Ok(response)
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn merged_dataspace_summary_response(
     payloads: Vec<Value>,
     routed_by: &'static str,
@@ -1282,8 +1346,10 @@ fn merged_dataspace_summary_response(
                     "dataspace summary rows must include `dataspace_id`",
                 ));
             };
-            if dataspaces.contains_key(&dataspace_id) {
-                dataspaces.insert(dataspace_id, row);
+            if let std::collections::btree_map::Entry::Occupied(mut e) =
+                dataspaces.entry(dataspace_id)
+            {
+                e.insert(row);
                 continue;
             }
             if let Some(accounts) = row.get("accounts").and_then(Value::as_array) {

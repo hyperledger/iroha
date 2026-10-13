@@ -200,7 +200,7 @@ pub fn json_rpc_response_cap(method: &str) -> Option<usize> {
         "eth_getCode" | "eth_call" => EVM_CODE_RESPONSE_BYTES,
         "eth_getProof" => EVM_PROOF_RESPONSE_BYTES,
         "eth_getBlockByNumber" | "eth_getBlockByHash" => EVM_BLOCK_RESPONSE_BYTES,
-        "eth_getTransactionReceipt" => EVM_RECEIPT_RESPONSE_BYTES,
+        "eth_getTransactionReceipt" | "eth_getLogs" => EVM_RECEIPT_RESPONSE_BYTES,
         _ => return None,
     })
 }

@@ -99,6 +99,14 @@ impl Sccp<'_> {
         self.runtime.block_on(self.inner.governance_revisions())?
     }
 
+    /// Read governance readiness at one committed state observation.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn governance_readiness(&self) -> Result<iroha_sccp::api::SccpGovernanceReadinessV1> {
+        self.runtime.block_on(self.inner.governance_readiness())?
+    }
+
     /// Read every open SCCP governance proposal, oldest first.
     ///
     /// # Errors
@@ -137,6 +145,52 @@ impl Sccp<'_> {
     /// Returns the asynchronous operation error or a typed runtime rejection.
     pub fn registry(&self) -> Result<Vec<SccpRouteV1>> {
         self.runtime.block_on(self.inner.registry())?
+    }
+
+    /// Read effective revision holds and scalar reconciliation accounting.
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn forgery_hold(
+        &self,
+        query: iroha_sccp::api::SccpForgeryHoldQuery,
+    ) -> Result<iroha_sccp::api::SccpForgeryHoldViewV1> {
+        self.runtime.block_on(self.inner.forgery_hold(query))?
+    }
+
+    /// Read original fast-pause state and explicit current-seat eligibility availability.
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn fast_pause(&self) -> Result<iroha_sccp::api::SccpFastPauseViewV1> {
+        self.runtime.block_on(self.inner.fast_pause())?
+    }
+
+    /// Read a retained original anchor witness at one nonzero committed height.
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn anchor_witness(
+        &self,
+        height: std::num::NonZeroU64,
+    ) -> Result<iroha_sccp::api::SccpAnchorWitnessBundleV1> {
+        self.runtime.block_on(self.inner.anchor_witness(height))?
+    }
+
+    /// Read an exact original committed SCCP forgery report.
+    /// # Errors
+    /// Preserves the asynchronous operation or runtime error.
+    pub fn evidence(&self, id: &[u8; 32]) -> Result<iroha_sccp::api::SccpForgeryEvidenceStatusV1> {
+        self.runtime.block_on(self.inner.evidence(id))?
+    }
+
+    /// Read a bounded page after an exclusive original evidence id.
+    /// # Errors
+    /// Preserves the asynchronous operation or runtime error.
+    pub fn evidence_page(
+        &self,
+        after: Option<[u8; 32]>,
+        limit: usize,
+    ) -> Result<iroha_sccp::api::SccpForgeryEvidencePageV1> {
+        self.runtime
+            .block_on(self.inner.evidence_page(after, limit))?
     }
 
     /// Read the status union of one message id (outbound, inbound or unknown).

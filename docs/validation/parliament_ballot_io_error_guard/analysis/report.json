@@ -1,0 +1,545 @@
+{
+  "all_inputs_panic_free_proved": false,
+  "complete_stack_bound_bytes": null,
+  "complete_workspace_certificate": false,
+  "input_changes": {},
+  "inputs": {
+    "/Users/mtakemiya/.rustup/toolchains/1.93.1-aarch64-apple-darwin/share/doc/rust/html/src/std/fs.rs.html": "fba425e2945d02e0b8a1d840eb4d38737a2b6132c5e08db53f4ff4db6e6988d6",
+    "/Users/mtakemiya/.rustup/toolchains/1.93.1-aarch64-apple-darwin/share/doc/rust/html/src/std/io/error.rs.html": "214dcc0a293b7576d306e36ac42711193074304676c8af81bd107cbcffec9862",
+    "/Users/mtakemiya/.rustup/toolchains/1.93.1-aarch64-apple-darwin/share/doc/rust/html/src/std/io/error/repr_bitpacked.rs.html": "8ef67bbd2b7f850392b58c2836808fcba00bc9c8864712c7d97fb3d92b6bdd66",
+    "/Users/mtakemiya/.rustup/toolchains/1.93.1-aarch64-apple-darwin/share/doc/rust/html/src/std/io/mod.rs.html": "51a687dcaded8b29b4666da1dc01a388d9efeda0faf669e03a430afad8b7fcd2",
+    "/Users/mtakemiya/.rustup/toolchains/1.93.1-aarch64-apple-darwin/share/doc/rust/html/src/std/sys/fd/unix.rs.html": "a0c9406876002ab4a4b6550bd0add5978dd147b0199f77d9d3781e59cab3ad33",
+    "/Users/mtakemiya/.rustup/toolchains/1.93.1-aarch64-apple-darwin/share/doc/rust/html/src/std/sys/fs/unix.rs.html": "fa4f8ba1d6cc0f9817b465a0a03f9244c25c38960b49a0550c001e224b8d69e1",
+    "/Users/mtakemiya/.rustup/toolchains/1.93.1-aarch64-apple-darwin/share/doc/rust/html/src/std/sys/pal/unix/mod.rs.html": "ab97fb43ea075de6ef1f2b518655769803f43f16abb7a4f052c5aab558e5380e",
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/resource_contract/workspace.rs": "875e767119f2f462bf0608c57dcadfd3838cbea1e8c7585c1bdb5605cbaa0dca",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/README.md": "e1561a264c7959148ad31e0da92bef9a9cae3e1da1bd314f1b2ab906ea7e6461",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/SHA256SUMS": "2391e094d9d8ef33d246815280906e36c295bce1c8a6703e834140c3e526f1ca",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel-command.txt": "0d044fbf4b84b472d3aaf11c5dcdf0a6547344a0239148fd90d698b1fa415121",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel.json": "b12dbfda88d10da8790afa3d27f1a1d77fbabfc609dcc09432b6d8afb94647e7",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel/disassembly.txt": "d80e13b92b4beaf4cd94ea9a64fd854b01f37b0babd8390ecbd52371c4b2f0b2",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel/starts.txt": "e113b57f45727c125efab55dc43f78f7f289f97f749c0b6315d21f9d42ba634e",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel/stubs.txt": "1e98eccff5bf0060d9a2a239bcc2d82e30c508f3b0d7e240ae4604ae26da6ba3",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/accel/unwind.txt": "61e8bd873d4cb31dc058bf1910f3f0f95f91cb95b898e212084ac73efc43bdc2",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/parliament_ballot_stack_audit.py.template": "a14cfb28a381e9bcaa449f01e5a8b8fcc4ac04f134d1fc0cb5522c87961d452f",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/parliament_ballot_stack_audit_test.py.template": "019be367b0d6c8f1407f0821c1282453ff98e331729e98d8175a6bcd7f0b5b33",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable-command.txt": "8d28f7998fb864652b514d66fe357c15d45a3068884badfd69c4cabc8f0d74fa",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable.json": "f683d2ec53728edb6e1552df345ebd0ecc07b85cff3e26679b7b6ba42ee3ed5b",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable/disassembly.txt": "2d13c24d142324fa565afd99f3191a8ef434ba945b32fb23d6f78de0642a3cf6",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable/starts.txt": "c7ea85f2a878ec378fa450fd111ec3e7b803563787bdb5c2f934e3eaa0ab6e18",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable/stubs.txt": "cecee0936f7f7e3a5a5f96e6ecfd6ffa9861a1d5c873e84d90a419b502735b69",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/portable/unwind.txt": "5ec247c2343b47edc2a152f340f29984faa32f97c25a5331036bc5a7971dc91f",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/receipt.json": "4c270e5b687b30c91db4d34aa1ad3fe3cd31244c55c12e8d42f3376ac257e18c",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_compiled_stack/tests.txt": "df9e28e05d90b973065157bbe55007b3fc1a0794a0d63cf989ec77d6b3adfd43",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_resource_contract/build-receipt.json": "10e64b2cba1339214c1c1df53a02f0a4b4f26855098bf1839d1b604c4952201e",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_resource_contract/native-runtime-audit.json": "8e75e5e91576559461ec6a3d74b09d03725e567a3306e92a0a130c86a7dd97fd",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/README.md": "713db5656d69c35a1501cf0b0c984ed4ed8a3a0cddbfa4ea2526325b89717f02",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/SHA256SUMS": "5d88c20ed5e2e0f8451ba6f68160ac9a653ed950ab11d0198960d0ad773a9564",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/alloc-alloc.rs.template": "cd8a5946b4c44338c451d1bb4c47e3109ea08ae7e3c58397e0879e4fe099572b",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/core-panicking.rs.template": "805a33d479ebcdf2c640f43fb01b7a6707038bc248b4830d15f30a8a60d40303",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/parliament_ballot_stack_frontiers.py.template": "053fd3a50071408faba23b12d5f9144fc8d0d4fa87ba7ad126ee3e7838ca1a5d",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/parliament_ballot_stack_frontiers_test.py.template": "7c290e70e9d9c5afad733b79cde35c96602a8e5a1ed1dab46c5c8f5850aa5b89",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/report.json": "90c2bd1dbdd3ba4839fa8705922a3ff1ea4854ec0578eec2a7787e6ffecbe30f",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/tests.txt": "4cfcd66179ed487df4129ec54d6a4740d94fe60875b0ec11d0bc2f339f5866b4",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_stack_frontiers/validation-receipt.json": "3a4136a9e291685ad00721b0b6f00e9fb87e4f14fb9e7cd4fa40eef66f536535",
+    "/Users/mtakemiya/dev/iroha/scripts/parliament_ballot_io_error_guard.py": "4fd65986f5034f52c01f714c65ac230e340b5b9d83572230d7aaa9a40153e91e",
+    "/tmp/parliament-resource-contract/resource-accel": "72b7fb66d5eb308b70c0cbeb9716226113a8621c419249b6613a010d14b877b5",
+    "/tmp/parliament-resource-contract/resource-portable": "aee963a937b52c999a74c6a831b6ea64289305bd2ac99ad542a8892530a98ee0"
+  },
+  "limitations": [
+    "No compiled whole-worker variant-flow or alias proof; the original indirect frontier remains open.",
+    "No resource bounds on read/errno, dynamic loader, failure handlers, signals or unwinding.",
+    "Read may repeatedly return Interrupted; no universal I/O time/attempt bound follows.",
+    "No old graph, report, binary or qualification flag is rewritten."
+  ],
+  "modes": {
+    "accel": {
+      "all_direct_callers_in_frozen_graph": [
+        {
+          "call": {
+            "address": "0x100001974",
+            "caller_depth_bytes": 336,
+            "kind": "call",
+            "target": "0x10000398c"
+          },
+          "function": "resource_contract::workspace::worker::h2e05ae2318fbaa23"
+        },
+        {
+          "call": {
+            "address": "0x100001a00",
+            "caller_depth_bytes": 336,
+            "kind": "call",
+            "target": "0x10000398c"
+          },
+          "function": "resource_contract::workspace::worker::h2e05ae2318fbaa23"
+        },
+        {
+          "call": {
+            "address": "0x100001ab8",
+            "caller_depth_bytes": 336,
+            "kind": "call",
+            "target": "0x10000398c"
+          },
+          "function": "resource_contract::workspace::worker::h2e05ae2318fbaa23"
+        },
+        {
+          "call": {
+            "address": "0x100001be0",
+            "caller_depth_bytes": 336,
+            "kind": "call",
+            "target": "0x10000398c"
+          },
+          "function": "resource_contract::workspace::worker::h2e05ae2318fbaa23"
+        },
+        {
+          "call": {
+            "address": "0x1000042e4",
+            "caller_depth_bytes": 80,
+            "kind": "call",
+            "target": "0x10000398c"
+          },
+          "function": "std::io::default_read_exact::h22758510ef6e4954"
+        },
+        {
+          "call": {
+            "address": "0x100006498",
+            "caller_depth_bytes": 128,
+            "kind": "call",
+            "target": "0x10000398c"
+          },
+          "function": "resource_contract::native::Mapping::new::hf6203cfdaf09c3c4"
+        },
+        {
+          "call": {
+            "address": "0x100006408",
+            "caller_depth_bytes": 128,
+            "kind": "call",
+            "target": "0x10000398c"
+          },
+          "function": "resource_contract::native::Mapping::new::hf6203cfdaf09c3c4"
+        }
+      ],
+      "binary_sha256": "72b7fb66d5eb308b70c0cbeb9716226113a8621c419249b6613a010d14b877b5",
+      "conditional_local_result": "All valid Error words with low bits 0, 2 or 3 return before any call.",
+      "entry": "0x10000398c",
+      "function": "core::ptr::drop_in_place$LT$std..io..error..Error$GT$::h567686fe1ba3917d",
+      "indirect_site": "0x1000039d8",
+      "instructions": [
+        {
+          "address": "0x10000398c",
+          "instruction": "sub sp, sp, #0x50"
+        },
+        {
+          "address": "0x100003990",
+          "instruction": "stp x22, x21, [sp, #0x20]"
+        },
+        {
+          "address": "0x100003994",
+          "instruction": "stp x20, x19, [sp, #0x30]"
+        },
+        {
+          "address": "0x100003998",
+          "instruction": "stp x29, x30, [sp, #0x40]"
+        },
+        {
+          "address": "0x10000399c",
+          "instruction": "add x29, sp, #0x40"
+        },
+        {
+          "address": "0x1000039a0",
+          "instruction": "ldr x19, [x0]"
+        },
+        {
+          "address": "0x1000039a4",
+          "instruction": "and x8, x19, #0x3"
+        },
+        {
+          "address": "0x1000039a8",
+          "instruction": "cmp x8, #0x1"
+        },
+        {
+          "address": "0x1000039ac",
+          "instruction": "b.eq 0x1000039c4 <core::ptr::drop_in_place$LT$std..io..error..Error$GT$::h567686fe1ba3917d+0x38>"
+        },
+        {
+          "address": "0x1000039b0",
+          "instruction": "ldp x29, x30, [sp, #0x40]"
+        },
+        {
+          "address": "0x1000039b4",
+          "instruction": "ldp x20, x19, [sp, #0x30]"
+        },
+        {
+          "address": "0x1000039b8",
+          "instruction": "ldp x22, x21, [sp, #0x20]"
+        },
+        {
+          "address": "0x1000039bc",
+          "instruction": "add sp, sp, #0x50"
+        },
+        {
+          "address": "0x1000039c0",
+          "instruction": "ret"
+        }
+      ],
+      "non_custom_local_sp_bytes": 80,
+      "non_custom_return": "0x1000039c0",
+      "original_frontier": {
+        "address": "0x1000039d8",
+        "callee_stack_bytes": null,
+        "caller_depth_bytes": 80,
+        "detail": "x8",
+        "function": "core::ptr::drop_in_place$LT$std..io..error..Error$GT$::h567686fe1ba3917d",
+        "kind": "indirect_call",
+        "maximum_modeled_caller_sp_bytes": 496
+      },
+      "tag_partition": [
+        {
+          "enters_custom_body": false,
+          "tag": 0
+        },
+        {
+          "enters_custom_body": true,
+          "tag": 1
+        },
+        {
+          "enters_custom_body": false,
+          "tag": 2
+        },
+        {
+          "enters_custom_body": false,
+          "tag": 3
+        }
+      ],
+      "unconditional_site_unreachable": false
+    },
+    "portable": {
+      "all_direct_callers_in_frozen_graph": [
+        {
+          "call": {
+            "address": "0x100000a18",
+            "caller_depth_bytes": 128,
+            "kind": "call",
+            "target": "0x100001638"
+          },
+          "function": "resource_contract::native::Mapping::new::he46f75528f3f475e"
+        },
+        {
+          "call": {
+            "address": "0x100000988",
+            "caller_depth_bytes": 128,
+            "kind": "call",
+            "target": "0x100001638"
+          },
+          "function": "resource_contract::native::Mapping::new::he46f75528f3f475e"
+        },
+        {
+          "call": {
+            "address": "0x10000282c",
+            "caller_depth_bytes": 336,
+            "kind": "call",
+            "target": "0x100001638"
+          },
+          "function": "resource_contract::workspace::worker::h5a4e432b92764ca9"
+        },
+        {
+          "call": {
+            "address": "0x1000028b8",
+            "caller_depth_bytes": 336,
+            "kind": "call",
+            "target": "0x100001638"
+          },
+          "function": "resource_contract::workspace::worker::h5a4e432b92764ca9"
+        },
+        {
+          "call": {
+            "address": "0x100002970",
+            "caller_depth_bytes": 336,
+            "kind": "call",
+            "target": "0x100001638"
+          },
+          "function": "resource_contract::workspace::worker::h5a4e432b92764ca9"
+        },
+        {
+          "call": {
+            "address": "0x100002a98",
+            "caller_depth_bytes": 336,
+            "kind": "call",
+            "target": "0x100001638"
+          },
+          "function": "resource_contract::workspace::worker::h5a4e432b92764ca9"
+        },
+        {
+          "call": {
+            "address": "0x10000459c",
+            "caller_depth_bytes": 80,
+            "kind": "call",
+            "target": "0x100001638"
+          },
+          "function": "std::io::default_read_exact::had8f1a4694b3a81d"
+        }
+      ],
+      "binary_sha256": "aee963a937b52c999a74c6a831b6ea64289305bd2ac99ad542a8892530a98ee0",
+      "conditional_local_result": "All valid Error words with low bits 0, 2 or 3 return before any call.",
+      "entry": "0x100001638",
+      "function": "core::ptr::drop_in_place$LT$std..io..error..Error$GT$::h693a785a8ecd8982",
+      "indirect_site": "0x100001684",
+      "instructions": [
+        {
+          "address": "0x100001638",
+          "instruction": "sub sp, sp, #0x50"
+        },
+        {
+          "address": "0x10000163c",
+          "instruction": "stp x22, x21, [sp, #0x20]"
+        },
+        {
+          "address": "0x100001640",
+          "instruction": "stp x20, x19, [sp, #0x30]"
+        },
+        {
+          "address": "0x100001644",
+          "instruction": "stp x29, x30, [sp, #0x40]"
+        },
+        {
+          "address": "0x100001648",
+          "instruction": "add x29, sp, #0x40"
+        },
+        {
+          "address": "0x10000164c",
+          "instruction": "ldr x19, [x0]"
+        },
+        {
+          "address": "0x100001650",
+          "instruction": "and x8, x19, #0x3"
+        },
+        {
+          "address": "0x100001654",
+          "instruction": "cmp x8, #0x1"
+        },
+        {
+          "address": "0x100001658",
+          "instruction": "b.eq 0x100001670 <core::ptr::drop_in_place$LT$std..io..error..Error$GT$::h693a785a8ecd8982+0x38>"
+        },
+        {
+          "address": "0x10000165c",
+          "instruction": "ldp x29, x30, [sp, #0x40]"
+        },
+        {
+          "address": "0x100001660",
+          "instruction": "ldp x20, x19, [sp, #0x30]"
+        },
+        {
+          "address": "0x100001664",
+          "instruction": "ldp x22, x21, [sp, #0x20]"
+        },
+        {
+          "address": "0x100001668",
+          "instruction": "add sp, sp, #0x50"
+        },
+        {
+          "address": "0x10000166c",
+          "instruction": "ret"
+        }
+      ],
+      "non_custom_local_sp_bytes": 80,
+      "non_custom_return": "0x10000166c",
+      "original_frontier": {
+        "address": "0x100001684",
+        "callee_stack_bytes": null,
+        "caller_depth_bytes": 80,
+        "detail": "x8",
+        "function": "core::ptr::drop_in_place$LT$std..io..error..Error$GT$::h693a785a8ecd8982",
+        "kind": "indirect_call",
+        "maximum_modeled_caller_sp_bytes": 496
+      },
+      "tag_partition": [
+        {
+          "enters_custom_body": false,
+          "tag": 0
+        },
+        {
+          "enters_custom_body": true,
+          "tag": 1
+        },
+        {
+          "enters_custom_body": false,
+          "tag": 2
+        },
+        {
+          "enters_custom_body": false,
+          "tag": 3
+        }
+      ],
+      "unconditional_site_unreachable": false
+    }
+  },
+  "observed_at_utc": "2026-10-13T09:22:17.117562+00:00",
+  "premises": [
+    "Pinned std source/compiler correspondence and ordinary ARM64 ABI.",
+    "Valid Error representation; memory-safe std/native execution and no corruption or reentry.",
+    "Concrete File implementation and default read_exact dispatch as in the pinned source."
+  ],
+  "profile_qualified": false,
+  "schema": "parliament-io-error-guard-v1",
+  "source_evidence": {
+    "std/fs.rs": {
+      "commit_url": "https://github.com/rust-lang/rust/blob/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/fs.rs",
+      "installed_html_sha256": "fba425e2945d02e0b8a1d840eb4d38737a2b6132c5e08db53f4ff4db6e6988d6",
+      "reviewed_excerpts": [
+        {
+          "first_line": 1282,
+          "last_line": 1283,
+          "text": "#[stable(feature = \"rust1\", since = \"1.0.0\")]\nimpl Read for &File {"
+        },
+        {
+          "first_line": 1294,
+          "last_line": 1298,
+          "text": "    /// [changes]: io#platform-specific-behavior\n    #[inline]\n    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {\n        self.inner.read(buf)\n    }"
+        },
+        {
+          "first_line": 1455,
+          "last_line": 1476,
+          "text": "impl Read for File {\n    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {\n        (&*self).read(buf)\n    }\n    fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {\n        (&*self).read_vectored(bufs)\n    }\n    fn read_buf(&mut self, cursor: BorrowedCursor<'_>) -> io::Result<()> {\n        (&*self).read_buf(cursor)\n    }\n    #[inline]\n    fn is_read_vectored(&self) -> bool {\n        (&&*self).is_read_vectored()\n    }\n    fn read_to_end(&mut self, buf: &mut Vec<u8>) -> io::Result<usize> {\n        (&*self).read_to_end(buf)\n    }\n    fn read_to_string(&mut self, buf: &mut String) -> io::Result<usize> {\n        (&*self).read_to_string(buf)\n    }\n}\n#[stable(feature = \"rust1\", since = \"1.0.0\")]"
+        }
+      ],
+      "snapshot": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_io_error_guard/analysis/std-fs.rs.template",
+      "source_sha256": "8e8e9a0afb637414c29163d5703c3c979d548f88b332c40154e1dba7fb7ce570"
+    },
+    "std/io/error.rs": {
+      "commit_url": "https://github.com/rust-lang/rust/blob/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/io/error.rs",
+      "installed_html_sha256": "214dcc0a293b7576d306e36ac42711193074304676c8af81bd107cbcffec9862",
+      "reviewed_excerpts": [
+        {
+          "first_line": 1,
+          "last_line": 12,
+          "text": "#[cfg(test)]\nmod tests;\n\n#[cfg(all(target_pointer_width = \"64\", not(target_os = \"uefi\")))]\nmod repr_bitpacked;\n#[cfg(all(target_pointer_width = \"64\", not(target_os = \"uefi\")))]\nuse repr_bitpacked::Repr;\n\n#[cfg(any(not(target_pointer_width = \"64\"), target_os = \"uefi\"))]\nmod repr_unpacked;\n#[cfg(any(not(target_pointer_width = \"64\"), target_os = \"uefi\"))]\nuse repr_unpacked::Repr;"
+        },
+        {
+          "first_line": 82,
+          "last_line": 83,
+          "text": "    pub(crate) const READ_EXACT_EOF: Self =\n        const_error!(ErrorKind::UnexpectedEof, \"failed to fill whole buffer\");"
+        },
+        {
+          "first_line": 186,
+          "last_line": 190,
+          "text": "pub macro const_error($kind:expr, $message:expr $(,)?) {\n    $crate::hint::must_use($crate::io::Error::from_static_message(\n        const { &$crate::io::SimpleMessage { kind: $kind, message: $message } },\n    ))\n}"
+        },
+        {
+          "first_line": 620,
+          "last_line": 622,
+          "text": "    pub const fn from_static_message(msg: &'static SimpleMessage) -> Error {\n        Self { repr: Repr::new_simple_message(msg) }\n    }"
+        },
+        {
+          "first_line": 648,
+          "last_line": 650,
+          "text": "    pub fn last_os_error() -> Error {\n        Error::from_raw_os_error(sys::os::errno())\n    }"
+        },
+        {
+          "first_line": 680,
+          "last_line": 682,
+          "text": "    pub fn from_raw_os_error(code: RawOsError) -> Error {\n        Error { repr: Repr::new_os(code) }\n    }"
+        }
+      ],
+      "snapshot": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_io_error_guard/analysis/std-io-error.rs.template",
+      "source_sha256": "825881ce7e826a8f0974d834402589a3e9d4d3f68ce783778c739cbc6d79fd3f"
+    },
+    "std/io/error/repr_bitpacked.rs": {
+      "commit_url": "https://github.com/rust-lang/rust/blob/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/io/error/repr_bitpacked.rs",
+      "installed_html_sha256": "8ef67bbd2b7f850392b58c2836808fcba00bc9c8864712c7d97fb3d92b6bdd66",
+      "reviewed_excerpts": [
+        {
+          "first_line": 112,
+          "last_line": 116,
+          "text": "const TAG_MASK: usize = 0b11;\nconst TAG_SIMPLE_MESSAGE: usize = 0b00;\nconst TAG_CUSTOM: usize = 0b01;\nconst TAG_OS: usize = 0b10;\nconst TAG_SIMPLE: usize = 0b11;"
+        },
+        {
+          "first_line": 167,
+          "last_line": 170,
+          "text": "    pub(super) fn new_os(code: RawOsError) -> Self {\n        let utagged = ((code as usize) << 32) | TAG_OS;\n        // Safety: `TAG_OS` is not zero, so the result of the `|` is not 0.\n        let res = Self("
+        },
+        {
+          "first_line": 202,
+          "last_line": 205,
+          "text": "    pub(super) const fn new_simple_message(m: &'static SimpleMessage) -> Self {\n        // Safety: References are never null.\n        Self(unsafe { NonNull::new_unchecked(m as *const _ as *mut ()) }, PhantomData)\n    }"
+        },
+        {
+          "first_line": 228,
+          "last_line": 236,
+          "text": "impl Drop for Repr {\n    #[inline]\n    fn drop(&mut self) {\n        // Safety: We're a Repr, decode_repr is fine. The `Box::from_raw` is\n        // safe because we're being dropped.\n        unsafe {\n            let _ = decode_repr(self.0, |p| Box::<Custom>::from_raw(p));\n        }\n    }"
+        },
+        {
+          "first_line": 244,
+          "last_line": 279,
+          "text": "unsafe fn decode_repr<C, F>(ptr: NonNull<()>, make_custom: F) -> ErrorData<C>\nwhere\n    F: FnOnce(*mut Custom) -> C,\n{\n    let bits = ptr.as_ptr().addr();\n    match bits & TAG_MASK {\n        TAG_OS => {\n            let code = ((bits as i64) >> 32) as RawOsError;\n            ErrorData::Os(code)\n        }\n        TAG_SIMPLE => {\n            let kind_bits = (bits >> 32) as u32;\n            let kind = kind_from_prim(kind_bits).unwrap_or_else(|| {\n                debug_assert!(false, \"Invalid io::error::Repr bits: `Repr({:#018x})`\", bits);\n                // This means the `ptr` passed in was not valid, which violates\n                // the unsafe contract of `decode_repr`.\n                //\n                // Using this rather than unwrap meaningfully improves the code\n                // for callers which only care about one variant (usually\n                // `Custom`)\n                unsafe { core::hint::unreachable_unchecked() };\n            });\n            ErrorData::Simple(kind)\n        }\n        TAG_SIMPLE_MESSAGE => {\n            // SAFETY: per tag\n            unsafe { ErrorData::SimpleMessage(&*ptr.cast::<SimpleMessage>().as_ptr()) }\n        }\n        TAG_CUSTOM => {\n            // It would be correct for us to use `ptr::byte_sub` here (see the\n            // comment above the `wrapping_add` call in `new_custom` for why),\n            // but it isn't clear that it makes a difference, so we don't.\n            let custom = ptr.as_ptr().wrapping_byte_sub(TAG_CUSTOM).cast::<Custom>();\n            ErrorData::Custom(make_custom(custom))\n        }\n        _ => {"
+        },
+        {
+          "first_line": 374,
+          "last_line": 377,
+          "text": "static_assert!((TAG_MASK + 1).is_power_of_two());\n// And they must have sufficient alignment.\nstatic_assert!(align_of::<SimpleMessage>() >= TAG_MASK + 1);\nstatic_assert!(align_of::<Custom>() >= TAG_MASK + 1);"
+        }
+      ],
+      "snapshot": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_io_error_guard/analysis/std-io-error-repr_bitpacked.rs.template",
+      "source_sha256": "3d0e6dbeb9b2b25834dddb99b01e52130371f261093e92227cebfa4d95bbb034"
+    },
+    "std/io/mod.rs": {
+      "commit_url": "https://github.com/rust-lang/rust/blob/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/io/mod.rs",
+      "installed_html_sha256": "51a687dcaded8b29b4666da1dc01a388d9efeda0faf669e03a430afad8b7fcd2",
+      "reviewed_excerpts": [
+        {
+          "first_line": 572,
+          "last_line": 585,
+          "text": "pub(crate) fn default_read_exact<R: Read + ?Sized>(this: &mut R, mut buf: &mut [u8]) -> Result<()> {\n    while !buf.is_empty() {\n        match this.read(buf) {\n            Ok(0) => break,\n            Ok(n) => {\n                buf = &mut buf[n..];\n            }\n            Err(ref e) if e.is_interrupted() => {}\n            Err(e) => return Err(e),\n        }\n    }\n    if !buf.is_empty() { Err(Error::READ_EXACT_EOF) } else { Ok(()) }\n}\n"
+        },
+        {
+          "first_line": 1044,
+          "last_line": 1046,
+          "text": "    fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {\n        default_read_exact(self, buf)\n    }"
+        }
+      ],
+      "snapshot": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_io_error_guard/analysis/std-io-mod.rs.template",
+      "source_sha256": "eb1ffc35351eec64b4f1e1deb66ddfc1082049ca2f1ace998ceb4d910106cd11"
+    },
+    "std/sys/fd/unix.rs": {
+      "commit_url": "https://github.com/rust-lang/rust/blob/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/fd/unix.rs",
+      "installed_html_sha256": "a0c9406876002ab4a4b6550bd0add5978dd147b0199f77d9d3781e59cab3ad33",
+      "reviewed_excerpts": [
+        {
+          "first_line": 111,
+          "last_line": 121,
+          "text": "    pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {\n        let ret = cvt(unsafe {\n            libc::read(\n                self.as_raw_fd(),\n                buf.as_mut_ptr() as *mut libc::c_void,\n                cmp::min(buf.len(), READ_LIMIT),\n            )\n        })?;\n        Ok(ret as usize)\n    }\n"
+        }
+      ],
+      "snapshot": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_io_error_guard/analysis/std-sys-fd-unix.rs.template",
+      "source_sha256": "320c3f3864df0b3923cf01a2ad82e81cab4205829b63de2b0ba8f9ee876fe62e"
+    },
+    "std/sys/fs/unix.rs": {
+      "commit_url": "https://github.com/rust-lang/rust/blob/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/fs/unix.rs",
+      "installed_html_sha256": "fa4f8ba1d6cc0f9817b465a0a03f9244c25c38960b49a0550c001e224b8d69e1",
+      "reviewed_excerpts": [
+        {
+          "first_line": 1540,
+          "last_line": 1542,
+          "text": "    pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {\n        self.0.read(buf)\n    }"
+        }
+      ],
+      "snapshot": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_io_error_guard/analysis/std-sys-fs-unix.rs.template",
+      "source_sha256": "6149d78c92570de6d906115857fc520781341da05649cd53dec3ff94ccd5cdbc"
+    },
+    "std/sys/pal/unix/mod.rs": {
+      "commit_url": "https://github.com/rust-lang/rust/blob/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/pal/unix/mod.rs",
+      "installed_html_sha256": "ab97fb43ea075de6ef1f2b518655769803f43f16abb7a4f052c5aab558e5380e",
+      "reviewed_excerpts": [
+        {
+          "first_line": 302,
+          "last_line": 304,
+          "text": "pub fn cvt<T: IsMinusOne>(t: T) -> crate::io::Result<T> {\n    if t.is_minus_one() { Err(crate::io::Error::last_os_error()) } else { Ok(t) }\n}"
+        }
+      ],
+      "snapshot": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_io_error_guard/analysis/std-sys-pal-unix-mod.rs.template",
+      "source_sha256": "a6b69f1cdccab6b8193ac3b0601f99096d7e8c18a4b1571c5700ade9246b691a"
+    }
+  },
+  "source_lemma_scope": "Ordinary charged File::read/read_exact error construction only; setup/open/metadata errors, unwind and runtime callbacks excluded.",
+  "status": "LOCAL_GUARDS_PASS_SOURCE_LEMMA_CONDITIONAL",
+  "whole_worker_variant_flow_proved": false
+}

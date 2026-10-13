@@ -162,7 +162,7 @@ fn descriptor_roundtrip_matches_golden() {
     let decoded: AxtDescriptor =
         norito::decode_from_bytes(axt_golden::AXT_DESCRIPTOR).expect("decode descriptor fixture");
     assert_eq!(decoded, descriptor);
-    assert_eq!(validate_descriptor(&descriptor), Ok(()));
+    assert!(matches!(validate_descriptor(&descriptor), Ok(())));
 }
 #[test]
 fn asset_handle_roundtrip_matches_golden() {

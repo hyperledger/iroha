@@ -1,0 +1,684 @@
+{
+  "all_inputs_panic_free_proved": false,
+  "build_receipt": {
+    "binaries": {
+      "accel": {
+        "path": "/tmp/parliament-resource-contract/resource-accel",
+        "sha256": "72b7fb66d5eb308b70c0cbeb9716226113a8621c419249b6613a010d14b877b5"
+      },
+      "portable": {
+        "path": "/tmp/parliament-resource-contract/resource-portable",
+        "sha256": "aee963a937b52c999a74c6a831b6ea64289305bd2ac99ad542a8892530a98ee0"
+      }
+    },
+    "path": "docs/validation/parliament_ballot_resource_contract/build-receipt.json",
+    "sha256": "10e64b2cba1339214c1c1df53a02f0a4b4f26855098bf1839d1b604c4952201e",
+    "source_manifest_sha256": "5c6258c0ca60b5bfaa05ce0c3f38d47ca62f0e1e6d1099912c2660122bc75bca"
+  },
+  "complete_machine_ownership_certificate": false,
+  "complete_workspace_certificate": false,
+  "conditional_induction": [
+    "The entry carries no heap owner from setup; borrowed byte slices and static tables are not converted into owners of their original backing storage.",
+    "The concrete decoders, profile builders, proof backend and private AES provider construct their owning containers during the call using ordinary default allocation.",
+    "If the pinned compiler/default allocator semantics, memory safety and stable active arena premises hold, each successful nonzero allocation originates in that arena; ownership-preserving moves and default reallocations retain arena ownership of live blocks. Empty/ZST owners need not allocate or deallocate.",
+    "If the pointer reaching each compiled free predicate is that same live allocation pointer with its valid layout, the current ARENA contains check chooses arena release. The missing universal source-to-machine pointer correspondence is not supplied by this audit."
+  ],
+  "cross_references": {
+    "docs/validation/parliament_ballot_allocator_activation/analysis/report.json": "a8ac71f6b5d0e473496d9931652c7eda435d860c90c04120aad4cfd9da225e06",
+    "docs/validation/parliament_ballot_indirect_targets/catalog.json": "3cad64efdedc92d8dd0a1401ce07a1c81a170554889018a1b80ea581af2be1b9",
+    "docs/validation/parliament_ballot_resource_contract/build-receipt.json": "10e64b2cba1339214c1c1df53a02f0a4b4f26855098bf1839d1b604c4952201e",
+    "docs/validation/parliament_ballot_stack_frontiers/report.json": "90c2bd1dbdd3ba4839fa8705922a3ff1ea4854ec0578eec2a7787e6ffecbe30f"
+  },
+  "entry_point": "resource_contract::budget::Reservation::verify",
+  "findings": [
+    {
+      "evidence": [
+        {
+          "end_line": 67,
+          "excerpt_sha256": "16849167ce7c4fabcb4ba4991ceddb3e825787502fbaa2d7a1522ff4d362e03f",
+          "file_sha256": "13a9440c02f6feff17dd336b6d49f90f2b95483e4fc646d3477a70726935246f",
+          "path": "crates/iroha_parliament_ballot_proof/examples/resource_contract/budget.rs",
+          "start_line": 55
+        },
+        {
+          "end_line": 139,
+          "excerpt_sha256": "d43c2e130d3eeb034cbab37f5c8ec7c0166656ed2a7b2dfefeac5f414714a900",
+          "file_sha256": "13a9440c02f6feff17dd336b6d49f90f2b95483e4fc646d3477a70726935246f",
+          "path": "crates/iroha_parliament_ballot_proof/examples/resource_contract/budget.rs",
+          "start_line": 133
+        },
+        {
+          "end_line": 229,
+          "excerpt_sha256": "b61cd6f7f40b8338dd434098e1e9a6e79be0f46475a01cd6dfe82ba6fee6c56f",
+          "file_sha256": "13a9440c02f6feff17dd336b6d49f90f2b95483e4fc646d3477a70726935246f",
+          "path": "crates/iroha_parliament_ballot_proof/examples/resource_contract/budget.rs",
+          "start_line": 184
+        },
+        {
+          "end_line": 97,
+          "excerpt_sha256": "7523abd78c480e4bcfb2a54c3e14b31db53543dd7ffb9ff1d6fdc6e606419bd8",
+          "file_sha256": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+          "path": "crates/iroha_parliament_ballot_proof/src/profile.rs",
+          "start_line": 82
+        }
+      ],
+      "finding": "Reservation owns only Charge; Row and Role are scalar enums. Reservation::verify takes record as &[u8], and passes borrowed subslices to decoding and verification. No Vec, Box, String, File, caller callback, allocator object or public relation object is transferred at this entry.",
+      "id": "entry_has_no_owned_heap_argument"
+    },
+    {
+      "evidence": [
+        {
+          "end_line": 364,
+          "excerpt_sha256": "f8f95bad72b29d3729ff306c005e61c187a950cb563fa006cdd4e5e0c467f0f2",
+          "file_sha256": "875e767119f2f462bf0608c57dcadfd3838cbea1e8c7585c1bdb5605cbaa0dca",
+          "path": "crates/iroha_parliament_ballot_proof/examples/resource_contract/workspace.rs",
+          "start_line": 290
+        }
+      ],
+      "finding": "The concrete worker opens File and obtains metadata before ACTIVE, reserves the length, sets ACTIVE=true, then creates the record Vec and reads into it. Only &record enters Reservation::verify. File, its errors/close, the outer record drop, pthread setup and supervisor state are outside this Reservation ownership claim even though some occur in the larger charged interval.",
+      "id": "worker_record_and_file_boundary"
+    },
+    {
+      "evidence": [
+        {
+          "end_line": 207,
+          "excerpt_sha256": "11a65c603dc3be962d3023b09b237abc9e2c7406b816e29d963e30d5d00f54ea",
+          "file_sha256": "5251b4aa9ac0867986b054c4fad6214654032ecdac8dc411ab9a2da542735cb1",
+          "path": "crates/iroha_parliament_ballot_proof/src/test_codec.rs",
+          "start_line": 160
+        },
+        {
+          "end_line": 362,
+          "excerpt_sha256": "8883eb3069602bbbe8f93a6e4dda08b0d7a2a0007f9abc8a58a4c89b3cb36db1",
+          "file_sha256": "5251b4aa9ac0867986b054c4fad6214654032ecdac8dc411ab9a2da542735cb1",
+          "path": "crates/iroha_parliament_ballot_proof/src/test_codec.rs",
+          "start_line": 339
+        },
+        {
+          "end_line": 263,
+          "excerpt_sha256": "70266bbcca140e4342309fc67201f53292bc6a73342b56c9b230ee96346b4799",
+          "file_sha256": "ac354c72e09fb022b1dcb300cf339fa66303abdf76ae5518f7f9e243cc5e5a2f",
+          "path": "crates/iroha_zkp_vole/src/codec.rs",
+          "start_line": 241
+        },
+        {
+          "end_line": 426,
+          "excerpt_sha256": "9ae97ee2e8bd5b965013c4989bc5e8102bb1654b599820e48186090d9c2bace8",
+          "file_sha256": "ac354c72e09fb022b1dcb300cf339fa66303abdf76ae5518f7f9e243cc5e5a2f",
+          "path": "crates/iroha_zkp_vole/src/codec.rs",
+          "start_line": 357
+        }
+      ],
+      "finding": "decode_record returns two subslices. parse_frame allocates a fresh Vec of borrowed slices; it does not take ownership of their byte storage. The backend ProofFields is Copy and contains borrowed slices/arrays plus the counter, and decode_as obtains them by checked splitting.",
+      "id": "record_and_proof_views_are_borrowed"
+    },
+    {
+      "evidence": [
+        {
+          "end_line": 263,
+          "excerpt_sha256": "976b2ba112a9c2989f0589207fc9ec85c353d74549b16571e698ea9745cb87d2",
+          "file_sha256": "5251b4aa9ac0867986b054c4fad6214654032ecdac8dc411ab9a2da542735cb1",
+          "path": "crates/iroha_parliament_ballot_proof/src/test_codec.rs",
+          "start_line": 222
+        },
+        {
+          "end_line": 305,
+          "excerpt_sha256": "7ca36852768d32571f94594d15be50c13eb7960a3dc4df5b5fd80965d887106e",
+          "file_sha256": "784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0",
+          "path": "crates/iroha_parliament_ballot_proof/src/framing.rs",
+          "start_line": 257
+        },
+        {
+          "end_line": 149,
+          "excerpt_sha256": "bcf83da6b74c6386b5145119e63ffba766da15897a2cf58a7de71621c79eb257",
+          "file_sha256": "9cef899f6864c4b8517cab01b66ec66e38e0d5350d7a1ce02cfb889bdca02b34",
+          "path": "crates/iroha_parliament_ballot_proof/src/credential.rs",
+          "start_line": 135
+        },
+        {
+          "end_line": 84,
+          "excerpt_sha256": "1bc6c631b99173b840229893fbf42106584422fbfcc51af1250907a62bacf3d3",
+          "file_sha256": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+          "path": "crates/iroha_parliament_ballot_proof/src/registration.rs",
+          "start_line": 53
+        }
+      ],
+      "finding": "decode_registration constructs BodyContext and six OpaqueField values from borrowed fields. Their constructors bound the length and use to_vec; RegistrationStatement moves those seven fresh Vec owners into itself. RegistrationContext has exactly the six OpaqueField fields. A failed partial construction drops only the fresh values already constructed.",
+      "id": "registration_owners_are_fresh"
+    },
+    {
+      "evidence": [
+        {
+          "end_line": 331,
+          "excerpt_sha256": "ab76bb69bb7a405d7691966b79c69210ee02941e9c9f68214c6957bed28b5cb6",
+          "file_sha256": "5251b4aa9ac0867986b054c4fad6214654032ecdac8dc411ab9a2da542735cb1",
+          "path": "crates/iroha_parliament_ballot_proof/src/test_codec.rs",
+          "start_line": 272
+        },
+        {
+          "end_line": 97,
+          "excerpt_sha256": "66bd03b6e0f802bea79ed1d9ef1cf47e077ca9b2a8bfb211135208e90fe9594e",
+          "file_sha256": "769eb3de9f35211bd80067f1c0669645995d603cce3aa2f0e2818699be834de0",
+          "path": "crates/iroha_parliament_ballot_proof/src/sealed_list.rs",
+          "start_line": 80
+        },
+        {
+          "end_line": 112,
+          "excerpt_sha256": "08a15dba35054e43e8c3e7e9abc69097b6e538b199dd7a737943f93a5a35fec1",
+          "file_sha256": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+          "path": "crates/iroha_parliament_ballot_proof/src/vote.rs",
+          "start_line": 92
+        }
+      ],
+      "finding": "decode_vote bounds the encoded list and then calls sealed_list::split, which copies fixed-size commitment arrays into a newly collected Vec. VoteStatement has one Vec field. Thus the eight statement-owned Vec fields counted across the alternative registration/vote drop functions mean seven for a registration and one for a vote, not eight owners in one invocation.",
+      "id": "vote_owner_is_fresh"
+    },
+    {
+      "evidence": [
+        {
+          "end_line": 229,
+          "excerpt_sha256": "0cefe5a643b8360b25210a419e3ef9667d6d24689650a5c290a540eb67151a7d",
+          "file_sha256": "13a9440c02f6feff17dd336b6d49f90f2b95483e4fc646d3477a70726935246f",
+          "path": "crates/iroha_parliament_ballot_proof/examples/resource_contract/budget.rs",
+          "start_line": 214
+        },
+        {
+          "end_line": 247,
+          "excerpt_sha256": "d95714e63f48fe41a7b1ec6aa6d0a009ec7a7c4dd3ae07a9783d6e98e335ca24",
+          "file_sha256": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+          "path": "crates/iroha_parliament_ballot_proof/src/profile.rs",
+          "start_line": 230
+        },
+        {
+          "end_line": 291,
+          "excerpt_sha256": "77fe2db6c788d30654b2f4b1f3891e0d31d16d7cc7ee58b4ccd47cd01bc3be43",
+          "file_sha256": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+          "path": "crates/iroha_parliament_ballot_proof/src/profile.rs",
+          "start_line": 263
+        },
+        {
+          "end_line": 353,
+          "excerpt_sha256": "c2b475a514d475f8ce758dddd5cc801828e9569f2ff07106eb28abce1b770b29",
+          "file_sha256": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+          "path": "crates/iroha_parliament_ballot_proof/src/profile.rs",
+          "start_line": 310
+        },
+        {
+          "end_line": 59,
+          "excerpt_sha256": "52c3221cb97d806ddc98ab935326201052ed36de5d5dfff08c6f1bdbdac20cc7",
+          "file_sha256": "9da70396e4e6aa637f8033e95855eeaccae276c10ae4576469da42139349a68a",
+          "path": "crates/iroha_zkp_vole/src/crt/codec.rs",
+          "start_line": 37
+        },
+        {
+          "end_line": 190,
+          "excerpt_sha256": "63a5046a97ed97b5c8eb4c61a471c983e04749b9dea550c6c3d32323424e0c73",
+          "file_sha256": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+          "path": "crates/iroha_parliament_ballot_proof/src/registration.rs",
+          "start_line": 158
+        },
+        {
+          "end_line": 355,
+          "excerpt_sha256": "8ecc39c15c9c2d139657571947a765a63159759b9686062f6671f5a11b7c7cb0",
+          "file_sha256": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+          "path": "crates/iroha_parliament_ballot_proof/src/registration.rs",
+          "start_line": 337
+        },
+        {
+          "end_line": 280,
+          "excerpt_sha256": "113566cdf6a7917398d1c19784a423e947317bf01547e661b87cfaaf7a4a32ea",
+          "file_sha256": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+          "path": "crates/iroha_parliament_ballot_proof/src/vote.rs",
+          "start_line": 222
+        },
+        {
+          "end_line": 487,
+          "excerpt_sha256": "15f641c7f07c163020a06357be9a6b20d1a5e29256e2c0e747e2d5339d79035f",
+          "file_sha256": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+          "path": "crates/iroha_parliament_ballot_proof/src/vote.rs",
+          "start_line": 473
+        }
+      ],
+      "finding": "verify_cold and the concrete registration/vote verify functions create their own Profile and instance. Profile itself is Copy/fixed-size; CRT serialization, descriptor and statement frame buffers are freshly created within the call. VotePublic owns a fresh concatenation of its list; its source statement remains borrowed.",
+      "id": "profile_and_frames_are_local"
+    },
+    {
+      "evidence": [
+        {
+          "end_line": 264,
+          "excerpt_sha256": "c18d8a3fce151b09f9b0c5a27d4ca96c533b0cc6fc2ac459f04e6e47d8165cc4",
+          "file_sha256": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+          "path": "crates/iroha_zkp_vole/src/params.rs",
+          "start_line": 256
+        },
+        {
+          "end_line": 76,
+          "excerpt_sha256": "d6362ad31e9352d7dd606690e8387afb425adb8d2073f210399f8c589fcf46f1",
+          "file_sha256": "0426a8ecc21975316132db16e6ddfc0b63836c871eb69173d5f6bf230ffd7f98",
+          "path": "crates/iroha_zkp_vole/src/crt/generated.rs",
+          "start_line": 51
+        },
+        {
+          "end_line": 113,
+          "excerpt_sha256": "18a8b46d59a901bd5183d9dca896dd6481f34f3a85db6bf6c780e4323b5b7959",
+          "file_sha256": "0426a8ecc21975316132db16e6ddfc0b63836c871eb69173d5f6bf230ffd7f98",
+          "path": "crates/iroha_zkp_vole/src/crt/generated.rs",
+          "start_line": 88
+        },
+        {
+          "end_line": 196,
+          "excerpt_sha256": "2693645dda806f0dee6233d6ef745779c839e5a4e83172583285a60f002df7b5",
+          "file_sha256": "77c1197bba8e107fda8e833be0550e98b45825f805d3630c7dbac92810bac3cb",
+          "path": "crates/iroha_zkp_vole/src/crt/tables.rs",
+          "start_line": 170
+        },
+        {
+          "end_line": 103,
+          "excerpt_sha256": "7637816cde3131d4b96c6ff3fde25a510854d75b2704b5aa39aca603cee21c4f",
+          "file_sha256": "810bad5d8087109e52ce650a5ac596e87e6df8a167cde36b97f24834bbf7281f",
+          "path": "crates/iroha_zkp_vole/src/crt/matrix.rs",
+          "start_line": 93
+        }
+      ],
+      "finding": "The concrete row lookup returns a shared static CrtTables reference. These tables are constructed at compile time with Cow::Borrowed arrays and BitMatrix::from_static. No cached heap-owned table is moved into verification. This does not imply that serializing or manipulating the tables is allocation-free.",
+      "id": "crt_storage_is_borrowed_static"
+    },
+    {
+      "evidence": [
+        {
+          "end_line": 263,
+          "excerpt_sha256": "3526f21fafb75a92289a1bd76f5636ae324209faf296cde885858b3f12018e4a",
+          "file_sha256": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+          "path": "crates/iroha_parliament_ballot_proof/src/proving.rs",
+          "start_line": 244
+        },
+        {
+          "end_line": 782,
+          "excerpt_sha256": "0f53e547bb6b260ced55ab233d597aeabd240aa4019a5f4c471f1776b635b001",
+          "file_sha256": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+          "path": "crates/iroha_zkp_vole/src/proof.rs",
+          "start_line": 670
+        },
+        {
+          "end_line": 355,
+          "excerpt_sha256": "4106a0292e97cafc85a81013cef3ba17a7a04d0ced11c54ffb8bfa24226f009a",
+          "file_sha256": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+          "path": "crates/iroha_zkp_vole/src/vole.rs",
+          "start_line": 337
+        },
+        {
+          "end_line": 1105,
+          "excerpt_sha256": "2df0acd48a4795cde170d18cbdfe0016048e6219a4167f312cefd640b59a4f52",
+          "file_sha256": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+          "path": "crates/iroha_zkp_vole/src/vole.rs",
+          "start_line": 985
+        },
+        {
+          "end_line": 1116,
+          "excerpt_sha256": "34baa5a9a418ff4e81f2ca8c827e6b0b80ab6279949149dad4be972aeb62e08a",
+          "file_sha256": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+          "path": "crates/iroha_zkp_vole/src/bavc.rs",
+          "start_line": 1050
+        },
+        {
+          "end_line": 575,
+          "excerpt_sha256": "11c332165a06fd80cf80f9b1c6160c28d3400fe91ad8b038e312b838f0e96f69",
+          "file_sha256": "99260f5f4f0cb1b8e8e6356ce14b0deb20099d25549b852441bc541588c6f3ad",
+          "path": "crates/iroha_zkp_vole/src/quicksilver.rs",
+          "start_line": 517
+        },
+        {
+          "end_line": 78,
+          "excerpt_sha256": "acd0ffa4aa00feb042bb9fe9ab31f27ed95e18ea504225084a8c250e61126b71",
+          "file_sha256": "7b038e8b2aa647d89f06d38bcdf371efb97b4abf6f2edb43585be89609051dfe",
+          "path": "crates/iroha_zkp_vole/src/quicksilver/verifier.rs",
+          "start_line": 36
+        },
+        {
+          "end_line": 342,
+          "excerpt_sha256": "8104e71903502d2be97a926e693f19e260aa515cc95ab008c7bd5154800e1c25",
+          "file_sha256": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+          "path": "crates/iroha_parliament_ballot_proof/src/vote.rs",
+          "start_line": 320
+        }
+      ],
+      "finding": "The concrete proof verifier receives borrowed context/relation/public/mu/proof. Its grinder constructs reconstruction and transcript scratch; VOLE and BAVC reconstruction construct their own Vec/Zeroizing<Vec> buffers from borrowed proof bytes and static tables. Moving buffers out of Zeroizing via mem::take preserves that local allocation origin. No owning external container enters these concrete calls.",
+      "id": "backend_scratch_is_created_under_call"
+    },
+    {
+      "evidence": [
+        {
+          "end_line": 100,
+          "excerpt_sha256": "81d2a544bd0eac4af624e19f174bb3d40c75dcb331be5e07f274675a32e84869",
+          "file_sha256": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+          "path": "crates/iroha_zkp_vole/src/prg.rs",
+          "start_line": 63
+        },
+        {
+          "end_line": 201,
+          "excerpt_sha256": "bc751c26e3ec1fc588b975e9a27e0bf3c44bf6530ff92db98d6b1e5fdd1ed0da",
+          "file_sha256": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+          "path": "crates/iroha_zkp_vole/src/prg.rs",
+          "start_line": 123
+        },
+        {
+          "end_line": 461,
+          "excerpt_sha256": "196494eaa6debdd86c8540ab5ef9dcf6260891565b93563fdfb6381b7384aa31",
+          "file_sha256": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+          "path": "crates/iroha_zkp_vole/src/bavc.rs",
+          "start_line": 452
+        },
+        {
+          "end_line": 619,
+          "excerpt_sha256": "ebc949245420d5d0bf889b70a1d2a7b2bf9bc82ce38f05607f7dce1e6cfb5812",
+          "file_sha256": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+          "path": "crates/iroha_zkp_vole/src/bavc.rs",
+          "start_line": 581
+        },
+        {
+          "end_line": 101,
+          "excerpt_sha256": "2755259921b002487dff8a991f0805d271648d5e8bc611cc7fea6fe1fcd2a196",
+          "file_sha256": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+          "path": "crates/iroha_zkp_vole/src/vole/convert.rs",
+          "start_line": 83
+        },
+        {
+          "end_line": 67,
+          "excerpt_sha256": "849d7b3bc8af74b71d96a911778d0c7874ef130dfe40297a6ae84f7ad8034221",
+          "file_sha256": "3a84211717fdc86a2b0f0d9086f33410bee2ff9be480f50c981980f678a0c2a8",
+          "path": "vendor/aes/src/soft.rs",
+          "start_line": 25
+        },
+        {
+          "end_line": 120,
+          "excerpt_sha256": "1529e643b9f5130b684adfd04430d232759b50a5a8c4aff47974c1a9cfe1e16e",
+          "file_sha256": "3a84211717fdc86a2b0f0d9086f33410bee2ff9be480f50c981980f678a0c2a8",
+          "path": "vendor/aes/src/soft.rs",
+          "start_line": 113
+        },
+        {
+          "end_line": 55,
+          "excerpt_sha256": "34b09bed785192bc6ea5972c262c3650a524b12e1649784e164eefe033b51992",
+          "file_sha256": "ba7f24607973e4bb6dd07e100f70e0cf2a04e0b083020085b8d4865f02405f41",
+          "path": "vendor/aes/src/autodetect.rs",
+          "start_line": 20
+        },
+        {
+          "end_line": 113,
+          "excerpt_sha256": "d8e9df921bb3d4d79998c6e581ece53d678274c8c1867ad4c0c7a8693e5b22e6",
+          "file_sha256": "ba7f24607973e4bb6dd07e100f70e0cf2a04e0b083020085b8d4865f02405f41",
+          "path": "vendor/aes/src/autodetect.rs",
+          "start_line": 95
+        },
+        {
+          "end_line": 193,
+          "excerpt_sha256": "e044791a152ecec01a880d7373a7446ee2bf2ddcce1ee39a2b34263b7b198ff6",
+          "file_sha256": "ba7f24607973e4bb6dd07e100f70e0cf2a04e0b083020085b8d4865f02405f41",
+          "path": "vendor/aes/src/autodetect.rs",
+          "start_line": 183
+        },
+        {
+          "end_line": 54,
+          "excerpt_sha256": "fd02d566e322c2c6169798cf899e94447b0e08d1ece379aae34c5f8381c2231e",
+          "file_sha256": "bc8ff3cae2f799d849105b79091604e1579ae5e8a8fbe19db24c6ccbf48146a4",
+          "path": "vendor/aes/src/armv8.rs",
+          "start_line": 34
+        }
+      ],
+      "finding": "Prg owns Box<dyn Encryptor>, but Encryptor and cipher are private. Its constructors allocate a new Box containing one of the fixed portable or accelerated AES types; seed input is borrowed, never adopted as an owner. BAVC node/leaf expansion and VOLE conversion call these constructors inside the verification path. Vendor key schedules and autodetect union hold fixed-size AES state, not an injected allocator or caller-owned heap object. Compiler/vtable integrity and unsafe dependency correctness remain premises.",
+      "id": "aes_box_is_locally_constructed_closed_provider"
+    },
+    {
+      "evidence": [
+        {
+          "end_line": 65,
+          "excerpt_sha256": "9935ca7e445426b1784d99f77c83f2a47a9ca469f944c53de109c387590c0f44",
+          "file_sha256": "13a9440c02f6feff17dd336b6d49f90f2b95483e4fc646d3477a70726935246f",
+          "path": "crates/iroha_parliament_ballot_proof/examples/resource_contract/budget.rs",
+          "start_line": 55
+        },
+        {
+          "end_line": 182,
+          "excerpt_sha256": "3db9fad21954707d6ad7bad165eb8dcbd9f81ec2850d00eabbe9d4b735118a72",
+          "file_sha256": "13a9440c02f6feff17dd336b6d49f90f2b95483e4fc646d3477a70726935246f",
+          "path": "crates/iroha_parliament_ballot_proof/examples/resource_contract/budget.rs",
+          "start_line": 140
+        },
+        {
+          "end_line": 229,
+          "excerpt_sha256": "2a6a856bfe505c68f07dae84d9cae5e246d990e0cc5f9340004c19ef80416e78",
+          "file_sha256": "13a9440c02f6feff17dd336b6d49f90f2b95483e4fc646d3477a70726935246f",
+          "path": "crates/iroha_parliament_ballot_proof/examples/resource_contract/budget.rs",
+          "start_line": 197
+        },
+        {
+          "end_line": 79,
+          "excerpt_sha256": "d3276893db0863888098725f1e82f2b9b114e434fc0d1862fb9c4fca140c5569",
+          "file_sha256": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+          "path": "crates/iroha_parliament_ballot_proof/src/profile.rs",
+          "start_line": 59
+        },
+        {
+          "end_line": 88,
+          "excerpt_sha256": "f0620284a14547ef67132d026545249bb4a4838d705a550d1344a430a0d19adf",
+          "file_sha256": "5251b4aa9ac0867986b054c4fad6214654032ecdac8dc411ab9a2da542735cb1",
+          "path": "crates/iroha_parliament_ballot_proof/src/test_codec.rs",
+          "start_line": 45
+        },
+        {
+          "end_line": 194,
+          "excerpt_sha256": "23e36285f4b3918b1891edd3f503e25b9144a178d80bc03789e407eb518f68c1",
+          "file_sha256": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+          "path": "crates/iroha_parliament_ballot_proof/src/proving.rs",
+          "start_line": 114
+        },
+        {
+          "end_line": 230,
+          "excerpt_sha256": "3013238f0d30d8ee39554e6305487cef8becc7350aa2f96ab88e77154ecc468d",
+          "file_sha256": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+          "path": "crates/iroha_zkp_vole/src/proof.rs",
+          "start_line": 163
+        },
+        {
+          "end_line": 378,
+          "excerpt_sha256": "931d866c527a8f74aff430d2dfb008487c1472fcf0411502a5ea9e703ea6112c",
+          "file_sha256": "875e767119f2f462bf0608c57dcadfd3838cbea1e8c7585c1bdb5605cbaa0dca",
+          "path": "crates/iroha_parliament_ballot_proof/examples/resource_contract/workspace.rs",
+          "start_line": 365
+        }
+      ],
+      "finding": "Receipt, Charge and VerificationError are Copy, as are the transitive profile/codec/verifier error enums. verify_cold drops its owned statements and ordinary backend temporaries before returning. The worker classifies errors to static strings and an integer without formatting them. No heap owner returns in the Receipt. This statement concerns ordinary Rust return/error propagation, not panic or native exception behavior.",
+      "id": "returns_do_not_export_an_owner"
+    },
+    {
+      "evidence": [
+        {
+          "end_line": 67,
+          "excerpt_sha256": "9fa93a4a46a79f062e0187f3ad7e4dc15b8107bc6abeea2ca83e193d99671fa7",
+          "file_sha256": "875e767119f2f462bf0608c57dcadfd3838cbea1e8c7585c1bdb5605cbaa0dca",
+          "path": "crates/iroha_parliament_ballot_proof/examples/resource_contract/workspace.rs",
+          "start_line": 28
+        },
+        {
+          "end_line": 162,
+          "excerpt_sha256": "ec614498dedfcc1e99737cccee8e7d6d094fcc0636d6823639707d1afa61924c",
+          "file_sha256": "1c4a2faceaee40bfd74dd7b956c62fa2a906eaee3edc7e0ab69bce88c164eaa8",
+          "path": "crates/iroha_parliament_ballot_proof/examples/resource_contract/arena.rs",
+          "start_line": 100
+        },
+        {
+          "end_line": 177,
+          "excerpt_sha256": "64879216682cc040ba68d4fab67f1029643b465373ac45b4b2b377532b22ab86",
+          "file_sha256": "1c4a2faceaee40bfd74dd7b956c62fa2a906eaee3edc7e0ab69bce88c164eaa8",
+          "path": "crates/iroha_parliament_ballot_proof/examples/resource_contract/arena.rs",
+          "start_line": 163
+        }
+      ],
+      "finding": "For a valid nonzero default allocation while ACTIVE is true and ARENA is live/stable, Routed either obtains an arena pointer or terminates on failure; its inactive branch can use System. dealloc routes a pointer by current ARENA.contains, without consulting ACTIVE. Under ownership/liveness/layout preservation, a locally allocated live pointer retains arena origin through moves and reallocations. This source argument alone does not prove that every machine-level free operand has that origin.",
+      "id": "allocator_induction_is_conditional"
+    },
+    {
+      "evidence": [
+        {
+          "end_line": 65,
+          "excerpt_sha256": "31d7843263bb4b61502b7ae9d92ac7b121b8d70e4f1421afd719bffc5e898f55",
+          "file_sha256": "503a358e552e53284d8a1c8b15b2df24b2111b766dfaa004f5f4c7091b07604e",
+          "path": "crates/iroha_parliament_ballot_proof/src/lib.rs",
+          "start_line": 65
+        },
+        {
+          "end_line": 62,
+          "excerpt_sha256": "3b4d8025d518891976d60fcca1a76a8a76ffb83c6f787944ba1fc6f093316640",
+          "file_sha256": "aeb97c943cd993f7fa721e62c83c3b74d2e53626c8b470d7ebecd2eadc187f02",
+          "path": "crates/iroha_zkp_vole/src/lib.rs",
+          "start_line": 58
+        },
+        {
+          "end_line": 355,
+          "excerpt_sha256": "8ecc39c15c9c2d139657571947a765a63159759b9686062f6671f5a11b7c7cb0",
+          "file_sha256": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+          "path": "crates/iroha_parliament_ballot_proof/src/registration.rs",
+          "start_line": 337
+        },
+        {
+          "end_line": 487,
+          "excerpt_sha256": "15f641c7f07c163020a06357be9a6b20d1a5e29256e2c0e747e2d5339d79035f",
+          "file_sha256": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+          "path": "crates/iroha_parliament_ballot_proof/src/vote.rs",
+          "start_line": 473
+        },
+        {
+          "end_line": 100,
+          "excerpt_sha256": "81d2a544bd0eac4af624e19f174bb3d40c75dcb331be5e07f274675a32e84869",
+          "file_sha256": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+          "path": "crates/iroha_zkp_vole/src/prg.rs",
+          "start_line": 63
+        }
+      ],
+      "finding": "Both local libraries forbid unsafe code. The examined call path has no raw-parts ownership adoption or arbitrary supplied callback. This helps constrain source ownership but does not prove soundness of std, the unsafe example allocator/native mapping, vendor intrinsics, ABI/compiler lowering or opaque runtime functions.",
+      "id": "safe_crates_do_not_close_dependencies"
+    }
+  ],
+  "native_allocation_exclusion_proved": false,
+  "no_rebuild_or_worker_execution": true,
+  "observed_at_utc": "2026-10-13T09:17:44.279991+00:00",
+  "premises_not_discharged": [
+    "The frozen compiled images preserve the relevant Rust ownership/default-allocation and ordinary ABI semantics.",
+    "ARENA points to the same live mapping/metadata; ACTIVE stays true through the charged call; opaque/native code, other threads, signals and callbacks neither alter these globals nor reenter with foreign owners.",
+    "Allocator, std, dependencies, vendor unsafe intrinsics and callers preserve pointer provenance, liveness, layout, and memory safety; no foreign pointer or memory corruption is introduced.",
+    "Dynamic AES calls use the private constructor-produced providers with intact vtables; no external implementation is injected.",
+    "The scope is ordinary Rust execution and cleanup; panic, unwind, allocation-failure, trap, native runtime and loader paths retain their separate unknown resource obligations."
+  ],
+  "production_activation_authorized": false,
+  "profile_qualified": false,
+  "remaining_obligations": [
+    "TODO: establish universal source-to-machine pointer ownership at every retained free site, including generic deallocation and realloc old-pointer operands.",
+    "TODO: discharge stable arena/private-flag/provider/noninterference premises for the relevant execution scope.",
+    "TODO: bound retained native, exceptional and failure-path resources; this artifact gives neither a full stack bound nor a 64 MiB workspace certificate."
+  ],
+  "schema": "parliament-ballot-source-ownership-audit-v1",
+  "scope": "Ordinary execution of the two concrete ballot roles through the frozen resource_contract budget::Reservation::verify entry; manual source review, not a compiler or universal pointer-ownership proof.",
+  "source_comparison": {
+    "changes": {},
+    "files": {
+      "crates/iroha_parliament_ballot_proof/examples/resource_contract/arena.rs": "1c4a2faceaee40bfd74dd7b956c62fa2a906eaee3edc7e0ab69bce88c164eaa8",
+      "crates/iroha_parliament_ballot_proof/examples/resource_contract/budget.rs": "13a9440c02f6feff17dd336b6d49f90f2b95483e4fc646d3477a70726935246f",
+      "crates/iroha_parliament_ballot_proof/examples/resource_contract/native.rs": "8cd6365e2df3bcf644ebb647b3fee3be31a57f3c4250137f6b96447e496d7b25",
+      "crates/iroha_parliament_ballot_proof/examples/resource_contract/workspace.rs": "875e767119f2f462bf0608c57dcadfd3838cbea1e8c7585c1bdb5605cbaa0dca",
+      "crates/iroha_parliament_ballot_proof/src/credential.rs": "9cef899f6864c4b8517cab01b66ec66e38e0d5350d7a1ce02cfb889bdca02b34",
+      "crates/iroha_parliament_ballot_proof/src/framing.rs": "784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0",
+      "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": "f757f491b81c52563b34e425a9ded20547419200c848c4ad5231ef1fd32374f5",
+      "crates/iroha_parliament_ballot_proof/src/layout.rs": "33db7b2cb59ccebaa557a73ee6db899c3cfa32a288bdc3382384d151fab4c6f0",
+      "crates/iroha_parliament_ballot_proof/src/lib.rs": "503a358e552e53284d8a1c8b15b2df24b2111b766dfaa004f5f4c7091b07604e",
+      "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+      "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+      "crates/iroha_parliament_ballot_proof/src/registration.rs": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+      "crates/iroha_parliament_ballot_proof/src/sealed_list.rs": "769eb3de9f35211bd80067f1c0669645995d603cce3aa2f0e2818699be834de0",
+      "crates/iroha_parliament_ballot_proof/src/selector.rs": "1d96fee19e79b781434580a00e355048585994c15e9210fdc62c3665ddd37d75",
+      "crates/iroha_parliament_ballot_proof/src/test_codec.rs": "5251b4aa9ac0867986b054c4fad6214654032ecdac8dc411ab9a2da542735cb1",
+      "crates/iroha_parliament_ballot_proof/src/vote.rs": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+      "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+      "crates/iroha_zkp_vole/src/codec.rs": "ac354c72e09fb022b1dcb300cf339fa66303abdf76ae5518f7f9e243cc5e5a2f",
+      "crates/iroha_zkp_vole/src/crt.rs": "2a45b530a22d3439678b06121c98c84499a3512652bfb95f78745023f33446e6",
+      "crates/iroha_zkp_vole/src/crt/algo.rs": "d41d00fb74b15ccfa4272d139b11d60b9a01d3aa84c7d4c08048a0d964dc717a",
+      "crates/iroha_zkp_vole/src/crt/bits.rs": "2b4ab26994a3f6debb543c29ace1676233881cca0e59f91351f6966387b52912",
+      "crates/iroha_zkp_vole/src/crt/codec.rs": "9da70396e4e6aa637f8033e95855eeaccae276c10ae4576469da42139349a68a",
+      "crates/iroha_zkp_vole/src/crt/cost.rs": "5daac07b60251bc1c8067b0500017e3e6dc5121e8c81c9922f2eba8394fdb216",
+      "crates/iroha_zkp_vole/src/crt/error.rs": "a5c5f15a28a55ed94604635cb84f3e546af3158c93e579551b3ce58820feabae",
+      "crates/iroha_zkp_vole/src/crt/f4.rs": "c1c164c1591cee3b614adb05112d2d99af93f030026dc7a3e01fd0df0cc6db6e",
+      "crates/iroha_zkp_vole/src/crt/generated.rs": "0426a8ecc21975316132db16e6ddfc0b63836c871eb69173d5f6bf230ffd7f98",
+      "crates/iroha_zkp_vole/src/crt/generated/LICENSE.faest-ref": "5f07c9c790f30a355fef7a7fb100f74207725a8e302505bae3c8e119e99f51e6",
+      "crates/iroha_zkp_vole/src/crt/generated/faest_128f_tables.rs": "9a05abd92ef7a8d097991601c6bac349d401067701434d9807a26b751b6aabfe",
+      "crates/iroha_zkp_vole/src/crt/generated/faest_128s_tables.rs": "8786e2443b58eaeb4a6dcc53ec184011231cdaf718bc2ed1d4fc52d1260b4dd2",
+      "crates/iroha_zkp_vole/src/crt/generated/faest_192f_tables.rs": "a66463944679af082a222aead57d6251262e8ee0531fd6e9dc18f57c2518ed0d",
+      "crates/iroha_zkp_vole/src/crt/generated/faest_192s_tables.rs": "2582017126a093589ef95402cebe68c8e1d4ec8bcadd7e460b7b693662e27d31",
+      "crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs": "a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e",
+      "crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs": "535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f",
+      "crates/iroha_zkp_vole/src/crt/generated/faest_em_192f_tables.rs": "180b8e52139d916a75b8663adf6ec0f97f843e618b3f85dc2e310cf42766f762",
+      "crates/iroha_zkp_vole/src/crt/generated/faest_em_192s_tables.rs": "c8c922db88dddccf09e4c4e801cc7b7b3e0186df73ea9abb0e7f24d47a4bf685",
+      "crates/iroha_zkp_vole/src/crt/generator.rs": "23ba6267630ee88c5d95737e66e3b216da1c74531310a333adb9812dea91df35",
+      "crates/iroha_zkp_vole/src/crt/gf2poly.rs": "6ab7d628b757c51d7b012d6779694eb60168e4c0d4a01cafd8c169a29bb47e3d",
+      "crates/iroha_zkp_vole/src/crt/linalg.rs": "2769b22f48149eea350f2a913bbe367ab2d0db53c3b27ceea7adb7a374818fa9",
+      "crates/iroha_zkp_vole/src/crt/matrix.rs": "810bad5d8087109e52ce650a5ac596e87e6df8a167cde36b97f24834bbf7281f",
+      "crates/iroha_zkp_vole/src/crt/tables.rs": "77c1197bba8e107fda8e833be0550e98b45825f805d3630c7dbac92810bac3cb",
+      "crates/iroha_zkp_vole/src/faest.rs": "2cb74ee28bdbfc01fe13122c71f3f108c779a56d00913037af543809faaa22a0",
+      "crates/iroha_zkp_vole/src/faest/cipher.rs": "744af4a7bd343e6ec9cc052585505e12b764fe4fab84599f9a39572cd8fc3d2b",
+      "crates/iroha_zkp_vole/src/faest/relation.rs": "fd50765a90875151cf6857c4e9b1c04ffc1e47a51b9ab814c2f2287174cf68b7",
+      "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+      "crates/iroha_zkp_vole/src/field/poly.rs": "b11fd7a04a20614d4780d18a05421c443130a7d554a86579766434b424a880e9",
+      "crates/iroha_zkp_vole/src/hash.rs": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+      "crates/iroha_zkp_vole/src/lib.rs": "aeb97c943cd993f7fa721e62c83c3b74d2e53626c8b470d7ebecd2eadc187f02",
+      "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+      "crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+      "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+      "crates/iroha_zkp_vole/src/quicksilver.rs": "99260f5f4f0cb1b8e8e6356ce14b0deb20099d25549b852441bc541588c6f3ad",
+      "crates/iroha_zkp_vole/src/quicksilver/plain.rs": "0b1e3118e2f24a806e0ea7c21e81ed93ba3d1090b776c85505c89ce296281bb5",
+      "crates/iroha_zkp_vole/src/quicksilver/prover.rs": "85d7e743228f7b808c33c74be1e3a6d3b151d78f75b1c42db7dfd4782aaf5c63",
+      "crates/iroha_zkp_vole/src/quicksilver/verifier.rs": "7b038e8b2aa647d89f06d38bcdf371efb97b4abf6f2edb43585be89609051dfe",
+      "crates/iroha_zkp_vole/src/randomness.rs": "8d57e99b8eb555687ed2c4d82465d7242890e036d35bdca10399ef1bca7ddb26",
+      "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+      "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f",
+      "crates/iroha_zkp_vole/src/variant.rs": "50d8c414309f5ccc315181abefbdabe79ed092f0644dc72e04596c93c58059b9",
+      "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+      "crates/iroha_zkp_vole/src/vole/bits.rs": "4e41952eb31574505fcf97d02a4f9074035818660958ff3dbf9cf2650749d079",
+      "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+      "vendor/aes/Cargo.toml": "717f1a1a4a0aaaa7f96ef0576ca8c4813e1e69b75ff40fde5edb4fea15b4c048",
+      "vendor/aes/src/armv8.rs": "bc8ff3cae2f799d849105b79091604e1579ae5e8a8fbe19db24c6ccbf48146a4",
+      "vendor/aes/src/armv8/encdec.rs": "54f85c5942fbb384c106321fb54aa06f29ae16be87ebce127fd4932a329a4feb",
+      "vendor/aes/src/armv8/expand.rs": "d40ee141eb7dec4ccb675455ec93fe08a75dfd228bc5339096cfa8d7270ff375",
+      "vendor/aes/src/armv8/hazmat.rs": "f6d722a53ca464b16b1bc9bb7c23a5780510252cbcb059735e2acf656c5b2cbe",
+      "vendor/aes/src/armv8/intrinsics.rs": "3192f65da7cac81f3a48601d950c66c72814fa9cacab9a9d8c8969dbae6b098c",
+      "vendor/aes/src/armv8/test_expand.rs": "7bc04e7fc5bba65f4451c86ba2e80ce98b04faa734f16d28af09660c5623d96a",
+      "vendor/aes/src/autodetect.rs": "ba7f24607973e4bb6dd07e100f70e0cf2a04e0b083020085b8d4865f02405f41",
+      "vendor/aes/src/hazmat.rs": "120063eea58b8e6b29306ad1181624b0216b8bcb4b6557c0fa458e7bc6c28f0c",
+      "vendor/aes/src/lib.rs": "859930f1e982e3ff026940aa704dc91e492254ac87c709a9b176b231167f36a6",
+      "vendor/aes/src/ni.rs": "15b9a67dbedc3b558ddec063489be4a6607e568afddd8345506be36952fc3bde",
+      "vendor/aes/src/ni/aes128.rs": "88b94c99163b6b82810d7817e02374ddca4086b0896a8ebe183241a604ec92be",
+      "vendor/aes/src/ni/aes192.rs": "156254b46e469a20e09a1cefa22bae2afd9c10e2b68fd2bf40eaf9a05095cdda",
+      "vendor/aes/src/ni/aes256.rs": "f9fba1a4ac1e91fc908f3164460fc531f91cf0b0d015b3463056d0bd97981eae",
+      "vendor/aes/src/ni/hazmat.rs": "eeeb4a8cd92204095ecef3d40e1786dede05b63afba41c9fa3e9b871f40eb6d8",
+      "vendor/aes/src/ni/test_expand.rs": "6ad46711aeb49c21144ea31f801493ab87d3cb19d35bb3610657bfadfa75d044",
+      "vendor/aes/src/ni/utils.rs": "10fe6c0ad778a59cde5cef6cb6bc478cc68d21e28bda9331ced3c26b0a732426",
+      "vendor/aes/src/soft.rs": "3a84211717fdc86a2b0f0d9086f33410bee2ff9be480f50c981980f678a0c2a8",
+      "vendor/aes/src/soft/fixslice32.rs": "c69c0fa430cb62c4d88a13d5c3387202e1962b47978a6a7026bd34789f2d2577",
+      "vendor/aes/src/soft/fixslice64.rs": "b071d85916e4e09da703168eb7cebc2ba4c4ab2b783713b8caf9541742b741e3"
+    },
+    "local_file_count": 61,
+    "method": "Rehash all 61 pinned local files in the two library src trees and resource_contract module directory, plus all 20 pinned vendor/aes files; compare each with started_source_sha256 in the original build receipt. This is a scoped byte-identity check, not an assertion that every line is reachable.",
+    "vendor_aes_file_count": 20
+  },
+  "status": "CONDITIONAL_SOURCE_OWNERSHIP_CASE_ONLY",
+  "unconditional_system_free_frontiers": {
+    "accel": 10,
+    "note": "Counts refer to static sites in each frozen Reservation graph after prior conditional ACTIVE analysis; they are not execution counts. No site is pruned by this source audit.",
+    "portable": 10,
+    "source_owner_categories": {
+      "generic_deallocation": 1,
+      "generic_reallocation_old_pointer": 1,
+      "registration_body_context": 1,
+      "registration_context_opaque_fields": 6,
+      "vote_list": 1
+    },
+    "status": "OPEN_UNCHANGED"
+  }
+}

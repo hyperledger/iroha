@@ -1,0 +1,38 @@
+[package]
+name = "parliament-ballot-parser-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[features]
+default = []
+accel = ["iroha_parliament_ballot_proof/accel", "iroha_zkp_vole/accel"]
+
+[dependencies]
+libfuzzer-sys = "=0.4.10"
+iroha_parliament_ballot_proof = { path = ".." }
+iroha_zkp_vole = { path = "../../iroha_zkp_vole" }
+
+# Isolated test workspace: no fuzzer dependency enters node/release builds.
+[workspace]
+members = ["."]
+
+[patch.crates-io]
+aes = { path = "../../../vendor/aes" }
+
+[[bin]]
+name = "parsers"
+path = "fuzz_targets/parsers.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "replay"
+path = "replay.rs"
+test = false
+doc = false
+bench = false

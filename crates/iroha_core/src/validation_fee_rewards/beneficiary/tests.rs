@@ -117,8 +117,10 @@ fn recovery_preserves_reserved_and_delayed_rewards_through_repeated_rekeys() {
             .get(&allocated_key)
             .unwrap()
             .clone();
-        let active_registry =
-            crate::validation_fee::tests::policy_registry(&[policy.clone()], &[binding.clone()]);
+        let active_registry = crate::validation_fee::tests::policy_registry(
+            std::slice::from_ref(&policy),
+            std::slice::from_ref(&binding),
+        );
         let mut retained_registry = active_registry.clone();
         retained_registry.payout_policies.entries =
             vec![crate::validation_fee::tests::payout_registry_entry(

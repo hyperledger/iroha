@@ -63,8 +63,8 @@ impl std::error::Error for AggregationError {}
 
 /// A local, non-blocking signing key (§12.1). `sign` runs inside `handle`. It MUST be
 /// deterministic (the same key and preimage always give the same bytes, as BLS does): after a
-/// restart the core re-creates recorded messages by signing their recorded preimages again
-/// (§6.10 rule 0, §7.4).
+/// restart the core re-creates proposals, Commits and timeouts from their recorded preimages.
+/// Prepare instead reuses its authenticated persisted signature (§6.10 rule 0, §7.4).
 pub trait Signer: Send + Sync {
     /// The consensus public key.
     fn public_key(&self) -> &PublicKey;
@@ -83,9 +83,9 @@ pub trait Signer: Send + Sync {
         request: &crate::prepare_admission::PrepareSigningRequest,
         admission: &crate::prepare_admission::ExecutionAdmission,
     ) -> Result<Signature, SigningError> {
-        #[cfg(sumeragi_mutation = "MS64")]
+        #[cfg(sumeragi_mutation = "MS71")]
         let _ = admission;
-        #[cfg(not(sumeragi_mutation = "MS64"))]
+        #[cfg(not(sumeragi_mutation = "MS71"))]
         admission.check(request)?;
         self.sign(&crate::preimage::vote_preimage(
             VoteKind::Prepare,

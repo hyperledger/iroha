@@ -15,9 +15,10 @@ thread_local! {
 
 /// Called only by the test build after canonical preparation and before publication.
 pub(super) fn panic_after_preparation_if_requested() {
-    if PANIC_AFTER_PREPARATION.replace(false) {
-        panic!("test unwind after original funded preparation");
-    }
+    assert!(
+        !PANIC_AFTER_PREPARATION.replace(false),
+        "test unwind after original funded preparation"
+    );
 }
 
 struct ReenterPreparation {

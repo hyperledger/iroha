@@ -40,6 +40,24 @@ fn pending(reason: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::WouldBlock, reason)
 }
 
+// Physical contention stays in the original typed I/O source. The append driver retains
+// its exact release owner; runtime allocation/decoder refusal keeps its existing carrier.
+fn state_view_error(error: crate::state::StateViewError) -> Attempt<io::Error> {
+    match error {
+        crate::state::StateViewError::Runtime(crate::state::LaneLifecycleError::NposPolicy(
+            Attempt::Deferred(reason),
+        )) => Attempt::Deferred(reason),
+        error => {
+            let kind = if matches!(error, crate::state::StateViewError::Busy(_)) {
+                io::ErrorKind::WouldBlock
+            } else {
+                io::ErrorKind::InvalidData
+            };
+            io::Error::new(kind, error).into()
+        }
+    }
+}
+
 /// Resolve global authority under one immutable configured instance and original State owner.
 pub struct NativeGlobalAvailability {
     state: Arc<State>,
@@ -58,7 +76,7 @@ impl NativeGlobalAvailability {
         crypto: Arc<BlsCrypto>,
     ) -> Result<Self, Attempt<io::Error>> {
         let expected = {
-            let view = state.view();
+            let view = state.try_view_once().map_err(state_view_error)?;
             CertifiedChain::new(&view)
                 .map_err(|error| {
                     if cfg!(all(test, sumeragi_core_mutation = "HC47")) {
@@ -83,7 +101,7 @@ impl NativeGlobalAvailability {
         if height <= 1 {
             return Ok(None);
         }
-        let view = self.state.view();
+        let view = self.state.try_view_once().map_err(state_view_error)?;
         if view.kura().native_consensus_gate().is_closed() {
             return Err(
                 io::Error::other("native storage gate is closed; restart is required").into(),
@@ -255,7 +273,7 @@ impl LaneStoreAuthorities for NativeLaneStoreAuthorities {
         let expected = incarnation_instance(
             &*self.crypto,
             &network,
-            &self.state.chain_id_ref().to_string(),
+            self.state.chain_id_ref().as_ref(),
             lane,
             incarnation,
         );

@@ -872,36 +872,38 @@ async fn running_governance_dag_service_installs_authenticated_mirror_for_torii(
     let (publication_base, publication_state, publication_shutdown, publication_task) =
         spawn_api_test_governance_publication_http().await;
     let signed_head_url = format!("{publication_base}/head");
-    let mut service = SorafsGovernanceDagService::default();
-    service.enabled = true;
-    service.state_dir = Some(temp_root.join("governance-service-state"));
-    service.ipfs_api_url = Some(publication_base.clone());
-    service.signed_head_url = Some(signed_head_url.clone());
-    service.ipfs_authenticator_handle = Some(IPFS_AUTH_HANDLE.to_owned());
-    service.ipfs_authenticator_revision = Some(1);
-    service.ipfs_authenticator_policy_digest = Some([0xA1; 32]);
-    service.ipfs_request_auth_public_key =
-        Some(api_test_governance_request_public_key(IPFS_AUTH_SEED));
-    service.head_authenticator_handle = Some(HEAD_AUTH_HANDLE.to_owned());
-    service.head_authenticator_revision = Some(1);
-    service.head_authenticator_policy_digest = Some([0xA2; 32]);
-    service.head_request_auth_public_key =
-        Some(api_test_governance_request_public_key(HEAD_AUTH_SEED));
-    service.request_auth_max_envelope_lifetime_secs = 30;
-    service.request_auth_max_future_skew_secs = 5;
-    service.checkpoint_store_handle = Some(ApiTestGovernanceDagCheckpointStore::HANDLE.into());
-    service.checkpoint_store_revision =
-        Some(ApiTestGovernanceDagCheckpointStore::expected_qualification().revision);
-    service.checkpoint_store_policy_digest =
-        Some(ApiTestGovernanceDagCheckpointStore::expected_qualification().policy_digest);
-    service.publisher_public_key_hex = Some(hex::encode(signer.public_key()));
-    service.poll_interval = Duration::from_secs(4);
-    service.max_future_skew_secs = 100_000_000;
-    service.allow_insecure_http = true;
-    service.allow_private_ipfs_endpoint = true;
-    service.allow_private_head_endpoint = true;
-    service.allow_head_bootstrap = true;
-    service.listen_addr = "127.0.0.1:0".to_owned();
+    let service = SorafsGovernanceDagService {
+        enabled: true,
+        state_dir: Some(temp_root.join("governance-service-state")),
+        ipfs_api_url: Some(publication_base.clone()),
+        signed_head_url: Some(signed_head_url.clone()),
+        ipfs_authenticator_handle: Some(IPFS_AUTH_HANDLE.to_owned()),
+        ipfs_authenticator_revision: Some(1),
+        ipfs_authenticator_policy_digest: Some([0xA1; 32]),
+        ipfs_request_auth_public_key: Some(api_test_governance_request_public_key(IPFS_AUTH_SEED)),
+        head_authenticator_handle: Some(HEAD_AUTH_HANDLE.to_owned()),
+        head_authenticator_revision: Some(1),
+        head_authenticator_policy_digest: Some([0xA2; 32]),
+        head_request_auth_public_key: Some(api_test_governance_request_public_key(HEAD_AUTH_SEED)),
+        request_auth_max_envelope_lifetime_secs: 30,
+        request_auth_max_future_skew_secs: 5,
+        checkpoint_store_handle: Some(ApiTestGovernanceDagCheckpointStore::HANDLE.into()),
+        checkpoint_store_revision: Some(
+            ApiTestGovernanceDagCheckpointStore::expected_qualification().revision,
+        ),
+        checkpoint_store_policy_digest: Some(
+            ApiTestGovernanceDagCheckpointStore::expected_qualification().policy_digest,
+        ),
+        publisher_public_key_hex: Some(hex::encode(signer.public_key())),
+        poll_interval: Duration::from_secs(4),
+        max_future_skew_secs: 100_000_000,
+        allow_insecure_http: true,
+        allow_private_ipfs_endpoint: true,
+        allow_private_head_endpoint: true,
+        allow_head_bootstrap: true,
+        listen_addr: "127.0.0.1:0".to_owned(),
+        ..Default::default()
+    };
     let ipfs_provider_qualification =
         GovernanceDagRuntimeProviderQualificationV1::new(1, [0xA1; 32]);
     let head_provider_qualification =
@@ -959,17 +961,17 @@ async fn running_governance_dag_service_installs_authenticated_mirror_for_torii(
     let mirror_reader = runner.mirror_read_handle();
     let (service_shutdown, service_shutdown_rx) = tokio::sync::oneshot::channel();
     let service_task = tokio::spawn(async move {
-        runner
-            .run_until(async move {
-                let _ = service_shutdown_rx.await;
-            })
-            .await
+        Box::pin(runner.run_until(async move {
+            let _ = service_shutdown_rx.await;
+        }))
+        .await
     });
     let mirror_snapshot = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            if service_task.is_finished() {
-                panic!("Governance DAG service exited before publishing its mirror");
-            }
+            assert!(
+                !service_task.is_finished(),
+                "Governance DAG service exited before publishing its mirror"
+            );
             match mirror_reader.read() {
                 Ok(Some(snapshot)) => break snapshot,
                 Ok(None) | Err(GovernanceDagServiceError::Unavailable(_)) => {}
@@ -1087,9 +1089,10 @@ async fn running_governance_dag_service_installs_authenticated_mirror_for_torii(
             if repaired {
                 break;
             }
-            if service_task.is_finished() {
-                panic!("Governance DAG service exited before repairing lost IPFS objects");
-            }
+            assert!(
+                !service_task.is_finished(),
+                "Governance DAG service exited before repairing lost IPFS objects"
+            );
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })

@@ -79,12 +79,12 @@ const SEED_DOMAIN: &[u8] = b"iroha.taira.privacy_action_driver_seed.v1\0";
 const VERANGE_SETUP_SEED_DOMAIN: &[u8] = b"iroha.taira.verange_qualification_setup_seed.v1\0";
 const VERANGE_SETUP_IDENTITY_BINDING_DOMAIN: &[u8] =
     b"iroha.taira.verange_qualification_setup_identity.v1\0";
-const MAX_REQUEST_BYTES: u64 = 16 * 1024;
+const MAX_REQUEST_BYTES: usize = 16 * 1024;
 const MAX_TRANSACTION_BYTES: usize = TAIRA_PRIVACY_MAX_ACTION_BYTES_V1 as usize;
 const MAX_RESPONSE_BYTES: usize = 2 * MAX_TRANSACTION_BYTES
     + 2 * MAX_COMPILED_PROFILE_BYTES
     + 2 * MAX_ACTIVATION_TEMPLATE_BYTES
-    + MAX_REQUEST_BYTES as usize;
+    + MAX_REQUEST_BYTES;
 const MAX_TTL_MILLIS: u64 = 2 * 60 * 60 * 1_000;
 const MAX_CREATION_TIME_MILLIS: u64 = 9_223_372_036_854_775_807;
 const MAX_ASSET_DEFINITION_ID_BYTES: usize = 1024;
@@ -269,7 +269,7 @@ struct BuildActionResponseV1 {
     transaction_sha256: String,
 }
 /// Public-only material a future sealed controller needs to admit the exact
-/// deterministic VeRange action identity and compiled verifier profile.
+/// deterministic `VeRange` action identity and compiled verifier profile.
 ///
 /// This deliberately contains neither a setup transaction nor any secret,
 /// witness, endpoint, credential, or network outcome.  The explicit response
@@ -596,10 +596,10 @@ fn read_request() -> Result<(BuildActionRequestV1, Vec<u8>), String> {
     let mut input = Vec::new();
     std::io::stdin()
         .lock()
-        .take(MAX_REQUEST_BYTES + 1)
+        .take(u64::try_from(MAX_REQUEST_BYTES + 1).expect("16 KiB request limit fits u64"))
         .read_to_end(&mut input)
         .map_err(|error| format!("cannot read action-driver request: {error}"))?;
-    if input.is_empty() || input.len() as u64 > MAX_REQUEST_BYTES {
+    if input.is_empty() || input.len() > MAX_REQUEST_BYTES {
         return Err("action-driver request is empty or exceeds 16384 bytes".to_owned());
     }
     let request: BuildActionRequestV1 = norito::json::from_slice(&input)

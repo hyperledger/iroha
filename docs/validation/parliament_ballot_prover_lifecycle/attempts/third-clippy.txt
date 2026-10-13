@@ -1,0 +1,47 @@
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-lifecycle
+[cargo-fast] CARGO_BUILD_JOBS=cargo-default
+[cargo-fast] sccache=disabled
+[cargo-fast] linker=system-default
+[cargo-fast] CARGO_INCREMENTAL=1
+[cargo-fast] running: cargo clippy --release --locked -p iroha_parliament_ballot_proof --test prover_lifecycle --example prover_lifecycle -- -D warnings
+    Checking iroha_parliament_ballot_proof v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof)
+error: more than 3 bools in a struct
+  --> crates/iroha_parliament_ballot_proof/examples/prover_lifecycle.rs:18:1
+   |
+18 | / struct Report<'a> {
+19 | |     fixture_only: bool,
+20 | |     profile_qualified: bool,
+21 | |     accel: bool,
+...  |
+30 | |     whole_secret_erasure_qualified: bool,
+31 | | }
+   | |_^
+   |
+   = help: consider using a state machine or refactoring bools into two-variant enums
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#struct_excessive_bools
+   = note: `-D clippy::struct-excessive-bools` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::struct_excessive_bools)]`
+
+error: this `if` statement can be collapsed
+  --> crates/iroha_parliament_ballot_proof/examples/prover_lifecycle.rs:75:5
+   |
+75 | /     if mode == "cancel-after-wait" {
+76 | |         if job.wait() != Computation::Proved {
+77 | |             return Err("fixture did not prove".into());
+78 | |         }
+79 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#collapsible_if
+   = note: `-D clippy::collapsible-if` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+   |
+75 ~     if mode == "cancel-after-wait"
+76 ~         && job.wait() != Computation::Proved {
+77 |             return Err("fixture did not prove".into());
+78 ~         }
+   |
+
+error: could not compile `iroha_parliament_ballot_proof` (example "prover_lifecycle") due to 2 previous errors

@@ -8,7 +8,7 @@ use norito::core::DecodeBudgetContext;
 
 /// Own one prepaid finite codec allowance and its original cumulative counters.
 /// Source manifests retain their existing artifact or native transaction owner.
-pub(super) struct ManifestEncodingBudget {
+pub struct ManifestEncodingBudget {
     context: DecodeBudgetContext,
     grant: AllocationReservation,
     max_frame_bytes: usize,
@@ -246,7 +246,7 @@ mod tests {
             }],
         }]);
         let mut original = ManifestEncodingBudget::new().unwrap();
-        let signer = original.reserve_signer(key.public_key()).unwrap();
+        let key_admission = original.reserve_signer(key.public_key()).unwrap();
         let frame = original.reserve_frame(&source).unwrap();
         let bytes = frame.remaining_bytes();
         assert_eq!(original.context().consumed_allocated_bytes(), 0);
@@ -264,12 +264,12 @@ mod tests {
             .unwrap();
         assert_eq!(
             original.context().consumed_allocated_bytes(),
-            u64::try_from(2 * bytes + signer.remaining_bytes()).unwrap()
+            u64::try_from(2 * bytes + key_admission.remaining_bytes()).unwrap()
         );
         drop(payload);
         drop(verification);
         drop(signed);
-        drop(signer);
+        drop(key_admission);
     }
 
     #[test]
@@ -277,8 +277,8 @@ mod tests {
         let key = key();
         let (pool, mut original) = owner(4096, 4096 * 40);
         let baseline = pool.reserved_bytes();
-        let signer = original.reserve_signer(key.public_key()).unwrap();
-        let signer_bytes = signer.remaining_bytes();
+        let key_admission = original.reserve_signer(key.public_key()).unwrap();
+        let signer_bytes = key_admission.remaining_bytes();
         assert_eq!(
             signer_bytes,
             key.public_key().retained_allocation_layout().size()
@@ -309,7 +309,7 @@ mod tests {
             .context()
             .with(|| norito::core::to_bytes_bounded(&instruction, encoded_bytes).unwrap());
         assert_eq!(encoded.len(), encoded_bytes);
-        assert!(signer.belongs_to(&pool));
+        assert!(key_admission.belongs_to(&pool));
         assert_eq!(pool.reserved_bytes(), baseline - frame_bytes);
         drop(encoded);
         drop(output);
@@ -318,7 +318,7 @@ mod tests {
             pool.reserved_bytes(),
             baseline - frame_bytes - encoded_bytes
         );
-        drop(signer);
+        drop(key_admission);
         assert_eq!(
             pool.reserved_bytes(),
             baseline - frame_bytes - encoded_bytes - signer_bytes
@@ -331,7 +331,7 @@ mod tests {
     fn genuine_verification_rejects_changed_content_without_releasing_its_frame_early() {
         let key = key();
         let (pool, mut original) = owner(4096, 4096 * 40);
-        let signer = original.reserve_signer(key.public_key()).unwrap();
+        let key_admission = original.reserve_signer(key.public_key()).unwrap();
         let frame = original.reserve_frame(&manifest("first")).unwrap();
         let mut signed = manifest("first")
             .try_signed(original.context(), frame.remaining_bytes(), &key)
@@ -354,7 +354,7 @@ mod tests {
                 !changed
             );
             assert!(frame.belongs_to(&pool));
-            assert!(signer.belongs_to(&pool));
+            assert!(key_admission.belongs_to(&pool));
             let held = pool.reserved_bytes();
             let bytes = frame.remaining_bytes();
             drop(payload);
@@ -362,7 +362,7 @@ mod tests {
             assert_eq!(pool.reserved_bytes(), held - bytes);
         }
         drop(signed);
-        drop(signer);
+        drop(key_admission);
         drop(original);
         assert_eq!(pool.reserved_bytes(), 0);
     }
@@ -430,7 +430,7 @@ mod tests {
         let signer_bytes = key.public_key().retained_allocation_layout().size();
         let allowance = frame_bytes * 2 + signer_bytes - 1;
         let (pool, mut original) = owner(4096, allowance);
-        let signer = original.reserve_signer(key.public_key()).unwrap();
+        let key_admission = original.reserve_signer(key.public_key()).unwrap();
         let frame = original.reserve_frame(&manifest("first")).unwrap();
         let signed = manifest("first")
             .try_signed(original.context(), frame.remaining_bytes(), &key)
@@ -451,7 +451,7 @@ mod tests {
         drop(verification_frame);
         drop(same_context);
         drop(signed);
-        drop(signer);
+        drop(key_admission);
         drop(original);
         assert_eq!(pool.reserved_bytes(), 0);
     }

@@ -10,8 +10,8 @@ use std::cell::Cell;
 
 fn source_schedule() -> crate::sumeragi::schedule::RetainedConsensusSchedule {
     let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1000)).unwrap();
-    let original = chain.state().view().world().consensus_schedule().clone();
-    original
+
+    chain.state().view().world().consensus_schedule().clone()
 }
 
 fn partial_unwind(stage: ConstructionCheckpoint) {

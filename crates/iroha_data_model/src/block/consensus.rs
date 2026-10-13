@@ -707,8 +707,12 @@ pub enum RecordedEvidenceV1 {
     #[codec(index = 0)]
     Native(Evidence),
     /// Original SCCP certificate with immutable admitted generation attribution.
+    ///
+    /// Box ownership keeps the native evidence stack shell small. The canonical v1
+    /// binary field includes Norito's owned-value length prefix; the closed JSON
+    /// `kind`/`value` representation contains the record directly.
     #[codec(index = 1)]
-    SccpForgery(crate::sccp::native::SccpForgeryRecordV1),
+    SccpForgery(Box<crate::sccp::native::SccpForgeryRecordV1>),
 }
 
 /// Persisted evidence entry annotated with commit metadata.

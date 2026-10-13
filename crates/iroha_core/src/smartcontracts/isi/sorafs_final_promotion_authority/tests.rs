@@ -381,7 +381,10 @@ fn completion(record: &FinalPromotionOperationRecordV1) -> FinalPromotionComplet
         commitment: SignerOperationCommitmentV1 {
             audit: SignerOperationAuditHeadV1 {
                 sequence: record.intent.previous_audit.sequence + 1,
-                digest: [20_u8.wrapping_add((record.intent.previous_audit.sequence + 1) as u8); 32],
+                digest: [20_u8.wrapping_add(
+                    u8::try_from(record.intent.previous_audit.sequence + 1)
+                        .expect("fixture value fits u8"),
+                ); 32],
             },
             response_digest: [22; 32],
         },

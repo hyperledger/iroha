@@ -95,6 +95,7 @@ fn outcome(result: Result<()>) -> std::result::Result<(), String> {
 
 #[test]
 fn graph_scope_ancestry_keeps_combined_census_order_and_inherited_admission() {
+    use operation_scope_tests::Point as Leaf;
     let _resources = crate::managed::native_test_guard();
     let (fixture, history) = shared_snapshot_tests::history_with_bodies(3);
     let native = history.current_history().unwrap();
@@ -142,7 +143,7 @@ fn graph_scope_ancestry_keeps_combined_census_order_and_inherited_admission() {
     assert_eq!(old_originals, new_originals);
     assert_eq!(new_originals, [0, 12]);
     assert_eq!(old_leaves, new_leaves);
-    use operation_scope_tests::Point as Leaf;
+
     assert_eq!(
         new_leaves,
         [

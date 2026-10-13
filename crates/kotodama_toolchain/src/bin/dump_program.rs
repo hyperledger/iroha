@@ -13,7 +13,7 @@ fn returned_int(vm: &IVM, register: usize) -> i64 {
         .expect("dump program result fits i64")
 }
 fn main() {
-    let src = r#"
+    let src = r"
         seiyaku DumpProgram {
             struct A { int x }
             struct B { A a }
@@ -27,7 +27,7 @@ fn main() {
                 return d.c.b.a.x;
             }
         }
-    "#;
+    ";
     let code = kotodama_lang::compiler::Compiler::new()
         .compile_source(src)
         .expect("compile");

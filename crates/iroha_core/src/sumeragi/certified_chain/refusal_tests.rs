@@ -312,7 +312,7 @@ fn original_availability_constructor_refusal_retries_without_installing_authorit
 fn certified_wrapper_scope_and_block_time_are_checked_by_both_reader_owners() {
     use iroha_data_model::block::consensus::SumeragiRootScope;
     use iroha_data_model::sumeragi_finality::{
-        CertifiedResultScope, CertifiedResultV1, SccpFinalityHeaderV1,
+        CertifiedResultError, CertifiedResultScope, CertifiedResultV1, SccpFinalityHeaderV1,
         certified_result::{FLAG_ACTIVE, context_committee_root},
     };
     use iroha_model_base::topology::DataSpaceId;
@@ -355,28 +355,42 @@ fn certified_wrapper_scope_and_block_time_are_checked_by_both_reader_owners() {
         SccpFinalityHeaderV1::from_fields(&late).unwrap(),
         active.commitment().clone(),
     );
-    for (source, scope) in [
+    // The canonical result hash rejects missing X before decoding. A parsed X with
+    // the wrong scope or block time instead reaches the precise wrapper check.
+    // Pin each rejection; none may be accepted or relabelled as a local refusal.
+    let bare_body = decoded.commitment().preimage().unwrap();
+    assert!(result_of_preimage(&bare_body).is_none());
+    for (source, scope, rejection) in [
         (
             active_frame,
             SumeragiRootScope::Dataspace {
                 parent_network_id: chain.network_id(),
                 dataspace_id: DataSpaceId::new(7),
             },
+            ChainReadError::Malformed {
+                height: 1,
+                reason: CertifiedResultError::ActiveOutsideGlobal.to_string(),
+            },
         ),
         (
             changed(wrong_time.preimage().unwrap()),
             SumeragiRootScope::Global,
+            ChainReadError::Malformed {
+                height: 1,
+                reason: CertifiedResultError::BlockMismatch.to_string(),
+            },
         ),
         (
-            changed(decoded.commitment().preimage().unwrap()),
+            changed(bare_body),
             SumeragiRootScope::Global,
+            ChainReadError::ResultMismatch { height: 1 },
         ),
     ] {
         let expected = read_frame(source.clone(), 1, scope).unwrap_err();
-        assert!(matches!(
-            &expected,
-            ExecutionAttemptError::Rejected(ChainReadError::Malformed { height: 1, .. })
-        ));
+        assert!(
+            matches!(&expected, ExecutionAttemptError::Rejected(actual) if actual == &rejection),
+            "the original reader must preserve {rejection:?}, got {expected:?}"
+        );
         let budget = iroha_allocation::AllocationBudget::new(16 * 1024 * 1024);
         let actual = AdmittedCommittedBlock::read(
             source,

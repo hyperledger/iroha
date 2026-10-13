@@ -606,7 +606,7 @@ impl RemoteProvisioning {
         let options = self.record.binding.options(deadline);
         Ok(attachment.relay_once(
             &local,
-            RelayParent {
+            &mut RelayParent {
                 config: &self.parent,
                 bootstrap,
                 finality: &mut self.finality,
@@ -617,7 +617,7 @@ impl RemoteProvisioning {
     }
 
     /// Run one explicit administrative AMX registration turn under a separately selected signer.
-    /// This never infers CanSetParameters from the SNS owner or schedules itself in relay_once.
+    /// This never infers `CanSetParameters` from the SNS owner or schedules itself in `relay_once`.
     /// The retained signed child and namespace must already exist; all recovery uses the original
     /// administrative journal and original exclusive UTC/fee authorization.
     ///

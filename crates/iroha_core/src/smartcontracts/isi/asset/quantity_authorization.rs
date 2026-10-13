@@ -609,9 +609,9 @@ mod tests {
 
     #[test]
     fn streamed_movement_hash_matches_original_owned_oracle_across_purposes_and_limits() {
+        use NumericAssetTransferSourcePolicy as P;
         let (source, destination, amount) = inputs();
         let bindings = vec![(source.clone(), destination, amount)];
-        use NumericAssetTransferSourcePolicy as P;
         let [orchard, private_ivm] = reserve_owners();
         let policies = [
             P::User,
@@ -800,7 +800,7 @@ mod tests {
             identity_issuer_public_key: ALICE_KEYPAIR.public_key().clone(),
             monetary_issuer_account: source.account().clone(),
             reserve_account: source.account().clone(),
-            institutional_exceptions: Default::default(),
+            institutional_exceptions: std::collections::BTreeSet::default(),
         };
         for mint in [false, true] {
             let purpose = if mint {

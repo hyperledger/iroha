@@ -73,7 +73,7 @@ classified_owner!(State, check_state_fields, STATE_FIELDS, {
         Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:lane_compliance:v1", encoder: "compliance::authority::LaneComplianceAuthorityV1::from_engine; exact optional enforcement mode and ordered canonical LaneCompliancePolicy values", layout: V1_LAYOUT })));
     da_index_hydration_fence: parking_lot::Mutex<()> => ("state.da_index_hydration_fence",
         Role::Local("Physical persistence/hydration coordination; authenticated logical DA/history owners are separately classified"));
-    da_indexes_hydrated: PublicationRwLock<Option<Result<(), DaIndexHydrationError>>> => ("state.da_indexes_hydrated",
+    da_indexes_hydrated: PublicationRwLock<Option<Result<(), DaIndexHydrationFailure>>> => ("state.da_indexes_hydrated",
         Role::Local("Physical persistence/hydration coordination; authenticated logical DA/history owners are separately classified"));
     ivm: IVM => ("state.ivm",
         Role::Local("Reusable execution/validation machinery; semantics belong to bytecode, ABI and canonical policy; capacity/refusal cannot select consensus validity"));

@@ -368,7 +368,13 @@ mod tests {
         let column = KaigiAuthorizationPublicInputsV1 { context, outputs }
             .instance()
             .to_vec();
-        verify_public_inputs_v1(&[column.clone()], &context, &commitment, &nullifier).unwrap();
+        verify_public_inputs_v1(
+            std::slice::from_ref(&column),
+            &context,
+            &commitment,
+            &nullifier,
+        )
+        .unwrap();
         for row in 0..30 {
             let mut changed = column.clone();
             changed[row] += Fp::from(1);
@@ -388,7 +394,13 @@ mod tests {
             );
         }
         assert!(
-            verify_public_inputs_v1(&[column.clone()], &context, &[255; 32], &nullifier).is_err()
+            verify_public_inputs_v1(
+                std::slice::from_ref(&column),
+                &context,
+                &[255; 32],
+                &nullifier
+            )
+            .is_err()
         );
         assert!(verify_public_inputs_v1(&[column], &context, &commitment, &[255; 32]).is_err());
     }

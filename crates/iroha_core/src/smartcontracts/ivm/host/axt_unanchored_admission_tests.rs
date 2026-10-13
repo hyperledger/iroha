@@ -17,20 +17,22 @@ mod axt_unanchored_admission_tests {
             dsid,
             lane,
         );
-        assert_eq!(
-            deferred,
-            VMError::ExecutionDeferred(ivm::error::ExecutionDeferral::AllocationUnavailable)
+        assert!(
+            matches!((&(deferred), &(VMError::ExecutionDeferred(ivm::error::ExecutionDeferral::AllocationUnavailable))), (VMError::ExecutionDeferred(__actual_0), VMError::ExecutionDeferred(__expected_0)) if __actual_0 == __expected_0)
         );
         assert!(host.take_axt_reject_for_tests().is_none());
-        assert_eq!(
-            host.map_axt_fastpq_error(
-                fastpq_prover::Error::CommitmentMismatch,
-                "FASTPQ verification failed",
-                dsid,
-                lane,
+        assert!(matches!(
+            (
+                &(host.map_axt_fastpq_error(
+                    fastpq_prover::Error::CommitmentMismatch,
+                    "FASTPQ verification failed",
+                    dsid,
+                    lane,
+                )),
+                &(VMError::PermissionDenied)
             ),
-            VMError::PermissionDenied
-        );
+            (VMError::PermissionDenied, VMError::PermissionDenied)
+        ));
         assert_eq!(
             host.take_axt_reject_for_tests()
                 .expect("invalid proof records rejection")

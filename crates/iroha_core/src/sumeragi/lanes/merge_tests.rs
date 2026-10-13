@@ -316,7 +316,7 @@ impl Fixture {
         let block = authored.body;
         let block_hash = block.hash(&*self.crypto);
         let outcome = executor.execute(&block, &block_hash, false);
-        let Some(ExecOutcome::Valid { result, .. }) = outcome else {
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = outcome else {
             panic!("original lane execution must succeed: {outcome:?}");
         };
         let crypto = BlsCrypto::new();
@@ -818,7 +818,7 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
         payload_len: u32::try_from(bytes.len()).unwrap(),
         proposer: 0,
         skipped_leaders: Vec::new(),
-        control_witness: Default::default(),
+        control_witness: iroha_sumeragi::types::ControlWitness::default(),
     };
     // The negative changes only the global cadence; availability uses the original
     // chain's authenticated schedule, proposer custody and State allocation pool.
@@ -849,6 +849,8 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
         &header,
         &bytes,
         state,
+        None,
+        None,
     )
     .unpack(|event| events.push(event))
     .err()

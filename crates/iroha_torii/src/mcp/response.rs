@@ -96,7 +96,7 @@ pub(super) fn bounded_json_value_len(
 
 /// Accumulate one JSON array without allowing retained response values to grow
 /// past the final MCP envelope budget.
-pub(crate) struct BoundedJsonArray {
+pub struct BoundedJsonArray {
     values: Vec<Value>,
     encoded_bytes: usize,
     max_bytes: usize,
@@ -153,7 +153,7 @@ pub(super) fn jsonrpc_result_response(id: Option<Value>, result: Value) -> Value
 }
 
 /// Build the typed internal error returned when the response budget is exceeded.
-pub(crate) fn jsonrpc_response_too_large(id: Option<Value>, max_response_bytes: usize) -> Value {
+pub fn jsonrpc_response_too_large(id: Option<Value>, max_response_bytes: usize) -> Value {
     jsonrpc_error_response(
         id,
         MCP_RESPONSE_TOO_LARGE,
@@ -167,7 +167,7 @@ pub(crate) fn jsonrpc_response_too_large(id: Option<Value>, max_response_bytes: 
 
 /// Serialize a stateless MCP response behind the request byte budget using
 /// application codes outside MCP's reserved server-error range.
-pub(crate) fn bounded_modern_jsonrpc_http_response(
+pub fn bounded_modern_jsonrpc_http_response(
     mut payload: Value,
     max_response_bytes: usize,
 ) -> Response {

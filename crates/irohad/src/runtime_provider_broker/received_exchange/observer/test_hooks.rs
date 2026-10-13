@@ -43,7 +43,7 @@ impl Identity {
             query: std::ptr::from_ref(owner.expected) as usize,
             frame: exchange.response_frame.as_ptr() as usize,
             bytes: exchange.response_frame.to_vec(),
-            request_bytes: exchange.request.payload.to_vec(),
+            request_bytes: exchange.request.payload.clone(),
             deadline: exchange.deadline.expires_at(),
             admission: Arc::as_ptr(&exchange.decode_admission) as usize,
             pool: Arc::as_ptr(&exchange.decode_admission.pool) as usize,
@@ -77,6 +77,13 @@ pub(in super::super::super) fn measure<T>(
     expire_on_refusal: bool,
     action: impl FnOnce() -> T,
 ) -> (T, Audit) {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            PROBE.with_borrow_mut(|slot| *slot = None);
+        }
+    }
+
     PROBE.with_borrow_mut(|slot| {
         assert!(slot.is_none());
         *slot = Some(Probe {
@@ -86,12 +93,6 @@ pub(in super::super::super) fn measure<T>(
             expire_on_refusal,
         });
     });
-    struct Reset;
-    impl Drop for Reset {
-        fn drop(&mut self) {
-            PROBE.with_borrow_mut(|slot| *slot = None);
-        }
-    }
     let reset = Reset;
     let value = action();
     let probe = PROBE.with_borrow_mut(|slot| slot.take().unwrap());

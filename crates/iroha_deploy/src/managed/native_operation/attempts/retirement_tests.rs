@@ -186,7 +186,7 @@ fn missing_wallet_retirement_refuses_a_fresh_commit_hidden_by_a_stale_attempt() 
     fixture.commit(&first);
     let next = successor(&fixture, 1);
     assert!(first.commit.is_none());
-    let held = fixture._temporary.path().join("held-request");
+    let held = fixture.temporary.path().join("held-request");
     std::fs::rename(first.wallet_path(), &held).unwrap();
     assert!(first.directory.entries(7).unwrap().is_empty());
     require_unchanged_refusal(

@@ -741,10 +741,14 @@ define_instruction_handlers! {
     // Core enforces every SCCP v1 rule (`specs/sccp.md` §4.19); exact user payments and
     // protected custody retain the common numeric mutation and fee checks.
     dispatch_instruction::<iroha_data_model::isi::sccp::InitializeSccpV1> => CoreAuthorized,
+    dispatch_instruction::<iroha_data_model::isi::sccp::AcceptSccpPausePanelSeatV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
+    dispatch_instruction::<iroha_data_model::isi::sccp::EndorseSccpFastPauseV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
+    dispatch_instruction::<iroha_data_model::isi::chain::Keepalive> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::sccp::RecordSccpMessage> => CoreAuthorized,
     dispatch_instruction::<iroha_data_model::isi::sccp::SubmitSccpInboundMessageV1> => CoreAuthorized,
     dispatch_instruction::<iroha_data_model::isi::sccp::SettleSccpV1> => CoreAuthorized,
     dispatch_instruction::<iroha_data_model::isi::sccp::SubmitSccpOutboundVoidV1> => CoreAuthorized,
+    dispatch_instruction::<iroha_data_model::isi::sccp::ProveSccpForgedMintV1> => CoreAuthorized,
     dispatch_instruction::<iroha_data_model::isi::sccp::SubmitSccpForgeryEvidenceV1> => CoreAuthorized,
     dispatch_instruction::<iroha_data_model::isi::sccp::AdvanceSccpLightClientV1> => CoreAuthorized,
     dispatch_instruction::<
@@ -1846,10 +1850,10 @@ mod tests {
     }
     #[test]
     async fn register_contract_manifest_is_queryable_with_runtime_authority() -> Result<()> {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             isi::smart_contract_code, permission, prelude as dm, query::smart_contract::prelude,
         };
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let state = authenticated_state_with_test_domains()?;
         let mut state_block = state.block(ordinary_instruction_header(&state));
         let mut stx = state_block.transaction();
@@ -1956,9 +1960,9 @@ mod tests {
     }
     #[test]
     async fn register_contract_manifest_rejects_wrong_signer() -> Result<()> {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_crypto::Hash;
         use iroha_data_model::{isi::smart_contract_code, permission, prelude as dm};
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
         let block_header = ValidBlock::new_dummy(checked_keypair().private_key())

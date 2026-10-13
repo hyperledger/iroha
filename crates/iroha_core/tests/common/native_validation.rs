@@ -77,6 +77,8 @@ pub(super) fn validate(
         header,
         &bytes,
         chain.state(),
+        None,
+        None,
     )
     .unpack(|_| {})
     .map(|(valid, _)| valid)

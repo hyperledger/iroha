@@ -7074,7 +7074,8 @@ pub struct SumeragiNativeEvidenceAuditRecord {
 #[norito(deny_unknown_fields)]
 pub struct SccpForgeryEvidenceAuditRecord {
     /// Original fixed certificate, optional anchor and immutable generation attribution.
-    pub record: iroha_data_model::sccp::native::SccpForgeryRecordV1,
+    /// Its payload owner keeps the JSON audit carrier from inlining the full certificate.
+    pub record: Box<iroha_data_model::sccp::native::SccpForgeryRecordV1>,
     /// Canonical recorded scope and offender attribution; signed QC context is unverified DATA.
     pub attribution: iroha_data_model::block::consensus::EvidenceAttribution,
     /// Block height at which this record was committed.
@@ -8053,8 +8054,8 @@ impl Client {
             Self::parse_typed_json_ok_response(&response, "Failed to get sumeragi evidence list")?;
         validate_sumeragi_evidence_page(decoded.total, decoded.items.len(), filter)
             .wrap_err("Failed to get sumeragi evidence list")?;
-        if let Some(expected) = filter.kind {
-            if decoded.items.iter().any(|item| {
+        if let Some(expected) = filter.kind
+            && decoded.items.iter().any(|item| {
                 let actual = match item {
                     SumeragiEvidenceAuditRecord::NativeSumeragiEvidence(_) => {
                         SumeragiEvidenceKind::NativeSumeragiEvidence
@@ -8064,11 +8065,11 @@ impl Client {
                     }
                 };
                 actual != expected
-            }) {
-                return Err(eyre!(
-                    "Failed to get sumeragi evidence list: response kind does not match requested filter"
-                ));
-            }
+            })
+        {
+            return Err(eyre!(
+                "Failed to get sumeragi evidence list: response kind does not match requested filter"
+            ));
         }
         Ok(decoded)
     }
@@ -8109,8 +8110,8 @@ impl Client {
             })?;
         validate_sumeragi_evidence_page(decoded.total, decoded.items.len(), filter)
             .wrap_err("Failed to get sumeragi evidence list")?;
-        if let Some(expected) = filter.kind {
-            if decoded.items.iter().any(|item| {
+        if let Some(expected) = filter.kind
+            && decoded.items.iter().any(|item| {
                 let actual = match &item.evidence {
                     iroha_data_model::block::consensus::RecordedEvidenceV1::Native(_) => {
                         SumeragiEvidenceKind::NativeSumeragiEvidence
@@ -8120,11 +8121,11 @@ impl Client {
                     }
                 };
                 actual != expected
-            }) {
-                return Err(eyre!(
-                    "Failed to get sumeragi evidence list: response kind does not match requested filter"
-                ));
-            }
+            })
+        {
+            return Err(eyre!(
+                "Failed to get sumeragi evidence list: response kind does not match requested filter"
+            ));
         }
         Ok(decoded)
     }
@@ -8467,7 +8468,7 @@ mod evidence_json_contract_tests {
             iroha_crypto::KeyPair::try_from_seed(vec![44; 32], iroha_crypto::Algorithm::BlsNormal)
                 .unwrap();
         EvidenceRecord {
-            evidence: RecordedEvidenceV1::SccpForgery(SccpForgeryRecordV1 {
+            evidence: RecordedEvidenceV1::SccpForgery(Box::new(SccpForgeryRecordV1 {
                 evidence: SubmitSccpForgeryEvidenceV1 {
                     qc: [0xa1; 116],
                     header: [0xb2; 221],
@@ -8487,7 +8488,7 @@ mod evidence_json_contract_tests {
                     validator: AccountId::new(key.public_key().clone()),
                     activation_height: 19,
                 }],
-            }),
+            })),
             attribution: EvidenceAttribution {
                 scope: EvidenceScope::SccpGeneration { generation: 7 },
                 instance: [1; 32],
@@ -8527,6 +8528,19 @@ mod evidence_json_contract_tests {
                 penalty_status: record.penalty_status,
             });
         let json = norito::json::to_json(&audit).unwrap();
+        let wire: norito::json::Value = norito::json::from_json(&json).unwrap();
+        let expected_record: norito::json::Value =
+            norito::json::from_json(&norito::json::to_json(forgery.as_ref()).unwrap()).unwrap();
+        assert_eq!(
+            wire.get("value").and_then(|value| value.get("record")),
+            Some(&expected_record),
+            "the private payload box adds no JSON framing"
+        );
+        assert!(
+            std::mem::size_of::<SumeragiEvidenceAuditRecord>()
+                <= std::mem::size_of::<SumeragiNativeEvidenceAuditRecord>() + 128,
+            "the audit carrier must not inline the fixed SCCP certificate graph"
+        );
         let decoded: SumeragiEvidenceAuditRecord = norito::json::from_json(&json).unwrap();
         assert_eq!(decoded, audit);
         let SumeragiEvidenceAuditRecord::SccpForgeryEvidence(decoded) = decoded else {
@@ -8546,8 +8560,8 @@ mod evidence_json_contract_tests {
         for bad in [
             json.replace("SccpForgeryEvidence", "NativeSumeragiEvidence"),
             json.replace("SccpForgeryEvidence", "UnknownEvidence"),
-            json.replacen("{", "{\"retired\":true,", 1),
-            json.replacen("{", "{\"kind\":\"NativeSumeragiEvidence\",", 1),
+            json.replacen('{', "{\"retired\":true,", 1),
+            json.replacen('{', "{\"kind\":\"NativeSumeragiEvidence\",", 1),
         ] {
             assert!(norito::json::from_json::<SumeragiEvidenceAuditRecord>(&bad).is_err());
         }
@@ -14000,6 +14014,9 @@ pub struct Client {
     /// Canonical account-authenticated requests replace any configured authentication headers
     /// with fresh values. Explicitly unsigned alias reads strip those headers entirely.
     pub(crate) headers: HashMap<String, String>,
+    /// Provenance of the sole canonical listener-token header from Config or the typed builder setter.
+    /// The token value stays in `headers`; ordinary caller defaults cannot grant this flag.
+    pub(crate) has_configured_api_token: bool,
     /// Optional key pair used to sign operator-only endpoint requests.
     pub(crate) operator_key_pair: Option<KeyPair>,
     /// If `true` add nonce, which makes different hashes for
@@ -14347,8 +14364,10 @@ impl Client {
     ///
     /// The builder retains the explicitly selected transport, but never copies
     /// compatibility results or in-flight probes. Changing an endpoint does not
-    /// implicitly authorize forwarding credentials: clear or replace headers
-    /// and operator authority when constructing a context for another origin.
+    /// implicitly authorize forwarding credentials. For another origin, explicitly
+    /// clear or replace the listener token with [`ClientBuilder::api_token`],
+    /// review generic headers, and choose the operator authority. Clearing generic
+    /// headers alone does not clear a typed listener credential.
     #[must_use]
     pub fn to_builder(&self) -> ClientBuilder {
         ClientBuilder::from_client(self)

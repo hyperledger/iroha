@@ -976,6 +976,7 @@ impl Execute for BootstrapPrivacyProofManagedPoolV1 {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
+        const INITIAL_EPOCH: u64 = 1;
         ensure_privacy_governance(authority, state_transaction)?;
         let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
@@ -1234,7 +1235,6 @@ impl Execute for BootstrapPrivacyProofManagedPoolV1 {
                 "proof-managed bootstrap has no canonical output set".into(),
             ));
         }
-        const INITIAL_EPOCH: u64 = 1;
         let root_provenance = PrivacyRootProvenanceV1::proof_managed_pool_bootstrap(
             bootstrap_digest,
             protocol_id,
@@ -1799,6 +1799,10 @@ struct PlannedZkX509RootAppendV1 {
     next_head: PrivacyRootHeadRecordV1,
     removals: Vec<PrivacyRootKeyV1>,
 }
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the validated provenance becomes the owned root-head record"
+)]
 fn plan_zk_x509_root_append_v1(
     publication: PrivacyRootPublicationV1,
     provenance: PrivacyRootProvenanceV1,
@@ -1977,8 +1981,7 @@ fn validate_zk_x509_crl_freshness_v1(
         .ok_or_else(|| invalid_privacy_parameter("X.509 signed CRL begins in the future"))?;
     if age > ZK_X509_MAX_CRL_AGE_SECONDS_V1 {
         return Err(invalid_privacy_parameter(format!(
-            "X.509 signed CRL age {age}s exceeds the {}s freshness limit",
-            ZK_X509_MAX_CRL_AGE_SECONDS_V1
+            "X.509 signed CRL age {age}s exceeds the {ZK_X509_MAX_CRL_AGE_SECONDS_V1}s freshness limit"
         )));
     }
     Ok(())
@@ -2155,8 +2158,7 @@ impl Execute for RegisterPrivacyZkX509TrustAnchorV1 {
         })?;
         if trust_anchor_count >= ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 trust-anchor registry is full at {} revisions",
-                ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1
+                "X.509 trust-anchor registry is full at {ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1} revisions"
             )));
         }
         if x509_trust_anchor_lineage_revision_count_v1(
@@ -2215,8 +2217,7 @@ impl Execute for RotatePrivacyZkX509TrustAnchorV1 {
         })?;
         if trust_anchor_count >= ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 trust-anchor registry is full at {} revisions",
-                ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1
+                "X.509 trust-anchor registry is full at {ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1} revisions"
             )));
         }
         let lineage_count = x509_trust_anchor_lineage_revision_count_v1(
@@ -2225,8 +2226,7 @@ impl Execute for RotatePrivacyZkX509TrustAnchorV1 {
         )?;
         if lineage_count >= ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 trust-anchor lineage is full at {} revisions",
-                ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1
+                "X.509 trust-anchor lineage is full at {ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1} revisions"
             )));
         }
         let current = load_privacy_zk_x509_trust_anchor_v1(
@@ -2301,8 +2301,7 @@ impl Execute for RevokePrivacyZkX509TrustAnchorV1 {
         })?;
         if trust_anchor_count >= ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 trust-anchor registry is full at {} revisions",
-                ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1
+                "X.509 trust-anchor registry is full at {ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1} revisions"
             )));
         }
         let lineage_count = x509_trust_anchor_lineage_revision_count_v1(
@@ -2311,8 +2310,7 @@ impl Execute for RevokePrivacyZkX509TrustAnchorV1 {
         )?;
         if lineage_count >= ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 trust-anchor lineage is full at {} revisions",
-                ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1
+                "X.509 trust-anchor lineage is full at {ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1} revisions"
             )));
         }
         let current = load_privacy_zk_x509_trust_anchor_v1(
@@ -2396,8 +2394,7 @@ impl Execute for RegisterPrivacyZkX509CertificatePolicyV1 {
         })?;
         if policy_count >= ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 certificate-policy registry is full at {} revisions",
-                ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1
+                "X.509 certificate-policy registry is full at {ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1} revisions"
             )));
         }
         let trust_anchor = load_privacy_zk_x509_trust_anchor_v1(
@@ -2471,8 +2468,7 @@ impl Execute for RotatePrivacyZkX509CertificatePolicyV1 {
         })?;
         if policy_count >= ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 certificate-policy registry is full at {} revisions",
-                ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1
+                "X.509 certificate-policy registry is full at {ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1} revisions"
             )));
         }
         let trust_anchor = load_privacy_zk_x509_trust_anchor_v1(
@@ -2497,8 +2493,7 @@ impl Execute for RotatePrivacyZkX509CertificatePolicyV1 {
         )?;
         if lineage_count >= ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 certificate-policy lineage is full at {} revisions",
-                ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1
+                "X.509 certificate-policy lineage is full at {ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1} revisions"
             )));
         }
         let current = load_privacy_zk_x509_certificate_policy_v1(
@@ -2579,8 +2574,7 @@ impl Execute for RevokePrivacyZkX509CertificatePolicyV1 {
         })?;
         if policy_count >= ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 certificate-policy registry is full at {} revisions",
-                ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1
+                "X.509 certificate-policy registry is full at {ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1} revisions"
             )));
         }
         load_privacy_zk_x509_trust_anchor_v1(
@@ -2599,8 +2593,7 @@ impl Execute for RevokePrivacyZkX509CertificatePolicyV1 {
         )?;
         if lineage_count >= ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 certificate-policy lineage is full at {} revisions",
-                ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1
+                "X.509 certificate-policy lineage is full at {ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1} revisions"
             )));
         }
         let current = load_privacy_zk_x509_certificate_policy_v1(
@@ -2688,8 +2681,7 @@ impl Execute for RegisterPrivacyZkX509CrlV1 {
                 })?;
         if crl_lineage_count >= ZK_X509_MAX_CRL_LINEAGES_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 signed-CRL registry is full at {} lineages",
-                ZK_X509_MAX_CRL_LINEAGES_V1
+                "X.509 signed-CRL registry is full at {ZK_X509_MAX_CRL_LINEAGES_V1} lineages"
             )));
         }
         let trust_anchor = load_privacy_zk_x509_trust_anchor_v1(
@@ -2910,8 +2902,7 @@ impl Execute for RegisterPrivacyZkAcePolicyV1 {
         })?;
         if policy_count >= PRIVACY_ZK_ACE_MAX_POLICIES_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "ZK-ACE policy registry is full at {} policies",
-                PRIVACY_ZK_ACE_MAX_POLICIES_V1
+                "ZK-ACE policy registry is full at {PRIVACY_ZK_ACE_MAX_POLICIES_V1} policies"
             )));
         }
         let key = PrivacyCommitmentKeyV1::zk_ace_policy(self.policy.policy_id)
@@ -3087,8 +3078,7 @@ impl Execute for RegisterPrivacyBootleLanternIssuerPolicyV1 {
         })?;
         if policy_count >= BOOTLE_LANTERN_MAX_ISSUER_POLICIES_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "Bootle/Lantern issuer-policy registry is full at {} policies",
-                BOOTLE_LANTERN_MAX_ISSUER_POLICIES_V1
+                "Bootle/Lantern issuer-policy registry is full at {BOOTLE_LANTERN_MAX_ISSUER_POLICIES_V1} policies"
             )));
         }
         let key = PrivacyCommitmentKeyV1::bootle_lantern_issuer_policy(
@@ -3356,8 +3346,7 @@ fn execute_register_privacy_vega_issuer_after_admission_v1(
     let record_count = registry_facts.record_count();
     if record_count >= VEGA_MAX_ISSUER_RECORDS_V1 {
         return Err(invalid_privacy_parameter(format!(
-            "Vega issuer registry is full at {} revisions",
-            VEGA_MAX_ISSUER_RECORDS_V1
+            "Vega issuer registry is full at {VEGA_MAX_ISSUER_RECORDS_V1} revisions"
         )));
     }
     if vega_issuer_lineage_revision_count_v1(instruction.record.issuer_id, state_transaction)? != 0
@@ -3423,8 +3412,7 @@ fn execute_rotate_privacy_vega_issuer_after_admission_v1(
     let record_count = registry_facts.record_count();
     if record_count >= VEGA_MAX_ISSUER_RECORDS_V1 {
         return Err(invalid_privacy_parameter(format!(
-            "Vega issuer registry is full at {} revisions",
-            VEGA_MAX_ISSUER_RECORDS_V1
+            "Vega issuer registry is full at {VEGA_MAX_ISSUER_RECORDS_V1} revisions"
         )));
     }
     let lineage_count =
@@ -3436,8 +3424,7 @@ fn execute_rotate_privacy_vega_issuer_after_admission_v1(
     }
     if lineage_count >= VEGA_MAX_ISSUER_RECORD_REVISIONS_PER_LINEAGE_V1 {
         return Err(invalid_privacy_parameter(format!(
-            "Vega issuer lineage is full at {} revisions",
-            VEGA_MAX_ISSUER_RECORD_REVISIONS_PER_LINEAGE_V1
+            "Vega issuer lineage is full at {VEGA_MAX_ISSUER_RECORD_REVISIONS_PER_LINEAGE_V1} revisions"
         )));
     }
     let current = load_privacy_vega_issuer_v1(
@@ -3531,8 +3518,7 @@ fn execute_revoke_privacy_vega_issuer_after_admission_v1(
     let record_count = registry_facts.record_count();
     if record_count >= VEGA_MAX_ISSUER_RECORDS_V1 {
         return Err(invalid_privacy_parameter(format!(
-            "Vega issuer registry is full at {} revisions",
-            VEGA_MAX_ISSUER_RECORDS_V1
+            "Vega issuer registry is full at {VEGA_MAX_ISSUER_RECORDS_V1} revisions"
         )));
     }
     let lineage_count =
@@ -3544,8 +3530,7 @@ fn execute_revoke_privacy_vega_issuer_after_admission_v1(
     }
     if lineage_count >= VEGA_MAX_ISSUER_RECORD_REVISIONS_PER_LINEAGE_V1 {
         return Err(invalid_privacy_parameter(format!(
-            "Vega issuer lineage is full at {} revisions",
-            VEGA_MAX_ISSUER_RECORD_REVISIONS_PER_LINEAGE_V1
+            "Vega issuer lineage is full at {VEGA_MAX_ISSUER_RECORD_REVISIONS_PER_LINEAGE_V1} revisions"
         )));
     }
     let current = load_privacy_vega_issuer_v1(
@@ -3621,13 +3606,21 @@ fn load_active_bootle_lantern_policy_v1(
             "Bootle/Lantern authoritative issuer policy is revoked",
         ));
     }
-    if policy.issuer_id != statement.issuer_id
-        || policy.policy_id != statement.policy_id
-        || policy.epoch != statement.issuer_policy_epoch
-        || policy.record_digest != statement.issuer_policy_record_digest
-        || policy.issuer_parameter_id != statement.issuer_parameter_id
-        || policy.issuer_parameter_digest != statement.issuer_parameter_digest
-    {
+    if (
+        &policy.issuer_id,
+        &policy.policy_id,
+        policy.epoch,
+        &policy.record_digest,
+        &policy.issuer_parameter_id,
+        &policy.issuer_parameter_digest,
+    ) != (
+        &statement.issuer_id,
+        &statement.policy_id,
+        statement.issuer_policy_epoch,
+        &statement.issuer_policy_record_digest,
+        &statement.issuer_parameter_id,
+        &statement.issuer_parameter_digest,
+    ) {
         return Err(invalid_privacy_parameter(
             "Bootle/Lantern statement does not exactly match authoritative issuer-policy state",
         ));
@@ -4906,7 +4899,7 @@ impl PreparedPrivacySubmissionV1 {
                     .map(|key| PrivacyRootRetentionAnchorV1::new(key.epoch(), key.root()))
                     .transpose()
                     .map_err(invalid_privacy_parameter)?
-                    .or(snapshot.retention_anchor());
+                    .or_else(|| snapshot.retention_anchor());
                 let root_head = PrivacyRootHeadRecordV1::new(
                     effect.successor_state().epoch(),
                     effect.successor_state().root(),
@@ -5320,7 +5313,7 @@ impl PreparedPrivacySubmissionV1 {
                     .map(|key| PrivacyRootRetentionAnchorV1::new(key.epoch(), key.root()))
                     .transpose()
                     .map_err(invalid_privacy_parameter)?
-                    .or(snapshot.retention_anchor());
+                    .or_else(|| snapshot.retention_anchor());
                 let root_head = PrivacyRootHeadRecordV1::new(
                     effect.next_epoch(),
                     effect.next_root(),
@@ -5642,7 +5635,7 @@ impl PreparedPrivacySubmissionV1 {
                     .map(|key| PrivacyRootRetentionAnchorV1::new(key.epoch(), key.root()))
                     .transpose()
                     .map_err(invalid_privacy_parameter)?
-                    .or(snapshot.retention_anchor());
+                    .or_else(|| snapshot.retention_anchor());
                 let root_head = PrivacyRootHeadRecordV1::new(
                     expected_next_epoch,
                     computed_next_root,
@@ -5924,7 +5917,7 @@ impl PreparedPrivacySubmissionV1 {
                     .map(|key| PrivacyRootRetentionAnchorV1::new(key.epoch(), key.root()))
                     .transpose()
                     .map_err(invalid_privacy_parameter)?
-                    .or(snapshot.retention_anchor());
+                    .or_else(|| snapshot.retention_anchor());
                 let root_head = PrivacyRootHeadRecordV1::new(
                     effect.next_epoch(),
                     effect.next_root(),
@@ -6523,8 +6516,9 @@ mod tests {
                         .expect("native payment proof")
                         .encode();
                 SubmitPrivacyProofV1::new(PrivacyProofEnvelopeV1 {
-                    wire_magic: Default::default(),
-                    catalog_commitment: Default::default(),
+                    wire_magic: iroha_data_model::privacy::PrivacyProofWireMagicV1::default(),
+                    catalog_commitment:
+                        iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1::default(),
                     protocol_id: compiled.protocol_id,
                     proof_system_id: compiled.proof_system_id,
                     engine_id: compiled.engine_id,

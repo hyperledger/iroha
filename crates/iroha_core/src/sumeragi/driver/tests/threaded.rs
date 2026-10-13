@@ -778,10 +778,10 @@ fn serving_flood_does_not_delay_the_nodes_fetch() {
     )
     .unwrap();
     blocks.set_read_delay(20);
-    let net = Arc::new(FakeNet::default());
+    let network = Arc::new(FakeNet::default());
     let exec = FakeExecutor::new(genesis.0, genesis.1, config.clone());
     let driver = Driver::new(
-        Arc::clone(&net),
+        Arc::clone(&network),
         records,
         Arc::new(FakeBodies::default()),
         Arc::clone(&blocks),
@@ -826,7 +826,7 @@ fn serving_flood_does_not_delay_the_nodes_fetch() {
         parent_result: genesis.1,
         payload_hash: iroha_sumeragi::preimage::payload_hash(&vals.crypto, &application_bytes),
         availability_digest: Hash32::ZERO,
-        payload_len: application_bytes.len() as u32,
+        payload_len: u32::try_from(application_bytes.len()).expect("fixture value fits u32"),
         proposer: 0,
         skipped_leaders: Vec::new(),
         control_witness: iroha_sumeragi::types::ControlWitness::empty(),
@@ -868,7 +868,7 @@ fn serving_flood_does_not_delay_the_nodes_fetch() {
     let asked = Instant::now();
     handle.deliver_message(vals.key(1), WireMessage::Status(Box::new(status)));
     wait_until("the body request", Duration::from_secs(3), || {
-        net.sent().iter().any(|(to, msg)| {
+        network.sent().iter().any(|(to, msg)| {
             *to == vals.key(1)
                 && matches!(msg, WireMessage::PayloadRequest(r) if r.block_hash == hash(&b1))
         })
@@ -878,7 +878,8 @@ fn serving_flood_does_not_delay_the_nodes_fetch() {
     assert!(backlog.serve <= 2 * 50, "{backlog:?}");
     let response = super::row_messages(&b1);
     let matching_requests = || {
-        net.sent()
+        network
+            .sent()
             .iter()
             .filter(|(to, message)| {
                 *to == vals.key(1)
@@ -904,9 +905,9 @@ fn serving_flood_does_not_delay_the_nodes_fetch() {
     let mut next_response_frame = None;
     let mut retry_attempts = 0;
     let mut retry_admitted = 0;
-    while !handle
+    while handle
         .status()
-        .is_some_and(|status| status.applied_height >= 1)
+        .is_none_or(|status| status.applied_height < 1)
     {
         let requests = matching_requests();
         assert!(

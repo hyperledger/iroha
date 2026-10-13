@@ -2694,11 +2694,15 @@ no environment variables need to be exported.
 - Surface pipeline recovery sidecars (`/v1/pipeline/recovery/{height}`) and Sumeragi evidence
   listing/counting so Python operators can monitor ledger history without reimplementing
   the Rust toolchain.
-  Evidence reads use the closed first-release `NativeSumeragiEvidence` shape,
-  retain exact instance/context/generation attribution and ordered historical offenders,
-  require a non-null consensus admission height and an exact penalty lifecycle,
-  reject missing, extra, or retired response fields, and stream responses under
-  a 1 KiB count ceiling and 1 MiB JSON-list ceiling.
+  Evidence reads use the canonical closed `{kind, value}` envelope for
+  `NativeSumeragiEvidence` and `SccpForgeryEvidence`; the SDK re-exports the shared
+  model types and decodes through the Torii client's single current parser.
+  Read typed payloads through `item.value`. They retain native root/lane scope or
+  SCCP certificate bytes and generation attribution, a non-null admission height,
+  and the `pending` or `applied` penalty lifecycle. Decoding offers DATA without
+  authenticating signatures or historical authority. Missing, extra, retired flat
+  fields and responses outside the requested kind filter are rejected. The
+  authenticated reads retain the 1 KiB count and 1 MiB JSON-list ceilings.
 - Extend the Torii client with transaction submission/status helpers so signed
   envelopes can be delivered directly to `/v1/pipeline/transactions`.
 - Provide a `submit_transaction_envelope_and_wait` helper that submits a signed
