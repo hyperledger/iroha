@@ -8775,7 +8775,7 @@ pub mod tests {
             ),
             1u32,
         );
-        let governance = iroha_data_model::repo::RepoGovernance::with_defaults(100, 3600);
+        let governance = iroha_data_model::repo::RepoGovernance::new(100, 3600, false);
         let repo = iroha_data_model::isi::repo::RepoIsi::new(
             agreement_id.clone(),
             counterparty.clone(),

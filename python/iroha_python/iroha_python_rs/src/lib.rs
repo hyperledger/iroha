@@ -8937,7 +8937,7 @@ fn parse_u64_field(value: &Bound<'_, PyAny>, field: &str) -> PyResult<u64> {
 fn parse_repo_governance(value: &Bound<'_, PyAny>) -> PyResult<RepoGovernance> {
     let dict = value.cast::<PyDict>().map_err(|_| {
         PyTypeError::new_err(
-            "governance must be a mapping with `haircut_bps` and `margin_frequency_secs` fields",
+            "governance must be a mapping with `haircut_bps`, `margin_frequency_secs` and `allow_early_repayment` fields",
         )
     })?;
     let haircut_obj = dict
@@ -8946,11 +8946,22 @@ fn parse_repo_governance(value: &Bound<'_, PyAny>) -> PyResult<RepoGovernance> {
     let margin_obj = dict
         .get_item("margin_frequency_secs")?
         .ok_or_else(|| PyValueError::new_err("governance requires `margin_frequency_secs`"))?;
+    let early_obj = dict
+        .get_item("allow_early_repayment")?
+        .ok_or_else(|| PyValueError::new_err("governance requires `allow_early_repayment`"))?;
     let haircut_bps = parse_u16_field(&haircut_obj, "haircut_bps")?;
     let margin_frequency_secs = parse_u64_field(&margin_obj, "margin_frequency_secs")?;
-    Ok(RepoGovernance::with_defaults(
+    // Require an actual bool; Python truthiness would silently accept 0/1 or strings.
+    if !early_obj.is_instance_of::<PyBool>() {
+        return Err(PyTypeError::new_err(
+            "`allow_early_repayment` must be a boolean",
+        ));
+    }
+    let allow_early_repayment: bool = early_obj.extract()?;
+    Ok(RepoGovernance::new(
         haircut_bps,
         margin_frequency_secs,
+        allow_early_repayment,
     ))
 }
 fn parse_mintable(mode: Option<&str>) -> PyResult<Mintable> {

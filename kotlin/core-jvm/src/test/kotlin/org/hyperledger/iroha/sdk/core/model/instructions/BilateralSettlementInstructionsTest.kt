@@ -52,6 +52,16 @@ class BilateralSettlementInstructionsTest {
     }
 
     @Test
+    fun `early repayment opt-in is bound into both repo consent hashes`() {
+        val fixed = repo()
+        val early = repo(allowEarlyRepayment = true)
+        assertEquals(true, early.governance.allowEarlyRepayment)
+        assertEquals(false, fixed.governance.allowEarlyRepayment)
+        assertEquals(false, fixed.initiationIntentHash().contentEquals(early.initiationIntentHash()))
+        assertEquals(false, fixed.maturityIntentHash().contentEquals(early.maturityIntentHash()))
+    }
+
+    @Test
     fun `typed constructors reject ambiguous or unsafe economic terms`() {
         val sameControllerOtherDiscriminant = AccountAddress.fromI105(ALICE, null).toI105(1)
         assertFailsWith<IllegalArgumentException> {
@@ -73,7 +83,7 @@ class BilateralSettlementInstructionsTest {
             )
         }
         assertFailsWith<IllegalArgumentException> {
-            BilateralSettlementInstructions.RepoGovernance(10_001, 1)
+            BilateralSettlementInstructions.RepoGovernance(10_001, 1, false)
         }
         assertFailsWith<IllegalArgumentException> {
             BilateralSettlementInstructions.Repo(
@@ -85,7 +95,7 @@ class BilateralSettlementInstructionsTest {
                 BilateralSettlementInstructions.RepoCollateralLeg(BOND, "1"),
                 0,
                 1,
-                BilateralSettlementInstructions.RepoGovernance(0, 0),
+                BilateralSettlementInstructions.RepoGovernance(0, 0, false),
             )
         }
     }
@@ -138,7 +148,7 @@ class BilateralSettlementInstructionsTest {
             BilateralSettlementInstructions.ExecutionOrder.PAYMENT_THEN_DELIVERY,
         )
 
-    private fun repo(): BilateralSettlementInstructions.Repo =
+    private fun repo(allowEarlyRepayment: Boolean = false): BilateralSettlementInstructions.Repo =
         BilateralSettlementInstructions.Repo(
             "daily_repo",
             REPO_INITIATOR,
@@ -148,7 +158,7 @@ class BilateralSettlementInstructionsTest {
             BilateralSettlementInstructions.RepoCollateralLeg(BOND, "1100"),
             250,
             1_735_086_400_000,
-            BilateralSettlementInstructions.RepoGovernance(1_500, 86_400),
+            BilateralSettlementInstructions.RepoGovernance(1_500, 86_400, allowEarlyRepayment),
         )
 
     private fun assertWireFixture(

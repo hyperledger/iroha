@@ -414,19 +414,34 @@ public final class BilateralSettlementInstructions {
   public static final class RepoGovernance {
     private final int haircutBps;
     private final BigInteger marginFrequencySecs;
+    private final boolean allowEarlyRepayment;
 
-    /** Constructs exact governance terms over the full unsigned wire range. */
-    public RepoGovernance(final int haircutBps, final BigInteger marginFrequencySecs) {
+    /**
+     * Constructs exact governance terms over the full unsigned wire range.
+     *
+     * <p>{@code allowEarlyRepayment} is bound into both consent hashes; when set, only the
+     * initiator (cash borrower) may settle before maturity with interest accrued to the committed
+     * block time.
+     */
+    public RepoGovernance(
+        final int haircutBps,
+        final BigInteger marginFrequencySecs,
+        final boolean allowEarlyRepayment) {
       this.haircutBps = requireU16(haircutBps, "haircutBps");
       if (this.haircutBps > 10_000) {
         throw new IllegalArgumentException("haircutBps must not exceed 10000");
       }
       this.marginFrequencySecs = requireU64(marginFrequencySecs, "marginFrequencySecs");
+      this.allowEarlyRepayment = allowEarlyRepayment;
     }
 
     /** Convenience constructor for non-negative signed-long cadence values. */
-    public RepoGovernance(final int haircutBps, final long marginFrequencySecs) {
-      this(haircutBps, requireNonNegativeLong(marginFrequencySecs, "marginFrequencySecs"));
+    public RepoGovernance(
+        final int haircutBps, final long marginFrequencySecs, final boolean allowEarlyRepayment) {
+      this(
+          haircutBps,
+          requireNonNegativeLong(marginFrequencySecs, "marginFrequencySecs"),
+          allowEarlyRepayment);
     }
 
     public int haircutBps() {
@@ -435,6 +450,10 @@ public final class BilateralSettlementInstructions {
 
     public BigInteger marginFrequencySecs() {
       return marginFrequencySecs;
+    }
+
+    public boolean allowEarlyRepayment() {
+      return allowEarlyRepayment;
     }
   }
 
@@ -767,6 +786,7 @@ public final class BilateralSettlementInstructions {
     private static final TypeAdapter<Long> U16 = NoritoAdapters.uint(16);
     private static final TypeAdapter<Long> U32 = NoritoAdapters.uint(32);
     private static final TypeAdapter<String> STRING = NoritoAdapters.stringAdapter();
+    private static final TypeAdapter<Boolean> BOOL = NoritoAdapters.boolAdapter();
     private static final RawAdapter RAW_ADAPTER = new RawAdapter();
     private static final TypeAdapter<Optional<byte[]>> OPTIONAL_RAW =
         NoritoAdapters.option(RAW_ADAPTER);
@@ -963,6 +983,7 @@ public final class BilateralSettlementInstructions {
           encoder -> {
             sized(encoder, U16, (long) value.haircutBps());
             sized(encoder, U64Adapter.INSTANCE, value.marginFrequencySecs());
+            sized(encoder, BOOL, value.allowEarlyRepayment());
           });
     }
 

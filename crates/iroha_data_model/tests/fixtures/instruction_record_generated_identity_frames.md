@@ -6,7 +6,7 @@ type rows preserve 370 populated values and 1,480 complete root, vector, option
 and map frames.
 
 The fixture SHA-256 is
-`4dcc87d9f3fd55847fb3a9609a2868c287d18254dcd822048c87bc9254c0a8ba`.
+`21084b066d6536a22354958e0bf9e42a64096a6c07347ebf4140cadc0cd05804`.
 `ClaimPublicLaneRewards` contains one mandatory exact authenticated fee claim
 against funded XOR custody. The manual recipient instruction and its record-ledger
 claim fields are removed. The external `staking_reward_identity_capture` native
@@ -205,3 +205,11 @@ applied by script (three deletions and one replacement, with the fixture's own
 JSON formatting) rather than by a complete native capture. The other 326 rows
 are byte-identical, and the inventory holds 327 rows and 370 cases. The retired
 wire identifiers are covered by `retired_sccp_wire_ids_are_unregistered`.
+
+On 2026-10-13 the single `RepoIsi` case was recaptured after `RepoGovernance`
+gained its explicit `allow_early_repayment` term. The current typed value keeps
+the original agreement, parties, legs, rate, maturity, haircut and cadence and
+sets `allow_early_repayment = false`; root, vector, option and map frames were
+produced and round-tripped by the current native codec through a temporary
+capture test that was removed afterwards. Nominal and directional identities and
+every other row are unchanged.

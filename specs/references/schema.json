@@ -23529,6 +23529,10 @@
       {
         "name": "margin_frequency_secs",
         "type": "u64"
+      },
+      {
+        "name": "allow_early_repayment",
+        "type": "bool"
       }
     ]
   },

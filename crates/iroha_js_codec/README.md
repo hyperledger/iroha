@@ -38,6 +38,13 @@ retains the registered model and exact u64 duration in both frame and archive
 operations; missing, extra, renamed and choice fields on conviction updates are
 rejected before generic instruction admission. Decoding rechecks that contract.
 
+The repo lifecycle uses one closed `Repo` envelope mirroring the registered
+`RepoInstructionBox` (`iroha.repo`): exactly one of `Initiate` (complete
+`RepoIsi`, including `governance.allow_early_repayment`), `Reverse` or
+`MarginCall` (`{"agreement_id": ...}`). Payloads must equal their canonical
+model JSON, so the parsed proposal keeps the consented initiation and maturity
+intent hashes; generic base64 instruction literals cannot bypass the envelope.
+
 Native bindings convert buffers and error categories only. They also reuse the
 typed helper operations for their existing transaction builders and inspection
 APIs. There is no Node, daemon, network, filesystem, or key-custody dependency in

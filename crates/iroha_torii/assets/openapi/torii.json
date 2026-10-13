@@ -37531,11 +37531,16 @@
             "description": "Cadence between required margin checks in seconds.",
             "format": "uint64",
             "type": "integer"
+          },
+          "allow_early_repayment": {
+            "description": "Whether the initiator may repay before maturity, paying interest accrued to the committed block time.",
+            "type": "boolean"
           }
         },
         "required": [
           "haircut_bps",
-          "margin_frequency_secs"
+          "margin_frequency_secs",
+          "allow_early_repayment"
         ],
         "type": "object"
       },

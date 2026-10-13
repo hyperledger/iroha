@@ -188,6 +188,10 @@ mod conditional_escrow_and_repo_admission {
         }
 
         fn repo(&self, initiator: usize) -> RepoIsi {
+            self.repo_with_governance(initiator, RepoGovernance::new(0, 0, false))
+        }
+
+        fn repo_with_governance(&self, initiator: usize, governance: RepoGovernance) -> RepoIsi {
             RepoIsi::new(
                 RepoAgreementId::new("initial_repo".parse().unwrap()),
                 self.accounts[initiator].clone(),
@@ -197,7 +201,7 @@ mod conditional_escrow_and_repo_admission {
                 RepoCollateralLeg::new(self.bond.clone(), 50_u32),
                 0,
                 1_000_000,
-                RepoGovernance::with_defaults(0, 0),
+                governance,
             )
         }
 
@@ -281,7 +285,7 @@ mod conditional_escrow_and_repo_admission {
             RepoCollateralLeg::new(definition.clone(), 1_u32),
             0,
             1,
-            RepoGovernance::with_defaults(0, 0),
+            RepoGovernance::new(0, 0, false),
         );
         let instructions: [InstructionBox; 6] = [
             OpenConditionalEscrow::new(
@@ -408,5 +412,40 @@ mod conditional_escrow_and_repo_admission {
             1_001_000,
         );
         fixture.assert_repo_balances(100, 50, Some(false));
+    }
+
+    #[test]
+    fn initial_repo_early_repayment_is_borrower_only_before_maturity() {
+        let mut fixture = Fixture::new();
+        let repo = fixture.repo_with_governance(OPENER, RepoGovernance::new(0, 0, true));
+        fixture.grant_repo_consents(&repo);
+        fixture.submit(OPENER, repo.clone().into(), None);
+        fixture.assert_repo_balances(600, 0, Some(true));
+        let agreement = repo.agreement_id().clone();
+        fixture.submit(
+            BENEFICIARY,
+            ReverseRepoIsi::new(agreement.clone()).into(),
+            Some("early repayment before maturity must be submitted by the initiator"),
+        );
+        fixture.assert_repo_balances(600, 0, Some(true));
+        let repaid_at = fixture.next_time();
+        assert!(repaid_at < 1_000_000, "the repayment precedes maturity");
+        fixture.submit(OPENER, ReverseRepoIsi::new(agreement.clone()).into(), None);
+        fixture.assert_repo_balances(100, 50, Some(false));
+        let view = fixture.chain.state().view();
+        let settled = view
+            .world()
+            .repo_agreements()
+            .get(&agreement)
+            .cloned()
+            .expect("settled tombstone");
+        // The tombstone records the committed block time, before maturity.
+        assert!(
+            settled
+                .settlement_timestamp_ms()
+                .is_some_and(|settled_at| (repaid_at..1_000_000).contains(&settled_at)),
+            "{:?}",
+            settled.settlement_timestamp_ms()
+        );
     }
 }

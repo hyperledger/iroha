@@ -418,7 +418,8 @@ impl Execute for ReverseRepoIsi {
         ensure_agreement_quantities(&stored_agreement)?;
         let initiator = stored_agreement.initiator().clone();
         let counterparty = stored_agreement.counterparty().clone();
-        let is_participant = authority == &initiator
+        let is_initiator = authority == &initiator;
+        let is_participant = is_initiator
             || authority == &counterparty
             || stored_agreement
                 .custodian()
@@ -426,7 +427,7 @@ impl Execute for ReverseRepoIsi {
                 .is_some_and(|custodian| custodian == authority);
         if !is_participant {
             return Err(InstructionExecutionError::InvariantViolation(
-                "repo maturity settlement must be submitted by a recorded participant".into(),
+                "repo settlement must be submitted by a recorded participant".into(),
             ));
         }
         ensure_accounts(
@@ -443,12 +444,27 @@ impl Execute for ReverseRepoIsi {
                 "block creation time exceeds u64::MAX milliseconds".into(),
             )
         })?;
-        let settlement_timestamp_ms = *stored_agreement.maturity_timestamp_ms();
-        if block_timestamp_ms < settlement_timestamp_ms {
-            return Err(InstructionExecutionError::InvariantViolation(
-                "repo agreement cannot settle before its recorded maturity".into(),
-            ));
+        let early_repayment = block_timestamp_ms < *stored_agreement.maturity_timestamp_ms();
+        if early_repayment {
+            // Only an agreement whose consented governance opted in can close
+            // early, and only the borrower may shorten its own loan.
+            if !stored_agreement.governance().allow_early_repayment() {
+                return Err(InstructionExecutionError::InvariantViolation(
+                    "repo agreement cannot settle before its recorded maturity".into(),
+                ));
+            }
+            if !is_initiator {
+                return Err(InstructionExecutionError::InvariantViolation(
+                    "repo early repayment before maturity must be submitted by the initiator"
+                        .into(),
+                ));
+            }
         }
+        // Interest accrues to min(block time, maturity): an opted-in early
+        // repayment pays only for the elapsed term, and a late submission
+        // never accrues past the agreed maturity.
+        let settlement_timestamp_ms =
+            stored_agreement.effective_settlement_timestamp_ms(block_timestamp_ms);
         let cash_def_id = stored_agreement.cash_leg().asset_definition_id().clone();
         let cash_spec = state_transaction
             .numeric_spec_for(&cash_def_id)
@@ -485,7 +501,7 @@ impl Execute for ReverseRepoIsi {
             state_transaction,
             movement,
         )?;
-        if !stored_agreement.settle() {
+        if !stored_agreement.settle(block_timestamp_ms) {
             return Err(InstructionExecutionError::InvariantViolation(
                 format!("repo agreement {agreement_id} has already settled").into(),
             ));
@@ -498,7 +514,9 @@ impl Execute for ReverseRepoIsi {
             initiator=%initiator,
             counterparty=%counterparty,
             custodian=?stored_agreement.custodian(),
-            "repo agreement settled at fixed maturity"
+            settlement_timestamp_ms,
+            early_repayment,
+            "repo agreement settled"
         );
         let mut repo_events = Vec::with_capacity(
             2_usize.saturating_add(usize::from(stored_agreement.custodian().is_some())),
@@ -1087,7 +1105,7 @@ mod tests {
             RepoCollateralLeg::new(collateral_def_id.clone(), Quantity::from(1_100u32)),
             250,
             maturity_timestamp_ms,
-            RepoGovernance::with_defaults(1_500, 86_400),
+            RepoGovernance::new(1_500, 86_400, false),
         )
     }
     fn seed_repo_consents(stx: &mut StateTransaction<'_, '_>, instruction: &RepoIsi) {
@@ -1528,7 +1546,7 @@ mod tests {
             RepoCollateralLeg::new(collateral_def_id.clone(), Quantity::from(1_100u32)),
             250,
             1_704_000_000_000,
-            RepoGovernance::with_defaults(1_500, 86_400),
+            RepoGovernance::new(1_500, 86_400, false),
         );
         execute_repo_with_consents(&mut stx, instruction).expect("repo execution");
         stx.apply();
@@ -1629,7 +1647,7 @@ mod tests {
                     250,
                     1_704_000_000_000,
                     0,
-                    RepoGovernance::with_defaults(1_500, 86_400),
+                    RepoGovernance::new(1_500, 86_400, false),
                     None,
                 )
             };
@@ -1699,7 +1717,7 @@ mod tests {
             RepoCollateralLeg::new(collateral_def_id.clone(), Quantity::from(1_100u32)),
             250,
             1_704_000_000_000,
-            RepoGovernance::with_defaults(1_500, 86_400),
+            RepoGovernance::new(1_500, 86_400, false),
         );
         execute_repo_with_consents(&mut stx, repo_instruction).expect("repo execution");
         let mut roles = Vec::new();
@@ -1778,6 +1796,220 @@ mod tests {
                 .repo_agreements
                 .get(&agreement_id)
                 .is_some_and(RepoAgreement::is_active)
+        );
+    }
+    /// Open an opted-in early-repayment agreement and commit it.
+    fn open_early_repayment_repo(
+        state: &State,
+        agreement_id: &RepoAgreementId,
+        cash_def_id: &AssetDefinitionId,
+        collateral_def_id: &AssetDefinitionId,
+        initiation_ms: u64,
+        maturity_ms: u64,
+    ) {
+        let header = BlockHeader::new(nonzero!(1_u64), None, None, initiation_ms, 0);
+        let mut block = state.block(header);
+        let mut stx = block.transaction_for_callback_testing();
+        let mut instruction = repo_setup_instruction_with_maturity(
+            agreement_id,
+            cash_def_id,
+            collateral_def_id,
+            maturity_ms,
+        );
+        instruction.governance = RepoGovernance::new(1_500, 86_400, true);
+        execute_repo_with_consents(&mut stx, instruction).expect("opted-in repo opens");
+        stx.apply();
+        block.commit_world_overlay_for_testing().expect("commit");
+    }
+    #[test]
+    fn reverse_repo_early_repayment_pays_exact_accrued_interest_and_returns_collateral() {
+        let (state, agreement_id, cash_def_id, collateral_def_id) = setup_state();
+        let initiation_ms = 1_704_000_000_000_u64;
+        let maturity_ms = initiation_ms + 30 * super::MS_PER_DAY;
+        let repayment_ms = initiation_ms + super::MS_PER_DAY / 2;
+        open_early_repayment_repo(
+            &state,
+            &agreement_id,
+            &cash_def_id,
+            &collateral_def_id,
+            initiation_ms,
+            maturity_ms,
+        );
+        let header = BlockHeader::new(nonzero!(2_u64), None, None, repayment_ms, 0);
+        let mut block = state.block(header);
+        let mut stx = block.transaction_for_callback_testing();
+        let cash_spec = stx.numeric_spec_for(&cash_def_id).expect("cash spec");
+        let principal = Quantity::from(1_000u32);
+        // ACT/360 for 12 hours at 250 bps, each step rounded toward zero:
+        // 0.025 * 0.001388888888888888 * 1000.
+        let interest =
+            super::compute_accrued_interest(&principal, 250, super::MS_PER_DAY / 2, cash_spec)
+                .expect("half-day interest");
+        assert_eq!(
+            interest,
+            Quantity::try_from_numeric(Numeric::new(34_722_222_222_222_u64, 15))
+                .expect("exact accrued interest")
+        );
+        let full_term_interest =
+            super::compute_accrued_interest(&principal, 250, 30 * super::MS_PER_DAY, cash_spec)
+                .expect("full-term interest");
+        assert!(interest < full_term_interest);
+        let alice_cash = AssetId::new(cash_def_id.clone(), ALICE_ID.clone());
+        let bob_cash = AssetId::new(cash_def_id.clone(), BOB_ID.clone());
+        let alice_collateral = AssetId::new(collateral_def_id.clone(), ALICE_ID.clone());
+        let bob_collateral = AssetId::new(collateral_def_id.clone(), BOB_ID.clone());
+        crate::smartcontracts::isi::asset::isi::seed_numeric_asset_balance_for_test(
+            &mut stx.world,
+            &alice_cash,
+            &interest,
+        )
+        .expect("seed accrued interest");
+        ReverseRepoIsi::new(agreement_id.clone())
+            .execute(&ALICE_ID, &mut stx)
+            .expect("the opted-in borrower repays early");
+        let expected_repayment = principal.checked_add(&interest).expect("repayment");
+        assert_eq!(repo_asset_balance(&stx, &alice_cash), Quantity::zero());
+        assert_eq!(
+            repo_asset_balance(&stx, &bob_cash),
+            Quantity::from(1_000u32)
+                .checked_add(&expected_repayment)
+                .expect("counterparty cash")
+        );
+        assert_eq!(
+            repo_asset_balance(&stx, &alice_collateral),
+            Quantity::from(1_500u32)
+        );
+        assert_eq!(repo_asset_balance(&stx, &bob_collateral), Quantity::zero());
+        let settled = stx
+            .world
+            .repo_agreements
+            .get(&agreement_id)
+            .cloned()
+            .expect("settled tombstone");
+        assert!(!settled.is_active());
+        assert_eq!(settled.settlement_timestamp_ms(), &Some(repayment_ms));
+        let settled_events = stx
+            .world
+            .internal_event_buf
+            .iter()
+            .filter_map(|event| match event.as_ref() {
+                DataEvent::Account(AccountEvent::Repo(RepoAccountEvent::Settled(payload))) => {
+                    Some(payload.clone())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(settled_events.len(), 2);
+        for event in settled_events {
+            assert_eq!(event.cash_leg().quantity(), &expected_repayment);
+            assert_eq!(event.settled_timestamp_ms(), &repayment_ms);
+        }
+    }
+    #[test]
+    fn reverse_repo_early_repayment_rejects_non_borrower_participants() {
+        let (state, agreement_id, cash_def_id, collateral_def_id, custodian) =
+            setup_state_with_custodian();
+        let initiation_ms = 1_704_000_000_000_u64;
+        let maturity_ms = initiation_ms + super::MS_PER_DAY;
+        {
+            let header = BlockHeader::new(nonzero!(1_u64), None, None, initiation_ms, 0);
+            let mut block = state.block(header);
+            let mut stx = block.transaction_for_callback_testing();
+            let mut instruction = repo_setup_instruction_with_maturity(
+                &agreement_id,
+                &cash_def_id,
+                &collateral_def_id,
+                maturity_ms,
+            );
+            instruction.custodian = Some(custodian.clone());
+            instruction.governance = RepoGovernance::new(1_500, 86_400, true);
+            execute_repo_with_consents(&mut stx, instruction).expect("tri-party repo opens");
+            stx.apply();
+            block.commit_world_overlay_for_testing().expect("commit");
+        }
+        let header = BlockHeader::new(nonzero!(2_u64), None, None, maturity_ms - 1, 0);
+        let mut block = state.block(header);
+        let mut stx = block.transaction_for_callback_testing();
+        let alice_cash = AssetId::new(cash_def_id, ALICE_ID.clone());
+        let custody_collateral = AssetId::new(collateral_def_id, custodian.clone());
+        let cash_before = repo_asset_balance(&stx, &alice_cash);
+        let collateral_before = repo_asset_balance(&stx, &custody_collateral);
+        for participant in [BOB_ID.clone(), custodian] {
+            let error = ReverseRepoIsi::new(agreement_id.clone())
+                .execute(&participant, &mut stx)
+                .expect_err("only the borrower may repay early");
+            assert!(
+                error
+                    .to_string()
+                    .contains("early repayment before maturity must be submitted by the initiator"),
+                "{error}"
+            );
+        }
+        assert_eq!(repo_asset_balance(&stx, &alice_cash), cash_before);
+        assert_eq!(
+            repo_asset_balance(&stx, &custody_collateral),
+            collateral_before
+        );
+        assert!(
+            stx.world
+                .repo_agreements
+                .get(&agreement_id)
+                .is_some_and(RepoAgreement::is_active)
+        );
+    }
+    #[test]
+    fn opted_in_repo_settles_at_maturity_unchanged_when_submitted_late() {
+        let (state, agreement_id, cash_def_id, collateral_def_id) = setup_state();
+        let initiation_ms = 1_704_000_000_000_u64;
+        let maturity_ms = initiation_ms + super::MS_PER_DAY;
+        open_early_repayment_repo(
+            &state,
+            &agreement_id,
+            &cash_def_id,
+            &collateral_def_id,
+            initiation_ms,
+            maturity_ms,
+        );
+        let late_ms = maturity_ms + 5 * super::MS_PER_DAY;
+        let header = BlockHeader::new(nonzero!(2_u64), None, None, late_ms, 0);
+        let mut block = state.block(header);
+        let mut stx = block.transaction_for_callback_testing();
+        let cash_spec = stx.numeric_spec_for(&cash_def_id).expect("cash spec");
+        let expected_cash = super::expected_cash_settlement(
+            &Quantity::from(1_000u32),
+            250,
+            initiation_ms,
+            maturity_ms,
+            cash_spec,
+        )
+        .expect("maturity repayment");
+        let interest = expected_cash
+            .checked_sub(&Quantity::from(1_000u32))
+            .expect("interest");
+        let alice_cash = AssetId::new(cash_def_id.clone(), ALICE_ID.clone());
+        crate::smartcontracts::isi::asset::isi::seed_numeric_asset_balance_for_test(
+            &mut stx.world,
+            &alice_cash,
+            &interest,
+        )
+        .expect("seed maturity interest");
+        // At or after maturity the counterparty may settle an opted-in agreement too.
+        ReverseRepoIsi::new(agreement_id.clone())
+            .execute(&BOB_ID, &mut stx)
+            .expect("maturity settlement by the counterparty");
+        assert_eq!(
+            repo_asset_balance(&stx, &AssetId::new(cash_def_id, BOB_ID.clone())),
+            Quantity::from(1_000u32)
+                .checked_add(&expected_cash)
+                .expect("counterparty cash")
+        );
+        assert_eq!(
+            stx.world
+                .repo_agreements
+                .get(&agreement_id)
+                .and_then(|agreement| *agreement.settlement_timestamp_ms()),
+            Some(maturity_ms),
+            "interest and the tombstone never extend past maturity"
         );
     }
     #[test]
@@ -2250,7 +2482,7 @@ mod tests {
                 RepoCollateralLeg::new(collateral_def_id.clone(), Quantity::from(1_100u32)),
                 250,
                 initiation_ms + super::MS_PER_DAY,
-                RepoGovernance::with_defaults(1_500, 86_400),
+                RepoGovernance::new(1_500, 86_400, false),
             );
             execute_repo_with_consents(&mut stx, instruction).expect("repo execute");
             stx.apply();

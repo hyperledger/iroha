@@ -1105,11 +1105,12 @@ final class ToriiCollectionClientTests: XCTestCase {
          "collateral_leg":{"asset_definition_id":"bond","quantity":"110.5","metadata":{"isin":"X"}},
          "collateral_custody_asset":"bond","rate_bps":250,"maturity_timestamp_ms":3,"initiated_timestamp_ms":1,
          "last_margin_check_timestamp_ms":2,"settlement_timestamp_ms":null,
-         "governance":{"haircut_bps":500,"margin_frequency_secs":60}}
+         "governance":{"haircut_bps":500,"margin_frequency_secs":60,"allow_early_repayment":true}}
         """.utf8))
         XCTAssertEqual(repo.collateralLeg?.quantity?.canonicalString, "110.5")
         XCTAssertNil(repo.custodian)
         XCTAssertEqual(repo.governance?.haircutBps, 500)
+        XCTAssertEqual(repo.governance?.allowEarlyRepayment, true)
 
         let holder = try decoder.decode(ToriiAssetHolder.self, from: Data("""
         {"account_id":"a","asset":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM","scope":"dataspace:1","quantity":"0"}

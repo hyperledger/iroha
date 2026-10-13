@@ -28,5 +28,6 @@ test("repo agreement rows expose lifecycle and custody fields under their query 
   assert.match(agreement.collateral_custody_asset, /^4fEiy2n5VMFVfi6BzDJge519zAzg@/);
   assert.equal(agreement.settlement_timestamp_ms, null);
   assert.equal(agreement.status, "active");
+  assert.equal(agreement.governance.allow_early_repayment, false);
   assert.equal(page.nextCursor, null);
 });

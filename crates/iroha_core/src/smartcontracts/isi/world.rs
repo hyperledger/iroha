@@ -29450,7 +29450,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                     250,
                     1_000,
                     1,
-                    iroha_data_model::repo::RepoGovernance::with_defaults(1_000, 60),
+                    iroha_data_model::repo::RepoGovernance::new(1_000, 60, false),
                     None,
                 ));
             let err = Unregister::domain(domain_id.clone()).expect_execute_err(
@@ -30012,7 +30012,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 250,
                 1_000,
                 1,
-                iroha_data_model::repo::RepoGovernance::with_defaults(1_000, 60),
+                iroha_data_model::repo::RepoGovernance::new(1_000, 60, false),
                 None,
             );
             stx.world.insert_repo_agreement_entry(agreement);

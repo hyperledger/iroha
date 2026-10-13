@@ -382,6 +382,7 @@ pub static REPO_AGREEMENTS: CollectionSpec = CollectionSpec {
         number("settlement_timestamp_ms"),
         number("governance.haircut_bps"),
         number("governance.margin_frequency_secs"),
+        boolean("governance.allow_early_repayment"),
     ],
     metadata: false,
     default_sort: &[("id", Order::Asc)],

@@ -1103,6 +1103,8 @@ export interface RepoLegDto {
 export interface RepoGovernanceDto {
   haircutBps: number;
   marginFrequencySecs: number;
+  /** Initiator may settle before maturity, paying interest accrued to the block time. */
+  allowEarlyRepayment: boolean;
 }
 
 export interface ToriiRepoAgreement extends RepoAgreementLifecycleFields {
@@ -9916,6 +9918,7 @@ export interface ToriiRepoAgreementRow extends ToriiCollectionRowExtras {
   readonly governance?: {
     readonly haircut_bps?: number | null;
     readonly margin_frequency_secs?: ToriiU64 | null;
+    readonly allow_early_repayment?: boolean | null;
   } | null;
 }
 

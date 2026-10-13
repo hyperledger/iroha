@@ -12,6 +12,7 @@ mod lifecycle_instructions;
 mod log_instruction;
 mod manifest;
 mod plain_governance;
+mod repo_instructions;
 mod retail_daily_limit_instructions;
 mod staking_instructions;
 mod verifying_key_instructions;
@@ -1358,6 +1359,9 @@ pub fn value_to_instruction(value: json::Value) -> CodecResult<InstructionBox> {
     if let Some(instruction) = retail_daily_limit_instructions::from_json(&value) {
         return instruction;
     }
+    if let Some(instruction) = repo_instructions::from_json(&value) {
+        return instruction;
+    }
     if let Some(instruction) = staking_instructions::from_json(&value) {
         return instruction;
     }
@@ -1398,6 +1402,7 @@ pub fn value_to_instruction(value: json::Value) -> CodecResult<InstructionBox> {
         if plain_governance::is_plain_instruction(&instruction)
             || activation_instructions::is_activation_instruction(&instruction)
             || retail_daily_limit_instructions::is_retail_instruction(&instruction)
+            || repo_instructions::is_repo_instruction(&instruction)
             || game_instructions::is_game_instruction(&instruction)
             || verifying_key_instructions::is_verifying_key_instruction(&instruction)
             || lifecycle_instructions::is_lifecycle_instruction(&instruction)
@@ -3603,6 +3608,9 @@ pub fn instruction_to_json_value(instruction: &InstructionBox) -> CodecResult<js
         return value;
     }
     if let Some(value) = retail_daily_limit_instructions::to_json(instruction) {
+        return value;
+    }
+    if let Some(value) = repo_instructions::to_json(instruction) {
         return value;
     }
     if let Some(value) = staking_instructions::to_json(instruction) {

@@ -313,7 +313,7 @@ fn repo_values(rows: &mut Vec<Value>) {
         RepoCollateralLeg::new(asset("bond"), 1_100u32),
         250,
         1_704_000_000_000,
-        RepoGovernance::with_defaults(1_500, 86_400),
+        RepoGovernance::new(1_500, 86_400, false),
     );
     let initiation_consent = initiate.initiation_intent_hash();
     let maturity_consent = initiate.maturity_intent_hash();

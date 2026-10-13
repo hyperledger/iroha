@@ -371,6 +371,9 @@ public sealed class RepoGovernanceRow
     /// <summary>The margin check frequency, in seconds.</summary>
     public ulong? MarginFrequencySecs { get; init; }
 
+    /// <summary>Whether the initiator may repay before maturity with interest accrued to the block time.</summary>
+    public bool? AllowEarlyRepayment { get; init; }
+
     internal static RepoGovernanceRow? ReadOptional(JsonElement row, string name, string context)
     {
         if (!row.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null)
@@ -388,6 +391,7 @@ public sealed class RepoGovernanceRow
         {
             HaircutBps = RowJson.OptionalUInt64(value, "haircut_bps", nested),
             MarginFrequencySecs = RowJson.OptionalUInt64(value, "margin_frequency_secs", nested),
+            AllowEarlyRepayment = RowJson.OptionalBoolean(value, "allow_early_repayment", nested),
         };
     }
 }

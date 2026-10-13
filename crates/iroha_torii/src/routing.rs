@@ -44046,6 +44046,7 @@ struct RepoLegDto {
 struct RepoGovernanceDto {
     haircut_bps: u16,
     margin_frequency_secs: u64,
+    allow_early_repayment: bool,
 }
 (Debug, Clone, crate::json_macros::JsonSerialize)
 struct RepoAgreementDto {
@@ -44096,6 +44097,7 @@ impl RepoAgreementProjection {
         let governance = RepoGovernanceDto {
             haircut_bps: agreement.governance().haircut_bps(),
             margin_frequency_secs: agreement.governance().margin_frequency_secs(),
+            allow_early_repayment: agreement.governance().allow_early_repayment(),
         };
         let dto = RepoAgreementDto {
             id: canonical_id.clone(),
@@ -44303,6 +44305,10 @@ fn repo_agreement_projection_to_query_row(proj: &RepoAgreementProjection) -> nor
     governance.insert(
         "margin_frequency_secs".into(),
         Value::from(proj.dto.governance.margin_frequency_secs),
+    );
+    governance.insert(
+        "allow_early_repayment".into(),
+        Value::from(proj.dto.governance.allow_early_repayment),
     );
     row.insert("governance".into(), Value::Object(governance));
     row.insert(
