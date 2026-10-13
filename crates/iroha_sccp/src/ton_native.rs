@@ -3131,6 +3131,10 @@ pub fn ton_open_shard_block(
     })
 }
 
+// This reads a proven *event payload*, bounded by 4096 bytes, rather than the burn's
+// 1..=1024-byte recipient. Proof envelopes may virtualize ordinary chunks; library
+// references never resolve here. Raw burn-cell admission lives in v1::ton_cell and
+// v1::destination::check_ton_burn_payload, before wallet/minter state changes.
 fn ton_read_snake_bytes(boc: &TonBoc, index: usize) -> Option<Vec<u8>> {
     let mut out = Vec::new();
     let mut next = Some(index);
@@ -4370,6 +4374,68 @@ mod tests {
         });
         assert!(parse_single_root_boc(&nested).is_some());
         assert_eq!(ton_canonical_boc_single_root_hash_v1(&nested), None);
+    }
+
+    #[test]
+    fn event_snakes_require_canonical_chunks_and_reject_libraries() {
+        use crate::v1::ton_cell::snake_bytes;
+
+        for len in [1, 127, 128, 1024, TON_MAX_SNAKE_BYTES] {
+            let bytes = vec![0x42; len];
+            let wire = snake_bytes(&bytes).unwrap().to_boc().unwrap();
+            let boc = parse_ton_boc(&wire).unwrap();
+            assert_eq!(ton_read_snake_bytes(&boc, boc.roots[0]), Some(bytes));
+        }
+        let too_long = snake_bytes(&vec![0x42; TON_MAX_SNAKE_BYTES + 1])
+            .unwrap()
+            .to_boc()
+            .unwrap();
+        let too_long = parse_ton_boc(&too_long).unwrap();
+        assert_eq!(ton_read_snake_bytes(&too_long, too_long.roots[0]), None);
+
+        for head in [
+            ordinary_cell(Vec::new(), Vec::new()),
+            ordinary_cell(vec![0x42; 126], vec![1]),
+            ordinary_cell(vec![0x42; 127], vec![1, 1]),
+        ] {
+            let boc = TonBoc {
+                roots: vec![0],
+                cells: vec![head, ordinary_cell(vec![0x42], Vec::new())],
+            };
+            assert_eq!(ton_read_snake_bytes(&boc, 0), None);
+        }
+        let mut library = ordinary_cell(vec![0x42; 33], Vec::new());
+        library.data[0] = 2;
+        library.descriptor = 8;
+        library.exotic = true;
+        let boc = TonBoc {
+            roots: vec![0],
+            cells: vec![ordinary_cell(vec![0x42; 127], vec![1]), library],
+        };
+        assert_eq!(ton_read_snake_bytes(&boc, 0), None);
+        assert_eq!(ton_read_snake_bytes(&boc, 1), None);
+
+        // An authenticated proof envelope is distinct from an on-chain exotic chunk.
+        // Keep virtualizing proofs while refusing library-cell substitution.
+        let leaf = ordinary_cell(vec![0x42], Vec::new());
+        let cells = TonBoc {
+            roots: vec![0],
+            cells: vec![leaf.clone()],
+        };
+        let computed = ton_boc_cell_hashes(&cells).unwrap();
+        let proven = TonBoc {
+            roots: vec![0],
+            cells: vec![
+                merkle_proof_cell(
+                    1,
+                    computed[0].mask,
+                    computed[0].hashes[0],
+                    computed[0].depths[0],
+                ),
+                leaf,
+            ],
+        };
+        assert_eq!(ton_read_snake_bytes(&proven, 0), Some(vec![0x42]));
     }
 
     #[test]

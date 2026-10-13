@@ -9,6 +9,25 @@ use std::cell::Cell;
 const CHAIN: &str = "portable-finality-test";
 const TEST_ALLOCATION_CEILING: usize = 64 * 1024 * 1024;
 
+// Bounds checks retain only inline epoch snapshots. Select the refusal boundary from the
+// genuine signed-genesis decoder, so the test still reaches a late mandatory allocation.
+fn signed_genesis_refusal_cap(checkpoint: &SumeragiFinalityCheckpoint) -> usize {
+    let budget = DecodeBudgetContext::new(caller_limits(TEST_ALLOCATION_CEILING));
+    budget
+        .with(|| {
+            checkpoint.validate_bounds().unwrap();
+            assert_eq!(budget.consumed_allocated_bytes(), 0);
+            norito::core::with_decode_limits_scope(
+                norito::canonical_decode_limits(checkpoint.genesis_wire.len()),
+                || decode_framed_signed_block(&checkpoint.genesis_wire),
+            )
+        })
+        .unwrap();
+    let charge = usize::try_from(budget.consumed_allocated_bytes()).unwrap();
+    assert!(charge > 2 && charge < TEST_ALLOCATION_CEILING);
+    charge - 1
+}
+
 fn selected(fixture: &Fixture) -> (SumeragiFinalityVerifier, SumeragiFinalityCheckpoint) {
     let mut verifier = fixture.verifier();
     verifier.verify(&fixture.first).unwrap();
@@ -243,16 +262,13 @@ fn positive_outer_refusal_keeps_native_provenance_and_original_source_retry() {
     let fixture = Fixture::new();
     let (_, checkpoint) = selected(&fixture);
     let original = checkpoint.encode_canonical().unwrap();
-    // Measure the actual original bounds prefix, including both optional memo insertions.
-    // A total-success-minus-one cap could merely decline optional retention and still pass.
+    // Bounds retain no allocated memo. The native decoder must still refuse after positive
+    // mandatory work, with exactly the same resource provenance as the independent recipe.
     let prefix = DecodeBudgetContext::new(caller_limits(TEST_ALLOCATION_CEILING));
     prefix.with(|| checkpoint.validate_bounds()).unwrap();
     let prefix_charge = prefix.consumed_allocated_bytes();
-    assert!(prefix_charge > 0);
-    let cap = usize::try_from(prefix_charge)
-        .unwrap()
-        .checked_add(1)
-        .unwrap();
+    assert_eq!(prefix_charge, 0);
+    let cap = signed_genesis_refusal_cap(&checkpoint);
     assert!(cap < TEST_ALLOCATION_CEILING);
     let expected_budget = DecodeBudgetContext::new(caller_limits(cap));
     let expected = expected_budget
@@ -872,14 +888,12 @@ fn warmed_operation_epoch_workspace_preserves_late_positive_outer_charges_and_ty
         checkpoint
     );
 
-    // Measure the original bounds prefix then force the genuine signed-genesis allocation
-    // refusal at a positive ceiling. Optional insertion failures are not a refusal oracle.
+    // Inline bounds validation costs no decoder allocations. Force the original signed-
+    // genesis decoder to refuse a late mandatory allocation under a positive ceiling.
     let prefix = DecodeBudgetContext::new(caller_limits(TEST_ALLOCATION_CEILING));
     prefix.with(|| checkpoint.validate_bounds()).unwrap();
-    let cap = usize::try_from(prefix.consumed_allocated_bytes())
-        .unwrap()
-        .checked_add(1)
-        .unwrap();
+    assert_eq!(prefix.consumed_allocated_bytes(), 0);
+    let cap = signed_genesis_refusal_cap(&checkpoint);
     assert!(cap > 1 && cap < TEST_ALLOCATION_CEILING);
     let original_budget = DecodeBudgetContext::new(caller_limits(cap));
     let original_error = original_budget

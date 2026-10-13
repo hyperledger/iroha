@@ -10,6 +10,7 @@ from .keccak import keccak256
 PAYLOAD_TAG = b"SCCP/PAYLOAD/V1"
 MESSAGE_TAG = b"SCCP/MESSAGE/V1"
 MAX_PAYLOAD_BYTES = 4096
+MAX_TAIRA_ACCOUNT_BYTES = 1024
 
 
 @dataclass(frozen=True)
@@ -96,7 +97,7 @@ def validate_account(codec: int, data: bytes) -> None:
     elif codec == CODEC_EVM_ADDRESS20:
         ok = len(data) == 20 and any(data)
     elif codec == CODEC_TAIRA_ACCOUNT:
-        ok = 1 <= len(data) <= 1024
+        ok = 1 <= len(data) <= MAX_TAIRA_ACCOUNT_BYTES
     elif codec == CODEC_TON_ACCOUNT36:
         ok = len(data) == 36 and data[:4] == bytes(4) and any(data[4:])
     else:
@@ -201,7 +202,7 @@ def decode_payload(data: bytes, *, check_recipient: bool = True) -> Payload:
     if check_recipient:
         validate_account(recipient_codec, recipient)
     elif len(recipient) != {CODEC_EVM_ADDRESS20: 20, CODEC_TON_ACCOUNT36: 36}.get(recipient_codec, len(recipient)) or not (
-        1 <= len(recipient) <= 1024
+        1 <= len(recipient) <= MAX_TAIRA_ACCOUNT_BYTES
     ):
         raise fail("recipient length")
     external = dest if source is TAIRA else source

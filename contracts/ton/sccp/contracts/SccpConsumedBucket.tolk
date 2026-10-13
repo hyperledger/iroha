@@ -8,6 +8,7 @@
 // with clear flags that accept consumes.
 
 import "@stdlib/gas-payments"
+import "sccp-cells"
 import "sccp-constants"
 import "sccp-errors"
 import "sccp-fees"
@@ -100,6 +101,8 @@ fun onInternalMessage(in: InMessage) {
         SccpConsume => {
             var storage = lazy BucketStorage.load();
             storage.requireActiveFromMinter(in.senderAddress);
+            // Bound the echoed body before changing replay flags or forwarding.
+            sccpLoadConsumeTail(msg.tail);
             val (hi, lo) = storage.flagMask(msg.nonce);
             sccpReserveFloor(sccpBucketFloor(), in.valueCoins);
             if (((storage.bitsHi & hi) | (storage.bitsLo & lo)) == 0) {

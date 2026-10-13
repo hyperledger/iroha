@@ -1271,63 +1271,99 @@ mod tests {
     #[test]
     fn signer_y_checks_refuse_the_reference_negatives() {
         let reference = finality();
+        let genuine = keys(field(field(&reference, "committees"), "n4"), "keys");
         let mut seen = 0;
         for row in rows(&reference, "negative_certificates") {
             let label = text(row, "label");
-            let evm = field(row, "evm");
-            let Some(members) = committee_keys(&bytes(text(evm, "committee"))) else {
+            if !matches!(
+                label,
+                "signer_y_wrong_sign"
+                    | "signer_y_ge_p"
+                    | "signer_y_off_curve"
+                    | "key_flag_infinity_0xc0"
+                    | "key_flag_uncompressed"
+                    | "signer_x_ge_p"
+                    | "signer_zero_coordinates"
+            ) {
                 continue;
-            };
+            }
+            let evm = field(row, "evm");
+            let members = committee_keys(&bytes(text(evm, "committee")))
+                .expect("a four-member malformed-signer fixture");
             let ys = bytes(text(evm, "signerYs"));
             let (ys, rest) = ys.as_chunks::<FP_LEN>();
             assert!(rest.is_empty(), "{label}");
-            // Signers 0, 1 and 2 of n = 4 in the rows below.
-            let first = (&members[0], &ys[0]);
+            // A malformed key may change its canonical seat. Pair each witness with the
+            // signer the certificate actually names, then locate the row's malformed key.
+            let signers = signers_of(row);
+            let indices = signer_indices(signers, members.len()).expect("valid signer seats");
+            assert_eq!(indices.len(), ys.len(), "{label}");
+            let suspects: Vec<_> = indices
+                .iter()
+                .map(|index| &members[*index])
+                .zip(ys)
+                .filter(|(key, _)| match label {
+                    "signer_y_wrong_sign" => **key == genuine[0],
+                    "signer_y_ge_p" => **key == genuine[1],
+                    "signer_y_off_curve" => **key == genuine[2],
+                    "key_flag_infinity_0xc0" => key[0] & 0x40 != 0,
+                    "key_flag_uncompressed" => key[0] & 0x80 == 0,
+                    "signer_x_ge_p" => signer_key_x(key)[0] == 0x1f,
+                    "signer_zero_coordinates" => signer_key_x(key) == [0; FP_LEN],
+                    _ => false,
+                })
+                .collect();
+            assert_eq!(suspects.len(), 1, "{label}");
+            let suspect = suspects[0];
             match label {
                 "signer_y_wrong_sign" => {
-                    assert!(fp_is_canonical(first.1));
-                    assert!(!signer_key_flags_match(first.0, first.1));
+                    assert!(fp_is_canonical(suspect.1));
+                    assert!(!signer_key_flags_match(suspect.0, suspect.1));
                     // `p − y` is still on the curve: only the sign flag tells it apart.
-                    assert!(signer_coordinates_name_a_finite_point(first.0, first.1));
-                    assert!(signer_point_is_on_curve(first.0, first.1));
-                    assert_ne!(key_y(first.0).as_ref(), Some(first.1));
+                    assert!(signer_coordinates_name_a_finite_point(suspect.0, suspect.1));
+                    assert!(signer_point_is_on_curve(suspect.0, suspect.1));
+                    assert_ne!(key_y(suspect.0).as_ref(), Some(suspect.1));
                 }
                 "signer_y_ge_p" => {
-                    assert!(!fp_is_canonical(&ys[1]));
-                    assert!(!signer_point_is_on_curve(&members[1], &ys[1]));
+                    assert!(!fp_is_canonical(suspect.1));
+                    assert!(!signer_point_is_on_curve(suspect.0, suspect.1));
                 }
                 "signer_y_off_curve" => {
-                    assert!(fp_is_canonical(&ys[2]));
-                    assert!(signer_key_flags_match(&members[2], &ys[2]));
+                    assert!(fp_is_canonical(suspect.1));
+                    assert!(signer_key_flags_match(suspect.0, suspect.1));
                     // Finite coordinates that only the curve equation refuses (step 10).
-                    assert!(signer_coordinates_name_a_finite_point(&members[2], &ys[2]));
-                    assert!(!signer_point_is_on_curve(&members[2], &ys[2]));
+                    assert!(signer_coordinates_name_a_finite_point(suspect.0, suspect.1));
+                    assert!(!signer_point_is_on_curve(suspect.0, suspect.1));
                 }
                 "key_flag_infinity_0xc0" | "key_flag_uncompressed" => {
                     // The `y` is the genuine key's, the flag byte is not a compressed key's.
-                    assert!(!signer_key_flags_match(first.0, first.1));
-                    assert!(signer_point_is_on_curve(first.0, first.1));
-                    assert_eq!(key_y(first.0), None);
-                    assert_eq!(aggregate_public_key(&members, 0b0111), None);
+                    assert!(!signer_key_flags_match(suspect.0, suspect.1));
+                    assert!(signer_point_is_on_curve(suspect.0, suspect.1));
+                    assert_eq!(key_y(suspect.0), None);
+                    assert_eq!(aggregate_public_key(&members, signers), None);
                 }
                 // The two rows below keep valid flags and a reduced `y`, so only the
                 // coordinate check of step 6 refuses them; each is pinned under the root of
                 // its own key bytes.
                 "signer_x_ge_p" => {
-                    assert!(fp_is_canonical(first.1));
-                    assert!(signer_key_flags_match(first.0, first.1));
-                    assert!(!fp_is_canonical(&signer_key_x(first.0)));
-                    assert_eq!(signer_key_x(first.0)[0], 0x1f);
-                    assert!(!signer_coordinates_name_a_finite_point(first.0, first.1));
-                    assert!(!signer_point_is_on_curve(first.0, first.1));
+                    assert!(fp_is_canonical(suspect.1));
+                    assert!(signer_key_flags_match(suspect.0, suspect.1));
+                    assert!(!fp_is_canonical(&signer_key_x(suspect.0)));
+                    assert_eq!(signer_key_x(suspect.0)[0], 0x1f);
+                    assert!(!signer_coordinates_name_a_finite_point(
+                        suspect.0, suspect.1
+                    ));
+                    assert!(!signer_point_is_on_curve(suspect.0, suspect.1));
                 }
                 "signer_zero_coordinates" => {
-                    assert_eq!(first.0[0], 0x80);
-                    assert_eq!(signer_key_x(first.0), [0; FP_LEN]);
-                    assert_eq!(*first.1, [0; FP_LEN]);
-                    assert!(signer_key_flags_match(first.0, first.1));
-                    assert!(!signer_coordinates_name_a_finite_point(first.0, first.1));
-                    assert!(!signer_point_is_on_curve(first.0, first.1));
+                    assert_eq!(suspect.0[0], 0x80);
+                    assert_eq!(signer_key_x(suspect.0), [0; FP_LEN]);
+                    assert_eq!(*suspect.1, [0; FP_LEN]);
+                    assert!(signer_key_flags_match(suspect.0, suspect.1));
+                    assert!(!signer_coordinates_name_a_finite_point(
+                        suspect.0, suspect.1
+                    ));
+                    assert!(!signer_point_is_on_curve(suspect.0, suspect.1));
                 }
                 _ => continue,
             }
@@ -1341,7 +1377,7 @@ mod tests {
                 );
                 let expected = field(row, "expected");
                 assert_eq!(field(expected, "evm").as_str(), Some("BadCommittee"));
-                assert!(field(expected, "ton").is_null(), "{label}");
+                assert_eq!(field(expected, "ton").as_str(), Some("BadSignature"));
             }
             seen += 1;
         }

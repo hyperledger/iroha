@@ -15,7 +15,8 @@
 //   XHead, XTail                            BadHeader      (§5.1.3 step 1)
 //   CheckpointRef, BlockRef, MessageProof,
 //   ControlProof                            BadSnake
-//   SnakeBytes, HashChunk, KeyChunk lists   BadSnake
+//   SnakeBytes, HashChunk, KeyChunk lists,
+//   SccpBurnToTaira, ConsumeTail             BadSnake
 //
 // A certificate's lengths are checked in the order `QC_FIXED`, `X`,
 // signature. A `next_keys` list of more than 16 chunks is `BadCommittee`. A

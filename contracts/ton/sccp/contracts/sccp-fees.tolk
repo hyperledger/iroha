@@ -66,30 +66,29 @@ const SCCP_GAS_BUCKET_ACTIVATE = 3000
 const SCCP_GAS_BUCKET_UNCONSUME = 5000
 const SCCP_GAS_WALLET_RECEIVE = 8000
 const SCCP_GAS_WALLET_TRANSFER = 8000
-const SCCP_GAS_WALLET_BURN = 7000
+/// Full 1024-byte recipient validation measures 12573 gas at the wallet.
+const SCCP_GAS_WALLET_BURN = 15000
 
 // Account state sizes, upper bounds of the storage statistics of each
 // account (code, data and the account's own cell). The minter bound is the
 // measured largest state: the compiled code, the 16 `KeyChunk`s of n = 31,
 // three checkpoints, the largest supplies and counters, the wallet and bucket
-// code, and eight `retries` records, which only bounced steps create: 257
-// cells and 120 032 bits.
-// TODO: WP-TON-RUST: `TON_MINTER_STATE_BITS` and `TON_MINTER_STATE_CELLS` of
-// `crates/iroha_sccp/src/v1/ton_cell.rs` mirror the two minter constants and
-// still hold the bound of the retired roster minter (102 000 bits, 205
-// cells); move them to the values below.
-const SCCP_BUCKET_STATE_BITS = 9000
+// code, and eight `retries` records, which only bounced steps create: 261
+// cells and 121 916 bits.
+// `TON_MINTER_STATE_BITS` and `TON_MINTER_STATE_CELLS` in the Rust mirror
+// `crates/iroha_sccp/src/v1/ton_cell.rs` use these same measured bounds.
+const SCCP_BUCKET_STATE_BITS = 9500
 const SCCP_BUCKET_STATE_CELLS = 27
-const SCCP_WALLET_STATE_BITS = 7500
-const SCCP_WALLET_STATE_CELLS = 16
-const SCCP_MINTER_STATE_BITS = 122000
-const SCCP_MINTER_STATE_CELLS = 260
+const SCCP_WALLET_STATE_BITS = 8000
+const SCCP_WALLET_STATE_CELLS = 18
+const SCCP_MINTER_STATE_BITS = 124000
+const SCCP_MINTER_STATE_CELLS = 265
 
 // StateInit sizes attached to deployments (code + data + root), upper bounds.
-const SCCP_BUCKET_STATE_INIT_BITS = 9000
+const SCCP_BUCKET_STATE_INIT_BITS = 9500
 const SCCP_BUCKET_STATE_INIT_CELLS = 28
-const SCCP_WALLET_STATE_INIT_BITS = 7500
-const SCCP_WALLET_STATE_INIT_CELLS = 17
+const SCCP_WALLET_STATE_INIT_BITS = 8000
+const SCCP_WALLET_STATE_INIT_CELLS = 18
 
 // Message sizes (header and body cells), upper bounds.
 const SCCP_MSG_CONSUME_BITS = 1800

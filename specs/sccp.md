@@ -2578,7 +2578,7 @@ time `T`):
     pin.generation, pin.committee_root, pin.start_height, pin.until_ms)`
     (§5.2.1). `SCCP_EVM_CREATION_CODE` is the exact creation bytecode pinned by
     `scripts/contract_tooling/artifact-lock.json` and embedded in
-    `iroha_sccp::v1::constants`; CI fails if the two differ.
+    `iroha_sccp::v1::evm_abi`; its drift tests fail if the two differ.
   - **P5.** `sccp_forgery_max_generation < initial_committee.generation`, or no
     forgery evidence has been recorded; otherwise the revision would start held
     (§4.10).
@@ -3617,9 +3617,9 @@ is then the published forged handoff, not the certificate that latched.
 - The two counters have a top. `opCount` saturates at `2^64 − 1` (§5.1.1). A
   source nonce is at most `2^64 − 2`: a stored next nonce of `2^64 − 1` is
   exhausted, and a burn of that sender is refused with `BadNonce` before any
-  state change, so no source nonce is used twice (§5.1.7). `TODO:` the TON
-  contract work package applies both bounds to the minter's `op_count` and
-  `outbound_nonce` and pins them in its Acton harness.
+  state change, so no source nonce is used twice (§5.1.7). The TON minter
+  applies both bounds to its `op_count` and `outbound_nonce`, where the one
+  `outbound_nonce` serves every sender, and its Acton harness pins them.
 
 **Which entry points may do what.**
 
@@ -3947,8 +3947,8 @@ Burns wrapped XOR from the caller and emits the source event:
   Otherwise the minter throws, and the standard bounce restores the wallet
   balance. `nonce = outbound_nonce++` (the Jetton master serializes all
   burns), in the same range: at `outbound_nonce = 2^64 − 1` the minter throws
-  `BadNonce`, and the bounce restores the wallet balance (`TODO:` the TON
-  contract work package, §5.1.2 "Arithmetic").
+  `BadNonce` before any state change, for every owner, and the bounce restores
+  the wallet balance (§5.1.2 "Arithmetic").
 - Build the payload per §3.2 (`dest_domain 0`, `deadline_ms 0`, sender =
   caller, route constants) and `message_id` per §3.3 with lane `(own, Taira)`.
   Burn, `opCount += 1`, emit.
@@ -4404,12 +4404,19 @@ and bounces the inbound message, so no step completes without its event.
    verdict on the keys, the aggregate and the signature: `false` throws
    `BadSignature`, including for an identity aggregate, which EVM reports as
    `BadCommittee` (§5.1.3 steps 10–11). The minter runs no aggregate step of
-   its own. The reference models read the opcode as refusing a signer key that
-   is no canonical point, is the identity or lies outside G1; a root Taira
-   admitted holds no such key (§3.8). `TODO:` the TON contract work package
-   confirms that reading in the Acton harness before a shared TON row pins
-   those inputs (`error_choices.ton_signer_key_refused_by_the_opcode`).
-   The Acton harness pins this stack shape at n = 4, 7 and 31.
+   its own. The opcode refuses a signer key that is no canonical point, is the
+   identity or lies outside G1, as the reference models read it; a root Taira
+   admitted holds no such key (§3.8). The Acton harness
+   (`tests/unit/sccp-bls.test.tolk`) pins that the opcode answers `false`, and
+   the minter `BadSignature` after the opcode's gas, for a stored signer key
+   with the infinity flag (`0xc0…`), without the compression flag, with `x ≥
+   p`, with the coordinates `(0, 0)`, on the curve outside G1 (one key with the
+   genuine signature, and two keys shifted by `T` and `−T` whose sum is the
+   genuine aggregate), and for keys that sum to the identity; the opcode also
+   answers `false` for the identity key alone under the identity signature.
+   Both reference generators record `BadSignature` as `expected.ton` for
+   those shared negative and flavour-specific certificate rows. The harness
+   also pins the stack shape and the opcode gas at n = 4, 7 and 31.
 6. **Latch:** commit state, emit `sccp_latched`, and return the excess value to
    `response` with no throw. A mint in flight whose bucket `sccp_consumed`
    reply arrives after the latch is not minted: the minter sends
@@ -4493,6 +4500,8 @@ and bounces the inbound message, so no step completes without its event.
    bounceable `sccp_unconsume{nonce}` to the bucket, or record the nonce in
    `retries` if the balance cannot pay it. The bucket clears the bit only for
    the minter and only when active, and the message becomes finalizable again.
+   `op_count` is monotone and is never decremented; a mint that bounced and
+   is finalized again is counted again, subject to saturation at `2^64 − 1`.
    A bounced `sccp_unconsume` records the nonce in `retries`. No nonce is ever
    consumed without a mint, a void or a recorded unconsume.
 
@@ -4520,11 +4529,22 @@ range. A bounced `sccp_consume_range` changes nothing and may be sent again.
 
 1. The owner sends TEP-74 `burn#595f07bc query_id amount response_destination
    custom_payload` to its wallet with `custom_payload = sccp_burn_to_taira`.
-2. The wallet requires the custom payload, so a plain burn is rejected and no
-   value can be burned without a Taira record. It debits the balance and sends
-   the extended `burn_notification`.
+2. Before debiting or forwarding, the wallet requires the custom payload and
+   opens it as an ordinary cell containing exactly 32 bits (opcode
+   `0x53434254`) and one reference. A missing payload or wrong opcode is
+   `BadBurnPayload`; an exotic wrapper or any extra/missing bits or references
+   is `BadSnake`. It traverses the **entire** referenced recipient as ordinary
+   canonical `SnakeBytes` (§5.3.2): 127 bytes in every nonterminal chunk,
+   1..=127 bytes in the final chunk, exactly one continuation reference when
+   present and no extra bits or references. The total MUST be 1..=1024 bytes;
+   an oversized recipient is `BadRecipient`, and an empty, noncanonical or
+   exotic snake is `BadSnake`. Only after these checks and the required-value
+   check does the wallet debit and send the extended `burn_notification`.
+   This admission bound makes the maximal notification size priced by
+   `burn_required_value()` a real upper bound on the forwarded body.
 3. The minter verifies the wallet address; requires the owner to be `addr_std`
-   in workchain 0 without anycast; validates the recipient bytes (1..=1024);
+   in workchain 0 without anycast; repeats the same ordinary, exact wrapper
+   and full canonical 1..=1024-byte recipient checks;
    applies `total_supply −= amount` and `nonce = outbound_nonce++`; builds the
    payload (`sender_codec 7` = owner) and computes `message_id`; sets `op_count
    += 1`; reserves only its prior balance (a burn never pays toward
@@ -4626,9 +4646,12 @@ have been live on mainnet since 2023. The `ECRECOVER` helpers
 
 ### 5.4 Cost estimates
 
-`n = 4` is Taira today and `n = 31` is the protocol maximum. The EVM values
-are measurements; the TON values are estimates until the TON suite records
-them. Tests MUST record measured values (§11). The EVM baseline is
+`n = 4` is Taira today and `n = 31` is the protocol maximum. The EVM and the
+TON values are measurements. Tests MUST record measured values (§11). The TON
+baseline is `contracts/ton/sccp/gas-baseline.json`: the builder
+(`scripts/ton_sccp_builder.py test`) fails when a step exceeds its gas limit
+or 1.1 × its baseline row, and when a row is missing from the baseline or
+from a complete run. The EVM baseline is
 `contracts/evm/sccp/test/gas_baseline_v1.json` (hardfork → row → profile, with
 `n = 7` as well), and the EVM table below lists its values. The gas suite
 (`contracts/evm/sccp/test/sccp_gas.test.js`) measures every row under two
@@ -4690,14 +4713,37 @@ row only: an inline `finalizeFromTaira` on the cheap path at `n = 31` (155 110).
   floor-bound; the checkpoint path and the bitmap consumed set keep
   finalization robust to it.
 
-**TON (400 nanoTON per gas).**
+**TON (measured on the Acton 1.2.0 emulator; compute gas of the minter step,
+TON at 400 nanoTON per gas).**
 
 | Operation | n = 4 | n = 31 |
 |---|---|---|
-| Certificate check | ≈ 80k gas (≈ 0.032 TON) | ≈ 140k gas (≈ 0.056 TON) |
-| Rotation extra (keccak, ≤ 16 `KeyChunk`s) | +≈ 15k; heartbeat +≈ 2k | +≈ 30k; heartbeat +≈ 2k |
-| Inline finalize | check + ≈ 15–20k, plus the unchanged bucket and wallet round trips (≈ 0.02–0.05 TON consumed in total) | same |
-| `voidFrozen` | ≈ 10k gas + bucket round trip | same |
+| Certificate check | 97 564 gas (≈ 0.039 TON) | 161 644 gas (≈ 0.065 TON) |
+| Rotation extra (keccak, ≤ 16 `KeyChunk`s) | +10 598; heartbeat +3 665 | +44 828; heartbeat +3 665 |
+| Inline finalize | check + 22 977 (120 541 gas), plus the bucket and wallet round trips: bucket consume 7 085, `sccp_consumed` 10 787 and wallet receive 4 255 gas | check + 22 977 (184 621 gas), same round trips |
+| `voidFrozen` | 12 751 gas (24 586 when it activates four buckets) + bucket round trip: 7 029 gas for 512 nonces and 6 227 for the reply | same |
+
+- The certificate check is one certificate through `sccp_checkpoint` on the
+  full path, of which `BLS_FASTAGGREGATEVERIFY` is 58 000 + 3 000·q (67 000 and
+  121 000). At `n = 7` it costs 104 668 gas, and a key change adds 14 988. On
+  the cheap path a rotation costs 26 435 gas as a heartbeat and 33 368 as a key
+  change at `n = 4`.
+- An inline void is the check + 22 510 gas and an inline control the check +
+  13 211. Against a stored checkpoint a finalize costs 42 264 gas, a void
+  41 378 and a control 29 624. A burn costs 12 573 gas at the wallet and 39 395
+  at the minter with a 1 024-byte recipient.
+- At the largest inputs (`n = 31`, the 21 highest signers, full checkpoint
+  slots, the last leaf of a 512-leaf block under a history of 2^32 blocks, a
+  1 024-byte sender and four bucket activations) the steps cost 208 942
+  (`sccp_checkpoint`, a key change to another committee of 31), 251 280
+  (`sccp_finalize`), 250 412 (`sccp_void_expired`) and 224 746
+  (`sccp_apply_control`) gas, under the step limits of 250 000, 300 000,
+  285 000 and 260 000 that the required values price (§5.3.5).
+- The maximal minter state is 261 cells and 121 916 bits, under the bound of
+  265 cells and 124 000 bits that `MINTER_FLOOR` prices. Ten thousand
+  rotations preserve the fixed storage layout; physical cell counts account
+  for deduplication between code and data, including the initial empty
+  checkpoint cell shared with code.
 
 A certificate is 4 cells; a key-changing rotation adds at most 16. Stack depth
 is at most `q + 3`. The `sccp_certificate` external message re-references the
@@ -4711,7 +4757,7 @@ certificate cells and adds one forward fee.
 | TON | Acton 1.2.0 bundling Tolk 1.4.2 (`acton-aarch64-apple-darwin`, linux builds) | fixed optimization; code cell hashes and depths locked |
 
 - `scripts/contract_tooling/compiler-lock.json` pins the URLs and sha256 of
-  these binaries. `contract_artifact_corridor.py` builds, locks and verifies
+  the solc binaries. `contract_artifact_corridor.py` builds, locks and verifies
   artifacts, including each contract's creation code
   (`SCCP_EVM_CREATION_CODE`), runtime template and `immutableReferences`. No
   Rosetta or Docker is needed on macOS arm64.
@@ -4724,8 +4770,15 @@ certificate cells and adds one forward fee.
   records the creation code built from them. The EDR suites run that locked
   build under both the Prague and the Osaka rules
   (`scripts/sccp_evm_contract_smoke.sh`).
-- `Acton.toml` pins `acton = "1.2.0"` (PascalCase wrapper names), and `acton
-  simulator` provides local end-to-end emulation.
+- The TON toolchain is pinned outside `compiler-lock.json`:
+  `contracts/ton/sccp/Acton.toml` pins `acton = "1.2.0"` (PascalCase wrapper
+  names), and `scripts/ton_sccp_builder.py` pins the Acton version
+  (`ACTON_VERSION`, with the exact reported version line), the SHA-256 of the
+  release archive of each host (`ACTON_ARCHIVES`) and the bundled Tolk version
+  (`TOLK_VERSION`), which it checks against the project stdlib after a build.
+  `fixtures/sccp/ton_stateinit_v1.json` locks the code cell hashes and depths
+  and records both versions; `scripts/sccp_ton_contract_build.sh` fails on any
+  drift. `acton simulator` provides local end-to-end emulation.
 
 ## 6. Torii read API (served by every Taira peer from state)
 
@@ -5057,9 +5110,9 @@ the control step of step 5.
     and selector tables of §5.2.2;
   - `v1::evidence`: the §4.9 E1–E4 reference, anchor leaves, chunk roots and
     paths, used by Torii, the CLI and the keeper for pre-checks;
-  - `v1::constants`, including `SCCP_EVM_DEPLOYER` and
-    `SCCP_EVM_CREATION_CODE`; `v1::evm_abi` and `v1::ton_cell` encoders for
-    every §5 entry point;
+  - `v1::constants`; `v1::evm_abi`, including `SCCP_EVM_DEPLOYER`,
+    `SCCP_EVM_CREATION_CODE`, constructor encoding and CREATE2 derivation;
+    `v1::evm_abi` and `v1::ton_cell` encoders for every §5 entry point;
   - the `SccpGovernanceProposalV1` static validation and subject mapping;
   - the per-chain inbound and void verifiers and light-client logic (Ethereum,
     BSC, TON);
@@ -5742,10 +5795,9 @@ on `ethereum-mainnet`. Both models refuse any other pair of flavour and
 profile, because a contract computes its lane and its destination word from
 its own chain and address. The refusals of the TON rows do not depend on the
 minter address; the applied controls of `ton_checkpoint_use_after_rotation`
-and `ton_same_height_block_ref_with_history` do. `TODO:` the TON contract work
-package either installs the minter at the placeholder account id in its Acton
-harness or regenerates those rows with the address its `StateInit` gives. An
-`SccpCertificate` event of a row names the pooled certificate whose
+and `ton_same_height_block_ref_with_history` do. The Acton harness installs
+its minter at `0:35…35`, matching those rows. An `SccpCertificate` event of a
+row names the pooled certificate whose
 `QC_FIXED`, header and signature the destination published, among the
 certificates of its own step.
 
@@ -6116,11 +6168,11 @@ until it lands.
 | Light-client keeper task | Implemented as `irohad/src/sccp_attestor/keeper.rs`, gated on a bridge key. Its move to `irohad/src/sccp_keeper.rs` with the keeper key, keepalive and watch duties, and the L5 feed, are TODO |
 | Parliament SCCP payload, per-subject heads, permissionless core-derived attempts and manager transitions, `OnlyGenesis` grant, `governance drive` (§4.14.3, §4.14.5) | Implemented. The new actions and subjects, `enact` with `s0`, the lift rule, the removal of `ClearBridgeKeyFault`, and the launch gate are TODO |
 | Torii read routes for capabilities, registry, messages, outbound, controls, history, light clients and governance (§6) | Native certificate wire types and closed query selectors replace the retired attestation/roster API. Committed records, current/by-generation committee reads and finality capability tags are implemented. The app owns a finite history-node cache (`torii.sccp_history_cache_max_bytes`, default 8,000,000 bytes); request admission funds path scratch and response bytes in both normal and minimal builds. Core can assemble message proofs from original verified native receipts with exact captured-prefix and leaf/history binding. HTTP message/control publication still refuses while certified source acquisition and current control production are incomplete. The bounded rotations route refuses until its native archive owner exists. Current-source validation and the evidence, anchor, forgery-hold and fast-pause views remain TODO |
-| EVM contract: ERC-20, consumed bitmap, canonical calldata, supply cap (§5.1.4, §5.1.7) | Implemented on the attestation ABI. BLS verification (EIP-2537), the committee state machine, checkpoints, `SccpCertificate`, the v1 control leaf, CREATE2 deployment and the §5.2.2 ABI are TODO |
-| TON contracts: value safety, floors, bucket activation, `retries` and `sccp_retry` (§5.3.4–§5.3.5) | Implemented on the attestation layout. BLS verification, the committee state machine and checkpoints, the §5.3 storage, ops and events, and exit codes 433/434 are TODO |
+| EVM contract: ERC-20, consumed bitmap, canonical calldata, supply cap (§5.1.4, §5.1.7) | Implemented at revision 5 in `contracts/evm/sccp/SccpTairaXor.sol` with `lib/BLS12_381.sol`: BLS verification through EIP-2537, the committee state machine, checkpoints, `SccpCertificate`, the v1 control leaf, deployment through `SCCP_EVM_DEPLOYER` (CREATE2) and the §5.2.2 ABI, with the EDR suites of `scripts/sccp_evm_contract_smoke.sh` (library, fixture replay, behaviour, gas). The committed sources rebuild to the creation code of `artifact-lock.json`. `iroha_sccp::v1::evm_abi` uses the revision-5 selectors, embeds that locked creation code and owns the constructor encoding and P4 CREATE2 computation shared with the CLI. `fixtures/sccp/evm_calldata_v1.json` pins the ABI and a sample P4 address; the EDR fixture suite consumes its deployment, selectors, calldata, view returns, logs and conformance rows. Open: the audit gate |
+| TON contracts: value safety, floors, bucket activation, `retries` and `sccp_retry` (§5.3.4–§5.3.5) | Implemented at revision 5 in `contracts/ton/sccp`: BLS verification through `BLS_FASTAGGREGATEVERIFY`, the committee state machine with checkpoints, rotations and the latch, the §5.3 storage, ops, events and exit codes (433/434 included), both counter bounds, the measured gas limits and `gas-baseline.json` (§5.4), and the StateInit golden. `scripts/sccp_ton_contract_build.sh` runs 279 Acton tests in 13 suites, the 1.1 × gas gate and the golden check. The Rust mirror reads the current StateInit golden and uses the measured minter state bound of 122 000 bits and 260 cells; both reference generators pin the shared TON signer-key verdicts (§5.3.4 item 5, §11.1). Open: the Rust message-body fixture `fixtures/sccp/ton_boc_v1.json` and its contract replay, the four-validator lane scenario and the audit gate |
 | Consensus signing API and `DST_SIG` (§3.8; `specs/sumeragi.md` §1 item 6) | API: Implemented in `iroha_crypto::bls::consensus` (the allowlist, `DST_SIG`, `FastAggregateVerify`, `AggregateVerify`) with its vectors. Production `KeyPairSigner`, `BlsCrypto` and the data-model `ProofCrypto` now route through this API, including request-funded native pairing scratch. Generic BLS signatures are refused for consensus. Current-source native, network and mutation qualification remains open |
 | Finality header, certified result `R`, `CertifiedResultV1` and every reader (§3.6, §4.6; `specs/sumeragi.md` §4.1.1) | The fixed original `X` and canonical body are integrated into the native producer, execution seal, retained chain, persistence, portable verifiers and caller APIs. Readers require independent authenticated root scope and reject retired body-only frames. Model controls pass; combined Core/node, installed SDK and network qualification remain open (WP-C2). The 31-seat body-size measurement is 30 763 of 65 315 bytes (§13 item 5) |
-| `iroha_sccp::v1` reference: `finality` (`QC_FIXED`, the Commit preimage, `m`, `checkpoint_id`, `verify_certificate` and its aggregate-key form), `committee` (the committee root, the EVM point forms, the §5.1.2 state machine and the checkpoint-use rule of §5.1.3), `control` (the 199-byte leaf and the fast-pause clamp), `destination` and `destination_abi` (the executable model of both destination contracts and the §5.2.2 tables), and the Rust generators and drift tests of `finality_v1.json`, `committee_transitions_v1.json`, `control_v1.json` and `finality_rust_v1.json` (§8, §11) | Implemented (M0). The evidence rules E0–E4 are TODO (WP-S6). The TON rows that depend on the minter address or on the per-key checks of `BLS_FASTAGGREGATEVERIFY` wait for the TON contract work package (§11.1, §5.3.4); the Python drift check is not yet in a CI workflow (§11) |
+| `iroha_sccp::v1` reference: `finality` (`QC_FIXED`, the Commit preimage, `m`, `checkpoint_id`, `verify_certificate` and its aggregate-key form), `committee` (the committee root, the EVM point forms, the §5.1.2 state machine and the checkpoint-use rule of §5.1.3), `control` (the 199-byte leaf and the fast-pause clamp), `destination` and `destination_abi` (the executable model of both destination contracts and the §5.2.2 tables), and the Rust generators and drift tests of `finality_v1.json`, `committee_transitions_v1.json`, `control_v1.json` and `finality_rust_v1.json` (§8, §11) | Implemented (M0). The evidence rules E0–E4 are TODO (WP-S6). The TON rows match the Acton harness's minter address and the per-key verdict of `BLS_FASTAGGREGATEVERIFY` (§11.1, §5.3.4); the Python drift check is not yet in a CI workflow (§11) |
 | Certified time CT1–CT5 and `Execute.certified` (§4.3; `specs/sumeragi.md` §4.5) | TODO (WP-C3) |
 | Genesis and Kagami regeneration, including the SCCP staking profile (§4.8 L1) | TODO (WP-C4) |
 | Frozen-surface golden test and mutation-gate entries (§11.6) | TODO: Team C lands its entries in WP-C5; Team S adds its entries with the work packages named in §11.6 |

@@ -4244,7 +4244,7 @@
   ],
   "taira_network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
   "todo": [
-    "TODO(TON contract work package): TON destination-effect rows (minter account id as destination word) once the Acton harness pins its minter address; committee_transitions_v1.json carries the TON control rows that the placeholder word allows"
+    "TODO(reference generators): add TON destination-effect rows to this file. The Acton harness installs its minter at 0:35\u202635, and committee_transitions_v1.json already carries TON control rows for that destination word"
   ],
   "topic_control_applied": "0xb069397cc6f8fa22bf7c0216c554253ab0fc92a3178d10969760b028dd174238"
 }

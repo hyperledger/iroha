@@ -687,7 +687,7 @@ def build() -> dict:
         "certificate that carries the header. A certificate row carries `forgery_evidence_id` only when its `m` (the "
         "message that was signed) is the `m` a verifier derives from its wire fields. The TON verification context is "
         "ton-mainnet with the placeholder minter account id 0x35…35. `flavor_specific_certificates` are certificates "
-        "that one flavor accepts and the other does not pin (rows of the same shape, without the pairing details)",
+        "that one flavor accepts and the other rejects (rows of the same shape, without the pairing details)",
         "constants": constants_json(),
         "worked_examples": worked_examples(),
         "headers": header_vectors(destination_outcomes),
@@ -725,7 +725,7 @@ def build() -> dict:
 
 def _negatives(sim: TairaSim, committees: dict, other4: Committee, header, now: int) -> tuple[list[dict], list[dict]]:
     """The rows of `negative_certificates`, and the rows of `flavor_specific_certificates`: certificates that one
-    flavor accepts and the other does not pin."""
+    flavor accepts and the other rejects."""
     n4, n7, n31 = committees["n4"], committees["n7"], committees["n31"]
     pin4 = _pin(n4)
     out = []
@@ -830,33 +830,45 @@ def _negatives(sim: TairaSim, committees: dict, other4: Committee, header, now: 
             break
     add("signer_y_off_curve", "signerYs[2] has the right sign class but is not on the curve", with_y(good, 2, off), ton=False,
         expect={"evm": "BadCommittee"})
+    def odd_committee(replaced: dict[int, bytes], height: int, first_y: int | None = None):
+        """Pin sorted listed keys and remap genuine members' signer seats and optional malformed-key y witness."""
+        listed = [replaced.get(member, keys[member]) for member in range(4)]
+        custom = sorted(listed)
+        assert len(set(custom)) == 4
+        seats = sorted(custom.index(listed[member]) for member in range(3))
+        root = committee_root(custom)
+        cert = sim.certify(header(n4, height, committee_root=root), n4)
+        signers = signers_from_indices(seats)
+        qc = dataclasses.replace(cert.meta["qc"], signers=signers)
+        signer_ys = b"".join(
+            (first_y if key == listed[0] and first_y is not None else g1_decompress(key)[1]).to_bytes(48, "big")
+            for key in (custom[seat] for seat in seats)
+        )
+        cert = dataclasses.replace(
+            cert, qc=qc.encode(), committee=b"".join(custom), signer_ys=signer_ys,
+            meta={**cert.meta, "signer_indices": seats, "signers": signers,
+                  "bitmap": bitmap_from_indices(seats, 4), "qc": qc},
+        )
+        return cert, {**pin4, "committee_root": root, "keys": custom, "custom_keys": True}
+
     for label, flag_fn in (("key_flag_infinity_0xc0", lambda b: b | 0x40), ("key_flag_uncompressed", lambda b: b & 0x7F)):
-        bad_keys = list(keys)
-        bad_keys[0] = bytes([flag_fn(bad_keys[0][0])]) + bad_keys[0][1:]
-        bad_root = committee_root(bad_keys)
-        pin = {**pin4, "committee_root": bad_root, "keys": bad_keys, "custom_keys": True}
-        x = header(n4, 7350 if "infinity" in label else 7351, committee_root=bad_root)
-        cert = sim.certify(x, n4)
-        cert = dataclasses.replace(cert, committee=b"".join(bad_keys))
-        add(label, "committee key 0 with a bad flag byte, pinned under the root of those exact bytes", cert, pin=pin, ton=False,
-            expect={"evm": "BadCommittee"})
+        bad_key = bytes([flag_fn(keys[0][0])]) + keys[0][1:]
+        cert, pin = odd_committee({0: bad_key}, 7350 if "infinity" in label else 7351, ys[0])
+        add(label, "a signer key with a bad flag byte, pinned under the root of those exact bytes", cert, pin=pin,
+            expect={"evm": "BadCommittee", "ton": "BadSignature"})
     # Signer coordinates that are no precompile input for a finite point (step 6): x ≥ p, and (0, 0), which
     # EIP-2537 reads as the point at infinity. Each key keeps valid flags, so only its own check refuses it.
     x_ge_p = bytes([(keys[0][0] & 0xE0) | 0x1F]) + b"\xff" * 47
     assert int.from_bytes(bytes([x_ge_p[0] & 0x1F]) + x_ge_p[1:], "big") >= P
     for label, description, bad_key, y_value, height in (
-        ("signer_x_ge_p", "committee key 0 whose x (every coordinate bit set) is not below p, with its genuine y",
+        ("signer_x_ge_p", "member 0 listed under a key whose x (every coordinate bit set) is not below p, with its genuine y",
          x_ge_p, ys[0], 7352),
-        ("signer_zero_coordinates", "committee key 0 with x = 0 and signerYs[0] = 0: the coordinates (0, 0)",
+        ("signer_zero_coordinates", "member 0 listed under a key with x = 0 and its signer y = 0: the coordinates (0, 0)",
          bytes([0x80]) + bytes(47), 0, 7353),
     ):
-        bad_keys = [bad_key] + list(keys[1:])
-        bad_root = committee_root(bad_keys)
-        pin = {**pin4, "committee_root": bad_root, "keys": bad_keys, "custom_keys": True}
-        cert = sim.certify(header(n4, height, committee_root=bad_root), n4)
-        cert = with_y(dataclasses.replace(cert, committee=b"".join(bad_keys)), 0, y_value)
-        add(label, f"{description}, pinned under the root of those exact bytes", cert, pin=pin, ton=False,
-            expect={"evm": "BadCommittee"})
+        cert, pin = odd_committee({0: bad_key}, height, y_value)
+        add(label, f"{description}, pinned under the root of those exact bytes", cert, pin=pin,
+            expect={"evm": "BadCommittee", "ton": "BadSignature"})
 
     # Signature encodings.
     sigma = good.meta["sigma"]
@@ -923,25 +935,6 @@ def _negatives(sim: TairaSim, committees: dict, other4: Committee, header, now: 
     # of n4 sign with their genuine secrets; the fourth member does not sign.
     shift = g1_shift_outside_subgroup()
     points = [g1_decompress(k) for k in keys]
-    secrets = [n4.secret_of[k] for k in keys]
-
-    def odd_committee(replaced: dict[int, bytes], height: int):
-        """A certificate of the committee `keys` with the members of `replaced` listed under other key bytes."""
-        listed = {member: replaced.get(member, keys[member]) for member in range(4)}
-        custom = sorted(listed.values())
-        assert len(set(custom)) == 4
-        seats = sorted(custom.index(listed[member]) for member in range(3))
-        root = committee_root(custom)
-        x = header(n4, height, committee_root=root).encode()
-        cert = build_certificate(
-            keys=custom,
-            secret_of={listed[member]: secrets[member] for member in range(4)},
-            signer_indices=seats,
-            header=x,
-            instance=INSTANCE,
-            **sim.qc_fields(height, x),
-        )
-        return cert, {**pin4, "committee_root": root, "keys": custom, "custom_keys": True}
 
     shifted = g1_compress(g1_add(points[0], shift))
     cert, pin = odd_committee({0: shifted}, 7370)
@@ -956,11 +949,11 @@ def _negatives(sim: TairaSim, committees: dict, other4: Committee, header, now: 
             "signer_keys_outside_g1_cancelling",
             "members 0 and 1 listed under keys shifted by T and −T outside G1, with the genuine signature: neither key "
             "is in G1, the aggregate key is, and the pairing holds. EVM sees the aggregate only and accepts; the TON "
-            "outcome rests on the per-key checks of BLS_FASTAGGREGATEVERIFY (null until the Acton harness pins them)",
-            "n4", cert, pin, now, ton=False, detail=False,
+            "opcode BLS_FASTAGGREGATEVERIFY rejects each key outside G1 with BadSignature",
+            "n4", cert, pin, now, detail=False,
         )
     ]
-    assert flavor_specific[0]["expected"]["evm"] == "ok" and _outcome("ton", pin, cert, now) == "BadSignature"
+    assert flavor_specific[0]["expected"] == {"evm": "ok", "ton": "BadSignature"}
     # `apk = O`: member 2 listed under −(PK_0 + PK_1). The signature is the one members 0, 1 and 2 make.
     rogue = g1_compress(g1_neg(g1_add(points[0], points[1])))
     cert, pin = odd_committee({2: rogue}, 7372)
@@ -971,5 +964,6 @@ def _negatives(sim: TairaSim, committees: dict, other4: Committee, header, now: 
     off_curve_sigma[191] ^= 0x01
     add("aggregate_key_identity_sigma_off_curve",
         "the same identity aggregate with an EVM σ that is no point of the curve: apk = O is reported first",
-        dataclasses.replace(cert, signature_evm=bytes(off_curve_sigma)), pin=pin, ton=False, expect={"evm": "BadCommittee"})
+        dataclasses.replace(cert, signature_evm=bytes(off_curve_sigma)), pin=pin,
+        expect={"evm": "BadCommittee", "ton": "BadSignature"})
     return out, flavor_specific

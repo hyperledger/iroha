@@ -182,10 +182,10 @@ def test_contract_sources_are_exactly_the_v1_set() -> None:
 
 def test_security_notes_describe_the_v1_design() -> None:
     text = (builder.PROJECT / "SECURITY.md").read_text(encoding="utf-8")
-    # TODO: WP-TON (map step T9): SECURITY.md still describes the revision 4
-    # attestation design. When it is rewritten, also require the revision 5
-    # terms here (`sccp_checkpoint`, `BLS_FASTAGGREGATEVERIFY`, `sccp_latched`).
     for current in (
+        "sccp_checkpoint",
+        "BLS_FASTAGGREGATEVERIFY",
+        "sccp_latched",
         "sccp_apply_control",
         "control_nonce",
         "raw_reserve",
@@ -619,6 +619,10 @@ def test_test_vectors_render_the_fixture_rows() -> None:
         assert word(key["sk"]) in text
     for name, committee in finality["committees"].items():
         assert f"const VEC_COMMITTEE_{builder._upper(name)}_ROOT = {word(committee['root'])}\n" in text
+    stateinit = builder.load_fixture("ton_stateinit_v1.json")
+    for vector in stateinit["vectors"]:
+        expected = word("0x" + vector["initial_data"]["keys"][0]["hash"])
+        assert f"const VEC_KEYS_{builder._upper(vector['committee'])}_CELL_HASH = {expected}\n" in text
     worked = finality["worked_examples"]
     assert f"const VEC_COMMIT_M = {word(worked['commit']['m'])}\n" in text
     assert f"const VEC_X_ROTATION_ID = {word(worked['cases']['rotation']['checkpoint_id'])}\n" in text
@@ -647,12 +651,27 @@ def test_test_vectors_render_the_fixture_rows() -> None:
         assert len(literal) <= 254 and len(literal) % 2 == 0
 
 
+def test_committee_renderer_rejects_stateinit_keys_from_another_committee() -> None:
+    stateinit = builder.load_fixture("ton_stateinit_v1.json")
+    stateinit["vectors"][0]["keys"][0] = "00" * 48
+    with pytest.raises(builder.TonBuilderError, match="StateInit vector n4 has other committee keys"):
+        builder._render_committees(_finality(), stateinit)
+
+
 def test_cert_vectors_render_certificates_and_scenarios() -> None:
     text = builder.render_cert_vectors()
     finality = _finality()
     transitions = builder.load_fixture("committee_transitions_v1.json")
     assert f"const VEC_CERTIFICATE_COUNT = {len(finality['certificates'])}\n" in text
     negatives = finality["negative_certificates"] + finality["flavor_specific_certificates"]
+    rust = builder.load_fixture("finality_rust_v1.json")
+    rust_negatives = rust["negative_certificates"]
+    assert f"const VEC_RUST_NEGATIVE_CERTIFICATE_COUNT = {len(rust_negatives)}\n" in text
+    for index, row in enumerate(rust_negatives):
+        assert f"const VEC_RUST_NEG_{builder._upper(row['label'])} = {index}\n" in text
+        assert builder._certificate_row(row, rust["committees"], builder.exit_codes(transitions), transitions["constants"]) in text
+        for value in (row["m"], row["checkpoint_id"], row["header_fields"]["height"]):
+            assert builder._word(value) in text
     assert f"const VEC_NEGATIVE_CERTIFICATE_COUNT = {len(negatives)}\n" in text
     assert "const VEC_CERT_N4_LOWEST_Q = 0\n" in text and "const VEC_NEG_PREPARE_KIND = 0\n" in text
     for row in finality["certificates"] + negatives:
@@ -660,7 +679,7 @@ def test_cert_vectors_render_certificates_and_scenarios() -> None:
     # a row without a pinned TON outcome carries the placeholder, never a guess
     unpinned = sum(1 for row in negatives if row["expected"]["ton"] is None)
     assert unpinned > 0 and text.count("exit: VEC_EXIT_UNPINNED,") == unpinned
-    assert text.count("exit: 405,") == sum(1 for row in negatives if row["expected"]["ton"] == "BadSignature")
+    assert text.count("exit: 405,") == sum(1 for row in negatives + rust_negatives if row["expected"]["ton"] == "BadSignature")
     # every TON scenario and every replayable EVM scenario has its replay function
     replayed = [
         scenario["name"] for scenario in transitions["scenarios"]
@@ -669,6 +688,14 @@ def test_cert_vectors_render_certificates_and_scenarios() -> None:
     assert len(replayed) == text.count("\nfun vecScenario") and len(replayed) >= 20
     for name in replayed:
         assert f"fun vecScenario{builder._camel(name)}() {{\n" in text
+        scenario = next(row for row in transitions["scenarios"] if row["name"] == name)
+        assert f"const VEC_SCENARIO_{builder._upper(name)}_STEPS = {len(scenario['steps'])}\n" in text
+    for flavor, selected in (
+        ("TON", [row for row in transitions["scenarios"] if row.get("flavor") == "ton"]),
+        ("REPLAYABLE", [row for row in transitions["scenarios"] if row.get("ton_replayable")]),
+    ):
+        assert f"const VEC_{flavor}_SCENARIO_COUNT = {len(selected)}\n" in text
+        assert f"const VEC_{flavor}_SCENARIO_STEPS = {sum(len(row['steps']) for row in selected)}\n" in text
     skipped = [s["name"] for s in transitions["scenarios"] if s["name"] not in replayed]
     for name in skipped:
         assert f"fun vecScenario{builder._camel(name)}()" not in text
@@ -940,12 +967,13 @@ def test_test_command_records_gas_and_applies_the_baseline(
         return GAS_OUTPUT
 
     monkeypatch.setattr(builder, "run_acton", fake_acton)
-    # without a baseline the run is recorded and the comparison is reported as not run
-    builder.command_test(Path("/acton"), [])
+    # a missing baseline fails after recording the measured run for diagnosis
+    with pytest.raises(builder.TonBuilderError, match="required gas baseline is missing"):
+        builder.command_test(Path("/acton"), [])
     assert calls == [["test", "tests/unit"]]
     rows = builder.load_gas_report(current)
     assert rows["checkpoint n=31"] == {"gas": 164189, "limit": 250000}
-    assert "the 1.1 x gas comparison did not run" in capsys.readouterr().out
+    assert "wrote gas-current.json" in capsys.readouterr().out
     # the recorded run is its own baseline
     baseline.write_text(current.read_text())
     builder.command_test(Path("/acton"), [])

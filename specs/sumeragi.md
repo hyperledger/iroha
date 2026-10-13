@@ -1784,8 +1784,10 @@ verifies every retained and nested QC and TC under the authenticated committee f
 certificate's height and the current suite, including the parent CommitQC (required above
 `g + 1`). A failed verification refuses the record in the same way. An ahead record remains
 untrusted and abstaining until its height's authenticated configuration is available; this
-also holds for R5 at a pending epoch boundary, where the record remains inert as R6 instead
-of authorizing a recommit before its complete certificate graph can be checked. Size is
+also holds for R5 at a pending epoch boundary when the record retains a QC or TC at its own
+height. If its only certificate is the parent CommitQC, R5 verifies that certificate under
+the authenticated parent-height committee and recommits the boundary; boundary application
+must authenticate the next epoch before any retained reservation is restored or signed. Size is
 bounded by the envelope and certificate limits. Nothing else is persisted by the core; the block
 bodies it relies on are written by the driver on `StoreBody`.
 Votes, pools, pacemaker level and routing stage are re-derived or re-fetched.
@@ -1866,8 +1868,11 @@ value drawn by the driver for every `Init`; the simulator draws it from its seed
    crash after entering `t+2`, before the apply of `t+1` was durable): first verify every
    retained/nested round certificate under authenticated `C_{t+2}` and then its
    `parent_commit_qc` under `C_{t+1}` as a CommitQC for `t + 1`; failure →
-   `Halt(SafetyRecordInconsistent)`. If `C_{t+2}` is still pending, retain the record inert as R6
-   until ordinary catch-up authenticates it. On success commit it (§6.8 steps 2–3: `tip` becomes `t + 1`;
+   `Halt(SafetyRecordInconsistent)`. If `C_{t+2}` is still pending and the record contains a
+   round QC or TC, retain the record inert as R6 until ordinary catch-up authenticates it.
+   If the only certificate is its parent CommitQC, no round-certificate check needs `C_{t+2}`:
+   verify and recommit the parent, then authenticate `C_{t+2}` through boundary application
+   before restoring the reservations. On success commit it (§6.8 steps 2–3: `tip` becomes `t + 1`;
    the `pending_apply` entry carries the old tip's hash and result as parent, and its want looks in
    the local body store first; that the block extends the old tip is checked when the body
    arrives, §6.9 rule 6), and continue with `t := t + 1`. At most one key has a record at any
@@ -3505,6 +3510,7 @@ Detection needs targeted adversaries: random faults alone did not kill the TC-ru
 | MS61 | General Status admission suppresses a probe retry after refused Echo signing | `det_signing_refusal_echo_does_not_consume_rate_limit`: refusal consumes no successful-Echo allowance, identical retry succeeds and subsequent successful sends remain rate-limited | — | O-LIVE |
 | MS62 | A retained earlier-view Timeout suppresses current-view signing retry | `det_signing_refusal_current_timeout_retries_with_prior_timeout_retained`: the current reserved Timeout retries despite an earlier successful Timeout | — | O-LIVE, O-SIGN |
 | MS63 | Periodic proposal retry consumes its marker while the original body is unavailable | `det_signing_retry_retains_restored_proposal_until_delayed_body_arrives`: the marker survives a due tick, and delayed original body delivery resends the exact recorded proposal | — | O-LIVE, O-SIGN |
+| MS64 | Parent-only R5 recommit waits for the successor authority that applying the parent activates | `det_s64_recommit_parent_only_record_authenticates_boundary_before_resuming`, `det_s33_key_rotation_restart`: independently verify the parent CommitQC, recommit it once, then authenticate and restore the successor key's reservation; retained successor-height QCs/TCs still require their own authenticated authority before any installation | — | O-LIVE, O-CERT |
 
 
 

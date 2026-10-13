@@ -1,0 +1,9 @@
+# EXPERIMENTAL ballot-proof prototype vectors for the FROZEN byte-level protocol of
+# specs/parliament_ballot_proof_profile.md sections 6.1-6.3, 6.6, 6.7 (SUITE ending in
+# NS-PREFIX77; 77-byte role prefix on every backend hash call).  Nothing is selected or
+# qualified.  The Enc(...) inputs are opaque test byte strings, not Norito encodings.
+# Format: name = hex.  Integers are little-endian.  *_shake256_64 = SHAKE256(x, 64 bytes).
+# case vote_S3_i1_fast: relation vote, row fast (256, 33, 8, 229, 704) - the list L, in order
+L_0000 = 6f1dad9ff4c159d57f6393f06fcaf82f4bdcf83fb72d3a30473a3f3f9533fb0756d2a5651d64306cd1adf9d3efa0a48bf99287a12f61416363b8b3bbdd35e55657bad9a78602c37f89dc92c11133cf038b419abe7075b48fedd4ccdc33cb6f2209b5c5e47225395670bbcf6f5225acb3fdcaea216762ae176ebd24e8a96931af
+L_0001 = 87ae96aec4a669d831f5dbd10573cf7eba9d6835d83b2588f30c644713fe4f87cfc117e8089a349790c5cbb64f4daa97c5a3066fe09e000577ff11a48cdd1880b74316d1f04adc9489d3b1c1c215482a2b84721fe24fb40b2e88993758f7baaf2fcfcca1699477c537763c2d789728d17ecd73c686cbf93420aad728568b6009
+L_0002 = b3a633fb3d1a3a13e32259c24801a98d268aa49c83d9dadb36ee0f9dee788fa404a9a9d5e0afdddfc0a7e2a98a9f2c0db8c9106e7efe1be04707eb48cccfa785026d2d33d89a62b89d38e000e9ab7fc692ae8537d194171c5d3a00dfc73c6521f08bb364190c29c60aa853e3d85bf89a430e399bb5e961e4f745f0677c8f8871

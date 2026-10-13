@@ -13,7 +13,10 @@ use iroha_sccp::{
     v1::{
         committee::CommitteeStateV1,
         destination::DestinationFlavor,
-        evm_abi::{PauseViewV1, ViewCallV1, ViewReturnV1},
+        evm_abi::{
+            ConstructorArgsV1, PauseViewV1, SCCP_EVM_DEPLOYER as DEPLOYER, ViewCallV1,
+            ViewReturnV1, create2_address,
+        },
         proof::DestinationV1,
     },
 };
@@ -303,17 +306,7 @@ pub(super) fn send_transaction(
     Ok((hash, nonce))
 }
 
-/// Canonical keyless CREATE2 deployment proxy (§3.9).
-const DEPLOYER: [u8; 20] = [
-    0x4e, 0x59, 0xb4, 0x48, 0x47, 0xb3, 0x79, 0x57, 0x85, 0x88, 0x92, 0x0c, 0xa7, 0x8f, 0xbf, 0x26,
-    0xc0, 0xb4, 0x95, 0x6c,
-];
 const DEPLOYER_RUNTIME: &str = "7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
-fn create2_address(deployer: &[u8; 20], salt: &[u8; 32], init_code: &[u8]) -> [u8; 20] {
-    let code = iroha_sccp::v1::hashes::keccak256(&[init_code]);
-    let hash = iroha_sccp::v1::hashes::keccak256(&[&[0xff], deployer, salt, &code]);
-    hash[12..].try_into().expect("fixed CREATE2 address")
-}
 /// Check the canonical proxy bytecode before paying for deterministic deployment.
 pub(super) fn deploy_current(
     client: &EvmClient,
@@ -345,21 +338,15 @@ pub(super) fn constructor_args(
     max_wrapped_supply: u128,
     pin: &SccpCommitteePinV1,
 ) -> Vec<u8> {
-    use iroha_sccp::v1::{
-        evm_abi::{AbiToken, encode_tokens},
-        hashes::{word_u64, word_u128},
-    };
-    encode_tokens(&[
-        AbiToken::Word(*taira_network_id),
-        AbiToken::Word(*consensus_instance),
-        AbiToken::Word(word_u64(u64::from(iroha_sccp::v1::network::tag(network)))),
-        AbiToken::Word(word_u64(u64::from(route_revision))),
-        AbiToken::Word(word_u128(max_wrapped_supply)),
-        AbiToken::Word(word_u64(pin.generation)),
-        AbiToken::Word(pin.committee_root),
-        AbiToken::Word(word_u64(pin.start_height)),
-        AbiToken::Word(word_u64(pin.until_ms)),
-    ])
+    ConstructorArgsV1 {
+        taira_network_id: *taira_network_id,
+        consensus_instance: *consensus_instance,
+        network,
+        route_revision,
+        max_wrapped_supply,
+        pin: *pin,
+    }
+    .encode()
 }
 
 /// The deployed runtime code hash of `contract`, as `RegisterRoute` records it.

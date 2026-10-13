@@ -15,8 +15,9 @@ use iroha_sccp::v1::{
     },
     destination_abi::{EVENT_TOPICS, SELECTORS, TOPIC_CERTIFICATE},
     evm_abi::{
-        self, AbiToken, CommitteeViewV1, PauseViewV1, TransferToTairaLogV1, ViewCallV1,
-        ViewReturnV1, VoidedLogV1, encode_tokens,
+        self, AbiToken, CommitteeViewV1, ConstructorArgsV1, PauseViewV1, SCCP_EVM_CREATION_CODE,
+        SCCP_EVM_DEPLOYER, SCCP_EVM_SALT, TransferToTairaLogV1, ViewCallV1, ViewReturnV1,
+        VoidedLogV1, encode_tokens,
     },
     finality::{
         FLAG_ACTIVE, FLAG_ROTATION, QcFixedV1, SccpFinalityHeaderFieldsV1, SccpFinalityHeaderV1,
@@ -181,6 +182,14 @@ pub fn fixture() -> Value {
         committee_root: g7.root(),
         start_height: 1,
         until_ms: T0 + 14 * DAY,
+    };
+    let deployment = ConstructorArgsV1 {
+        taira_network_id: TAIRA,
+        consensus_instance: INSTANCE,
+        network: destination.network,
+        route_revision: destination.route_revision,
+        max_wrapped_supply: 1_000_000_000_000_000_000,
+        pin,
     };
     let initial = CommitteeStateV1::from_pin(
         pin.generation,
@@ -498,6 +507,31 @@ pub fn fixture() -> Value {
             "specs/sccp.md §3.7, §5.1–§5.2.2 (revision 5)",
         ),
         vec![
+            (
+                "deployment",
+                obj([
+                    ("network", profile(deployment.network)),
+                    ("taira_network_id", hex(&deployment.taira_network_id)),
+                    ("consensus_instance", hex(&deployment.consensus_instance)),
+                    ("route_revision", num(u64::from(deployment.route_revision))),
+                    (
+                        "max_wrapped_supply",
+                        text(&deployment.max_wrapped_supply.to_string()),
+                    ),
+                    ("deployer", hex(&SCCP_EVM_DEPLOYER)),
+                    ("salt", hex(&SCCP_EVM_SALT)),
+                    (
+                        "creation_code_hash",
+                        hex(&keccak256(&[&SCCP_EVM_CREATION_CODE])),
+                    ),
+                    ("constructor_args", hex(&deployment.encode())),
+                    (
+                        "init_code_hash",
+                        hex(&keccak256(&[&deployment.init_code()])),
+                    ),
+                    ("address", hex(&deployment.address())),
+                ]),
+            ),
             ("scenario", scenario),
             (
                 "selectors",

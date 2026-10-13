@@ -391,22 +391,36 @@ passes.
   nothing is qualified and the ballot is not implemented in Core.
   Binding-governance mainnet launch is no-go. The
   [profile record](specs/parliament_ballot_proof_profile.md) states the
-  construction under development: a two-SHAKE proof of selection from the
-  sealed credential list, whose bytes are published at seal, with a
-  registration authorization value, in a VOLE-in-the-head backend derived
-  from FAEST v3.0. The standalone experimental backend
-  (`crates/iroha_zkp_vole`) reproduces the official FAEST v3.0.2 component
-  vectors for its parameters, fields, PRG, hash oracles and universal hashes.
-  Its vector commitment, VOLE layer, constraint check and plain-FAEST
-  signatures are incomplete, the ballot relations
-  (`crates/iroha_parliament_ballot_proof`) are a skeleton, nothing is wired
-  in and no measurement exists. Selection is blocked: the arguments for
-  section 5 gates 1, 2, 5 and 8 have missing steps and no complete
-  concrete-security ledger or attack-cost assessment exists. The
-  second-opinion review recalibrated the security contract to a complete
-  proven bound below 1/2 at 2^64 quantum queries plus an independently
-  assessed attack cost of at least 2^128 gates. That weakens the earlier
-  2^128-query floor, awaits restatement in the owner's qualification record,
+  construction under development: a proof of selection from the sealed
+  credential list, whose bytes are published at seal, over SHAKE256
+  credential functions (commitment, 128-byte nullifier, and registration and
+  vote authorization values under one secret), in a VOLE-in-the-head backend
+  derived from FAEST v3.0. The second-opinion review decided the ballot-mode
+  backend: 112 fresh random bytes per proof with a public salt, a 20-bit
+  counter range with a typed exhaustion outcome, and a wider leaf
+  commitment; raw proofs are 160,148 B (registration) and 233,012 B (vote)
+  on the candidate row, derived and not measured. The standalone
+  experimental backend (`crates/iroha_zkp_vole`) reproduces the official
+  FAEST v3.0.2 component vectors and all twelve official signatures in its
+  reference mode. The ballot
+  relations (`crates/iroha_parliament_ballot_proof`) implement an earlier
+  vote relation on the earlier backend and do not match the construction;
+  nothing is wired in. The only timings are of that earlier relation on a
+  non-baseline development machine and qualify nothing. Selection is
+  blocked: no section 5 gate is discharged. The review's arguments
+  ([arguments record](specs/parliament_ballot_proof_arguments.md)) are
+  written, conditional and awaiting independent review; they rest on two
+  unproved credential assumptions (pseudorandomness with public leakage,
+  and existential uniqueness of commitment and nullifier openings in
+  selected contexts), frame-collision terms and the backend oracle model,
+  none with a qualified bound, and no complete concrete-security ledger or
+  attack-cost assessment exists. The review made two
+  weakenings that await the owner's qualification record. Gate 1 is weakened
+  from knowledge extraction to adaptive relation soundness, with
+  authorization carried by gates 2, 3 and 8. The security contract is a
+  complete proven bound
+  below 1/2 at 2^64 quantum queries plus an independently assessed attack
+  cost of at least 2^128 gates, which weakens the earlier 2^128-query floor
   and is not shown to be met. Until selection only standalone
   implementation, measurement and proof work proceeds; schemas, Core
   integration and timed-OVN retirement have not started. The epoch-seated

@@ -62,6 +62,7 @@ from sccp_reference.destination import (  # noqa: E402
     Destination,
     MessageProof,
     bumped_op_count,
+    check_ton_burn_payload,
     clamped_fast_pause,
     init_until_ms_ok,
     next_source_nonce,
@@ -130,6 +131,13 @@ from sccp_reference.payload import (  # noqa: E402
     payload_hash,
 )
 from sccp_reference.taira import Committee, TairaSim  # noqa: E402
+from sccp_reference.ton_cell import (  # noqa: E402
+    TON_BURN_TO_TAIRA_OP,
+    TonCell,
+    burn_to_taira_payload,
+    parse_taira_recipient,
+    snake_bytes,
+)
 
 FIXTURES = ROOT / "fixtures" / "sccp"
 
@@ -766,7 +774,10 @@ def test_ton_rotation_needs_next_keys():
     k1 = Committee("K1", (44, 45, 46, 47))
     x = _x(k0, 1100, flags=FLAG_ACTIVE | FLAG_ROTATION, validity_ms=1000, next_committee_root=k1.root)
     cert = sim.certify(x, k0)
-    assert dest.submit_checkpoints([cert], T0, [None])["outcome"] == "BadCommittee"
+    for invalid in (None, [], k1.keys[:3], list(reversed(k1.keys)), [key[:-1] for key in k1.keys], k0.keys):
+        before = copy.deepcopy(dest.state)
+        assert dest.submit_checkpoints([cert], T0, [invalid])["outcome"] == "BadCommittee"
+        assert dest.state == before
     assert dest.submit_checkpoints([cert], T0, [k1.keys])["outcome"] == "ok"
     assert dest.state.keys == k1.keys
 
@@ -943,18 +954,25 @@ def test_evm_key_negatives_fail_at_the_check_they_name():
     }
     for label, detail in expected.items():
         entry = rows[label]
-        assert entry["expected"] == {"evm": "BadCommittee", "ton": None}, label
+        ton_outcome = None if label.startswith("signer_y_") else "BadSignature"
+        assert entry["expected"] == {"evm": "BadCommittee", "ton": ton_outcome}, label
         out = _fixture_destination(doc, entry, "evm").verify_certificate(_fixture_certificate(entry), entry["now_ms"])
         assert (out["outcome"], out.get("detail")) == ("BadCommittee", detail), (label, out)
+    for label in ("key_flag_infinity_0xc0", "key_flag_uncompressed", "signer_x_ge_p", "signer_zero_coordinates"):
+        entry = rows[label]
+        assert [unhex(key) for key in entry["pin"]["keys"]] == sorted(unhex(key) for key in entry["pin"]["keys"])
     for label in ("signer_x_ge_p", "signer_zero_coordinates"):
         entry = rows[label]
         keys = [unhex(k) for k in entry["pin"]["keys"]]
         assert unhex(entry["evm"]["committee"]) == b"".join(keys)
         assert committee_root(keys) == unhex(entry["pin"]["committee_root"]) == unhex(entry["evm"]["header"])[149:181]
         assert keys[0][0] & 0xC0 == 0x80
-    x_ge_p = unhex(rows["signer_x_ge_p"]["pin"]["keys"][0])
-    assert int.from_bytes(bytes([x_ge_p[0] & 0x1F]) + x_ge_p[1:], "big") >= bls.P
-    assert int.from_bytes(unhex(rows["signer_x_ge_p"]["evm"]["signerYs"])[:48], "big") < bls.P
+    x_row = rows["signer_x_ge_p"]
+    x_keys = [unhex(key) for key in x_row["pin"]["keys"]]
+    seat = next(index for index, key in enumerate(x_keys) if int.from_bytes(bytes([key[0] & 0x1F]) + key[1:], "big") >= bls.P)
+    signer_position = x_row["signer_indices"].index(seat)
+    encoded_ys = unhex(x_row["evm"]["signerYs"])
+    assert int.from_bytes(encoded_ys[48 * signer_position : 48 * (signer_position + 1)], "big") < bls.P
     zero = rows["signer_zero_coordinates"]
     assert unhex(zero["pin"]["keys"][0]) == bytes([0x80]) + bytes(47) and unhex(zero["evm"]["signerYs"])[:48] == bytes(48)
 
@@ -1207,6 +1225,50 @@ def test_op_count_saturates_at_the_u64_end():
     assert (dest.state.consumed, dest.state.control_nonce, dest.state.total_supply) == ({0, 1, 2, 7, 8, 9}, 1, 2 * 10**9)
     # A refused call at the bound changes nothing, the counter included.
     assert dest.void_frozen(7, 1, FROZEN)["outcome"] == "AlreadyConsumed" and dest.state.op_count == U64_MAX
+
+
+@pytest.mark.parametrize("length", [1, 126, 127, 128, 1024])
+def test_ton_burn_recipient_bound_and_canonical_wrapper(length):
+    recipient = bytes(i % 251 for i in range(length))
+    wrapper = burn_to_taira_payload(recipient)
+    assert wrapper.bits == f"{TON_BURN_TO_TAIRA_OP:032b}"
+    assert not wrapper.exotic and len(wrapper.refs) == 1
+    assert check_ton_burn_payload(wrapper) == recipient
+    assert parse_taira_recipient(wrapper.refs[0]) == recipient
+
+
+def test_ton_burn_refuses_every_malformed_wrapper_and_recipient():
+    """Wallet admission walks the entire snake before a debit or value-bearing send."""
+    good = burn_to_taira_payload(b"x")
+    tail = good.refs[0]
+    oversized = dataclasses.replace(good, refs=(snake_bytes(bytes(12700)),))
+    cases = {
+        "missing wrapper": (None, "BadBurnPayload"),
+        "wrong opcode": (dataclasses.replace(good, bits="0" * 32), "BadBurnPayload"),
+        "exotic wrapper": (dataclasses.replace(good, exotic=True), "BadSnake"),
+        "extra wrapper bit": (dataclasses.replace(good, bits=good.bits + "0"), "BadSnake"),
+        "extra wrapper ref": (dataclasses.replace(good, refs=(tail, tail)), "BadSnake"),
+        "missing wrapper ref": (dataclasses.replace(good, refs=()), "BadSnake"),
+        "empty recipient": (dataclasses.replace(good, refs=(TonCell(""),)), "BadSnake"),
+        "short nonfinal chunk": (dataclasses.replace(good, refs=(TonCell("0" * 1008, (tail,)),)), "BadSnake"),
+        "extra recipient bit": (dataclasses.replace(good, refs=(TonCell("0" * 9),)), "BadSnake"),
+        "extra recipient ref": (dataclasses.replace(good, refs=(TonCell("0" * 1016, (tail, tail)),)), "BadSnake"),
+        "exotic recipient": (dataclasses.replace(good, refs=(dataclasses.replace(tail, exotic=True),)), "BadSnake"),
+        "exotic continuation": (dataclasses.replace(good, refs=(TonCell("0" * 1016, (dataclasses.replace(tail, exotic=True),)),)), "BadSnake"),
+        "1025 bytes": (dataclasses.replace(good, refs=(snake_bytes(bytes(1025)),)), "BadRecipient"),
+        "100 full chunks": (oversized, "BadRecipient"),
+    }
+    for label, (wrapper, expected) in cases.items():
+        with pytest.raises(SccpError) as refusal:
+            check_ton_burn_payload(wrapper)
+        assert refusal.value.name == expected, label
+
+
+@pytest.mark.parametrize("recipient,expected", [(b"", "BadSnake"), (bytes(1025), "BadRecipient")])
+def test_ton_burn_builder_refuses_unadmitted_recipients(recipient, expected):
+    with pytest.raises(SccpError) as refusal:
+        burn_to_taira_payload(recipient)
+    assert refusal.value.name == expected
 
 
 def test_source_nonces_end_at_the_u64_end_without_wrapping():
@@ -1653,7 +1715,10 @@ def _fixture_certificate(entry: dict):
 
 def _fixture_destination(doc: dict, entry: dict, flavor: str) -> Destination:
     context, pin = doc["verification_context"], entry["pin"]
-    keys = [unhex(k) for k in pin["keys"]] if "keys" in pin else [unhex(k) for k in doc["committees"][entry["committee"]]["keys"]]
+    pinned_keys = pin.get("keys")
+    if pinned_keys is None:
+        pinned_keys = next(committee["keys"] for committee in doc["committees"].values() if committee["root"] == pin["committee_root"])
+    keys = [unhex(key) for key in pinned_keys]
     network, word = ETHEREUM, unhex(context["destination_word"])
     if flavor == "ton":
         assert context["ton"]["network"] == TON.name
@@ -1693,6 +1758,28 @@ def test_signer_set_negatives_reach_the_bitmap_check():
         for flavor in ("evm", "ton"):
             out = _fixture_destination(doc, entry, flavor).verify_certificate(_fixture_certificate(entry), entry["now_ms"])
             assert (out["outcome"], out.get("detail")) == ("BadCertificate", detail), (label, flavor, out)
+
+
+def test_shared_certificate_outcomes_match_each_flavor():
+    """Every pinned certificate verdict is derived from the model, including TON's single BLS verdict."""
+    doc = json.loads((FIXTURES / "finality_v1.json").read_text())
+    expected_counts = {
+        "certificates": {"evm": 13, "ton": 13},
+        "negative_certificates": {"evm": 51, "ton": 40},
+        "flavor_specific_certificates": {"evm": 1, "ton": 1},
+    }
+    for group, expected in expected_counts.items():
+        counts = {"evm": 0, "ton": 0}
+        for entry in doc[group]:
+            for flavor in counts:
+                verdict = entry["expected"][flavor]
+                if verdict is None:
+                    continue
+                destination = _fixture_destination(doc, entry, flavor)
+                out = destination.verify_certificate(_fixture_certificate(entry), entry["now_ms"])
+                assert out["outcome"] == verdict, (entry["label"], flavor, out)
+                counts[flavor] += 1
+        assert counts == expected, group
 
 
 def test_ton_length_negatives_are_malformed_cells():
@@ -1864,6 +1951,30 @@ def test_taira_sim_orders_controls_first():
 # -- review fixes: profiles, keys outside G1, check order, recorder, bounds ----------------
 
 
+def test_ton_deployment_authenticates_the_canonical_pinned_keys():
+    """A TON pin needs the exact, strictly ordered committee, without performing signature-time KeyValidate."""
+    _, _, destination = _destination("ton")
+    keys = destination.d.pin_keys
+    reordered = [keys[1], keys[0], *keys[2:]]
+    repeated = [keys[0], keys[0], *keys[2:]]
+    for pinned_keys, root in (
+        (None, destination.d.pin_root),
+        ([], destination.d.pin_root),
+        (keys[:3], committee_root(keys[:3])),
+        ([*keys, keys[0]], committee_root([*keys, keys[0]])),
+        (reordered, committee_root(reordered)),
+        (repeated, committee_root(repeated)),
+        (keys, rep(0x99)),
+        ([key[:-1] for key in keys], destination.d.pin_root),
+    ):
+        with pytest.raises(ValueError, match="canonical keys"):
+            Destination(dataclasses.replace(destination.d, pin_keys=pinned_keys, pin_root=root))
+    # Malformed keys remain representable under a canonical root so the opcode verdict can be tested.
+    malformed = sorted([bytes([0xC0]) + bytes(47), *keys[1:]])
+    pinned = Destination(dataclasses.replace(destination.d, pin_keys=malformed, pin_root=committee_root(malformed)))
+    assert pinned.state.keys == malformed
+
+
 def test_flavor_is_bound_to_the_profile():
     """An EVM destination is deployed on Ethereum or BSC and a TON destination on TON; any other pair is refused."""
     _, _, evm = _destination()
@@ -1984,10 +2095,10 @@ def test_identity_aggregate_is_bad_committee_on_evm_and_bad_signature_on_ton():
     rows = {entry["label"]: entry["expected"] for entry in doc["negative_certificates"]}
     assert rows["signer_key_outside_g1"] == {"evm": "BadSignature", "ton": "BadSignature"}
     specific = {entry["label"]: entry["expected"] for entry in doc["flavor_specific_certificates"]}
-    assert specific == {"signer_keys_outside_g1_cancelling": {"evm": "ok", "ton": None}}
+    assert specific == {"signer_keys_outside_g1_cancelling": {"evm": "ok", "ton": "BadSignature"}}
     assert all("ok" not in entry["expected"].values() for entry in doc["negative_certificates"])
     assert rows["aggregate_key_identity"] == {"evm": "BadCommittee", "ton": "BadSignature"}
-    assert rows["aggregate_key_identity_sigma_off_curve"] == {"evm": "BadCommittee", "ton": None}
+    assert rows["aggregate_key_identity_sigma_off_curve"] == {"evm": "BadCommittee", "ton": "BadSignature"}
     choices = json.loads((FIXTURES / "committee_transitions_v1.json").read_text())["error_choices"]
     assert choices["aggregate_key_identity"] == {"evm": "BadCommittee", "ton": "BadSignature"}
     assert choices["aggregate_key_outside_g1"] == choices["ton_signer_key_refused_by_the_opcode"] == "BadSignature"

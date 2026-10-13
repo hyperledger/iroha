@@ -206,7 +206,11 @@ execution evidence for the contract, not a measurement of a BSC node.
   `control_v1.json` row by row: outcome or exact error with its arguments,
   logs as raw topics and data, return value, and the full state after every
   step. Every certificate and scenario also runs through
-  `SccpDirtyMemoryHarness.sol`. Its last test of each hardfork fails when a
+  `SccpDirtyMemoryHarness.sol`. It also rebuilds all 24 selectors and eight
+  event topics of the Rust `evm_calldata_v1.json`, executes its 13 golden
+  calls and 15 views, compares its four logs and recorded view returns,
+  and deploys its P4 sample at the CREATE2 address derived from the locked
+  creation code and all nine constructor words. Its last test of each hardfork fails when a
   row did not run or a pinned row count changed.
 - `sccp_taira_xor.test.js` covers what the fixtures do not (§11): constructor
   bounds, raw storage slots, every admitted committee size, the first failing

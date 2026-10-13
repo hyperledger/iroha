@@ -5,6 +5,11 @@
 //! Dynamic void calldata parsing only checks encoder canonicality: void authority comes
 //! from authenticated receipt logs, never from a bare successful-looking call.
 
+mod deployment;
+pub use deployment::{
+    ConstructorArgsV1, SCCP_EVM_CREATION_CODE, SCCP_EVM_DEPLOYER, SCCP_EVM_SALT, create2_address,
+};
+
 use iroha_data_model::{bridge::SccpNetworkV1, sccp::deployment::SccpCommitteePinV1};
 
 use super::committee::CommitteeStateV1;
@@ -22,7 +27,7 @@ use super::{
 
 /// Bytes of one ABI word.
 pub const WORD: usize = 32;
-/// Bytes of the canonical `transferToTaira` head: selector and three head words.
+/// Bytes before the canonical `transferToTaira` recipient: selector, three head words and length.
 pub const TRANSFER_TO_TAIRA_HEAD_BYTES: usize = 4 + 4 * WORD;
 
 unit_error! {

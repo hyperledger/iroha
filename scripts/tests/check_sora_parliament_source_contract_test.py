@@ -1277,6 +1277,10 @@ SCCP_BEGIN_CALL = (
     "crate::smartcontracts::isi::sccp::hook::begin_block(&mut sb)\n"
     "            .map_err(StateBlockStartError::Storage)?;"
 )
+SCCP_LAPSE_CALL = (
+    "crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mut sb)\n"
+    "            .map_err(StateBlockStartError::Storage)?;"
+)
 
 
 def test_block_start_phase_helpers_preserve_original_order_and_custody() -> None:
@@ -1377,6 +1381,8 @@ def test_shared_start_construction_retains_exact_original_owner(
     "wrong_height", "conditional", "late_before_flag", "late_after_execution",
     "missing_sccp_begin", "duplicate_sccp_begin", "sccp_begin_after_enactment",
     "conditional_sccp_begin",
+    "missing_sccp_lapse", "duplicate_sccp_lapse", "sccp_lapse_before_enactment",
+    "conditional_sccp_lapse",
 ))
 def test_block_start_phase_calls_reject_disconnected_or_late_owners(mutation: str) -> None:
     """Valid Rust statement changes cannot disconnect helpers or defer them until after execution."""
@@ -1404,6 +1410,15 @@ def test_block_start_phase_calls_reject_disconnected_or_late_owners(mutation: st
             ENACTMENT_CALL, SCCP_BEGIN_CALL, 1).replace("PHASE_SWAP", ENACTMENT_CALL, 1)
     elif mutation == "conditional_sccp_begin":
         mutated = source.replace(SCCP_BEGIN_CALL, "if false { " + SCCP_BEGIN_CALL + " }", 1)
+    elif mutation == "missing_sccp_lapse":
+        mutated = source.replace(SCCP_LAPSE_CALL, "", 1)
+    elif mutation == "duplicate_sccp_lapse":
+        mutated = source.replace(SCCP_LAPSE_CALL, SCCP_LAPSE_CALL * 2, 1)
+    elif mutation == "sccp_lapse_before_enactment":
+        mutated = source.replace(SCCP_LAPSE_CALL, "PHASE_SWAP", 1).replace(
+            ENACTMENT_CALL, SCCP_LAPSE_CALL, 1).replace("PHASE_SWAP", ENACTMENT_CALL, 1)
+    elif mutation == "conditional_sccp_lapse":
+        mutated = source.replace(SCCP_LAPSE_CALL, "if false { " + SCCP_LAPSE_CALL + " }", 1)
     else:
         anchor = ("        sb.start_of_block_effects_applied = true;" if mutation == "late_before_flag"
                   else "\n        let result = after_start(&mut sb, continuation).map_err(StateBlockStartError::Stage)?;")
@@ -1449,6 +1464,8 @@ def test_block_start_phase_bodies_reject_changed_height_or_rollback(
     (EXPIRY_CALL, "Self::apply_block_start_private_settlement_expiry(&mut sb, now_h).unwrap();"),
     (ENACTMENT_CALL, "Self::apply_block_start_parliament_enactments(&mut sb, now_h).unwrap();"),
     (SCCP_BEGIN_CALL, "crate::smartcontracts::isi::sccp::hook::begin_block(&mut sb).unwrap();"),
+    (SCCP_LAPSE_CALL,
+     "crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mut sb).unwrap();"),
     ("\n        let result = after_start(&mut sb, continuation).map_err(StateBlockStartError::Stage)?", "\n        let result = after_start(&mut sb, continuation).unwrap()"),
     ("\n            let result = after_start(&mut sb, continuation).map_err(StateBlockStartError::Stage)?", "\n            let result = after_start(&mut sb, continuation).unwrap()"),
 ))

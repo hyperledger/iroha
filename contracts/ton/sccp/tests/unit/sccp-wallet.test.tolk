@@ -2,6 +2,7 @@
 // notifications, workchain and ownership rules, forged internal transfers,
 // bounces, and the on-chain TEP-64 content built from constants.
 
+import "@stdlib/gas-payments"
 import "@stdlib/strings"
 import "@acton/build"
 import "@acton/emulation/network"
@@ -11,6 +12,7 @@ import "@acton/types/message"
 import "@acton/types/transaction"
 import "@contracts/sccp-addresses"
 import "@contracts/sccp-errors"
+import "@contracts/sccp-fees"
 import "@contracts/sccp-messages"
 import "@contracts/sccp-storage"
 import "@wrappers/SccpConsumedBucket.gen"
@@ -47,6 +49,61 @@ get fun `test wallet to wallet transfer with notification`() {
     expect(res).toHaveSuccessfulDeploy<InternalTransferStep>({ to: walletOf(env, bob).address });
     expect(res).toHaveSuccessfulTx<TransferNotificationForRecipient>({ to: bob });
     expect(res).toHaveSuccessfulTx<ReturnExcessesBack>({ to: alice });
+    expect(jettonBalanceOf(env, alice)).toEqual(700);
+    expect(jettonBalanceOf(env, bob)).toEqual(300);
+    expect(env.minter.getSccpState().totalSupply).toEqual(1000);
+}
+
+get fun `test large transfer payload fees cover both forwarding steps`() {
+    val env = setupEnv();
+    val alice = testing.treasury("alice").address;
+    val bob = testing.treasury("bob").address;
+    finalizeOk(env, 0, 1000, alice);
+    // Unlike burns, TEP-74 transfers admit arbitrary payload sizes and price
+    // both copies from the incoming message's actual forwarding fee.
+    val payload = snakeOfLength(12700);
+    val (cells, bits, _) = payload.calculateSizeStrict(200);
+    val forwardAmount = grams("0.01");
+    val smallQuote = sccpTransferRequiredValue(
+        forwardAmount,
+        calculateForwardFee(BASECHAIN, 8, 1),
+    ) +
+        1;
+    val poor = walletOf(env, alice).sendAskToTransfer(
+        alice,
+        3,
+        300,
+        bob,
+        alice,
+        null,
+        forwardAmount,
+        PayloadInRef { value: payload as Cell<RemainingBitsAndRefs> },
+        { value: smallQuote, bounce: true },
+    );
+    expect(poor).toHaveFailedTx<AskToTransfer>({ to: walletOf(
+            env,
+            alice,
+        ).address, exitCode: SccpErrors.NotEnoughValue as int });
+    expect(jettonBalanceOf(env, alice)).toEqual(1000);
+    // Include the root/header bounds as well as the full 100-cell payload.
+    val quote = sccpTransferRequiredValue(
+        forwardAmount,
+        calculateForwardFee(BASECHAIN, bits + 2000, cells + 2),
+    ) +
+        1;
+    val sent = walletOf(env, alice).sendAskToTransfer(
+        alice,
+        3,
+        300,
+        bob,
+        alice,
+        null,
+        forwardAmount,
+        PayloadInRef { value: payload as Cell<RemainingBitsAndRefs> },
+        { value: quote, bounce: true },
+    );
+    expect(sent).toHaveAllSuccessfulTxs();
+    expect(sent).toHaveSuccessfulTx<TransferNotificationForRecipient>({ to: bob });
     expect(jettonBalanceOf(env, alice)).toEqual(700);
     expect(jettonBalanceOf(env, bob)).toEqual(300);
     expect(env.minter.getSccpState().totalSupply).toEqual(1000);

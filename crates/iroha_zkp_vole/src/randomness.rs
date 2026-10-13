@@ -18,7 +18,14 @@
 //!   freshness, uniformity and independence of the bytes; reusing a tape for two
 //!   different statements or witnesses reveals the witness.
 //!
-//! `r` is erased when the tape is dropped. `iv_pre` is public.
+//! * [`Tape::extended`]: as [`Tape::explicit`] at `lambda = 256`, with the public
+//!   32-byte salt of the extended construction ([`crate::variant`]). It is the
+//!   only way to give a tape a salt, and a tape with a salt is accepted by an
+//!   extended proof context only. The salt must be fresh and uniform per proof
+//!   like the rest of the tape. The extended construction never uses `H_3`.
+//!
+//! `r` is erased when the tape is dropped. `iv_pre` and the salt are public once
+//! the proof is out; the tape's copies are erased with it all the same.
 
 use core::fmt;
 
@@ -28,6 +35,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::{
     hash::{HashError, Hasher, Namespace, Oracle},
     params::{IV_BYTES, SecurityLevel},
+    variant::{Binding, Construction, SALT_BYTES, VariantError},
 };
 
 /// Largest `lambda / 8`.
@@ -61,20 +69,29 @@ pub enum RandomnessError {
     /// A hash function rejected a call.
     #[error(transparent)]
     Hash(#[from] HashError),
+    /// A salted tape was requested at a level where the extended construction is
+    /// not defined.
+    #[error(transparent)]
+    Variant(#[from] VariantError),
 }
 
-/// The randomness of one proof: the secret root seed `r` and the public `iv_pre`.
+/// The randomness of one proof: the secret root seed `r`, the public `iv_pre`
+/// and, for the extended construction, the public salt.
 pub struct Tape {
     level: SecurityLevel,
     /// `r` in the first `lambda / 8` bytes.
     root: [u8; MAX_LAMBDA_BYTES],
     iv_pre: [u8; IV_BYTES],
+    /// The salt; meaningful only when `construction` is extended.
+    salt: [u8; SALT_BYTES],
+    construction: Construction,
 }
 
 impl fmt::Debug for Tape {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Tape")
             .field("level", &self.level)
+            .field("construction", &self.construction)
             .field("iv_pre", &self.iv_pre)
             .finish_non_exhaustive()
     }
@@ -84,6 +101,7 @@ impl Zeroize for Tape {
     fn zeroize(&mut self) {
         self.root.zeroize();
         self.iv_pre.zeroize();
+        self.salt.zeroize();
     }
 }
 
@@ -118,8 +136,29 @@ impl Tape {
             level,
             root: [0; MAX_LAMBDA_BYTES],
             iv_pre: *iv_pre,
+            salt: [0; SALT_BYTES],
+            construction: Construction::Faest,
         };
         tape.root[..lb].copy_from_slice(root);
+        Ok(tape)
+    }
+
+    /// The tape of an extended proof: the caller's `root` (`lambda / 8` bytes),
+    /// `iv_pre` and public `salt`. Nothing is hashed.
+    ///
+    /// # Errors
+    /// Returns [`RandomnessError::Variant`] unless `level` is `lambda = 256` and
+    /// [`RandomnessError::InvalidLength`] unless `root` is 32 bytes long.
+    pub fn extended(
+        level: SecurityLevel,
+        root: &[u8],
+        iv_pre: &[u8; IV_BYTES],
+        salt: &[u8; SALT_BYTES],
+    ) -> Result<Self, RandomnessError> {
+        Construction::Extended.check_level(level)?;
+        let mut tape = Self::explicit(level, root, iv_pre)?;
+        tape.salt = *salt;
+        tape.construction = Construction::Extended;
         Ok(tape)
     }
 
@@ -156,6 +195,8 @@ impl Tape {
             level,
             root: [0; MAX_LAMBDA_BYTES],
             iv_pre: [0; IV_BYTES],
+            salt: [0; SALT_BYTES],
+            construction: Construction::Faest,
         };
         output.squeeze(&mut tape.root[..lb]);
         output.squeeze(&mut tape.iv_pre);
@@ -176,6 +217,21 @@ impl Tape {
     pub fn iv_pre(&self) -> &[u8; IV_BYTES] {
         &self.iv_pre
     }
+
+    /// The construction the tape was made for: [`Construction::Extended`] for
+    /// [`Tape::extended`], [`Construction::Faest`] otherwise.
+    pub const fn construction(&self) -> Construction {
+        self.construction
+    }
+
+    /// The construction together with the salt it binds, as the layers below
+    /// take it. Public: the salt is part of the proof.
+    pub const fn binding(&self) -> Binding<'_> {
+        match self.construction {
+            Construction::Faest => Binding::Faest,
+            Construction::Extended => Binding::Extended { salt: &self.salt },
+        }
+    }
 }
 
 #[cfg(test)]
@@ -188,11 +244,15 @@ mod tests {
         let mut out = vec![0u8; len];
         if level == SecurityLevel::L128 {
             let mut sponge = sha3::Shake128::default();
-            parts.iter().for_each(|part| sponge.update(part));
+            for part in parts {
+                sponge.update(part);
+            }
             sponge.finalize_xof().read(&mut out);
         } else {
             let mut sponge = sha3::Shake256::default();
-            parts.iter().for_each(|part| sponge.update(part));
+            for part in parts {
+                sponge.update(part);
+            }
             sponge.finalize_xof().read(&mut out);
         }
         out
@@ -225,10 +285,10 @@ mod tests {
             roots.dedup();
             assert_eq!(roots.len(), prefixes.len());
             // Padding `rho` with zeros is a different input.
-            let short = Tape::derive(Namespace::REFERENCE, level, &secret, &mu, &[0; 16])
-                .expect("valid");
-            let long = Tape::derive(Namespace::REFERENCE, level, &secret, &mu, &[0; 17])
-                .expect("valid");
+            let short =
+                Tape::derive(Namespace::REFERENCE, level, &secret, &mu, &[0; 16]).expect("valid");
+            let long =
+                Tape::derive(Namespace::REFERENCE, level, &secret, &mu, &[0; 17]).expect("valid");
             assert_ne!(short.root(), long.root());
         }
     }
@@ -269,7 +329,9 @@ mod tests {
         erases_on_drop::<Tape>();
         for level in SecurityLevel::ALL {
             let lb = level.bytes();
-            let root: Vec<u8> = (1..=lb).map(|byte| u8::try_from(byte).expect("small")).collect();
+            let root: Vec<u8> = (1..=lb)
+                .map(|byte| u8::try_from(byte).expect("small"))
+                .collect();
             let mut tape = Tape::explicit(level, &root, &[0x7e; 16]).expect("valid");
             assert_eq!(tape.root(), root);
             assert_eq!(tape.iv_pre(), &[0x7e; 16]);
@@ -279,5 +341,51 @@ mod tests {
             assert_eq!(tape.root, [0; MAX_LAMBDA_BYTES]);
             assert_eq!(tape.iv_pre, [0; IV_BYTES]);
         }
+    }
+
+    #[test]
+    fn only_extended_tapes_carry_a_salt() {
+        let level = SecurityLevel::L256;
+        let mu = [0xb2u8; 64];
+        let plain = Tape::explicit(level, &[1; 32], &[2; 16]).expect("valid");
+        assert_eq!(plain.construction(), Construction::Faest);
+        assert_eq!(plain.binding(), Binding::Faest);
+        let derived = Tape::derive(Namespace::REFERENCE, level, &[1; 32], &mu, &[]).expect("valid");
+        assert_eq!(derived.binding(), Binding::Faest);
+
+        let salt: [u8; SALT_BYTES] = core::array::from_fn(|at| u8::try_from(at).expect("small"));
+        let mut tape = Tape::extended(level, &[1; 32], &[2; 16], &salt).expect("valid");
+        assert_eq!(tape.construction(), Construction::Extended);
+        assert_eq!(tape.binding(), Binding::Extended { salt: &salt });
+        assert_eq!(tape.root(), [1; 32]);
+        assert_eq!(tape.iv_pre(), &[2; 16]);
+        assert_eq!(tape.level(), level);
+        let shown = format!("{tape:?}");
+        assert!(shown.contains("Extended") && !shown.contains("root"));
+        // The whole buffer is erased, the public salt included.
+        tape.zeroize();
+        assert_eq!(tape.root, [0; MAX_LAMBDA_BYTES]);
+        assert_eq!(tape.iv_pre, [0; IV_BYTES]);
+        assert_eq!(tape.salt, [0; SALT_BYTES]);
+    }
+
+    #[test]
+    fn extended_tapes_exist_at_lambda_256_only() {
+        for level in [SecurityLevel::L128, SecurityLevel::L192] {
+            assert_eq!(
+                Tape::extended(level, &vec![0u8; level.bytes()], &[0; 16], &[0; 32]).err(),
+                Some(RandomnessError::Variant(VariantError::UnsupportedLevel {
+                    lambda: level.bits()
+                }))
+            );
+        }
+        assert_eq!(
+            Tape::extended(SecurityLevel::L256, &[0; 31], &[0; 16], &[0; 32]).err(),
+            Some(RandomnessError::InvalidLength {
+                input: Input::Root,
+                expected: 32,
+                actual: 31
+            })
+        );
     }
 }

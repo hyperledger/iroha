@@ -261,11 +261,11 @@
       "limit": 3000
     },
     "step bucket already consumed": {
-      "gas": 5283,
+      "gas": 6313,
       "limit": 8000
     },
     "step bucket consume": {
-      "gas": 6155,
+      "gas": 7085,
       "limit": 8000
     },
     "step bucket consume range 512": {
@@ -329,8 +329,8 @@
       "limit": 14000
     },
     "step wallet burn": {
-      "gas": 5000,
-      "limit": 7000
+      "gas": 12573,
+      "limit": 15000
     },
     "step wallet receive": {
       "gas": 4155,

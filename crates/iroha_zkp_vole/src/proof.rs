@@ -36,6 +36,32 @@
 //! order from zero and never wraps: if `2^32 - 1` fails, the result is
 //! [`ProofError::GrindingExhausted`] and a later attempt needs a fresh tape.
 //!
+//! # Variants
+//!
+//! A [`ProofContext`] carries one of three [`Variant`]s ([`crate::variant`]) and
+//! every layer below is driven from it; there is no other switch.
+//!
+//! * [`ProofContext::reference`]: the empty prefix and the FAEST construction.
+//!   This is the FAEST-conformant variant and the one the listing above
+//!   describes.
+//! * [`ProofContext::new`]: the FAEST construction inside a non-empty prefix.
+//! * [`ProofContext::extended`]: the extended construction inside a non-empty
+//!   prefix, on a row with `lambda = 256` and `n_leafcom = 3`. It is
+//!   FAEST-derived and has no official vectors. The listing changes as follows:
+//!   the tape also holds a public 32-byte salt ([`Tape::extended`]; a tape
+//!   without one, or a salted tape in another variant, is
+//!   [`ProofError::TapeMismatch`]); step 2 commits with affine-checked leaves and
+//!   hashes every gate label with the salt; step 3 appends the salt after
+//!   `iv_pre`; step 8 stops after counter [`EXTENDED_LAST_COUNTER`] with
+//!   [`ProofError::GrindingExhausted`] carrying that value; step 9 writes the
+//!   salt between `iv_pre` and the counter. The verifier rejects a counter above
+//!   the limit with [`CodecError::CounterOutOfRange`] as soon as the length of
+//!   the proof is known to be right, before the opening is examined or anything
+//!   is reconstructed, then proceeds as in the other variants.
+//!
+//! A proof of one variant does not verify in another: the layouts differ in
+//! length between the constructions, and the prefix separates the oracles.
+//!
 //! [`prove`] performs step 0 and returns [`ProofError::WitnessRejected`] before
 //! anything is derived from the tape. [`prove_without_witness_check`] skips step 0:
 //! it exists so that tests can produce the proof a cheating prover would send and
@@ -91,10 +117,20 @@
 //! itself allocates nothing ([`crate::quicksilver`], "Resources"). The verifier
 //! peaks inside `VOLEReconstruct` at about 2.3 MB and then holds `Q`
 //! (1,152,000 bytes); the proof is borrowed.
+//!
+//! The relation's own value scratch comes on top of these figures while the
+//! constraint check runs, that is after the peak of `VOLECommit` and next to the
+//! tree, `V` and the corrections. A relation that buffers three arrays of 1,600
+//! values (a Keccak state at three points of a round) adds about 1.3 MB for the
+//! prover at `lambda = 256` and about 0.2 MB for the verifier and for the witness
+//! check that precedes proving. It must be erased by the relation
+//! ([`crate::quicksilver`], "Secrets").
 
 use thiserror::Error;
 use zeroize::Zeroizing;
 
+#[cfg(doc)]
+use crate::variant::EXTENDED_LAST_COUNTER;
 use crate::{
     bavc,
     codec::{self, CodecError, ProofFields},
@@ -104,8 +140,9 @@ use crate::{
     params::{D_ZK, ParamsError, ProofParams, VoleParams},
     quicksilver::{self, ProverInputs, QuickSilverError, Relation, VerifierInputs},
     randomness::Tape,
-    transcript::{self, Challenge3, TranscriptError},
+    transcript::{self, Challenge1Input, Challenge3, TranscriptError},
     universal_hash::{UniversalHashError, VoleHasher},
+    variant::{Construction, Variant, VariantError},
     vole::{self, Opening, VoleError},
 };
 
@@ -134,6 +171,9 @@ pub enum ProofError {
         /// Extension degree of the field type.
         actual: usize,
     },
+    /// A context outside reference mode was requested with the empty prefix.
+    #[error("the namespace prefix is empty: reference mode has its own constructor")]
+    EmptyNamespace,
     /// The row's `d_zk` is not the supported degree.
     #[error("rows with d_zk = {d_zk} are not supported, only d_zk = {D_ZK}")]
     UnsupportedDegree {
@@ -190,6 +230,18 @@ pub enum ProofError {
     /// A field element could not be decoded.
     #[error(transparent)]
     Field(#[from] FieldError),
+    /// The extended variant was requested on a row where it is not defined.
+    #[error(transparent)]
+    Variant(#[from] VariantError),
+    /// The tape was made for another construction than the context's: a tape
+    /// without a salt in the extended variant, or a salted tape elsewhere.
+    #[error("the context runs the {context:?} construction and the tape is for {tape:?}")]
+    TapeMismatch {
+        /// The construction of the context.
+        context: Construction,
+        /// The construction of the tape.
+        tape: Construction,
+    },
 }
 
 fn check_length(input: Input, expected: usize, actual: usize) -> Result<(), ProofError> {
@@ -205,25 +257,79 @@ fn check_length(input: Input, expected: usize, actual: usize) -> Result<(), Proo
 }
 
 /// What every oracle call and every size of one proof depends on besides the
-/// relation: the namespace and the relation-independent row. Public.
+/// relation: the variant, the namespace and the relation-independent row. Public.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProofContext<'a> {
+    variant: Variant,
     namespace: Namespace<'a>,
     vole: VoleParams,
 }
 
 impl<'a> ProofContext<'a> {
-    /// The context of `namespace` on the row `vole`.
-    pub const fn new(namespace: Namespace<'a>, vole: VoleParams) -> Self {
-        Self { namespace, vole }
+    /// The context of the non-empty `namespace` on the row `vole` in the
+    /// prefixed variant ([`Variant::Prefixed`]): the FAEST construction with the
+    /// prefix on every oracle call, no salt, counters up to `2^32 - 1`.
+    ///
+    /// The empty prefix is refused: it is reference mode, in which every oracle is
+    /// the one of plain FAEST, and a relation of its own that ran there by
+    /// accident (an unset or wrongly sliced prefix) would lose its domain
+    /// separation silently on both sides. Reference mode is reachable through
+    /// [`ProofContext::reference`] only.
+    ///
+    /// # Errors
+    /// [`ProofError::EmptyNamespace`] if `namespace` is the empty prefix.
+    pub const fn new(namespace: Namespace<'a>, vole: VoleParams) -> Result<Self, ProofError> {
+        if namespace.is_reference() {
+            return Err(ProofError::EmptyNamespace);
+        }
+        Ok(Self {
+            variant: Variant::Prefixed,
+            namespace,
+            vole,
+        })
     }
 
-    /// The reference-mode context (the empty prefix) on the row `vole`.
+    /// The context of the non-empty `namespace` on the row `vole` in the extended
+    /// variant ([`Variant::Extended`]): salted first challenge and `H_5`, counters
+    /// up to [`EXTENDED_LAST_COUNTER`], affine-checked leaf commitments. Proving
+    /// needs a [`Tape::extended`].
+    ///
+    /// # Errors
+    /// [`ProofError::EmptyNamespace`] if `namespace` is the empty prefix, and
+    /// [`ProofError::Variant`] unless the row has `lambda = 256` and
+    /// `n_leafcom = 3`.
+    pub const fn extended(namespace: Namespace<'a>, vole: VoleParams) -> Result<Self, ProofError> {
+        if namespace.is_reference() {
+            return Err(ProofError::EmptyNamespace);
+        }
+        if let Err(error) = Construction::Extended.check_row(&vole) {
+            return Err(ProofError::Variant(error));
+        }
+        Ok(Self {
+            variant: Variant::Extended,
+            namespace,
+            vole,
+        })
+    }
+
+    /// The reference-mode context (the empty prefix) on the row `vole`: plain
+    /// FAEST. The only way to build a context with the empty prefix.
     pub const fn reference(vole: VoleParams) -> ProofContext<'static> {
         ProofContext {
+            variant: Variant::Reference,
             namespace: Namespace::REFERENCE,
             vole,
         }
+    }
+
+    /// The variant.
+    pub const fn variant(&self) -> Variant {
+        self.variant
+    }
+
+    /// The construction the layers below run: that of the variant.
+    pub const fn construction(&self) -> Construction {
+        self.variant.construction()
     }
 
     /// The namespace.
@@ -260,11 +366,7 @@ impl<'a> ProofContext<'a> {
             });
         }
         let total = quicksilver::total_constraints(relation)?;
-        Ok(ProofParams::new(
-            self.vole,
-            relation.witness_bits(),
-            total,
-        )?)
+        Ok(ProofParams::new(self.vole, relation.witness_bits(), total)?)
     }
 
     /// Length in bytes of every proof of `relation` in this context.
@@ -276,7 +378,7 @@ impl<'a> ProofContext<'a> {
         relation: &R,
     ) -> Result<usize, ProofError> {
         self.params_for(relation)
-            .map(|params| codec::proof_bytes(&params))
+            .map(|params| codec::proof_bytes_as(self.construction(), &params))
     }
 }
 
@@ -330,9 +432,12 @@ fn feed_elements<F: LambdaField>(
 /// # Errors
 /// * [`ProofError::WitnessRejected`] if the witness violates a constraint; this
 ///   is decided before the tape is used;
-/// * [`ProofError::GrindingExhausted`] if no counter is acceptable;
+/// * [`ProofError::GrindingExhausted`] if no counter up to
+///   [`Construction::last_counter`] is acceptable;
 /// * [`ProofError::InvalidLength`] for `mu`, the witness or a tape of another
 ///   security level;
+/// * [`ProofError::TapeMismatch`] unless the tape was made for the construction
+///   of the context; this too is decided before the tape is used;
 /// * the errors of [`ProofContext::params_for`], [`ProofError::Tables`] for a row
 ///   without embedded tables, and [`ProofError::Relation`] for a malformed
 ///   relation.
@@ -354,7 +459,7 @@ pub fn prove<F: LambdaField, R: Relation<F> + ?Sized>(
             tape,
             check: true,
         },
-        u32::MAX,
+        context.construction().last_counter(),
     )
 }
 
@@ -385,8 +490,15 @@ pub fn prove_without_witness_check<F: LambdaField, R: Relation<F> + ?Sized>(
             tape,
             check: false,
         },
-        u32::MAX,
+        context.construction().last_counter(),
     )
+}
+
+/// The last counter the prover tries: `requested`, or the last counter of the
+/// construction if that is smaller.
+const fn counter_bound(construction: Construction, requested: u32) -> u32 {
+    let limit = construction.last_counter();
+    if requested < limit { requested } else { limit }
 }
 
 /// The prover's per-proof inputs.
@@ -398,7 +510,8 @@ struct Secrets<'a> {
     check: bool,
 }
 
-/// [`prove`] with the counters `0 ..= last_counter`.
+/// [`prove`] with the counters `0 ..= last_counter`, or up to the last counter
+/// of the construction if that is smaller.
 fn prove_bounded<F: LambdaField, R: Relation<F> + ?Sized>(
     context: &ProofContext<'_>,
     relation: &R,
@@ -413,6 +526,8 @@ fn prove_bounded<F: LambdaField, R: Relation<F> + ?Sized>(
         check,
     } = *secrets;
     let namespace = context.namespace;
+    let construction = context.construction();
+    let last_counter = counter_bound(construction, last_counter);
     let params = context.params_for::<F, R>(relation)?;
     let vole = params.vole();
     let level = vole.lambda();
@@ -420,21 +535,31 @@ fn prove_bounded<F: LambdaField, R: Relation<F> + ?Sized>(
     check_length(Input::Mu, 2 * lb, mu.len())?;
     check_length(Input::Witness, params.witness_bytes(), witness.len())?;
     check_length(Input::Root, lb, tape.level().bytes())?;
+    let binding = tape.binding();
+    if binding.construction() != construction {
+        return Err(ProofError::TapeMismatch {
+            context: construction,
+            tape: binding.construction(),
+        });
+    }
     let tables = vole.crt_tables()?;
     if check && !quicksilver::is_satisfied::<F, R>(relation, public, witness)? {
         return Err(ProofError::WitnessRejected);
     }
 
     let iv = transcript::derive_iv(namespace, level, tape.iv_pre(), mu)?;
-    let commitment = vole::commit_in(namespace, &params, tables, tape.root(), &iv)?;
-    let challenge_1 = transcript::challenge_1(
+    let commitment = vole::commit_as(namespace, binding, &params, tables, tape.root(), &iv)?;
+    let challenge_1 = transcript::challenge_1_as(
         namespace,
+        binding,
         &params,
-        mu,
-        commitment.commitment(),
-        commitment.corrections(),
-        commitment.mult_corrections(),
-        tape.iv_pre(),
+        &Challenge1Input {
+            mu,
+            commitment: commitment.commitment(),
+            corrections: commitment.corrections(),
+            mult_corrections: commitment.mult_corrections(),
+            iv_pre: tape.iv_pre(),
+        },
     )?;
 
     let u = commitment.u();
@@ -509,7 +634,8 @@ fn prove_bounded<F: LambdaField, R: Relation<F> + ?Sized>(
         counter += 1;
     };
 
-    Ok(codec::encode(
+    Ok(codec::encode_as(
+        construction,
         &params,
         &ProofFields {
             corrections: commitment.corrections(),
@@ -520,6 +646,7 @@ fn prove_bounded<F: LambdaField, R: Relation<F> + ?Sized>(
             decommitment: &decommitment,
             challenge: challenge_3,
             iv_pre: tape.iv_pre(),
+            salt: binding.salt(),
             counter,
         },
     )?)
@@ -532,8 +659,9 @@ fn prove_bounded<F: LambdaField, R: Relation<F> + ?Sized>(
 ///
 /// # Errors
 /// Every error is a rejection:
-/// * [`ProofError::Codec`] for a proof of the wrong length or with non-canonical
-///   padding or challenge;
+/// * [`ProofError::Codec`] for a proof of the wrong length, with a counter above
+///   the limit of the variant ([`CodecError::CounterOutOfRange`], decided before
+///   anything is reconstructed) or with non-canonical padding or challenge;
 /// * [`ProofError::ChallengeMismatch`] if the proof does not verify;
 /// * [`ProofError::Vole`] if the opening is rejected;
 /// * [`ProofError::InvalidLength`] for `mu`, the errors of
@@ -546,19 +674,45 @@ pub fn verify<F: LambdaField, R: Relation<F> + ?Sized>(
     mu: &[u8],
     proof: &[u8],
 ) -> Result<(), ProofError> {
-    let namespace = context.namespace;
     let params = context.params_for::<F, R>(relation)?;
+    let lb = params.vole().lambda().bytes();
+    check_length(Input::Mu, 2 * lb, mu.len())?;
+    let fields = codec::decode_as(context.construction(), &params, proof)?;
+    let mut challenge_3 = [0u8; MAX_LAMBDA_BYTES];
+    let challenge_3 = &mut challenge_3[..lb];
+    grinder_of::<F, R>(context, &params, relation, public, mu, &fields)?
+        .at(fields.counter, challenge_3)?;
+    if challenge_3 == fields.challenge {
+        Ok(())
+    } else {
+        Err(ProofError::ChallengeMismatch)
+    }
+}
+
+/// The verifier's `chall_3` oracle for the decoded proof `fields`: everything
+/// `chall_3` absorbs before the counter, recomputed from the opening.
+fn grinder_of<F: LambdaField, R: Relation<F> + ?Sized>(
+    context: &ProofContext<'_>,
+    params: &ProofParams,
+    relation: &R,
+    public: &R::PublicInput,
+    mu: &[u8],
+    fields: &ProofFields<'_>,
+) -> Result<Challenge3, ProofError> {
+    let namespace = context.namespace;
+    // The salt, if any, comes from the proof; `decode_as` yields one exactly in
+    // the extended layout.
+    let binding = fields.binding();
     let vole = params.vole();
     let level = vole.lambda();
     let lb = level.bytes();
-    check_length(Input::Mu, 2 * lb, mu.len())?;
     let tables = vole.crt_tables()?;
-    let fields = codec::decode(&params, proof)?;
 
     let iv = transcript::derive_iv(namespace, level, fields.iv_pre, mu)?;
-    let opened = vole::reconstruct_in(
+    let opened = vole::reconstruct_as(
         namespace,
-        &params,
+        binding,
+        params,
         tables,
         &Opening {
             challenge: fields.challenge,
@@ -568,14 +722,17 @@ pub fn verify<F: LambdaField, R: Relation<F> + ?Sized>(
         },
         &iv,
     )?;
-    let challenge_1 = transcript::challenge_1(
+    let challenge_1 = transcript::challenge_1_as(
         namespace,
-        &params,
-        mu,
-        opened.commitment(),
-        fields.corrections,
-        fields.mult_corrections,
-        fields.iv_pre,
+        binding,
+        params,
+        &Challenge1Input {
+            mu,
+            commitment: opened.commitment(),
+            corrections: fields.corrections,
+            mult_corrections: fields.mult_corrections,
+            iv_pre: fields.iv_pre,
+        },
     )?;
 
     // D = Q~ + Delta * u~ stands in for the prover's V~.
@@ -591,7 +748,7 @@ pub fn verify<F: LambdaField, R: Relation<F> + ?Sized>(
     }
     let challenge_2 = transcript::challenge_2(
         namespace,
-        &params,
+        params,
         &challenge_1,
         fields.u_tilde,
         &to_bytes(&d_tilde),
@@ -613,21 +770,19 @@ pub fn verify<F: LambdaField, R: Relation<F> + ?Sized>(
     let mut coefficients = to_bytes(&[first]);
     coefficients.extend_from_slice(fields.coefficients);
 
-    let mut challenge_3 = [0u8; MAX_LAMBDA_BYTES];
-    let challenge_3 = &mut challenge_3[..lb];
-    Challenge3::new(namespace, vole, &challenge_2, &coefficients)?
-        .at(fields.counter, challenge_3)?;
-    if challenge_3 == fields.challenge {
-        Ok(())
-    } else {
-        Err(ProofError::ChallengeMismatch)
-    }
+    Ok(Challenge3::new(
+        namespace,
+        vole,
+        &challenge_2,
+        &coefficients,
+    )?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
+        bavc::BavcError,
         field::{Gf128, Gf192, Gf256},
         params::{FAEST_128F, FAEST_192F, FAEST_256F, SecurityLevel},
         quicksilver::ConstraintSystem,
@@ -692,15 +847,19 @@ mod tests {
             let namespace = Namespace::new(b"proof unit tests").expect("bounded");
             for context in [
                 ProofContext::reference(*vole),
-                ProofContext::new(namespace, *vole),
+                ProofContext::new(namespace, *vole).expect("non-empty prefix"),
             ] {
                 let level = vole.lambda();
                 let mu = vec![0x6du8; 2 * level.bytes()];
                 let witness = witness(1);
-                let proof = prove::<F, _>(&context, &Pairs, &PUBLIC, &mu, &witness, &tape(level, 3))
-                    .expect("valid witness");
+                let proof =
+                    prove::<F, _>(&context, &Pairs, &PUBLIC, &mu, &witness, &tape(level, 3))
+                        .expect("valid witness");
                 assert_eq!(Ok(proof.len()), context.proof_bytes::<F, _>(&Pairs));
-                assert_eq!(verify::<F, _>(&context, &Pairs, &PUBLIC, &mu, &proof), Ok(()));
+                assert_eq!(
+                    verify::<F, _>(&context, &Pairs, &PUBLIC, &mu, &proof),
+                    Ok(())
+                );
                 let mut other = PUBLIC;
                 other[7] ^= true;
                 assert_eq!(
@@ -753,6 +912,112 @@ mod tests {
         assert_eq!(fields.counter, counter);
     }
 
+    /// Why the prover must skip a counter, recomputed from `chall_3` alone.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Skipped {
+        /// A grinding bit is set.
+        Grinding,
+        /// The grinding bits are zero and the opening has more than `T_open` keys.
+        Opening,
+    }
+
+    /// The fate of every counter up to the one in `proof`, recomputed on the
+    /// verifier's side: the reasons the earlier ones are skipped, in order.
+    fn skipped_counters<F: LambdaField>(
+        context: &ProofContext<'_>,
+        mu: &[u8],
+        proof: &[u8],
+    ) -> Vec<Skipped> {
+        let params = context.params_for::<F, _>(&Pairs).expect("valid row");
+        let vole = params.vole();
+        let fields = codec::decode(&params, proof).expect("canonical");
+        let grinder = grinder_of::<F, _>(context, &params, &Pairs, &PUBLIC, mu, &fields)
+            .expect("the opening reconstructs");
+        let mut challenge = vec![0u8; vole.lambda().bytes()];
+        let mut fate = |counter: u32| {
+            grinder.at(counter, &mut challenge).expect("valid length");
+            match bavc::decode_challenge(vole, &challenge) {
+                Err(BavcError::GrindingBitsSet) => Some(Skipped::Grinding),
+                Err(other) => panic!("unexpected {other:?}"),
+                Ok(hidden) => {
+                    let nodes = bavc::opening_nodes(vole, &hidden).expect("valid pattern");
+                    (nodes > vole.t_open()).then_some(Skipped::Opening)
+                }
+            }
+        };
+        let skipped = (0..fields.counter)
+            .map(|counter| fate(counter).expect("an earlier counter was acceptable"))
+            .collect();
+        assert_eq!(
+            fate(fields.counter),
+            None,
+            "the proof's counter is acceptable"
+        );
+        skipped
+    }
+
+    /// The counter rule: a counter is skipped when a grinding bit of its
+    /// challenge is set **or** when the opening it selects has more than `T_open`
+    /// node keys, and the proof carries the first counter with neither failure.
+    #[test]
+    fn a_counter_whose_opening_is_too_large_is_skipped_like_a_grinding_failure() {
+        // The standard FAEST-128f row, on which about a third of the challenges
+        // with zero grinding bits select an opening above T_open = 108.
+        let standard = *FAEST_128F.vole();
+        // The same geometry with a tight T_open: nearly every such challenge
+        // aborts, so the accepted counter comes after several aborts.
+        let tight = VoleParams::new(
+            standard.lambda(),
+            standard.tau(),
+            standard.w_grind(),
+            96,
+            standard.n_leafcom(),
+            D_ZK,
+            standard.n_mult(),
+        )
+        .expect("valid row");
+        let mu = [0x21u8; 32];
+        let witness = witness(2);
+        for (vole, at_least) in [(standard, 1), (tight, 2)] {
+            let context = ProofContext::reference(vole);
+            let mut aborting_runs = 0;
+            for salt in 0..12 {
+                let tape = tape(SecurityLevel::L128, salt);
+                let proof = prove::<Gf128, _>(&context, &Pairs, &PUBLIC, &mu, &witness, &tape)
+                    .expect("valid witness");
+                assert_eq!(
+                    verify::<Gf128, _>(&context, &Pairs, &PUBLIC, &mu, &proof),
+                    Ok(())
+                );
+                let skipped = skipped_counters::<Gf128>(&context, &mu, &proof);
+                let aborts = skipped
+                    .iter()
+                    .filter(|reason| **reason == Skipped::Opening)
+                    .count();
+                if aborts >= at_least {
+                    aborting_runs += 1;
+                    // The bound just below the counter exhausts: the aborting
+                    // counters were not accepted with a truncated opening.
+                    let last = u32::try_from(skipped.len()).expect("small") - 1;
+                    assert_eq!(
+                        prove_bounded::<Gf128, _>(
+                            &context,
+                            &Pairs,
+                            &PUBLIC,
+                            &secrets(&mu, &witness, &tape),
+                            last
+                        ),
+                        Err(ProofError::GrindingExhausted { last })
+                    );
+                }
+            }
+            assert!(
+                aborting_runs > 0,
+                "no tape with {at_least} opening aborts before the accepted counter"
+            );
+        }
+    }
+
     #[test]
     fn a_violating_witness_is_refused_before_the_tape_is_used() {
         let context = ProofContext::reference(*FAEST_128F.vole());
@@ -778,6 +1043,26 @@ mod tests {
             verify::<Gf128, _>(&context, &Pairs, &PUBLIC, &mu, &forged),
             Err(ProofError::ChallengeMismatch)
         );
+    }
+
+    #[test]
+    fn the_empty_prefix_is_reachable_through_the_reference_constructor_only() {
+        let vole = *FAEST_128F.vole();
+        let empty = Namespace::new(b"").expect("bounded");
+        assert_eq!(
+            ProofContext::new(empty, vole),
+            Err(ProofError::EmptyNamespace)
+        );
+        assert_eq!(
+            ProofContext::new(Namespace::REFERENCE, vole),
+            Err(ProofError::EmptyNamespace)
+        );
+        let one = Namespace::new(b"x").expect("bounded");
+        let context = ProofContext::new(one, vole).expect("non-empty prefix");
+        assert_eq!(context.namespace(), one);
+        assert_eq!(context.vole(), &vole);
+        assert!(!context.namespace().is_reference());
+        assert!(ProofContext::reference(vole).namespace().is_reference());
     }
 
     #[test]
@@ -908,5 +1193,159 @@ mod tests {
             vole_hash::<F>(&challenge[1..], |_| Ok(()), &masks),
             Err(ProofError::Hash(_))
         ));
+    }
+
+    const SALT: [u8; 32] = [
+        0xf0, 0xe1, 0xd2, 0xc3, 0xb4, 0xa5, 0x96, 0x87, 0x78, 0x69, 0x5a, 0x4b, 0x3c, 0x2d, 0x1e,
+        0x0f, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd,
+        0xee, 0xff,
+    ];
+
+    fn extended_tape(salt: u8) -> Tape {
+        let root: Vec<u8> = (0u8..32)
+            .map(|at| at.wrapping_mul(salt | 1) ^ salt)
+            .collect();
+        Tape::extended(SecurityLevel::L256, &root, &[salt; 16], &SALT).expect("valid tape")
+    }
+
+    #[test]
+    fn contexts_carry_their_variant() {
+        use crate::params::{FAEST_256S, FAEST_EM_256F};
+        let namespace = Namespace::new(b"variants").expect("bounded");
+        let fast = *FAEST_256F.vole();
+        let reference = ProofContext::reference(fast);
+        assert_eq!(reference.variant(), Variant::Reference);
+        assert_eq!(reference.construction(), Construction::Faest);
+        let prefixed = ProofContext::new(namespace, fast).expect("non-empty prefix");
+        assert_eq!(prefixed.variant(), Variant::Prefixed);
+        assert_eq!(prefixed.construction(), Construction::Faest);
+        for set in [FAEST_256F, FAEST_256S] {
+            let vole = *set.vole();
+            let extended = ProofContext::extended(namespace, vole).expect("supported row");
+            assert_eq!(extended.variant(), Variant::Extended);
+            assert_eq!(extended.construction(), Construction::Extended);
+            assert_eq!(extended.namespace(), namespace);
+            assert_eq!(extended.vole(), &vole);
+            // 32 bytes of salt and 16 more per hidden leaf commitment.
+            let plain = ProofContext::new(namespace, vole).expect("non-empty prefix");
+            assert_eq!(
+                extended.proof_bytes::<Gf256, _>(&Pairs),
+                plain
+                    .proof_bytes::<Gf256, _>(&Pairs)
+                    .map(|bytes| bytes + 32 + 16 * vole.tau())
+            );
+        }
+        assert_eq!(
+            ProofContext::extended(Namespace::REFERENCE, fast),
+            Err(ProofError::EmptyNamespace)
+        );
+        assert_eq!(
+            ProofContext::extended(namespace, *FAEST_128F.vole()),
+            Err(ProofError::Variant(VariantError::UnsupportedLevel {
+                lambda: 128
+            }))
+        );
+        assert_eq!(
+            ProofContext::extended(namespace, *FAEST_192F.vole()),
+            Err(ProofError::Variant(VariantError::UnsupportedLevel {
+                lambda: 192
+            }))
+        );
+        assert_eq!(
+            ProofContext::extended(namespace, *FAEST_EM_256F.vole()),
+            Err(ProofError::Variant(VariantError::UnsupportedLeafBlocks {
+                n_leafcom: 2
+            }))
+        );
+    }
+
+    #[test]
+    fn extended_proofs_need_extended_tapes_and_verify() {
+        let namespace = Namespace::new(b"proof unit tests").expect("bounded");
+        let vole = *FAEST_256F.vole();
+        let extended = ProofContext::extended(namespace, vole).expect("supported row");
+        let prefixed = ProofContext::new(namespace, vole).expect("non-empty prefix");
+        let mu = [0x6du8; 64];
+        let witness = witness(1);
+        let proof = prove::<Gf256, _>(&extended, &Pairs, &PUBLIC, &mu, &witness, &extended_tape(3))
+            .expect("valid witness");
+        assert_eq!(Ok(proof.len()), extended.proof_bytes::<Gf256, _>(&Pairs));
+        assert_eq!(
+            verify::<Gf256, _>(&extended, &Pairs, &PUBLIC, &mu, &proof),
+            Ok(())
+        );
+        // The salt sits between iv_pre and the counter.
+        let at = proof.len() - 4 - 32;
+        assert_eq!(proof[at..at + 32], SALT);
+        assert_eq!(proof[at - 16..at], [3u8; 16]);
+
+        let mismatch = |context: Construction, tape: Construction| {
+            Err(ProofError::TapeMismatch { context, tape })
+        };
+        let plain = tape(SecurityLevel::L256, 3);
+        assert_eq!(
+            prove::<Gf256, _>(&extended, &Pairs, &PUBLIC, &mu, &witness, &plain),
+            mismatch(Construction::Extended, Construction::Faest)
+        );
+        for context in [prefixed, ProofContext::reference(vole)] {
+            assert_eq!(
+                prove::<Gf256, _>(&context, &Pairs, &PUBLIC, &mu, &witness, &extended_tape(3)),
+                mismatch(Construction::Faest, Construction::Extended)
+            );
+        }
+        assert_eq!(
+            prove_without_witness_check::<Gf256, _>(
+                &extended, &Pairs, &PUBLIC, &mu, &witness, &plain
+            ),
+            mismatch(Construction::Extended, Construction::Faest)
+        );
+    }
+
+    #[test]
+    fn the_counter_bound_is_the_smaller_of_the_request_and_the_limit() {
+        use crate::variant::EXTENDED_LAST_COUNTER;
+        assert_eq!(EXTENDED_LAST_COUNTER, 0x000f_ffff);
+        assert_eq!(
+            counter_bound(Construction::Extended, u32::MAX),
+            EXTENDED_LAST_COUNTER
+        );
+        assert_eq!(
+            counter_bound(Construction::Extended, EXTENDED_LAST_COUNTER + 1),
+            EXTENDED_LAST_COUNTER
+        );
+        assert_eq!(counter_bound(Construction::Extended, 7), 7);
+        assert_eq!(counter_bound(Construction::Faest, u32::MAX), u32::MAX);
+        assert_eq!(counter_bound(Construction::Faest, 0), 0);
+    }
+
+    #[test]
+    fn extended_exhaustion_reports_the_last_counter_tried() {
+        let namespace = Namespace::new(b"proof unit tests").expect("bounded");
+        let context = ProofContext::extended(namespace, *FAEST_256F.vole()).expect("supported");
+        let mu = [0x21u8; 64];
+        let witness = witness(2);
+        let tape = extended_tape(9);
+        let inputs = secrets(&mu, &witness, &tape);
+        let proof = prove_bounded::<Gf256, _>(&context, &Pairs, &PUBLIC, &inputs, u32::MAX)
+            .expect("valid witness");
+        assert_eq!(
+            prove::<Gf256, _>(&context, &Pairs, &PUBLIC, &mu, &witness, &tape).as_ref(),
+            Ok(&proof)
+        );
+        let counter = u32::from_le_bytes(proof[proof.len() - 4..].try_into().expect("4 bytes"));
+        assert!(counter > 0, "pick a tape whose first counter fails");
+        assert!(counter <= context.construction().last_counter());
+        // The limit is a parameter of the same loop: with a tiny limit below the
+        // accepted counter the prover stops there and reports it, without wrapping.
+        for last in [0, counter - 1] {
+            assert_eq!(
+                prove_bounded::<Gf256, _>(&context, &Pairs, &PUBLIC, &inputs, last),
+                Err(ProofError::GrindingExhausted { last })
+            );
+        }
+        assert_eq!(
+            prove_bounded::<Gf256, _>(&context, &Pairs, &PUBLIC, &inputs, counter).as_ref(),
+            Ok(&proof)
+        );
     }
 }

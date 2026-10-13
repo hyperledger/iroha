@@ -386,8 +386,7 @@ def build() -> dict:
         "certificates": certificates,
         "destination_effects": scenarios,
         "todo": [
-            "TODO(TON contract work package): TON destination-effect rows (minter account id as destination word) once the "
-            "Acton harness pins its minter address; committee_transitions_v1.json carries the TON control rows that the "
-            "placeholder word allows",
+            "TODO(reference generators): add TON destination-effect rows to this file. The Acton harness installs its "
+            "minter at 0:35…35, and committee_transitions_v1.json already carries TON control rows for that destination word",
         ],
     }

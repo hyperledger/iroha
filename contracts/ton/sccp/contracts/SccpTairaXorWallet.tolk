@@ -6,6 +6,7 @@
 
 import "@stdlib/gas-payments"
 import "sccp-addresses"
+import "sccp-cells"
 import "sccp-constants"
 import "sccp-errors"
 import "sccp-fees"
@@ -132,11 +133,9 @@ fun onInternalMessage(in: InMessage) {
             // §5.3.4 Burn step 2: the SCCP custom payload is mandatory.
             assert (msg.customPayload != null) throw SccpErrors.BadBurnPayload;
             val sccpPayload = msg.customPayload!;
-            // shape check only: op, one reference, nothing else
-            SccpBurnToTaira.fromCell(
-                sccpPayload,
-                { throwIfOpcodeDoesNotMatch: SccpErrors.BadBurnPayload },
-            );
+            // The fee bound includes at most nine recipient cells. Validate the
+            // entire ordinary canonical snake before debiting or forwarding.
+            sccpParseBurnToTaira(sccpPayload);
             assert (msg.jettonAmount > 0) throw SccpErrors.BadAmount;
             assert (in.valueCoins > sccpBurnRequiredValue()) throw SccpErrors.NotEnoughValue;
 

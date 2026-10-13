@@ -17,8 +17,8 @@ use iroha_sccp::v1::{
     },
     finality::{QcFixedV1, SccpFinalityHeaderV1},
     ton_cell::{
-        Cell, CellBuilder, TonCellError, cell_from_boc, hash_chunks, key_chunks, snake_bytes,
-        ton_minter_floor_at_mainnet_prices,
+        Cell, CellBuilder, TonCellError, burn_to_taira_payload, cell_from_boc, hash_chunks,
+        key_chunks, snake_bytes, ton_minter_floor_at_mainnet_prices,
     },
 };
 use zeroize::Zeroizing;
@@ -112,6 +112,18 @@ impl From<TonCellError> for TonError {
 // ---------------------------------------------------------------------------------------------
 // Cell formats (§5.3.2)
 // ---------------------------------------------------------------------------------------------
+
+/// The mandatory `sccp_burn_to_taira` custom payload of a Jetton burn.
+///
+/// The ordinary wrapper has exactly its opcode and one reference. The complete ordinary
+/// recipient snake uses canonical 127-byte chunks and holds 1..=1024 bytes, matching the
+/// wallet and minter admission before any debit or forwarding (§5.3.4).
+///
+/// # Errors
+/// Returns [`TonError::Cell`] for an empty or oversized recipient.
+pub fn burn_payload_cell(recipient: &[u8]) -> Result<Cell, TonError> {
+    Ok(burn_to_taira_payload(recipient)?)
+}
 
 /// `x_head#_ bytes:bits872 tail:^XTail`, with the original fixed 221-byte header.
 ///
@@ -784,6 +796,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn burn_payloads_match_wallet_and_minter_admission() {
+        use iroha_sccp::v1::{
+            constants::MAX_TAIRA_ACCOUNT_BYTES, destination::check_ton_burn_payload,
+        };
+
+        for len in [1, 127, 128, MAX_TAIRA_ACCOUNT_BYTES] {
+            let recipient = vec![0x42; len];
+            let payload = burn_payload_cell(&recipient).expect("admitted recipient");
+            let imported = cell_from_boc(&payload.to_boc().unwrap()).unwrap();
+            assert_eq!(check_ton_burn_payload(Some(&imported)), Ok(recipient));
+        }
+        assert_eq!(
+            burn_payload_cell(&[]),
+            Err(TonError::Cell(TonCellError::BadSnake))
+        );
+        assert_eq!(
+            burn_payload_cell(&[0x42; MAX_TAIRA_ACCOUNT_BYTES + 1]),
+            Err(TonError::Cell(TonCellError::SnakeTooLong))
+        );
+    }
+
+    #[test]
     fn attached_values_cover_the_quote_and_the_floor() {
         assert_eq!(quote_with_margin(0), QUOTE_MARGIN_MIN);
         assert_eq!(
@@ -794,10 +828,10 @@ mod tests {
         assert_eq!(quote_with_margin(u128::MAX), u128::MAX);
         let floor = ton_minter_floor_at_mainnet_prices();
         assert!(minter_deploy_value() > floor + floor / 5);
-        // about 12.4 TON at mainnet prices (MINTER_FLOOR is about 9.84 TON)
+        // about 15.53 TON at mainnet prices (MINTER_FLOOR is about 12.34 TON)
         assert_eq!(
             minter_deploy_value(),
-            9_840_563_965 + 2_460_140_991 + 100_000_000
+            12_342_810_059 + 3_085_702_514 + 100_000_000
         );
     }
 

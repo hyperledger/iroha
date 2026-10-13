@@ -10,6 +10,8 @@
 //   `vecDeployCertificate` and `vecSubmitCertificate` run a row as the
 //   fixture defines it: one `sccp_checkpoint` on a fresh minter deployed with
 //   the row's pin at the row's time.
+// - `vecRustNegativeCertificate` renders `finality_rust_v1.json`, with the
+//   signed messages and checkpoint ids from that independent Rust fixture.
 // - `vecScenario…` replay the TON scenarios of
 //   `committee_transitions_v1.json` and its `ton_replayable` EVM scenarios
 //   step by step on the minter at `0:35…35`, one message per step, and
@@ -1655,28 +1657,28 @@ fun vecNegativeCertificate(index: int): VecCertificate {
             exit: VEC_EXIT_UNPINNED,
         };
     }
-    // key_flag_infinity_0xc0: no TON outcome pinned
+    // key_flag_infinity_0xc0: BadSignature
     if (index == 29) {
         return {
-            pin: InitialPin { generation: 7, root: 0xf4c24ec5195e7c1e1afa1c7690f8c0eab9a39132e16070569097435c60976e40, start: 7000, untilMs: 1791209600000 },
+            pin: InitialPin { generation: 7, root: 0x8ffdd60437140bf93eec66652750918e8542445ed936f9fa03b6b9fcb9520115, start: 7000, untilMs: 1791209600000 },
             pinKeys: [
-                "c4c8b13b9e7bcff2dca2393b04e53e29037b5daf06f34758368cbd85b1fb9e4001e085b2dba5d1fb7b109fc4a38c1b14".hexToSlice(),
                 "8b7e70568eec51b46670bf583c05b857c9c5e888d663e0af2606ab6613a600aaab2c0130733722409f77ee67d08bc223".hexToSlice(),
                 "98deef4a5d6468f0725ea03a677415de205c1c90ad01044187029cb9ad00cc7285e9b1d7ebd7ff6b2e3bddc7fe110d90".hexToSlice(),
                 "b2d3a715d3fa2670e31baeecd4210431a8f09f5210e4a2e68c67083e38f7ac6f61134a4a0d9eaecf3bdd465d4533e470".hexToSlice(),
+                "c4c8b13b9e7bcff2dca2393b04e53e29037b5daf06f34758368cbd85b1fb9e4001e085b2dba5d1fb7b109fc4a38c1b14".hexToSlice(),
             ],
-            initChecked: false,
+            initChecked: true,
             initSeconds: 1790003600,
             nowSeconds: 1790003600,
-            signature: "b54400a17c77f52924bd3d6fbd34c4b022edebb9f9564f9edc4cc7072d6a4445ade71a3d0825eb9963f8db7859ff77a406490502215b3a0b7a02e97d9904725584a3ddf279fa531524d8a9fa0eb44ee99267b9eaa3d0ce3fea67848490d0884f".hexToSlice(),
-            signers: 7,
-            qc: "000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000000000ef7135188b9a8cc3393cde4501eb4b2ad977fa74a7df7ca6cc672253a0c79b0b07e94b2a7b69e925e7cec962576f200d6570f30e18d6f1f9e018c4bf1936368d".hexToSlice(),
+            signature: "ad0001e527febfdc129a30e3ff55f8b6a0ad57e6419b93a01e6a1f1e007cd8774732a11d4c6ed48ab258aefa5c15c26209aa224f170e920ac40477a3fbe79c24cd89d228508220ed5c2ddf344288aa4d2f0fb77d4b1e51782b4aad6c3d701d7a".hexToSlice(),
+            signers: 11,
+            qc: "000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000000000d39f920787373fe373aba40253b2f5a87ce1ef3b008bea49fcf866ba9d517adf07e94b2a7b69e925e7cec962576f200d6570f30e18d6f1f9e018c4bf1936368d".hexToSlice(),
             head: "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001cb6000001a0c455c330010000000275ea5a53f7aa98925887ba67e5df043e3f2322e38596f8ecd1ca7e41e92a744a0000000000000028".hexToSlice(),
-            tail: "cc2daf4988546807cc2379a81eee0ff239e3232902bcc9b2a45ca157b0260f810000000000000007f4c24ec5195e7c1e1afa1c7690f8c0eab9a39132e16070569097435c60976e4000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            exit: VEC_EXIT_UNPINNED,
+            tail: "cc2daf4988546807cc2379a81eee0ff239e3232902bcc9b2a45ca157b0260f8100000000000000078ffdd60437140bf93eec66652750918e8542445ed936f9fa03b6b9fcb952011500000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            exit: 405,
         };
     }
-    // key_flag_uncompressed: no TON outcome pinned
+    // key_flag_uncompressed: BadSignature
     if (index == 30) {
         return {
             pin: InitialPin { generation: 7, root: 0xd5ff82d132ac0530da2d9c471e089f799dd3097de3c00108c75a14a7679ea375, start: 7000, untilMs: 1791209600000 },
@@ -1694,31 +1696,31 @@ fun vecNegativeCertificate(index: int): VecCertificate {
             qc: "000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000000000085f5d3f99f5b41cbf16649f9890690da8dcb1c6bc5df0cb2c6999e6762451631dc39400f2db3bc94c9310500d4e101b7d79f206f0124d6438ba9b4e3e71f17d".hexToSlice(),
             head: "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001cb7000001a0c455c7180100000002dca5905c5a68f1875700f2737fcaf71998d99b375123b59825658b091db747880000000000000028".hexToSlice(),
             tail: "2772334dddfdfa13a04183a2ec0a870407ffeacaa591fcfcb69324080baa47500000000000000007d5ff82d132ac0530da2d9c471e089f799dd3097de3c00108c75a14a7679ea37500000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            exit: VEC_EXIT_UNPINNED,
+            exit: 405,
         };
     }
-    // signer_x_ge_p: no TON outcome pinned
+    // signer_x_ge_p: BadSignature
     if (index == 31) {
         return {
-            pin: InitialPin { generation: 7, root: 0xe15873f6851febe16adb3df726bf1500b537ca71bc587990f867ef2c3db667fe, start: 7000, untilMs: 1791209600000 },
+            pin: InitialPin { generation: 7, root: 0x1743f3923fce11988461c3b1fd71e8871d21c7c245b96774ff324aab95b1eee1, start: 7000, untilMs: 1791209600000 },
             pinKeys: [
-                "9fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".hexToSlice(),
                 "8b7e70568eec51b46670bf583c05b857c9c5e888d663e0af2606ab6613a600aaab2c0130733722409f77ee67d08bc223".hexToSlice(),
                 "98deef4a5d6468f0725ea03a677415de205c1c90ad01044187029cb9ad00cc7285e9b1d7ebd7ff6b2e3bddc7fe110d90".hexToSlice(),
+                "9fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".hexToSlice(),
                 "b2d3a715d3fa2670e31baeecd4210431a8f09f5210e4a2e68c67083e38f7ac6f61134a4a0d9eaecf3bdd465d4533e470".hexToSlice(),
             ],
-            initChecked: false,
+            initChecked: true,
             initSeconds: 1790003600,
             nowSeconds: 1790003600,
-            signature: "aa8f2d4dab0eb94799413689129ad072f6edab56713050d6f3c411b632cd070b02fd1fd7633e4c4f6bcf32490c60c8160000ef116529444d03e6d839c2e68330cf1769f067155f869df697161176b01ec61302ee2fbd2594dcd80ed167889f11".hexToSlice(),
+            signature: "8a289095d6bf7d6913b0e3352f6a8e93615a2940eb0eb737534a8fb1d46634fc198d09cef90e66b3f6ff58fcb63085f211905dba874269f74c531f709e369b1abfd3328ccbf4a9823764c435ec28daa3b21d022a081abd5f60f0e4af2741fe83".hexToSlice(),
             signers: 7,
-            qc: "000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000000000fc5e7da625f8b7a7b58d4ce037797859b2a621a2a6c2f7d408b0aa162199948debf3a95696a450c50db2be1f3d664734c5a2b856e1f017f4e943467806996513".hexToSlice(),
+            qc: "000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf35900000000000000009925cfe115ec95a5f247d1b029a37d092a59ae1fe9759462897d593a1a7de187ebf3a95696a450c50db2be1f3d664734c5a2b856e1f017f4e943467806996513".hexToSlice(),
             head: "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001cb8000001a0c455cb000100000002be3f121c3a09327d1871016b51b7403f3bdc2f11c55ab4cae6c18913b94489910000000000000028".hexToSlice(),
-            tail: "ef44bc856194a795fdd264819e33dbe540107c30a389db7bf6a6509d8c89a4280000000000000007e15873f6851febe16adb3df726bf1500b537ca71bc587990f867ef2c3db667fe00000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            exit: VEC_EXIT_UNPINNED,
+            tail: "ef44bc856194a795fdd264819e33dbe540107c30a389db7bf6a6509d8c89a42800000000000000071743f3923fce11988461c3b1fd71e8871d21c7c245b96774ff324aab95b1eee100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            exit: 405,
         };
     }
-    // signer_zero_coordinates: no TON outcome pinned
+    // signer_zero_coordinates: BadSignature
     if (index == 32) {
         return {
             pin: InitialPin { generation: 7, root: 0x89bbfec9d82e711e6a6b7eace5445a1475e89f9ff554d2a8a42b1e3b87b6720a, start: 7000, untilMs: 1791209600000 },
@@ -1736,7 +1738,7 @@ fun vecNegativeCertificate(index: int): VecCertificate {
             qc: "000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000000000ed3593daee27f738d11526d15fe789d89683c5b0ef8c36ff8daa69054d68cf0b1cd5892a0251eebb3ce757f5fae0819c90f37fe2016c31f0beaebb1d8c614a87".hexToSlice(),
             head: "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001cb9000001a0c455cee80100000002663a4b14f23437c348991058a3822e99dd71979cc58f3dc4a5c75d8b1bf3d6380000000000000028".hexToSlice(),
             tail: "abaf476061ee73068d8d26f55de46e879ec3686b9410e53227c406ecd62be464000000000000000789bbfec9d82e711e6a6b7eace5445a1475e89f9ff554d2a8a42b1e3b87b6720a00000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            exit: VEC_EXIT_UNPINNED,
+            exit: 405,
         };
     }
     // sigma_not_in_subgroup: BadSignature
@@ -2168,7 +2170,7 @@ fun vecNegativeCertificate(index: int): VecCertificate {
             exit: 405,
         };
     }
-    // aggregate_key_identity_sigma_off_curve: no TON outcome pinned
+    // aggregate_key_identity_sigma_off_curve: BadSignature
     if (index == 52) {
         return {
             pin: InitialPin { generation: 7, root: 0xb354228e1905d3792df684723e9ad89bb9152ed0ee855ad2fa679e7a38ae342b, start: 7000, untilMs: 1791209600000 },
@@ -2186,10 +2188,10 @@ fun vecNegativeCertificate(index: int): VecCertificate {
             qc: "000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000000000b3a4a3aedcdc99f781f142207e40a4a1837f6084d01e1d7f564fe46a6552df031591d99be72353071d7f80372ef3d49316676f583f699ead1074b448f5cdaa9b".hexToSlice(),
             head: "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001ccc000001a0c45619200100000002ab2c099a04792ae3e352d4041686a147130e0ad999e0498cdf27f875f2125d010000000000000028".hexToSlice(),
             tail: "426654839f0f13483ba41256ed6fffed9cd780350f1731e60348e84f13b424830000000000000007b354228e1905d3792df684723e9ad89bb9152ed0ee855ad2fa679e7a38ae342b00000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            exit: VEC_EXIT_UNPINNED,
+            exit: 405,
         };
     }
-    // signer_keys_outside_g1_cancelling: no TON outcome pinned
+    // signer_keys_outside_g1_cancelling: BadSignature
     if (index == 53) {
         return {
             pin: InitialPin { generation: 7, root: 0x9bb6ef54ac327f2f3668a9621ec6f0c08b077088427348124a7270fce1f6f9a8, start: 7000, untilMs: 1791209600000 },
@@ -2207,11 +2209,88 @@ fun vecNegativeCertificate(index: int): VecCertificate {
             qc: "000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf35900000000000000006fd365ebd0afbd7f232ea9c41b48b010d210ab2cc76735e656d60d4ef11a6361ea0caa0fc28420c309cf83b5c88d3c9f7d8aa9b162212b1c759a309c8f09cc7f".hexToSlice(),
             head: "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001ccb000001a0c456153801000000025f21641ee5b02bbae4d6ba178c709999afce74c0003c02a35c3ad3450f8be48c0000000000000028".hexToSlice(),
             tail: "449218b53507afde20730f93375be4fe8e1a7f9c8a3a72fd193371e5ee30bef300000000000000079bb6ef54ac327f2f3668a9621ec6f0c08b077088427348124a7270fce1f6f9a800000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            exit: VEC_EXIT_UNPINNED,
+            exit: 405,
         };
     }
     throw VecErrors.BadIndex;
 }
+
+/// Rows of `finality_rust_v1.json`, generated by the Rust reference.
+const VEC_RUST_NEGATIVE_CERTIFICATE_COUNT = 1
+const VEC_RUST_NEG_W3F_TRANSCRIPT_OVER_COMMIT_DIGEST = 0
+
+/// Row `index` of the Rust-generated negative certificates.
+fun vecRustNegativeCertificate(index: int): VecCertificate {
+    // w3f_transcript_over_commit_digest
+    if (index == 0) {
+        return {
+            pin: InitialPin { generation: 7, root: 0x10c02431ff3976732e1b3d2b3f6cc4e488acf60e1fb31094be0a72a855afdc14, start: 7000, untilMs: 1791209600000 },
+            pinKeys: [
+                "84c8b13b9e7bcff2dca2393b04e53e29037b5daf06f34758368cbd85b1fb9e4001e085b2dba5d1fb7b109fc4a38c1b14".hexToSlice(),
+                "8b7e70568eec51b46670bf583c05b857c9c5e888d663e0af2606ab6613a600aaab2c0130733722409f77ee67d08bc223".hexToSlice(),
+                "98deef4a5d6468f0725ea03a677415de205c1c90ad01044187029cb9ad00cc7285e9b1d7ebd7ff6b2e3bddc7fe110d90".hexToSlice(),
+                "b2d3a715d3fa2670e31baeecd4210431a8f09f5210e4a2e68c67083e38f7ac6f61134a4a0d9eaecf3bdd465d4533e470".hexToSlice(),
+            ],
+            initChecked: true,
+            initSeconds: 1790003600,
+            nowSeconds: 1790003600,
+            signature: "8b4c2927f65ef62d69f2ebc8bc765ca2abb937d7aa9ba28370549490090327ec5f0d2ee9873fe0f849f36dce8b1eca3a0aa29d3a884a9af4e177a094eb471cbeccf4168dc21528671824cbee92f0dfb4e2247d684f6fd759cac02b79fab02379".hexToSlice(),
+            signers: 7,
+            qc: "000000000000004a709d7555624c623af6785e6f5dc826d4bc9e231669dae79ebab9a3aefe8829d70000000000000000b69a5d2d3b7bd773aa4ad767a2ebfc27ce7f785d7dbc9a0ca9b92d0e037b4597e4f0a268e11599cfe9840eb442dc9ccaedf53af9cb16053d097ae31a0c361d97".hexToSlice(),
+            head: "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001ce8000001a0c456868001000000027140b2fe9dbb189037d7c21b676b42cb07c6492d46ea3d9eeb9cfccce4be4ab20000000000000028".hexToSlice(),
+            tail: "1c9e4dc240ef4c4c99bdca794e0c649a45754ac755151f8f16961e78907c52ff000000000000000710c02431ff3976732e1b3d2b3f6cc4e488acf60e1fb31094be0a72a855afdc1400000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            exit: 405,
+        };
+    }
+    throw VecErrors.BadIndex;
+}
+
+/// Signed message `m` of each Rust negative.
+fun vecRustNegativeMessages(): array<int> {
+    return [
+        0xa42132a3adb5c5d258d1d8dfe399bd96aaa46506e0fcf2416c4d913c93c445f5,
+    ];
+}
+
+/// Checkpoint id of each Rust negative.
+fun vecRustNegativeCheckpointIds(): array<int> {
+    return [
+        0xf949c4c2af8d966d31f7e17ce3e12e3709d677394b4094b0dc0a0109cffa873a,
+    ];
+}
+
+/// Header height of each Rust negative.
+fun vecRustNegativeHeights(): array<int> {
+    return [
+        7400,
+    ];
+}
+
+/// Replayed rows of `committee_transitions_v1.json` and their step counts.
+const VEC_TON_SCENARIO_COUNT = 8
+const VEC_TON_SCENARIO_STEPS = 51
+const VEC_REPLAYABLE_SCENARIO_COUNT = 12
+const VEC_REPLAYABLE_SCENARIO_STEPS = 24
+const VEC_SCENARIO_INITIAL_PIN_STEPS = 1
+const VEC_SCENARIO_CHECKPOINT_RAISES_HIGH_STEPS = 3
+const VEC_SCENARIO_ROTATION_KEY_CHANGE_STEPS = 2
+const VEC_SCENARIO_HEARTBEAT_ROTATION_STEPS = 1
+const VEC_SCENARIO_ROTATION_LOWERED_VALIDITY_STEPS = 3
+const VEC_SCENARIO_V1_NEIGHBOUR_SAME_X_OTHER_RESULT_BODY_STEPS = 2
+const VEC_SCENARIO_V2_BELOW_START_STEPS = 1
+const VEC_SCENARIO_V2_NEIGHBOUR_AT_START_STEPS = 1
+const VEC_SCENARIO_V3_ROTATION_BELOW_HIGH_STEPS = 2
+const VEC_SCENARIO_FUTURE_DATED_ROTATION_T_EFF_STEPS = 1
+const VEC_SCENARIO_TON_ROTATION_NEXT_KEYS_STEPS = 4
+const VEC_SCENARIO_TON_CHECKPOINT_EVICTION_STEPS = 9
+const VEC_SCENARIO_ROTATION_SUB_SECOND_DEADLINE_STEPS = 3
+const VEC_SCENARIO_CHEAP_PATH_IDENTITY_SIGNATURE_STEPS = 4
+const VEC_SCENARIO_TON_CHEAP_PATH_IDENTITY_SIGNATURE_STEPS = 4
+const VEC_SCENARIO_TON_CHECKPOINT_USE_AFTER_ROTATION_STEPS = 9
+const VEC_SCENARIO_TON_VOID_FROZEN_RANGE_BEFORE_FROZEN_STEPS = 5
+const VEC_SCENARIO_TON_FINALIZE_TWO_FAULTS_STEPS = 5
+const VEC_SCENARIO_TON_SAME_HEIGHT_BLOCK_REF_WITH_HISTORY_STEPS = 9
+const VEC_SCENARIO_TON_INLINE_CALLS_AFTER_EXPIRY_STEPS = 6
 
 // Scenario replays (20):
 //   vecScenarioInitialPin

@@ -717,7 +717,7 @@ fun onInternalMessage(in: InMessage) {
                 in.senderAddress ==
                 sccpBucketAddress(minter, nonce >> SCCP_BUCKET_SHIFT, config.bucketCode)
             ) throw SccpErrors.NotBucket;
-            val tail = msg.tail.load();
+            val tail = sccpLoadConsumeTail(msg.tail);
             // §5.3.4 step 4: the value was checked at entry and the floor was
             // topped up there, so this reply pays only its own step. Any
             // failure bounces to the bucket, which clears the flag and reports
@@ -793,7 +793,7 @@ fun onInternalMessage(in: InMessage) {
             ) throw SccpErrors.NotBucket;
             // §5.3.4 step 5; a failure bounces to the bucket, which reports
             // `sccp_consume_reverted`.
-            val tail = msg.tail.load();
+            val tail = sccpLoadConsumeTail(msg.tail);
             if (tail.kind == SCCP_CONSUME_KIND_MINT) {
                 st.pendingSupply -= msg.amount;
                 st.save();
@@ -976,12 +976,7 @@ fun onInternalMessage(in: InMessage) {
             assert (sccpIsBasechainStd(owner)) throw SccpErrors.WrongWorkchain;
             val amount = msg.jettonAmount;
             assert ((amount > 0) & (amount < SCCP_TON_AMOUNT_LIMIT)) throw SccpErrors.BadAmount;
-            val burn = msg.sccp.load();
-            val (recipientChunks, recipientLen) = sccpParseSnakeBytes(
-                burn.recipient,
-                SCCP_MAX_TAIRA_ACCOUNT_BYTES,
-                SccpErrors.BadRecipient,
-            );
+            val (recipientChunks, recipientLen) = sccpParseBurnToTaira(msg.sccp);
 
             // §5.1.7: source nonces are 0 ..= 2^64 − 2. An exhausted counter
             // throws `BadNonce` here, before any state change, and the bounce

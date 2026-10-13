@@ -7,6 +7,7 @@
 // recorded in `retries` and re-run by `sccp_retry`, also for a mint that was
 // in flight when the minter latched.
 
+import "@stdlib/exotic-cells"
 import "@acton/io"
 import "@acton/emulation/config"
 import "@acton/emulation/network"
@@ -58,6 +59,87 @@ fun sendDeployBuckets(env: Env, count: int, value: coins): SendResultList {
 
 /// Seconds of the default pin: `cur.untilMs` is 14 days after `T0`.
 const PIN_VALIDITY_S = 1209600
+
+get fun `test consume tails must be exact ordinary cells before forwarding or minting`() {
+    val env = setupEnv();
+    val alice = testing.treasury("alice").address;
+    finalizeOk(env, 0, 100, alice);
+    val bucket = bucketOf(env, 0);
+    val canonical = ConsumeTail {
+        kind: SCCP_CONSUME_KIND_MINT,
+        recipient: alice,
+        response: alice,
+        messageId: 1,
+    }.toCell();
+    testing.registerLibrary(canonical);
+    val malformed: array<cell> = [
+        canonical.toLibraryReference(),
+        beginCell().storeSlice(canonical.beginParse()).storeUint(0, 1).endCell(),
+        beginCell().storeSlice(canonical.beginParse()).storeRef(snakeOfLength(12700)).endCell(),
+        beginCell().endCell(),
+    ];
+    val before = minterStorage(env).toCell().hash();
+    var i = 0;
+    repeat (malformed.size()) {
+        val tail = malformed.get(i) as Cell<ConsumeTail>;
+        val sent = net.send(
+            env.minter.address,
+            createMessage({
+                bounce: BounceMode.NoBounce,
+                dest: bucket.address,
+                value: grams("1"),
+                body: SccpConsume {
+                    queryId: 0,
+                    nonce: 1,
+                    amount: 10,
+                    tail,
+                },
+            }),
+        );
+        expect(
+            sent,
+        ).toHaveFailedTx<SccpConsume>({ to: bucket.address, exitCode: SccpErrors.BadSnake as int });
+        expect(sent.findTransaction<SccpConsumed>({ to: env.minter.address }) == null).toBeTrue();
+        expect(isConsumedAt(env, 1)).toBeFalse();
+        val consumed = net.send(
+            bucket.address,
+            createMessage({
+                bounce: BounceMode.NoBounce,
+                dest: env.minter.address,
+                value: grams("1"),
+                body: SccpConsumed {
+                    queryId: 0,
+                    nonce: 1,
+                    amount: 10,
+                    tail,
+                },
+            }),
+        );
+        expect(consumed).toHaveFailedTx<SccpConsumed>({ to: env
+                .minter
+                .address, exitCode: SccpErrors.BadSnake as int });
+        val already = net.send(
+            bucket.address,
+            createMessage({
+                bounce: BounceMode.NoBounce,
+                dest: env.minter.address,
+                value: grams("1"),
+                body: SccpAlreadyConsumed {
+                    queryId: 0,
+                    nonce: 1,
+                    amount: 10,
+                    tail,
+                },
+            }),
+        );
+        expect(already).toHaveFailedTx<SccpAlreadyConsumed>({ to: env
+                .minter
+                .address, exitCode: SccpErrors.BadSnake as int });
+        expect(minterStorage(env).toCell().hash()).toEqual(before);
+        expect(jettonBalanceOf(env, alice)).toEqual(100);
+        i += 1;
+    }
+}
 
 get fun `test a bucket deployed early by a stranger stays inactive until the minter activates it`() {
     val env = setupEnv();

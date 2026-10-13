@@ -372,6 +372,9 @@ MUTATIONS = [
       ["det_signing_refusal_current_timeout_retries_with_prior_timeout_retained"], []),
     m("MS63", "a proposal signing retry consumes its reservation before the original body arrives",
       ["det_signing_retry_retains_restored_proposal_until_delayed_body_arrives"], []),
+    m("MS64", "parent-only recommit waits for authority that the parent itself activates",
+      ["det_s64_recommit_parent_only_record_authenticates_boundary_before_resuming",
+       "det_s33_key_rotation_restart"], []),
     # ---- as-built rules of Appendix E (E1-E7) and their regression tests
     m("ME1", "on_status: rate-limited Status drops its fresh CommitQC (E1)",
       ["rate_limited_status_still_delivers_a_fresh_commit_qc"], ["f03"]),

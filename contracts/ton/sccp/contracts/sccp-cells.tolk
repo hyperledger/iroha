@@ -11,6 +11,7 @@
 import "@stdlib/exotic-cells"
 import "sccp-constants"
 import "sccp-errors"
+import "sccp-messages"
 
 /// Opens one cell of a canonical shape. Exotic cells (library references,
 /// pruned branches, Merkle proofs and updates) throw `BadSnake`.
@@ -19,6 +20,36 @@ fun sccpBeginParseOrdinary(c: cell): slice {
     val (cs, isExotic) = c.beginParseSpecial();
     assert (!isExotic) throw SccpErrors.BadSnake;
     return cs;
+}
+
+/// Parses the complete SCCP burn payload before a wallet may debit or forward.
+/// The wrapper is ordinary, exactly the opcode and one reference; its recipient
+/// is an ordinary canonical snake of 1..=1024 bytes. Shape failures are
+/// `BadSnake`, a foreign opcode is `BadBurnPayload`, and excess recipient
+/// length is `BadRecipient`.
+fun sccpParseBurnToTaira(wrapper: cell): (array<slice>, int) {
+    var s = sccpBeginParseOrdinary(wrapper);
+    assert (
+        (s.remainingBitsCount() == 32) & (s.remainingRefsCount() == 1)
+    ) throw SccpErrors.BadSnake;
+    assert (s.loadUint(32) == 0x53434254) throw SccpErrors.BadBurnPayload;
+    return sccpParseSnakeBytes(
+        s.loadRef(),
+        SCCP_MAX_TAIRA_ACCOUNT_BYTES,
+        SccpErrors.BadRecipient,
+    );
+}
+
+/// Opens the bounded tail echoed by a consumption bucket. Authentication of
+/// the bucket is separate from admission of the exact ordinary cell format.
+fun sccpLoadConsumeTail(tail: cell): ConsumeTail {
+    var s = sccpBeginParseOrdinary(tail);
+    assert (s.remainingRefsCount() == 0) throw SccpErrors.BadSnake;
+    val bits = s.remainingBitsCount();
+    assert ((bits == 791) | (bits == 526)) throw SccpErrors.BadSnake;
+    val kind = s.preloadUint(1);
+    assert (bits == (kind == SCCP_CONSUME_KIND_MINT ? 791 : 526)) throw SccpErrors.BadSnake;
+    return ConsumeTail.fromSlice(s);
 }
 
 // ---------------------------------------------------------------------------

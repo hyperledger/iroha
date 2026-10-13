@@ -7,7 +7,8 @@
 // `XHead`, `XTail`, `CheckpointRef`) are opened by `sccp-finality.tolk`, the
 // proof cells (`BlockRef`, `MessageProof`, `ControlProof`) by
 // `sccp-verify.tolk` and the variable-shape cells (`SnakeBytes`, `HashChunk`,
-// `KeyChunk`) by `sccp-cells.tolk`. Each of them checks that the cell is
+// `KeyChunk`), burn wrappers and consumption tails by `sccp-cells.tolk`.
+// Each of them checks that the cell is
 // ordinary and has exactly the bit and reference counts of its layout, with
 // the exit codes listed in `sccp-errors.tolk`.
 

@@ -9,7 +9,8 @@
 // codes, constants and the `sccp_init` bounds), `control_v1.json` (control
 // leaves of the TON lane), `bls_consensus_v1.json` (hash-to-G2 traces under
 // `DST_SIG`), `payload_v1.json` (the payloads of the TON lane),
-// `commitment_tree_v1.json` and `history_v1.json` (trees and paths).
+// `commitment_tree_v1.json` and `history_v1.json` (trees and paths), and
+// `ton_stateinit_v1.json` (canonical KeyChunk cell hashes).
 
 /// Errors of the generated tables.
 enum VecErrors {
@@ -237,6 +238,10 @@ fun vecCommitteeN7(): array<int> {
 }
 
 const VEC_COMMITTEE_N7_ROOT = 0xfecfd646a4d418f9816b3353937795fbd6ff587764c38e1343bee44d7dfe8d7c
+
+/// Canonical KeyChunk list hashes from `ton_stateinit_v1.json`.
+const VEC_KEYS_N4_CELL_HASH = 0xe2cb5ace57ca6670cfa6680b2d16c9dbda5185e4b1d344f11c0df5a22a6ddf46
+const VEC_KEYS_N31_CELL_HASH = 0x9f03ec9d28f430aeb0f7a8bf8374b53046f3aca9e1fcb1234deff670f2c44d8
 
 // §11.2 worked examples.
 

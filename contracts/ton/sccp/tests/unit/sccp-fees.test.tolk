@@ -156,12 +156,17 @@ get fun `test state size constants cover the compiled contracts`() {
     // the bounds are not loose: less than 5 % above the largest state
     expect(SCCP_MINTER_STATE_CELLS * 100 <= mc * 105).toBeTrue();
     expect(SCCP_MINTER_STATE_BITS * 100 <= mb * 105).toBeTrue();
-    // code and data: the account itself adds no cell that is not counted here
+    // TON deduplicates equal cells across code and data (which includes wallet
+    // and bucket code). Count their exact DAG union, not their separate sums.
     val (cc, cb) = treeSize(build("SccpTairaXorMinter"));
     val (dc, db) = treeSize(storage.toCell());
+    val (unionCells, unionBits) = treeSize(
+        beginCell().storeRef(build("SccpTairaXorMinter")).storeRef(storage.toCell()).endCell(),
+    );
     println("minter code: {} cells, {} bits; largest data: {} cells, {} bits", cc, cb, dc, db);
-    expect(mc >= cc + dc).toBeTrue();
-    expect(mb >= cb + db).toBeTrue();
+    // The union's zero-bit root stands in for the account's own storage cell.
+    expect(mc).toEqual(unionCells);
+    expect(mb >= unionBits).toBeTrue();
     // the same data without retries, as a deployment holds it in practice
     storage.retries = [];
     val plain = installPinned(storage, deployer, grams("20"));

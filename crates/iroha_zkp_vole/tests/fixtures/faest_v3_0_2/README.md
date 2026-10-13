@@ -117,6 +117,9 @@ provenance and meaning; `Fixture::load_extracted()` loads them.
 Only the six `F` sets appear (`FAEST_128F` … `FAEST_EM_256F`); upstream skips the
 `S` sets.
 
+Consumed by `tests/conformance_owf.rs` (every entry; each vector is checked on
+the `f` and the `s` set of its family and level).
+
 | Name | Meaning |
 |---|---|
 | `owf_tvs.<SET>.key` | input: `lb` random bytes |
@@ -210,6 +213,11 @@ semantics below are inferred from the names only.** Namespaces are
 Namespaces are lower-case here, in header order: `faest_128s`, `faest_128f`,
 `faest_192s`, `faest_192f`, `faest_256s`, `faest_256f`, then the same six with the
 `faest_em_` prefix.
+
+Consumed by `tests/conformance_faest.rs` (every entry: public key, extended
+witness, exact signature bytes and verification for all twelve sets) and by
+`tests/conformance_signature_fields.rs` (every entry: the signature fields that
+do not depend on the one-way-function relation).
 
 | Name | Meaning |
 |---|---|

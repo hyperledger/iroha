@@ -1,7 +1,8 @@
 // The rotation-count run of the SCCP v1 TON minter (specs/sccp.md §5.3.1
 // "State size is constant", §11.4 item 4, §11.5): 10 000 rotations through
-// `sccp_checkpoint`, one per message, after which the account holds exactly
-// the cells it held at deployment.
+// `sccp_checkpoint`, one per message, after which the layout holds the same
+// cells as deployment, with three populated checkpoint slots. Physical DAG
+// counts account exactly for equal cells shared between code and data.
 //
 // The split. The first 1 000 rotations (`RUN_SIGNED_ROTATIONS`) carry a
 // `CommitQC` signed in the test VM and take the full verification path: about
@@ -18,9 +19,10 @@
 // chain; the others change the keys between two committees of n = 4. The
 // clock advances one hour per rotation, so the run spans 416 days and the
 // storage phase runs in every transaction. A second test rotates through
-// every committee size with signed handoffs: the cell count is a function of
-// the committee size alone.
+// every committee size with signed handoffs: the layout cell count is a
+// function of the committee size alone, after correcting code/data sharing.
 
+import "@acton/build"
 import "@acton/io"
 import "@acton/emulation/network"
 import "@acton/emulation/testing"
@@ -70,7 +72,23 @@ fun keyChunksOf(n: int): int {
     return (n + SCCP_KEYS_PER_CHUNK - 1) / SCCP_KEYS_PER_CHUNK;
 }
 
-get fun `test ten thousand rotations leave the cell count of the account constant`() {
+/// Exact cells/bits shared between account code and data. The compiler can
+/// embed a constant identical to the empty checkpoints cell, so its first
+/// replacement changes physical deduplication without growing the layout.
+fun codeDataSharing(env: Env): (int, int) {
+    val code = build("SccpTairaXorMinter");
+    val data = minterStorage(env).toCell();
+    val (cc, cb, _) = code.calculateSizeStrict(10000);
+    val (dc, db, _) = data.calculateSizeStrict(10000);
+    val (uc, ub, _) = beginCell()
+        .storeRef(code)
+        .storeRef(data)
+        .endCell()
+        .calculateSizeStrict(10000);
+    return (cc + dc - (uc - 1), cb + db - ub);
+}
+
+get fun `test ten thousand rotations preserve the exact account layout and DAG sharing`() {
     val env = setupEnv();
     val committees: array<TestCommittee> = [env.committee, testCommittee(4, 4)];
     val roots: array<int> = [committees.get(0).root(), committees.get(1).root()];
@@ -79,6 +97,7 @@ get fun `test ten thousand rotations leave the cell count of the account constan
     val unsigned = foreignSignature();
 
     val (cells0, bits0) = accountStorageUsed(env.minter.address);
+    val (sharedCells0, sharedBits0) = codeDataSharing(env);
     expect(minterStorage(env).retries.isEmpty()).toBeTrue();
 
     var current = 0;
@@ -170,11 +189,16 @@ get fun `test ten thousand rotations leave the cell count of the account constan
         expect(committee.untilMs).toEqual(untilMs);
         expect(committee.n).toEqual(4);
         expect(committee.keys.hash()).toEqual(keyCells.get(current).hash());
-        // ... and the account holds the cells of the deployment: only the
-        // three checkpoint slots filled, 320 bits each
+        // ... and the layout holds the deployment cells plus only the three
+        // checkpoint entries, 320 bits each. Physical counts deduplicate
+        // identical code/data cells, including the empty checkpoints cell.
         val (cells, bits) = accountStorageUsed(env.minter.address);
-        expect(cells).toEqual(cells0);
-        expect(bits).toEqual(bits0 + CHECKPOINT_ENTRY_BITS * min(i + 1, SCCP_CHECKPOINT_SLOTS));
+        val (sharedCells, sharedBits) = codeDataSharing(env);
+        expect(cells).toEqual(cells0 + sharedCells0 - sharedCells);
+        expect(bits).toEqual(
+            bits0 + sharedBits0 - sharedBits +
+                CHECKPOINT_ENTRY_BITS * min(i + 1, SCCP_CHECKPOINT_SLOTS),
+        );
         i += 1;
     }
 
@@ -223,11 +247,12 @@ get fun `test ten thousand rotations leave the cell count of the account constan
     );
 }
 
-get fun `test the cell count of the account is a function of the committee size alone`() {
+get fun `test exact account layout depends only on committee size with DAG sharing`() {
     // signed rotations through every committee size and back: the account
     // gains and loses exactly the `KeyChunk`s of the size change
     val env = setupEnv();
     val (cells0, _) = accountStorageUsed(env.minter.address);
+    val (sharedCells0, _) = codeDataSharing(env);
     val sizes: array<int> = [
         31,
         7,
@@ -257,18 +282,25 @@ get fun `test the cell count of the account is a function of the committee size 
         current = next;
         generation += 1;
         val (cells, bits) = accountStorageUsed(env.minter.address);
-        expect(cells).toEqual(cells0 + keyChunksOf(n) - keyChunksOf(4));
+        val (sharedCells, _) = codeDataSharing(env);
+        expect(cells).toEqual(
+            cells0 + sharedCells0 - sharedCells + keyChunksOf(n) - keyChunksOf(4),
+        );
         largestCells = max(largestCells, cells);
         largestBits = max(largestBits, bits);
         expect(env.minter.getSccpCommittee().n).toEqual(n);
         i += 1;
     }
-    // back at n = 4 the account has the cells of its deployment
+    // Back at n = 4 the layout is the deployment layout; its checkpoints
+    // may no longer share an identical cell with compiled code.
     val (cellsEnd, _) = accountStorageUsed(env.minter.address);
-    expect(cellsEnd).toEqual(cells0);
+    val (sharedCellsEnd, _) = codeDataSharing(env);
+    expect(cellsEnd).toEqual(cells0 + sharedCells0 - sharedCellsEnd);
     // the largest committee is the largest state: 16 `KeyChunk`s
     expect(keyChunksOf(SCCP_MAX_COMMITTEE_SIZE)).toEqual(SCCP_MAX_KEY_CHUNKS);
-    expect(largestCells).toEqual(cells0 + SCCP_MAX_KEY_CHUNKS - keyChunksOf(4));
+    expect(largestCells).toEqual(
+        cells0 + sharedCells0 - sharedCellsEnd + SCCP_MAX_KEY_CHUNKS - keyChunksOf(4),
+    );
     println("largest minter state: {} cells, {} bits", largestCells, largestBits);
     expect(largestCells <= SCCP_MINTER_STATE_CELLS).toBeTrue();
     expect(largestBits <= SCCP_MINTER_STATE_BITS).toBeTrue();

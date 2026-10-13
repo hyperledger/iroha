@@ -17,6 +17,11 @@ accel = ["iroha_zkp_vole/accel"]
 
 [dependencies]
 iroha_zkp_vole = { workspace = true }
-sha3 = { version = "0.10.8", default-features = false, features = ["std", "zeroize"] }
 thiserror = { workspace = true }
 zeroize = { workspace = true }
+
+[dev-dependencies]
+# Independent SHA-3 implementation the digests and the in-crate Keccak rounds are
+# cross-checked against. All hashing of the library itself uses the backend's
+# erasing sponge.
+sha3 = { version = "0.10.8", default-features = false, features = ["std"] }

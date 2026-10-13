@@ -26,7 +26,9 @@ use sha2::{Digest as _, Sha256};
 
 use super::{
     committee::{committee_root, is_canonical_order, is_valid_committee_size},
-    constants::{TON_HASH_CHUNK_HASHES, TON_KEY_CHUNK_KEYS, TON_SNAKE_CHUNK_BYTES},
+    constants::{
+        MAX_TAIRA_ACCOUNT_BYTES, TON_HASH_CHUNK_HASHES, TON_KEY_CHUNK_KEYS, TON_SNAKE_CHUNK_BYTES,
+    },
 };
 
 /// Maximum data bits of one cell.
@@ -35,6 +37,8 @@ pub const MAX_CELL_BITS: usize = 1023;
 pub const MAX_CELL_REFS: usize = 4;
 /// Exclusive bound of a TON `Coins` value (`VarUInteger 16`: at most 15 value bytes).
 pub const COINS_BOUND: u128 = 1 << 120;
+/// `sccp_burn_to_taira` custom-payload opcode (§5.3.2).
+pub const TON_BURN_TO_TAIRA_OP: u32 = 0x5343_4254;
 
 unit_error! {
     /// TON cell construction and parsing errors.
@@ -525,6 +529,28 @@ pub fn parse_snake_bytes(cell: &Cell, max_bytes: usize) -> Result<Vec<u8>, TonCe
     }
 }
 
+/// Build the ordinary `sccp_burn_to_taira` wrapper and its complete recipient snake.
+///
+/// The wallet and minter admit exactly 1..=1024 recipient bytes, in ordinary canonical
+/// 127-byte chunks, before debiting or forwarding (§5.3.4). A [`Cell`] cannot contain an
+/// exotic cell; importing a bag through [`cell_from_boc`] enforces the same rule.
+///
+/// # Errors
+/// Returns [`TonCellError::BadSnake`] for an empty recipient and
+/// [`TonCellError::SnakeTooLong`] for a recipient above the Taira account bound.
+pub fn burn_to_taira_payload(recipient: &[u8]) -> Result<Cell, TonCellError> {
+    if recipient.is_empty() {
+        return Err(TonCellError::BadSnake);
+    }
+    if recipient.len() > MAX_TAIRA_ACCOUNT_BYTES {
+        return Err(TonCellError::SnakeTooLong);
+    }
+    Ok(CellBuilder::new()
+        .store_uint(u128::from(TON_BURN_TO_TAIRA_OP), 32)?
+        .store_ref(snake_bytes(recipient)?)?
+        .build())
+}
+
 fn chunk_list<T>(
     items: &[T],
     per_chunk: usize,
@@ -802,9 +828,9 @@ pub fn bucket_account_id(
 
 /// Upper bound of the minter's account state in bits (code and maximal data), the size
 /// `MINTER_FLOOR` is computed for (`SCCP_MINTER_STATE_BITS`).
-pub const TON_MINTER_STATE_BITS: u64 = 102_000;
+pub const TON_MINTER_STATE_BITS: u64 = 124_000;
 /// Upper bound of the minter's account state in cells (`SCCP_MINTER_STATE_CELLS`).
-pub const TON_MINTER_STATE_CELLS: u64 = 205;
+pub const TON_MINTER_STATE_CELLS: u64 = 265;
 /// Storage period of `MINTER_FLOOR` and `BUCKET_FLOOR`: 100 years (`SCCP_FLOOR_SECONDS`).
 pub const TON_FLOOR_SECONDS: u64 = 3_153_600_000;
 /// TON mainnet basechain storage price per bit and 2^16 seconds (`ConfigParam 18`).
@@ -1050,6 +1076,44 @@ mod tests {
     }
 
     #[test]
+    fn burn_payload_bounds_and_exact_wrapper() {
+        for len in [1, 127, 128, MAX_TAIRA_ACCOUNT_BYTES] {
+            let recipient = vec![0x42; len];
+            let wrapper = burn_to_taira_payload(&recipient).unwrap();
+            assert_eq!(wrapper.bit_len(), 32);
+            assert_eq!(wrapper.data(), TON_BURN_TO_TAIRA_OP.to_be_bytes());
+            assert_eq!(wrapper.refs().len(), 1);
+            assert_eq!(
+                parse_snake_bytes(wrapper.refs()[0].cell().unwrap(), MAX_TAIRA_ACCOUNT_BYTES),
+                Ok(recipient)
+            );
+            assert_eq!(cell_from_boc(&wrapper.to_boc().unwrap()), Ok(wrapper));
+        }
+        assert_eq!(burn_to_taira_payload(&[]), Err(TonCellError::BadSnake));
+        assert_eq!(
+            burn_to_taira_payload(&[0x42; MAX_TAIRA_ACCOUNT_BYTES + 1]),
+            Err(TonCellError::SnakeTooLong)
+        );
+    }
+
+    #[test]
+    fn burn_cell_import_refuses_exotic_wrapper_and_recipient() {
+        // A library-reference cell is a valid exotic TON cell, but never an admitted
+        // wrapper or recipient. Importing must not resolve it to an ordinary cell.
+        let mut library = vec![0x08, 66, 2];
+        library.extend_from_slice(&[0x42; 32]);
+        let mut root = vec![0xb5, 0xee, 0x9c, 0x72, 1, 1, 1, 1, 0, 35, 0];
+        root.extend_from_slice(&library);
+        assert_eq!(cell_from_boc(&root), Err(TonCellError::BadSnake));
+
+        let mut child = vec![0xb5, 0xee, 0x9c, 0x72, 1, 1, 2, 1, 0, 42, 0, 1, 8];
+        child.extend_from_slice(&TON_BURN_TO_TAIRA_OP.to_be_bytes());
+        child.push(1);
+        child.extend_from_slice(&library);
+        assert_eq!(cell_from_boc(&child), Err(TonCellError::BadSnake));
+    }
+
+    #[test]
     fn chunk_lists() {
         let keys: Vec<[u8; 48]> = (1..=5).map(|byte| [byte; 48]).collect();
         let head = key_chunks(&keys).unwrap();
@@ -1112,60 +1176,62 @@ mod tests {
 
     #[test]
     fn minter_data_and_addresses_match_the_contract_fixture() {
-        let (init, minter_code) = fixture_n4();
+        let fixture = fixture();
+        let vector = &fixture["vectors"][0];
+        let init = fixture_init(&fixture, vector);
+        let minter_code = fixture_code(&fixture, "minter");
+        let initial = &vector["initial_data"];
+        let children = &vector["children"];
         let data = minter_initial_data(&init).unwrap();
         assert_eq!(data.config.bit_len(), 612);
         assert_eq!(
             hex(data.config.hash()),
-            "a3bbe910cede556bd2c0783a822c9d9fde8eabdda057ba3591242ec3338396eb"
+            fixture_text(&initial["config"], "hash")
         );
         assert_eq!(data.config.depth(), 7);
         assert_eq!(data.initial_pin.bit_len(), 448);
         assert_eq!(
             hex(data.initial_pin.hash()),
-            "ac85e0f587a1ff7e39525159ba8fce293c8cc74866fd1f23a104cdfa27b1ef7f"
+            fixture_text(&initial["initial_pin"], "hash")
         );
         assert_eq!(data.initial_pin.depth(), 0);
         assert_eq!(data.keys.bit_len(), 769);
         assert_eq!(
             hex(data.keys.hash()),
-            "e2cb5ace57ca6670cfa6680b2d16c9dbda5185e4b1d344f11c0df5a22a6ddf46"
+            fixture_text(&initial["keys"][0], "hash")
         );
         assert_eq!(data.keys.depth(), 1);
         assert_eq!(data.committee.bit_len(), 520);
         assert_eq!(
             hex(data.committee.hash()),
-            "61338e32994d954e7790be38a15882760d18c9a035b9b017bec3b5bcdee5c0f5"
+            fixture_text(&initial["committee"], "hash")
         );
         assert_eq!(data.committee.depth(), 2);
         assert_eq!(data.checkpoints.bit_len(), 2);
         assert_eq!(
             hex(data.checkpoints.hash()),
-            "a1bb2a842d54edb8942f95bedaf53923d2d788d698232cfb256571e9e8b10a86"
+            fixture_text(&initial["checkpoints"], "hash")
         );
         assert_eq!(data.checkpoints.depth(), 0);
         assert_eq!(data.root.bit_len(), 332);
         assert_eq!(
             hex(data.root.hash()),
-            "62d17653ef54bbce2796272d3e084f8658537efb484f33629fb729516ab43c59"
+            fixture_text(&initial["root"], "hash")
         );
         assert_eq!(data.root.depth(), 8);
         let minter = minter_account_id(&init, minter_code).unwrap();
-        assert_eq!(
-            hex(&minter),
-            "92307c3c528511efcd1a5f3371c942b8210eaabe2a0b50c4baba26998046d736"
-        );
+        assert_eq!(hex(&minter), fixture_text(&vector["address"], "account_id"));
         assert_eq!(
             hex(&bucket_account_id(&minter, 0, init.bucket_code).unwrap()),
-            "9899f189d3514cff3e274917618071f97ae424d45e695cbb0f5923379554471a"
+            fixture_text(children, "bucket_0_account_id")
         );
         assert_eq!(
             hex(&bucket_account_id(&minter, 1, init.bucket_code).unwrap()),
-            "d570c41fef1cff695649f071940916dc8cd8e8a3ae4df7c350f21873aadd29e8"
+            fixture_text(children, "bucket_1_account_id")
         );
         assert_eq!(
             hex(&wallet_account_id(0, &[0xab; 32], &minter, init.wallet_code).unwrap()),
-            "61bdb5be6e60f9cf7411f1e039092aed56b2af1b1e79783cc8dfce9148e20202"
+            fixture_text(children, "wallet_account_id")
         );
     }
 
@@ -1308,12 +1374,12 @@ mod tests {
         assert_eq!(ton_storage_fee(1, 1, 0, 1, 500), 1);
         assert_eq!(ton_storage_fee(0, 1, 1, 1, 500), 0);
         assert_eq!(ton_storage_fee(65_536, 2, 3, 1, 500), 1_502);
-        // MINTER_FLOOR at mainnet prices: 204 500 units per 2^16 s over 100 years
+        // MINTER_FLOOR at mainnet prices: 256 500 units per 2^16 s over 100 years
         assert_eq!(
             ton_minter_floor_at_mainnet_prices(),
-            (204_500_u128 * 3_153_600_000).div_ceil(65_536)
+            (256_500_u128 * 3_153_600_000).div_ceil(65_536)
         );
-        assert_eq!(ton_minter_floor_at_mainnet_prices(), 9_840_563_965);
+        assert_eq!(ton_minter_floor_at_mainnet_prices(), 12_342_810_059);
     }
 
     /// The value of `const <name> = <integer>` in a Tolk source.

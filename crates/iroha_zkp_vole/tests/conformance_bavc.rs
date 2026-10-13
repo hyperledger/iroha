@@ -261,10 +261,11 @@ fn every_bavc_vector_is_reproduced() {
 /// The official hidden indices are in range for every set, and the challenge
 /// decoder inverts this test's own bit packing of them.
 ///
-/// This is not official conformance of the decoder: the fixture holds no
-/// challenge bytes, so the bit order and the grinding-bit position stay pinned
-/// only by this crate's own tests until a later stage checks them against
-/// official challenge vectors.
+/// This fixture holds no challenge bytes, so this test alone is not official
+/// conformance of the decoder. The decoder's bit order and the grinding-bit
+/// position are pinned by `tests/conformance_faest.rs`, which reproduces
+/// `chall_3`, the opening and the counter of the official signatures of all
+/// twelve sets.
 #[test]
 fn official_indices_are_decodable_challenges() {
     let fixture = Fixture::load("bavc_tvs");

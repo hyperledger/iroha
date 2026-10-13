@@ -274,18 +274,26 @@ fn assert_original_admission<T: std::fmt::Debug + PartialEq>(
 ) {
     let expected = under_caller(TEST_ALLOCATION_CEILING, &original);
     assert!(expected.0.is_ok());
-    assert!(expected.1 > 1);
     assert!(expected.2 > 1);
     assert_eq!(under_caller(TEST_ALLOCATION_CEILING, &candidate), expected);
     let charge = usize::try_from(expected.1).unwrap();
     assert!(charge < TEST_ALLOCATION_CEILING);
-    for cap in [1, charge / 2, charge - 1, charge] {
+    let caps = if positive_limit_refuses {
+        assert!(charge > 1);
+        [1, charge / 2, charge - 1, charge]
+    } else {
+        // Encoding an existing DTO and retaining inline epoch snapshots performs no decode
+        // allocations. Pin zero exactly and exercise small as well as ample finite owners.
+        assert_eq!(charge, 0);
+        [1, 2, TEST_ALLOCATION_CEILING / 2, TEST_ALLOCATION_CEILING]
+    };
+    for cap in caps {
         let expected = under_caller(cap, &original);
         if cap == 1 {
             assert_eq!(
                 expected.0.is_err(),
                 positive_limit_refuses,
-                "mandatory decoding refuses; optional memo insertion may decline"
+                "mandatory decoding refuses; encoding without decode allocation charges succeeds"
             );
         }
         assert_eq!(under_caller(cap, &candidate), expected, "cap {cap}");
@@ -304,8 +312,8 @@ fn active_producers_preserve_original_results_charges_and_positive_refusals() {
         || verifier.export_checkpoint(&fixture.second),
         true,
     );
-    // Encoding validates an already decoded DTO. A tiny decode budget can decline the
-    // optional epoch memo while validation and ordinary canonical encoding still succeed.
+    // Encoding validates an already decoded DTO with inline epoch snapshots. Validation and
+    // ordinary canonical encoding do not consume even a tiny decoder allocation allowance.
     assert_original_admission(
         || independent_encoding(&checkpoint),
         || checkpoint.encode_canonical(),
