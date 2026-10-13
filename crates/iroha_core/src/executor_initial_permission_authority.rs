@@ -1671,6 +1671,26 @@ fn initial_native_instruction_is_explicitly_admitted(instruction: &InstructionBo
     ) {
         return true;
     }
+    // Conditional escrows fund custody only from the signed opener's own
+    // balance. Core accepts an attestation only from the exact configured
+    // attestor, in strict sequence and strictly before the committed expiry,
+    // and releases to the immutable beneficiary after the final condition.
+    // Refund at or after expiry is permissionless and always returns custody
+    // to the opener. Admit every terminal path while retaining those checks.
+    if is_any!(
+        iroha_data_model::isi::escrow::OpenConditionalEscrow,
+        iroha_data_model::isi::escrow::AttestEscrowCondition,
+        iroha_data_model::isi::escrow::ExpireConditionalEscrow,
+    ) {
+        return true;
+    }
+    // The repo lifecycle is admitted only through its registered outer box;
+    // leaf wire identifiers stay unregistered. Core requires the initiator to
+    // be the signer and to hold both exact whole-proposal settlement consents,
+    // and accepts reverse and margin calls only from recorded participants.
+    if is_any!(iroha_data_model::isi::repo::RepoInstructionBox) {
+        return true;
+    }
     // Admit the complete native VPN escrow lifecycle so every lease retains
     // its settlement and timeout-refund terminal paths.
     if is_any!(
