@@ -243,6 +243,11 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
         ],
     },
     OtherDomains {
+        usage: Use::Seed,
+        reason: "Derived key-less bond vault account: a non-signing Ed25519 point derived from the bond identifier. It names protocol custody of funded payment assets; it commits no State content and grants no signing authority",
+        literals: &[r"iroha:bond:vault:v1"],
+    },
+    OtherDomains {
         usage: Use::ResultBinding,
         reason: "Domain tags of the execution result R, of the certified block identity and of lane results: they bind the listed roots and the fields of the listed protocol carriers, and commit no State content of their own",
         literals: &[

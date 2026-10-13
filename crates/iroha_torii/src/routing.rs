@@ -41045,6 +41045,7 @@ fn data_event_kind(event: &iroha_data_model::events::data::DataEvent) -> &'stati
         E::GameSession(_) => "GameSession",
         E::Sccp(_) => "Sccp",
         E::KagemushaLoadCommitted(_) => "KagemushaLoadCommitted",
+        E::Bond(_) => "Bond",
     }
 }
 app_api_items! {

@@ -617,6 +617,10 @@ impl ValidQueryRequest {
                         params,
                         stored_cursor_budget
                     ),
+                    QueryItemKind::BondRecord => run_query!(
+                        iroha_data_model::bond::BondRecord,
+                        iroha_data_model::query::bond::prelude::FindBonds
+                    ),
                     QueryItemKind::OracleFeedConfig => run_query!(
                         iroha_data_model::oracle::FeedConfig,
                         iroha_data_model::query::oracle::prelude::FindOracleFeeds,
@@ -1177,6 +1181,10 @@ impl ValidQueryRequest {
                         selector_bytes,
                         query_payload,
                         params
+                    ),
+                    QueryItemKind::BondRecord => run_query!(
+                        iroha_data_model::bond::BondRecord,
+                        iroha_data_model::query::bond::prelude::FindBonds
                     ),
                     QueryItemKind::OracleFeedConfig => run_query!(
                         iroha_data_model::oracle::FeedConfig,

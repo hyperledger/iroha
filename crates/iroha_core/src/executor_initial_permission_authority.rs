@@ -1691,6 +1691,15 @@ fn initial_native_instruction_is_explicitly_admitted(instruction: &InstructionBo
     if is_any!(iroha_data_model::isi::repo::RepoInstructionBox) {
         return true;
     }
+    // The bond-servicing kernel is admitted only through its registered outer
+    // box; leaf wire identifiers stay unregistered. Core binds registration and
+    // calls to the issuer owning the scale-0 definition, recording, closing and
+    // defaults to the registered paying agent, funding to the paying agent or
+    // issuer debiting its own balance, and claims to the holder or a paying-agent
+    // push that always pays the holder. Committed block time gates every date.
+    if is_any!(iroha_data_model::isi::bond::BondInstructionBox) {
+        return true;
+    }
     // Admit the complete native VPN escrow lifecycle so every lease retains
     // its settlement and timeout-refund terminal paths.
     if is_any!(

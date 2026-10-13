@@ -562,6 +562,12 @@ fn rekey_account_id(
                 .into(),
         ));
     }
+    // Bond records name their issuer, paying agent, vault and unclaimed holders by identity.
+    crate::smartcontracts::isi::bond::ensure_account_not_retained_by_bonds(
+        state_transaction.world(),
+        old_account,
+        "rekey account",
+    )?;
     if crate::smartcontracts::isi::vpn::is_active_vpn_client(&state_transaction.world, old_account)
     {
         return Err(InstructionExecutionError::InvariantViolation(

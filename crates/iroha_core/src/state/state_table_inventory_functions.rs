@@ -190,12 +190,6 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         UseOwner::Other(Use::Record, RECORD_IDENTITY),
     ),
     function(
-        "crates/iroha_core/src/smartcontracts/isi/multisig.rs",
-        "invalidate_outstanding_proposals",
-        1,
-        UseOwner::Other(Use::Record, RECORD_IDENTITY),
-    ),
-    function(
         "crates/iroha_core/src/smartcontracts/isi/musubi.rs",
         "canonical_finalized_hash",
         1,
@@ -348,12 +342,6 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     function(
         "crates/iroha_core/src/smartcontracts/isi/sccp/store.rs",
         "get",
-        1,
-        UseOwner::Other(Use::Record, RECORD_IDENTITY),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/settlement/atomic.rs",
-        "validate_atomic_intent",
         1,
         UseOwner::Other(Use::Record, RECORD_IDENTITY),
     ),

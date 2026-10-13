@@ -313,6 +313,13 @@ pub mod isi {
                     .inspect_by_id(id, |action| action.authority() == authority)
                     .unwrap_or(false)
             }),
+            // A bond-scoped filter belongs to the issuer owning the bond definition.
+            DataEventFilter::Bond(bond) => bond.as_ref().is_some_and(|bond| {
+                state_transaction
+                    .world
+                    .asset_definition(bond)
+                    .is_ok_and(|definition| definition.owned_by() == authority)
+            }),
             DataEventFilter::Any
             | DataEventFilter::GameSession(_)
             | DataEventFilter::Peer(_)

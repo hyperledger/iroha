@@ -231,6 +231,9 @@ impl CanonicalQueryOutputAccumulator {
             QueryOutputBatchBox::FeeSponsorProgramId(values) => {
                 push_rows!(FeeSponsorProgramId, values);
             }
+            QueryOutputBatchBox::BondRecord(values) => {
+                push_rows!(BondRecord, values);
+            }
         }
         Ok(())
     }
@@ -523,6 +526,7 @@ fn empty_batch_like(batch: &QueryOutputBatchBox) -> QueryOutputBatchBox {
         AssetEscrowRecord,
         FeeSponsorProgram,
         FeeSponsorProgramId,
+        BondRecord,
     )
 }
 fn empty_batch_with_capacity_like(
@@ -596,6 +600,7 @@ fn empty_batch_with_capacity_like(
         AssetEscrowRecord,
         FeeSponsorProgram,
         FeeSponsorProgramId,
+        BondRecord,
     )
 }
 fn output_container_allocation_charge(
@@ -669,6 +674,7 @@ fn output_container_allocation_charge(
         AssetEscrowRecord,
         FeeSponsorProgram,
         FeeSponsorProgramId,
+        BondRecord,
     )
 }
 fn decode_candidate(
@@ -1024,6 +1030,7 @@ mod tests {
             AssetEscrowRecord,
             FeeSponsorProgram,
             FeeSponsorProgramId,
+            BondRecord,
         );
     }
     #[test]

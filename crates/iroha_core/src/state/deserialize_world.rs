@@ -8874,6 +8874,7 @@ fn decode_world_fields(
     let global_beacon_pulses = take_required(&mut map, "global_beacon_pulses")?;
     let repo_agreements = take_required(&mut map, "repo_agreements")?;
     let settlement_receipts = take_required(&mut map, "settlement_receipts")?;
+    let bonds = take_required(&mut map, "bonds")?;
     let manifest_aliases = take_required(&mut map, "manifest_aliases")?;
     validate_musubi_location_reverse_indices(
         &musubi_archives,
@@ -9144,6 +9145,7 @@ fn decode_world_fields(
         repo_agreements_by_counterparty: Storage::default(),
         repo_agreements_by_custodian: Storage::default(),
         settlement_receipts,
+        bonds,
         domain_committees,
         domain_endorsement_policies,
         domain_endorsements,

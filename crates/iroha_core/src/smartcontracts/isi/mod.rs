@@ -4,6 +4,8 @@ pub mod account;
 mod account_admission;
 pub mod asset;
 pub mod block;
+/// Native bond-servicing kernel handlers.
+pub mod bond;
 /// Content lane instruction handlers.
 pub mod content;
 /// DeFi-native instruction handlers.
@@ -314,6 +316,14 @@ define_instruction_handlers! {
     dispatch_instruction::<iroha_data_model::isi::repo::RepoIsi>,
     dispatch_instruction::<iroha_data_model::isi::repo::ReverseRepoIsi>,
     dispatch_instruction::<iroha_data_model::isi::repo::RepoMarginCallIsi>,
+    dispatch_instruction::<iroha_data_model::isi::bond::BondInstructionBox>,
+    dispatch_instruction::<iroha_data_model::isi::bond::RegisterBond>,
+    dispatch_instruction::<iroha_data_model::isi::bond::RecordBondCashflow>,
+    dispatch_instruction::<iroha_data_model::isi::bond::FundBondCashflow>,
+    dispatch_instruction::<iroha_data_model::isi::bond::ClaimBondCashflow>,
+    dispatch_instruction::<iroha_data_model::isi::bond::CloseBondCashflow>,
+    dispatch_instruction::<iroha_data_model::isi::bond::CallBond>,
+    dispatch_instruction::<iroha_data_model::isi::bond::DeclareBondDefault>,
     dispatch_instruction::<iroha_data_model::isi::rwa::RwaInstructionBox>,
     dispatch_instruction::<iroha_data_model::isi::rwa::RegisterRwa>,
     dispatch_instruction::<iroha_data_model::isi::rwa::TransferRwa>,
@@ -1063,6 +1073,13 @@ mod registry_dispatch_tests {
             std::any::type_name::<iroha_data_model::isi::repo::RepoIsi>(),
             std::any::type_name::<iroha_data_model::isi::repo::ReverseRepoIsi>(),
             std::any::type_name::<iroha_data_model::isi::repo::RepoMarginCallIsi>(),
+            std::any::type_name::<iroha_data_model::isi::bond::RegisterBond>(),
+            std::any::type_name::<iroha_data_model::isi::bond::RecordBondCashflow>(),
+            std::any::type_name::<iroha_data_model::isi::bond::FundBondCashflow>(),
+            std::any::type_name::<iroha_data_model::isi::bond::ClaimBondCashflow>(),
+            std::any::type_name::<iroha_data_model::isi::bond::CloseBondCashflow>(),
+            std::any::type_name::<iroha_data_model::isi::bond::CallBond>(),
+            std::any::type_name::<iroha_data_model::isi::bond::DeclareBondDefault>(),
             std::any::type_name::<iroha_data_model::isi::rwa::RegisterRwa>(),
             std::any::type_name::<iroha_data_model::isi::rwa::TransferRwa>(),
             std::any::type_name::<iroha_data_model::isi::rwa::MergeRwas>(),

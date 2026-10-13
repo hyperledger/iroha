@@ -3087,6 +3087,524 @@
     ]
   },
   "BlockSubscriptionRequest": "NonZero<u64>",
+  "BondCallTerms": {
+    "Struct": [
+      {
+        "name": "first_call_date_ms",
+        "type": "u64"
+      },
+      {
+        "name": "price_bps",
+        "type": "u32"
+      },
+      {
+        "name": "notice_ms",
+        "type": "u64"
+      }
+    ]
+  },
+  "BondCalled": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "call_date_ms",
+        "type": "u64"
+      },
+      {
+        "name": "redemption_index",
+        "type": "u16"
+      }
+    ]
+  },
+  "BondCashflowClaimed": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "holder",
+        "type": "AccountId"
+      },
+      {
+        "name": "units",
+        "type": "Quantity"
+      },
+      {
+        "name": "amount",
+        "type": "Quantity"
+      }
+    ]
+  },
+  "BondCashflowClosed": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "residual",
+        "type": "Quantity"
+      }
+    ]
+  },
+  "BondCashflowFunded": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "amount",
+        "type": "Quantity"
+      }
+    ]
+  },
+  "BondCashflowKind": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Coupon"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Redemption"
+      }
+    ]
+  },
+  "BondCashflowRecorded": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "kind",
+        "type": "BondCashflowKind"
+      },
+      {
+        "name": "holders",
+        "type": "u32"
+      },
+      {
+        "name": "entitled_units",
+        "type": "Quantity"
+      },
+      {
+        "name": "amount_due",
+        "type": "Quantity"
+      }
+    ]
+  },
+  "BondCashflowState": {
+    "Struct": [
+      {
+        "name": "terms",
+        "type": "BondCashflowTerms"
+      },
+      {
+        "name": "status",
+        "type": "BondCashflowStatus"
+      },
+      {
+        "name": "snapshot",
+        "type": "SortedMap<AccountId, Quantity>"
+      },
+      {
+        "name": "entitled_units",
+        "type": "Quantity"
+      },
+      {
+        "name": "amount_due",
+        "type": "Quantity"
+      },
+      {
+        "name": "funded",
+        "type": "Quantity"
+      },
+      {
+        "name": "paid",
+        "type": "Quantity"
+      },
+      {
+        "name": "claimed",
+        "type": "SortedVec<AccountId>"
+      },
+      {
+        "name": "recorded_at_ms",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "funded_at_ms",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "closed_at_ms",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "evidence_sha256",
+        "type": "Option<Array<u8, 32>>"
+      }
+    ]
+  },
+  "BondCashflowStatus": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Scheduled"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Recorded"
+      },
+      {
+        "discriminant": 2,
+        "tag": "Funded"
+      },
+      {
+        "discriminant": 3,
+        "tag": "Closed"
+      },
+      {
+        "discriminant": 4,
+        "tag": "Defaulted"
+      },
+      {
+        "discriminant": 5,
+        "tag": "Cancelled"
+      }
+    ]
+  },
+  "BondCashflowTerms": {
+    "Struct": [
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "kind",
+        "type": "BondCashflowKind"
+      },
+      {
+        "name": "record_date_ms",
+        "type": "u64"
+      },
+      {
+        "name": "payment_date_ms",
+        "type": "u64"
+      },
+      {
+        "name": "amount_per_unit",
+        "type": "Quantity"
+      }
+    ]
+  },
+  "BondDayCount": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "ActActIcma"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Thirty360"
+      },
+      {
+        "discriminant": 2,
+        "tag": "Act360"
+      },
+      {
+        "discriminant": 3,
+        "tag": "Act365Fixed"
+      }
+    ]
+  },
+  "BondDefaulted": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "evidence_sha256",
+        "type": "Array<u8, 32>"
+      }
+    ]
+  },
+  "BondEvent": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Registered",
+        "type": "BondRegistered"
+      },
+      {
+        "discriminant": 1,
+        "tag": "CashflowRecorded",
+        "type": "BondCashflowRecorded"
+      },
+      {
+        "discriminant": 2,
+        "tag": "CashflowFunded",
+        "type": "BondCashflowFunded"
+      },
+      {
+        "discriminant": 3,
+        "tag": "CashflowClaimed",
+        "type": "BondCashflowClaimed"
+      },
+      {
+        "discriminant": 4,
+        "tag": "CashflowClosed",
+        "type": "BondCashflowClosed"
+      },
+      {
+        "discriminant": 5,
+        "tag": "Called",
+        "type": "BondCalled"
+      },
+      {
+        "discriminant": 6,
+        "tag": "Defaulted",
+        "type": "BondDefaulted"
+      }
+    ]
+  },
+  "BondIdentifiers": {
+    "Struct": [
+      {
+        "name": "isin",
+        "type": "Option<String>"
+      },
+      {
+        "name": "cfi",
+        "type": "Option<String>"
+      },
+      {
+        "name": "issuer_lei",
+        "type": "Option<String>"
+      },
+      {
+        "name": "bdt_version",
+        "type": "String"
+      },
+      {
+        "name": "bdt_document_sha256",
+        "type": "Option<Array<u8, 32>>"
+      }
+    ]
+  },
+  "BondInstructionBox": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Register",
+        "type": "RegisterBond"
+      },
+      {
+        "discriminant": 1,
+        "tag": "RecordCashflow",
+        "type": "RecordBondCashflow"
+      },
+      {
+        "discriminant": 2,
+        "tag": "FundCashflow",
+        "type": "FundBondCashflow"
+      },
+      {
+        "discriminant": 3,
+        "tag": "ClaimCashflow",
+        "type": "ClaimBondCashflow"
+      },
+      {
+        "discriminant": 4,
+        "tag": "CloseCashflow",
+        "type": "CloseBondCashflow"
+      },
+      {
+        "discriminant": 5,
+        "tag": "Call",
+        "type": "CallBond"
+      },
+      {
+        "discriminant": 6,
+        "tag": "DeclareDefault",
+        "type": "DeclareBondDefault"
+      }
+    ]
+  },
+  "BondLifecycle": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Active"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Called"
+      },
+      {
+        "discriminant": 2,
+        "tag": "Matured"
+      },
+      {
+        "discriminant": 3,
+        "tag": "Defaulted"
+      }
+    ]
+  },
+  "BondRecord": {
+    "Struct": [
+      {
+        "name": "id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "vault",
+        "type": "AccountId"
+      },
+      {
+        "name": "terms",
+        "type": "BondTerms"
+      },
+      {
+        "name": "state",
+        "type": "BondState"
+      }
+    ]
+  },
+  "BondRegistered": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "issuer",
+        "type": "AccountId"
+      },
+      {
+        "name": "paying_agent",
+        "type": "AccountId"
+      },
+      {
+        "name": "outstanding_units",
+        "type": "Quantity"
+      },
+      {
+        "name": "cashflows",
+        "type": "u16"
+      }
+    ]
+  },
+  "BondState": {
+    "Struct": [
+      {
+        "name": "lifecycle",
+        "type": "BondLifecycle"
+      },
+      {
+        "name": "outstanding_units",
+        "type": "Quantity"
+      },
+      {
+        "name": "redeemed_units",
+        "type": "Quantity"
+      },
+      {
+        "name": "transfers_frozen",
+        "type": "bool"
+      },
+      {
+        "name": "cashflows",
+        "type": "Vec<BondCashflowState>"
+      }
+    ]
+  },
+  "BondTerms": {
+    "Struct": [
+      {
+        "name": "issuer",
+        "type": "AccountId"
+      },
+      {
+        "name": "paying_agent",
+        "type": "AccountId"
+      },
+      {
+        "name": "payment_asset",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "denomination",
+        "type": "Quantity"
+      },
+      {
+        "name": "coupon_rate_bps",
+        "type": "u32"
+      },
+      {
+        "name": "coupon_frequency",
+        "type": "u8"
+      },
+      {
+        "name": "day_count",
+        "type": "BondDayCount"
+      },
+      {
+        "name": "issue_date_ms",
+        "type": "u64"
+      },
+      {
+        "name": "maturity_date_ms",
+        "type": "u64"
+      },
+      {
+        "name": "redemption_price_bps",
+        "type": "u32"
+      },
+      {
+        "name": "call",
+        "type": "Option<BondCallTerms>"
+      },
+      {
+        "name": "cashflows",
+        "type": "Vec<BondCashflowTerms>"
+      },
+      {
+        "name": "identifiers",
+        "type": "BondIdentifiers"
+      },
+      {
+        "name": "terms_sha256",
+        "type": "Array<u8, 32>"
+      }
+    ]
+  },
   "BridgeEvent": {
     "Enum": [
       {
@@ -3286,6 +3804,18 @@
       {
         "name": "wire_schema_hash",
         "type": "String"
+      }
+    ]
+  },
+  "CallBond": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "call_date_ms",
+        "type": "u64"
       }
     ]
   },
@@ -3876,6 +4406,22 @@
       }
     ]
   },
+  "ClaimBondCashflow": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "holder",
+        "type": "AccountId"
+      }
+    ]
+  },
   "ClassRentRate": {
     "Struct": [
       {
@@ -3885,6 +4431,18 @@
       {
         "name": "rent_per_gib_month",
         "type": "XorQuantity"
+      }
+    ]
+  },
+  "CloseBondCashflow": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
       }
     ]
   },
@@ -5415,6 +5973,11 @@
         "discriminant": 24,
         "tag": "KagemushaLoadCommitted",
         "type": "KagemushaLoadCommittedV1"
+      },
+      {
+        "discriminant": 25,
+        "tag": "Bond",
+        "type": "BondEvent"
       }
     ]
   },
@@ -5553,6 +6116,11 @@
         "discriminant": 26,
         "tag": "KagemushaLoadCommitted",
         "type": "Option<Array<u8, 32>>"
+      },
+      {
+        "discriminant": 27,
+        "tag": "Bond",
+        "type": "Option<AssetDefinitionId>"
       }
     ]
   },
@@ -5566,6 +6134,22 @@
       {
         "name": "instructions",
         "type": "ExecutionStep"
+      }
+    ]
+  },
+  "DeclareBondDefault": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "evidence_sha256",
+        "type": "Array<u8, 32>"
       }
     ]
   },
@@ -8809,6 +9393,14 @@
       }
     ]
   },
+  "FindBondById": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
   "FindContractManifestByArtifactId": {
     "Struct": [
       {
@@ -9188,6 +9780,11 @@
         "discriminant": 59,
         "tag": "SettlementReceipt",
         "type": "SettlementId"
+      },
+      {
+        "discriminant": 60,
+        "tag": "Bond",
+        "type": "AssetDefinitionId"
       }
     ]
   },
@@ -10048,6 +10645,22 @@
       {
         "discriminant": 3,
         "tag": "critical"
+      }
+    ]
+  },
+  "FundBondCashflow": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "source",
+        "type": "AssetId"
       }
     ]
   },
@@ -17546,6 +18159,9 @@
   "Option<BlockStatus>": {
     "Option": "BlockStatus"
   },
+  "Option<BondCallTerms>": {
+    "Option": "BondCallTerms"
+  },
   "Option<BridgeProofRecord>": {
     "Option": "BridgeProofRecord"
   },
@@ -22723,6 +23339,11 @@
         "discriminant": 45,
         "tag": "FeeSponsorProgramId",
         "type": "Vec<FeeSponsorProgramId>"
+      },
+      {
+        "discriminant": 46,
+        "tag": "BondRecord",
+        "type": "Vec<BondRecord>"
       }
     ]
   },
@@ -22836,6 +23457,18 @@
       }
     ]
   },
+  "RecordBondCashflow": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      }
+    ]
+  },
   "RecoveryGuardian": {
     "Struct": [
       {
@@ -22845,6 +23478,18 @@
       {
         "name": "weight",
         "type": "u16"
+      }
+    ]
+  },
+  "RegisterBond": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "terms",
+        "type": "BondTerms"
       }
     ]
   },
@@ -27257,6 +27902,11 @@
         "discriminant": 101,
         "tag": "FindAssetDefinitionDirectHome",
         "type": "FindAssetDefinitionDirectHome"
+      },
+      {
+        "discriminant": 102,
+        "tag": "FindBondById",
+        "type": "FindBondById"
       }
     ]
   },
@@ -27756,6 +28406,11 @@
         "discriminant": 98,
         "tag": "AssetDefinitionDirectHome",
         "type": "AssetDefinitionDirectHomeV1"
+      },
+      {
+        "discriminant": 99,
+        "tag": "BondRecord",
+        "type": "BondRecord"
       }
     ]
   },
@@ -28955,6 +29610,12 @@
         "tag": "Desc"
       }
     ]
+  },
+  "SortedMap<AccountId, Quantity>": {
+    "Map": {
+      "key": "AccountId",
+      "value": "Quantity"
+    }
   },
   "SortedMap<AccountId, u8>": {
     "Map": {
@@ -33308,6 +33969,15 @@
   },
   "Vec<BlockHeader>": {
     "Vec": "BlockHeader"
+  },
+  "Vec<BondCashflowState>": {
+    "Vec": "BondCashflowState"
+  },
+  "Vec<BondCashflowTerms>": {
+    "Vec": "BondCashflowTerms"
+  },
+  "Vec<BondRecord>": {
+    "Vec": "BondRecord"
   },
   "Vec<CheckpointDecision>": {
     "Vec": "CheckpointDecision"

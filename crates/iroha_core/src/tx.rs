@@ -1193,6 +1193,7 @@ fn is_time_sensitive_instruction_type(type_id: TypeId) -> bool {
         iroha_data_model::isi::social::ClaimTwitterFollowReward,
         iroha_data_model::isi::social::SendToTwitter,
         iroha_data_model::isi::repo::RepoInstructionBox,
+        iroha_data_model::isi::bond::BondInstructionBox,
         iroha_data_model::isi::settlement::SettlementInstructionBox,
         iroha_data_model::isi::staking::ExitPublicLaneValidator,
         iroha_data_model::isi::staking::SchedulePublicLaneUnbond,
@@ -8798,6 +8799,25 @@ pub mod tests {
         assert!(super::is_time_sensitive_instruction(&InstructionBox::from(
             margin_call
         )));
+        // Every bond-kernel instruction is gated by committed block time.
+        let bond = collateral_leg.asset_definition_id.clone();
+        for instruction in [
+            InstructionBox::from(iroha_data_model::isi::bond::RecordBondCashflow::new(
+                bond.clone(),
+                0,
+            )),
+            InstructionBox::from(iroha_data_model::isi::bond::CallBond::new(
+                bond.clone(),
+                1_700_000_000_000,
+            )),
+            InstructionBox::from(iroha_data_model::isi::bond::ClaimBondCashflow::new(
+                bond,
+                0,
+                counterparty.clone(),
+            )),
+        ] {
+            assert!(super::is_time_sensitive_instruction(&instruction));
+        }
         let exit = iroha_data_model::isi::staking::ExitPublicLaneValidator {
             lane_id: TestLaneId::SINGLE,
             validator: counterparty.clone(),

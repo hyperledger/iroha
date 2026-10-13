@@ -165,7 +165,6 @@
       {"path":"crates/iroha_core/src/smartcontracts/isi/asset.rs","function":"resolve_transcript_identity","count":1,"use":"record","reason":"Returns the identifier, content hash or stored digest of one record, transaction or message: no digest over a table or cell"},
       {"path":"crates/iroha_core/src/smartcontracts/isi/asset.rs","function":"transcript_identity","count":1,"use":"record","reason":"Returns the identifier, content hash or stored digest of one record, transaction or message: no digest over a table or cell"},
       {"path":"crates/iroha_core/src/smartcontracts/isi/game.rs","function":"retain_execution_verification","count":1,"use":"record","reason":"Returns the identifier, content hash or stored digest of one record, transaction or message: no digest over a table or cell"},
-      {"path":"crates/iroha_core/src/smartcontracts/isi/multisig.rs","function":"invalidate_outstanding_proposals","count":1,"use":"record","reason":"Returns the identifier, content hash or stored digest of one record, transaction or message: no digest over a table or cell"},
       {"path":"crates/iroha_core/src/smartcontracts/isi/musubi.rs","function":"canonical_finalized_hash","count":1,"use":"record","reason":"Reads committed block hashes or the hash of the current block header: authenticated history and block identity, not a digest of State content"},
       {"path":"crates/iroha_core/src/smartcontracts/isi/musubi.rs","function":"execution_hash","count":1,"use":"record","reason":"Reads committed block hashes or the hash of the current block header: authenticated history and block identity, not a digest of State content"},
       {"path":"crates/iroha_core/src/smartcontracts/isi/musubi/pin_outbox.rs","function":"consume_origin","count":1,"use":"record","reason":"Returns the identifier, content hash or stored digest of one record, transaction or message: no digest over a table or cell"},
@@ -869,6 +868,7 @@
       {"literal":"iroha:beacon-sortition:v1:parliament:policy_jury|","owner":"use:seed","sources":{"crates/iroha_core/src/governance/draw.rs":1}},
       {"literal":"iroha:beacon-sortition:v1:parliament:review|","owner":"use:seed","sources":{"crates/iroha_core/src/governance/draw.rs":1}},
       {"literal":"iroha:beacon-sortition:v1:parliament:rules|","owner":"use:seed","sources":{"crates/iroha_core/src/governance/draw.rs":1}},
+      {"literal":"iroha:bond:vault:v1","owner":"use:seed","sources":{"crates/iroha_data_model/src/bond.rs":1}},
       {"literal":"iroha:conditional-escrow-evidence:v1\\0","owner":"use:record","sources":{"crates/iroha_data_model/src/escrow.rs":1}},
       {"literal":"iroha:confidential-policy:v1","owner":"root:confidential_feature_digest","sources":{"crates/iroha_core/src/state.rs":1}},
       {"literal":"iroha:contract-address:v1","owner":"use:seed","sources":{"crates/iroha_data_model/src/smart_contract.rs":1}},
@@ -1518,6 +1518,9 @@
         "iroha:kagemusha:ordinary-load-event-path:v1\\0",
         "iroha:kagemusha:reserve-asset:v1\\0",
         "iroha:kagemusha:reserve-definition:v1\\0"
+      ]},
+      {"use":"seed","reason":"Derived key-less bond vault account: a non-signing Ed25519 point derived from the bond identifier. It names protocol custody of funded payment assets; it commits no State content and grants no signing authority","literals":[
+        "iroha:bond:vault:v1"
       ]},
       {"use":"result_binding","reason":"Domain tags of the execution result R, of the certified block identity and of lane results: they bind the listed roots and the fields of the listed protocol carriers, and commit no State content of their own","literals":[
         "iroha/sumeragi/certified-block/v1",
@@ -2728,6 +2731,7 @@
     {"id":"world.repo_agreements_by_counterparty","role":"derived","shape":"table","sources":["world.repo_agreements"],"check":"rebuild","current_root":null,"commitment":"derived"},
     {"id":"world.repo_agreements_by_custodian","role":"derived","shape":"table","sources":["world.repo_agreements"],"check":"rebuild","current_root":null,"commitment":"derived"},
     {"id":"world.settlement_receipts","role":"canonical","shape":"table","key":"norito:iroha_data_model::isi::settlement::model::SettlementId@0.0.2","value":"norito:iroha_data_model::isi::settlement::SettlementReceipt@0.0.2","table_reader":true,"current_root":"world_state_root","commitment":"certified"},
+    {"id":"world.bonds","role":"canonical","shape":"table","key":"norito:iroha_data_model::asset::id::model::AssetDefinitionId@0.0.2","value":"norito:iroha_data_model::bond::BondRecord@0.0.2","table_reader":true,"current_root":"world_state_root","commitment":"certified"},
     {"id":"world.public_lane_validators","role":"canonical","shape":"table","key":"norito:(iroha_data_model::nexus::LaneId, iroha_data_model::account::model::AccountId)@0.0.2","value":"norito:iroha_data_model::nexus::staking::PublicLaneValidatorRecord@0.0.2","table_reader":true,"current_root":"world_state_root","commitment":"certified"},
     {"id":"world.public_lane_stake_shares","role":"canonical","shape":"table","key":"norito:(iroha_data_model::nexus::LaneId, iroha_data_model::account::model::AccountId, iroha_data_model::account::model::AccountId)@0.0.2","value":"norito:iroha_data_model::nexus::staking::PublicLaneStakeShare@0.0.2","table_reader":true,"current_root":"world_state_root","commitment":"certified"},
     {"id":"world.public_lane_stake_custody","role":"canonical","shape":"table","key":"norito:(iroha_data_model::nexus::LaneId, iroha_data_model::account::model::AccountId)@0.0.2","value":"norito:(iroha_data_model::asset::id::model::AssetId, iroha_primitives::numeric::Quantity)@0.0.2","table_reader":true,"current_root":"world_state_root","commitment":"certified"},

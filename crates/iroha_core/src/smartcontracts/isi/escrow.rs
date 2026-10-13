@@ -1168,6 +1168,45 @@ pub(crate) fn is_native_escrow_custody_asset(
                     && record.custody_account_id == *resolved_id.account()
             }))
 }
+/// Collect every protocol custody account that [`is_native_escrow_custody_asset`] recognises
+/// for balances of `definition`, in one pass over the custody records.
+///
+/// Callers that classify many balances of one definition (the bond record-date snapshot) use
+/// this instead of evaluating the per-asset predicate for each balance. Keep both in sync.
+pub(crate) fn native_escrow_custody_accounts_for(
+    world: &impl crate::state::WorldReadOnly,
+    definition: &AssetDefinitionId,
+) -> BTreeSet<AccountId> {
+    let mut custody: BTreeSet<AccountId> = world
+        .asset_escrows()
+        .iter()
+        .filter(|(_, record)| record.asset_definition == *definition)
+        .map(|(_, record)| record.custody.clone())
+        .collect();
+    custody.extend(
+        world
+            .vpn_leases()
+            .iter()
+            .filter(|(_, record)| record.asset_definition == *definition)
+            .map(|(_, record)| record.custody_account_id.clone()),
+    );
+    custody.extend(
+        world
+            .game_custody_by_account()
+            .iter()
+            .filter(|(_, session_id)| {
+                world
+                    .game_sessions()
+                    .get(*session_id)
+                    .is_some_and(|session| session.asset_definition == *definition)
+            })
+            .map(|(account, _)| account.clone()),
+    );
+    if let Some(participant) = world.sumeragi_amx_participant().canonical() {
+        custody.insert(participant.custody.clone());
+    }
+    custody
+}
 /// Reject retiring asset definitions while native escrow custody still depends on them.
 ///
 /// Unregistering an asset definition (directly or through its domain) deletes

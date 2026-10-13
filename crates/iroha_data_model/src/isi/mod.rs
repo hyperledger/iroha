@@ -1974,6 +1974,8 @@ pub mod alias_setup;
 pub mod asset_alias;
 /// Asset-scoped outbound transfer control instructions.
 pub mod asset_transfer_control;
+/// Native bond-servicing kernel instructions.
+pub mod bond;
 /// Confidential registry management instructions. Bridge proof ingestion instructions.
 pub mod bridge;
 /// Shared chain-level due-work maintenance.

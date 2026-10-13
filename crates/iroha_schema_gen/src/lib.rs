@@ -197,6 +197,9 @@ macro_rules! schema_types {
             iroha_data_model::sorafs::final_promotion_account_custody::FinalPromotionAccountCustodyRecordV1,
             iroha_executor_data_model::permission::sorafs::CanManageSorafsFinalPromotionAccountCustody,
             iroha_executor_data_model::permission::sorafs::CanCheckSorafsFinalPromotionAccountCustody,
+            // Native bond-servicing kernel instructions (records and events are
+            // reachable through query outputs and data events).
+            iroha_data_model::isi::bond::BondInstructionBox,
             // Multi-signature operations
             iroha_executor_data_model::isi::multisig::MultisigInstructionBox,
             // Multi-signature account metadata
@@ -287,6 +290,7 @@ mod tests {
     use super::{IntoSchema, complete_data_model::*};
     use iroha_schema::{MetaMap, Metadata};
     mod amx_approval;
+    mod bond;
     mod final_promotion;
     mod final_promotion_account_custody;
     mod musubi;

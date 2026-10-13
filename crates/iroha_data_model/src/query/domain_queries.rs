@@ -362,6 +362,40 @@ pub mod repo {
         pub use super::FindRepoAgreements;
     }
 }
+pub mod bond {
+    //! Native bond-servicing kernel query definitions.
+    //!
+    //! Queries related to [`crate::bond`].
+    use crate::bond::BondId;
+    use derive_more::Display;
+    queries! {
+        /// [`FindBonds`] returns every registered bond record.
+        #[derive(Copy, Display)]
+        #[display("Find all bonds")]
+        #[norito_schema(name = "iroha_data_model::query::bond::model::FindBonds")]
+        pub struct FindBonds;
+        /// [`FindBondById`] returns the authoritative record of one bond.
+        #[derive(Display)]
+        #[display("Find bond `{bond}`")]
+        #[repr(transparent)]
+        #[norito(deny_unknown_fields)]
+        #[norito_schema(name = "iroha_data_model::query::bond::model::FindBondById")]
+        pub struct FindBondById {
+            /// Bond identifier (the bond asset definition).
+            pub bond: BondId,
+        }
+    }
+    impl FindBondById {
+        /// Return the queried bond identifier.
+        pub fn bond(&self) -> &BondId {
+            &self.bond
+        }
+    }
+    pub mod prelude {
+        //! Prelude re-exports for bond queries.
+        pub use super::{FindBondById, FindBonds};
+    }
+}
 pub mod escrow {
     //! Native asset escrow query definitions.
     use crate::{
