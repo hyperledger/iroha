@@ -30,11 +30,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-struct Fixture {
-    _temporary: tempfile::TempDir,
+pub(super) struct Fixture {
+    pub(super) _temporary: tempfile::TempDir,
     prepared: PreparedLocalnet,
     authority: ServiceAuthority,
-    operation: PrivateDirectory,
+    pub(super) operation: PrivateDirectory,
     wallet: AccountService,
     policy: ReserveAuthorityPolicyV1,
     terms: Terms,
@@ -44,10 +44,13 @@ struct Fixture {
     cancelled: Arc<std::sync::atomic::AtomicBool>,
 }
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self::build(false)
     }
     fn build(authorized: bool) -> Self {
+        Self::build_with_original(authorized, true)
+    }
+    fn build_with_original(authorized: bool, publish_original: bool) -> Self {
         let temporary = tempfile::tempdir().unwrap();
         let ports = crate::managed::LocalnetPorts::reserve().unwrap();
         let prepared = crate::localnet::prepare_localnet_at(
@@ -86,14 +89,21 @@ impl Fixture {
                 deadline,
             });
         let terms = Terms::new(now_ms().unwrap() + 1_200_000, &options).unwrap();
-        let operation = authority.directory.create_child("set").unwrap();
+        let operation = if publish_original {
+            authority.directory.create_child("set").unwrap()
+        } else {
+            metadata::ensure_operation(&authority.directory, "set").unwrap()
+        };
         // The actual canonical policy is sufficient semantic input for this local-record test.
         // The concrete coordinator additionally retains its authentic original checkpoint.
         let bytes = encode(&policy, MAX_RECORD_BYTES).unwrap();
         let semantic = *Hash::new(&bytes).as_ref();
-        operation
-            .write_atomic("original.nrt", &bytes, PublishMode::CreateNew)
-            .unwrap();
+        if publish_original {
+            operation
+                .write_atomic("original.nrt", &bytes, PublishMode::CreateNew)
+                .unwrap();
+            metadata::test_initialize(&operation, &bytes).unwrap();
+        }
         let wallet = AccountService::new(authority.config.clone()).unwrap();
         Self {
             _temporary: temporary,
@@ -117,7 +127,7 @@ impl Fixture {
             &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
         )
     }
-    fn reserve(&self) -> Attempt {
+    pub(super) fn reserve(&self) -> Attempt {
         self.history()
             .unwrap()
             .reserve(&self.operation, Origin::Explicit, self.terms.clone())
@@ -149,7 +159,7 @@ impl Fixture {
             )
             .map_err(|_| invalid("test original wallet inspection failed"))
     }
-    fn retain(&self, attempt: &Attempt) -> VerifiedNativePreparation {
+    pub(super) fn retain(&self, attempt: &Attempt) -> VerifiedNativePreparation {
         attempt.retain_observation(Observation::ordinary()).unwrap();
         self.wallet
             .retain_initial_reserve_policy_request(&self.request(attempt), &attempt.wallet_path())
@@ -219,16 +229,59 @@ fn genuine_request_only_prefix_commits_without_http_and_preserves_canonical_requ
     let fixture = Fixture::new();
     let mut peers = UnavailablePeers::start(&fixture.prepared);
     let attempt = fixture.reserve();
+    let authorization = metadata::test_read_attempt_component(&attempt, "authorization.nrt")
+        .unwrap()
+        .unwrap();
+    let dispatch = metadata::test_read_component(&fixture.operation, None, "dispatch.nrt")
+        .unwrap()
+        .unwrap();
+    assert!(
+        metadata::test_read_attempt_component(&attempt, "observation.nrt")
+            .unwrap()
+            .is_none()
+    );
     let retained = fixture.retain(&attempt);
     assert_eq!(retained.phase(), NativePreparationPhase::RequestOnly);
+    // This original Attempt predates the retained observation. Commit must read the current
+    // image and preserve that exact sibling frame instead of replacing it with stale fields.
+    let observation = metadata::test_read_attempt_component(&attempt, "observation.nrt")
+        .unwrap()
+        .unwrap();
     let bytes = std::fs::read(attempt.wallet_path().join("preparation.json")).unwrap();
     fixture
         .history()
         .unwrap()
         .verify_wallets(|attempt| fixture.inspect(attempt))
         .unwrap();
-    assert!(!attempt.directory.path().join("committed.nrt").exists());
+    assert!(
+        metadata::test_read_component(&fixture.operation, Some(attempt.ordinal()), "committed.nrt")
+            .unwrap()
+            .is_none()
+    );
     commit(&attempt, None, Observation::ordinary(), &retained).unwrap();
+    assert_eq!(
+        metadata::test_read_attempt_component(&attempt, "authorization.nrt")
+            .unwrap()
+            .unwrap(),
+        authorization
+    );
+    assert_eq!(
+        metadata::test_read_attempt_component(&attempt, "observation.nrt")
+            .unwrap()
+            .unwrap(),
+        observation
+    );
+    assert_eq!(
+        metadata::test_read_component(&fixture.operation, None, "dispatch.nrt")
+            .unwrap()
+            .unwrap(),
+        dispatch
+    );
+    assert!(
+        metadata::test_read_attempt_component(&attempt, "committed.nrt")
+            .unwrap()
+            .is_some()
+    );
     let history = fixture.history().unwrap();
     history
         .verify_wallets(|attempt| fixture.inspect(attempt))
@@ -261,7 +314,7 @@ fn committed_missing_wallet_and_lost_attempts_are_refused_before_http_or_recreat
     std::fs::remove_dir_all(fixture.operation.path().join("attempts")).unwrap();
     assert!(fixture.history().is_err());
     assert!(!fixture.operation.path().join("attempts").exists());
-    assert!(fixture.operation.path().join("dispatch.nrt").is_file());
+    assert!(fixture.operation.path().join(metadata::FILE).is_file());
     assert!(peers.requests.lock().unwrap().is_empty());
     peers.finish();
 }
@@ -288,9 +341,9 @@ fn only_exact_unpaid_first_authorization_can_recover_missing_root_commitment() {
     assert!(attempt.authorization == original);
     assert!(!fixture.history().unwrap().reservation_pending());
     fixture.commit(&attempt);
-    std::fs::remove_file(fixture.operation.path().join("dispatch.nrt")).unwrap();
+    std::fs::remove_file(fixture.operation.path().join(metadata::FILE)).unwrap();
     assert!(fixture.history().is_err());
-    assert!(!fixture.operation.path().join("dispatch.nrt").exists());
+    assert!(!fixture.operation.path().join(metadata::FILE).exists());
 }
 
 #[test]
@@ -321,7 +374,11 @@ fn uncommitted_genuine_signed_and_payload_prefixes_cannot_be_selected_or_replace
             .verify_wallets(|attempt| fixture.inspect(attempt))
             .is_err()
     );
-    assert!(!attempt.directory.path().join("committed.nrt").exists());
+    assert!(
+        metadata::test_read_component(&fixture.operation, Some(attempt.ordinal()), "committed.nrt")
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -414,18 +471,35 @@ fn record_or_namespace_change_refuses_before_any_request_creation() {
     let fixture = Fixture::new();
     let attempt = fixture.reserve();
     let history = fixture.history().unwrap();
-    let path = attempt.directory.path().join("authorization.nrt");
-    let original = std::fs::read(&path).unwrap();
+    let original = metadata::test_read_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+    )
+    .unwrap()
+    .unwrap();
     let mut trailing = original.clone();
     trailing.push(0);
-    std::fs::write(&path, &trailing).unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+        Some(&trailing),
+    )
+    .unwrap();
     assert!(fixture.history().is_err());
     assert!(
         history
             .verify_wallets(|attempt| fixture.inspect(attempt))
             .is_err()
     );
-    std::fs::write(&path, &original).unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+        Some(&original),
+    )
+    .unwrap();
     attempt
         .directory
         .write_atomic("foreign.nrt", b"unknown", PublishMode::CreateNew)
@@ -443,10 +517,13 @@ fn live_unsigned_prefix_keeps_its_original_terms_and_request_under_a_current_epo
         if retained_request {
             fixture.retain(&attempt);
         }
-        let original_authorization = attempt
-            .directory
-            .read("authorization.nrt", MAX_RECORD_BYTES)
-            .unwrap();
+        let original_authorization = metadata::test_read_component(
+            &fixture.operation,
+            Some(attempt.ordinal()),
+            "authorization.nrt",
+        )
+        .unwrap()
+        .unwrap();
         let original_request = retained_request
             .then(|| std::fs::read(attempt.wallet_path().join("preparation.json")).unwrap());
         let cap = fixture.authorization.as_ref().unwrap();
@@ -482,10 +559,13 @@ fn live_unsigned_prefix_keeps_its_original_terms_and_request_under_a_current_epo
         let selected = history.selected().unwrap().unwrap();
         assert!(selected.terms() == &fixture.terms);
         assert_eq!(
-            selected
-                .directory
-                .read("authorization.nrt", MAX_RECORD_BYTES)
-                .unwrap(),
+            metadata::test_read_component(
+                &fixture.operation,
+                Some(selected.ordinal()),
+                "authorization.nrt"
+            )
+            .unwrap()
+            .unwrap(),
             original_authorization
         );
         if let Some(bytes) = original_request {
@@ -564,7 +644,15 @@ fn cancellation_during_genuine_native_prerequisite_cannot_retain_request_or_comm
     let selected = history.last().unwrap();
     assert!(!selected.is_committed());
     assert!(!selected.wallet_path().exists());
-    assert!(!selected.directory.path().join("observation.nrt").exists());
+    assert!(
+        metadata::test_read_component(
+            &fixture.operation,
+            Some(selected.ordinal()),
+            "observation.nrt"
+        )
+        .unwrap()
+        .is_none()
+    );
     assert!(
         grant
             .check(Purpose::ReservePolicy, fixture.deadline)
@@ -623,6 +711,7 @@ fn common_semantic_bound_accepts_the_capacity_envelope_and_refuses_one_byte_over
     operation
         .write_atomic("original.nrt", &bytes, PublishMode::CreateNew)
         .unwrap();
+    metadata::test_initialize(&operation, &bytes).unwrap();
     assert!(
         History::read(
             &operation,
@@ -663,10 +752,13 @@ fn expired_missing_or_request_only_prefix_requires_a_live_epoch_and_preserves_it
         if request_only {
             fixture.commit(&first);
         }
-        let authorization_bytes = first
-            .directory
-            .read("authorization.nrt", MAX_RECORD_BYTES)
-            .unwrap();
+        let authorization_bytes = metadata::test_read_component(
+            &fixture.operation,
+            Some(first.ordinal()),
+            "authorization.nrt",
+        )
+        .unwrap()
+        .unwrap();
         let request_bytes = request_only
             .then(|| std::fs::read(first.wallet_path().join("preparation.json")).unwrap());
         let bound = Instant::now() + Duration::from_secs(3);
@@ -734,10 +826,13 @@ fn expired_missing_or_request_only_prefix_requires_a_live_epoch_and_preserves_it
         assert_eq!(history.attempts.len(), 2);
         assert_eq!(history.selected().unwrap().unwrap().ordinal(), 2);
         assert_eq!(
-            first
-                .directory
-                .read("authorization.nrt", MAX_RECORD_BYTES)
-                .unwrap(),
+            metadata::test_read_component(
+                &fixture.operation,
+                Some(first.ordinal()),
+                "authorization.nrt"
+            )
+            .unwrap()
+            .unwrap(),
             authorization_bytes
         );
         if let Some(bytes) = request_bytes {
@@ -773,16 +868,19 @@ fn exact_reserved_prefixes_finish_once_without_new_terms_or_wallet_io() {
             .unwrap()
             .reserve_pending(&fixture.operation, Origin::Explicit, fixture.terms.clone())
             .unwrap();
-        let reserved = read_record::<Dispatch>(&fixture.operation, "dispatch.nrt")
-            .unwrap()
-            .unwrap();
+        let reserved = decode_record::<Dispatch>(
+            &metadata::test_read_component(&fixture.operation, None, "dispatch.nrt")
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
         let original = encode(&reserved.highest, MAX_RECORD_BYTES).unwrap();
         if prefix > 0 {
             let root = fixture.operation.create_child("attempts").unwrap();
-            let directory = root.create_child("0001").unwrap();
             if prefix == 2 {
-                // Exact bytes from the actual reservation, never another authorization DTO.
-                write_record(&directory, "authorization.nrt", &reserved.highest).unwrap();
+                // The canonical image already retains the exact authorization. Publication
+                // may be interrupted before either the attempt root or its empty last child.
+                root.create_child("0001").unwrap();
             }
         }
         let mut peers = UnavailablePeers::start(&fixture.prepared);
@@ -794,7 +892,7 @@ fn exact_reserved_prefixes_finish_once_without_new_terms_or_wallet_io() {
             .unwrap();
         let before = fixture
             .operation
-            .read("dispatch.nrt", MAX_RECORD_BYTES)
+            .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
             .unwrap();
         let mut changed = fixture.terms.clone();
         changed.requested_deadline_unix_ms += 1;
@@ -806,7 +904,7 @@ fn exact_reserved_prefixes_finish_once_without_new_terms_or_wallet_io() {
         assert_eq!(
             fixture
                 .operation
-                .read("dispatch.nrt", MAX_RECORD_BYTES)
+                .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
                 .unwrap(),
             before
         );
@@ -815,11 +913,14 @@ fn exact_reserved_prefixes_finish_once_without_new_terms_or_wallet_io() {
             .unwrap()
             .unwrap();
         assert_eq!(
-            attempt
-                .directory
-                .read("authorization.nrt", MAX_RECORD_BYTES)
-                .unwrap()
-                .as_slice(),
+            metadata::test_read_component(
+                &fixture.operation,
+                Some(attempt.ordinal()),
+                "authorization.nrt"
+            )
+            .unwrap()
+            .unwrap()
+            .as_slice(),
             original.as_slice()
         );
         assert_eq!(fixture.history().unwrap().reserved_attempt_count(), 1);
@@ -938,7 +1039,7 @@ fn published_latest_signed_suffix_loss_and_unanchored_empty_tail_refuse_repair()
     );
     let anchor = fixture
         .operation
-        .read("dispatch.nrt", MAX_RECORD_BYTES)
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
         .unwrap();
     std::fs::remove_dir_all(next.directory.path()).unwrap();
     let mut peers = UnavailablePeers::start(&fixture.prepared);
@@ -947,7 +1048,7 @@ fn published_latest_signed_suffix_loss_and_unanchored_empty_tail_refuse_repair()
     assert_eq!(
         fixture
             .operation
-            .read("dispatch.nrt", MAX_RECORD_BYTES)
+            .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
             .unwrap(),
         anchor
     );
@@ -962,7 +1063,11 @@ fn published_latest_signed_suffix_loss_and_unanchored_empty_tail_refuse_repair()
         .create_child("0001")
         .unwrap();
     assert!(separate.history().is_err());
-    assert!(!separate.operation.path().join("dispatch.nrt").exists());
+    assert!(
+        metadata::test_read_component(&separate.operation, None, "dispatch.nrt")
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -987,7 +1092,11 @@ fn fixed_body_scope_rejects_enrollment_purposes_before_mutation() {
             .is_err()
         );
         assert_eq!(fixture.operation.entries(3).unwrap(), before);
-        assert!(!fixture.operation.path().join("dispatch.nrt").exists());
+        assert!(
+            metadata::test_read_component(&fixture.operation, None, "dispatch.nrt")
+                .unwrap()
+                .is_none()
+        );
         assert!(!fixture.operation.path().join("attempts").exists());
     }
 }
@@ -1001,12 +1110,15 @@ fn dispatch_compare_writer_refuses_changed_expected_record_and_illegal_edges() {
         .unwrap()
         .reserve_pending(&fixture.operation, Origin::Explicit, fixture.terms.clone())
         .unwrap();
-    let reserved = read_record::<Dispatch>(&fixture.operation, "dispatch.nrt")
-        .unwrap()
-        .unwrap();
+    let reserved = decode_record::<Dispatch>(
+        &metadata::test_read_component(&fixture.operation, None, "dispatch.nrt")
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
     let original = fixture
         .operation
-        .read("dispatch.nrt", MAX_RECORD_BYTES)
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
         .unwrap();
     let mut wrong_expected = reserved.clone();
     wrong_expected.first = [0x77; 32];
@@ -1020,7 +1132,7 @@ fn dispatch_compare_writer_refuses_changed_expected_record_and_illegal_edges() {
     assert_eq!(
         fixture
             .operation
-            .read("dispatch.nrt", MAX_RECORD_BYTES)
+            .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
             .unwrap(),
         original
     );
@@ -1033,7 +1145,7 @@ fn dispatch_compare_writer_refuses_changed_expected_record_and_illegal_edges() {
         .unwrap();
     let retained = fixture
         .operation
-        .read("dispatch.nrt", MAX_RECORD_BYTES)
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
         .unwrap();
     assert!(replace_dispatch(&fixture.operation, Some(&published), &reserved).is_err());
     let mut skipped = reserved.clone();
@@ -1043,7 +1155,7 @@ fn dispatch_compare_writer_refuses_changed_expected_record_and_illegal_edges() {
     assert_eq!(
         fixture
             .operation
-            .read("dispatch.nrt", MAX_RECORD_BYTES)
+            .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
             .unwrap(),
         retained
     );
@@ -1128,7 +1240,10 @@ fn full_bound_revalidation_preserves_originals_and_refuses_record_or_directory_s
     let counts = counter.finish();
     assert_eq!(counts.computed, MAX_ATTEMPTS);
     assert_eq!(counts.requested, MAX_ATTEMPTS * 3 - 2);
-    assert_eq!(counts.reads, 3 + MAX_ATTEMPTS * 4);
+    assert_eq!(
+        counts.reads, 2,
+        "entry image plus exact exit image retain all bounded logical attempt frames"
+    );
     assert_eq!(counts.decoded, MAX_ATTEMPTS * 2);
     assert!(counts.by_ordinal.iter().all(|count| *count == 1));
     let counter = parse_digest_tests::Counter::begin();
@@ -1177,73 +1292,84 @@ fn full_bound_revalidation_preserves_originals_and_refuses_record_or_directory_s
 
     let dispatch = fixture
         .operation
-        .read("dispatch.nrt", MAX_RECORD_BYTES)
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
         .unwrap();
     let mut changed = history.dispatch.clone().unwrap();
     changed.first[0] ^= 1;
-    fixture
-        .operation
-        .write_atomic(
-            "dispatch.nrt",
-            &encode(&changed, MAX_RECORD_BYTES).unwrap(),
-            PublishMode::Replace,
-        )
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        None,
+        "dispatch.nrt",
+        Some(&encode(&changed, MAX_RECORD_BYTES).unwrap()),
+    )
+    .unwrap();
     assert!(history.require_current().is_err());
     fixture
         .operation
-        .write_atomic("dispatch.nrt", &dispatch, PublishMode::Replace)
+        .write_atomic(metadata::FILE, &dispatch, PublishMode::Replace)
         .unwrap();
 
     let interior = &history.attempts[31];
-    let authorization = interior
-        .directory
-        .read("authorization.nrt", MAX_RECORD_BYTES)
-        .unwrap();
+    let authorization = metadata::test_read_component(
+        &fixture.operation,
+        Some(interior.ordinal()),
+        "authorization.nrt",
+    )
+    .unwrap()
+    .unwrap();
     let mut changed = interior.authorization.clone();
     changed.terms.requested_deadline_unix_ms += 1;
-    interior
-        .directory
-        .write_atomic(
-            "authorization.nrt",
-            &encode(&changed, MAX_RECORD_BYTES).unwrap(),
-            PublishMode::Replace,
-        )
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(interior.ordinal()),
+        "authorization.nrt",
+        Some(&encode(&changed, MAX_RECORD_BYTES).unwrap()),
+    )
+    .unwrap();
     assert!(history.require_current().is_err());
-    interior
-        .directory
-        .write_atomic("authorization.nrt", &authorization, PublishMode::Replace)
-        .unwrap();
-    interior
-        .directory
-        .write_atomic(
-            "observation.nrt",
-            &encode(&Observation::ordinary(), MAX_RECORD_BYTES).unwrap(),
-            PublishMode::CreateNew,
-        )
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(interior.ordinal()),
+        "authorization.nrt",
+        Some(&authorization),
+    )
+    .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(interior.ordinal()),
+        "observation.nrt",
+        Some(&encode(&Observation::ordinary(), MAX_RECORD_BYTES).unwrap()),
+    )
+    .unwrap();
     assert!(history.require_current().is_err());
-    std::fs::remove_file(interior.directory.path().join("observation.nrt")).unwrap();
-    let retirement = interior
-        .directory
-        .read("retired.nrt", MAX_RECORD_BYTES)
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(interior.ordinal()),
+        "observation.nrt",
+        None,
+    )
+    .unwrap();
+    let retirement =
+        metadata::test_read_component(&fixture.operation, Some(interior.ordinal()), "retired.nrt")
+            .unwrap()
+            .unwrap();
     let mut changed = interior.retirement.clone().unwrap();
     changed.successor[0] ^= 1;
-    interior
-        .directory
-        .write_atomic(
-            "retired.nrt",
-            &encode(&changed, MAX_RECORD_BYTES).unwrap(),
-            PublishMode::Replace,
-        )
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(interior.ordinal()),
+        "retired.nrt",
+        Some(&encode(&changed, MAX_RECORD_BYTES).unwrap()),
+    )
+    .unwrap();
     assert!(history.require_current().is_err());
-    interior
-        .directory
-        .write_atomic("retired.nrt", &retirement, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(interior.ordinal()),
+        "retired.nrt",
+        Some(&retirement),
+    )
+    .unwrap();
     for name in ["foreign", "carrier.nrt"] {
         interior
             .directory
@@ -1263,17 +1389,19 @@ fn full_bound_revalidation_preserves_originals_and_refuses_record_or_directory_s
         original.as_slice()
     );
     assert_eq!(
-        interior
-            .directory
-            .read("authorization.nrt", MAX_RECORD_BYTES)
-            .unwrap()
-            .as_slice(),
+        metadata::test_read_component(
+            &fixture.operation,
+            Some(interior.ordinal()),
+            "authorization.nrt"
+        )
+        .unwrap()
+        .unwrap()
+        .as_slice(),
         authorization.as_slice()
     );
     assert_eq!(
-        interior
-            .directory
-            .read("retired.nrt", MAX_RECORD_BYTES)
+        metadata::test_read_component(&fixture.operation, Some(interior.ordinal()), "retired.nrt")
+            .unwrap()
             .unwrap()
             .as_slice(),
         retirement.as_slice()
@@ -1284,29 +1412,30 @@ fn full_bound_revalidation_preserves_originals_and_refuses_record_or_directory_s
     {
         // Same canonical records at the same path cannot replace the retained native identity.
         let last = history.last().unwrap();
-        let exact = last
-            .directory
-            .read("authorization.nrt", MAX_RECORD_BYTES)
-            .unwrap();
+        let exact = metadata::test_read_component(
+            &fixture.operation,
+            Some(last.ordinal()),
+            "authorization.nrt",
+        )
+        .unwrap()
+        .unwrap();
         let saved = fixture._temporary.path().join("displaced-attempt");
         std::fs::rename(last.directory.path(), &saved).unwrap();
         let root = fixture.operation.open_child("attempts").unwrap();
         let substitute = root.create_child("0064").unwrap();
-        substitute
-            .write_atomic("authorization.nrt", &exact, PublishMode::CreateNew)
-            .unwrap();
         assert_eq!(fixture.operation.entries(3).unwrap(), root_names);
         assert!(history.require_current().is_err());
+        assert!(substitute.entries(0).unwrap().is_empty());
+        assert!(std::fs::read_dir(&saved).unwrap().next().is_none());
         assert_eq!(
-            substitute
-                .read("authorization.nrt", MAX_RECORD_BYTES)
-                .unwrap()
-                .as_slice(),
-            exact.as_slice()
-        );
-        assert_eq!(
-            std::fs::read(saved.join("authorization.nrt")).unwrap(),
-            exact.to_vec()
+            metadata::test_read_component(
+                &fixture.operation,
+                Some(last.ordinal()),
+                "authorization.nrt"
+            )
+            .unwrap()
+            .unwrap(),
+            exact
         );
         assert!(history.reread().is_err());
     }
@@ -1325,7 +1454,7 @@ fn reserved_empty_tail_keeps_original_parser_semantics_without_losing_published_
     no_root.require_current().unwrap();
     let dispatch_bytes = fixture
         .operation
-        .read("dispatch.nrt", MAX_RECORD_BYTES)
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
         .unwrap();
     let root = fixture.operation.create_child("attempts").unwrap();
     assert!(no_root.require_current().is_err());
@@ -1338,7 +1467,7 @@ fn reserved_empty_tail_keeps_original_parser_semantics_without_losing_published_
     let empty = root.create_child("0001").unwrap();
     drop(empty);
     // The sole parser treats both reserved missing and reserved empty leaves as the same
-    // unfinished prefix. An empty leaf has no retained authorization or native authority.
+    // unfinished prefix. An empty leaf does not publish its reserved authorization or grant native authority.
     missing.require_current().unwrap();
     let witnessed_empty = fixture.history().unwrap();
     assert!(witnessed_empty.empty_tail);
@@ -1349,7 +1478,7 @@ fn reserved_empty_tail_keeps_original_parser_semantics_without_losing_published_
     assert_eq!(
         fixture
             .operation
-            .read("dispatch.nrt", MAX_RECORD_BYTES)
+            .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
             .unwrap(),
         dispatch_bytes
     );
@@ -1366,7 +1495,13 @@ fn reserved_empty_tail_keeps_original_parser_semantics_without_losing_published_
     let published = fixture.history().unwrap();
     assert!(!published.empty_tail);
     published.require_current().unwrap();
-    std::fs::remove_file(attempt.directory.path().join("authorization.nrt")).unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+        None,
+    )
+    .unwrap();
     assert!(published.require_current().is_err());
     assert!(fixture.history().is_err());
     assert!(!attempt.wallet_path().exists());
@@ -1438,23 +1573,28 @@ fn retained_reparse_admits_canonical_append_and_refuses_changed_original_custody
         )
         .is_err()
     );
-    let authorization = attempt
-        .directory
-        .read("authorization.nrt", MAX_RECORD_BYTES)
-        .unwrap();
-    attempt
-        .directory
-        .write_atomic(
-            "authorization.nrt",
-            b"invalid retained authorization",
-            PublishMode::Replace,
-        )
-        .unwrap();
+    let authorization = metadata::test_read_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+    )
+    .unwrap()
+    .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+        Some(b"invalid retained authorization"),
+    )
+    .unwrap();
     assert!(reparse().is_err());
-    attempt
-        .directory
-        .write_atomic("authorization.nrt", &authorization, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+        Some(&authorization),
+    )
+    .unwrap();
     reparse().unwrap();
     attempt
         .directory
@@ -1499,7 +1639,7 @@ fn retained_reparse_admits_canonical_append_and_refuses_changed_original_custody
         .unwrap();
     let published = fixture
         .operation
-        .read("dispatch.nrt", MAX_RECORD_BYTES)
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
         .unwrap();
     current
         .reserve_pending(
@@ -1520,11 +1660,11 @@ fn retained_reparse_admits_canonical_append_and_refuses_changed_original_custody
     assert!(!fixture.operation.path().join("attempts/0002").exists());
     let reservation = fixture
         .operation
-        .read("dispatch.nrt", MAX_RECORD_BYTES)
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
         .unwrap();
     fixture
         .operation
-        .write_atomic("dispatch.nrt", &published, PublishMode::Replace)
+        .write_atomic(metadata::FILE, &published, PublishMode::Replace)
         .unwrap();
     assert!(fixture.history().is_ok());
     assert!(
@@ -1539,7 +1679,7 @@ fn retained_reparse_admits_canonical_append_and_refuses_changed_original_custody
     );
     fixture
         .operation
-        .write_atomic("dispatch.nrt", &reservation, PublishMode::Replace)
+        .write_atomic(metadata::FILE, &reservation, PublishMode::Replace)
         .unwrap();
     let recovered = History::read_retained(
         &fixture.operation,
@@ -1565,6 +1705,10 @@ fn explicit_owned_history_rechecks_original_and_namespace_before_any_wallet_effe
         .operation
         .read("original.nrt", MAX_RECORD_BYTES)
         .unwrap();
+    let pristine = fixture
+        .operation
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
+        .unwrap();
     for mutation in 0..4 {
         let history = fixture.history().unwrap();
         match mutation {
@@ -1588,7 +1732,12 @@ fn explicit_owned_history_rechecks_original_and_namespace_before_any_wallet_effe
                 .unwrap(),
         }
         let before = fixture.operation.entries(6).unwrap();
-        let dispatch = read_optional(&fixture.operation, "dispatch.nrt", MAX_RECORD_BYTES).unwrap();
+        let dispatch = read_optional(
+            &fixture.operation,
+            metadata::FILE,
+            metadata::MAX_IMAGE_BYTES,
+        )
+        .unwrap();
         let inspected = std::cell::Cell::new(false);
         let retained = std::cell::Cell::new(false);
         assert!(
@@ -1613,7 +1762,12 @@ fn explicit_owned_history_rechecks_original_and_namespace_before_any_wallet_effe
         assert!(!retained.get(), "mutation {mutation}");
         assert_eq!(fixture.operation.entries(6).unwrap(), before);
         assert_eq!(
-            read_optional(&fixture.operation, "dispatch.nrt", MAX_RECORD_BYTES).unwrap(),
+            read_optional(
+                &fixture.operation,
+                metadata::FILE,
+                metadata::MAX_IMAGE_BYTES
+            )
+            .unwrap(),
             dispatch
         );
         assert!(!fixture.operation.path().join("attempts").exists());
@@ -1627,7 +1781,10 @@ fn explicit_owned_history_rechecks_original_and_namespace_before_any_wallet_effe
                 .write_atomic("original.nrt", &original, PublishMode::CreateNew)
                 .unwrap(),
             2 => std::fs::remove_file(fixture.operation.path().join("foreign.nrt")).unwrap(),
-            _ => std::fs::remove_file(fixture.operation.path().join("dispatch.nrt")).unwrap(),
+            _ => fixture
+                .operation
+                .write_atomic(metadata::FILE, &pristine, PublishMode::Replace)
+                .unwrap(),
         }
         assert!(fixture.history().unwrap().last().is_none());
     }
@@ -1666,9 +1823,12 @@ fn explicit_owned_history_rechecks_original_and_namespace_before_any_wallet_effe
             replacement.read("original.nrt", MAX_RECORD_BYTES).unwrap(),
             original
         );
-        assert!(!path.join("dispatch.nrt").exists());
+        assert!(!path.join(metadata::FILE).exists());
         assert!(!path.join("attempts").exists());
-        assert!(!displaced.join("dispatch.nrt").exists());
+        assert_eq!(
+            std::fs::read(displaced.join(metadata::FILE)).unwrap(),
+            pristine.to_vec()
+        );
         assert!(!displaced.join("attempts").exists());
         drop(replacement);
         std::fs::remove_dir_all(&path).unwrap();
@@ -1708,7 +1868,7 @@ fn explicit_owned_history_keeps_genuine_request_and_refuses_inspection_callback_
     let wallet_path = selected.wallet_path();
     let dispatch = fixture
         .operation
-        .read("dispatch.nrt", MAX_RECORD_BYTES)
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
         .unwrap();
     initial(
         history,
@@ -1758,7 +1918,7 @@ fn explicit_owned_history_keeps_genuine_request_and_refuses_inspection_callback_
     assert_eq!(
         fixture
             .operation
-            .read("dispatch.nrt", MAX_RECORD_BYTES)
+            .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
             .unwrap(),
         dispatch
     );
@@ -1774,6 +1934,105 @@ fn explicit_owned_history_keeps_genuine_request_and_refuses_inspection_callback_
         .unwrap();
     assert_eq!(fixture.history().unwrap().reserved_attempt_count(), 1);
     assert!(peers.requests.lock().unwrap().is_empty());
+    peers.finish();
+}
+
+#[test]
+fn missing_mandatory_image_or_original_refuses_before_republication_or_wallet_effects() {
+    use crate::managed::native_operation::initial_intent::PublishedInitialIntent;
+    use std::cell::Cell;
+
+    let _resources = crate::managed::native_test_guard();
+    let fixture = Fixture::new();
+    let original = fixture
+        .operation
+        .read("original.nrt", MAX_RECORD_BYTES)
+        .unwrap();
+    let image = fixture
+        .operation
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
+        .unwrap();
+    let names = fixture.operation.entries(2).unwrap();
+    assert_eq!(
+        names,
+        [
+            std::ffi::OsString::from(metadata::FILE),
+            std::ffi::OsString::from("original.nrt")
+        ]
+    );
+    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    for name in [metadata::FILE, "original.nrt"] {
+        let history = fixture.history().unwrap();
+        let path = fixture.operation.path().join(name);
+        let held = fixture._temporary.path().join(format!("held-{name}"));
+        std::fs::rename(&path, &held).unwrap();
+        let validated_pending = Cell::new(false);
+        assert!(
+            metadata::recover_original(&fixture.operation, MAX_RECORD_BYTES, |_| {
+                validated_pending.set(true);
+                Ok(())
+            })
+            .is_err()
+        );
+        assert!(
+            !validated_pending.get(),
+            "a promoted operation cannot regain pending publication authority"
+        );
+        assert!(
+            PublishedInitialIntent::publish(
+                &fixture.operation,
+                original.to_vec(),
+                MAX_RECORD_BYTES,
+                "test Original changed"
+            )
+            .is_err()
+        );
+        assert!(fixture.history().is_err());
+        let inspected = Cell::new(false);
+        let retained = Cell::new(false);
+        assert!(
+            initial(
+                history,
+                fixture.terms.clone(),
+                Observation::ordinary(),
+                fixture.deadline,
+                |_| {
+                    inspected.set(true);
+                    Err(invalid("unexpected wallet inspection"))
+                },
+                |_, _, _| {
+                    retained.set(true);
+                    Err(invalid("unexpected wallet retention"))
+                },
+            )
+            .is_err()
+        );
+        assert!(!inspected.get());
+        assert!(!retained.get());
+        assert!(
+            !path.exists(),
+            "read and producer recovery must not recreate a lost promoted file"
+        );
+        assert!(!fixture.operation.path().join("attempts").exists());
+        assert!(peers.requests.lock().unwrap().is_empty());
+        std::fs::rename(&held, &path).unwrap();
+        assert_eq!(fixture.operation.entries(2).unwrap(), names);
+        assert_eq!(
+            fixture
+                .operation
+                .read("original.nrt", MAX_RECORD_BYTES)
+                .unwrap(),
+            original
+        );
+        assert_eq!(
+            fixture
+                .operation
+                .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
+                .unwrap(),
+            image
+        );
+        assert!(fixture.history().unwrap().last().is_none());
+    }
     peers.finish();
 }
 
@@ -1814,3 +2073,6 @@ pub(super) fn operation_record_work<T>(read: impl FnOnce() -> T) -> (T, [usize; 
 
 #[path = "first_reservation_tests.rs"]
 mod first_reservation_tests;
+
+#[path = "retirement_tests.rs"]
+mod retirement_tests;

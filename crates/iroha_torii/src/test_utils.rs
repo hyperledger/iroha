@@ -160,6 +160,7 @@ pub fn commit_native_accepted_inputs(
             parent: &parent,
             view: 0,
             cadence: Duration::from_millis(schedule.params.block_time_ms),
+            proposed_time: std::time::Duration::ZERO,
         },
         &accepted,
     )
@@ -1234,13 +1235,9 @@ pub fn mk_minimal_root_cfg() -> iroha_config::parameters::actual::Root {
             },
         },
         fraud_monitoring: iroha_config::parameters::actual::FraudMonitoring::new(
-            defaults::fraud_monitoring::ENABLED,
             Vec::new(),
             defaults::fraud_monitoring::CONNECT_TIMEOUT,
             defaults::fraud_monitoring::REQUEST_TIMEOUT,
-            defaults::fraud_monitoring::MISSING_ASSESSMENT_GRACE_SECS,
-            None,
-            Vec::new(),
         ),
         zk: A::Zk {
             pipa_r: iroha_config::parameters::actual::PipaR::default(),

@@ -1,6 +1,7 @@
 //! Real retained snapshots bound graph work while preserving original custody and decode refusal.
 
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::stream_token_custody::{
     bootstrap_test_support::NativeEnrollmentReads,
     renewal_tests::{Fixture, wait_until},
@@ -364,7 +365,7 @@ fn genuine_graph_snapshot_pass_bounds_reads_and_preserves_mutation_and_decode_re
         let held = fixture._temporary.path().join("held-oldest-native-tree");
         let result = native.test_native_read_tree(|tree| {
             tree.unwrap().read_scope(oldest, |reader| {
-                reader.read("closed.nrt", attempts::MAX_RECORD_BYTES, |_| ())?;
+                reader.read("operation.nrt", metadata::MAX_IMAGE_BYTES, |_| ())?;
                 std::fs::rename(&path, &held)?;
                 std::fs::create_dir(&path)?;
                 std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))?;
@@ -403,18 +404,14 @@ fn genuine_graph_snapshot_pass_bounds_reads_and_preserves_mutation_and_decode_re
 
     // Closure records are not snapshot memoization candidates: original native metadata
     // and receipt verification must still refuse a changed oldest closed transition.
-    let closed = oldest
-        .read("closed.nrt", attempts::MAX_RECORD_BYTES)
+    let closed = metadata::test_read_component(&oldest, None, "closed.nrt")
+        .unwrap()
         .unwrap();
     let mut changed = closed.to_vec();
     changed[0] ^= 1;
-    oldest
-        .write_atomic("closed.nrt", &changed, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(&oldest, None, "closed.nrt", Some(&changed)).unwrap();
     assert!(native.test_require_current(4).0.is_err());
-    oldest
-        .write_atomic("closed.nrt", &closed, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(&oldest, None, "closed.nrt", Some(&closed)).unwrap();
     native.test_require_current(4).0.unwrap();
 
     // The reverse direction also rereads mutable predecessor closure bytes after a
@@ -423,12 +420,10 @@ fn genuine_graph_snapshot_pass_bounds_reads_and_preserves_mutation_and_decode_re
     let mut changed_closed = closed.to_vec();
     changed_closed[0] ^= 1;
     let (result, census) = native.test_require_current_after_forward(4, move || {
-        target.write_atomic("closed.nrt", &changed_closed, PublishMode::Replace)?;
+        metadata::test_replace_component(&target, None, "closed.nrt", Some(&changed_closed))?;
         Ok(())
     });
-    oldest
-        .write_atomic("closed.nrt", &closed, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(&oldest, None, "closed.nrt", Some(&closed)).unwrap();
     assert!(result.is_err());
     assert!(
         census.visits > 2,
@@ -474,8 +469,8 @@ fn genuine_graph_snapshot_pass_bounds_reads_and_preserves_mutation_and_decode_re
         original
     );
     assert_eq!(
-        oldest
-            .read("closed.nrt", attempts::MAX_RECORD_BYTES)
+        metadata::test_read_component(&oldest, None, "closed.nrt")
+            .unwrap()
             .unwrap(),
         closed
     );
@@ -638,14 +633,14 @@ fn genuine_parser_pass_bounds_prefix_rechecks_and_closes_persistent_errors() {
     assert!(!current.path().join("foreign.nrt").exists());
 
     let oldest = &history.bodies[0].directory;
-    let closed = oldest
-        .read("closed.nrt", attempts::MAX_RECORD_BYTES)
+    let closed = metadata::test_read_component(&oldest, None, "closed.nrt")
+        .unwrap()
         .unwrap();
     let mut changed = closed.to_vec();
     changed[0] ^= 1;
     let result = EnrollmentReadPass::run(&snapshot, |pass| {
         pass.test_retain_predecessor(native)?;
-        oldest.write_atomic("closed.nrt", &changed, PublishMode::Replace)?;
+        metadata::test_replace_component(&oldest, None, "closed.nrt", Some(&changed))?;
         Err::<(), _>(invalid("inner parser observation failed"))
     });
     assert!(result.is_err());
@@ -653,9 +648,7 @@ fn genuine_parser_pass_bounds_prefix_rechecks_and_closes_persistent_errors() {
         !matches!(result, Err(crate::managed::Error::Invalid(message))
         if message == "inner parser observation failed")
     );
-    oldest
-        .write_atomic("closed.nrt", &closed, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(&oldest, None, "closed.nrt", Some(&closed)).unwrap();
     native.test_require_current(4).0.unwrap();
 
     #[cfg(unix)]
@@ -666,18 +659,19 @@ fn genuine_parser_pass_bounds_prefix_rechecks_and_closes_persistent_errors() {
             pass.test_retain_predecessor(native)?;
             std::fs::rename(&path, &held)?;
             let replacement = PrivateDirectory::open_or_create(&path)?;
-            replacement.write_atomic("closed.nrt", &closed, PublishMode::CreateNew)?;
+            let image = std::fs::read(held.join(metadata::FILE))?;
+            replacement.write_atomic(metadata::FILE, &image, PublishMode::CreateNew)?;
             Ok(())
         });
         assert!(result.is_err());
-        std::fs::remove_file(path.join("closed.nrt")).unwrap();
+        std::fs::remove_file(path.join(metadata::FILE)).unwrap();
         std::fs::remove_dir(&path).unwrap();
         std::fs::rename(&held, &path).unwrap();
         native.test_require_current(4).0.unwrap();
     }
     assert_eq!(
-        oldest
-            .read("closed.nrt", attempts::MAX_RECORD_BYTES)
+        metadata::test_read_component(&oldest, None, "closed.nrt")
+            .unwrap()
             .unwrap(),
         closed
     );
@@ -751,20 +745,25 @@ fn genuine_retained_handle_graph_shares_only_original_ancestry_and_closes_errors
 
     // Successful handle custody must never suppress the later canonical source check.
     let attempt = oldest.last().unwrap();
-    let original = attempt
-        .directory()
-        .read("authorization.nrt", attempts::MAX_RECORD_BYTES)
+    let original = metadata::test_read_attempt_component(attempt, "authorization.nrt")
+        .unwrap()
         .unwrap();
-    attempt
-        .directory()
-        .write_atomic("authorization.nrt", b"changed record", PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(
+        &history.bodies[0].directory,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+        Some(b"changed record"),
+    )
+    .unwrap();
     let handles = native.test_retained_handle_census().0;
     let records = native.test_require_current(4).0;
-    attempt
-        .directory()
-        .write_atomic("authorization.nrt", &original, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(
+        &history.bodies[0].directory,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+        Some(&original),
+    )
+    .unwrap();
     handles.unwrap();
     assert!(records.is_err());
     native.test_require_current(4).0.unwrap();
@@ -836,9 +835,8 @@ fn genuine_retained_handle_graph_shares_only_original_ancestry_and_closes_errors
         native.test_retained_handle_census().0.unwrap();
     }
     assert_eq!(
-        attempt
-            .directory()
-            .read("authorization.nrt", attempts::MAX_RECORD_BYTES)
+        metadata::test_read_attempt_component(attempt, "authorization.nrt")
+            .unwrap()
             .unwrap(),
         original
     );

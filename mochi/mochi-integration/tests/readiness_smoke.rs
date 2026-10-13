@@ -56,6 +56,7 @@ fn stream_reader_for_network(
         account_chain_discriminant: iroha_torii_shared::MINAMOTO_CHAIN_DISCRIMINANT,
         basic_auth: None,
         api_token: None,
+        http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
         torii_api_url: format!("http://{addr}/").parse().unwrap(),
         torii_request_timeout: Duration::from_secs(5),
         transaction_ttl: iroha::config::DEFAULT_TRANSACTION_TIME_TO_LIVE,

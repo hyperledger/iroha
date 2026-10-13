@@ -219,7 +219,7 @@ fn original_decoded_graph_survives_actual_prevalidation_policy_refusal_and_retry
             assert_eq!(worker.state.view().height(), 1);
             assert!(matches!(
                 worker.execute(&block, hash, false),
-                Some(ExecOutcome::Valid(_))
+                Some(ExecOutcome::Valid { .. })
             ));
             let PublicationPhase::Executed { valid, .. } = &worker.live.as_ref().unwrap().phase
             else {

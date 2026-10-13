@@ -18,7 +18,7 @@ fn drift_i64() -> i64 {
     i64::try_from(DRIFT).unwrap()
 }
 
-/// `gov.due_work_max_lag_ms` at its lower bound `2·max_clock_drift_ms + 4·block_cadence_ms`.
+/// `sumeragi.due_work_max_lag_ms` at its lower bound `2·max_clock_drift_ms + 4·block_cadence_ms`.
 fn lag(drift: Millis, sc: &Scenario) -> Millis {
     2 * drift + 4 * sc.params.block_time
 }
@@ -454,5 +454,113 @@ fn f33_hidden_prepareqc_due_work_block_commits_after_lag() {
     assert!(
         exercised > 0,
         "a certified stale due-work re-proposal was executed and committed"
+    );
+}
+
+/// A real World execution retains the event owner's clock through completion and signing.
+#[test]
+fn det_ct5_world_retained_execution_rechecks_clock_at_first_prepare() {
+    use crate::crypto::{Signer, SigningError};
+    let mut scenario = Scenario::base("ct5-retained-first-prepare", 7, 4);
+    scenario.workload = None;
+    guarded(
+        &mut scenario,
+        ClockGuard {
+            max_clock_drift_ms: 100,
+            due_work_max_lag_ms: 1_000,
+            ..ClockGuard::default()
+        },
+    );
+    let mut world = World::new(scenario);
+    let replica = world.replica_of(0, 0).unwrap();
+    let base = u64::try_from(world.wall_ms(0)).unwrap();
+    let mut payload = encode_tx_with_due(11, false, true, 0);
+    world.stamp_block_time(0, &mut payload);
+    let instance = &world.instances[0];
+    let body = fixture_body(
+        crate::message::BlockHeader {
+            control_witness: crate::types::ControlWitness::empty(),
+            epoch: instance.config(1).epoch.id,
+            instance: instance.id,
+            height: 1,
+            origin_view: 0,
+            parent_hash: instance.genesis_hash,
+            parent_result: instance.genesis_result,
+            payload_hash: Hash32::ZERO,
+            availability_digest: Hash32::ZERO,
+            payload_len: 0,
+            proposer: 0,
+            skipped_leaders: Vec::new(),
+        },
+        &payload,
+    );
+    let hash = body.hash(&crate::testing::FakeCrypto::new());
+    let parent = world.instances[0].genesis_result;
+    let (outcome, _) = world.exec_outcome(replica, &body, &hash, &parent, false);
+    let ExecOutcome::Valid { result, admission } = outcome else {
+        panic!("real due-work fixture executes");
+    };
+    let request = |certified| {
+        crate::testing::prepare_signing_request(
+            body.header().instance,
+            body.header().epoch,
+            body.header().height,
+            0,
+            hash,
+            result,
+            certified,
+        )
+    };
+    assert_eq!(admission.check(&request(false)), Ok(()));
+    world.set_wall_offset(0, 1_000);
+    assert_eq!(
+        admission.check(&request(false)),
+        Ok(()),
+        "inclusive freshness boundary"
+    );
+    world.set_wall_offset(0, 1_001);
+    let signer = crate::sim::crypto::SimSigner::new(
+        world.replicas[replica].keys[0].clone(),
+        Some(0),
+        world.log.clone(),
+    );
+    let before = world.log.lock().unwrap().len();
+    assert_eq!(
+        signer.sign_prepare(&request(false), &admission),
+        Err(SigningError::StaleExecution {
+            block_time_ms: base,
+            observed_ms: base + 1_001,
+            max_lag_ms: 1_000,
+        }),
+        "a retained World result must not sign after its actual wall clock advances"
+    );
+    assert_eq!(
+        world.log.lock().unwrap().len(),
+        before,
+        "freshness refusal produces no signature"
+    );
+    assert!(
+        signer.sign_prepare(&request(true), &admission).is_ok(),
+        "the exact source's genuine-PQC path remains usable"
+    );
+    let foreign = crate::testing::prepare_signing_request(
+        body.header().instance,
+        body.header().epoch,
+        body.header().height,
+        0,
+        Hash32::ZERO,
+        result,
+        true,
+    );
+    assert_eq!(admission.check(&foreign), Err(SigningError::InvalidInput));
+    world.set_wall_offset(0, 0);
+    assert_eq!(admission.check(&request(false)), Ok(()));
+    world.run_until(2_000);
+    assert!(
+        matches!(
+            admission.check(&request(false)),
+            Err(SigningError::StaleExecution { .. })
+        ),
+        "ordinary event-time advancement also updates the retained signing clock"
     );
 }

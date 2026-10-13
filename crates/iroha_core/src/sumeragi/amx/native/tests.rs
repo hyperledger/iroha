@@ -195,7 +195,26 @@ struct Roots {
 }
 impl Roots {
     fn new() -> Self {
-        let mut global = CertifiedTestChain::start(global_config()).unwrap();
+        Self::new_with_optional_time_source(None)
+    }
+
+    fn new_with_time_source(time_source: iroha_primitives::time::TimeSource) -> Self {
+        Self::new_with_optional_time_source(Some(time_source))
+    }
+
+    fn new_with_optional_time_source(
+        time_source: Option<iroha_primitives::time::TimeSource>,
+    ) -> Self {
+        let start = |config| {
+            let prepared = CertifiedTestChain::prepare(config).unwrap();
+            if let Some(source) = &time_source {
+                CertifiedTestChain::from_prepared_with_time_source(prepared, source.clone())
+            } else {
+                CertifiedTestChain::from_prepared(prepared)
+            }
+            .unwrap()
+        };
+        let mut global = start(global_config());
         let first = global.sign(
             &global_config().genesis_key,
             [iroha_data_model::isi::Log::new(
@@ -206,8 +225,7 @@ impl Roots {
             1_499,
         );
         assert_eq!(global.commit_at(1_500, vec![first]), vec![true]);
-        let participants = [FIRST, SECOND]
-            .map(|id| CertifiedTestChain::start(private_config(&global, id)).unwrap());
+        let participants = [FIRST, SECOND].map(|id| start(private_config(&global, id)));
         assert_ne!(participants[0].network_id(), participants[1].network_id());
         assert!(
             !participants[0]
@@ -262,13 +280,89 @@ impl Roots {
                 })
                 .collect(),
             deadline: self.global.height() + 20,
+            // The original signed-genesis cadence bounds this exact intent; later handoffs
+            // authenticate its historical decision rather than extending the deadline.
+            expires_at_ms: self
+                .global
+                .committed(self.global.height())
+                .block_time_ms()
+                .checked_add(
+                    iroha_data_model::sumeragi_amx::amx_max_time_window_ms(
+                        self.global
+                            .state()
+                            .view()
+                            .world()
+                            .parameters()
+                            .sumeragi()
+                            .block_cadence_ms()
+                            .get(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
             nonce: [nonce; 32],
+        }
+    }
+    fn approval(
+        &self,
+        index: usize,
+        transaction: &AmxTransactionV1,
+    ) -> iroha_data_model::sumeragi_amx::AmxDebitApprovalV1 {
+        let dataspace = [FIRST, SECOND][index];
+        let transfer: AmxTransferLegV1 =
+            norito::decode_canonical(&transaction.leg(dataspace).unwrap().payload).unwrap();
+        iroha_data_model::sumeragi_amx::AmxDebitApprovalV1 {
+            global_network: self.global.network_id(),
+            participant_network: self.participants[index].network_id(),
+            participant_instance: self.participants[index].instance().0,
+            dataspace,
+            transaction_id: transaction.id().unwrap(),
+            debited_asset: transfer.source,
+        }
+    }
+    // Real owner-signed work precedes the final Begin. A carrier signature alone is never consent.
+    fn approve(
+        &mut self,
+        index: usize,
+        transaction: &AmxTransactionV1,
+        relay: AccountId,
+        timestamp_ms: u64,
+    ) {
+        let approval = self.approval(index, transaction);
+        assert_eq!(approval.debited_asset.account(), &account(&payer()));
+        let chain = &mut self.participants[index];
+        let timestamp_ms = timestamp_ms.max(chain.committed(chain.height()).block_time_ms() + 1);
+        let signed = chain.sign(
+            &payer(),
+            [iroha_data_model::isi::Grant::account_permission(
+                approval.permission().unwrap(),
+                relay,
+            )
+            .into()],
+            timestamp_ms - 1,
+        );
+        let outcomes = chain.commit_at(timestamp_ms, vec![signed]);
+        assert_eq!(
+            outcomes,
+            vec![true],
+            "actual debit owner grants the exact native AMX intent: {:?}",
+            chain
+                .committed(chain.height())
+                .block()
+                .network_output_at(0)
+                .map(|(_, output)| &output.result)
+        );
+    }
+    fn approve_all(&mut self, transaction: &AmxTransactionV1) {
+        for index in 0..2 {
+            self.approve(index, transaction, account(&payer()), 2_500);
         }
     }
     fn begin(
         &mut self,
         transaction: &AmxTransactionV1,
     ) -> iroha_data_model::sumeragi_amx::AllocatedAmxRecordProofV1 {
+        self.approve_all(transaction);
         let signed = self.global.sign(
             &global_config().genesis_key,
             [BeginAmxV1 {
@@ -854,7 +948,9 @@ fn native_amx_decision_context_archive_keeps_original_pool_custody_through_copy_
 #[test]
 fn native_amx_enrolled_receiver_records_certified_no_without_monetary_or_maintenance_effects() {
     use iroha_data_model::validation_fee::RetailFeeAccountStateV1;
-    let mut roots = Roots::new();
+    let (local_clock, time_source) =
+        iroha_primitives::time::TimeSource::new_mock(std::time::Duration::from_millis(3_000));
+    let mut roots = Roots::new_with_time_source(time_source);
     let transaction = roots.transaction(100, 0x77);
     let begin = roots.begin(&transaction);
     let enrolled = account(&receiver());
@@ -868,6 +964,7 @@ fn native_amx_enrolled_receiver_records_certified_no_without_monetary_or_mainten
         .into()],
         enrollment_ms - 1,
     );
+    local_clock.set(std::time::Duration::from_millis(enrollment_ms));
     assert_eq!(
         roots.participants[0].commit_at(enrollment_ms, vec![clock]),
         vec![true]
@@ -892,6 +989,7 @@ fn native_amx_enrolled_receiver_records_certified_no_without_monetary_or_mainten
         world.commit();
     }
     let fee_before = balance(chain, FIRST, fee_asset(), account(&payer()));
+    local_clock.set(std::time::Duration::from_millis(enrollment_ms + 1_000));
     let proof = roots.prepare_at(0, &transaction, &begin, enrollment_ms + 1_000);
     let AmxRecordV1::Prepared(prepared) = &proof.canonical().record else {
         panic!("actual certified Prepared")
@@ -1734,3 +1832,11 @@ pub(super) fn with_paid_prepare_pruning_fixture(
 mod returned_context;
 
 mod multisig_semantic;
+
+mod fixture_clock;
+
+pub(super) fn with_paid_global_begin_fixture(
+    test: impl FnOnce(&CertifiedTestChain, iroha_data_model::transaction::SignedTransaction),
+) {
+    paid_borrowed_custody::with_paid_global_begin_fixture(test);
+}

@@ -14,11 +14,14 @@ use iroha_model_base::topology::DataSpaceId;
 
 use super::{
     Instruction, InstructionBox, InstructionStorage,
-    sumeragi_amx::{PrepareAmxV1, RelayAmxPreparedV1, SettleAmxV1},
+    sumeragi_amx::{
+        ExpireAmxV1, PrepareAmxV1, RelayAmxHandoffV1, RelayAmxPreparedV1, RelayGlobalAmxHandoffV1,
+        SettleAmxV1,
+    },
 };
 use crate::sumeragi_amx::{
-    AllocatedAmxRecordProofV1, AmxLegV1, AmxRecordProofV1, AmxRecordV1, AmxTransactionV1,
-    streamed_transaction_id,
+    AllocatedAmxHandoffProofV1, AllocatedAmxRecordProofV1, AmxLegV1, AmxRecordProofV1, AmxRecordV1,
+    AmxTransactionV1, streamed_transaction_id,
 };
 
 /// Actual local refusal before moving the original proof into its immutable instruction owner.
@@ -78,17 +81,108 @@ impl PendingAmxInstructionV1<'_> {
     }
 }
 
+/// Pending original certificate-only handoff; refusal retains every source byte and charge.
+#[derive(Debug)]
+#[must_use = "retain this handoff until funded admission or explicit retirement"]
+pub struct PendingAmxHandoffInstructionV1 {
+    source: Option<AllocatedAmxHandoffProofV1>,
+    target: HandoffTarget,
+}
+#[derive(Clone, Copy, Debug)]
+enum HandoffTarget {
+    /// Private source -> Global, updating Global's tracker for this dataspace.
+    Participant(DataSpaceId),
+    /// Global source -> private destination's Global tracker.
+    Global(DataSpaceId),
+}
+impl AllocatedAmxHandoffProofV1 {
+    /// Move a private boundary proof toward its registered Global coordinator.
+    pub fn into_participant_handoff(
+        self,
+        dataspace: DataSpaceId,
+    ) -> PendingAmxHandoffInstructionV1 {
+        PendingAmxHandoffInstructionV1 {
+            source: Some(self),
+            target: HandoffTarget::Participant(dataspace),
+        }
+    }
+    /// Move a Global boundary proof toward one registered private participant.
+    pub fn into_global_handoff(self, dataspace: DataSpaceId) -> PendingAmxHandoffInstructionV1 {
+        PendingAmxHandoffInstructionV1 {
+            source: Some(self),
+            target: HandoffTarget::Global(dataspace),
+        }
+    }
+}
+impl PendingAmxHandoffInstructionV1 {
+    /// Borrow the same original graph; successful admission consumes it once.
+    pub fn source(&self) -> Option<&AllocatedAmxHandoffProofV1> {
+        self.source.as_ref()
+    }
+    /// Admit the original proof into its registered canonical instruction storage.
+    ///
+    /// # Errors
+    /// Wrong pool, original source loss, cumulative allowance or exact allocation refusal.
+    pub fn complete(&mut self, budget: &AllocationBudget) -> Result<InstructionBox, Error> {
+        let proof = self.source.as_ref().ok_or(Error::Source)?;
+        if !proof.belongs_to(budget) {
+            return Err(Error::Source);
+        }
+        let bytes = ChargedShared::<FundedAmxInstruction>::allocation_layout().size();
+        norito::core::reserve_decode_allocation(bytes)?;
+        let mut reservation = budget.try_reserve_bytes(bytes)?;
+        let construction = Construction::new(0, &mut reservation)?;
+        let shell = ChargedShared::<FundedAmxInstruction>::reserve_from(&mut reservation)?;
+        if reservation.remaining_bytes() != 0 {
+            return Err(Error::Source);
+        }
+        // No fallible operation follows the one source move.
+        let proof = self.source.take().ok_or(Error::Source)?;
+        let additional = ManuallyDrop::new(construction.finish());
+        #[allow(unsafe_code)]
+        let graph = unsafe {
+            // SAFETY: moves the same three canonical buffers; adds no nested backing.
+            proof
+                .into_retained()
+                .map_payload(|proof| match self.target {
+                    HandoffTarget::Participant(dataspace) => {
+                        AmxInstruction::ParticipantHandoff(RelayAmxHandoffV1 { dataspace, proof })
+                    }
+                    HandoffTarget::Global(dataspace) => {
+                        AmxInstruction::GlobalHandoff(RelayGlobalAmxHandoffV1 { dataspace, proof })
+                    }
+                })
+        };
+        let owner = shell.initialize(FundedAmxInstruction {
+            graph: ManuallyDrop::new(graph),
+            additional,
+        });
+        Ok(InstructionBox(InstructionStorage::Amx(
+            SharedAmxInstruction(owner),
+        )))
+    }
+}
+
 pub(super) enum AmxInstruction {
     Relay(RelayAmxPreparedV1),
     Prepare(PrepareAmxV1),
+    Expire {
+        instruction: ExpireAmxV1,
+        begin: AmxRecordProofV1,
+    },
     Settle(SettleAmxV1),
+    ParticipantHandoff(RelayAmxHandoffV1),
+    GlobalHandoff(RelayGlobalAmxHandoffV1),
 }
 impl AmxInstruction {
     fn registered(&self) -> &dyn Instruction {
         match self {
             Self::Relay(value) => value,
             Self::Prepare(value) => value,
+            Self::Expire { instruction, .. } => instruction,
             Self::Settle(value) => value,
+            Self::ParticipantHandoff(value) => value,
+            Self::GlobalHandoff(value) => value,
         }
     }
 }
@@ -160,6 +254,17 @@ impl fmt::Debug for SharedAmxInstruction {
 }
 
 impl InstructionBox {
+    /// Borrow the physically retained Begin graph of a source-admitted expiry instruction.
+    /// This observes original allocation custody only; it does not authenticate a proof.
+    pub fn amx_expiry_begin(&self) -> Option<&AmxRecordProofV1> {
+        let InstructionStorage::Amx(owner) = &self.0 else {
+            return None;
+        };
+        match owner.0.graph.get() {
+            AmxInstruction::Expire { begin, .. } => Some(begin),
+            _ => None,
+        }
+    }
     /// Observe funding of the retained native AMX proof and its instruction storage only.
     /// Other instructions and ordinary envelope/decoder allocations do not gain this claim.
     pub fn amx_proof_admitted_to(&self, budget: &AllocationBudget) -> bool {
@@ -224,6 +329,15 @@ impl AllocatedAmxRecordProofV1 {
             }),
         }
     }
+    /// Select Global expiry while retaining the complete original Begin proof privately.
+    /// The small wire instruction carries only its identity; this owner authenticates nothing.
+    pub fn into_expire(self) -> PendingAmxInstructionV1<'static> {
+        PendingAmxInstructionV1 {
+            source: Some(self),
+            action: Action::Expire,
+            transaction: None,
+        }
+    }
     /// Select Settle while retaining one original Decision record in a resumable owner.
     pub fn into_settle(self, dataspace: DataSpaceId) -> PendingAmxInstructionV1<'static> {
         PendingAmxInstructionV1 {
@@ -236,6 +350,7 @@ impl AllocatedAmxRecordProofV1 {
 
 enum Action {
     Relay,
+    Expire,
     Prepare(DataSpaceId),
     Settle(DataSpaceId),
 }
@@ -287,12 +402,14 @@ impl Action {
         let mut count = 0usize;
         match (self, &proof.record) {
             (Self::Relay, AmxRecordV1::Prepared(_))
-            | (Self::Settle(_), AmxRecordV1::Decision(_)) => {}
+            | (Self::Settle(_), AmxRecordV1::Decision(_))
+            | (Self::Expire, AmxRecordV1::Begin(_)) => {}
             (Self::Prepare(_), AmxRecordV1::Begin(begin)) => {
                 let transaction = transaction.ok_or(Error::Source)?.transaction()?;
                 transaction.validate().map_err(|_| Error::Source)?;
                 if streamed_transaction_id(transaction)? != begin.tx
                     || transaction.deadline != begin.deadline
+                    || transaction.expires_at_ms != begin.expires_at_ms
                     || transaction
                         .legs
                         .iter()
@@ -336,6 +453,7 @@ impl Action {
 
 enum PreparedAction {
     Relay,
+    Expire,
     Prepare(DataSpaceId, AmxTransactionV1),
     Settle(DataSpaceId),
 }
@@ -359,6 +477,7 @@ fn into_instruction(
     let shell = ChargedShared::<FundedAmxInstruction>::reserve_from(&mut reservation)?;
     let action = match &job.action {
         Action::Relay => PreparedAction::Relay,
+        Action::Expire => PreparedAction::Expire,
         Action::Settle(dataspace) => PreparedAction::Settle(*dataspace),
         Action::Prepare(dataspace) => PreparedAction::Prepare(
             *dataspace,
@@ -389,6 +508,12 @@ fn into_instruction(
     let graph = unsafe {
         proof.into_retained().map_payload(|proof| match action {
             PreparedAction::Relay => AmxInstruction::Relay(RelayAmxPreparedV1 { proof }),
+            PreparedAction::Expire => AmxInstruction::Expire {
+                instruction: ExpireAmxV1 {
+                    tx: proof.record.tx(),
+                },
+                begin: proof,
+            },
             PreparedAction::Settle(dataspace) => AmxInstruction::Settle(SettleAmxV1 {
                 dataspace,
                 decision: proof,
@@ -454,6 +579,7 @@ impl Construction {
         Ok(AmxTransactionV1 {
             legs: self.take(legs),
             deadline: source.deadline,
+            expires_at_ms: source.expires_at_ms,
             nonce: source.nonce,
         })
     }
@@ -501,6 +627,7 @@ mod tests {
                         })
                         .collect(),
                     deadline: 100,
+                    expires_at_ms: 1_000_000,
                     nonce: [9; 32],
                 };
                 transaction.validate().unwrap();
@@ -908,5 +1035,97 @@ mod tests {
             0,
             "the last owner returns every exact proof, additional ledger and shared shell charge"
         );
+    }
+    #[test]
+    fn certificate_only_handoff_keeps_all_original_buffers_through_refusal_clone_and_wire() {
+        use crate::block::CommitCertificate;
+        // These offchain bytes exercise physical custody only. Core tests authenticate real
+        // epoch-boundary certificates before this same allocation/registered-ISI path.
+        let certificate = CommitCertificate::from_untrusted_parts(
+            vec![0x11; 13],
+            vec![0x22; 23],
+            vec![0x33; 37],
+            Vec::new(),
+        );
+        let proof_bytes = 13 + 23 + 37 + Layout::array::<AllocationCharge>(3).unwrap().size();
+        let short = AllocationBudget::new(proof_bytes - 1);
+        assert!(matches!(
+            AllocatedAmxHandoffProofV1::from_original_certificate(&certificate, &short),
+            Err(crate::sumeragi_amx::AmxProofAllocationErrorV1::Admission(_))
+        ));
+        assert_eq!(short.reserved_bytes(), 0);
+        for to_global in [false, true] {
+            let pool = AllocationBudget::new(1 << 20);
+            let source =
+                AllocatedAmxHandoffProofV1::from_original_certificate(&certificate, &pool).unwrap();
+            assert_eq!(source.allocation_bytes(), Some(proof_bytes));
+            let pointers = |proof: &crate::sumeragi_amx::AmxHandoffProofV1| {
+                [
+                    proof.block.consensus_header.as_ptr() as usize,
+                    proof.block.commit_qc.as_ptr() as usize,
+                    proof.block.result_preimage.as_ptr() as usize,
+                ]
+            };
+            let original = pointers(source.canonical());
+            let expected = norito::encode_canonical(source.canonical()).unwrap();
+            let mut pending = if to_global {
+                source.into_participant_handoff(DataSpaceId::new(21))
+            } else {
+                source.into_global_handoff(DataSpaceId::new(21))
+            };
+            let foreign = AllocationBudget::new(1 << 20);
+            assert!(matches!(pending.complete(&foreign), Err(Error::Source)));
+            assert_eq!(foreign.reserved_bytes(), 0);
+            let shell_bytes = ChargedShared::<FundedAmxInstruction>::allocation_layout().size();
+            let held = pool
+                .try_reserve_bytes(pool.limit_bytes() - proof_bytes - shell_bytes + 1)
+                .unwrap();
+            assert!(matches!(pending.complete(&pool), Err(Error::Admission(_))));
+            assert_eq!(pointers(pending.source().unwrap().canonical()), original);
+            drop(held);
+            let instruction = pending.complete(&pool).unwrap();
+            assert!(pending.source().is_none());
+            assert!(pending.complete(&pool).is_err());
+            assert_eq!(pool.reserved_bytes(), proof_bytes + shell_bytes);
+            let reader = instruction.clone();
+            drop(instruction);
+            let proof = if to_global {
+                &reader
+                    .as_any()
+                    .downcast_ref::<RelayAmxHandoffV1>()
+                    .unwrap()
+                    .proof
+            } else {
+                &reader
+                    .as_any()
+                    .downcast_ref::<RelayGlobalAmxHandoffV1>()
+                    .unwrap()
+                    .proof
+            };
+            assert_eq!(pointers(proof), original);
+            assert_eq!(norito::encode_canonical(proof).unwrap(), expected);
+            let wire = norito::encode_canonical(&reader).unwrap();
+            let decoded: InstructionBox = norito::decode_from_bytes(&wire).unwrap();
+            assert_eq!(decoded, reader);
+            drop(decoded);
+            assert!(reader.amx_proof_admitted_to(&pool));
+            drop(reader);
+            assert_eq!(pool.reserved_bytes(), 0);
+        }
+        for certificate in [
+            CommitCertificate::from_untrusted_parts(Vec::new(), vec![1], vec![2], Vec::new()),
+            CommitCertificate::from_untrusted_parts(
+                vec![1],
+                vec![2; crate::sumeragi_amx::MAX_AMX_QC_BYTES + 1],
+                vec![3],
+                Vec::new(),
+            ),
+        ] {
+            let pool = AllocationBudget::new(1 << 20);
+            assert!(
+                AllocatedAmxHandoffProofV1::from_original_certificate(&certificate, &pool).is_err()
+            );
+            assert_eq!(pool.reserved_bytes(), 0);
+        }
     }
 }

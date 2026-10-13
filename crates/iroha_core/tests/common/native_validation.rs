@@ -27,6 +27,7 @@ pub(super) fn proposal(chain: &CertifiedTestChain, txs: Vec<SignedTransaction>) 
             parent: chain.committed(chain.height()).block(),
             view: 0,
             cadence: Duration::from_millis(1),
+            proposed_time: std::time::Duration::ZERO,
         },
         &inputs,
     )

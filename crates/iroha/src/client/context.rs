@@ -15,6 +15,8 @@ pub struct ClientBuilder {
     pub network_id: NetworkId,
     /// The validated Torii endpoint.
     pub torii_url: Url,
+    // Retained from Config; rebinding an endpoint cannot broaden this policy.
+    http_transport_policy: crate::config::HttpTransportPolicy,
     /// The address-formatting discriminant.
     pub account_chain_discriminant: u16,
     /// The configured account signing key.
@@ -67,6 +69,7 @@ impl ClientBuilder {
             account,
             account_chain_discriminant,
             torii_api_url,
+            http_transport_policy,
             torii_request_timeout,
             key_pair,
             basic_auth,
@@ -102,6 +105,7 @@ impl ClientBuilder {
             account_chain_discriminant,
             key_pair,
             torii_url: torii_api_url,
+            http_transport_policy,
             torii_request_timeout,
             transaction_ttl: Some(transaction_ttl),
             transaction_status_timeout,
@@ -122,6 +126,7 @@ impl ClientBuilder {
             chain: client.chain.clone(),
             network_id: client.network_id,
             torii_url: client.torii_url.clone(),
+            http_transport_policy: client.http_transport_policy(),
             account_chain_discriminant: client.account_chain_discriminant,
             key_pair: client.key_pair.clone(),
             transaction_ttl: client.transaction_ttl,
@@ -156,7 +161,10 @@ impl ClientBuilder {
     /// Select the transport used by this context and all of its authority views.
     #[must_use]
     pub fn http_transport(mut self, transport: Arc<dyn crate::http::HttpTransport>) -> Self {
-        self.http_transport = Some(DefaultHttpTransport::from_shared(transport));
+        self.http_transport = Some(match self.http_transport {
+            Some(current) => current.with_inner(transport),
+            None => DefaultHttpTransport::from_shared(transport),
+        });
         self
     }
 
@@ -175,6 +183,9 @@ impl ClientBuilder {
     pub fn build(mut self) -> crate::Result<Client> {
         self.torii_url = crate::config::normalize_torii_api_url(self.torii_url);
         validate_endpoint(&self.torii_url)?;
+        if !self.http_transport_policy.permits_url(&self.torii_url) {
+            return Err(AuthorityContextError::DirectLoopbackEndpoint.into());
+        }
         validate_authority(&self.account, &self.key_pair)?;
         if self.account_chain_discriminant == 0 {
             return Err(AuthorityContextError::InvalidAddressDiscriminant.into());
@@ -211,7 +222,10 @@ impl ClientBuilder {
             default_anonymity_policy: self.default_anonymity_policy,
             rollout_phase: self.rollout_phase,
             wire_format_preference: self.wire_format_preference,
-            http_transport: self.http_transport.unwrap_or_default(),
+            http_transport: self
+                .http_transport
+                .unwrap_or_default()
+                .with_policy(self.http_transport_policy),
             stream_transport: self
                 .stream_transport
                 .unwrap_or_else(|| Arc::new(crate::stream::DefaultStreamTransport)),
@@ -239,6 +253,12 @@ impl Client {
     #[must_use]
     pub fn endpoint(&self) -> &Url {
         &self.torii_url
+    }
+
+    /// Return the HTTP routing policy fixed at construction.
+    #[must_use]
+    pub fn http_transport_policy(&self) -> crate::config::HttpTransportPolicy {
+        self.http_transport.policy()
     }
 
     /// Return the address-formatting discriminant fixed at construction.
@@ -361,3 +381,7 @@ pub(super) fn validate_authority(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "context/transport_policy_tests.rs"]
+mod transport_policy_tests;

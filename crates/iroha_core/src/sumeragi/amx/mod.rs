@@ -59,7 +59,9 @@ use iroha_data_model::{
     account::AccountId,
     isi::{
         error::InstructionExecutionError as Error,
-        sumeragi_amx::{BeginAmxV1, RegisterAmxDataspaceV1, RelayAmxHandoffV1, RelayAmxPreparedV1},
+        sumeragi_amx::{
+            BeginAmxV1, ExpireAmxV1, RegisterAmxDataspaceV1, RelayAmxHandoffV1, RelayAmxPreparedV1,
+        },
     },
     permission::Permission,
     sumeragi::epoch::ValidatorEpochContextV1,
@@ -186,13 +188,58 @@ impl Execute for BeginAmxV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         let height = state_transaction._curr_block.height().get();
+        let block_time_ms = state_transaction
+            ._curr_block
+            .creation_time()
+            .as_millis()
+            .try_into()
+            .map_err(|_| {
+                amx_error(
+                    AmxError::State("AMX block time overflows"),
+                    state_transaction,
+                )
+            })?;
+        let cadence_ms = state_transaction
+            .world
+            .parameters()
+            .sumeragi()
+            .block_cadence_ms
+            .get();
         let record = state_transaction
             .world
             .sumeragi_amx
             .get_mut()
-            .begin(height, &self.transaction)
+            .begin(height, block_time_ms, cadence_ms, &self.transaction)
             .map_err(|error| amx_error(error, state_transaction))?;
         write(&record).map_err(|error| amx_error(error, state_transaction))
+    }
+}
+
+impl Execute for ExpireAmxV1 {
+    fn execute(
+        self,
+        _authority: &AccountId,
+        state_transaction: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), Error> {
+        let height = state_transaction._curr_block.height().get();
+        let block_time_ms = state_transaction
+            ._curr_block
+            .creation_time()
+            .as_millis()
+            .try_into()
+            .map_err(|_| {
+                amx_error(
+                    AmxError::State("AMX block time overflows"),
+                    state_transaction,
+                )
+            })?;
+        let decision = state_transaction
+            .world
+            .sumeragi_amx
+            .get_mut()
+            .expire_one(height, block_time_ms, &self.tx)
+            .map_err(|error| amx_error(error, state_transaction))?;
+        write(&AmxRecordV1::Decision(decision)).map_err(|error| amx_error(error, state_transaction))
     }
 }
 
@@ -213,6 +260,17 @@ pub(crate) fn execute_relay_prepared_original(
     state_transaction: &mut StateTransaction<'_, '_>,
 ) -> Result<(), Error> {
     let height = state_transaction._curr_block.height().get();
+    let block_time_ms = state_transaction
+        ._curr_block
+        .creation_time()
+        .as_millis()
+        .try_into()
+        .map_err(|_| {
+            amx_error(
+                AmxError::State("AMX block time overflows"),
+                state_transaction,
+            )
+        })?;
     // Proofs of unknown or decided transactions are ignored without touching the cell.
     let known = state_transaction
         .world
@@ -226,7 +284,7 @@ pub(crate) fn execute_relay_prepared_original(
         .world
         .sumeragi_amx
         .get_mut()
-        .relay_prepared(height, &instruction.proof)
+        .relay_prepared(height, block_time_ms, &instruction.proof)
         .map_err(|error| amx_error(error, state_transaction))?;
     if let AmxRelayOutcome::Decided(decision) = outcome {
         write(&AmxRecordV1::Decision(decision))
@@ -272,13 +330,19 @@ impl StateBlock<'_> {
         mut record: impl FnMut(&AmxRecordV1) -> Result<(), AmxError>,
     ) -> Result<usize, AmxError> {
         let height = self._curr_block.height().get();
+        let block_time_ms = self
+            ._curr_block
+            .creation_time()
+            .as_millis()
+            .try_into()
+            .map_err(|_| AmxError::State("AMX block time overflows"))?;
         if !self
             .world
             .sumeragi_amx
             .get()
             .transactions
             .iter()
-            .any(|entry| entry.begin.deadline < height)
+            .any(|entry| entry.begin.is_due(height, block_time_ms))
         {
             return Ok(0);
         }
@@ -286,7 +350,9 @@ impl StateBlock<'_> {
             .world
             .sumeragi_amx
             .get_mut()
-            .expire(height, |decision| record(&AmxRecordV1::Decision(decision)));
+            .expire(height, block_time_ms, |decision| {
+                record(&AmxRecordV1::Decision(decision))
+            });
         #[cfg(all(test, sumeragi_core_mutation = "HC161"))]
         {
             outcome.map_err(|error| AmxError::Encoding(error.to_string()))
@@ -314,6 +380,7 @@ pub(crate) use native::{execute_prepare_original, execute_settle_original};
 
 #[cfg(test)]
 pub(crate) use native::{
-    NativeLegExecutionError, NativeLegRetryObservation, with_paid_multisig_prepare_retry_fixture,
-    with_paid_prepare_pruning_fixture, with_paid_prepare_retry_fixture,
+    NativeLegExecutionError, NativeLegRetryObservation, with_paid_global_begin_fixture,
+    with_paid_multisig_prepare_retry_fixture, with_paid_prepare_pruning_fixture,
+    with_paid_prepare_retry_fixture,
 };

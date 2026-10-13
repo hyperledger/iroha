@@ -149,6 +149,7 @@ impl PreparedLocalnet {
             &bytes,
         )
         .map_err(|_| invalid())?;
+        self.context.validate_client_config(&client)?;
         let table = crate::secret_toml::parse_table(
             std::str::from_utf8(&bytes).map_err(|_| invalid())?,
             "generated publication client",
@@ -244,6 +245,7 @@ impl PreparedLocalnet {
             )
             .map_err(|_| invalid())?,
             &identity,
+            HttpTransportPolicy::DirectLoopback,
             Some(&public),
         )
         .map_err(|_| invalid())?;

@@ -488,8 +488,13 @@ pub(crate) fn validate_executed_genesis(
 ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ScheduleError>> {
     use iroha_data_model::{consensus::ConsensusKeyRole, parameter::system::ConsensusMode};
     context.validate().map_err(ScheduleError::Epoch)?;
-    iroha_data_model::parameter::system::validate_max_clock_drift_ms(
-        world.parameters().sumeragi().max_clock_drift_ms(),
+    world
+        .parameters()
+        .sumeragi()
+        .validate_clock_policy()
+        .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
+    iroha_data_model::sumeragi_amx::amx_max_time_window_ms(
+        world.parameters().sumeragi().block_cadence_ms().get(),
     )
     .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
     crate::resource_coherence::validate_final_policy(world, 1)

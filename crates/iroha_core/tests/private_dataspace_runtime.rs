@@ -642,6 +642,7 @@ fn runtime_private_dataspace_executes_concrete_work_after_certified_activation()
                 parent: &parent,
                 view: 0,
                 cadence,
+                proposed_time: std::time::Duration::ZERO,
             },
             &[],
             &merges,

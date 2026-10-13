@@ -925,7 +925,7 @@ fn parse_parent_ready(value: Value) -> TestResult<ManagedStatus> {
     Ok(ready)
 }
 
-fn original_parent(
+pub(super) fn original_parent(
     prepared: &PreparedLocalnet,
 ) -> TestResult<(
     GenesisAnchor,
@@ -1035,7 +1035,7 @@ fn original_parent(
     ))
 }
 
-fn source_for(
+pub(super) fn source_for(
     prepared: &PreparedLocalnet,
     config: &Config,
     peers: &[PeerId],

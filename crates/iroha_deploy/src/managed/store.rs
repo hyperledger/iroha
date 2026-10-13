@@ -40,6 +40,26 @@ impl LocalnetPorts {
         })
     }
 
+    /// Lend the exact already-bound Torii sockets to an owned native test fixture.
+    #[cfg(test)]
+    pub(in crate::managed) fn clone_api_listeners(&self) -> std::io::Result<Vec<TcpListener>> {
+        self.reservations[..4]
+            .iter()
+            .enumerate()
+            .map(|(index, listener)| {
+                assert_eq!(
+                    listener.local_addr()?,
+                    (
+                        Ipv4Addr::LOCALHOST,
+                        self.base_api + u16::try_from(index).unwrap()
+                    )
+                        .into()
+                );
+                listener.try_clone()
+            })
+            .collect()
+    }
+
     /// Number of sockets still reserved by this preparation.
     #[must_use]
     pub fn reserved_count(&self) -> usize {

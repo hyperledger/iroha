@@ -546,9 +546,10 @@ pub fn validate_policy(policy: &SumeragiLanePolicy) -> Result<(), String> {
 }
 
 fn validate_lane_params(params: &SumeragiParameters) -> Result<(), String> {
-    // The application drift is absent from ChainParamsRecord, but remains committed
+    // Application clock policy is absent from ChainParamsRecord but remains committed
     // and pinned for the entire lane incarnation alongside those consensus parameters.
-    iroha_data_model::parameter::system::validate_max_clock_drift_ms(params.max_clock_drift_ms)
+    params
+        .validate_clock_policy()
         .map_err(|error| format!("lane parameters: {error}"))?;
     ChainParamsRecord::from_parameters(params)
         .validate()
@@ -764,10 +765,18 @@ mod tests {
         use iroha_data_model::parameter::system::MAX_CLOCK_DRIFT_BOUND_MS;
 
         let mut policy = policy();
+        policy.lane_params.due_work_max_lag_ms = std::num::NonZeroU64::new(124_000).unwrap();
         for value in [0, MAX_CLOCK_DRIFT_BOUND_MS] {
             policy.lane_params.max_clock_drift_ms = value;
             assert_eq!(validate_policy(&policy), Ok(()));
         }
+        policy.lane_params.max_clock_drift_ms = 1_000;
+        policy.lane_params.due_work_max_lag_ms = std::num::NonZeroU64::new(5_999).unwrap();
+        assert!(
+            validate_policy(&policy)
+                .unwrap_err()
+                .contains("due_work_max_lag_ms")
+        );
         for value in [MAX_CLOCK_DRIFT_BOUND_MS + 1, u64::MAX] {
             policy.lane_params.max_clock_drift_ms = value;
             assert!(

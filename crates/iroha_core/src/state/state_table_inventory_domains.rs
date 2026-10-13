@@ -55,6 +55,15 @@ pub(super) struct OtherDomains {
 /// Every discovered domain literal that no commitment and no application accumulator owns.
 pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     OtherDomains {
+        usage: Use::Name,
+        reason: "Nominal Model codec identities of the committed fraud admission policy and its exact components; the value lives in world.parameters, and these literals select schema identities rather than hash domains or independent State roots",
+        literals: &[
+            r"iroha:fraud:admission-attester:v1",
+            r"iroha:fraud:admission-policy:v1",
+            r"iroha:fraud:risk-band:v1",
+        ],
+    },
+    OtherDomains {
         usage: Use::Record,
         reason: "Root of one canonical ordered native BLS committee key list. It identifies the committee retained in a generation and bound by finality X; it is not a digest over the generation table or a substitute for authenticated schedule authority",
         literals: &[r"SCCP/COMMITTEE/V1"],
@@ -443,8 +452,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha:state:content:v1",
             r"iroha:state:crypto:v1",
             r"iroha:state:executor-semantic:v1",
-            r"iroha:state:fraud-monitoring-attester:v1",
-            r"iroha:state:fraud_monitoring:v1",
             r"iroha:state:governance-vk-ref:v1",
             r"iroha:state:governance:v1",
             r"iroha:state:lane-manifest-bound-catalog-row:v1",
@@ -527,6 +534,7 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha.private_settlement.rotate_pool_policy.v1",
             r"iroha.streaming.snapshot.v1",
             r"iroha.sumeragi.amx.begin.v1",
+            r"iroha.sumeragi.amx.expire.v1",
             r"iroha.sumeragi.amx.prepare.v1",
             r"iroha.sumeragi.amx.register_dataspace.v1",
             r"iroha.sumeragi.amx.register_participant.v1",

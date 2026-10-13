@@ -41,6 +41,14 @@ impl ValidBlock {
                 "staged genesis cadence {actual_cadence} ms differs from authenticated signed cadence {signed_cadence} ms"
             )));
         }
+        state
+            .world()
+            .parameters()
+            .sumeragi()
+            .validate_clock_policy()
+            .map_err(|error| Self::execution_context_error(error.to_string()))?;
+        iroha_data_model::sumeragi_amx::amx_max_time_window_ms(actual_cadence)
+            .map_err(|error| Self::execution_context_error(error.to_string()))?;
         Ok(())
     }
 
@@ -93,6 +101,85 @@ mod native_genesis_policy_tests {
             );
         }
     }
+
+    #[test]
+    fn native_signed_genesis_ignores_local_fraud_policy_and_transport() {
+        use crate::{
+            state::World,
+            sumeragi::{
+                network_topology::Topology,
+                test_chain::{CertifiedTestChain, TestChainConfig},
+            },
+        };
+        use iroha_config::parameters::actual::FraudMonitoring;
+        use iroha_data_model::fraud::FraudRiskBandV1;
+        use iroha_primitives::time::TimeSource;
+        use std::{sync::Arc, time::Duration};
+
+        let fraud = FraudMonitoring {
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(FraudRiskBandV1::Low),
+                missing_assessment_permitted: false,
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
+            ..FraudMonitoring::default()
+        };
+        let mut config = TestChainConfig::new(World::new(), 1_000);
+        config.fraud_monitoring = fraud.clone();
+        let authority = AccountId::new(config.genesis_key.public_key().clone());
+        let mut prepared =
+            CertifiedTestChain::prepare(config).expect("original signed genesis fixture");
+        let genesis = prepared.genesis.block().clone();
+        let original_hash = genesis.hash();
+        let topology = Topology::new(
+            prepared
+                .validator_keys
+                .iter()
+                .map(|key| PeerId::new(key.public_key().clone())),
+        );
+        let validate = |state: &crate::state::State| {
+            let result = ValidBlock::validate_signed_genesis(
+                genesis.clone(),
+                &topology,
+                &authority,
+                &TimeSource::new_system(),
+                state,
+                iroha_data_model::parameter::system::ConsensusMode::Permissioned,
+                iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            )
+            .unpack(|_| {});
+            match result {
+                Ok(staged) => drop(staged),
+                Err((_, error)) => panic!(
+                    "the unchanged signed genesis must use committed fraud policy, not node settings: {error}"
+                ),
+            }
+        };
+        validate(&prepared.state);
+
+        let mut local = fraud;
+        local.service_endpoints = vec!["https://unavailable.invalid/assess".parse().unwrap()];
+        local.connect_timeout = Duration::from_millis(1);
+        local.request_timeout = Duration::from_millis(2);
+        Arc::get_mut(&mut prepared.state)
+            .expect("the unapplied fixture retains its sole State owner")
+            .install_node_fraud_monitoring(local.clone());
+        validate(&prepared.state);
+
+        // A caller can mutate this effective test projection, but node installation
+        // discards its semantic fields and derives them from committed parameters.
+        // The authored genesis policy therefore remains the only admission authority.
+        local.policy.missing_assessment_permitted = true;
+        Arc::get_mut(&mut prepared.state)
+            .expect("validation releases its original State borrow")
+            .install_node_fraud_monitoring(local);
+        validate(&prepared.state);
+        assert_eq!(prepared.genesis.block().hash(), original_hash);
+        assert_eq!(prepared.state.committed_height(), 0);
+        assert_eq!(prepared.kura.exact_durable_blocks_count().unwrap(), 0);
+    }
+
     #[test]
     fn native_final_genesis_policy_requires_exact_executed_cadence_before_publication() {
         use crate::{
@@ -165,5 +252,19 @@ mod native_genesis_policy_tests {
         }
         ValidBlock::validate_native_genesis_policy(genesis, &staged)
             .expect("restoring the exact original staged cadence restores acceptance");
+        {
+            let parameters = staged.world.parameters.get_mut();
+            let mut consensus = parameters.sumeragi().clone();
+            consensus.due_work_max_lag_ms = std::num::NonZeroU64::new(5_999).unwrap();
+            parameters.set_sumeragi(consensus);
+        }
+        let error = ValidBlock::validate_native_genesis_policy(genesis, &staged)
+            .expect_err("the final executed policy must preserve the combined CT5 margin");
+        assert!(
+            matches!(error, BlockValidationError::ExecutionContextInvalid(ref reason) if reason.contains("due_work_max_lag_ms")),
+            "{error}"
+        );
+        assert_eq!(prepared.state.committed_height(), 0);
+        assert_eq!(prepared.kura.exact_durable_blocks_count().unwrap(), 0);
     }
 }

@@ -44,12 +44,20 @@ pub(super) fn with_worker_from(
     ) + Send
     + 'static,
 ) {
-    with_worker_from_clock(
-        make_chain,
-        consensus_mode,
-        iroha_primitives::time::TimeSource::new_system(),
-        test,
-    );
+    crate::sumeragi::threads::sumeragi_thread_builder("sumeragi-publication-test")
+        .spawn(move || {
+            let chain = make_chain();
+            with_worker_chain_and_clock(
+                &chain,
+                consensus_mode,
+                Arc::new(crate::sumeragi::lanes::merge::NoLanes),
+                fixture_clock(&chain),
+                test,
+            );
+        })
+        .expect("spawn publication worker fixture")
+        .join()
+        .expect("publication worker fixture");
 }
 
 /// Construct the actual Global executor with a caller-controlled local clock.
@@ -117,9 +125,27 @@ pub(super) fn with_worker_chain(
         chain,
         consensus_mode,
         lane_blocks,
-        iroha_primitives::time::TimeSource::new_system(),
+        fixture_clock(chain),
         test,
     );
+}
+
+fn fixture_clock(chain: &CertifiedTestChain) -> iroha_primitives::time::TimeSource {
+    let view = chain.state().view();
+    let parent = view.latest_block().unwrap().unwrap();
+    let cadence = view
+        .world()
+        .consensus_schedule()
+        .ready(chain.height() + 1)
+        .unwrap()
+        .params
+        .block_time_ms;
+    // Each ordinary fixture signs its next work within one second of its real tip.
+    // Tests of ahead/rewound clocks inject their own source through the explicit helpers.
+    iroha_primitives::time::TimeSource::new_mock(
+        parent.header().creation_time() + Duration::from_millis(cadence.max(1_001)),
+    )
+    .1
 }
 
 /// Borrow the original chain and lane source while injecting its local executor clock.
@@ -382,7 +408,7 @@ fn payload_decode_refusal_retains_available_owner_without_negative_cache() {
         drop(epoch);
         assert!(matches!(
             worker.execute(&block, hash, false),
-            Some(ExecOutcome::Valid(_))
+            Some(ExecOutcome::Valid { .. })
         ));
         assert!(!worker.results.contains_key(&hash));
         assert!(worker.signature_decode.is_none());
@@ -649,6 +675,7 @@ pub(super) fn proposal_with_transactions(
             parent: &parent,
             view: 0,
             cadence,
+            proposed_time: block_time,
         },
         &accepted,
     )
@@ -685,7 +712,7 @@ fn execute_proposal(
 ) -> (AvailableBody, Qc) {
     let crypto = worker.context.crypto.as_ref().unwrap();
     let block_hash = block.hash(&**crypto);
-    let Some(ExecOutcome::Valid(result)) = worker.execute(&block, block_hash, false) else {
+    let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, block_hash, false) else {
         panic!("original native validation must succeed")
     };
     let height = block.header().height;
@@ -1688,7 +1715,7 @@ fn context_proof_capacity_retry_retains_original_witness_inputs_and_execution() 
                     .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
                     .unwrap(),
             );
-            worker.finish_execution_with_encoder(encode_result_preimage)
+            worker.finish_execution_with_encoder(false, encode_result_preimage)
         });
         assert!(matches!(outcome, Err(_)));
         assert!(worker.recovery.is_none());
@@ -1736,7 +1763,8 @@ fn context_proof_capacity_retry_retains_original_witness_inputs_and_execution() 
         }
         assert!(events.try_recv().is_err());
         drop(occupied);
-        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, block_hash, false) else {
+        let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, block_hash, false)
+        else {
             panic!("same original execution completes after real pool release")
         };
         assert!(worker.finishing.is_none());
@@ -1845,7 +1873,8 @@ fn result_encoding_capacity_retry_keeps_original_execution_and_allocation_custod
         }
         assert!(events.try_recv().is_err());
         drop(occupied);
-        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, block_hash, false) else {
+        let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, block_hash, false)
+        else {
             panic!("release permits encoding of the same original execution");
         };
         assert!(worker.finishing.is_none());
@@ -2842,7 +2871,7 @@ fn context_proof_decoder_refusal_retains_original_inputs_and_retries() {
             ));
             held = Some(budget.reserved_bytes());
             norito::with_decode_limits_scope(limits, || {
-                worker.finish_execution_with_encoder(encode_result_preimage)
+                worker.finish_execution_with_encoder(false, encode_result_preimage)
             })
         });
         assert!(
@@ -2899,7 +2928,8 @@ fn context_proof_decoder_refusal_retains_original_inputs_and_retries() {
         assert_eq!(budget.reserved_bytes(), held.unwrap());
         assert_eq!(worker.state.committed_height(), 1);
         assert!(events.try_recv().is_err());
-        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, block_hash, false) else {
+        let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, block_hash, false)
+        else {
             panic!("same original result proof must complete after the caller scope retires")
         };
         let live = worker.live.as_ref().unwrap();
@@ -3019,7 +3049,7 @@ fn native_context_archive_decoder_refusal_retains_original_execution_and_retries
             ));
             held = Some(budget.reserved_bytes());
             norito::with_decode_limits_scope(limits, || {
-                worker.finish_execution_with_encoder(encode_result_preimage)
+                worker.finish_execution_with_encoder(false, encode_result_preimage)
             })
         });
         assert!(
@@ -3109,7 +3139,8 @@ fn native_context_archive_decoder_refusal_retains_original_execution_and_retries
         assert_eq!(worker.state.committed_height(), 1);
         assert!(events.try_recv().is_err());
 
-        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, block_hash, false) else {
+        let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, block_hash, false)
+        else {
             panic!(
                 "the unchanged original execution must finish after the caller decoder scope retires"
             )
@@ -3206,7 +3237,7 @@ fn native_context_archive_corrupt_commitment_remains_sticky_recovery() {
                     iroha_crypto::HashOf::new(original.witness.wire()),
                 ));
                 held = Some(budget.reserved_bytes());
-                worker.finish_execution_with_encoder(encode_result_preimage)
+                worker.finish_execution_with_encoder(false, encode_result_preimage)
             });
             assert!(
                 matches!(outcome, Err(PublicationError::RecoveryRequired(_))),
@@ -3269,7 +3300,7 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
                     .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
                     .unwrap(),
             );
-            worker.finish_execution_with_encoder(encode_result_preimage)
+            worker.finish_execution_with_encoder(false, encode_result_preimage)
         });
         assert!(matches!(outcome, Err(_)));
         assert!(worker.recovery.is_none());
@@ -3348,7 +3379,9 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
         }
         assert!(events.try_recv().is_err());
         drop(occupied);
-        let Some(ExecOutcome::Valid(digest)) = worker.execute(&block, block_hash, false) else {
+        let Some(ExecOutcome::Valid { result: digest, .. }) =
+            worker.execute(&block, block_hash, false)
+        else {
             panic!("original execution finishes after actual pool capacity returns")
         };
         let live = worker.live.as_ref().unwrap();
@@ -3585,7 +3618,7 @@ fn native_context_archive_preparation_refuses_foreign_pool_without_reexecuting()
             assert_eq!(foreign_budget.reserved_bytes(), 0);
             assert!(original.native_contexts.is_none());
             assert_eq!(archive_files(), original_archives);
-            worker.finish_execution_with_encoder(encode_result_preimage)
+            worker.finish_execution_with_encoder(false, encode_result_preimage)
         });
         assert!(matches!(outcome, Ok(Some(_))));
         let retained = worker.live.as_ref().unwrap();
@@ -4381,7 +4414,7 @@ fn native_lane_proof_scratch_ceiling_remains_terminal_in_both_worker_stages() {
                 assert!(!error.is_local_refusal());
                 identities = Some((std::ptr::from_ref(original.overlay.as_ref()), original.witness.writes.as_ptr(), iroha_crypto::HashOf::new(original.witness.wire())));
                 held = Some(budget.reserved_bytes());
-                worker.finish_execution_with_encoder(encode_result_preimage)
+                worker.finish_execution_with_encoder(false, encode_result_preimage)
             });
             budget.set_limit_bytes(original_limit);
             assert!(

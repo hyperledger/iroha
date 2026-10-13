@@ -114,8 +114,12 @@ pub struct AmxPreparedEntryV1 {
     pub tx: [u8; 32],
     /// Authenticated global height `b` of this transaction's `Begin`.
     pub begun_at: u64,
+    /// Authenticated Global timestamp of the original Begin.
+    pub begun_time_ms: u64,
     /// Global deadline height `d`.
     pub deadline: u64,
+    /// Exclusive Global ledger-time expiry authenticated by Begin.
+    pub expires_at_ms: u64,
     /// This participant's recorded vote.
     pub vote: AmxVoteV1,
     /// The applied global decision, once settled.
@@ -254,6 +258,7 @@ impl AmxParticipantStateV1 {
         for entry in &self.prepared {
             if entry.begun_at >= entry.deadline
                 || entry.deadline - entry.begun_at > MAX_AMX_DEADLINE_WINDOW
+                || entry.expires_at_ms <= entry.begun_time_ms
             {
                 return Err(rejected("prepared decision interval exceeds its bounds"));
             }
@@ -383,6 +388,10 @@ impl AmxParticipantStateV1 {
             .leg(self.dataspace)
             .ok_or_else(|| rejected("this dataspace is not a participant"))?;
         let verified = self.global.verify_record(begin)?;
+        let begun_time_ms = verified.certified_result().header().timestamp_ms();
+        if record.expires_at_ms <= begun_time_ms {
+            return Err(rejected("the expiry does not follow its authenticated Begin").into());
+        }
         if record.deadline <= verified.height
             || record.deadline - verified.height > MAX_AMX_DEADLINE_WINDOW
         {
@@ -421,7 +430,9 @@ impl AmxParticipantStateV1 {
             AmxPreparedEntryV1 {
                 tx: record.tx,
                 begun_at: verified.height,
+                begun_time_ms,
                 deadline: record.deadline,
+                expires_at_ms: record.expires_at_ms,
                 vote,
                 settled: held.map(|held| held.decision.outcome),
             },
@@ -466,7 +477,13 @@ impl AmxParticipantStateV1 {
                 AmxOutcomeV1::Commit => entry.deadline,
                 AmxOutcomeV1::Abort => entry.deadline.saturating_add(1),
             };
-            if verified.height < entry.begun_at || verified.height > last {
+            let decision_time_ms = verified.certified_result().header().timestamp_ms();
+            if verified.height < entry.begun_at
+                || verified.height > last
+                || decision_time_ms < entry.begun_time_ms
+                || (record.outcome == AmxOutcomeV1::Commit
+                    && decision_time_ms >= entry.expires_at_ms)
+            {
                 return Err(
                     rejected("the decision is outside its authenticated obligation").into(),
                 );

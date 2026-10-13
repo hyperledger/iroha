@@ -130,6 +130,7 @@ fn transaction_rejection_marks_message() {
     runtime.mark_transaction_rejected("tx-reject", Some(&reason));
     let status = runtime.message_status(message_id).expect("status");
     assert_eq!(status.pacs002_code(), "RJCT");
+    assert_eq!(status.transaction_hash(), Some("tx-reject"));
     assert_eq!(status.rejection_reason_code(), Some("BE01"));
     assert_eq!(
         status.detail(),
@@ -187,6 +188,7 @@ fn transaction_expiry_marks_message() {
     runtime.mark_transaction_expired("tx-expired");
     let status = runtime.message_status(message_id).expect("status");
     assert_eq!(status.pacs002_code(), "RJCT");
+    assert_eq!(status.transaction_hash(), Some("tx-expired"));
     assert_eq!(status.rejection_reason_code(), Some("ED07"));
     assert_eq!(
         status.detail(),
@@ -509,12 +511,11 @@ fn lifecycle_pacs002_ignores_non_payment_original() {
     );
 }
 #[test]
-fn lifecycle_pacs004_ignores_unsettled_original() {
+fn lifecycle_pacs004_retains_unsettled_original_report() {
     let runtime = Iso20022BridgeRuntime::from_config(&sample_config())
         .expect("cfg")
         .expect("enabled");
-    record_original(&runtime, "orig-return", "pacs.008");
-    runtime.mark_accepted("orig-return", "tx-return");
+    let original_hash = record_report_original(&runtime, "orig-return", false);
     let parsed = parse_message(
         "pacs.004",
         b"MsgId=return-1\nCreDtTm=2025-01-01T00:00:00Z\nOrgnlGrpInf/OrgnlMsgId=orig-return\nTxInf[0]/OrgnlInstrId=instr-1\nTxInf[0]/RtrdInstdAmt=10.00\nTxInf[0]/RtrdInstdAmtCcy=USD\nTxInf[0]/RtrdRsn/Cd=AC01",
@@ -528,19 +529,23 @@ fn lifecycle_pacs004_ignores_unsettled_original() {
         .expect("lifecycle applied");
     assert_eq!(outcome.referenced_message_id(), Some("orig-return"));
     assert_eq!(outcome.lifecycle_reason_code(), Some("AC01"));
-    assert_eq!(outcome.action(), "ignored_unsettled_return");
+    assert_eq!(outcome.action(), "recorded_return");
     let original = runtime
         .message_status("orig-return")
         .expect("original status");
     assert_eq!(original.status_label(), "Accepted");
     assert_eq!(original.pacs002_code(), "ACSP");
-    assert_eq!(original.transaction_hash(), Some("tx-return"));
+    assert_eq!(original.transaction_hash(), Some(original_hash.as_str()));
     assert!(original.settled_at().is_none());
     let lifecycle = runtime
         .message_status("return-1")
         .expect("lifecycle status");
-    assert_eq!(lifecycle.status_label(), "Accepted");
-    assert_eq!(lifecycle.pacs002_code(), "ACSP");
+    assert_eq!(lifecycle.status_label(), "Pending");
+    assert_eq!(lifecycle.pacs002_code(), "ACTC");
+    assert_eq!(
+        lifecycle.reported_return_json()["disposition"].as_str(),
+        Some("pending_original")
+    );
     assert_eq!(
         lifecycle.detail(),
         Some("recorded inbound ISO 20022 pacs.004 lifecycle message")
@@ -551,9 +556,7 @@ fn settled_original_accepts_pacs004_return_without_losing_success_evidence() {
     let runtime = Iso20022BridgeRuntime::from_config(&sample_config())
         .expect("cfg")
         .expect("enabled");
-    record_original(&runtime, "settled-return", "pacs.008");
-    runtime.mark_accepted("settled-return", "tx-settled-return");
-    assert!(runtime.mark_settled("settled-return", SystemTime::now()));
+    let original_hash = record_settled_report_original(&runtime, "settled-return");
     let parsed = parse_message(
         "pacs.004",
         b"MsgId=late-return\nCreDtTm=2025-01-01T00:00:00Z\nOrgnlGrpInf/OrgnlMsgId=settled-return\nTxInf[0]/OrgnlInstrId=instr-1\nTxInf[0]/RtrdInstdAmt=10.00\nTxInf[0]/RtrdInstdAmtCcy=USD\nTxInf[0]/RtrdRsn/Cd=AC01",
@@ -563,15 +566,15 @@ fn settled_original_accepts_pacs004_return_without_losing_success_evidence() {
     let outcome = runtime
         .apply_inbound_lifecycle_message("late-return", "pacs.004", &parsed)
         .expect("late lifecycle recorded");
-    assert_eq!(outcome.action(), "marked_returned");
+    assert_eq!(outcome.action(), "recorded_return");
     let original = runtime
         .message_status("settled-return")
         .expect("settled original");
-    assert_eq!(original.status_label(), "Rejected");
-    assert_eq!(original.pacs002_code(), "RJCT");
-    assert_eq!(original.transaction_hash(), Some("tx-settled-return"));
+    assert_eq!(original.status_label(), "Accepted");
+    assert_eq!(original.pacs002_code(), "ACSC");
+    assert_eq!(original.transaction_hash(), Some(original_hash.as_str()));
     assert!(original.settled_at().is_some());
-    assert_eq!(original.rejection_reason_code(), Some("AC01"));
+    assert_eq!(original.rejection_reason_code(), None);
 }
 #[test]
 fn rejected_original_rejects_late_success_without_transaction_evidence() {
@@ -603,13 +606,11 @@ fn rejected_original_rejects_late_success_without_transaction_evidence() {
     assert_eq!(original.detail(), Some("definitive rejection"));
 }
 #[test]
-fn checked_in_pacs004_fixture_marks_original_returned() {
+fn checked_in_pacs004_fixture_records_linked_external_report() {
     let runtime = Iso20022BridgeRuntime::from_config(&sample_config())
         .expect("cfg")
         .expect("enabled");
-    record_original(&runtime, "ORIGINAL-008", "pacs.008");
-    runtime.mark_accepted("ORIGINAL-008", "tx-original-008");
-    assert!(runtime.mark_settled("ORIGINAL-008", SystemTime::now()));
+    record_settled_report_original(&runtime, "ORIGINAL-008");
     let parsed =
         parse_message("pacs.004", PACS004_FIXTURE_XML.as_bytes()).expect("pacs.004 fixture");
     let lifecycle_id =
@@ -623,17 +624,14 @@ fn checked_in_pacs004_fixture_marks_original_returned() {
     assert!(outcome.referenced_message_known());
     assert_eq!(outcome.lifecycle_status_code(), Some("RJCT"));
     assert_eq!(outcome.lifecycle_reason_code(), Some("AC01"));
-    assert_eq!(outcome.action(), "marked_returned");
+    assert_eq!(outcome.action(), "recorded_return");
     let original = runtime
         .message_status("ORIGINAL-008")
         .expect("original status");
-    assert_eq!(original.status_label(), "Rejected");
-    assert_eq!(original.pacs002_code(), "RJCT");
-    assert_eq!(original.rejection_reason_code(), Some("AC01"));
-    assert_eq!(
-        original.detail(),
-        Some("payment returned by inbound pacs.004")
-    );
+    assert_eq!(original.status_label(), "Accepted");
+    assert_eq!(original.pacs002_code(), "ACSC");
+    assert_eq!(original.rejection_reason_code(), None);
+    assert_eq!(original.detail(), None);
     assert_eq!(
         runtime
             .message_status(&lifecycle_id)

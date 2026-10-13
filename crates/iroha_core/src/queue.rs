@@ -475,7 +475,8 @@ pub struct Queue {
     txs_per_user: DashMap<AccountId, usize>,
     /// Lock to synchronize push and remove operations
     push_remove_lock: PublicationMutex,
-    /// Checked original-owner generation; every successful input insertion/removal advances it.
+    /// Checked admission high-water; each original input stores its non-reusable incarnation.
+    /// Admission attempts and removals advance it under the original mutation fence.
     pending_ownership_generation: AtomicU64,
     /// Serializes complete Nexus revalidation passes while their per-hash queue fences are
     /// released between the initial catalog rebuild and stable owner observations.
@@ -1296,7 +1297,7 @@ impl Queue {
     ) -> Option<QueuedTransaction> {
         let removed = self.txs.remove(&hash).map(|(_, tx)| tx);
         if removed.is_some() {
-            self.advance_pending_ownership_generation(hash);
+            let _ = self.advance_pending_ownership_generation(hash);
         }
         self.remove_pending_sccp_exempt_locked(hash);
         self.fee_admission_reservations.lock().release(&hash);
@@ -4192,6 +4193,14 @@ impl Queue {
                         ));
                     }
                 };
+                let Some(incarnation) = self.advance_pending_ownership_generation(hash) else {
+                    return Err((
+                        notifications,
+                        fail(Error::AdmissionInvariant {
+                            reason: "original Queue admission identity exhausted".to_owned(),
+                        }),
+                    ));
+                };
                 if let Some(hold) = fee_reservation
                     && let Err(err) = self.fee_admission_reservations.lock().reserve(hash, hold)
                 {
@@ -4215,9 +4224,10 @@ impl Queue {
                 }
                 let signed_transaction_hash =
                     crate::tx::exact_signed_transaction_hash(checked.as_accepted().entrypoint());
-                self.txs
-                    .insert(hash, QueuedTransaction::initialize(original_shell, checked));
-                self.advance_pending_ownership_generation(hash);
+                self.txs.insert(
+                    hash,
+                    QueuedTransaction::initialize(original_shell, checked, incarnation),
+                );
                 self.track_active_transaction();
                 self.routing_plans.insert(hash, routing_plan.clone());
                 self.tx_enqueued_at_ms.insert(hash, enqueued_at_ms);

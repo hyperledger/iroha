@@ -1233,7 +1233,7 @@ fn preexecute_genesis_on_current_thread(
     if let Some(config) = runtime_config {
         state.set_crypto(config.crypto.clone());
         state.set_oracle(config.oracle.clone());
-        state.set_fraud_monitoring(config.fraud_monitoring.clone());
+        state.install_node_fraud_monitoring(config.fraud_monitoring.clone());
         state.set_gov(config.gov.clone());
         state.content = config.content.clone();
         state.set_settlement(config.settlement);
@@ -2312,6 +2312,45 @@ mod tests {
                 .all(|result| result.as_ref().is_ok()),
             "pre-executed genesis should not carry errors for valid proof-bearing peers"
         );
+    }
+    #[test]
+    fn preexecuted_genesis_binds_nondefault_committed_fraud_policy() {
+        use iroha_data_model::fraud::{FraudAdmissionPolicyV1, FraudRiskBandV1};
+        init_instruction_registry();
+        let (topology, entries) = genesis_committee();
+        let mut hashes = Vec::new();
+        for band in [FraudRiskBandV1::Low, FraudRiskBandV1::High] {
+            let policy = FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(band),
+                missing_assessment_permitted: false,
+                ..FraudAdmissionPolicyV1::protocol_default()
+            };
+            let (block, account, peers, key, manifest) =
+                super::genesis_fixture_policy::policy_bound_proposal(
+                    vec![vec![
+                        SetParameter::new(Parameter::Custom(policy.into_custom_parameter())).into(),
+                    ]],
+                    topology.clone(),
+                    entries.clone(),
+                    SAMPLE_GENESIS_ACCOUNT_KEYPAIR.clone(),
+                );
+            let (executed, staged) = super::preexecute_genesis_on_current_thread(
+                &block, &account, &peers, &key, None, None, None, None,
+            )
+            .unwrap();
+            assert!(
+                executed
+                    .output_results()
+                    .all(|result| result.as_ref().is_ok())
+            );
+            assert_eq!(
+                staged.execution_policy,
+                Hash::prehashed(manifest.sumeragi_context_parameters().execution_policy_hash)
+            );
+            hashes.push(staged.execution_policy);
+        }
+        assert_ne!(hashes[0], hashes[1]);
     }
     #[test]
     fn preexecuted_genesis_ignores_validity_values_of_the_supplied_configuration() {

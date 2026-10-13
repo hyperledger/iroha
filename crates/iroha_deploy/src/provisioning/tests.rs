@@ -102,6 +102,7 @@ impl Fixture {
                 chain = (child_chain.chain_id())
                 network_id = (child_chain.network_id().to_string())
                 torii_url = "http://127.0.0.1:8080/"
+                http_transport_policy = "direct_loopback"
                 [account]
                 chain_discriminant = 753
                 public_key = (owner.public_key().to_string())
@@ -440,6 +441,32 @@ fn genuine_private_genesis_owner_is_imported_into_only_its_bound_parent_wallet()
     let parent =
         RemoteProvisioning::load_parent_config(&path, &fixture.bootstrap, &prepared, "admin")
             .unwrap();
+    assert_eq!(
+        child.http_transport_policy,
+        iroha::config::HttpTransportPolicy::DirectLoopback
+    );
+    assert_eq!(
+        parent.http_transport_policy,
+        iroha::config::HttpTransportPolicy::Ordinary
+    );
+    assert_eq!(
+        service.child.http_transport_policy,
+        child.http_transport_policy
+    );
+    assert_eq!(
+        service.parent.http_transport_policy,
+        parent.http_transport_policy
+    );
+    let mut substituted_transport = parent.clone();
+    substituted_transport.http_transport_policy =
+        iroha::config::HttpTransportPolicy::DirectLoopback;
+    assert!(
+        service
+            .record
+            .binding
+            .validate_config(&substituted_transport)
+            .is_err()
+    );
     assert_eq!(parent.key_pair, child.key_pair);
     assert_eq!(parent.account, child.account);
     assert_eq!(parent.network_id, fixture.parent.network_id());
@@ -473,6 +500,14 @@ fn exact_owner_import_and_exclusive_custody_survive_reopen_but_not_child_replace
     let store = fixture.open().unwrap();
     assert_eq!(store.parent.account, fixture.child.account);
     assert!(store.parent.api_token.is_none());
+    assert_eq!(
+        store.child.http_transport_policy,
+        iroha::config::HttpTransportPolicy::DirectLoopback
+    );
+    assert_eq!(
+        store.parent.http_transport_policy,
+        iroha::config::HttpTransportPolicy::Ordinary
+    );
     assert_eq!(store.parent.network_id, fixture.parent.network_id());
     assert_ne!(store.parent.network_id, store.child.network_id);
     assert_eq!(store.progress().stage, ProvisioningStage::Funding);
@@ -504,6 +539,10 @@ fn exact_owner_import_and_exclusive_custody_survive_reopen_but_not_child_replace
         )
     };
     let parent = read_parent(&fixture.child).unwrap();
+    assert_eq!(
+        parent.http_transport_policy,
+        iroha::config::HttpTransportPolicy::Ordinary
+    );
     assert_eq!(parent.account, store.parent.account);
     assert_eq!(parent.network_id, store.parent.network_id);
     assert_eq!(parent.key_pair, store.parent.key_pair);

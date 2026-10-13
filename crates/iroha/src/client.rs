@@ -61,6 +61,11 @@ pub use payment_return::{
     NativePaymentFullReturnRequest, NativePaymentReturnLink, NativePaymentReturnOperation,
     NativePaymentReturnRecovery, NativePaymentReturnSettlement, VerifiedPaymentReturn,
 };
+pub use private_settlement::{
+    PrivateSettlementError, PrivateSettlementOperation, PrivateSettlementReceiptError,
+    PrivateSettlementRecovery, PrivateSettlementRequest, PrivateSettlementResult,
+    PrivateSettlementRunOptions, VerifiedPrivateSettlementReceipt,
+};
 pub use transaction_wait::TransactionFinalityFailure;
 pub use verified_payment::{PaymentReceiptVerificationError, VerifiedPaymentReceipt};
 #[cfg(test)]
@@ -8982,6 +8987,7 @@ mod evidence_http_tests {
             transaction_status_timeout: Duration::from_secs(10),
             sorafs_alias_cache: default_alias_policy(),
             sorafs_anonymity_policy: AnonymityPolicy::GuardPq,
+            http_transport_policy: crate::config::HttpTransportPolicy::Ordinary,
             sorafs_rollout_phase: RolloutPhase::Canary,
         };
         let mut builder = Client::builder(config);
@@ -14051,6 +14057,11 @@ pub enum AuthorityContextError {
     /// Query and fragment components do not belong in a reusable API base URL.
     #[error("Torii endpoint must not contain a query or fragment")]
     EndpointHasQueryOrFragment,
+    /// The selected local HTTP transport policy rejects this endpoint.
+    #[error(
+        "direct_loopback HTTP policy requires cleartext localhost, 127/8, or ::1 without URL credentials or fragments"
+    )]
+    DirectLoopbackEndpoint,
     /// The configured signing key must control the configured account.
     #[error("account authority does not match the configured signing key")]
     AccountSigningKeyMismatch,
@@ -14307,6 +14318,8 @@ impl fmt::Debug for Client {
             .finish()
     }
 }
+#[cfg(test)]
+mod amx_approval_tests;
 mod context;
 #[cfg(test)]
 mod context_tests;
@@ -14319,6 +14332,7 @@ include!("client/operator_request_auth.rs");
 include!("client/activation_evidence.rs");
 include!("client/sumeragi_finality.rs");
 include!("client/reserve_policy.rs");
+include!("client/amx_approval.rs");
 include!("client/reserve_account.rs");
 include!("client/sns_lease.rs");
 /// Representation of `Iroha` client.
@@ -14357,7 +14371,10 @@ impl Client {
     #[cfg(test)]
     pub(crate) fn with_test_http_transport(self, transport: DefaultHttpTransport) -> Self {
         let mut builder = self.to_builder();
-        builder.http_transport = Some(transport);
+        builder.http_transport = Some(match self.http_transport.deadline() {
+            Some(deadline) => transport.with_deadline(deadline),
+            None => transport,
+        });
         builder.build().expect("valid test context")
     }
 
@@ -28869,6 +28886,7 @@ mod tests {
             transaction_status_timeout: Duration::from_secs(10),
             sorafs_alias_cache: default_alias_policy(),
             sorafs_anonymity_policy: AnonymityPolicy::GuardPq,
+            http_transport_policy: crate::config::HttpTransportPolicy::Ordinary,
             sorafs_rollout_phase: RolloutPhase::Canary,
         }
     }

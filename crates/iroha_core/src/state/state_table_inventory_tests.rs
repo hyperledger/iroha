@@ -350,9 +350,12 @@ fn evidence_list(items: &[(&str, &str)]) -> String {
 }
 
 /// State-level canonical cells whose Rust owner is a node configuration value, read from
-/// the registry declaration itself.
+/// the registry declaration itself and joined to its compiled authority classification.
+/// A derived projection can retain that Rust type without retaining policy authority.
 fn node_configuration_cells() -> Vec<String> {
     const REGISTRY: &str = "crates/iroha_core/src/state/authority_registry/state.rs";
+    let mut fields = Vec::new();
+    flatten(STATE_FIELDS, &mut fields);
     source(REGISTRY)
         .lines()
         .filter(|line| line.contains("iroha_config::parameters::actual::"))
@@ -364,6 +367,20 @@ fn node_configuration_cells() -> Vec<String> {
                 .expect("registry identity is a string literal")
                 .0
                 .to_owned()
+        })
+        .filter(|id| {
+            let field = fields
+                .iter()
+                .find(|field| field.id == id.as_str())
+                .unwrap_or_else(|| panic!("unclassified node-configuration owner {id}"));
+            match field.role {
+                Role::Canonical(Canonical::Cell(_)) => true,
+                Role::Derived {
+                    sources: &["world.parameters"],
+                    check: DerivationCheck::Rebuild(_),
+                } => false,
+                _ => panic!("node-configuration owner {id} lacks reviewed policy authority"),
+            }
         })
         .collect()
 }
@@ -583,7 +600,7 @@ const ROOTS: &[Root] = &[
             ),
             (
                 "crates/iroha_core/src/sumeragi/genesis_meta.rs",
-                "staged.execution_policy_digest_v1().map(Hash::prehashed)",
+                ".genesis_execution_policy_digest_v1()",
             ),
             (
                 "crates/iroha_data_model/src/block/consensus.rs",
@@ -7862,10 +7879,23 @@ fn state_level_canonical_fields_have_no_accumulator_slot_and_no_witness_family()
             .all(|id| id.starts_with("state.") || id.starts_with("runtime."))
     );
     let configured = node_configuration_cells();
-    assert_eq!(configured.len(), 9);
+    assert_eq!(configured.len(), 8);
     for id in &configured {
         assert!(uncommitted.contains(&id.as_str()), "{id}");
     }
+    let fraud = rows
+        .iter()
+        .find(|row| row.field.id == "state.fraud_monitoring")
+        .expect("fraud projection remains inventoried");
+    assert!(matches!(
+        fraud.field.role,
+        Role::Derived {
+            sources: &["world.parameters"],
+            check: DerivationCheck::Rebuild(_),
+        }
+    ));
+    assert_eq!(fraud.commitment, Commitment::Derived);
+    assert!(!configured.iter().any(|id| id == fraud.field.id));
     // No execution-witness family carries a State-level field, so the witnessed roots
     // cannot depend on one either.
     let witnessed = witnessed_fields();

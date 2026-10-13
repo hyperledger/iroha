@@ -8708,6 +8708,7 @@ export class ToriiClient {
 
   /**
    * Fetch ISO 20022 message status (`GET /v1/iso20022/messages/{msg_id}`).
+   * This node observation does not independently verify monetary settlement.
    * @param {string} messageId
    * @param {{signal?: AbortSignal}} [options]
    * @returns {Promise<Record<string, unknown> | null>}
@@ -8726,7 +8727,8 @@ export class ToriiClient {
   }
 
   /**
-   * Wait for an ISO bridge message to reach a terminal state.
+   * Poll until the node reports a terminal ISO status.
+   * The result is an observation, not an independently verified monetary receipt.
    * @param {string} messageId
    * @param {IsoMessageWaitOptions} [options]
    * @returns {Promise<Record<string, unknown>>}

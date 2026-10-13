@@ -436,6 +436,25 @@ authoritative height on every reconciliation page, including an empty page;
 any reconciliation or pruning error stops the worker and fails the service
 closed.
 
+## Prepared Rust SDK operation
+
+`AccountClient::private_settlement` uses the existing durable workflow owner for
+caller-retained prepared artifacts. It persists the exact availability snapshot
+before promotion, recovers committee certificates, and signs the exact Register
+and Finalize carriers through the normal account context. The returned
+`VerifiedPrivateSettlementReceipt` requires successful original Finalize
+input/output under pinned-genesis finality; a query receipt alone is insufficient.
+Read-only resume reauthenticates that original block, including at the final tip.
+No plaintext witness or restricted proof/capsule bytes enter its public journal.
+The caller still owns proving and retention of the prepared artifacts. Promotion
+retains the exact availability certificate and attempts every authorized replica;
+it requires `q = n - f` bound upload acknowledgements before Prepare. Upload
+acknowledgements are transport preflight, not an authenticated quorum; the
+independent Prepare QC remains authoritative. Recovery to a replica missing the
+original provisional material is still being qualified. The new SDK tests use
+synthetic outputs with real certificates; genuine localnet integration remains an
+acceptance requirement. See [the workflow contract](zk_durable_workflow.md).
+
 ## Protocol state machine
 
 The durable lifecycle is:

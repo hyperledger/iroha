@@ -303,7 +303,8 @@ impl Journal {
     /// Open an optional journal child through its original retained private parent.
     ///
     /// The child shares every held ancestor descriptor without reopening an absolute path.
-    /// Native child admission, the exclusive original lock and sync remain fresh. Only initial
+    /// Native child admission and the exclusive original lock remain fresh. Reopening makes no
+    /// publication and does not flush the existing directory. Only initial
     /// child absence returns `None`; a missing lock or later custody failure remains an error.
     /// Parent custody closes every ordinary result, including lock admission failures. The
     /// original parent and all of its ancestors remain held for the returned journal lifetime.
@@ -317,7 +318,7 @@ impl Journal {
         Self::open_optional_with_parent(|| parent.open_child_optional(name), || parent.revalidate())
     }
 
-    // The original parent remains held through the child lock/sync boundary and every exit.
+    // The original parent remains held through child lock admission and every exit.
     // A successful child shares its native ancestry; no second absolute owner is selected.
     fn open_optional_in_parent(
         parent: &OwnerDirectory,
@@ -512,6 +513,16 @@ impl Journal {
     }
 
     fn lock_directory(directory: PrivateDirectory, create: bool) -> Result<Self> {
+        Self::lock_directory_with_sync(directory, create, PrivateDirectory::sync)
+    }
+
+    // The injected durability operation keeps native lock admission and post-lock custody
+    // identical in production and in tests that exercise publication failure.
+    fn lock_directory_with_sync(
+        directory: PrivateDirectory,
+        create: bool,
+        sync: impl FnOnce(&PrivateDirectory) -> std::io::Result<()>,
+    ) -> Result<Self> {
         let lock = if create {
             directory.create_lock("lock")?
         } else {
@@ -519,7 +530,14 @@ impl Journal {
         };
         lock.try_lock()
             .wrap_err("another account operation holds this journal")?;
-        directory.sync()?;
+        if create {
+            sync(&directory)?;
+        } else {
+            // Keep sync's fresh custody checkpoint, but an existing lock creates no
+            // directory entry to publish. Original records and atomic publication
+            // retain their own file and directory durability boundaries.
+            directory.revalidate()?;
+        }
         let result = Self {
             path: directory.path().to_owned(),
             directory,
@@ -601,7 +619,8 @@ impl Journal {
     }
 
     fn revalidate(&self) -> Result<()> {
-        self.directory.revalidate()?;
+        // This fixed-name open brackets native lock admission with full directory
+        // revalidation; an adjacent standalone walk would repeat its entry check.
         let current = self.directory.open_read("lock")?;
         if FileIdentity::of(&current)? != FileIdentity::of(&self.lock)? {
             eyre::bail!("journal lock no longer identifies the retained ownership file");
@@ -957,3 +976,10 @@ mod parent_admission_tests;
 #[cfg(test)]
 #[path = "borrowed_private_parent_tests.rs"]
 mod borrowed_private_parent_tests;
+
+#[cfg(test)]
+#[path = "open_durability_tests.rs"]
+mod open_durability_tests;
+
+#[cfg(all(test, unix))]
+mod revalidate_tests;

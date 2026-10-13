@@ -39,6 +39,7 @@ fn original_source(
             parent: &parent,
             view: 0,
             cadence,
+            proposed_time: std::time::Duration::ZERO,
         },
         &[accepted],
     )

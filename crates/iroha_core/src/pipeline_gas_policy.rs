@@ -1,4 +1,4 @@
-//! One MV owner for canonical parameters and validated pipeline fee/limit projections.
+//! One MV owner for canonical parameters and validated fee, limit and fraud projections.
 //!
 //! Views and block construction read this projection from committed parameters.
 //! A block freezes its predecessor's projection; execution never refreshes it
@@ -8,7 +8,6 @@
 use std::{collections::BTreeSet, str::FromStr as _};
 
 use iroha_config::parameters::actual::{Gas, GasLiquidity, GasRate, GasVolatility};
-use iroha_data_model::pipeline_validity_policy::PipelineValidityPolicyV1;
 use iroha_data_model::{
     account::{
         AccountId,
@@ -17,9 +16,12 @@ use iroha_data_model::{
     asset::AssetDefinitionId,
     parameter::{CustomParameter, CustomParameterId, Parameters},
 };
+use iroha_data_model::{
+    fraud::FraudAdmissionPolicyV1, pipeline_validity_policy::PipelineValidityPolicyV1,
+};
 use iroha_primitives::{json::Json, numeric::Numeric};
 
-/// One MV value owning canonical parameters and validated pipeline fees and limits.
+/// One MV value owning canonical parameters and validated execution projections.
 ///
 /// Only `parameters` is serialized or committed. The derived fields are rebuilt
 /// on restore and changed atomically with their source; readers never decode.
@@ -28,6 +30,7 @@ pub struct StateParameters {
     parameters: Parameters,
     gas: Gas,
     pipeline: PipelineValidityPolicyV1,
+    fraud: FraudAdmissionPolicyV1,
 }
 
 impl Default for StateParameters {
@@ -36,6 +39,7 @@ impl Default for StateParameters {
             parameters: Parameters::default(),
             gas: Gas::default(),
             pipeline: PipelineValidityPolicyV1::protocol_default(),
+            fraud: FraudAdmissionPolicyV1::protocol_default(),
         }
     }
 }
@@ -57,10 +61,17 @@ impl TryFrom<Parameters> for StateParameters {
             .map(|custom| pipeline_policy(custom.payload()))
             .transpose()?
             .unwrap_or_else(PipelineValidityPolicyV1::protocol_default);
+        let fraud = parameters
+            .custom()
+            .get(&FraudAdmissionPolicyV1::parameter_id())
+            .map(|custom| fraud_policy(custom.payload()))
+            .transpose()?
+            .unwrap_or_else(FraudAdmissionPolicyV1::protocol_default);
         Ok(Self {
             parameters,
             gas,
             pipeline,
+            fraud,
         })
     }
 }
@@ -74,6 +85,11 @@ impl StateParameters {
     /// Borrow the validated execution limits from this same parameters version.
     pub fn pipeline_policy(&self) -> &PipelineValidityPolicyV1 {
         &self.pipeline
+    }
+
+    /// Borrow assessment admission from this same validated parameters version.
+    pub fn fraud_policy(&self) -> &FraudAdmissionPolicyV1 {
+        &self.fraud
     }
 
     /// Validate and atomically update one original parameter and its derived policies.
@@ -99,6 +115,12 @@ impl StateParameters {
             let pipeline = pipeline_policy(custom.payload())?;
             self.parameters.set_parameter(parameter);
             self.pipeline = pipeline;
+        } else if let iroha_data_model::parameter::Parameter::Custom(custom) = &parameter
+            && custom.id().name().as_ref() == FraudAdmissionPolicyV1::PARAMETER_ID_STR
+        {
+            let fraud = fraud_policy(custom.payload())?;
+            self.parameters.set_parameter(parameter);
+            self.fraud = fraud;
         } else {
             // Other parameters cannot change these projections and need no decoding.
             self.parameters.set_parameter(parameter);
@@ -121,6 +143,9 @@ impl StateParameters {
             RATES => self.gas.units_per_gas.clear(),
             PipelineValidityPolicyV1::PARAMETER_ID_STR => {
                 self.pipeline = PipelineValidityPolicyV1::protocol_default();
+            }
+            FraudAdmissionPolicyV1::PARAMETER_ID_STR => {
+                self.fraud = FraudAdmissionPolicyV1::protocol_default();
             }
             _ => {}
         }
@@ -165,6 +190,14 @@ impl norito::json::JsonDeserialize for StateParameters {
         let parameters = Parameters::json_deserialize(parser)?;
         Self::try_from(parameters).map_err(norito::json::Error::from_decode_resource)
     }
+}
+
+fn fraud_policy(payload: &Json) -> Result<FraudAdmissionPolicyV1, norito::Error> {
+    let policy = payload.try_into_any_norito::<FraudAdmissionPolicyV1>()?;
+    policy
+        .validate()
+        .map_err(|error| norito::Error::Message(error.to_string()))?;
+    Ok(policy)
 }
 
 fn pipeline_policy(payload: &Json) -> Result<PipelineValidityPolicyV1, norito::Error> {

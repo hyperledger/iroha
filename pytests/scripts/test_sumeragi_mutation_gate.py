@@ -68,6 +68,27 @@ def test_actual_availability_boundaries_have_separate_strict_kill_tests():
         assert gate.has_switch(mutation)
 
 
+@pytest.mark.parametrize("mid,test,cause,source", [
+    ("MX13", "sim::tests::amx_final_payment::amx_final_payment_silent_participant_requires_actionable_abort",
+     "healthy global root must resolve the due final obligation without unrelated height advancement",
+     "crates/iroha_sumeragi/src/sim/tests/amx_final_payment.rs"),
+    ("MX14", "sim::amx::tests::det_amx_time_expiry_orders_last_yes_and_expire_identically",
+     "signed time expiry must dominate the last Yes at the exact boundary regardless of payload order",
+     "crates/iroha_sumeragi/src/sim/amx/tests.rs"),
+    ("MX15", "sim::amx::tests::det_amx_time_sensitive_carriers_refuse_stale_time_but_certified_replay_is_exempt",
+     "Begin and Vote carriers must enforce certified-time freshness alongside Expire",
+     "crates/iroha_sumeragi/src/sim/amx/tests.rs"),
+])
+def test_amx_final_payment_mutations_require_the_original_outcome_failure(mid, test, cause, source):
+    rule = gate.BY_ID[mid]
+    assert rule.tests == (test,)
+    assert rule.causes == (gate.ExpectedFailure(cause, source),)
+    assert not rule.scenarios
+    assert gate.has_switch(mid)
+    assert not gate.has_switch(mid, core=True)
+    assert not gate.has_switch(mid, model=True)
+
+
 @pytest.mark.parametrize("baseline,expected", [("pass", 0), ("fail", 1), ("error", 1)])
 def test_baseline_failure_cannot_pass_when_every_mutant_is_killed(
     monkeypatch, tmp_path, baseline, expected
@@ -1955,7 +1976,12 @@ def test_pending_payload_lease_mutations_bind_distinct_actual_original_boundarie
     text = source.read_text()
     for identifier, name in expected.items():
         rule = registered[identifier]
-        assert rule.tests == (name,)
+        expected_tests = (name,)
+        if identifier == "HC145":
+            expected_tests += (
+                "queue::payload_leases::tests::pending_payload_admission_exhaustion_refuses_before_input_publication",
+            )
+        assert rule.tests == expected_tests
         assert not rule.scenarios
         assert gate.has_switch(identifier, core=True)
         assert not gate.has_switch(identifier)
@@ -2677,6 +2703,10 @@ MODEL_NAMES = {
     "DM34": "sumeragi_finality::epoch_graph::validation_tests::epoch_scope_retains_exact_context_without_a_hidden_heap_graph",
     "DM35": "sumeragi_amx::tests::sumeragi_amx_delayed_decisions_survive_three_rotations_and_restart",
     "DM36": "parameter::system::tests::clock_drift_bound_accepts_exact_limit_and_rejects_excess_without_overflow",
+    "DM37": "parameter::system::tests::due_work_policy_checks_combined_margin_and_overflow_without_local_clock",
+    "DM38": "sumeragi_amx::approval_proof::tests::exact_debit_approval_rejects_substituted_roots_terms_relays_schema_and_permission_preimages",
+    "DM39": "sumeragi_amx::tests::time_tests::sumeragi_amx_time_boundary_is_exclusive_and_height_boundary_inclusive",
+    "DM40": "sumeragi_amx::tests::time_tests::sumeragi_amx_time_expiry_preserves_all_pending_rows_on_writer_refusal",
 }
 MODEL_ALLOCATION_OBSERVER = "amx_prepare_streaming_allocations::observer_counts_all_three_allocation_routes_and_resets_after_unwind"
 
@@ -4285,10 +4315,12 @@ def test_checkpoint_status_query_pool_has_exact_owner_mutation_and_native_contro
 
 def test_checkpoint_status_preserves_g1_h2_and_internal_full_prefix_boundaries():
     source = (ROOT / "crates/iroha_torii/src/lib_pipeline_handlers.rs").read_text()
-    http = source.split("fn read_pipeline_transaction_carrier(", 1)[1].split("\nfn ", 1)[0]
+    selected = source.split("fn read_pipeline_transaction_carrier(", 1)[1].split("\nfn ", 1)[0]
+    assert "read_pipeline_execution_carrier(app, anchor.height)" in selected
+    http = source.split("fn read_pipeline_execution_carrier(", 1)[1].split("\nfn ", 1)[0]
     assert "HistoryProducerOwner::authentication_read(app)?" in http
     assert "owner.scope(||" in http
-    assert "if anchor.height == NonZeroUsize::MIN" in http
+    assert "if height == NonZeroUsize::MIN" in http
     assert "read_finalized_execution_carrier_with_read_budget(" in http
     assert "read_executed_carrier_from_checkpoints(" in http
     assert "or_else" not in http and "unwrap_or" not in http
@@ -5350,7 +5382,7 @@ def test_restarted_prepared_intent_completeness_mutation_uses_authenticated_full
                      "restored.replay_from(", "one_row_subset(&original)",
                      "restarted canonical intent must match every authenticated Prepared row before first delivery",
                      "retained_instruction().is_none()", "let (first_descriptor, first) = complete.complete_next()", "let (second_descriptor, second) = complete.complete_next()",
-                     "assert_ne!(first_descriptor.source_record_key(), second_descriptor.source_record_key())",
+                     "assert_ne!(first_descriptor.source(), second_descriptor.source())",
                      "instruction_relay(&first).record.tx(), instruction_relay(&second).record.tx()",
                      "delivered == original.canonical()", "first.amx_proof_admitted_to(&budget) && second.amx_proof_admitted_to(&budget)"):
         assert evidence in control
@@ -7135,6 +7167,135 @@ def test_direct_payment_replay_mutation_requires_original_fee_effect_failure():
         assert not gate.has_switch("HC265", **family)
 
 
+def test_amx_discovery_mutation_requires_authenticated_zero_record_progress_failure():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC270"]
+    assert rule.tests == (
+        "sumeragi::amx::native::tests::paid_borrowed_custody::discovery::"
+        "native_amx_discovery_advances_ordinary_global_height_then_delivers_both_final_tip_decisions",
+    )
+    assert rule.causes == (gate.ExpectedFailure(
+        "authenticated zero-record height must advance without an AMX coordinates file",
+        "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/discovery.rs",
+    ),)
+    assert gate.has_switch("HC270", core=True)
+    assert not gate.has_switch("HC270")
+    assert not gate.has_switch("HC270", model=True)
+
+
+@pytest.mark.parametrize("mutation,test,path,cause", [
+    ("HC273",
+     "sumeragi::executor::payload_owner::tests::fresh_view_refreshes_authenticated_block_time_without_replacing_signed_input",
+     "crates/iroha_core/src/sumeragi/executor/payload_owner.rs",
+     "fresh view must refresh certified time without another signed transaction"),
+    ("HC274",
+     "sumeragi::executor::clock_tests::authenticated_proposer_time_above_floor_executes_and_replays_without_restamping",
+     "crates/iroha_core/src/sumeragi/executor/clock_tests.rs",
+     "authenticated proposer time above the input floor must execute"),
+])
+def test_authenticated_proposer_time_mutations_require_exact_native_regressions(
+    mutation, test, path, cause
+):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mutation]
+    assert rule.tests == (test,)
+    assert rule.causes == (gate.ExpectedFailure(cause, path),)
+    assert gate.has_switch(mutation, core=True)
+    assert not gate.has_switch(mutation)
+    assert not gate.has_switch(mutation, model=True)
+
+
+@pytest.mark.parametrize("mutation,daemon,test,path,cause", [
+    ("HC275", False,
+     "sumeragi::amx::native::tests::paid_borrowed_custody::handoffs::native_amx_handoff_discovery_delivers_final_boundary_without_record_and_replays_both_roots",
+     "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/handoffs.rs",
+     "authenticated final epoch boundary must deliver its handoff without an AMX row or successor"),
+    ("HC276", True,
+     "amx_relay::ledger::handoff_recovery_tests::fresh_relayer_recovers_independent_native_handoffs_after_two_epochs_and_restart",
+     "crates/irohad/src/amx_relay/handoff_recovery_tests.rs",
+     "fresh relayer must recover the original independent successful handoff after its source epoch is no longer tracked"),
+    ("HC277", True,
+     "amx_relay::tests::growing_source_tip_cannot_starve_pending_original_handoff_retry",
+     "crates/irohad/src/amx_relay.rs",
+     "continuous source growth must not starve bounded retry of the original handoff"),
+])
+def test_native_amx_handoff_mutations_require_exact_recovery_regressions(
+    mutation, daemon, test, path, cause
+):
+    rules = gate.DAEMON_MUTATIONS if daemon else gate.CORE_MUTATIONS
+    rule = gate.index_mutations(rules)[mutation]
+    assert rule.tests == (test,)
+    assert rule.causes == (gate.ExpectedFailure(cause, path),)
+    assert gate.has_switch(mutation, daemon=daemon, core=not daemon)
+    assert not gate.has_switch(mutation)
+    assert not gate.has_switch(mutation, model=True)
+    assert not gate.has_switch(mutation, daemon=not daemon, core=daemon)
+
+
+@pytest.mark.parametrize("mutation,daemon,test,path,cause", [
+    ("HC287", False,
+     "sumeragi::amx::native::tests::paid_borrowed_custody::route_discovery::native_amx_route_discovery_retains_refused_handoff_while_another_destination_advances",
+     "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/route_discovery.rs",
+     "requested route must be selected before unrelated target graph acquisition"),
+    ("HC283", False,
+     "sumeragi::amx::native::tests::paid_borrowed_custody::expiry_recovery::native_amx_expiry_recovery_authenticates_final_decision_after_restart_and_rechecks_cached_positive",
+     "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/expiry_recovery.rs",
+     "a child root cannot authenticate the Global expiry decision"),
+    ("HC284", False,
+     "sumeragi::amx::native::tests::paid_borrowed_custody::expiry_recovery::native_amx_expiry_recovery_authenticates_final_decision_after_restart_and_rechecks_cached_positive",
+     "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/expiry_recovery.rs",
+     "cached positive height must reauthenticate original proof before suppressing a carrier"),
+    ("HC285", True,
+     "amx_relay::ledger::expiry_recovery_tests::independently_decided_expiry_recovers_only_the_existing_exact_carrier_without_dispatch",
+     "crates/irohad/src/amx_relay/expiry_recovery_tests.rs",
+     "read-only carrier recovery must preserve independently authenticated outcomes: unknown"),
+])
+def test_native_amx_expiry_recovery_mutations_require_authenticated_outcomes(
+    mutation, daemon, test, path, cause
+):
+    rules = gate.DAEMON_MUTATIONS if daemon else gate.CORE_MUTATIONS
+    rule = gate.index_mutations(rules)[mutation]
+    assert rule.tests == (test,)
+    assert rule.causes == (gate.ExpectedFailure(cause, path),)
+    assert gate.has_switch(mutation, daemon=daemon, core=not daemon)
+    assert not gate.has_switch(mutation)
+    assert not gate.has_switch(mutation, model=True)
+    assert not gate.has_switch(mutation, daemon=not daemon, core=daemon)
+
+
+def test_lane_first_prepare_mutation_requires_original_source_regression():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC278"]
+    assert rule.tests == (
+        "sumeragi::lanes::executor::native_decode_tests::native_lane_first_prepare_admission_binds_original_source_and_retains_its_charge",
+    )
+    assert rule.causes == (gate.ExpectedFailure(
+        "certification never exempts source substitution",
+        "crates/iroha_core/src/sumeragi/lanes/executor/native_decode_tests.rs",
+    ),)
+    assert gate.has_switch("HC278", core=True)
+    assert not gate.has_switch("HC278")
+    assert not gate.has_switch("HC278", model=True)
+    assert not gate.has_switch("HC278", daemon=True)
+
+
+def test_lane_queue_lease_mutation_preserves_original_admission_controls():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC272"]
+    prefix = "sumeragi::lanes::executor::queue_lease_tests::"
+    assert rule.tests == tuple(prefix + name for name in (
+        "lane_original_queue_lease_retires_expiry_and_withdrawal_during_clock_wait",
+        "lane_original_queue_lease_rechecks_withdrawal_after_actual_encoding",
+        "lane_original_queue_lease_preserves_same_output_across_clock_rewind_and_retires_readmission",
+    ))
+    assert rule.causes == tuple(gate.ExpectedFailure(message,
+        "crates/iroha_core/src/sumeragi/lanes/executor/queue_lease_tests.rs")
+        for message in (
+            "lane clock retry must retire expired or withdrawn original Queue admission",
+            "lane retained output must not outlive its original Queue admission",
+            "same-hash readmission must not revive the retained lane Queue lease",
+        ))
+    assert gate.has_switch("HC272", core=True)
+    assert not gate.has_switch("HC272")
+    assert not gate.has_switch("HC272", model=True)
+
+
 def test_begin_delivery_mutation_requires_original_post_admission_source_failure():
     rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC271"]
     assert rule.tests == (
@@ -7593,3 +7754,57 @@ def test_lane_effective_clock_rules_have_exact_original_owners(mid, name, source
     assert (ROOT / source).read_text().count('"' + cause + '"') == 1
     assert gate.has_switch(mid, core=True) and not gate.has_switch(mid)
     assert len(re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)) == 1
+
+
+@pytest.mark.parametrize("mutation,test,cause", [
+    ('HC279', 'sumeragi::executor::prepare_admission_tests::ct5_post_encoding_clock_advance_rolls_back_actual_begin_and_fees_with_original_decode', 'time-sensitive effects must be locally deferred after the last encoding wait'),
+    ('HC280', 'sumeragi::executor::prepare_admission_tests::ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source', 'cached native Valid cannot bypass a fresh local clock check'),
+    ('HC281', 'sumeragi::executor::prepare_admission_tests::ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source', 'a certificate flag cannot substitute another result'),
+    ('HC282', 'sumeragi::executor::prepare_admission_tests::ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source', 'native first signing must recheck the actual wall clock after execution'),
+])
+def test_native_first_prepare_mutations_bind_original_control(mutation, test, cause):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mutation]
+    assert rule.tests == (test,)
+    assert rule.causes == (gate.ExpectedFailure(cause,
+        "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs"),)
+    assert gate.has_switch(mutation, core=True)
+    assert not gate.has_switch(mutation)
+    assert not gate.has_switch(mutation, model=True)
+
+
+@pytest.mark.parametrize("mutation,test,cause", [
+    ('MS64', 'machine::tests::signing::det_ct5_cached_execution_waits_for_stage_and_checks_actual_first_signing_time', 'cached Valid cannot bypass first-Prepare freshness after stage delay'),
+    ('MS65', 'machine::tests::signing::det_ct5_unsigned_prepare_reservation_restart_never_synthesizes_first_signature', 'a durable unsigned reservation cannot synthesize a first Prepare without fresh source-bound execution or a genuine matching PQC'),
+    ('MS66', 'machine::tests::signing::det_ct5_successful_prepare_signature_is_exact_durable_and_authenticated_on_restart', 'a checksummed fabricated successful signature is not restart authority'),
+])
+def test_first_prepare_consensus_mutations_bind_original_control(mutation, test, cause):
+    rule = gate.index_mutations(gate.MUTATIONS)[mutation]
+    expected_tests = (test,)
+    expected_causes = (gate.ExpectedFailure(cause,
+        "crates/iroha_sumeragi/src/machine/tests/signing.rs"),)
+    if mutation == "MS64":
+        expected_tests += ("sim::world::clock_guard::tests::det_ct5_world_retained_execution_rechecks_clock_at_first_prepare",)
+        expected_causes += (gate.ExpectedFailure(
+            "a retained World result must not sign after its actual wall clock advances",
+            "crates/iroha_sumeragi/src/sim/world/clock_guard/tests.rs"),)
+    assert rule.tests == expected_tests
+    assert rule.causes == expected_causes
+    assert gate.has_switch(mutation)
+    assert not gate.has_switch(mutation, core=True)
+    assert not gate.has_switch(mutation, model=True)
+
+
+def test_native_amx_approval_scope_mutation_requires_real_owner_grant():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC286"]
+    assert rule.tests == (
+        "sumeragi::amx::native::tests::paid_borrowed_custody::authorization::native_amx_exact_owner_grant_revocation_and_separate_relay_preserve_settlement",
+        "sumeragi::amx::native::tests::paid_borrowed_custody::approval_proof::native_amx_approval_proof_requires_owner_grant_and_rechecks_exact_private_cut",
+    )
+    assert rule.causes == (gate.ExpectedFailure(
+        "actual debit owner grants the exact native AMX intent",
+        "crates/iroha_core/src/sumeragi/amx/native/tests.rs",
+    ),) * 2
+    assert gate.has_switch("HC286", core=True)
+    assert not gate.has_switch("HC286")
+    assert not gate.has_switch("HC286", model=True)
+    assert not gate.has_switch("HC286", daemon=True)

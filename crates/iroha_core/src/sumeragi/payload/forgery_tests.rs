@@ -44,6 +44,7 @@ fn valid_forgery_keeps_exact_original_inputs_and_uses_canonical_candidate_time()
         parent: &parent,
         view: 4,
         cadence: Duration::from_millis(1_000),
+        proposed_time: std::time::Duration::ZERO,
     };
     let evidence = future(&chain, &keys);
     let mut selected = vec![carrier(&chain, evidence, 3_100)];
@@ -85,6 +86,7 @@ fn genuine_after_tip_advance_is_dropped_before_any_empty_proposal() {
             parent: &old_parent,
             view: 0,
             cadence: Duration::from_millis(1_000),
+            proposed_time: std::time::Duration::ZERO,
         },
         &mut selected,
         &MergeProposal::default(),
@@ -97,6 +99,7 @@ fn genuine_after_tip_advance_is_dropped_before_any_empty_proposal() {
         parent: &parent,
         view: 0,
         cadence: Duration::from_millis(1_000),
+        proposed_time: std::time::Duration::ZERO,
     };
     recheck_sccp_forgery_for_proposal(&current, assembly, &mut selected, &MergeProposal::default())
         .unwrap();
@@ -117,6 +120,7 @@ fn malformed_signature_drops_only_its_carrier_and_quota_keeps_fifo_order() {
         parent: &parent,
         view: 0,
         cadence: Duration::from_millis(1_000),
+        proposed_time: std::time::Duration::ZERO,
     };
     let evidence = future(&chain, &keys);
     let mut malformed = evidence.clone();
@@ -143,6 +147,7 @@ fn original_pool_refusal_retains_selected_work_and_retries_after_release() {
         parent: &parent,
         view: 0,
         cadence: Duration::from_millis(1_000),
+        proposed_time: std::time::Duration::ZERO,
     };
     let mut selected = vec![carrier(&chain, future(&chain, &keys), 2_100)];
     let hash = selected[0].hash_as_entrypoint();
@@ -193,6 +198,7 @@ fn foreign_parent_is_local_recovery_and_never_drops_signed_input() {
             parent: &foreign,
             view: 0,
             cadence: Duration::from_millis(1_000),
+            proposed_time: std::time::Duration::ZERO,
         },
         &mut selected,
         &MergeProposal::default(),
@@ -299,7 +305,7 @@ fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease(
                 &queue,
                 budget,
                 &MergeProposal::default(),
-                iroha_primitives::time::TimeSource::new_system().now(),
+                Duration::from_millis(3_102),
             )
             .unwrap();
             assert_eq!(
@@ -316,6 +322,7 @@ fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease(
                 parent: &parent,
                 view: 0,
                 cadence: Duration::from_millis(1_000),
+                proposed_time: std::time::Duration::ZERO,
             };
             recheck_sccp_forgery_for_proposal(
                 &view,
@@ -348,7 +355,7 @@ fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease(
                 &queue,
                 budget - 1,
                 &MergeProposal::default(),
-                iroha_primitives::time::TimeSource::new_system().now()
+                Duration::from_millis(3_102)
             )
             .unwrap()
             .is_empty()
@@ -380,7 +387,7 @@ fn proposal_selection_local_refusal_never_retires_queued_claims_and_retries_orig
             &queue,
             valid.encoded_len(),
             &MergeProposal::default(),
-            iroha_primitives::time::TimeSource::new_system().now(),
+            Duration::from_millis(3_102),
         )
         .unwrap_err();
         match error {
@@ -406,7 +413,7 @@ fn proposal_selection_local_refusal_never_retires_queued_claims_and_retries_orig
             &queue,
             valid.encoded_len(),
             &MergeProposal::default(),
-            iroha_primitives::time::TimeSource::new_system().now(),
+            Duration::from_millis(3_102),
         )
         .unwrap();
         assert_eq!(selected.len(), 1);
@@ -444,7 +451,7 @@ fn current_parent_selection_keeps_exact_one_valid_forgery() {
             &queue,
             first.encoded_len() + second.encoded_len(),
             &MergeProposal::default(),
-            iroha_primitives::time::TimeSource::new_system().now(),
+            clock.now(),
         )
         .unwrap();
         assert_eq!(
@@ -479,7 +486,7 @@ fn only_now_genuine_queued_evidence_cannot_authorize_an_empty_proposal() {
             &queue,
             1 << 20,
             &MergeProposal::default(),
-            iroha_primitives::time::TimeSource::new_system().now(),
+            clock.now(),
         )
         .unwrap();
         assert!(selected.is_empty());
@@ -490,7 +497,8 @@ fn only_now_genuine_queued_evidence_cannot_authorize_an_empty_proposal() {
                 Assembly {
                     parent: &parent,
                     view: 0,
-                    cadence: Duration::from_millis(1_000)
+                    cadence: Duration::from_millis(1_000),
+                    proposed_time: std::time::Duration::ZERO,
                 },
                 &selected
             ),

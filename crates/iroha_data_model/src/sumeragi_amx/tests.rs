@@ -321,6 +321,7 @@ fn transaction(participants: &[DataSpaceId], deadline: u64, nonce: u8) -> AmxTra
             })
             .collect(),
         deadline,
+        expires_at_ms: 1_000_000,
         nonce: [nonce; 32],
     }
 }
@@ -411,6 +412,8 @@ fn sumeragi_amx_begin_match_borrows_exact_fields_and_rejects_each_substitution()
         },
         AmxBeginV1 {
             deadline: 51,
+
+            expires_at_ms: 1_000_000,
             ..begin.clone()
         },
         AmxBeginV1 {
@@ -796,16 +799,29 @@ fn sumeragi_amx_tracker_hands_off_epoch_by_epoch() {
 fn sumeragi_amx_begin_rejects_duplicates_unregistered_participants_and_bad_deadlines() {
     let mut state = state_with(&[DS1, DS2]);
     let tx = transaction(&[DS1, DS2], 50, 1);
-    let record = state.begin(10, &tx).unwrap();
+    let record = state.begin(10, 10 * 1000, 1_000, &tx).unwrap();
     assert_eq!(record, AmxRecordV1::Begin(tx.begin().unwrap()));
     assert_eq!(state.transaction(&tx.id().unwrap()).unwrap().begun_at, 10);
-    assert!(matches!(state.begin(11, &tx), Err(AmxError::State(_))));
-    assert!(state.begin(10, &transaction(&[DS1, DS3], 50, 2)).is_err());
-    assert!(state.begin(50, &transaction(&[DS1, DS2], 50, 3)).is_err());
+    assert!(matches!(
+        state.begin(11, 11 * 1000, 1_000, &tx),
+        Err(AmxError::State(_))
+    ));
+    assert!(
+        state
+            .begin(10, 10 * 1000, 1_000, &transaction(&[DS1, DS3], 50, 2))
+            .is_err()
+    );
+    assert!(
+        state
+            .begin(50, 50 * 1000, 1_000, &transaction(&[DS1, DS2], 50, 3))
+            .is_err()
+    );
     assert!(
         state
             .begin(
                 10,
+                10 * 1000,
+                1_000,
                 &transaction(&[DS1, DS2], 11 + MAX_AMX_DEADLINE_WINDOW, 4)
             )
             .is_err()
@@ -813,6 +829,8 @@ fn sumeragi_amx_begin_rejects_duplicates_unregistered_participants_and_bad_deadl
     state
         .begin(
             10,
+            10 * 1000,
+            1_000,
             &transaction(&[DS1, DS2], 10 + MAX_AMX_DEADLINE_WINDOW, 5),
         )
         .unwrap();
@@ -839,7 +857,7 @@ fn sumeragi_amx_commit_needs_every_yes_by_the_deadline() {
     let mut state = state_with(&[DS1, DS2, DS3]);
     let tx = transaction(&[DS1, DS2, DS3], 40, 1);
     let x = tx.id().unwrap();
-    state.begin(10, &tx).unwrap();
+    state.begin(10, 10 * 1000, 1_000, &tx).unwrap();
     let yes = |dataspace| {
         record_proof(
             instance(dataspace),
@@ -854,24 +872,24 @@ fn sumeragi_amx_commit_needs_every_yes_by_the_deadline() {
         )
     };
     assert_eq!(
-        state.relay_prepared(12, &yes(DS1)).unwrap(),
+        state.relay_prepared(12, 12 * 1000, &yes(DS1)).unwrap(),
         AmxRelayOutcome::Voted
     );
     // A repeated vote is ignored.
     assert_eq!(
-        state.relay_prepared(13, &yes(DS1)).unwrap(),
+        state.relay_prepared(13, 13 * 1000, &yes(DS1)).unwrap(),
         AmxRelayOutcome::Ignored
     );
     // A proof from one dataspace cannot vote for another.
     let mut impostor = yes(DS2);
     impostor.record = prepared(x, DS3, AmxVoteV1::Yes([13; 32]));
-    assert!(state.relay_prepared(13, &impostor).is_err());
+    assert!(state.relay_prepared(13, 13 * 1000, &impostor).is_err());
     assert_eq!(
-        state.relay_prepared(14, &yes(DS2)).unwrap(),
+        state.relay_prepared(14, 14 * 1000, &yes(DS2)).unwrap(),
         AmxRelayOutcome::Voted
     );
     assert_eq!(
-        state.relay_prepared(40, &yes(DS3)).unwrap(),
+        state.relay_prepared(40, 40 * 1000, &yes(DS3)).unwrap(),
         AmxRelayOutcome::Decided(AmxDecisionV1 {
             tx: x,
             outcome: AmxOutcomeV1::Commit
@@ -883,7 +901,8 @@ fn sumeragi_amx_commit_needs_every_yes_by_the_deadline() {
         entry.decided,
         Some(AmxDecidedV1 {
             outcome: AmxOutcomeV1::Commit,
-            height: 40
+            height: 40,
+            time_ms: 40 * 1000
         })
     );
     state.validate().unwrap();
@@ -896,17 +915,17 @@ fn sumeragi_amx_commit_needs_every_yes_by_the_deadline() {
         &[],
     );
     assert_eq!(
-        state.relay_prepared(40, &no).unwrap(),
+        state.relay_prepared(40, 40 * 1000, &no).unwrap(),
         AmxRelayOutcome::Ignored
     );
     assert!(expire_records(&mut state, 40).is_empty());
     assert!(expire_records(&mut state, 41).is_empty());
     assert!(state.transaction(&x).is_none());
     // The dropped id can never be begun again: its deadline passed.
-    assert!(state.begin(41, &tx).is_err());
+    assert!(state.begin(41, 41 * 1000, 1_000, &tx).is_err());
     // A proof for an unknown transaction is ignored.
     assert_eq!(
-        state.relay_prepared(42, &yes(DS1)).unwrap(),
+        state.relay_prepared(42, 42 * 1000, &yes(DS1)).unwrap(),
         AmxRelayOutcome::Ignored
     );
 }
@@ -915,7 +934,7 @@ fn sumeragi_amx_commit_needs_every_yes_by_the_deadline() {
 fn expire_records(state: &mut SumeragiAmxState, height: u64) -> Vec<AmxDecisionV1> {
     let mut records = Vec::new();
     let count = state
-        .expire(height, |record| {
+        .expire(height, height * 1000, |record| {
             records.push(record);
             Ok::<(), std::convert::Infallible>(())
         })
@@ -931,7 +950,7 @@ fn sumeragi_amx_first_no_or_the_deadline_aborts() {
     let late_yes = transaction(&[DS1, DS2], 30, 2);
     let silent = transaction(&[DS1, DS2], 30, 3);
     for tx in [&aborted_by_no, &late_yes, &silent] {
-        state.begin(10, tx).unwrap();
+        state.begin(10, 10 * 1000, 1_000, tx).unwrap();
     }
     let vote = |tx: &AmxTransactionV1, dataspace, vote| {
         record_proof(
@@ -944,7 +963,7 @@ fn sumeragi_amx_first_no_or_the_deadline_aborts() {
     };
     assert_eq!(
         state
-            .relay_prepared(12, &vote(&aborted_by_no, DS2, AmxVoteV1::No))
+            .relay_prepared(12, 12 * 1000, &vote(&aborted_by_no, DS2, AmxVoteV1::No))
             .unwrap(),
         AmxRelayOutcome::Decided(AmxDecisionV1 {
             tx: aborted_by_no.id().unwrap(),
@@ -953,17 +972,29 @@ fn sumeragi_amx_first_no_or_the_deadline_aborts() {
     );
     assert_eq!(
         state
-            .relay_prepared(13, &vote(&aborted_by_no, DS1, AmxVoteV1::Yes([1; 32])))
+            .relay_prepared(
+                13,
+                13 * 1000,
+                &vote(&aborted_by_no, DS1, AmxVoteV1::Yes([1; 32]))
+            )
             .unwrap(),
         AmxRelayOutcome::Ignored
     );
     state
-        .relay_prepared(20, &vote(&late_yes, DS1, AmxVoteV1::Yes([1; 32])))
+        .relay_prepared(
+            20,
+            20 * 1000,
+            &vote(&late_yes, DS1, AmxVoteV1::Yes([1; 32])),
+        )
         .unwrap();
     // The completing Yes arrives in the first block after the deadline: no Commit.
     assert_eq!(
         state
-            .relay_prepared(31, &vote(&late_yes, DS2, AmxVoteV1::Yes([2; 32])))
+            .relay_prepared(
+                31,
+                31 * 1000,
+                &vote(&late_yes, DS2, AmxVoteV1::Yes([2; 32]))
+            )
             .unwrap(),
         AmxRelayOutcome::Voted
     );
@@ -992,7 +1023,7 @@ fn sumeragi_amx_first_no_or_the_deadline_aborts() {
 fn sumeragi_amx_state_validation_rejects_broken_invariants() {
     let mut state = state_with(&[DS1, DS2]);
     let tx = transaction(&[DS1, DS2], 40, 1);
-    state.begin(10, &tx).unwrap();
+    state.begin(10, 10 * 1000, 1_000, &tx).unwrap();
     state.validate().unwrap();
     let mut unordered = state.clone();
     unordered.dataspaces.reverse();
@@ -1001,6 +1032,7 @@ fn sumeragi_amx_state_validation_rejects_broken_invariants() {
     committed_without_votes.transactions[0].decided = Some(AmxDecidedV1 {
         outcome: AmxOutcomeV1::Commit,
         height: 12,
+        time_ms: 12 * 1000,
     });
     assert!(committed_without_votes.validate().is_err());
     let mut stranger_vote = state.clone();
@@ -1194,6 +1226,7 @@ fn transfer(deadline: u64, nonce: u8, amounts: [u64; 2]) -> AmxTransactionV1 {
             },
         ],
         deadline,
+        expires_at_ms: 1_000_000,
         nonce: [nonce; 32],
     }
 }
@@ -2228,7 +2261,12 @@ fn sumeragi_amx_expiry_refusal_and_unwind_preserve_original_pending_graph() {
     let mut state = state_with(&[DS1, DS2]);
     for (deadline, nonce) in [(20, 11), (20, 12), (30, 13)] {
         state
-            .begin(10, &transaction(&[DS1, DS2], deadline, nonce))
+            .begin(
+                10,
+                10 * 1000,
+                1_000,
+                &transaction(&[DS1, DS2], deadline, nonce),
+            )
             .unwrap();
     }
     let before = state.clone();
@@ -2260,7 +2298,7 @@ fn sumeragi_amx_expiry_refusal_and_unwind_preserve_original_pending_graph() {
     for fail_at in 0..2 {
         let mut observed = Vec::new();
         let error = state
-            .expire(21, |record| {
+            .expire(21, 21 * 1000, |record| {
                 if observed.len() == fail_at {
                     return Err(&refusal);
                 }
@@ -2284,7 +2322,7 @@ fn sumeragi_amx_expiry_refusal_and_unwind_preserve_original_pending_graph() {
     }
     let mut observed = 0;
     let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = state.expire(21, |_| {
+        let _ = state.expire(21, 21 * 1000, |_| {
             observed += 1;
             assert!(observed != 2, "record writer unwind");
             Ok::<(), std::convert::Infallible>(())
@@ -2518,9 +2556,9 @@ fn amx_active_child_is_rejected_before_any_vote_or_handoff_changes() {
         .is_err()
     );
     let mut state = state_with(&[DS1, DS2]);
-    state.begin(2, &tx).unwrap();
+    state.begin(2, 2 * 1000, 1_000, &tx).unwrap();
     let original = state.clone();
-    assert!(state.relay_prepared(3, &proof).is_err());
+    assert!(state.relay_prepared(3, 3 * 1000, &proof).is_err());
     assert_eq!(state, original);
 }
 
@@ -2585,3 +2623,6 @@ fn amx_bare_body_and_mismatched_x_are_not_certified_results() {
     assert!(tracker.verify_block(&superset).is_err());
     tracker.verify_block(&original).unwrap();
 }
+
+#[path = "time_tests.rs"]
+mod time_tests;

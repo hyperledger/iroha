@@ -32,6 +32,8 @@ mod observation;
 pub use observation::NativePaymentObservationError;
 use observation::{NativePaymentLedger, OnlinePaymentSource, PaymentSource};
 #[cfg(test)]
+mod online_tests;
+#[cfg(test)]
 mod tests;
 
 /// Independently retained complete native payment and exact carrier fee authorization.
@@ -152,6 +154,13 @@ pub struct NativePaymentRecovery {
 /// Why a payment call could not return a verified successful business outcome.
 #[derive(Debug, thiserror::Error)]
 pub enum NativePaymentError {
+    /// No retained original carrier or verified successful business receipt exists.
+    /// A new paid attempt requires the explicit `submit` call and reviewed exact fee intent.
+    #[error("new payment attempt requires explicit submission authorization")]
+    NewAttemptAuthorizationRequired {
+        /// Original local progress, if a journal exists without a signed carrier.
+        progress: Option<WorkflowProgressV1>,
+    },
     /// The independently supplied request or account context is unsupported.
     #[error("invalid native payment request: {0}")]
     InvalidRequest(&'static str),
@@ -194,6 +203,8 @@ impl From<NativePaymentObservationError> for NativePaymentError {
 /// retained complete intent and fees, with empty carrier metadata and no attachments.
 pub struct NativePaymentOperation {
     handle: WorkflowHandle,
+    resume_handle: WorkflowHandle,
+    resume_driver: carrier::ResumePaymentDriver,
     driver: Arc<dyn WorkflowDriver>,
     ledger: Arc<NativePaymentLedger>,
     call: tokio::sync::Mutex<()>,
@@ -267,6 +278,18 @@ impl NativePaymentOperation {
         let ledger = Arc::new(NativePaymentLedger::new(
             request, verifier, dispatch, source,
         ));
+        let resume_account = Arc::new(carrier::ResumePaymentAccount::new(
+            account.binding(),
+            ledger.request.clone(),
+        ));
+        let resume_driver = carrier::ResumePaymentDriver::new(driver.identity());
+        let resume_engine = WorkflowEngine::new(
+            storage.clone(),
+            resume_account,
+            ledger.clone(),
+            Arc::new(SystemWorkflowClock::new()),
+        );
+        let resume_handle = resume_engine.workflow(plan.clone())?;
         let engine = WorkflowEngine::new(
             storage,
             account,
@@ -275,6 +298,8 @@ impl NativePaymentOperation {
         );
         Ok(Self {
             handle: engine.workflow(plan)?,
+            resume_handle,
+            resume_driver,
             driver,
             ledger,
             call: tokio::sync::Mutex::new(()),
@@ -305,7 +330,7 @@ impl NativePaymentOperation {
     }
 
     async fn existing_receipt(&self) -> Result<Option<VerifiedPaymentReceipt>, NativePaymentError> {
-        let journal = self.handle.native_payment_journal()?;
+        let journal = self.handle.journal_snapshot()?;
         let marker = journal
             .as_ref()
             .and_then(|journal| journal.native_payment_completion.as_ref());
@@ -332,12 +357,42 @@ impl NativePaymentOperation {
         Ok(receipt)
     }
 
-    /// Run or resume one exact signed carrier and return only verified business success.
+    /// Explicitly authorize submission of a paid attempt using the exact retained fee intent.
+    ///
+    /// This may create and sign a new carrier when this gateway has no original journal.
+    /// An earlier rejected attempt can already have paid a fee. Replacing a known rejected
+    /// local carrier additionally requires `retry_rejected_step`; its default remains false.
+    /// Existing successful business settlement is independently recovered before any signing.
+    /// Use `resume` for unknown-outcome recovery with no new carrier authorization.
     /// # Errors
-    /// Original typed read/verification failures, existing journal errors or unresolved success.
-    pub async fn run(
+    /// Original typed read/verification failures, journal errors or unresolved success.
+    pub async fn submit(
         &self,
         options: &NativePaymentRunOptions,
+    ) -> Result<NativePaymentSettlement, NativePaymentError> {
+        self.advance(options, true).await
+    }
+
+    /// Resume only an original retained signed carrier, without building or signing a new one.
+    ///
+    /// A fresh gateway may recover an independently verified original success. Otherwise an
+    /// absent/unsigned journal requires explicit `submit` authorization. Rejected identities
+    /// are never replaced here, even if options request replacement. Exact-byte retransmission
+    /// keeps the existing exact-absence and unknown-outcome reconciliation rules.
+    /// # Errors
+    /// `NewAttemptAuthorizationRequired` without an original carrier or verified success;
+    /// otherwise the original typed journal, observation or terminal rejection failure.
+    pub async fn resume(
+        &self,
+        options: &NativePaymentRunOptions,
+    ) -> Result<NativePaymentSettlement, NativePaymentError> {
+        self.advance(options, false).await
+    }
+
+    async fn advance(
+        &self,
+        options: &NativePaymentRunOptions,
+        authorize_submission: bool,
     ) -> Result<NativePaymentSettlement, NativePaymentError> {
         let _call = self.call.lock().await;
         self.ledger
@@ -345,10 +400,30 @@ impl NativePaymentOperation {
         if let Some(receipt) = self.existing_receipt().await? {
             return self.finish_verified(receipt);
         }
-        let result = self
-            .handle
-            .run(self.driver.as_ref(), &options.workflow)
-            .await;
+        let result = if authorize_submission {
+            self.handle
+                .run(self.driver.as_ref(), &options.workflow)
+                .await
+        } else {
+            let journal = self.handle.journal_snapshot()?;
+            if journal
+                .as_ref()
+                .and_then(|journal| journal.steps.first())
+                .and_then(|step| step.transaction.as_ref())
+                .and_then(|transaction| transaction.attempts.last())
+                .and_then(|attempt| attempt.identity.as_ref())
+                .is_none()
+            {
+                return Err(NativePaymentError::NewAttemptAuthorizationRequired {
+                    progress: journal.as_ref().map(|journal| journal.progress()),
+                });
+            }
+            let mut resume_options = options.workflow;
+            resume_options.retry_rejected_step = false;
+            self.resume_handle
+                .run(&self.resume_driver, &resume_options)
+                .await
+        };
         let original_error = self.ledger.take_error()?;
         if let Some(receipt) = self.ledger.take_receipt()? {
             return self.finish_verified(receipt);

@@ -36,8 +36,9 @@
 //! **O-AMX** walks every instance's committed reference chain (the first honest commit of each
 //! height, [`super::oracle::Oracle::refs`]) and checks: at most one `Begin`, one `Decision` and,
 //! per participant, one `Prepared` and one settlement per transaction; `G` records `Commit`
-//! only at a height `≤ d` with a committed `Yes` from every participant, `Abort` before `d + 1`
-//! only on a committed `No`, and decides every transaction by `d + 1`; a dataspace applies a
+//! only at a height `≤ d` and before the signed time expiry with a committed `Yes` from every
+//! participant. An Abort requires a committed `No` or a due height/time; the height fallback
+//! still decides every transaction by `d + 1`. A dataspace applies a
 //! `Yes` escrow only on `G`'s `Commit` and releases it only on `G`'s `Abort` (an escrow leaves
 //! only through a settlement with a verified decision proof); every dataspace ledger moves only
 //! by its escrows and settlements; and every transaction `G` decided at least
@@ -970,6 +971,9 @@ enum JobKey {
 #[derive(Clone, Debug)]
 struct Job {
     input: Input,
+    // Scheduling only: the signed absolute expiry uses the same wall-time domain
+    // as certified payload stamps; retry cadence uses elapsed simulation time.
+    not_before_ms: Option<Millis>,
     next_at: Millis,
 }
 
@@ -1002,10 +1006,16 @@ impl Relayer {
         (prepare_delay, settle_delay): (Millis, Millis),
     ) {
         let boxed = || Box::new(proof.clone());
-        let mut add = |target: usize, key: JobKey, input: Input, next_at: Millis| {
-            self.jobs
-                .entry((target, key))
-                .or_insert(Job { input, next_at });
+        let mut add = |target: usize,
+                       key: JobKey,
+                       input: Input,
+                       next_at: Millis,
+                       not_before_ms: Option<Millis>| {
+            self.jobs.entry((target, key)).or_insert(Job {
+                input,
+                not_before_ms,
+                next_at,
+            });
         };
         match (inst, proof.record()) {
             (
@@ -1020,7 +1030,8 @@ impl Relayer {
                         GLOBAL,
                         JobKey::Expire(*x),
                         Input::Expire(*x),
-                        *expires_at_ms,
+                        now,
+                        Some(*expires_at_ms),
                     );
                 }
                 if let Some(tx) = txs.get(x) {
@@ -1031,6 +1042,7 @@ impl Relayer {
                             JobKey::Prepare(*x),
                             Input::Prepare(tx.clone(), boxed()),
                             now + delay,
+                            None,
                         );
                     }
                 }
@@ -1044,6 +1056,7 @@ impl Relayer {
                             JobKey::Settle(*x),
                             Input::Settle(boxed()),
                             now + delay,
+                            None,
                         );
                     }
                 }
@@ -1055,11 +1068,18 @@ impl Relayer {
                         JobKey::Handoff(GLOBAL, next.id.epoch),
                         Input::GlobalHandoff(boxed()),
                         now,
+                        None,
                     );
                 }
             }
             (_, Some(Record::Prepared { x, participant, .. })) if *participant == inst => {
-                add(GLOBAL, JobKey::Vote(*x, inst), Input::Vote(boxed()), now);
+                add(
+                    GLOBAL,
+                    JobKey::Vote(*x, inst),
+                    Input::Vote(boxed()),
+                    now,
+                    None,
+                );
             }
             (_, Some(Record::Epoch { next, .. })) => {
                 add(
@@ -1067,6 +1087,7 @@ impl Relayer {
                     JobKey::Handoff(inst, next.id.epoch),
                     Input::Handoff(inst, boxed()),
                     now,
+                    None,
                 );
             }
             _ => {}
@@ -1219,7 +1240,7 @@ impl AmxWorld {
         block: &AvailableBody,
         base: ExecOutcome,
     ) -> ExecOutcome {
-        let ExecOutcome::Valid(base) = base else {
+        let ExecOutcome::Valid { result: base, .. } = base else {
             return base;
         };
         let Some(parent) = self.exec_of(inst, parent) else {
@@ -1250,7 +1271,7 @@ impl AmxWorld {
                     records,
                 })
             });
-        ExecOutcome::Valid(result)
+        crate::testing::valid_execution(result)
     }
 
     /// The application's state transition of one block: the block's inputs in payload order,
@@ -1422,7 +1443,11 @@ impl World {
             .amx
             .as_ref()
             .and_then(|amx| amx.inputs.get(&id))
-            .is_some_and(|(_, input)| matches!(input, Input::Expire(_)));
+            .is_some_and(|(_, input)| {
+                matches!(input, Input::Expire(_))
+                    || (!cfg!(sumeragi_mutation = "MX15")
+                        && matches!(input, Input::Begin(_) | Input::Vote(_)))
+            });
         let tx = encode_tx_with_due(id, false, due, INPUT_PAD);
         for r in 0..self.replicas.len() {
             let machine = self.replicas[r].machine;
@@ -1438,6 +1463,9 @@ impl World {
     /// The client: a new transaction on `G` with a short or long deadline.
     fn amx_client(&mut self) {
         let now = self.now;
+        // The toy client uses machine 0's wall clock, not the event scheduler's
+        // elapsed coordinate. Only the certified block stamp decides validity.
+        let authored_at_ms = u64::try_from(self.wall_ms(0)).unwrap_or(0);
         let dataspaces = self.instances.len().saturating_sub(1);
         let g_height = self.oracle.refs[GLOBAL]
             .last_key_value()
@@ -1479,7 +1507,7 @@ impl World {
         let tx = AmxTx {
             legs,
             deadline,
-            expires_at_ms: now.saturating_add(config.expires_after_ms),
+            expires_at_ms: authored_at_ms.saturating_add(config.expires_after_ms),
             nonce: amx.nonce,
         };
         amx.next_client = now + rng.range(config.every.0, config.every.1);
@@ -1500,7 +1528,20 @@ impl World {
         let mut submissions = Vec::new();
         let mut failure = None;
         for index in 0..amx.relayers.len() {
-            let machine = &self.machines[amx.relayers[index].machine];
+            let machine_index = amx.relayers[index].machine;
+            let machine = &self.machines[machine_index];
+            let wall_offset = self
+                .clock_guard
+                .as_ref()
+                .and_then(|guard| guard.wall_offsets.get(machine_index))
+                .copied()
+                .unwrap_or(0);
+            let wall_ms = u64::try_from(
+                i64::try_from(machine.clock.local(now))
+                    .unwrap_or(i64::MAX)
+                    .saturating_add(wall_offset),
+            )
+            .unwrap_or(0);
             let outage = amx
                 .config
                 .relayer_down
@@ -1571,7 +1612,7 @@ impl World {
                 let Some(job) = amx.relayers[index].jobs.get_mut(&(target, key)) else {
                     continue;
                 };
-                if job.next_at > now {
+                if job.next_at > now || job.not_before_ms.is_some_and(|due| wall_ms < due) {
                     continue;
                 }
                 job.next_at = now + retry;

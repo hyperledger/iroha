@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::managed::native_operation::attempts::UnsignedClosureVerification;
+use crate::managed::native_operation::attempts::metadata;
 use std::cell::Cell;
 
 fn complete(value: Result<UnsignedClosureVerification>) -> VerifiedUnsignedClosure {
@@ -28,15 +29,31 @@ struct ChangedRecord {
 }
 impl ChangedRecord {
     fn replace(directory: &Arc<PrivateDirectory>, name: &'static str) -> Self {
+        let logical = matches!(name, "dispatch.nrt" | "closing.nrt" | "closed.nrt");
+        let physical = if logical { metadata::FILE } else { name };
+        let maximum = if logical {
+            metadata::MAX_IMAGE_BYTES
+        } else {
+            journal::MAX_ORIGINAL_BYTES
+        };
         let value = Self {
             directory: Arc::clone(directory),
-            name,
-            original: directory.read(name, journal::MAX_ORIGINAL_BYTES).unwrap(),
+            name: physical,
+            original: directory.read(physical, maximum).unwrap(),
         };
-        let mut changed = value.original.to_vec();
-        changed[0] ^= 1;
+        let changed = if logical {
+            let mut component = metadata::test_read_component(directory, None, name)
+                .unwrap()
+                .expect("genuine retained metadata component");
+            component[0] ^= 1;
+            metadata::test_changed_image(&value.original, None, name, Some(&component)).unwrap()
+        } else {
+            let mut changed = value.original.to_vec();
+            changed[0] ^= 1;
+            changed
+        };
         directory
-            .write_atomic(name, &changed, PublishMode::Replace)
+            .write_atomic(physical, &changed, PublishMode::Replace)
             .unwrap();
         value
     }
@@ -278,12 +295,15 @@ fn consumed_receipt_closes_one_native_census_and_refuses_oldest_post_callback_su
             )?
             .inspect_in_parent(&account, attempt.directory())
     };
-    let evidence = ["original.nrt", "dispatch.nrt", "closing.nrt", "closed.nrt"].map(|name| {
+    let evidence = ["original.nrt", metadata::FILE].map(|name| {
         (
             name,
             history.bodies[1]
                 .directory
-                .read(name, journal::MAX_ORIGINAL_BYTES)
+                .read(
+                    name,
+                    journal::MAX_ORIGINAL_BYTES.max(metadata::MAX_IMAGE_BYTES),
+                )
                 .unwrap(),
         )
     });
@@ -326,7 +346,10 @@ fn consumed_receipt_closes_one_native_census_and_refuses_oldest_post_callback_su
         assert_eq!(
             history.bodies[1]
                 .directory
-                .read(name, journal::MAX_ORIGINAL_BYTES)
+                .read(
+                    name,
+                    journal::MAX_ORIGINAL_BYTES.max(metadata::MAX_IMAGE_BYTES)
+                )
                 .unwrap()
                 .as_slice(),
             original.as_slice(),

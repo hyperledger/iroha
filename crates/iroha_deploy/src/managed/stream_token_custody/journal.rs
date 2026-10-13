@@ -357,16 +357,17 @@ impl Selected<Original> {
 pub(super) fn read_intent(directory: &PrivateDirectory) -> Result<Option<Original>> {
     let names = directory.entries(4)?;
     if names.iter().any(|name| {
-        !["original.nrt", "dispatch.nrt", "attempts", "epochs"]
+        !["original.nrt", "operation.nrt", "attempts", "epochs"]
             .iter()
             .any(|allowed| name == *allowed)
     }) {
         return Err(invalid("custody intent contains unknown material"));
     }
     let Some(bytes) = read_optional(directory, "original.nrt", MAX_ORIGINAL_BYTES)? else {
-        require_empty(directory)?;
+        attempts::metadata::require_unselected(directory)?;
         return Ok(None);
     };
+    attempts::metadata::require_published(directory, &bytes)?;
     decode_original(&bytes).map(Some)
 }
 /// BodyHistory owns this directory census and anchored absence; the Original decoder is shared.
@@ -375,13 +376,14 @@ pub(super) fn read_intent(directory: &PrivateDirectory) -> Result<Option<Origina
 pub(super) fn read_body_intent(
     directory: &PrivateDirectory,
 ) -> Result<Option<(Original, zeroize::Zeroizing<Vec<u8>>)>> {
-    read_optional(directory, "original.nrt", MAX_ORIGINAL_BYTES)?
-        .map(|bytes| {
-            decode_original(&bytes).map(|original| (original, zeroize::Zeroizing::new(bytes)))
-        })
-        .transpose()
+    let Some(bytes) = read_optional(directory, "original.nrt", MAX_ORIGINAL_BYTES)? else {
+        attempts::metadata::require_reserved(directory)?;
+        return Ok(None);
+    };
+    attempts::metadata::require_published(directory, &bytes)?;
+    decode_original(&bytes).map(|original| Some((original, zeroize::Zeroizing::new(bytes))))
 }
-fn decode_original(bytes: &[u8]) -> Result<Original> {
+pub(super) fn decode_original(bytes: &[u8]) -> Result<Original> {
     let original: Original = norito::decode_canonical_with_limits(
         bytes,
         norito::DecodeLimits::new(
@@ -395,6 +397,15 @@ fn decode_original(bytes: &[u8]) -> Result<Original> {
     .map_err(|_| invalid("invalid bounded original custody intent"))?;
     original.validate()?;
     Ok(original)
+}
+/// Complete only the exact retained initialization before selecting fresh native inputs.
+pub(super) fn recover_intent(
+    directory: &PrivateDirectory,
+    validate: impl FnOnce(&Original) -> Result<()>,
+) -> Result<()> {
+    attempts::metadata::recover_original(directory, MAX_ORIGINAL_BYTES, |bytes| {
+        validate(&decode_original(bytes)?)
+    })
 }
 pub(super) fn read_original(directory: &PrivateDirectory) -> Result<Option<Selected<Original>>> {
     let Some(intent) = read_intent(directory)? else {

@@ -18133,7 +18133,7 @@ pub mod isi {
                         .map(|(effective_height, count)| (*effective_height, *count)),
                 )
                 .map_err(|error| invalid_smart_contract_parameter(error.to_string()))?;
-                // The atomic parameter owner validates pipeline limits and fee
+                // The atomic parameter owner validates fraud admission, pipeline limits and fee
                 // fields below, preserving an original local decoder refusal.
                 validate_hijiri_parameters(custom, state_transaction)?;
                 validate_da_ingest_admission_policy(custom, state_transaction)?;
@@ -18436,6 +18436,7 @@ pub mod isi {
             // governed variant must update State and emit its configuration event.
             set_parameter!(
                 Sumeragi(sumeragi.max_clock_drift_ms) => SumeragiParameter::MaxClockDriftMs,
+                Sumeragi(sumeragi.due_work_max_lag_ms) => SumeragiParameter::DueWorkMaxLagMs,
                 Sumeragi(sumeragi.payload_retry_interval_ms) => SumeragiParameter::PayloadRetryIntervalMs,
                 Sumeragi(sumeragi.exec_budget_ms) => SumeragiParameter::ExecBudgetMs,
                 Sumeragi(sumeragi.apply_budget_ms) => SumeragiParameter::ApplyBudgetMs,
@@ -32110,6 +32111,30 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             let params = stx.world.parameters.get().sumeragi().clone();
             assert_eq!(params.max_clock_drift_ms(), 333);
         });
+        world_test!(set_parameter_preserves_due_work_margin_without_mutating_committed_parent {
+            let state = blank_state();
+            let block = new_dummy_block_at_height(NonZeroU64::new(2).unwrap());
+            let mut state_block = state.block(block.as_ref().header());
+            let mut stx = state_block.transaction();
+            SetParameter(Parameter::Sumeragi(SumeragiParameter::DueWorkMaxLagMs(
+                NonZeroU64::new(5_999).unwrap(),
+            )))
+                .execute(&ALICE_ID, &mut stx)
+                .expect_err("one below the committed drift/cadence margin cannot change State");
+            assert_eq!(stx.world.parameters.get().sumeragi().due_work_max_lag_ms(), 60_000);
+            SetParameter(Parameter::Sumeragi(SumeragiParameter::DueWorkMaxLagMs(
+                NonZeroU64::new(6_000).unwrap(),
+            )))
+                .expect_execute(&ALICE_ID, &mut stx, "exact combined lower bound");
+            SetParameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(1_001)))
+                .execute(&ALICE_ID, &mut stx)
+                .expect_err("raising drift must also preserve the current due-work margin");
+            assert_eq!(stx.world.parameters.get().sumeragi().max_clock_drift_ms(), 1_000);
+            assert_eq!(stx.world.parameters.get().sumeragi().due_work_max_lag_ms(), 6_000);
+            drop(stx);
+            drop(state_block);
+            assert_eq!(state.view().world().parameters().sumeragi().due_work_max_lag_ms(), 60_000);
+        });
         world_test!(set_parameter_clock_drift_bound_rejects_excess_without_changing_state {
             use iroha_data_model::parameter::system::MAX_CLOCK_DRIFT_BOUND_MS;
             for height in [1, 2] {
@@ -32117,6 +32142,10 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 let block = new_dummy_block_at_height(NonZeroU64::new(height).unwrap());
                 let mut state_block = state.block(block.as_ref().header());
                 let mut stx = state_block.transaction();
+                SetParameter(Parameter::Sumeragi(SumeragiParameter::DueWorkMaxLagMs(
+                    NonZeroU64::new(124_000).unwrap(),
+                )))
+                    .expect_execute(&ALICE_ID, &mut stx, "CT5 margin permits the exact CT4 drift bound");
                 SetParameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(
                     MAX_CLOCK_DRIFT_BOUND_MS,
                 )))

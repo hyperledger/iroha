@@ -320,6 +320,27 @@ pub trait WorkflowDriver: Send + Sync {
         Box::pin(async { Err(StepFailure::unsupported("off-chain rounds")) })
     }
 
+    /// Whether Run may continue effects of an already started waiting round.
+    ///
+    /// Opt-in preserves the existing read-only waiting behavior of other drivers.
+    fn supports_round_continuation(&self) -> bool {
+        false
+    }
+
+    /// Continue authorized effects of a freshly recovered waiting round during Run.
+    ///
+    /// The engine retains the original runner lease and persists the same round identity
+    /// before this call. Recover and cancellation never invoke it. The default performs
+    /// no effects and returns the observed waiting state unchanged.
+    fn continue_round<'a>(
+        &'a self,
+        context: RoundContext<'a>,
+        observed: RoundStatusReport,
+    ) -> WorkflowFuture<'a, Result<RoundReport, StepFailure>> {
+        let _ = context;
+        Box::pin(async move { Ok(RoundReport::Waiting(observed)) })
+    }
+
     /// Recover the round with the persisted identity without sending anything.
     ///
     /// A round that completed externally returns its original transcript and
@@ -1309,6 +1330,40 @@ impl WorkflowEngine {
                 Ok(())
             }
         };
+        let report = if !read_only
+            && driver.supports_round_continuation()
+            && matches!(
+                state,
+                RoundStateV1::RoundStarted | RoundStateV1::RoundWaiting
+            )
+            && session.journal.status != WorkflowStatusV1::Cancelling
+        {
+            if let RoundReport::Waiting(status) = report {
+                bound(&status).map_err(|detail| round_binding_error(index, detail))?;
+                let participants = status.participants.clone();
+                let stored = session.commit(|journal| {
+                    journal
+                        .apply_round(
+                            index,
+                            RoundInputV1::Waiting {
+                                participants: participants.clone(),
+                            },
+                        )
+                        .map(drop)
+                })?;
+                if stored == Stored::Reloaded {
+                    return Ok(true);
+                }
+                driver
+                    .continue_round(round_context(session, index, round_id), status)
+                    .await
+                    .map_err(|failure| failure.into_error(WorkflowStage::Round, index))?
+            } else {
+                report
+            }
+        } else {
+            report
+        };
         let input = match report {
             RoundReport::Completed {
                 status,
@@ -1503,9 +1558,7 @@ fn round_pending_error(journal: &WorkflowJournalV1, index: usize) -> WorkflowErr
 
 impl WorkflowHandle {
     /// Read the existing engine-owned journal without granting receipt authority.
-    pub(crate) fn native_payment_journal(
-        &self,
-    ) -> Result<Option<WorkflowJournalV1>, WorkflowError> {
+    pub(crate) fn journal_snapshot(&self) -> Result<Option<WorkflowJournalV1>, WorkflowError> {
         Ok(self.engine.load(&self.id)?.map(|(journal, _)| journal))
     }
 

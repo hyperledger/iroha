@@ -290,6 +290,7 @@ fn sumeragi_lane_schemas_match_the_served_rust_dto() {
     }
     for field in [
         "block_cadence_ms",
+        "due_work_max_lag_ms",
         "payload_retry_interval_ms",
         "exec_budget_ms",
         "apply_budget_ms",

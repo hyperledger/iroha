@@ -452,7 +452,7 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
                             .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
                             .expect("occupy the actual original execution pool"),
                     );
-                    worker.finish_execution_with_encoder(encode_result_preimage)
+                    worker.finish_execution_with_encoder(false, encode_result_preimage)
                 });
             assert!(matches!(initial, Err(PublicationError::Deferred(_))));
             let pending = worker

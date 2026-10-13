@@ -282,6 +282,7 @@ fn main() -> Result<()> {
         key_pair,
         basic_auth: None,
         api_token: None,
+        http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
         torii_api_url: args.torii_url,
         torii_request_timeout: config::DEFAULT_TORII_REQUEST_TIMEOUT,
         transaction_ttl: Duration::from_secs(900),

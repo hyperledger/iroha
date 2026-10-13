@@ -113,7 +113,7 @@ fn assert_original_local_refusal<const N: usize>(ceilings: [norito::DecodeLimits
         }
         assert!(matches!(
             worker.execute(&block, hash, false),
-            Some(ExecOutcome::Valid(_))
+            Some(ExecOutcome::Valid { .. })
         ));
         assert!(worker.routing_refusal.is_none());
         assert_eq!(

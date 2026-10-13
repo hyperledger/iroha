@@ -1,5 +1,6 @@
 //! Test-only generated selection using a real native cut, followed by the existing wallet/carrier owner.
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::test_support::native_fixture::NativeFixture;
 use crate::managed::native_operation::{Fees, authorization::DispatchAuthorization};
 
@@ -23,7 +24,7 @@ impl ManagedInitialReservePolicy {
             checkpoint: checkpoint_bytes(&verifier).unwrap(),
         };
         self.validate_original(&original).unwrap();
-        let directory = self.authority.directory.ensure_child("set").unwrap();
+        let directory = metadata::ensure_operation(&self.authority.directory, "set").unwrap();
         journal::publish_intent(&directory, &original).unwrap();
         let account = authorization
             .bind_account(AccountService::new(self.authority.config.clone()).unwrap())

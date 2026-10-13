@@ -11,6 +11,8 @@ use std::{
 mod attachment_installed;
 #[path = "installed_tests.rs"]
 mod installed;
+#[path = "installed_renewal_tests.rs"]
+mod installed_renewal;
 
 #[test]
 fn global_and_private_requests_select_only_their_original_scope_prerequisites() {

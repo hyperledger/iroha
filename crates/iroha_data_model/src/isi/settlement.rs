@@ -2,6 +2,10 @@
 pub use self::model::SettlementId;
 mod atomic;
 mod id;
+mod payment_projection;
+pub use payment_projection::{
+    AtomicPaymentProjectionError, project_atomic_payment_receipt_unverified,
+};
 #[cfg(test)]
 mod id_tests;
 use super::*;

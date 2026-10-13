@@ -13,12 +13,15 @@ use iroha_data_model::{
         execution_output::{ExecutionOutputV1, NetworkExecutionOutputV1},
         output_budget::ExecutionOutputLimits,
     },
-    isi::{AtomicSettlementMovement, AtomicSettlementMovements, InstructionBox, Log},
+    isi::{
+        AtomicSettlementMovement, AtomicSettlementMovements, InstructionBox, Log,
+        SettlementInstructionBox,
+    },
     level::Level,
     nexus::{AxtPolicySnapshot, FeeDebitSource},
     sumeragi_finality::{SumeragiFinalityVerifier, test_fixtures::NativeFinalityFixture},
     transaction::{
-        FeeChargeLimit, FeePaymentIntent, TransactionBuilder, TransactionResult,
+        FeeChargeKind, FeeChargeLimit, FeePaymentIntent, TransactionBuilder, TransactionResult,
         error::{TransactionLimitError, TransactionRejectionReason},
     },
 };

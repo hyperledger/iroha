@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::localnet::service_authorities::LocalnetServiceProfile;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::test_support::native_fixture::policy as generated_policy;
 use iroha_data_model::{
     sorafs::{capacity::CapacityDeclarationRecord, reserve::ReserveLifecycleStage},
@@ -108,11 +109,8 @@ fn capacity_original_roundtrip_preserves_large_checkpoint_and_prior_capacity_byt
         Default::default(),
     ));
     // Raw previous bytes exercise codec admission only; no proof validator sees this specimen.
-    let directory = coordinator
-        .authority
-        .directory
-        .ensure_child("declare")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "declare").unwrap();
     journal::publish_intent(&directory, &original).unwrap();
     let restored = journal::read_intent(&directory).unwrap().unwrap();
     assert_eq!(

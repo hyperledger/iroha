@@ -159,6 +159,67 @@ impl JsonDeserialize for BasicAuth {
         })
     }
 }
+/// HTTP routing policy selected by one immutable Torii client context.
+///
+/// Ordinary clients retain system proxy and TLS trust behavior. Generated owned
+/// localnets explicitly choose the separate cleartext loopback connection pools.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HttpTransportPolicy {
+    /// Preserve ordinary HTTP/HTTPS proxy and certificate validation behavior.
+    #[default]
+    Ordinary,
+    /// Require every HTTP request to use a direct cleartext loopback endpoint.
+    DirectLoopback,
+}
+impl HttpTransportPolicy {
+    /// Return the canonical client-configuration spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ordinary => "ordinary",
+            Self::DirectLoopback => "direct_loopback",
+        }
+    }
+
+    pub(crate) fn permits_url(self, url: &Url) -> bool {
+        if self == Self::Ordinary {
+            return true;
+        }
+        let loopback = match url.host() {
+            Some(url::Host::Domain(domain)) => domain == "localhost",
+            Some(url::Host::Ipv4(address)) => address.is_loopback(),
+            Some(url::Host::Ipv6(address)) => address.is_loopback(),
+            None => false,
+        };
+        url.scheme() == "http"
+            && loopback
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.fragment().is_none()
+    }
+}
+impl fmt::Display for HttpTransportPolicy {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+impl JsonSerialize for HttpTransportPolicy {
+    fn json_serialize(&self, out: &mut String) {
+        self.as_str().json_serialize(out);
+    }
+}
+impl JsonDeserialize for HttpTransportPolicy {
+    fn json_deserialize(parser: &mut json::Parser<'_>) -> Result<Self, json::Error> {
+        match parser.parse_string()?.as_str() {
+            "ordinary" => Ok(Self::Ordinary),
+            "direct_loopback" => Ok(Self::DirectLoopback),
+            _ => Err(json::Error::Message(
+                "http_transport_policy must be ordinary or direct_loopback".into(),
+            )),
+        }
+    }
+}
+
 /// Complete client configuration.
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -178,6 +239,8 @@ pub struct Config {
     pub api_token: Option<SecretString>,
     /// Torii API base URL.
     pub torii_api_url: Url,
+    /// Explicit HTTP routing policy for this Torii context.
+    pub http_transport_policy: HttpTransportPolicy,
     /// Timeout for Torii HTTP requests.
     pub torii_request_timeout: Duration,
     /// Transaction time-to-live.
@@ -586,6 +649,106 @@ mod tests {
         }
     }
     #[test]
+    fn http_transport_policy_is_explicit_and_parses_canonically() {
+        for (label, expected) in [
+            (None, HttpTransportPolicy::Ordinary),
+            (Some("ordinary"), HttpTransportPolicy::Ordinary),
+            (Some("direct_loopback"), HttpTransportPolicy::DirectLoopback),
+        ] {
+            let mut table = config_sample();
+            if let Some(label) = label {
+                table.insert("http_transport_policy".into(), label.into());
+            }
+            let config = ConfigReader::new()
+                .with_toml_source(TomlSource::inline(table))
+                // This policy has no process-environment override.
+                .with_env(MockEnv::from([("HTTP_TRANSPORT_POLICY", "unknown")]))
+                .read_and_complete::<user::Root>()
+                .unwrap()
+                .parse()
+                .unwrap();
+            assert_eq!(config.http_transport_policy, expected);
+            assert_eq!(expected.to_string(), expected.as_str());
+            let client = crate::client::Client::builder(config).build().unwrap();
+            assert_eq!(client.http_transport_policy(), expected);
+            let json = norito::json::to_json(&expected).unwrap();
+            assert_eq!(json, format!("\"{}\"", expected.as_str()));
+            assert_eq!(
+                norito::json::from_str::<HttpTransportPolicy>(&json).unwrap(),
+                expected
+            );
+        }
+        for label in [
+            "direct",
+            "DirectLoopback",
+            "DIRECT_LOOPBACK",
+            "",
+            "ordinary ",
+        ] {
+            let mut table = config_sample();
+            table.insert("http_transport_policy".into(), label.into());
+            assert!(
+                ConfigReader::new()
+                    .with_toml_source(TomlSource::inline(table))
+                    .read_and_complete::<user::Root>()
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn direct_loopback_config_rejects_remote_tls_and_ambiguous_endpoints() {
+        for endpoint in [
+            "https://localhost/",
+            "https://example.com/",
+            "http://example.com/",
+            "http://localhost.example/",
+            "http://192.0.2.1/",
+            "http://[::ffff:127.0.0.1]/",
+            "http://user:secret@localhost/",
+            "http://localhost/#fragment",
+        ] {
+            let mut table = config_sample();
+            table.insert("http_transport_policy".into(), "direct_loopback".into());
+            table.insert("torii_url".into(), endpoint.into());
+            let error = ConfigReader::new()
+                .with_toml_source(TomlSource::inline(table))
+                .read_and_complete::<user::Root>()
+                .unwrap()
+                .parse()
+                .unwrap_err();
+            assert!(
+                error
+                    .frames()
+                    .any(|frame| frame.downcast_ref::<ParseError>()
+                        == Some(&ParseError::DirectLoopbackEndpoint))
+            );
+            assert!(!format!("{error:?}").contains("user:secret"));
+        }
+        for endpoint in [
+            "http://localhost/",
+            "http://127.0.0.2/api/",
+            "http://[::1]/",
+        ] {
+            assert!(HttpTransportPolicy::DirectLoopback.permits_url(&endpoint.parse().unwrap()));
+        }
+        for endpoint in ["https://example.com/", "http://192.0.2.1/"] {
+            let mut table = config_sample();
+            table.insert("torii_url".into(), endpoint.into());
+            let ordinary = ConfigReader::new()
+                .with_toml_source(TomlSource::inline(table))
+                .read_and_complete::<user::Root>()
+                .unwrap()
+                .parse()
+                .unwrap();
+            assert_eq!(
+                ordinary.http_transport_policy,
+                HttpTransportPolicy::Ordinary
+            );
+        }
+    }
+
+    #[test]
     fn parse_full_toml_config() {
         ConfigReader::new()
             .with_toml_source(TomlSource::inline(config_sample()))
@@ -931,6 +1094,7 @@ mod tests {
         assert_eq!(actual.network_id, expected.network_id);
         assert_eq!(actual.chain, expected.chain);
         assert_eq!(actual.torii_api_url, expected.torii_api_url);
+        assert_eq!(actual.http_transport_policy, expected.http_transport_policy);
         assert!(actual.key_pair == expected.key_pair);
         assert_eq!(
             files.reads.borrow().as_slice(),

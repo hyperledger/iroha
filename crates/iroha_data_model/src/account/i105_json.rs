@@ -61,6 +61,14 @@ pub(super) fn visit_key_text(
     })
 }
 
+/// Exact live limb backing required by one checked account-key serialization.
+pub(super) fn scratch_bytes(account: &AccountId) -> Result<usize, BoundedJsonError> {
+    let limbs = maximum_base105_limbs(canonical_address_len(account)?)?;
+    Layout::array::<MaybeUninit<u64>>(limbs)
+        .map(|layout| layout.size())
+        .map_err(|_| BoundedJsonError::AllocationFailed)
+}
+
 struct PreparedI105 {
     limbs: Box<[MaybeUninit<u64>]>,
     initialized_limbs: usize,

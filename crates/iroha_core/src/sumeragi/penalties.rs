@@ -2931,6 +2931,7 @@ mod tests {
                 parent: &parent,
                 view: 0,
                 cadence: Duration::from_millis(1),
+                proposed_time: std::time::Duration::ZERO,
             };
             let transactions = [accepted];
             let original_transaction = transactions[0].hash();

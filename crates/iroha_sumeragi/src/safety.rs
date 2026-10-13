@@ -13,7 +13,7 @@ use crate::{
     api::{HaltReason, LocalFault},
     crypto::Crypto,
     message::{self, Qc, TimeoutCert, VoteKind},
-    types::{Committee, EpochConfig, EpochId, Hash32, PublicKey, ValidatorIndex},
+    types::{Committee, EpochConfig, EpochId, Hash32, PublicKey, Signature, ValidatorIndex},
 };
 
 /// Largest accepted record encoding (a record at `n = 1024` stays far below this).
@@ -89,6 +89,8 @@ pub struct SafetyRecord {
     pub proposal: Option<RecordedProposal>,
     /// Last Prepare reserved for signing, including a refused attempt.
     pub prepare: Option<RecordedVote>,
+    /// Exact successfully produced Prepare signature; absent for an unsigned reservation.
+    pub prepare_signature: Option<Signature>,
     /// Last timeout reserved for signing, including a refused attempt.
     pub timeout: Option<RecordedTimeout>,
     /// Lock (`high_pqc`) at write time; also the record of every Commit (§6.5: a Commit at
@@ -115,6 +117,7 @@ impl SafetyRecord {
             parent_commit_qc,
             proposal: None,
             prepare: None,
+            prepare_signature: None,
             timeout: None,
             lock: None,
             high_tc: None,
@@ -164,7 +167,35 @@ impl SafetyRecord {
         }
         let record = envelope.record;
         record.check_consistency()?;
+        if !record.prepare_signature_verifies(crypto) {
+            return Err(RecordError::Inconsistent);
+        }
         Ok(record)
+    }
+
+    /// Verify an actual retained signature against its exact original signing identity.
+    /// An unsigned reservation supplies no first-signature authority.
+    pub fn prepare_signature_verifies(&self, crypto: &dyn Crypto) -> bool {
+        if cfg!(sumeragi_mutation = "MS66") {
+            return true;
+        }
+        match (self.prepare, self.prepare_signature) {
+            (_, None) => true,
+            (None, Some(_)) => false,
+            (Some(vote), Some(signature)) => crypto.verify(
+                &self.key,
+                &crate::preimage::vote_preimage(
+                    VoteKind::Prepare,
+                    &self.instance,
+                    &self.epoch,
+                    self.height,
+                    vote.view,
+                    &vote.block_hash,
+                    &vote.result,
+                ),
+                &signature,
+            ),
+        }
     }
 
     /// Internal consistency of a decoded record.
@@ -186,7 +217,8 @@ impl SafetyRecord {
                 && tc.epoch == self.epoch
                 && message::check_tc(tc).is_ok()
         };
-        let valid = self.key.is_well_formed()
+        let valid = (self.prepare_signature.is_none() || self.prepare.is_some())
+            && self.key.is_well_formed()
             && self.parent_commit_qc.as_ref().is_none_or(|qc| {
                 qc.kind == VoteKind::Commit
                     && qc.instance == self.instance
@@ -544,6 +576,7 @@ mod tests {
                 block_hash: h(2),
                 result: h(3),
             }),
+            prepare_signature: None,
             timeout: Some(RecordedTimeout {
                 view: 4,
                 high_pqc: Some(lock.clone()),
@@ -739,6 +772,7 @@ mod tests {
                 ..base.clone()
             },
             SafetyRecord {
+                prepare_signature: None,
                 timeout: Some(RecordedTimeout {
                     view: 2,
                     high_pqc: base.lock.clone(),
@@ -746,6 +780,7 @@ mod tests {
                 ..base.clone()
             },
             SafetyRecord {
+                prepare_signature: None,
                 timeout: Some(RecordedTimeout {
                     view: 5,
                     high_pqc: Some(other_height),
@@ -843,6 +878,7 @@ mod tests {
                 block_hash: h(2),
                 result: h(3),
             }),
+            prepare_signature: None,
             timeout: Some(RecordedTimeout {
                 view: 4,
                 high_pqc: Some(lock.clone()),

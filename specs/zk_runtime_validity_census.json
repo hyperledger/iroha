@@ -579,13 +579,11 @@
    "owner": null,
    "path": "crates/iroha_config/src/parameters/user.rs",
    "symbol": "PIPELINE_WORKERS",
-   "gates": "Environment aliases of local resource fields in the [pipeline], [gov] and [fraud_monitoring] sections.",
+   "gates": "Environment aliases of local resource fields in the [pipeline] and [gov] sections.",
    "decided_by": "Stays node-local.",
    "attribution": "read",
-   "note": "Read alias by alias. The eighteen PIPELINE_* aliases other than PIPELINE_GAS_TECH_ACCOUNT_ID set fields that `pipeline_validity_policy::policy_of` marks as local resources (access-set cache, caches, tracing, GPU bucket, prover threads, parallel apply and overlay, the default cursor mode, the ready-queue heap, signature batch sizes, the stateless cache and workers); every execution limit of [pipeline] lost its key and alias (cfg.pipeline.node_schema). GOV_DEBUG_TRACE_PIPELINE and GOV_ALIAS_FRONTIER_TELEMETRY switch tracing and telemetry, and FRAUD_MONITORING_CONNECT_TIMEOUT_MS / FRAUD_MONITORING_REQUEST_TIMEOUT_MS bound this node's calls to its fraud service; none of the four is a field of the execution-policy digest.",
+   "note": "Read alias by alias. The eighteen PIPELINE_* aliases other than PIPELINE_GAS_TECH_ACCOUNT_ID set fields that `pipeline_validity_policy::policy_of` marks as local resources (access-set cache, caches, tracing, GPU bucket, prover threads, parallel apply and overlay, the default cursor mode, the ready-queue heap, signature batch sizes, the stateless cache and workers); every execution limit of [pipeline] lost its key and alias (cfg.pipeline.node_schema). GOV_DEBUG_TRACE_PIPELINE and GOV_ALIAS_FRONTIER_TELEMETRY switch tracing and telemetry; neither is a field of the execution-policy digest. Fraud service transport remains local file configuration and no longer has environment aliases.",
    "sites": [
-    ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "FRAUD_MONITORING_CONNECT_TIMEOUT_MS", 1],
-    ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "FRAUD_MONITORING_REQUEST_TIMEOUT_MS", 1],
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "GOV_ALIAS_FRONTIER_TELEMETRY", 1],
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "GOV_DEBUG_TRACE_PIPELINE", 1],
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "PIPELINE_ACCESS_SET_CACHE_ENABLED", 1],
@@ -635,10 +633,10 @@
    "owner": "F.4",
    "path": "crates/iroha_config/src/parameters/user.rs",
    "symbol": "GOV_VOTING_ASSET_ID",
-   "gates": "Environment aliases of validity-affecting node-configuration fields that are not committed yet: the governance policy (GOV_* voting, bond, slashing, council and viral incentive fields), the admitted algorithms (CRYPTO_*), the Nexus fee asset and sink (NEXUS_FEE_*), the oracle history depth, the fraud-monitoring switch and grace, the fee account PIPELINE_GAS_TECH_ACCOUNT_ID and COMPUTE_ENABLED.",
-   "decided_by": "Committed State for every one of these fields (cfg.governance, cfg.crypto.algorithms, cfg.oracle_fraud, cfg.nexus.policy, cfg.pipeline.gas_identity). A committed field keeps no key and no environment alias.",
+   "gates": "Environment aliases of validity-affecting node-configuration fields that are not committed yet: the governance policy (GOV_* voting, bond, slashing, council and viral incentive fields), the admitted algorithms (CRYPTO_*), the Nexus fee asset and sink (NEXUS_FEE_*), the oracle history depth, the fee account PIPELINE_GAS_TECH_ACCOUNT_ID and COMPUTE_ENABLED.",
+   "decided_by": "Committed State for every one of these fields (cfg.governance, cfg.crypto.algorithms, cfg.oracle, cfg.nexus.policy, cfg.pipeline.gas_identity). A committed field keeps no key and no environment alias.",
    "attribution": "read",
-   "note": "Read alias by alias against the fields of the execution-policy digest and the Nexus policy preimage. COMPUTE_ENABLED is listed here because its field enables the compute lane; the digest does not bind it and its owner decides whether it is a service switch.",
+   "note": "Read alias by alias against the fields of the execution-policy digest and the Nexus policy preimage. COMPUTE_ENABLED is listed here because its field enables the compute lane; the digest does not bind it and its owner decides whether it is a service switch. Fraud semantic keys and their environment aliases were retired with the committed policy owner (cfg.fraud.committed_policy); this does not close the remaining local policy families.",
    "open_reason": "Removing an alias is only meaningful together with the move of its field into committed State; those moves are the open cfg.* entries. The committed-parameter mechanism exists (zk_validity_policy_v1). This family still reaches validation through the State copy installed from node configuration at startup; moving it needs its own typed committed parameter, the staged-genesis and deployment generators that author it, and regenerated deployment configurations.",
    "sites": [
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "COMPUTE_ENABLED", 1],
@@ -648,8 +646,6 @@
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "CRYPTO_SM2_DISTID_DEFAULT", 1],
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "CRYPTO_SM_INTRINSICS", 1],
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "CRYPTO_SM_OPENSSL_PREVIEW", 1],
-    ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "FRAUD_MONITORING_ENABLED", 1],
-    ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "FRAUD_MONITORING_MISSING_ASSESSMENT_GRACE_SECS", 1],
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "GOV_AGENDA_COUNCIL_SIZE", 1],
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "GOV_ALIAS_TEU_MINIMUM", 1],
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "GOV_APPROVAL_Q_DEN", 1],
@@ -874,7 +870,7 @@
    "gates": "Reads and writes of `config.zk` outside the configuration crate: the daemon installing local resources into State (install_node_zk), starting the local diagnostic ZK lane from the node's own verifier settings, FASTPQ prover selection, device labels and the compatibility probe; the staged-genesis builder and the test network installing the same local resources; and the localnet builder passing the settings value to the execution-policy digest.",
    "decided_by": "Stays node-local: the settings value a configuration produces holds this node's local resources and the protocol-default validity values, because the node schema has no validity field (cfg.zk.node_schema).",
    "attribution": "read",
-   "note": "Negative test: installs_actual_zk_and_settlement_config_before_kura_replay (irohad) asserts that an SCCP limit placed in a settings value by hand does not reach State. The writes are `config.zk.fastpq.*` assignments of the daemon's FASTPQ command-line overrides.",
+   "note": "Negative test: installs_actual_zk_and_settlement_config_before_kura_replay (irohad) asserts that an SCCP limit placed in a settings value by hand does not reach State. The writes are `config.zk.fastpq.*` assignments of the daemon's FASTPQ command-line overrides. The two startup_preparation reads moved from main: one configures local FASTPQ sidecar limits, and one supplies node ZK resources to snapshot recovery before the same install/replay boundary; neither introduces an independent validity-policy owner.",
    "tests": [
     {
      "path": "crates/irohad/src/main.rs",
@@ -887,8 +883,9 @@
     ["crates/iroha_test_network/src/config.rs", "node_config_read", "zk", 1],
     ["crates/iroha_test_network/src/lib.rs", "node_config_read", "zk", 2],
     ["crates/irohad/src/compatibility_probe.rs", "node_config_read", "zk", 1],
-    ["crates/irohad/src/main.rs", "node_config_read", "zk", 16],
-    ["crates/irohad/src/main.rs", "zk_settings_write", "fastpq", 8]
+    ["crates/irohad/src/main.rs", "node_config_read", "zk", 14],
+    ["crates/irohad/src/main.rs", "zk_settings_write", "fastpq", 8],
+    ["crates/irohad/src/startup_preparation.rs", "node_config_read", "zk", 2]
    ]
   },
   {
@@ -1646,13 +1643,13 @@
    ]
   },
   {
-   "id": "cfg.oracle_fraud",
+   "id": "cfg.oracle",
    "kind": "node_local_config",
    "status": "open",
    "owner": "F.4",
    "path": "crates/iroha_config/src/parameters/actual.rs",
-   "symbol": "fraud_monitoring",
-   "gates": "Oracle economics, service levels and attesters and fraud-monitoring policy.",
+   "symbol": "oracle",
+   "gates": "Oracle economics, service levels and attesters.",
    "decided_by": "Committed State of those products.",
    "attribution": "read",
    "open_reason": "The committed-parameter mechanism exists (zk_validity_policy_v1). This family still reaches validation through the State copy installed from node configuration at startup; moving it needs its own typed committed parameter, the staged-genesis and deployment generators that author it, and regenerated deployment configurations.",
@@ -1674,6 +1671,142 @@
     ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "oracle.economics.reward_asset", 1],
     ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "oracle.economics.slash_asset", 1],
     ["crates/iroha_core/src/state.rs", "node_policy_read", "oracle.governance.*", 1]
+   ],
+   "note": "Fraud assessment admission has a separately qualified committed-policy owner (cfg.fraud.committed_policy). Oracle policy remains installed from node configuration; splitting these owners does not qualify or change Oracle execution."
+  },
+  {
+   "id": "cfg.fraud.committed_policy",
+   "kind": "node_local_config",
+   "status": "done",
+   "owner": "F.4",
+   "path": "crates/iroha_core/src/fraud_admission_policy.rs",
+   "symbol": "node_local_resources",
+   "gates": "Deterministic transaction assessment admission: whether it is enforced, the minimum band, permission for missing metadata and exact assessment-engine keys.",
+   "decided_by": "The exact FraudAdmissionPolicyV1 under world.parameters custom key fraud_admission_policy_v1. StateParameters validates it before publication; each StateBlock freezes its predecessor projection. Endpoints and transport deadlines remain node-local.",
+   "attribution": "read",
+   "note": "The causal pre-fix regression observed signed-genesis execution-policy mismatch after changing local fraud settings; it did not demonstrate two admitted validators certifying different results. Node construction/installation now discards caller-injected semantic projections. The original validated Model policy, not a shadow transport encoding, is committed as fraud.policy; H1 metadata derives from the staged authored parameter while actual H1 admission remains predecessor-frozen. The missing-assessment permission is a boolean, not elapsed grace. User configuration rejects semantic keys, and retired environment aliases and local semantic types are removed. Canonical engine IDs reject ASCII uppercase/whitespace without Unicode case folding. SDK operations whose retained request binds empty metadata cannot satisfy a policy requiring assessment metadata; this change does not fabricate assessments or loosen receipt binding. Actual admission also retains its existing signed metadata checks and score-to-band relation. The current policy controls cover malformed atomic replacement and restore, authored nondefault signed genesis, actual paid SettleAtomic outcomes/fees/roots under different local transport settings, predecessor freezing and strict final-tip replay. Canonical schema and State inventory follow their existing generators. This closes the fraud policy source only; Oracle and the other F.4 families retain their own open entries.",
+   "tests": [
+    {
+     "path": "crates/iroha_core/src/fraud_admission_policy_tests.rs",
+     "name": "committed_fraud_projection_ignores_node_semantics_and_preserves_transport"
+    },
+    {
+     "path": "crates/iroha_core/src/fraud_admission_policy_tests.rs",
+     "name": "malformed_fraud_updates_and_restore_never_replace_original_parameter_owner"
+    },
+    {
+     "path": "crates/iroha_core/src/fraud_admission_policy_tests.rs",
+     "name": "fraud_policy_change_applies_only_after_its_original_block"
+    },
+    {
+     "path": "crates/iroha_core/src/block/native_genesis_policy.rs",
+     "name": "native_signed_genesis_ignores_local_fraud_policy_and_transport"
+    },
+    {
+     "path": "crates/iroha_core/src/executor/settlement_replay_tests.rs",
+     "name": "committed_fraud_permission_preserves_actual_payment_fees_and_certified_restart_across_transport"
+    },
+    {
+     "path": "crates/iroha_config/tests/fixtures.rs",
+     "name": "fraud_monitoring_rejects_node_local_validity_policy"
+    },
+    {
+     "path": "crates/iroha_data_model/src/fraud/admission_policy.rs",
+     "name": "policy_has_exact_nominal_identity_and_each_semantic_field_changes_canonical_bytes"
+    },
+    {
+     "path": "crates/iroha_data_model/src/fraud/admission_policy.rs",
+     "name": "typed_bands_and_policy_have_exact_norito_and_json_roundtrips"
+    },
+    {
+     "path": "crates/iroha_data_model/src/fraud/admission_policy.rs",
+     "name": "policy_rejects_duplicate_unsorted_and_noncanonical_attesters"
+    },
+    {
+     "path": "crates/iroha_data_model/src/fraud/admission_policy.rs",
+     "name": "engine_identifier_normalization_is_ascii_only_and_preserves_exact_unicode_bytes"
+    },
+    {
+     "path": "crates/iroha_data_model/src/fraud/admission_policy.rs",
+     "name": "policy_rejects_unsupported_version_and_malformed_payload"
+    },
+    {
+     "path": "crates/iroha_data_model/src/fraud/admission_policy.rs",
+     "name": "engine_set_and_identifier_bounds_are_fixed_protocol_values"
+    },
+    {
+     "path": "crates/iroha_core/src/fraud_admission_policy_tests.rs",
+     "name": "set_parameter_refuses_malformed_fraud_before_any_publication"
+    },
+    {
+     "path": "crates/iroha_core/src/fraud_admission_policy_tests.rs",
+     "name": "executor_reconciliation_cannot_replace_or_remove_fraud_policy"
+    },
+    {
+     "path": "crates/iroha_core/src/fraud_admission_policy_tests.rs",
+     "name": "effective_policy_bytes_exclude_transport_and_invalid_application_is_atomic"
+    },
+    {
+     "path": "crates/iroha_deploy/src/genesis/staging.rs",
+     "name": "committed_fraud_genesis_staging_signs_and_restages_authored_policy"
+    },
+    {
+     "path": "crates/iroha_test_network/src/config.rs",
+     "name": "preexecuted_genesis_binds_nondefault_committed_fraud_policy"
+    }
+   ],
+   "removed": [
+    {
+     "path": "crates/iroha_config/src/parameters/user.rs",
+     "contains": "FRAUD_MONITORING_ENABLED"
+    },
+    {
+     "path": "crates/iroha_config/src/parameters/user.rs",
+     "contains": "FRAUD_MONITORING_MISSING_ASSESSMENT_GRACE_SECS"
+    },
+    {
+     "path": "crates/iroha_config/src/parameters/actual.rs",
+     "contains": "pub enum FraudRiskBand {"
+    }
+   ],
+   "sites": [],
+   "anchors": [
+    {
+     "path": "crates/iroha_data_model/src/fraud/admission_policy.rs",
+     "contains": "pub struct FraudAdmissionPolicyV1 {"
+    },
+    {
+     "path": "crates/iroha_core/src/pipeline_gas_policy.rs",
+     "contains": "pub fn fraud_policy(&self) -> &FraudAdmissionPolicyV1 {"
+    },
+    {
+     "path": "crates/iroha_core/src/pipeline_gas_policy.rs",
+     "contains": "let fraud = fraud_policy(custom.payload())?;"
+    },
+    {
+     "path": "crates/iroha_core/src/state/state_block_construction.rs",
+     "contains": "fraud_monitoring = Some(crate::fraud_admission_policy::effective_fraud("
+    },
+    {
+     "path": "crates/iroha_core/src/state.rs",
+     "contains": "pub fn install_node_fraud_monitoring("
+    },
+    {
+     "path": "crates/iroha_core/src/state.rs",
+     "contains": "let authored_fraud = crate::fraud_admission_policy::effective_fraud("
+    },
+    {
+     "path": "crates/iroha_core/src/state.rs",
+     "contains": "crate::fraud_admission_policy::FraudAdmissionPolicyV1::parameter_id(),"
+    },
+    {
+     "path": "crates/iroha_config/src/parameters/actual.rs",
+     "contains": "policy.push(\"fraud.policy\", &fraud_monitoring.policy);"
+    },
+    {
+     "path": "crates/iroha_core/src/state/authority_registry/state.rs",
+     "contains": "Role::Derived { sources: &[\"world.parameters\"], check: DerivationCheck::Rebuild(\"fraud_admission_policy::effective_fraud from the same validated StateParameters version; only endpoint and timeout fields are local\") });"
+    }
    ]
   },
   {
@@ -2896,7 +3029,7 @@
    "gates": "KAGEMUSHA offline monetary authority: typed unavailable, suspended or unsupported outcomes other than local-resource failures and version checks, which have their own entries. The names fall into two groups, which `note` separates for this entry: outcomes of an engine, profile, provider or protocol that is not available or not finished (EngineUnavailable, ProtocolUnavailable, CompiledProfileUnavailable, NotImplemented and the like), and rejections of a carried parameter value this release does not define (an unsupported degree, bit length, authority kind or layout).",
    "decided_by": "Outside the ZK delivery plan; recorded for visibility only.",
    "attribution": "path_rule",
-   "note": "KAGEMUSHA is the offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate; it is not a product of the ZK delivery plan, which only requires mixed blocks with KAGEMUSHA top-ups to be exercised (A.1, A.3). Its release, qualification and lifecycle names are recorded so that a change to them is seen, not because F.4 or a later plan task removes them.",
+   "note": "KAGEMUSHA is the offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate; it is not a product of the ZK delivery plan, which only requires mixed blocks with KAGEMUSHA top-ups to be exercised (A.1, A.3). Its release, qualification and lifecycle names are recorded so that a change to them is seen, not because F.4 or a later plan task removes them. Individually read added dispatch/native_owner sites distinguish unavailable original sigma artifact custody from invalid proof content and refuse a poisoned original-source lock. These local wallet preparation failures do not relax the separate hardware custody or qualified artifact checks.",
    "sites": [
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi.rs", "unavailable", "unavailable", 15],
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi.rs", "unavailable", "unsupported", 1],
@@ -2955,13 +3088,13 @@
     ["crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/owner/prekey_owner.rs", "unavailable", "unavailable", 5],
     ["crates/iroha_core_zk/src/kagemusha_wallet_intake_v1.rs", "unavailable", "unavailable", 5],
     ["crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/choices.rs", "unavailable", "unavailable", 3],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/dispatch.rs", "unavailable", "unavailable", 4],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/dispatch.rs", "unavailable", "unavailable", 6],
     ["crates/iroha_core_zk/src/kagemusha_wallet_proofs_v1.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core_zk/src/kagemusha_wallet_proofs_v1/randomness.rs", "unavailable", "unavailable", 3],
     ["crates/iroha_core_zk/src/kagemusha_wallet_registration_v1.rs", "unavailable", "unavailable", 5],
     ["crates/iroha_core_zk/src/kagemusha_wallet_registration_v1/builder.rs", "unavailable", "unavailable", 3],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1.rs", "unavailable", "unavailable", 1],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner.rs", "unavailable", "unavailable", 4],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner.rs", "unavailable", "unavailable", 6],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/bootstrap.rs", "unavailable", "unavailable", 3],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/runtime.rs", "unavailable", "unavailable", 4],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker.rs", "unavailable", "unavailable", 6],
@@ -3597,7 +3730,7 @@
    "attribution": "read",
    "note": "`PROOF_RELATION_UNAVAILABLE` (crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs): the RAM-LFE proof relation is not implemented, so the instructions that need it return this error; and `RamLfeError::UnsupportedBackend` (crates/iroha_crypto/src/ram_lfe.rs) for a backend name this release does not define. Mandatory unfinished work of R.12.",
    "sites": [
-    ["crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "unavailable", "unavailable", 4],
+    ["crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "unavailable", "unavailable", 3],
     ["crates/iroha_crypto/src/ram_lfe.rs", "unavailable", "unsupported", 3]
    ]
   },
@@ -3627,17 +3760,20 @@
    "gates": "SCCP proofs: code that names an activation or a lifecycle state.",
    "decided_by": "Outside the ZK delivery plan; recorded for visibility only.",
    "attribution": "path_rule",
-   "note": "SCCP bridge proofs and their governed routes are not a product of the ZK delivery plan. Their proof-admission limits are part of the committed ZK validity policy (entry cfg.zk.validity_policy); route activation and deadlines here are committed bridge State. Individually read migrated rows also cover original registration heights, borrowed eligibility/hold predicates, expiry cleanup, and the persisted Parliament suspension-deadline table through capture and restore. Table presence and expiry cleanup do not supply the unfinished pause-panel, selective-lift or forgery/quarantine authority.",
+   "note": "SCCP bridge proofs and governed routes are outside the products of the ZK delivery plan. Proof-admission limits remain the committed ZK validity policy (cfg.zk.validity_policy). Route activation, suspension deadlines and generation membership are committed bridge State. Individually read forgery execution/restoration, liability, evidence and penalty rows use activation_height as the original validator-registration coordinate: captured lane, account, key and activation must agree with retained generation membership; current committee membership cannot substitute. These rows do not establish complete SCCP launch or retirement qualification (sccp.qualification and sccp.unavailable). Persisting a suspension table and cleaning expired rows alone does not establish pause-panel or selective-lift behavior.",
    "sites": [
     ["crates/iroha_cli/src/sccp/governance.rs", "activation", "lifecycle", 6],
     ["crates/iroha_cli/src/sccp/mod.rs", "activation", "activation", 7],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/controls.rs", "activation", "activation", 3],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/eligibility.rs", "activation", "activation", 2],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution.rs", "activation", "activation", 2],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/forgery/restoration.rs", "activation", "activation", 2],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/generation_record.rs", "activation", "activation", 5],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/generations.rs", "activation", "activation", 7],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs", "activation", "activation", 37],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/hold.rs", "activation", "activation", 8],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/inbound.rs", "activation", "activation", 3],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/liability.rs", "activation", "activation", 6],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/light_clients.rs", "activation", "activation", 15],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/mod.rs", "activation", "lifecycle", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/outbound.rs", "activation", "activation", 3],
@@ -3654,10 +3790,13 @@
     ["crates/iroha_core/src/state/deserialize_world.rs", "unavailable", "suspended", 1],
     ["crates/iroha_core/src/state/sccp_snapshot_state.rs", "activation", "activation", 2],
     ["crates/iroha_core/src/state/sccp_snapshot_state.rs", "unavailable", "suspended", 7],
+    ["crates/iroha_core/src/sumeragi/evidence/sccp_record.rs", "activation", "activation", 2],
+    ["crates/iroha_core/src/sumeragi/penalties/sccp.rs", "activation", "activation", 2],
     ["crates/iroha_data_model/src/sccp/events.rs", "activation", "activation", 6],
     ["crates/iroha_data_model/src/sccp/generation.rs", "activation", "activation", 2],
     ["crates/iroha_data_model/src/sccp/governance.rs", "activation", "activation", 19],
     ["crates/iroha_data_model/src/sccp/light_client.rs", "activation", "activation", 2],
+    ["crates/iroha_data_model/src/sccp/native.rs", "activation", "activation", 5],
     ["crates/iroha_data_model/src/sccp/registry.rs", "activation", "activation", 11]
    ]
   },
@@ -3668,22 +3807,69 @@
    "owner": null,
    "path": "crates/iroha_core/src/smartcontracts/isi/sccp/outbound.rs",
    "symbol": "deadline_ms",
-   "gates": "SCCP proofs: a timeout, deadline or millisecond budget on the proof path.",
-   "decided_by": "Outside the ZK delivery plan; recorded for visibility only.",
+   "gates": "SCCP carried message and retained generation deadlines, including the native registration pin margin.",
+   "decided_by": "Committed bridge State and canonical executing block time, rather than a node elapsed-time budget.",
    "attribution": "path_rule",
-   "note": "SCCP bridge proofs and their governed routes are not a product of the ZK delivery plan. Their proof-admission limits are part of the committed ZK validity policy (entry cfg.zk.validity_policy); route activation and deadlines here are committed bridge State. The generation record and read/committee projections carry immutable trust deadlines; read/message checks the payload deadline against the stored message and returns that same value. These are committed coordinates, not Instant-based request timeouts.",
+   "note": "SCCP is outside the products of the ZK delivery plan. These deadlines are committed coordinates: generation/read projections retain immutable trust deadlines. registration::retained_pin binds until_ms to the exact retained generation and checks the canonical block timestamp plus committed committee_heartbeat_ms and the fixed protocol PIN_MARGIN_MS against every retained successor. The moved native message projection and its separate local request deadlines are distinguished in sccp.native_read_controls. No Instant-based request timeout is classified as a committed route deadline here.",
    "sites": [
     ["crates/iroha_core/src/smartcontracts/isi/sccp/generation_record.rs", "time_budget", "deadline", 5],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/generations.rs", "time_budget", "deadline", 4],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/governance/registration.rs", "time_budget", "deadline", 2],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/inbound.rs", "time_budget", "deadline", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/outbound.rs", "time_budget", "deadline", 8],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/read.rs", "time_budget", "deadline", 2],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/read/committee.rs", "time_budget", "deadline", 3],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/read/message.rs", "time_budget", "deadline", 4],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/read/views.rs", "time_budget", "deadline", 4],
     ["crates/iroha_data_model/src/sccp/events.rs", "time_budget", "deadline", 2],
     ["crates/iroha_data_model/src/sccp/generation.rs", "time_budget", "deadline", 2],
     ["crates/iroha_data_model/src/sccp/outbound.rs", "time_budget", "deadline", 1]
+   ]
+  },
+  {
+   "id": "sccp.native_read_controls",
+   "kind": "wall_clock",
+   "status": "not_a_gate",
+   "owner": null,
+   "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs",
+   "symbol": "fn deadline_check(",
+   "gates": "Local admitted native proof reads and committed-view forgery prechecks use the original request deadline and cancellation token.",
+   "decided_by": "Local expiry stops the read/precheck. Synchronous execution reauthenticates the original parent with VerificationControl::Synchronous and committed liability time; a precheck grants no execution authority.",
+   "attribution": "read",
+   "note": "Instant::now comparisons in read/native.rs and forgery.rs produce Deadline or Cancelled, not an invalid-evidence verdict. The HTTP owner preserves its incoming RouteExecutionDeadline; it does not reset a clock per stage. The execution.rs Deadline occurrence is a defensive local-refusal match which arms StateStorageAdmissionError and cannot publish an R-EX rejection; synchronous verification carries no local timer. The scanner aggregates all deadline identifiers per file, so the read/native.rs row also includes deadline_ms copied from and compared against the committed message record: that field binds original payload terms and is not a wall-clock expiration check. These are distinct from the committed registration/generation deadlines in sccp.time_budget. No new runtime qualification is claimed by this source census.",
+   "tests": [
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/tests.rs",
+     "name": "local_refusal_and_stop_never_become_protocol_verdicts_or_leak_budget"
+    }
+   ],
+   "sites": [
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/forgery.rs", "time_budget", "deadline", 3],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/forgery.rs", "wall_clock", "instant", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution.rs", "time_budget", "deadline", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs", "time_budget", "deadline", 27],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs", "wall_clock", "instant", 1]
+   ]
+  },
+  {
+   "id": "sccp.committee_pin_shape",
+   "kind": "global_manifest",
+   "status": "not_a_gate",
+   "owner": null,
+   "path": "crates/iroha_data_model/src/sccp/deployment.rs",
+   "symbol": "ZeroPinCoordinate",
+   "gates": "ZeroPinCoordinate rejects zero generation, first height or immutable deadline in the SCCP committee pin DATA shape.",
+   "decided_by": "Canonical carried fields must be nonzero; actual registration separately authenticates them against the original retained native generation.",
+   "attribution": "read",
+   "note": "The global_manifest detector matches the identifier ZeroPinCoordinate in the shape validator and its error declaration. It is not an all-protocol availability manifest, a release signer or a zero capability pin. Shape validation does not authenticate a committee or bypass the incomplete launch checks in sccp.qualification.",
+   "tests": [
+    {
+     "path": "crates/iroha_data_model/src/sccp/deployment.rs",
+     "name": "committee_pin_roundtrips_only_the_current_declared_layout"
+    }
+   ],
+   "sites": [
+    ["crates/iroha_data_model/src/sccp/deployment.rs", "global_manifest", "availability_pin", 1],
+    ["crates/iroha_data_model/src/sccp/native.rs", "global_manifest", "availability_pin", 1]
    ]
   },
   {
@@ -4172,8 +4358,9 @@
    "gates": "Torii: typed unavailable, suspended or unsupported outcomes other than local-resource failures and version checks, which have their own entries. The names fall into two groups, which `note` separates for this entry: outcomes of an engine, profile, provider or protocol that is not available or not finished (EngineUnavailable, ProtocolUnavailable, CompiledProfileUnavailable, NotImplemented and the like), and rejections of a carried parameter value this release does not define (an unsupported degree, bit length, authority kind or layout).",
    "decided_by": "Committed State already decides it.",
    "attribution": "path_rule",
-   "note": "Responses of Torii services to requests they cannot serve (unsupported media type or proof mode, service unavailable, unsupported X.509 extensions in an uploaded attachment): local service outcomes, not consensus validity.",
+   "note": "Responses of Torii services to requests they cannot serve (unsupported media type or proof mode, service unavailable, unsupported X.509 extensions in an uploaded attachment): local service outcomes, not consensus validity. AMX debit approval proof unavailability retains the original read outcome without altering the approval, escrow or transaction result.",
    "sites": [
+    ["crates/iroha_torii/src/amx_approval_proof.rs", "unavailable", "unavailable", 6],
     ["crates/iroha_torii/src/identifier_resolution.rs", "unavailable", "unsupported", 3],
     ["crates/iroha_torii/src/iso20022_bridge.rs", "unavailable", "unsupported", 3],
     ["crates/iroha_torii/src/lib.rs", "unavailable", "unavailable", 2],
@@ -5191,33 +5378,47 @@
    "kind": "readiness_qualification",
    "status": "out_of_plan",
    "owner": null,
-   "path": "crates/iroha_torii/src/sccp.rs",
-   "symbol": "fn proof_unavailable() -> Response {",
-   "gates": "SCCP native source custody, compiled light-client profile availability, pending settlement reasons and explicitly incomplete destination operations.",
+   "path": "crates/iroha_torii/src/sccp/native.rs",
+   "symbol": "fn source_error(error: SccpNativeReadError) -> Response {",
+   "gates": "SCCP original source and restoration custody, native-only decoder boundaries, compiled light-client profile availability, pending settlement reasons and incomplete destination operations.",
    "decided_by": "Outside the ZK delivery plan; native SCCP source and operation requirements remain independently enforced.",
    "attribution": "read",
-   "note": "These sites are not a completion claim: control_proof_from_native and message_proof_from_native now assemble native-backed bundles, but known HTTP proof requests still return 503 until request-funded original receipt acquisition and endpoint integration are complete; rotation reads still refuse absent archive custody. RegisterRoute still refuses incomplete committee/deployment and Parliament/reconciliation prerequisites. Light-client profile absence arms VerifierArtifactsUnavailable during execution; fee-sink absence remains a deterministic pending reason. Generation/anchor retirement still awaits actual Pending forgery State, rather than an invented empty set. Generation and anchor local resource failures remain Deferred separately from deterministic Degraded SCCP state. Admission/read errors, structural decoding and local allocation refusals do not authenticate finality.",
+   "note": "Native committee, rotation, finality, message and control HTTP reads now invoke the admitted original native reader. Missing or inconsistent original source/rotation custody remains unavailable, not authenticated absence; actual Pruned has its own response. UnsupportedScope requires the actual Global root. Request deadline/cancellation is 408 and local capacity or source refusal is 503, with no-store responses. Forgery synchronous execution rechecks the original parent and uses a sticky local storage refusal for missing/inconsistent source or resource failure before any deterministic result can publish; bad signed evidence remains a separate protocol rejection. Native evidence-record and funded-attribution decoders explicitly refuse SCCP data: they are not the independent SccpRestore archive reauthentication owner selected by sumeragi/evidence/restoration.rs. Missing required original anchors refuse that SCCP restoration; decoded snapshot claims are not authority. Light-client profile absence still arms VerifierArtifactsUnavailable during execution, and fee-sink absence remains a deterministic pending reason. RegisterRoute launch and EVM deployment gaps remain sccp.qualification. The block hook still omits generation/anchor retirement pending its real Pending-forgery authority join. Generation/anchor allocation failure remains Deferred rather than deterministic Degraded. This inventory does not qualify complete SCCP delivery.",
    "sites": [
     ["crates/iroha_cli/src/sccp/mod.rs", "unavailable", "unavailable", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/forgery.rs", "unavailable", "unavailable", 11],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/forgery.rs", "unavailable", "unsupported", 2],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution.rs", "unavailable", "unavailable", 4],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution.rs", "unavailable", "unsupported", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/forgery/restoration.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/generations.rs", "unavailable", "local_resource", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs", "unavailable", "local_resource", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/light_clients.rs", "unavailable", "unavailable", 14],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs", "unavailable", "unavailable", 22],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs", "unavailable", "unsupported", 2],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/settle.rs", "unavailable", "unavailable", 2],
+    ["crates/iroha_core/src/sumeragi/evidence/record.rs", "unavailable", "unsupported", 2],
+    ["crates/iroha_core/src/sumeragi/evidence_history/funded_attribution/restore.rs", "unavailable", "unsupported", 1],
     ["crates/iroha_data_model/src/sccp/inbound.rs", "unavailable", "unavailable", 1],
-    ["crates/iroha_torii/src/sccp.rs", "unavailable", "unavailable", 5]
+    ["crates/iroha_torii/src/sccp/native.rs", "unavailable", "unavailable", 4],
+    ["crates/iroha_torii/src/sccp/native.rs", "unavailable", "unsupported", 1]
    ],
    "anchors": [
     {
-     "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/control.rs",
-     "contains": "pub fn control_proof_from_native("
+     "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs",
+     "contains": "pub fn control_proof("
     },
     {
-     "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/message.rs",
-     "contains": "pub fn message_proof_from_native("
+     "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs",
+     "contains": "pub fn message_proof("
     },
     {
-     "path": "crates/iroha_torii/src/sccp.rs",
-     "contains": "fn proof_unavailable() -> Response {\n    error(\n        StatusCode::SERVICE_UNAVAILABLE,"
+     "path": "crates/iroha_torii/src/sccp/native.rs",
+     "contains": "fn source_error(error: SccpNativeReadError) -> Response {"
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution.rs",
+     "contains": "VerificationControl::Synchronous,"
     },
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs",
@@ -5231,11 +5432,11 @@
    "status": "out_of_plan",
    "owner": null,
    "path": "crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs",
-   "symbol": "fn register_route(register:",
-   "gates": "SCCP RegisterRoute requires native committee authority and completed Parliament/reconciliation prerequisites.",
+   "symbol": "fn register_route(",
+   "gates": "SCCP RegisterRoute requires original native committee/deployment authority and completed Parliament, reconciliation and forgery launch relations.",
    "decided_by": "Outside the ZK delivery plan; actual canonical authority and launch relations must be implemented before registration.",
    "attribution": "read",
-   "note": "RegisterRoute remains fail-closed: parliament_binding_ballot_available returns false, and register_route still returns an error for incomplete authenticated committee pin and deployment checks even after that condition. Parliament attempt latency remains None, and reconciliation/launch integration is unfinished. The retired route_registration_readiness helper and its detector names disappeared, but the missing relations did not become implemented. Existing updates and settlement must preserve their committed checks.",
+   "note": "RegisterRoute validates original Global/NetworkId/instance identity, the retained generation pin and successor chain, and canonical-time registration margins. TON deployment checks reconstruct the account from the original native identity and committee. Native EVM creation-code/deployer authority is still unavailable. Even after available checks succeed, register_route unconditionally refuses missing launch/reconciliation and forgery authority; a valid pin or deployment shape is not permission to register. parliament_binding_ballot_available still returns false and does not authorize this path. These source changes replace the old incomplete-pin refusal without satisfying the remaining launch relations.",
    "sites": [],
    "anchors": [
     {
@@ -5244,11 +5445,11 @@
     },
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs",
-     "contains": "if !parliament_iface::parliament_binding_ballot_available() {"
+     "contains": "RegisterRoute launch/reconciliation and forgery authority are unavailable"
     },
     {
-     "path": "crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs",
-     "contains": "authenticated committee pin and deployment checks are incomplete"
+     "path": "crates/iroha_core/src/smartcontracts/isi/sccp/governance/registration.rs",
+     "contains": "native EVM creation-code/deployer authority is unavailable"
     }
    ]
   },
@@ -5373,7 +5574,7 @@
      ]
     },
     {
-     "entry": "cfg.oracle_fraud",
+     "entry": "cfg.oracle",
      "fields": [
       "oracle.history_depth",
       "oracle.economics.reward_asset",
@@ -5403,11 +5604,13 @@
       "oracle.twitter_binding.pepper_id",
       "oracle.twitter_binding.max_ttl_ms",
       "oracle.twitter_binding.min_ttl_ms",
-      "oracle.twitter_binding.min_update_spacing_ms",
-      "fraud.enabled",
-      "fraud.required_minimum_band",
-      "fraud.missing_assessment_permitted",
-      "fraud.attesters"
+      "oracle.twitter_binding.min_update_spacing_ms"
+     ]
+    },
+    {
+     "entry": "cfg.fraud.committed_policy",
+     "fields": [
+      "fraud.policy"
      ]
     },
     {
@@ -5972,9 +6175,9 @@
   }
  },
  "summary": {
-  "entries": 217,
-  "sites": 1460,
-  "by_status": {"done": 10, "local_resource": 22, "not_a_gate": 94, "open": 56, "out_of_plan": 20, "unsupported": 15},
-  "by_owner": {"-": 114, "A.3": 2, "B.2": 2, "C.2": 1, "C.5": 6, "C.6": 4, "F.4": 26, "M.2": 6, "P.11": 1, "P.12": 2, "P.13": 2, "P.14": 4, "P.15": 3, "P.16": 1, "P.17": 1, "P.18": 1, "P.19": 1, "P.20": 3, "P.5": 16, "P.8": 3, "P.9": 3, "R.12": 3, "S.1": 1, "S.3": 1, "S.4": 2, "S.5": 2, "X.4": 6}
+  "entries": 220,
+  "sites": 1481,
+  "by_status": {"done": 11, "local_resource": 22, "not_a_gate": 96, "open": 56, "out_of_plan": 20, "unsupported": 15},
+  "by_owner": {"-": 116, "A.3": 2, "B.2": 2, "C.2": 1, "C.5": 6, "C.6": 4, "F.4": 27, "M.2": 6, "P.11": 1, "P.12": 2, "P.13": 2, "P.14": 4, "P.15": 3, "P.16": 1, "P.17": 1, "P.18": 1, "P.19": 1, "P.20": 3, "P.5": 16, "P.8": 3, "P.9": 3, "R.12": 3, "S.1": 1, "S.3": 1, "S.4": 2, "S.5": 2, "X.4": 6}
  }
 }

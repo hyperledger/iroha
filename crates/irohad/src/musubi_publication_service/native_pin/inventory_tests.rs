@@ -4,6 +4,8 @@
 use super::*;
 use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
 use iroha_data_model::{
+    NetworkId,
+    account::AccountId,
     isi::{InstructionBox, musubi::AdvanceMusubiPinOutboxV1, sorafs::RegisterPinManifest},
     transaction::{FeeChargeKind, FeeChargeLimit, FeePaymentIntent, TransactionBuilder},
 };

@@ -57,6 +57,8 @@ pub fn staged_genesis_nexus_amx_context_hash(staged: &StateBlock<'_>) -> Hash {
 }
 
 /// Compute the canonical V1 execution policy from a validated, uncommitted genesis block.
+/// The fraud parameter is the exact value authored by the original H1 instructions;
+/// deriving metadata does not replace H1's frozen admission projection.
 ///
 /// # Errors
 ///
@@ -64,7 +66,9 @@ pub fn staged_genesis_nexus_amx_context_hash(staged: &StateBlock<'_>) -> Hash {
 pub fn staged_genesis_execution_policy_hash(
     staged: &StateBlock<'_>,
 ) -> Result<Hash, NexusConsensusPolicyDigestError> {
-    staged.execution_policy_digest_v1().map(Hash::prehashed)
+    staged
+        .genesis_execution_policy_digest_v1()
+        .map(Hash::prehashed)
 }
 
 #[cfg(test)]
@@ -306,6 +310,58 @@ pub(crate) mod tests {
             staged_genesis_execution_policy_hash(&staged).expect("derive drifted policy"),
             expected,
             "a pipeline change must alter the execution policy hash"
+        );
+    }
+    #[test]
+    fn staged_genesis_binds_authored_fraud_without_changing_predecessor_admission() {
+        use iroha_data_model::{
+            fraud::{FraudAdmissionPolicyV1, FraudRiskBandV1},
+            parameter::Parameter,
+        };
+        let state = lane_hash_world(&[]);
+        let mut staged = state.block(genesis_header());
+        let predecessor = staged.execution_policy_digest_v1().unwrap();
+        let initial = staged_genesis_execution_policy_hash(&staged).unwrap();
+        let policy = FraudAdmissionPolicyV1 {
+            enabled: true,
+            required_minimum_band: Some(FraudRiskBandV1::High),
+            missing_assessment_permitted: true,
+            ..FraudAdmissionPolicyV1::protocol_default()
+        };
+        staged
+            .world
+            .parameters
+            .get_mut()
+            .set_parameter(Parameter::Custom(policy.clone().into_custom_parameter()))
+            .unwrap();
+        let authored = staged_genesis_execution_policy_hash(&staged).unwrap();
+        assert_ne!(
+            authored, initial,
+            "signed H1 metadata must bind the original authored rule"
+        );
+        assert_eq!(staged.execution_policy_digest_v1().unwrap(), predecessor);
+        assert!(
+            !staged.fraud_monitoring.policy.enabled,
+            "H1 still executes against its predecessor"
+        );
+        staged
+            .fraud_monitoring
+            .service_endpoints
+            .push("https://unavailable.invalid/assessment".parse().unwrap());
+        staged.fraud_monitoring.request_timeout += std::time::Duration::from_secs(1);
+        assert_eq!(
+            staged_genesis_execution_policy_hash(&staged).unwrap(),
+            authored
+        );
+        staged.commit_world_overlay_for_testing().unwrap();
+        assert_eq!(
+            crate::fraud_admission_policy::policy_of(&state.fraud_monitoring_snapshot()),
+            policy
+        );
+        assert_eq!(
+            Hash::prehashed(state.execution_policy_digest_v1().unwrap()),
+            authored,
+            "the published World yields the policy signed by its original genesis"
         );
     }
 }

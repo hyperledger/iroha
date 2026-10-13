@@ -604,18 +604,18 @@ pub fn reference_exec(parent_result: &Hash32, payload: &[u8]) -> ExecOutcome {
     }
     let mut input = parent_result.0.to_vec();
     input.extend_from_slice(payload);
-    ExecOutcome::Valid(Hash32(sha256(&input)))
+    crate::testing::valid_execution(Hash32(sha256(&input)))
 }
 
 /// A divergent executor's result (F21): a different commitment for the same input, or
 /// `Invalid` for about half of the blocks (by block hash).
 pub fn divergent_exec(parent_result: &Hash32, payload: &[u8], block_hash: &Hash32) -> ExecOutcome {
     match reference_exec(parent_result, payload) {
-        ExecOutcome::Valid(_) if block_hash.0[0] % 2 == 1 => ExecOutcome::Invalid,
-        ExecOutcome::Valid(r) => {
+        ExecOutcome::Valid { .. } if block_hash.0[0] % 2 == 1 => ExecOutcome::Invalid,
+        ExecOutcome::Valid { result: r, .. } => {
             let mut input = r.0.to_vec();
             input.push(0xd1);
-            ExecOutcome::Valid(Hash32(sha256(&input)))
+            crate::testing::valid_execution(Hash32(sha256(&input)))
         }
         other => other,
     }
@@ -838,7 +838,7 @@ mod tests {
         valid.extend(encode_tx_with_due(6, false, true, 0));
         assert!(matches!(
             reference_exec(&Hash32::ZERO, &valid),
-            ExecOutcome::Valid(_)
+            ExecOutcome::Valid { .. }
         ));
         assert_ne!(
             reference_exec(&Hash32::ZERO, &valid[TIME_RECORD..]),
@@ -867,7 +867,7 @@ mod tests {
         );
         assert!(matches!(
             reference_exec(&Hash32::ZERO, &[]),
-            ExecOutcome::Valid(_)
+            ExecOutcome::Valid { .. }
         ));
     }
 }

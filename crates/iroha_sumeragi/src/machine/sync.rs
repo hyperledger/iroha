@@ -13,6 +13,29 @@ use crate::{
 /// Largest number of remembered sync sources.
 const MAX_SOURCES: usize = 64;
 
+/// Architecture-independent allowance for both responder records and the optional full QC.
+/// Native record sizes are checked below; heap bitmap/key bounds are reserved separately.
+const SYNC_DONOR_RECORD_ALLOWANCE: usize = 512;
+/// Reserve the complete alternate slot at initial admission, even before any donor refresh.
+const SYNC_DONOR_RESERVATION: usize = SYNC_DONOR_RECORD_ALLOWANCE
+    + crate::message::MAX_BITMAP_BYTES
+    + 2 * crate::types::MAX_PUBLIC_KEY_LEN;
+
+/// One requested sync carrier and its exact authenticated transport responder.
+#[derive(Clone, Debug)]
+pub(super) struct BufferedSyncEntry {
+    entry: SyncEntry,
+    responder: PublicKey,
+    deferred: Option<DeferredSyncDonor>,
+}
+
+/// At most one alternative certificate/donor awaiting its authenticated height config.
+#[derive(Clone, Debug)]
+struct DeferredSyncDonor {
+    qc: Qc,
+    responder: PublicKey,
+}
+
 /// Sync state (§6.9): one outstanding request, a bounded buffer of verified-shape entries.
 #[derive(Clone, Debug, Default)]
 pub(super) struct SyncState {
@@ -22,6 +45,8 @@ pub(super) struct SyncState {
     hint: u64,
     sources: Vec<PublicKey>,
     rotate: usize,
+    /// Re-request this current missing-body height after a deferred donor failed validation.
+    refresh_height: Option<u64>,
     /// `(peer, from_height, deadline)` of the outstanding request.
     outstanding: Option<(PublicKey, u64, u64)>,
     /// Unanswered requests `(peer, from_height)`, oldest first (bounded). Each is answered by
@@ -30,7 +55,7 @@ pub(super) struct SyncState {
     asked: Vec<(PublicKey, u64)>,
     /// Sources that answered the hint with nothing, consecutively.
     empty_from: Vec<PublicKey>,
-    pub(super) buffer: BTreeMap<u64, SyncEntry>,
+    pub(super) buffer: BTreeMap<u64, BufferedSyncEntry>,
     pub(super) buffer_bytes: usize,
 }
 
@@ -94,13 +119,15 @@ impl SyncState {
 // SPEC: §8.4 bounds the buffer by `2·sync_max_bytes` without fixing how an entry is measured; the
 // payload plus a fixed allowance per header and skipped leader is used (no re-encoding).
 // (Appendix E, E26)
-fn entry_bytes(entry: &SyncEntry) -> usize {
+fn entry_bytes(buffered: &BufferedSyncEntry) -> usize {
+    let entry = &buffered.entry;
     entry
         .manifest
         .availability
         .as_slice()
         .len()
         .saturating_add(256 + crate::types::MAX_CONTROL_WITNESS_BYTES)
+        .saturating_add(SYNC_DONOR_RESERVATION)
         .saturating_add(
             entry
                 .manifest
@@ -144,6 +171,13 @@ impl Core {
     /// §6.9 rule 2: keep exactly one request outstanding while behind.
     pub(super) fn maybe_request_sync(&mut self) {
         let next = self.next_height();
+        if self
+            .sync
+            .refresh_height
+            .is_some_and(|height| height != next)
+        {
+            self.sync.refresh_height = None;
+        }
         if self.sync.outstanding.is_some() || self.sync.target() < next {
             if self.sync.target() < next {
                 self.sync.verified = 0;
@@ -153,15 +187,18 @@ impl Core {
         }
         #[cfg(not(sumeragi_mutation = "ME3"))]
         self.keep_buffer_contiguous(next);
-        if self.sync.buffer.len() >= usize::from(self.local.sync_batch) {
+        if self.sync.refresh_height.is_none()
+            && self.sync.buffer.len() >= usize::from(self.local.sync_batch)
+        {
             return;
         }
-        let from_height = self
-            .sync
-            .buffer
-            .last_key_value()
-            .map_or(next, |(h, _)| h.saturating_add(1))
-            .max(next);
+        let from_height = self.sync.refresh_height.unwrap_or_else(|| {
+            self.sync
+                .buffer
+                .last_key_value()
+                .map_or(next, |(h, _)| h.saturating_add(1))
+                .max(next)
+        });
         if from_height > self.sync.target() {
             return;
         }
@@ -295,17 +332,57 @@ impl Core {
             }
             previous = Some(qc.height);
             useful = true;
-            let bytes = entry_bytes(&entry);
-            if qc.height < self.next_height() || self.sync.buffer.contains_key(&qc.height) {
+            let height = qc.height;
+            if height < self.next_height() {
                 continue;
             }
+            if let Some(buffered) = self.sync.buffer.get(&height) {
+                // Different exact-q signer subsets may certify the same manifest/value.
+                // Keep the original carrier; a donor's own alternative must authenticate.
+                let same_value = buffered.entry.manifest == entry.manifest
+                    && buffered.entry.commit_qc.kind == qc.kind
+                    && buffered.entry.commit_qc.instance == qc.instance
+                    && buffered.entry.commit_qc.epoch == qc.epoch
+                    && buffered.entry.commit_qc.block_hash == qc.block_hash
+                    && buffered.entry.commit_qc.result == qc.result;
+                if !same_value {
+                    continue;
+                }
+                let known = self.config(height).is_some();
+                if known && !self.verify_qc_cached(qc) {
+                    continue;
+                }
+                let deferred = (!known).then(|| DeferredSyncDonor {
+                    qc: entry.commit_qc,
+                    responder: from.clone(),
+                });
+                let Some(buffered) = self.sync.buffer.get_mut(&height) else {
+                    continue;
+                };
+                // Initial admission reserves the full alternate and both maximum keys.
+                // A legal later certificate/donor never needs additional buffer capacity.
+                buffered.deferred = deferred;
+                if known {
+                    buffered.responder = from.clone();
+                    if self.sync.refresh_height == Some(height) {
+                        self.sync.refresh_height = None;
+                    }
+                }
+                continue;
+            }
+            let buffered = BufferedSyncEntry {
+                entry,
+                responder: from.clone(),
+                deferred: None,
+            };
+            let bytes = entry_bytes(&buffered);
             if self.sync.buffer.len() >= max_entries
                 || self.sync.buffer_bytes.saturating_add(bytes) > max_bytes
             {
                 break;
             }
             self.sync.buffer_bytes = self.sync.buffer_bytes.saturating_add(bytes);
-            self.sync.buffer.insert(qc.height, entry);
+            self.sync.buffer.insert(height, buffered);
         }
         if useful {
             self.sync.add_source(from);
@@ -327,10 +404,14 @@ impl Core {
             if self.awaiting || self.halted.is_some() || self.height != next {
                 return;
             }
-            let Some(entry) = self.sync.buffer.remove(&next) else {
+            let Some(mut buffered) = self.sync.buffer.remove(&next) else {
                 return;
             };
-            self.sync.buffer_bytes = self.sync.buffer_bytes.saturating_sub(entry_bytes(&entry));
+            self.sync.buffer_bytes = self
+                .sync
+                .buffer_bytes
+                .saturating_sub(entry_bytes(&buffered));
+            let entry = &buffered.entry;
             let header = &entry.manifest.header;
             let linked = cfg!(sumeragi_mutation = "MS22")
                 || (header.parent_hash == self.tip.block_hash
@@ -359,16 +440,89 @@ impl Core {
             let bh = entry.commit_qc.block_hash;
             if !self.blocks.contains_key(&bh) {
                 let manifest = entry.manifest.clone();
-                self.sync.buffer_bytes = self.sync.buffer_bytes.saturating_add(entry_bytes(&entry));
-                self.sync.buffer.insert(next, entry);
-                if !self.wants.contains_key(&bh) {
+                if let Some(deferred) = buffered.deferred.take() {
+                    if self.verify_qc_cached(&deferred.qc) {
+                        buffered.responder = deferred.responder;
+                        if self.sync.refresh_height == Some(next) {
+                            self.sync.refresh_height = None;
+                        }
+                    } else if !cfg!(sumeragi_mutation = "ML34") {
+                        // The original carrier already verified. Keep acquiring its body,
+                        // but a rejected deferred donor must not prevent a fresh answer
+                        // merely because this height remains in the contiguous buffer.
+                        self.sync.verified = self.sync.verified.max(next);
+                        self.sync.refresh_height = Some(next);
+                    }
+                }
+                let responder = buffered.responder.clone();
+                self.sync.buffer_bytes = self
+                    .sync
+                    .buffer_bytes
+                    .saturating_add(entry_bytes(&buffered));
+                self.sync.buffer.insert(next, buffered);
+                // A restart can retain a want whose original local body is absent and
+                // whose peer list is empty. The verified sync source must enrich that
+                // same want; keeping only its manifest would leave fetch retries idle.
+                if !cfg!(sumeragi_mutation = "ML32") || !self.wants.contains_key(&bh) {
                     self.want(bh, next, self.sync.sources.clone());
+                    if !cfg!(sumeragi_mutation = "ML33") {
+                        self.want_sync_responder(bh, &responder);
+                    }
                 }
                 self.on_manifest(manifest);
                 return;
             }
-            self.commit_height(entry.commit_qc, Via::Sync);
+            self.commit_height(buffered.entry.commit_qc, Via::Sync);
         }
+    }
+
+    /// Keep a requested, fully verified current-height sync responder in body retries.
+    /// A bounded stale history must not exclude a live donor using a later-generation key.
+    fn want_sync_responder(&mut self, bh: Hash32, responder: &PublicKey) {
+        if self.is_local_key(responder) {
+            return;
+        }
+        let Some(want) = self.wants.get(&bh) else {
+            return;
+        };
+        // Only process_sync_buffer calls this, after authenticating the current height.
+        // This guard keeps its eviction committee and self.n()+8 bound at the same height.
+        if want.height != self.height || want.sync_responder.as_ref() == Some(responder) {
+            return;
+        }
+        let height = want.height;
+        let Some(config) = self.config(height).cloned() else {
+            return;
+        };
+        let limit = self.n().saturating_add(8);
+        let Ok(source) = AvailabilitySource::new(self.instance, height, bh, config.clone()) else {
+            return;
+        };
+        let Some(want) = self.wants.get_mut(&bh) else {
+            return;
+        };
+        if !want.sources.contains(responder) {
+            if want.sources.len() >= limit {
+                // There are at most n distinct current members in an n+8 list.
+                // Preserve them all; no untrusted Status can perform this replacement.
+                let Some(victim) = want
+                    .sources
+                    .iter()
+                    .position(|peer| !config.committee.contains(peer))
+                else {
+                    return;
+                };
+                want.sources.remove(victim);
+            }
+            want.sources.push(responder.clone());
+        }
+        want.sync_responder = Some(responder.clone());
+        // This one-shot fetch leaves cursor/attempt/deadline unchanged. Ordinary retries
+        // retain the donor too, so driver coalescing cannot restore the stale-only list.
+        self.out.push(Action::FetchPayload {
+            source,
+            peers: vec![responder.clone()],
+        });
     }
 
     /// Create (or extend the sources of) a want for a body (§6.9 rule 5), and fetch at once.
@@ -399,6 +553,7 @@ impl Core {
             Want {
                 height,
                 sources: unique,
+                sync_responder: None,
                 cursor: 0,
                 attempt: 0,
                 next_retry: self.now,
@@ -423,9 +578,16 @@ impl Core {
         let cursor = want.cursor;
         #[cfg(sumeragi_mutation = "MR-fetch-cycle")]
         let cursor = 0;
-        let peers: Vec<PublicKey> = (0..count)
+        let mut peers: Vec<PublicKey> = (0..count)
             .filter_map(|i| want.sources.get((cursor + i) % len.max(1)).cloned())
             .collect();
+        if let Some(responder) = &want.sync_responder
+            && !peers.contains(responder)
+            && let Some(last) = peers.last_mut()
+        {
+            // Keep the original cyclic fanout, including before exponential saturation.
+            *last = responder.clone();
+        }
         want.cursor = if len == 0 {
             0
         } else {
@@ -539,7 +701,7 @@ impl Core {
             .sync
             .buffer
             .get(&height)
-            .is_some_and(|entry| &entry.manifest == manifest)
+            .is_some_and(|buffered| &buffered.entry.manifest == manifest)
         {
             let removed = self
                 .sync
@@ -550,5 +712,112 @@ impl Core {
             self.keep_buffer_contiguous(self.next_height());
             self.maybe_request_sync();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        availability::{AvailabilityFrame, MAX_AVAILABILITY_FRAME_BYTES, MAX_DA_CHUNK_COUNT},
+        message::{BlockHeader, MAX_BITMAP_BYTES},
+        types::{
+            AggregateSignature, Bitmap, ControlWitness, EpochId, MAX_COMMITTEE_SIZE,
+            MAX_CONTROL_WITNESS_BYTES, MAX_PUBLIC_KEY_LEN, SIGNATURE_LEN,
+        },
+    };
+
+    /// Full donor storage is prepaid, including at the exact logical buffer boundary.
+    #[test]
+    fn sync_donor_reservation_covers_maximum_entry_and_full_budget_refresh() {
+        assert!(
+            std::mem::size_of::<Option<DeferredSyncDonor>>() + std::mem::size_of::<PublicKey>()
+                <= SYNC_DONOR_RECORD_ALLOWANCE
+        );
+        let key = PublicKey::new(vec![1; MAX_PUBLIC_KEY_LEN]).unwrap();
+        let epoch = EpochId {
+            epoch: 1,
+            context: Hash32::ZERO,
+        };
+        let mut frame = vec![0; MAX_AVAILABILITY_FRAME_BYTES];
+        frame[..4].copy_from_slice(&MAX_DA_CHUNK_COUNT.to_be_bytes());
+        let availability = AvailabilityFrame::from_untrusted(frame).unwrap();
+        assert!(availability.has_valid_structure());
+        let header = BlockHeader {
+            instance: Hash32::ZERO,
+            epoch,
+            height: 1,
+            origin_view: 0,
+            parent_hash: Hash32::ZERO,
+            parent_result: Hash32::ZERO,
+            payload_hash: Hash32::ZERO,
+            availability_digest: Hash32::ZERO,
+            payload_len: 0,
+            proposer: 0,
+            skipped_leaders: vec![key.clone(); MAX_COMMITTEE_SIZE],
+            control_witness: ControlWitness::try_from_slice(&[0; MAX_CONTROL_WITNESS_BYTES])
+                .unwrap(),
+        };
+        let qc = Qc {
+            kind: VoteKind::Commit,
+            instance: Hash32::ZERO,
+            epoch,
+            height: 1,
+            view: 0,
+            block_hash: Hash32::ZERO,
+            result: Hash32::ZERO,
+            signers: Bitmap::new(MAX_COMMITTEE_SIZE),
+            agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
+        };
+        assert_eq!(qc.signers.as_bytes().len(), MAX_BITMAP_BYTES);
+        let buffered = BufferedSyncEntry {
+            entry: SyncEntry {
+                manifest: PayloadManifest {
+                    header,
+                    availability,
+                },
+                commit_qc: qc.clone(),
+            },
+            responder: PublicKey::new(vec![2]).unwrap(),
+            deferred: None,
+        };
+        let prepaid = entry_bytes(&buffered);
+        assert_eq!(SYNC_DONOR_RESERVATION, 896);
+        assert_eq!(prepaid, 199_908);
+        assert!(prepaid <= usize::try_from(crate::pacemaker::FRAME_OVERHEAD).unwrap());
+        // The existing local validator requires at least max_block_bytes + FRAME_OVERHEAD;
+        // even this maximum logical entry fits its minimum, before the buffer's factor two.
+        // This is an accounting fixture, not an authenticated certificate/body fixture.
+        let mut state = SyncState {
+            buffer: BTreeMap::from([(1, buffered)]),
+            buffer_bytes: prepaid,
+            ..SyncState::default()
+        };
+        let exact_limit = prepaid;
+        let buffered = state.buffer.get_mut(&1).unwrap();
+        buffered.deferred = Some(DeferredSyncDonor {
+            qc: qc.clone(),
+            responder: key.clone(),
+        });
+        buffered.responder = key;
+        assert_eq!(entry_bytes(buffered), exact_limit);
+        buffered.deferred = Some(DeferredSyncDonor {
+            qc,
+            responder: PublicKey::new(vec![3; MAX_PUBLIC_KEY_LEN]).unwrap(),
+        });
+        assert_eq!(entry_bytes(buffered), exact_limit);
+        buffered.deferred = None;
+        assert_eq!(entry_bytes(buffered), exact_limit);
+        assert_eq!(
+            state.buffer.values().map(entry_bytes).sum::<usize>(),
+            state.buffer_bytes
+        );
+        let removed = state.buffer.remove(&1).unwrap();
+        state.buffer_bytes = state.buffer_bytes.saturating_sub(entry_bytes(&removed));
+        assert!(state.buffer.is_empty());
+        assert_eq!(
+            state.buffer_bytes, 0,
+            "removal refunds the complete original reservation"
+        );
     }
 }

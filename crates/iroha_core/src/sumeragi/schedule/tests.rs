@@ -138,7 +138,10 @@ fn parameter_changes_validate_after_genesis_only() {
 #[test]
 fn clock_drift_bound_applies_to_genesis_and_mutable_parameter_changes() {
     use iroha_data_model::parameter::system::MAX_CLOCK_DRIFT_BOUND_MS;
-    let current = SumeragiParameters::default();
+    let current = SumeragiParameters {
+        due_work_max_lag_ms: NonZeroU64::new(124_000).unwrap(),
+        ..SumeragiParameters::default()
+    };
     for genesis in [true, false] {
         for value in [0, MAX_CLOCK_DRIFT_BOUND_MS] {
             validate_parameter_change(
@@ -163,6 +166,37 @@ fn clock_drift_bound_applies_to_genesis_and_mutable_parameter_changes() {
             );
         }
     }
+}
+
+#[test]
+fn due_work_parameter_changes_preserve_combined_margin_and_genesis_order_independence() {
+    let current = SumeragiParameters::default();
+    for (lag, accepted) in [(5_999, false), (6_000, true), (60_000, true)] {
+        let change = SumeragiParameter::DueWorkMaxLagMs(NonZeroU64::new(lag).unwrap());
+        assert_eq!(
+            validate_parameter_change(&current, &change, false, false).is_ok(),
+            accepted
+        );
+        validate_parameter_change(&current, &change, true, false)
+            .expect("genesis validates the final combined policy");
+    }
+    assert!(
+        validate_parameter_change(
+            &current,
+            &SumeragiParameter::MaxClockDriftMs(28_001),
+            false,
+            false
+        )
+        .is_err()
+    );
+    validate_parameter_change(
+        &current,
+        &SumeragiParameter::MaxClockDriftMs(28_000),
+        false,
+        false,
+    )
+    .unwrap();
+    assert_eq!(current.due_work_max_lag_ms(), 60_000);
 }
 
 fn genesis_with(instructions: Vec<InstructionBox>) -> GenesisBlock {

@@ -78,7 +78,7 @@ network, bundle, and all validator identities must also be fresh in every run.
 Each owner-only `run-NN` directory contains the request, raw command log,
 terminal command receipt, Rust result, source/binary seals before and after
 execution, and an initially empty owner-only `evidence` directory. The Rust
-result binds an exact 112-file inventory with lengths and SHA-256 digests:
+result binds an exact 114-file inventory with lengths and SHA-256 digests:
 
 - The bound request, before/after process inventories and all 16 restart records.
 - Three participant authorities, the all-Prepare barrier, Commit certificates,
@@ -86,6 +86,17 @@ result binds an exact 112-file inventory with lengths and SHA-256 digests:
 - All 16 raw financial responses at `before`, `collecting`, `audited`, `prepared`,
   `registered`, `commit-certified`, `finalized`, and `replay` stages, plus an
   all-16 state snapshot after each of the 16 sequential restarts.
+- `prepared-artifact-sizes.json` records all three ordered leg ordinals and their
+  proof, canonical base64, capsule, canonical material/upload and JSON request
+  byte lengths. The genuine finite APZ1 profile is exactly 2,527,280 proof bytes
+  (3,369,708 base64 bytes), below the independent 8 MiB proof ceiling.
+- `verified-carrier-sizes.json` records the original verified signed carrier's
+  Norito and JSON lengths and its public receipt's Norito length. The carrier
+  and receipt ceiling is 4 MiB; the default HTTP body ceiling is 64,000,000 bytes.
+  Capsules use the separate default 1 MiB bound. Recorded bounds must match the
+  source contract, not merely exceed the recorded measurements. These Rust
+  measurements do not establish maximum-size carrier qualification; Python does
+  not reconstruct private artifacts or remeasure omitted proof bytes.
 - Sixteen continuous raw observation streams, bound to their exact phase
   attempts, classifications, counts, checkpoint coverage and hash chains.
 - Sixteen canonical `SumeragiFinalityProof` files before restart and sixteen afterward.
@@ -142,7 +153,7 @@ can own signal handling; do not terminate the enclosing app/session to drain it.
 
 `private_settlement_happy_day_campaign.py` validates the distinct native entrypoint
 `nexus::atomic_private_settlement_localnet::atomic_private_settlement_n3_happy_day`.
-The request and completion marker explicitly bind `happy_day`. Its 79 retained
+The request and completion marker explicitly bind `happy_day`. Its 81 retained
 artifacts prove the same three-leg financial state checks, all sixteen signed
 finality observations, sixteen transport summaries plus their complete raw log
 prefixes, replay idempotence, and continuous terminal cleanup. All

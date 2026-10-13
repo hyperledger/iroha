@@ -13,6 +13,9 @@ struct FixtureSource {
     absent: bool,
 }
 impl Source for FixtureSource {
+    fn applied_height(&self) -> WorkflowFuture<'_, Result<u64>> {
+        Box::pin(async { Ok(self.proofs.keys().next_back().copied().unwrap_or(0)) })
+    }
     fn locate(&self, _: HashOf<SignedTransaction>) -> WorkflowFuture<'_, Result<Location>> {
         Box::pin(async {
             Ok(if self.absent {
@@ -47,7 +50,9 @@ impl WorkflowLedger for NoDispatch {
         panic!("proof observation cannot delegate status finality")
     }
 }
-fn fixture(rejected: bool) -> (RelayLedger, TransactionIdentityV1, SumeragiFinalityVerifier) {
+pub(super) fn fixture(
+    rejected: bool,
+) -> (RelayLedger, TransactionIdentityV1, SumeragiFinalityVerifier) {
     let mut fixture = NativeFinalityFixture::start("amx-relay-proof");
     let root = fixture.verifier();
     let mut block = fixture.block_with_submitted_work(fixture.next_header());
@@ -84,6 +89,8 @@ fn fixture(rejected: bool) -> (RelayLedger, TransactionIdentityV1, SumeragiFinal
         authority,
         fee_payment,
         instruction: Mutex::new(Some(digest)),
+        approval: Mutex::new(None),
+        handoff_scan: Mutex::new(HandoffScan::default()),
         max_reads: 4,
         reads: AtomicUsize::new(4),
     };
@@ -108,6 +115,8 @@ async fn relay_authenticates_last_payment_without_successor_and_after_restart() 
         authority: ledger.authority.clone(),
         fee_payment: ledger.fee_payment.clone(),
         instruction: Mutex::new(*ledger.instruction.lock().unwrap()),
+        approval: Mutex::new(None),
+        handoff_scan: Mutex::new(HandoffScan::default()),
         max_reads: 4,
         reads: AtomicUsize::new(4),
     };
@@ -143,7 +152,7 @@ async fn relay_refusal_preserves_verifier_progress_and_never_closes_identity() {
         CommittedOutcome::ReadFailed { .. }
     ));
     let digest = ledger.instruction.lock().unwrap().unwrap();
-    ledger.begin_observation(digest).unwrap();
+    ledger.begin_observation(digest, None).unwrap();
     assert!(matches!(
         ledger.committed_outcome(&identity).await,
         CommittedOutcome::Applied { .. }
@@ -174,7 +183,7 @@ async fn relay_rejects_substituted_history_and_locator_without_proof() {
 async fn relay_journal_identity_cannot_substitute_an_unrelated_successful_carrier() {
     let (ledger, identity, _) = fixture(false);
     ledger
-        .begin_observation(Hash::new(b"different authenticated source intent"))
+        .begin_observation(Hash::new(b"different authenticated source intent"), None)
         .unwrap();
     assert!(matches!(
         ledger.committed_outcome(&identity).await,
@@ -200,6 +209,9 @@ async fn relay_durable_restart_retransmits_identical_bytes_and_never_resigns_unk
         visible: Arc<AtomicBool>,
     }
     impl Source for GatedSource {
+        fn applied_height(&self) -> WorkflowFuture<'_, Result<u64>> {
+            self.original.applied_height()
+        }
         fn locate(&self, hash: HashOf<SignedTransaction>) -> WorkflowFuture<'_, Result<Location>> {
             Box::pin(async move {
                 if self.visible.load(Ordering::Relaxed) {
@@ -377,6 +389,8 @@ async fn relay_durable_restart_retransmits_identical_bytes_and_never_resigns_unk
         authority: ledger.authority.clone(),
         fee_payment: ledger.fee_payment.clone(),
         instruction: Mutex::new(*ledger.instruction.lock().unwrap()),
+        approval: Mutex::new(None),
+        handoff_scan: Mutex::new(HandoffScan::default()),
         max_reads: 4,
         reads: AtomicUsize::new(4),
     });

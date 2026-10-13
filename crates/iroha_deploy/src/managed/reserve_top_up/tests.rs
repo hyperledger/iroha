@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::localnet::service_authorities::LocalnetServiceProfile;
+use crate::managed::native_operation::attempts::metadata;
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_data_model::{
     NetworkId,
@@ -212,7 +213,8 @@ fn top_up_original_roundtrip_retains_large_checkpoint_and_exact_movement() {
     );
 
     let temporary = tempfile::tempdir().unwrap();
-    let directory = PrivateDirectory::open_or_create(temporary.path().join("request")).unwrap();
+    let parent = PrivateDirectory::open_or_create(temporary.path().join("parent")).unwrap();
+    let directory = metadata::ensure_operation(&parent, "request").unwrap();
     let original = codec_original();
     assert!(original.checkpoint.len() > 4096);
     journal::publish_intent(&directory, &original).unwrap();
@@ -325,7 +327,8 @@ fn expired_top_up_preserves_utc_fees_and_lagged_partition_across_fresh_io() {
     );
     original.validate().unwrap();
     let temporary = tempfile::tempdir().unwrap();
-    let directory = PrivateDirectory::open_or_create(temporary.path().join("request")).unwrap();
+    let parent = PrivateDirectory::open_or_create(temporary.path().join("parent")).unwrap();
+    let directory = metadata::ensure_operation(&parent, "request").unwrap();
     journal::publish_intent(&directory, &original).unwrap();
     let bytes = directory.read("original.nrt", 256 * 1024).unwrap();
     let original = journal::read_intent(&directory).unwrap().unwrap();

@@ -322,7 +322,7 @@ impl FileLaneBlockStore {
                 Ok(batch) => Some(batch),
                 // An authenticated malformed payload is distinct from local resource pressure.
                 Err(AdmissionAttemptError::Rejected(_)) => None,
-                Err(AdmissionAttemptError::AnchorDeferred(reason)) => {
+                Err(AdmissionAttemptError::ResourceDeferred(reason)) => {
                     return Err(Attempt::Deferred(reason));
                 }
                 Err(AdmissionAttemptError::Deferred(reason)) => {

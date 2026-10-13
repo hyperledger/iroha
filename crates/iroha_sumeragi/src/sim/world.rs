@@ -615,6 +615,7 @@ impl World {
             verbose: std::env::var("SUMERAGI_SIM_TRACE").is_ok(),
             nonce_source: std::cell::Cell::new(0),
         };
+        world.refresh_signing_walls();
         world.nonce_source.set(world.rng.next_u64());
         world.txs = vec![BTreeMap::new(); world.instances.len()];
         world.oracle.init(&world.instances);
@@ -709,6 +710,7 @@ impl World {
         while self.failure.is_none() && self.step() {}
         if self.failure.is_none() {
             self.now = self.now.max(self.duration);
+            self.refresh_signing_walls();
             if self.checks.complete_progress {
                 self.complete_progress_observation();
             }
@@ -727,6 +729,7 @@ impl World {
         self.duration = until.min(end);
         while self.failure.is_none() && self.step() {}
         self.now = self.now.max(self.duration);
+        self.refresh_signing_walls();
         self.duration = end;
     }
 
@@ -745,6 +748,7 @@ impl World {
             return false;
         }
         self.now = self.now.max(t);
+        self.refresh_signing_walls();
         self.check_live();
         if self.failure.is_some() {
             return false;
@@ -783,7 +787,7 @@ impl World {
                 outcome,
             } => {
                 if self.alive(r, epoch) {
-                    if let ExecOutcome::Valid(res) = &outcome {
+                    if let ExecOutcome::Valid { result: res, .. } = &outcome {
                         let exec = &mut self.replicas[r].exec;
                         exec.cache.insert(bh, (height, *res));
                     }
@@ -1670,7 +1674,7 @@ impl World {
                 self.app_exec(inst, &tip_result, block)
             };
             match outcome {
-                ExecOutcome::Valid(res) => Some(res),
+                ExecOutcome::Valid { result: res, .. } => Some(res),
                 _ => None,
             }
         });
@@ -1776,7 +1780,10 @@ impl World {
         } else {
             self.app_exec(self.replicas[r].inst, parent, block)
         };
-        (outcome, self.exec_latency(m, block))
+        (
+            self.retain_signing_admission(r, block, *bh, outcome),
+            self.exec_latency(m, block),
+        )
     }
 
     /// Execution latency of `block` on machine `m`.
@@ -1815,7 +1822,7 @@ impl World {
         } else {
             job.outcome.clone().unwrap_or(ExecOutcome::Cancelled)
         };
-        if let ExecOutcome::Valid(res) = &outcome {
+        if let ExecOutcome::Valid { result: res, .. } = &outcome {
             let height = job.block.header().height;
             rep.exec.cache.insert(job.bh, (height, *res));
         }
@@ -2154,7 +2161,7 @@ impl World {
                         self.app_exec(self.replicas[r].inst, &tip_result, &block)
                     };
                     let result = match outcome {
-                        ExecOutcome::Valid(res) => Some(res),
+                        ExecOutcome::Valid { result: res, .. } => Some(res),
                         _ => None,
                     };
                     (result, self.exec_latency(m, &block))

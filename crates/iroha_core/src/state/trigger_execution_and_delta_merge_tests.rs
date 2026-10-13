@@ -2016,6 +2016,7 @@ fn execute_data_triggers_dfs_uses_registered_trigger_authority() {
                 parent: &parent,
                 view: 0,
                 cadence,
+                proposed_time: std::time::Duration::ZERO,
             },
             &[accepted],
         )

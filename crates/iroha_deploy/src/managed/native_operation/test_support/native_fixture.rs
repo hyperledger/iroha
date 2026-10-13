@@ -81,6 +81,7 @@ use std::{
 pub(in crate::managed) struct NativeFixture {
     pub(in crate::managed) chain: CertifiedTestChain,
     validators: Vec<(KeyPair, Hash)>,
+    http_listeners: Option<super::owned_listeners::ReservedHttpListeners>,
 }
 // Exact prepared inputs cross the phase boundary; parsed configuration temporaries do not.
 struct PreparedNativeFixture {
@@ -117,7 +118,49 @@ impl NativeFixture {
         Self {
             chain,
             validators: prepared.validators,
+            http_listeners: None,
         }
+    }
+
+    pub(in crate::managed) fn retain_http_listeners(
+        &mut self,
+        prepared: &PreparedLocalnet,
+        ports: &crate::managed::LocalnetPorts,
+    ) {
+        assert!(self.http_listeners.is_none());
+        let endpoints: Vec<url::Url> = prepared
+            .peers
+            .iter()
+            .map(|peer| peer.torii_url.parse().unwrap())
+            .collect();
+        self.http_listeners = Some(
+            super::owned_listeners::ReservedHttpListeners::new(
+                ports.clone_api_listeners().unwrap(),
+                &endpoints,
+            )
+            .unwrap(),
+        );
+    }
+
+    pub(in crate::managed) fn read_http(&self, config: &Config) -> NativeReadHttp {
+        match &self.http_listeners {
+            Some(owner) => {
+                NativeReadHttp::start_owned(config, Arc::clone(self.chain.state()), owner)
+            }
+            None => NativeReadHttp::start_config(config, Arc::clone(self.chain.state())),
+        }
+    }
+
+    pub(in crate::managed) fn unavailable_peers(
+        &self,
+        prepared: &PreparedLocalnet,
+    ) -> super::UnavailablePeers {
+        super::UnavailablePeers::start_owned(
+            prepared,
+            self.http_listeners
+                .as_ref()
+                .expect("renewal fixture retains original HTTP sockets"),
+        )
     }
     // End canonical configuration/state preparation before genesis executes. The returned
     // owner retains every chain input and the original directory custody across that execution.
@@ -495,6 +538,7 @@ pub(in crate::managed) fn quote_instructions(
 pub(in crate::managed) struct NativeReadHttp {
     stop: Arc<AtomicBool>,
     worker: Option<JoinHandle<io::Result<()>>>,
+    loan: Option<super::owned_listeners::ListenerLoan>,
     pub(in crate::managed) requests: Arc<Mutex<Vec<(String, String)>>>,
     pub(in crate::managed) quote: Arc<Mutex<Option<FeeQuoteResponse>>>,
 }
@@ -504,6 +548,25 @@ impl NativeReadHttp {
         assert_eq!(endpoint.host_str(), Some("127.0.0.1"));
         assert_eq!(endpoint.scheme(), "http");
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, endpoint.port().unwrap())).unwrap();
+        Self::from_listener(config, state, listener, None)
+    }
+
+    fn start_owned(
+        config: &Config,
+        state: Arc<State>,
+        owner: &super::owned_listeners::ReservedHttpListeners,
+    ) -> Self {
+        let loan = owner.loan(&config.torii_api_url).unwrap();
+        let listener = loan.clone_listener().unwrap();
+        Self::from_listener(config, state, listener, Some(loan))
+    }
+
+    fn from_listener(
+        config: &Config,
+        state: Arc<State>,
+        listener: TcpListener,
+        loan: Option<super::owned_listeners::ListenerLoan>,
+    ) -> Self {
         listener.set_nonblocking(true).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -546,13 +609,16 @@ impl NativeReadHttp {
         Self {
             stop,
             worker: Some(worker),
+            loan,
             requests,
             quote,
         }
     }
     pub(in crate::managed) fn finish(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
-        self.worker.take().unwrap().join().unwrap().unwrap();
+        let result = self.worker.take().unwrap().join();
+        self.loan.take();
+        result.unwrap().unwrap();
     }
 }
 impl Drop for NativeReadHttp {
@@ -561,6 +627,7 @@ impl Drop for NativeReadHttp {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
+        self.loan.take();
     }
 }
 fn read_response(

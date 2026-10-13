@@ -1673,7 +1673,7 @@
         {
           "stage": "follower",
           "path": "crates/iroha_core/src/sumeragi/evidence.rs",
-          "contains": "if evidence_encoded_len(&record.evidence) > MAX_EVIDENCE_ADMISSION_BYTES {"
+          "contains": "if evidence_encoded_len(proof) > MAX_EVIDENCE_ADMISSION_BYTES {"
         }
       ],
       "refs": {
@@ -4154,7 +4154,7 @@
         {
           "stage": "rs16",
           "path": "crates/iroha_sumeragi/src/pacemaker.rs",
-          "contains": "if u64::from(config.params.max_block_bytes) > config.epoch.da_layout.max_payload_size_bytes {"
+          "contains": "if u64::from(params.max_block_bytes) > epoch.da_layout.max_payload_size_bytes {"
         }
       ],
       "tests": [
@@ -5854,7 +5854,7 @@
           "stage": "vm",
           "path": "crates/irohad/src/main.rs",
           "contains": "iroha_allocation::AllocationBudget::new(config.pipeline.ivm_execution_max_bytes);",
-          "count": 3
+          "count": 2
         }
       ],
       "tests": [
@@ -10781,7 +10781,8 @@
         {
           "stage": "follower",
           "path": "crates/iroha_core/src/sumeragi/certified_chain/state_certificate.rs",
-          "contains": "|| offered.len() > iroha_data_model::consensus::PARENT_SERVICE_COMMIT_QC_MAX_BYTES"
+          "contains": "|| offered.len() > iroha_data_model::consensus::PARENT_SERVICE_COMMIT_QC_MAX_BYTES",
+          "count": 2
         }
       ],
       "tests": [
@@ -11139,6 +11140,66 @@
           "features": [
             "privacy-exact12-conformance"
           ]
+        }
+      ]
+    },
+    {
+      "id": "work_budget.fraud_max_attesters",
+      "group": "work_budget",
+      "what": "Largest number of distinct strictly ordered assessment engines in one committed fraud-admission policy.",
+      "unit": "count",
+      "value": 256,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/fraud/admission_policy.rs",
+        "symbol": "MAX_FRAUD_ATTESTERS_V1",
+        "kind": "const",
+        "expr": "256"
+      },
+      "inclusive": true,
+      "fixed": true,
+      "enforcement": [
+        {
+          "stage": "follower",
+          "path": "crates/iroha_data_model/src/fraud/admission_policy.rs",
+          "contains": "if self.attesters.len() > MAX_FRAUD_ATTESTERS_V1 {"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/fraud/admission_policy.rs",
+          "name": "engine_set_and_identifier_bounds_are_fixed_protocol_values"
+        }
+      ]
+    },
+    {
+      "id": "transaction.fraud_max_engine_id_bytes",
+      "group": "transaction",
+      "what": "Largest UTF-8 byte length of one canonical assessment-engine identifier in the committed fraud-admission policy.",
+      "unit": "bytes",
+      "value": 128,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/fraud/admission_policy.rs",
+        "symbol": "MAX_FRAUD_ENGINE_ID_BYTES_V1",
+        "kind": "const",
+        "expr": "128"
+      },
+      "inclusive": true,
+      "fixed": true,
+      "enforcement": [
+        {
+          "stage": "follower",
+          "path": "crates/iroha_data_model/src/fraud/admission_policy.rs",
+          "contains": "|| id.len() > MAX_FRAUD_ENGINE_ID_BYTES_V1"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/fraud/admission_policy.rs",
+          "name": "engine_set_and_identifier_bounds_are_fixed_protocol_values"
         }
       ]
     }
@@ -12792,7 +12853,7 @@
       "function": "execution_policy_digest_v1",
       "field_form": "policy_push",
       "source": "committed",
-      "what": "The typed catalog behind the execution-policy digest committed with State, outside [zk] and [nexus]: the function hashes each field. The code is authoritative; this view records which of its fields are resource bounds of the transaction and proof path and why every other field is not. The listed bounds are the execution limits of the pipeline. Their values come from the committed custom parameter pipeline_validity_policy_v1 (iroha_data_model::pipeline_validity_policy::PipelineValidityPolicyV1, applied by iroha_core::pipeline_validity_policy), set by an authorized SetParameter in genesis or later and effective from the next block, or from the protocol default when a chain commits none; the node configuration schema has no key for them. The excluded fields of [pipeline.gas], [crypto], [gov], oracle, fraud, content and the settlement router are still read from node configuration (census entries cfg.*, owner F.4). Two fields are digests of the other two policy catalogs (`digests`), whose fields are classified there. The checker reads the field list from the function, including names a loop takes from a literal table, and fails on a field that is neither or on a field it cannot name.",
+      "what": "The typed catalog behind the execution-policy digest committed with State, outside [zk] and [nexus]: the function hashes each field. The code is authoritative; this view records which of its fields are resource bounds of the transaction and proof path and why every other field is not. The listed bounds are the execution limits of the pipeline. Their values come from the committed custom parameter pipeline_validity_policy_v1 (iroha_data_model::pipeline_validity_policy::PipelineValidityPolicyV1, applied by iroha_core::pipeline_validity_policy), set by an authorized SetParameter in genesis or later and effective from the next block, or from the protocol default when a chain commits none; the node configuration schema has no key for them. Gas fees have a separate validated committed projection in iroha_core::pipeline_gas_policy. The excluded fields of [crypto], [gov], oracle, content and the settlement router are still read from node configuration (census entries cfg.*, owner F.4). Fraud admission is the exact committed FraudAdmissionPolicyV1 value, classified separately by fraud_admission_policy_v1; node endpoints and deadlines are excluded from the commitment. Two fields are digests of the other two policy catalogs (`digests`), whose fields are classified there. The checker reads the field list from the function, including names a loop takes from a literal table, and fails on a field that is neither or on a field it cannot name.",
       "fields": {
         "pipeline.overlay_max_instructions": "queued_effects.config_overlay_max_instructions",
         "pipeline.overlay_max_bytes": "queued_effects.config_overlay_max_bytes",
@@ -12818,7 +12879,7 @@
           ]
         },
         {
-          "reason": "Fee collection identity and asset conversion rates: who is paid and at what rate, not a resource bound. F.3 and F.4 own their committed source.",
+          "reason": "Committed fee collection identity and asset conversion rates, projected atomically with their canonical parameters by StateParameters::gas and effective_pipeline: who is charged and at what rate, not a resource bound. F.3 and F.4 own fee behavior qualification.",
           "fields": [
             "pipeline.gas.tech_account_id",
             "pipeline.gas.accepted_assets",
@@ -12835,7 +12896,7 @@
           ]
         },
         {
-          "reason": "Oracle and fraud-monitoring product policy (economics, service levels, attesters): it bounds that product's own state machine, not proof, transaction, block, transport, VM memory or work on the path this contract covers.",
+          "reason": "Oracle product policy (economics, service levels, attesters): it bounds that product's own state machine, not proof, transaction, block, transport, VM memory or work on the path this contract covers.",
           "fields": [
             "oracle.history_depth",
             "oracle.economics.reward_asset",
@@ -12865,11 +12926,7 @@
             "oracle.twitter_binding.pepper_id",
             "oracle.twitter_binding.max_ttl_ms",
             "oracle.twitter_binding.min_ttl_ms",
-            "oracle.twitter_binding.min_update_spacing_ms",
-            "fraud.enabled",
-            "fraud.required_minimum_band",
-            "fraud.missing_assessment_permitted",
-            "fraud.attesters"
+            "oracle.twitter_binding.min_update_spacing_ms"
           ]
         },
         {
@@ -12991,6 +13048,12 @@
             "settlement.router.buffer_xor_only_pct",
             "settlement.router.buffer_halt_pct",
             "settlement.router.buffer_horizon_hours"
+          ]
+        },
+        {
+          "reason": "The exact committed FraudAdmissionPolicyV1 composite, whose fields are checked in the fraud_admission_policy_v1 catalog. This value determines metadata admission; it is not itself a scalar resource bound. Its engine cardinality and identifier byte limits are recorded as fixed protocol bounds below. Node endpoints and transport deadlines never enter this value.",
+          "fields": [
+            "fraud.policy"
           ]
         }
       ],
@@ -13315,6 +13378,33 @@
         "mandatory.per_obligation.max_total_statement_bytes": "work_budget.fastpq_mandatory_max_total_statement_bytes"
       },
       "excluded": []
+    },
+    {
+      "id": "fraud_admission_policy_v1",
+      "path": "crates/iroha_data_model/src/fraud/admission_policy.rs",
+      "struct": "FraudAdmissionPolicyV1",
+      "field_form": "struct_tree",
+      "source": "committed",
+      "what": "The exact first-release metadata-assessment admission policy carried by the authorized fraud_admission_policy_v1 custom parameter. Validation precedes StateParameters publication, each block freezes the predecessor policy, and the complete value enters the execution-policy commitment. The checker classifies every field, including each attester record; limits on those records are fixed protocol constants rather than configurable fields.",
+      "fields": {},
+      "excluded": [
+        {
+          "reason": "Version and admission decisions are deterministic semantic policy, not resource ceilings. Only version one is accepted.",
+          "fields": [
+            "version",
+            "enabled",
+            "required_minimum_band",
+            "missing_assessment_permitted"
+          ]
+        },
+        {
+          "reason": "Exact engine identities and verification keys, not numeric limits. work_budget.fraud_max_attesters bounds record count and transaction.fraud_max_engine_id_bytes bounds each UTF-8 identifier before publication; ordering, uniqueness and key-algorithm identity are also validated.",
+          "fields": [
+            "attesters.engine_id",
+            "attesters.public_key"
+          ]
+        }
+      ]
     }
   ],
   "completeness": {
@@ -13666,6 +13756,10 @@
         "tree": "crates/iroha_core_zk/src",
         "kind": "const",
         "comparisons": true
+      },
+      {
+        "path": "crates/iroha_data_model/src/fraud/admission_policy.rs",
+        "kind": "const"
       }
     ],
     "excluded": [
@@ -14319,14 +14413,26 @@
         "module": [
           "pub mod sumeragi {"
         ],
-        "reason": "Block cadence and payload retry interval: consensus timing parameters, not resource bounds.",
+        "reason": "Block cadence, payload retry interval and due-work freshness lag: consensus timing parameters, not resource bounds. Due-work lag admits a first Prepare against the predecessor's committed clock policy; it never changes certified execution or replay validity.",
         "symbols": [
           "block_cadence_ms",
-          "payload_retry_interval_ms"
+          "payload_retry_interval_ms",
+          "due_work_max_lag_ms"
         ],
         "exprs": {
           "block_cadence_ms": "nonzero_ext::nonzero!(1_000_u64)",
-          "payload_retry_interval_ms": "nonzero_ext::nonzero!(5_000_u64)"
+          "payload_retry_interval_ms": "nonzero_ext::nonzero!(5_000_u64)",
+          "due_work_max_lag_ms": "nonzero_ext::nonzero!(60_000_u64)"
+        }
+      },
+      {
+        "path": "crates/iroha_data_model/src/parameter/system.rs",
+        "reason": "Hard maximum of the committed CT4 clock-drift allowance. This bounds a clock admission window, not bytes, count or execution work; actual transaction validity and certified replay never consult the local clock.",
+        "symbols": [
+          "MAX_CLOCK_DRIFT_BOUND_MS"
+        ],
+        "exprs": {
+          "MAX_CLOCK_DRIFT_BOUND_MS": "60_000"
         }
       },
       {
@@ -18197,6 +18303,19 @@
             }
           },
           {
+            "path": "crates/iroha_data_model/src/sumeragi_amx/approval_proof.rs",
+            "symbols": [
+              "MAX_AMX_DEBIT_APPROVAL_PROOF_BYTES_V1",
+              "MAX_AMX_DEBIT_APPROVAL_PERMISSIONS_V1",
+              "MAX_AMX_DEBIT_APPROVAL_PERMISSION_BYTES_V1"
+            ],
+            "exprs": {
+              "MAX_AMX_DEBIT_APPROVAL_PROOF_BYTES_V1": "MAX_WORLD_STATE_SNAPSHOT_BYTES_V1",
+              "MAX_AMX_DEBIT_APPROVAL_PERMISSIONS_V1": "256",
+              "MAX_AMX_DEBIT_APPROVAL_PERMISSION_BYTES_V1": "64 * 1024"
+            }
+          },
+          {
             "path": "crates/iroha_data_model/src/sumeragi_amx/proof.rs",
             "symbols": [
               "MAX_AMX_HEADER_BYTES",
@@ -21975,17 +22094,15 @@
         ]
       },
       {
-        "reason": "SCCP product record shapes: canonical Taira account bytes, the transfer/control leaf count derived from the canonical SCCP message limit, and the encoded SCCP payload size. These are product-specific shapes inside the separately listed transaction/frame and source-proof ceilings, not generic proof admission limits. This census does not certify SCCP validation or custody.",
+        "reason": "SCCP product record shapes: canonical Taira account bytes and the exclusive 2^96 TON amount value bound. An amount value is not a byte, count or work ceiling. The transfer/control leaf and payload limits have moved to the native read owner and are classified there. This census does not certify SCCP validation or custody.",
         "path": "crates/iroha_sccp/src/v1/constants.rs",
         "symbols": [
           "MAX_TAIRA_ACCOUNT_BYTES",
-          "MAX_BLOCK_LEAVES",
-          "MAX_PAYLOAD_BYTES"
+          "TON_AMOUNT_BOUND"
         ],
         "exprs": {
           "MAX_TAIRA_ACCOUNT_BYTES": "1024",
-          "MAX_BLOCK_LEAVES": "SCCP_MESSAGES_MAX_PER_BLOCK_V1",
-          "MAX_PAYLOAD_BYTES": "4096"
+          "TON_AMOUNT_BOUND": "1 << 96"
         }
       },
       {
@@ -23703,7 +23820,7 @@
       },
       {
         "path": "crates/iroha_data_model/src/sccp/generation.rs",
-        "reason": "Canonical SCCP accumulator geometry: one immutable complete anchor chunk contains exactly4096 parent records and has a fixed12-level witness. This is a product shape, not a configurable proof ceiling or substitute for original-pool admission.",
+        "reason": "Canonical SCCP accumulator geometry: one immutable complete anchor chunk contains exactly 4096 parent records and has a fixed12-level witness. This is a product shape, not a configurable proof ceiling or substitute for original-pool admission.",
         "symbols": [
           "SCCP_ANCHOR_CHUNK_SIZE_V1"
         ],
@@ -23742,13 +23859,53 @@
         }
       },
       {
-        "path": "crates/iroha_config/src/parameters/defaults.rs",
-        "reason": "Node-local authenticated snapshot read-buffer payload default (1GiB). It limits restoration/serving resources, not transaction or block validity; current strict startup still owns certified replay separately. This census classification does not qualify accelerated restoration.",
+        "path": "crates/iroha_core/src/queue/forgery_ingress.rs",
+        "reason": "Local SCCP evidence ingress denial-of-service controls: a charged LRU of 4096 exact forgery triples and an 8-per-second token bucket with burst 32. They refuse/restrict a local queue attempt before pairing; they neither certify an offence nor alter block execution validity. These product-specific ingress controls do not replace generic transaction, proof or allocation bounds.",
         "symbols": [
+          "CACHE_CAPACITY",
+          "TOKEN_NS",
+          "BURST_NS"
+        ],
+        "exprs": {
+          "CACHE_CAPACITY": "4_096",
+          "TOKEN_NS": "125_000_000",
+          "BURST_NS": "32 * TOKEN_NS"
+        }
+      },
+      {
+        "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs",
+        "reason": "Read-only native SCCP response geometry: at most 16 catch-up rotations, a 31-key global committee, at most 512 message leaves and 4096 payload bytes. These fixed shapes bound one served projection and its charged scratch; they grant no execution or finality authority and remain inside separately listed generic transport and allocation limits.",
+        "symbols": [
+          "MAX_NATIVE_ROTATIONS",
+          "MAX_KEYS",
+          "MAX_BLOCK_LEAVES",
           "MAX_PAYLOAD_BYTES"
         ],
         "exprs": {
-          "MAX_PAYLOAD_BYTES": "nonzero!(1_073_741_824_usize)"
+          "MAX_NATIVE_ROTATIONS": "16",
+          "MAX_KEYS": "31",
+          "MAX_BLOCK_LEAVES": "512",
+          "MAX_PAYLOAD_BYTES": "4096"
+        }
+      },
+      {
+        "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/full_catalog/mask_boundary.rs",
+        "reason": "Test-only symbolic mask-identity checker: sparse formal field polynomials retain at most 100,000 terms and reject symbolic products above ten times that size. This bounds offline qualification work and is not a shipping proof-verification or transaction-admission rule.",
+        "symbols": [
+          "MAX_TERMS"
+        ],
+        "exprs": {
+          "MAX_TERMS": "100_000"
+        }
+      },
+      {
+        "path": "crates/iroha_sccp/src/v1/evidence.rs",
+        "reason": "Fixed SCCP anchor-tree geometry: each completed chunk has exactly 4096 leaves and a 12-level path. This protocol shape is independent of local execution/proof budgets and does not grant retention, pruning or evidence authority.",
+        "symbols": [
+          "SCCP_ANCHOR_CHUNK"
+        ],
+        "exprs": {
+          "SCCP_ANCHOR_CHUNK": "4096"
         }
       }
     ],
@@ -23760,6 +23917,62 @@
         {
           "reason": "Block heights and generations compared with the first heights after genesis (2 is the first block that follows genesis): a reader that serves no evidence at the genesis height, a proof whose window opens after genesis, a generation that has a predecessor. They select which history exists and bound no size, count or work.",
           "files": [
+            {
+              "path": "crates/iroha_data_model/src/sumeragi_amx/approval_proof.rs",
+              "sites": {
+                "block.height() < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/amx_approval_proof.rs",
+              "sites": {
+                "*height >= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/iso20022_bridge/native_payment.rs",
+              "sites": {
+                "receipt.block_height >= 2": 1,
+                "carrier.height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/lib_iso_native_payment.rs",
+              "sites": {
+                "*height >= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/query/native_context_archive/prepared_intents.rs",
+              "sites": {
+                "entry.begun_at < 2": 1,
+                "begin >= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/query/native_receipts/amx_begins.rs",
+              "sites": {
+                "height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/query/native_receipts/amx_decisions.rs",
+              "sites": {
+                "begin_height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/query/native_receipts/amx_discovery.rs",
+              "sites": {
+                "height >= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/query/native_receipts/amx_expiry_read.rs",
+              "sites": {
+                "descriptor.source_height() < 2": 1
+              }
+            },
             {
               "path": "crates/iroha_core/src/block.rs",
               "sites": {
@@ -24059,6 +24272,44 @@
               "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/ledger_producer.rs",
               "sites": {
                 "self.height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/sccp/native.rs",
+              "sites": {
+                "h.get() >= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/restoration.rs",
+              "sites": {
+                "h < 3": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs",
+              "sites": {
+                "(2..=source.height).contains(&height)": 1,
+                "(2..=source.height).contains(&end.end_height)": 1,
+                "(2..=source.height).contains(&record.height)": 2
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/sumeragi/certified_chain/state_certificate/parent_service_attempt.rs",
+              "sites": {
+                "parent_height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/sumeragi/evidence/restoration.rs",
+              "sites": {
+                "tip.height() >= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/sumeragi/executor.rs",
+              "sites": {
+                "height > 2": 3
               }
             }
           ]
@@ -25010,6 +25261,24 @@
                 "take(&mut rest, 4)": 1,
                 "take(&mut rest, 8)": 1
               }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/restoration/delta.rs",
+              "sites": {
+                "n > bytes.len() / 9": 2
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/restoration.rs",
+              "sites": {
+                "count > bytes.len() / 8": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs",
+              "sites": {
+                "2 * i + 1 < count": 1
+              }
             }
           ]
         },
@@ -25020,6 +25289,12 @@
               "path": "crates/iroha_core/src/gas.rs",
               "sites": {
                 "session.manifest.max_participants.min(32)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/amx_approval_proof.rs",
+              "sites": {
+                "(unit * 2).min(NATIVE_FINALITY_MAX_JOURNAL_BYTES)": 1
               }
             },
             {
@@ -26220,8 +26495,12 @@
             {
               "path": "crates/iroha_core/src/sumeragi/test_chain.rs",
               "sites": {
-                "chain.height() < 8": 1,
-                "signers.iter().take(2)": 1
+                "2_000.max(restored.committed(8).block_time_ms() + 1)": 1,
+                "boundary >= self.height() + 2": 1,
+                "self.height() < boundary - 2": 1,
+                "2_000.max(self.committed(self.height()).block_time_ms() + 1)": 1,
+                "record.session.adaptive_dkg.finalized_at_height <= boundary - 2": 1,
+                ".take(2)": 1
               }
             },
             {
@@ -26578,6 +26857,17 @@
               "path": "crates/iroha_core/src/smartcontracts/isi/sccp/generations.rs",
               "sites": {
                 ".map(|(id, ())| *id) .take(64)": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "Canonical SCCP open anchor-chunk decoding requires fewer than 4096 records; exactly 4096 belongs to a completed chunk with its separate Merkle root. This is fixed accumulator geometry, not a configurable resource threshold; the original allocation pool separately admits decoded storage.",
+          "files": [
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/restoration.rs",
+              "sites": {
+                "count >= 4096": 1
               }
             }
           ]

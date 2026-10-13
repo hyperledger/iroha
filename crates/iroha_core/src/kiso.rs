@@ -1707,13 +1707,9 @@ mod tests {
                 max_archive_len: iroha_config::parameters::defaults::norito::MAX_ARCHIVE_LEN,
             },
             fraud_monitoring: FraudMonitoring::new(
-                iroha_config::parameters::defaults::fraud_monitoring::ENABLED,
                 Vec::new(),
                 iroha_config::parameters::defaults::fraud_monitoring::CONNECT_TIMEOUT,
                 iroha_config::parameters::defaults::fraud_monitoring::REQUEST_TIMEOUT,
-                iroha_config::parameters::defaults::fraud_monitoring::MISSING_ASSESSMENT_GRACE_SECS,
-                None,
-                Vec::new(),
             ),
             gov: Governance {
                 vk_ballot: None,

@@ -5,7 +5,7 @@
 //! live until the funded Decision graph moves into its exact Settle instruction. Successful
 //! delivery may retain a Decision before Prepare; it is not proof of participant settlement.
 
-use iroha_allocation::AllocationBudget;
+use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError};
 use iroha_data_model::{
     block::consensus::SumeragiRootScope,
     isi::{AmxInstructionAdmissionErrorV1, InstructionBox, PendingAmxInstructionV1},
@@ -15,13 +15,16 @@ use iroha_model_base::topology::DataSpaceId;
 
 use super::{
     NativeAmxRecordProofErrorV1, NativeAmxRecordProofPollV1, NativeAmxRecordProofReadV1,
-    NativeAmxRelayDescriptorV1, NativeAmxRelayIntentV1, amx_record_proof,
+    NativeAmxRelayDescriptorV1, NativeAmxRelayIntentV1, NativeAmxRelaySourceV1, amx_record_proof,
 };
 use crate::state::{StateReadOnly, WorldReadOnly};
 
 /// Original native source or instruction refusal; never an acknowledgement or absence.
 #[derive(Debug, thiserror::Error)]
 pub enum NativeAmxDecisionRelayErrorV1 {
+    /// The original execution pool could not retain the joined source jobs.
+    #[error(transparent)]
+    Allocation(#[from] ChargedBufferError),
     /// The original Begin or Decision acquisition/authentication refused.
     #[error(transparent)]
     Proof(#[from] NativeAmxRecordProofErrorV1),
@@ -50,6 +53,12 @@ pub enum NativeAmxDecisionRelayPollV1 {
 /// There is no constructor accepting a claimed proof, decoded intent or target network.
 #[must_use = "retain the original Decision delivery job through refusal or retire it explicitly"]
 pub struct NativeAmxDecisionRelayReadV1<'v, V: StateReadOnly> {
+    // Both source readers remain in one admitted slot. Moving the public job does not
+    // copy their large inline state, and allocation refusal precedes source acquisition.
+    original: ChargedBuffer<DecisionDelivery<'v, V>>,
+}
+
+struct DecisionDelivery<'v, V: StateReadOnly> {
     instruction: Option<InstructionBox>,
     pending: Option<PendingAmxInstructionV1<'static>>,
     decision: Option<AllocatedAmxRecordProofV1>,
@@ -75,7 +84,8 @@ pub struct NativeAmxDecisionRelayReadV1<'v, V: StateReadOnly> {
 /// No later block or current unpruned transaction entry is required.
 ///
 /// # Errors
-/// Invalid height order or a source State whose authenticated root is not Global.
+/// Invalid height order, a non-Global authenticated root, or original-pool allocation
+/// refusal. No source acquisition occurs before the retained job is admitted.
 pub fn decision_amx_relay<'v, V: StateReadOnly>(
     view: &'v V,
     begin_height: u64,
@@ -94,7 +104,9 @@ pub fn decision_amx_relay<'v, V: StateReadOnly>(
             "Decision delivery requires the authenticated Global root",
         ));
     }
-    Ok(NativeAmxDecisionRelayReadV1 {
+    let budget = view.prepared_contract_cache().execution_budget().clone();
+    let mut original = ChargedBuffer::new(1, &budget)?;
+    original.push_reserved(DecisionDelivery {
         instruction: None,
         pending: None,
         decision: None,
@@ -108,7 +120,7 @@ pub fn decision_amx_relay<'v, V: StateReadOnly>(
         begin_read: amx_record_proof(view, begin_height, AmxRecordKind::Begin, transaction),
         descriptor: None,
         view,
-        budget: view.prepared_contract_cache().execution_budget().clone(),
+        budget,
         transaction,
         participant,
         decision_height,
@@ -116,10 +128,34 @@ pub fn decision_amx_relay<'v, V: StateReadOnly>(
         complete: false,
         #[cfg(test)]
         instruction_probe: None,
-    })
+    });
+    Ok(NativeAmxDecisionRelayReadV1 { original })
 }
 
 impl<V: StateReadOnly> NativeAmxDecisionRelayReadV1<'_, V> {
+    /// Advance one original proof stage, preserving every completed allocation on refusal.
+    ///
+    /// # Errors
+    /// Exact original source/proof/instruction refusal. An already delivered job refuses.
+    pub fn poll(&mut self) -> Result<NativeAmxDecisionRelayPollV1, NativeAmxDecisionRelayErrorV1> {
+        self.original.as_mut_slice()[0].poll()
+    }
+
+    /// Complete the same selected delivery without replacing a refused source.
+    ///
+    /// # Errors
+    /// The original typed refusal from `poll`; all retained work remains in this job.
+    pub fn complete(&mut self) -> Result<NativeAmxRelayIntentV1, NativeAmxDecisionRelayErrorV1> {
+        loop {
+            match self.poll()? {
+                NativeAmxDecisionRelayPollV1::Pending => {}
+                NativeAmxDecisionRelayPollV1::Complete(intent) => return Ok(intent),
+            }
+        }
+    }
+}
+
+impl<V: StateReadOnly> DecisionDelivery<'_, V> {
     fn joined_descriptor(
         &self,
     ) -> Result<NativeAmxRelayDescriptorV1, NativeAmxDecisionRelayErrorV1> {
@@ -169,13 +205,16 @@ impl<V: StateReadOnly> NativeAmxDecisionRelayReadV1<'_, V> {
             source_scope: SumeragiRootScope::Global,
             source_height: self.decision_height,
             source_carrier: decision_source.block_hash(),
-            source_record_key: iroha_data_model::sumeragi_amx::amx_record_witness_key(
-                AmxRecordKind::Decision,
-                self.transaction,
-            ),
+            source: NativeAmxRelaySourceV1::Record {
+                key: iroha_data_model::sumeragi_amx::amx_record_witness_key(
+                    AmxRecordKind::Decision,
+                    self.transaction,
+                ),
+            },
             target_network: registration.tracker.current.network_id,
             target_scope: scope,
             target_instance: registration.tracker.instance,
+            ready_at_ms: None,
         })
     }
 
@@ -260,19 +299,6 @@ impl<V: StateReadOnly> NativeAmxDecisionRelayReadV1<'_, V> {
                 .expect("original instruction moves once"),
         }))
     }
-
-    /// Complete the same selected delivery without replacing a refused source.
-    ///
-    /// # Errors
-    /// The original typed refusal from `poll`; all retained work remains in this job.
-    pub fn complete(&mut self) -> Result<NativeAmxRelayIntentV1, NativeAmxDecisionRelayErrorV1> {
-        loop {
-            match self.poll()? {
-                NativeAmxDecisionRelayPollV1::Pending => {}
-                NativeAmxDecisionRelayPollV1::Complete(intent) => return Ok(intent),
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -281,10 +307,15 @@ impl<'v, V: StateReadOnly> NativeAmxDecisionRelayReadV1<'v, V> {
         &mut self,
         probe: impl FnOnce(&InstructionBox) + 'v,
     ) {
-        assert!(self.instruction_probe.is_none() && self.instruction.is_none() && !self.complete);
-        self.instruction_probe = Some(Box::new(probe));
+        let original = &mut self.original.as_mut_slice()[0];
+        assert!(
+            original.instruction_probe.is_none()
+                && original.instruction.is_none()
+                && !original.complete
+        );
+        original.instruction_probe = Some(Box::new(probe));
     }
     pub(crate) fn retained_instruction(&self) -> Option<&InstructionBox> {
-        self.instruction.as_ref()
+        self.original.as_slice()[0].instruction.as_ref()
     }
 }

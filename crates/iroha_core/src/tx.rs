@@ -4669,7 +4669,7 @@ impl<'a> FraudTelemetryContext<'a> {
             field,
         );
     }
-    fn record_assessment(&self, band: iroha_config::parameters::actual::FraudRiskBand) {
+    fn record_assessment(&self, band: iroha_data_model::fraud::FraudRiskBandV1) {
         self.telemetry.record_fraud_assessment(
             self.lane_id,
             self.dataspace_label(),
@@ -4698,13 +4698,13 @@ impl<'a> FraudTelemetryContext<'a> {
     }
     fn outcome_mismatch_direction(
         &self,
-        band: iroha_config::parameters::actual::FraudRiskBand,
+        band: iroha_data_model::fraud::FraudRiskBandV1,
     ) -> Option<&'static str> {
         let band_level = match band {
-            iroha_config::parameters::actual::FraudRiskBand::Low => 0,
-            iroha_config::parameters::actual::FraudRiskBand::Medium => 1,
-            iroha_config::parameters::actual::FraudRiskBand::High => 2,
-            iroha_config::parameters::actual::FraudRiskBand::Critical => 3,
+            iroha_data_model::fraud::FraudRiskBandV1::Low => 0,
+            iroha_data_model::fraud::FraudRiskBandV1::Medium => 1,
+            iroha_data_model::fraud::FraudRiskBandV1::High => 2,
+            iroha_data_model::fraud::FraudRiskBandV1::Critical => 3,
         };
         match self.disposition {
             Some(FraudDisposition::Fraud) if band_level < 2 => Some("missed_fraud"),
@@ -4741,6 +4741,7 @@ pub(crate) fn enforce_fraud_policy(
     telemetry: Option<&StateTelemetry>,
     routing: &LaneAssignment<'_>,
 ) -> Result<(), TransactionRejectionReason> {
+    let config = &config.policy;
     if !config.enabled {
         return Ok(());
     }
@@ -4760,14 +4761,14 @@ pub(crate) fn enforce_fraud_policy(
     let Some(value) = metadata.get(FRAUD_ASSESSMENT_BAND_NAME.as_ref()) else {
         #[cfg(feature = "telemetry")]
         if let Some(ctx) = fraud_ctx.as_ref() {
-            let cause = if config.missing_assessment_grace.is_zero() {
+            let cause = if !config.missing_assessment_permitted {
                 "missing"
             } else {
-                "grace"
+                "permitted"
             };
             ctx.record_missing(cause);
         }
-        if config.missing_assessment_grace.is_zero() {
+        if !config.missing_assessment_permitted {
             return Err(TransactionRejectionReason::Validation(
                 ValidationFail::NotPermitted(
                     "fraud monitoring requires an attached assessment".into(),
@@ -4775,12 +4776,11 @@ pub(crate) fn enforce_fraud_policy(
             ));
         }
         warn!(
-            missing_grace_seconds = config.missing_assessment_grace.as_secs(),
-            endpoints = ?config.service_endpoints,
+            missing_assessment_permitted = config.missing_assessment_permitted,
             lane = ?lane_id,
             dataspace = ?dataspace_id,
             dataspace_label = %dataspace_label,
-            "Transaction missing fraud assessment; permitted by grace window"
+            "Transaction missing fraud assessment; permitted by committed policy"
         );
         return Ok(());
     };
@@ -4795,8 +4795,7 @@ pub(crate) fn enforce_fraud_policy(
             ValidationFail::NotPermitted("fraud assessment band must be a string".into()),
         ));
     };
-    let band = if let Ok(band) = band_str.parse::<iroha_config::parameters::actual::FraudRiskBand>()
-    {
+    let band = if let Ok(band) = band_str.parse::<iroha_data_model::fraud::FraudRiskBandV1>() {
         band
     } else {
         #[cfg(feature = "telemetry")]
@@ -4869,7 +4868,6 @@ pub(crate) fn enforce_fraud_policy(
             ctx.record_invalid("score_bps");
         }
         warn!(
-            endpoints = ?config.service_endpoints,
             lane = ?lane_id,
             dataspace = ?dataspace_id,
             dataspace_label = %dataspace_label,
@@ -5216,21 +5214,21 @@ pub(crate) fn enforce_fraud_policy(
     }
     Ok(())
 }
-fn expected_band_from_score(score_bps: u16) -> iroha_config::parameters::actual::FraudRiskBand {
-    use iroha_config::parameters::actual::FraudRiskBand;
+fn expected_band_from_score(score_bps: u16) -> iroha_data_model::fraud::FraudRiskBandV1 {
+    use iroha_data_model::fraud::FraudRiskBandV1;
     if score_bps > 1_000 {
         match score_bps {
-            ..=2_499 => FraudRiskBand::Low,
-            2_500..=5_499 => FraudRiskBand::Medium,
-            5_500..=7_499 => FraudRiskBand::High,
-            _ => FraudRiskBand::Critical,
+            ..=2_499 => FraudRiskBandV1::Low,
+            2_500..=5_499 => FraudRiskBandV1::Medium,
+            5_500..=7_499 => FraudRiskBandV1::High,
+            _ => FraudRiskBandV1::Critical,
         }
     } else {
         match score_bps {
-            ..=249 => FraudRiskBand::Low,
-            250..=549 => FraudRiskBand::Medium,
-            550..=749 => FraudRiskBand::High,
-            _ => FraudRiskBand::Critical,
+            ..=249 => FraudRiskBandV1::Low,
+            250..=549 => FraudRiskBandV1::Medium,
+            550..=749 => FraudRiskBandV1::High,
+            _ => FraudRiskBandV1::Critical,
         }
     }
 }
@@ -8413,8 +8411,11 @@ pub mod tests {
     #[test]
     fn fraud_policy_rejects_missing_assessment() {
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::High),
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::High),
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let metadata = iroha_model_base::metadata::Metadata::default();
@@ -9060,8 +9061,11 @@ pub mod tests {
     fn fraud_policy_rejects_insufficient_band() {
         use iroha_primitives::json::Json;
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::High),
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::High),
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let mut metadata = Metadata::default();
@@ -9087,8 +9091,11 @@ pub mod tests {
     fn fraud_policy_accepts_sufficient_band() {
         use iroha_primitives::json::Json;
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Medium),
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Medium),
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let mut metadata = Metadata::default();
@@ -9108,8 +9115,11 @@ pub mod tests {
     fn fraud_policy_rejects_inconsistent_band() {
         use iroha_primitives::json::Json;
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Low),
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Low),
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let mut metadata = Metadata::default();
@@ -9194,12 +9204,15 @@ pub mod tests {
         );
         let metadata = fraud_metadata_with_assessment(&assessment);
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Medium),
-            attesters: vec![iroha_config::parameters::actual::FraudAttester {
-                engine_id: "risk-engine-eu".to_owned(),
-                public_key: attester.public_key().clone(),
-            }],
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Medium),
+                attesters: vec![iroha_data_model::fraud::FraudAdmissionAttesterV1 {
+                    engine_id: "risk-engine-eu".to_owned(),
+                    public_key: attester.public_key().clone(),
+                }],
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let catalog = DataSpaceCatalog::default();
@@ -9234,12 +9247,15 @@ pub mod tests {
         );
         let metadata = fraud_metadata_with_assessment(&assessment);
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Medium),
-            attesters: vec![iroha_config::parameters::actual::FraudAttester {
-                engine_id: "risk-engine-eu".to_owned(),
-                public_key: attester.public_key().clone(),
-            }],
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Medium),
+                attesters: vec![iroha_data_model::fraud::FraudAdmissionAttesterV1 {
+                    engine_id: "risk-engine-eu".to_owned(),
+                    public_key: attester.public_key().clone(),
+                }],
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let catalog = DataSpaceCatalog::default();
@@ -9285,12 +9301,15 @@ pub mod tests {
         );
         let valid_signature = checked_signature_of(attester.private_key(), &unsigned);
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Medium),
-            attesters: vec![iroha_config::parameters::actual::FraudAttester {
-                engine_id: "risk-engine-eu".to_owned(),
-                public_key: attester.public_key().clone(),
-            }],
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Medium),
+                attesters: vec![iroha_data_model::fraud::FraudAdmissionAttesterV1 {
+                    engine_id: "risk-engine-eu".to_owned(),
+                    public_key: attester.public_key().clone(),
+                }],
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let catalog = DataSpaceCatalog::default();
@@ -9334,12 +9353,15 @@ pub mod tests {
         );
         let valid_signature = checked_signature_of(attester.private_key(), &unsigned);
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Medium),
-            attesters: vec![iroha_config::parameters::actual::FraudAttester {
-                engine_id: "risk-engine-eu".to_owned(),
-                public_key: attester.public_key().clone(),
-            }],
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Medium),
+                attesters: vec![iroha_data_model::fraud::FraudAdmissionAttesterV1 {
+                    engine_id: "risk-engine-eu".to_owned(),
+                    public_key: attester.public_key().clone(),
+                }],
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let catalog = DataSpaceCatalog::default();

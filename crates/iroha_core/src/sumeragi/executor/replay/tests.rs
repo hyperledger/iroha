@@ -238,7 +238,7 @@ fn completed_replay_is_invalidated_by_the_next_original_forward_commit() {
         worker.replay(&block, &qc).unwrap();
         let next = publication_tests::proposal(chain, worker);
         let hash = next.hash(&**worker.context.crypto.as_ref().unwrap());
-        let Some(ExecOutcome::Valid(result)) = worker.execute(&next, hash, false) else {
+        let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&next, hash, false) else {
             panic!("original next execution");
         };
         // A duplicate old replay must not retire the unrelated next original execution.

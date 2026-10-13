@@ -443,7 +443,12 @@ fn lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advan
     let skip = std::collections::BTreeSet::new();
     assert!(
         matches!(
-            source.candidates(height, LANE_FIXTURE_LANE as usize, &skip),
+            source.candidates(
+                height,
+                LANE_FIXTURE_LANE as usize,
+                &skip,
+                &chain.state().ivm_execution_budget()
+            ),
             Err(LaneSelectionError::ClockAhead)
         ),
         "lane proposer must leave future signed input queued"
@@ -451,8 +456,14 @@ fn lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advan
     assert_eq!(queue.queued_len(), 1);
     clock.advance(Duration::from_millis(1));
     let selected = source
-        .candidates(height, LANE_FIXTURE_LANE as usize, &skip)
-        .unwrap();
+        .candidates(
+            height,
+            LANE_FIXTURE_LANE as usize,
+            &skip,
+            &chain.state().ivm_execution_budget(),
+        )
+        .unwrap()
+        .0;
     assert_eq!(selected.len(), 1);
     assert_eq!(
         selected[0].hash_as_entrypoint(),
@@ -461,7 +472,12 @@ fn lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advan
     assert_eq!(queue.queued_len(), 1);
     clock.rewind(Duration::from_millis(1));
     assert!(matches!(
-        source.candidates(height, LANE_FIXTURE_LANE as usize, &skip),
+        source.candidates(
+            height,
+            LANE_FIXTURE_LANE as usize,
+            &skip,
+            &chain.state().ivm_execution_budget()
+        ),
         Err(LaneSelectionError::ClockAhead)
     ));
 }
@@ -578,7 +594,10 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
     );
     let budget = usize::try_from(LANE_FIXTURE_LANE).unwrap();
     let skip = std::collections::BTreeSet::new();
-    let selected = source.candidates(height, budget, &skip).unwrap();
+    let selected = source
+        .candidates(height, budget, &skip, &chain.state().ivm_execution_budget())
+        .unwrap()
+        .0;
     assert_eq!(selected.len(), 1);
     assert_eq!(
         selected[0].hash_as_entrypoint(),
@@ -586,8 +605,14 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
     );
     assert!(
         source
-            .candidates(height, budget - 1, &skip)
+            .candidates(
+                height,
+                budget - 1,
+                &skip,
+                &chain.state().ivm_execution_budget()
+            )
             .unwrap()
+            .0
             .is_empty()
     );
     // The global proposer leaves fresh lane inputs to their lane even with enough capacity.

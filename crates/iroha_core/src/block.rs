@@ -1752,10 +1752,10 @@ pub enum BlockValidationError {
     BlockInThePast,
     /// Block's creation time is later than the current node local time
     BlockInTheFuture,
-    /// Sumeragi block creation time is not the canonical logical time. Expected: {expected_ms} ms, actual: {actual_ms} ms
-    NonCanonicalBlockTime {
-        /// Deterministic timestamp derived from the parent, cadence, and transactions.
-        expected_ms: u64,
+    /// Sumeragi block creation time is below its required floor. Minimum: {minimum_ms} ms, actual: {actual_ms} ms
+    BlockTimeBeforeRequiredFloor {
+        /// Deterministic minimum derived from the parent, cadence, and authenticated inputs.
+        minimum_ms: u64,
         /// Timestamp committed by the proposed block.
         actual_ms: u64,
     },
@@ -5061,31 +5061,31 @@ pub(crate) mod valid {
         }
 
         /// All static checks that require a state snapshot.
-        fn canonical_block_time(
+        fn block_time_floor(
             block: &SignedBlock,
             prev_block: &SignedBlock,
             block_cadence: Duration,
         ) -> Result<Duration, BlockValidationError> {
-            Self::canonical_block_time_from_parent_time(
+            Self::block_time_floor_from_parent_time(
                 block,
                 prev_block.header().creation_time(),
                 block_cadence,
             )
         }
-        /// The canonical creation time of a Sumeragi block over a parent created at
-        /// `parent_creation_time`: at least one cadence later and strictly after every timed
-        /// network input (`specs/sumeragi.md` Appendix E: parent + cadence rule).
+        /// Minimum permitted creation time over a parent created at `parent_creation_time`:
+        /// at least one cadence later, at the certified lane floor and strictly after every
+        /// timed native input. A proposer may authenticate a later time (§4.5).
         ///
         /// # Errors
         /// The time overflows.
-        pub(crate) fn sumeragi_block_time(
+        pub(crate) fn sumeragi_block_time_floor(
             block: &SignedBlock,
             parent_creation_time: Duration,
             block_cadence: Duration,
         ) -> Result<Duration, BlockValidationError> {
-            Self::canonical_block_time_from_parent_time(block, parent_creation_time, block_cadence)
+            Self::block_time_floor_from_parent_time(block, parent_creation_time, block_cadence)
         }
-        fn canonical_block_time_from_parent_time(
+        fn block_time_floor_from_parent_time(
             block: &SignedBlock,
             parent_creation_time: Duration,
             block_cadence: Duration,
@@ -5094,7 +5094,7 @@ pub(crate) mod valid {
                 .checked_add(block_cadence)
                 .ok_or(BlockValidationError::BlockTimeOverflow)?;
             // Merged lane transactions do not set the time: the merge section's floor does
-            // (`specs/sumeragi_lanes.md` §4.2), so the proposal alone fixes its time.
+            // (`specs/sumeragi_lanes.md` §4.2), so the original proposal fixes this floor.
             let floor = Duration::from_millis(
                 block
                     .lane_merge()
@@ -5245,12 +5245,14 @@ pub(crate) mod valid {
                 if let Some(prev_block) = prev_block {
                     let prev_block_time = prev_block.header().creation_time();
                     if let Some(block_cadence) = validation_profile.block_cadence() {
-                        let expected =
-                            Self::canonical_block_time(block, &prev_block, block_cadence)?;
+                        let minimum = Self::block_time_floor(block, &prev_block, block_cadence)?;
                         let actual = block.header().creation_time();
-                        if actual != expected {
-                            return Err(BlockValidationError::NonCanonicalBlockTime {
-                                expected_ms: u64::try_from(expected.as_millis())
+                        if actual < minimum
+                            || cfg!(all(test, sumeragi_core_mutation = "HC274"))
+                                && actual != minimum
+                        {
+                            return Err(BlockValidationError::BlockTimeBeforeRequiredFloor {
+                                minimum_ms: u64::try_from(minimum.as_millis())
                                     .map_err(|_| BlockValidationError::BlockTimeOverflow)?,
                                 actual_ms: u64::try_from(actual.as_millis())
                                     .map_err(|_| BlockValidationError::BlockTimeOverflow)?,
@@ -9025,10 +9027,10 @@ mod event {
             BlockValidationError::SignatureVerification(e) => map_sig_err_to_reason(e),
             BlockValidationError::InvalidGenesis(_)
             | BlockValidationError::GenesisPolicyMismatch { .. } => Reason::InvalidGenesis,
-            BlockValidationError::BlockInThePast => Reason::BlockInThePast,
+            BlockValidationError::BlockInThePast
+            | BlockValidationError::BlockTimeBeforeRequiredFloor { .. } => Reason::BlockInThePast,
             BlockValidationError::BlockInTheFuture => Reason::BlockInTheFuture,
-            BlockValidationError::NonCanonicalBlockTime { .. }
-            | BlockValidationError::BlockTimeOverflow => Reason::BlockInTheFuture,
+            BlockValidationError::BlockTimeOverflow => Reason::BlockInTheFuture,
             BlockValidationError::FinalityAuthorityInvalid(_) => Reason::ConsensusBlockRejection,
             BlockValidationError::TransactionInTheFuture => Reason::TransactionInTheFuture,
             BlockValidationError::ConfidentialFeaturesMismatch { .. } => {

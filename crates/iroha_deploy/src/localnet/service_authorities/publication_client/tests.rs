@@ -54,6 +54,10 @@ fn retained_publication_preserves_the_signed_custom_chain_prefix() {
         iroha::config::Config::load_bytes_with_musubi_publication(&client_config, &original_bytes)
             .unwrap();
     assert_eq!(client.account_chain_discriminant, prefix);
+    assert_eq!(
+        client.http_transport_policy,
+        HttpTransportPolicy::DirectLoopback
+    );
     let _address = ChainDiscriminantGuard::enter(prefix);
     let prepared = PreparedLocalnet {
         service_profile: profile,
@@ -425,6 +429,12 @@ fn publication_client_refuses_each_endpoint_provider_policy_and_image_substituti
     let candidates = [
         replace_exact(
             text,
+            "http_transport_policy = \"direct_loopback\"",
+            "http_transport_policy = \"ordinary\"",
+        ),
+        replace_exact(text, "http_transport_policy = \"direct_loopback\"\n", ""),
+        replace_exact(
+            text,
             &format!(
                 "seed_ingress_url = \"{}\"",
                 config.seed_ingress_url.as_deref().unwrap()
@@ -537,6 +547,36 @@ fn standard_and_private_profiles_keep_publication_absent_and_reject_inserted_sec
         let directory =
             PrivateDirectory::open_exact(prepared.context.client_config.parent().unwrap()).unwrap();
         let original = directory.read("client.toml", MAX_CLIENT_BYTES).unwrap();
+        assert_eq!(
+            prepared
+                .context
+                .load_client_config()
+                .unwrap()
+                .http_transport_policy,
+            HttpTransportPolicy::DirectLoopback
+        );
+        for replacement in ["http_transport_policy = \"ordinary\"", ""] {
+            let changed = Zeroizing::new(replace_exact(
+                std::str::from_utf8(&original).unwrap(),
+                "http_transport_policy = \"direct_loopback\"",
+                replacement,
+            ));
+            directory
+                .write_atomic("client.toml", changed.as_bytes(), PublishMode::Replace)
+                .unwrap();
+            assert!(prepared.publication_client_config().is_err());
+            assert_eq!(
+                directory
+                    .read("client.toml", MAX_CLIENT_BYTES)
+                    .unwrap()
+                    .as_slice(),
+                changed.as_bytes()
+            );
+        }
+        directory
+            .write_atomic("client.toml", &original, PublishMode::Replace)
+            .unwrap();
+        assert!(prepared.publication_client_config().unwrap().is_none());
         let mut changed = Zeroizing::new(original.to_vec());
         changed.extend_from_slice(b"\n[musubi.publication]\nrequest_timeout_ms = 30000\n");
         directory

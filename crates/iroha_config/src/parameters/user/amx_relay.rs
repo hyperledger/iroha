@@ -42,8 +42,9 @@ pub struct AmxRelayRoute {
     pub network_id: NetworkId,
     /// Exact consensus chain label.
     pub chain_id: ChainId,
-    /// Exact destination root scope.
-    pub scope: SumeragiRootScope,
+    /// Exact native Norito JSON root scope. The Global variant has required null content,
+    /// which TOML cannot represent; private scopes use this same canonical representation.
+    pub scope_json: String,
     /// Separately funded account that authorizes the relay fees.
     pub authority: AccountId,
     /// Explicit SDK account file; runtime checks its authority, network and chain.
@@ -54,8 +55,9 @@ pub struct AmxRelayRoute {
     pub signed_genesis_sha256: String,
     /// Independently selected genesis signer.
     pub genesis_public_key: PublicKey,
-    /// Exact fee components, assets and maximum amounts signed into every carrier.
-    pub fee_payment: FeePaymentIntent,
+    /// Exact native Norito JSON fee intent, including the required nullable gas limit.
+    /// TOML has no null value, so the one canonical wire type is supplied as JSON text.
+    pub fee_payment_json: String,
 }
 
 fn invalid(emitter: &mut Emitter<ParseError>, detail: impl Into<String>) {
@@ -108,10 +110,20 @@ impl AmxRelay {
                     );
                     continue;
                 }
+                let scope: SumeragiRootScope = match norito::json::from_str(&route.scope_json) {
+                    Ok(scope) => scope,
+                    Err(_) => {
+                        invalid(
+                            emitter,
+                            "amx_relay scope_json must be an exact native root scope",
+                        );
+                        continue;
+                    }
+                };
                 if let SumeragiRootScope::Dataspace {
                     parent_network_id,
                     dataspace_id,
-                } = route.scope
+                } = scope
                     && !participants.insert((parent_network_id, dataspace_id))
                 {
                     invalid(
@@ -120,7 +132,7 @@ impl AmxRelay {
                     );
                     continue;
                 }
-                if route.scope.validate().is_err() {
+                if scope.validate().is_err() {
                     invalid(emitter, "amx_relay route has an invalid private root scope");
                     continue;
                 }
@@ -153,17 +165,29 @@ impl AmxRelay {
                     );
                     continue;
                 }
-                if route.fee_payment.validate().is_err() {
+                let fee_payment: FeePaymentIntent = match norito::json::from_str(
+                    &route.fee_payment_json,
+                ) {
+                    Ok(intent) => intent,
+                    Err(_) => {
+                        invalid(
+                            emitter,
+                            "amx_relay fee_payment_json must be an exact native fee authorization",
+                        );
+                        continue;
+                    }
+                };
+                if fee_payment.validate().is_err() {
                     invalid(
                         emitter,
-                        "amx_relay fee_payment must be an exact canonical fee authorization",
+                        "amx_relay fee_payment_json must be an exact canonical fee authorization",
                     );
                     continue;
                 }
                 parsed.push(actual::AmxRelayRoute {
                     network_id: route.network_id,
                     chain_id: route.chain_id,
-                    scope: route.scope,
+                    scope,
                     authority: route.authority,
                     account_config: WithOrigin::new(route.account_config, origin.clone())
                         .resolve_relative_path(),
@@ -171,7 +195,7 @@ impl AmxRelay {
                         .resolve_relative_path(),
                     signed_genesis_sha256: digest,
                     genesis_public_key: route.genesis_public_key,
-                    fee_payment: route.fee_payment,
+                    fee_payment,
                 });
             }
         }
@@ -202,13 +226,14 @@ mod tests {
                 b"relay-test",
             ))),
             chain_id: "relay-test".parse().unwrap(),
-            scope: SumeragiRootScope::Global,
+            scope_json: norito::json::to_json(&SumeragiRootScope::Global).unwrap(),
             authority: AccountId::new(key.public_key().clone()),
             account_config: "account.toml".into(),
             signed_genesis: "genesis.nrt".into(),
             signed_genesis_sha256: "ab".repeat(32),
             genesis_public_key: key.public_key().clone(),
-            fee_payment: FeePaymentIntent::authority(Vec::new(), None),
+            fee_payment_json: norito::json::to_json(&FeePaymentIntent::authority(Vec::new(), None))
+                .unwrap(),
         }
     }
 
@@ -245,10 +270,11 @@ mod tests {
     #[test]
     fn amx_relay_rejects_ambiguous_participant_lineages() {
         let mut first = route();
-        first.scope = SumeragiRootScope::Dataspace {
+        first.scope_json = norito::json::to_json(&SumeragiRootScope::Dataspace {
             parent_network_id: first.network_id,
             dataspace_id: iroha_model_base::topology::DataSpaceId::new(1),
-        };
+        })
+        .unwrap();
         let mut second = first.clone();
         second.network_id = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
             Hash::new(b"other-participant-lineage"),
@@ -283,5 +309,115 @@ mod tests {
         errors.into_result().unwrap();
         assert_eq!(actual.routes[0].authority, route().authority);
         assert_eq!(actual.routes[0].signed_genesis_sha256, [0xab; 32]);
+    }
+
+    fn route_table(route: AmxRelayRoute) -> toml::Table {
+        use iroha_config_base::toml::WriteExt as _;
+        toml::Table::new()
+            .write("network_id", route.network_id.to_string())
+            .write("chain_id", route.chain_id.to_string())
+            .write("scope_json", route.scope_json)
+            .write("authority", route.authority.to_string())
+            .write(
+                "account_config",
+                route.account_config.to_string_lossy().into_owned(),
+            )
+            .write(
+                "signed_genesis",
+                route.signed_genesis.to_string_lossy().into_owned(),
+            )
+            .write("signed_genesis_sha256", route.signed_genesis_sha256)
+            .write("genesis_public_key", route.genesis_public_key.to_string())
+            .write("fee_payment_json", route.fee_payment_json)
+    }
+
+    fn read_file_route(
+        route: toml::Table,
+    ) -> Result<AmxRelay, error_stack::Report<[iroha_config_base::read::Error]>> {
+        use iroha_config_base::toml::{TomlSource, WriteExt as _};
+        let table = toml::Table::new().write("routes", vec![toml::Value::Table(route)]);
+        let source = toml::to_string(&table).unwrap();
+        let parsed = source.parse::<toml::Table>().unwrap();
+        ConfigReader::new()
+            .without_env()
+            .with_toml_source(TomlSource::inline(parsed))
+            .read_and_complete::<AmxRelay>()
+    }
+
+    #[test]
+    fn amx_relay_file_route_preserves_explicit_null_gas_authorization() {
+        for scope in [
+            SumeragiRootScope::Global,
+            SumeragiRootScope::Dataspace {
+                parent_network_id: route().network_id,
+                dataspace_id: iroha_model_base::topology::DataSpaceId::new((1_u64 << 40) + 117),
+            },
+        ] {
+            let mut selected = route();
+            selected.scope_json = norito::json::to_json(&scope).unwrap();
+            let user = read_file_route(route_table(selected)).unwrap();
+            let mut errors = Emitter::new();
+            let actual = user.parse(&mut errors);
+            errors.into_result().unwrap();
+            assert_eq!(actual.routes.len(), 1);
+            assert_eq!(actual.routes[0].scope, scope);
+            assert_eq!(
+                actual.routes[0].fee_payment,
+                FeePaymentIntent::authority(Vec::new(), None)
+            );
+            assert_eq!(actual.routes[0].authority, route().authority);
+        }
+    }
+
+    #[test]
+    fn amx_relay_file_route_rejects_retired_fee_object_and_incomplete_json() {
+        let mut retired = route_table(route());
+        retired.remove("fee_payment_json");
+        retired.insert("fee_payment".into(), toml::Value::Table(toml::Table::new()));
+        let error = read_file_route(retired).unwrap_err();
+        assert!(
+            format!("{error:?}").contains("fee_payment"),
+            "wrong file refusal: {error:?}"
+        );
+        for json in [
+            r#"{"payer":"authority","value":{"charge_limits":[]}}"#,
+            "{}",
+        ] {
+            let mut candidate = route();
+            candidate.fee_payment_json = json.to_owned();
+            let user = read_file_route(route_table(candidate))
+                .expect("outer route and canonical scope must decode");
+            let mut errors = Emitter::new();
+            assert!(user.parse(&mut errors).routes.is_empty());
+            let error = errors.into_result().unwrap_err();
+            assert!(
+                format!("{error:?}").contains("fee_payment_json"),
+                "wrong fee refusal: {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn amx_relay_file_route_rejects_retired_scope_and_incomplete_scope_json() {
+        let mut retired = route_table(route());
+        retired.remove("scope_json");
+        retired.insert("scope".into(), toml::Value::Table(toml::Table::new()));
+        let error = read_file_route(retired).unwrap_err();
+        assert!(
+            format!("{error:?}").contains("scope"),
+            "wrong file refusal: {error:?}"
+        );
+        for json in [r#"{"kind":"global"}"#, "{}"] {
+            let mut candidate = route();
+            candidate.scope_json = json.to_owned();
+            let user = read_file_route(route_table(candidate)).unwrap();
+            let mut errors = Emitter::new();
+            assert!(user.parse(&mut errors).routes.is_empty());
+            let error = errors.into_result().unwrap_err();
+            assert!(
+                format!("{error:?}").contains("scope_json"),
+                "wrong scope refusal: {error:?}"
+            );
+        }
     }
 }

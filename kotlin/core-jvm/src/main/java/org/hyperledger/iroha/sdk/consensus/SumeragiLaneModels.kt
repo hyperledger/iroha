@@ -24,6 +24,8 @@ private val SUMERAGI_KEY_ALGORITHMS: Set<String> = setOf(
 class SumeragiParameters internal constructor(
     @JvmField val blockCadenceMs: BigInteger,
     @JvmField val maxClockDriftMs: BigInteger,
+    /** Positive committed first-Prepare freshness allowance for due work. */
+    @JvmField val dueWorkMaxLagMs: BigInteger,
     @JvmField val keyActivationLeadBlocks: BigInteger,
     @JvmField val keyOverlapGraceBlocks: BigInteger,
     @JvmField val keyExpiryGraceBlocks: BigInteger,
@@ -40,7 +42,7 @@ class SumeragiParameters internal constructor(
         Collections.unmodifiableList(ArrayList(keyAllowedAlgorithms))
 
     override fun equalityFields(): List<Any?> = listOf(
-        blockCadenceMs, maxClockDriftMs, keyActivationLeadBlocks, keyOverlapGraceBlocks,
+        blockCadenceMs, maxClockDriftMs, dueWorkMaxLagMs, keyActivationLeadBlocks, keyOverlapGraceBlocks,
         keyExpiryGraceBlocks, keyAllowedAlgorithms, payloadRetryIntervalMs, execBudgetMs,
         applyBudgetMs, maxBlockBytes, epochLengthBlocks, demotionWindow,
     )
@@ -170,7 +172,7 @@ private object NativeLaneParser {
         "closing", "anchor_freshness", "merged", "merged_at", "rescued",
     )
     private val paramFields = setOf(
-        "block_cadence_ms", "max_clock_drift_ms", "key_activation_lead_blocks",
+        "block_cadence_ms", "max_clock_drift_ms", "due_work_max_lag_ms", "key_activation_lead_blocks",
         "key_overlap_grace_blocks", "key_expiry_grace_blocks", "key_allowed_algorithms",
         "payload_retry_interval_ms", "exec_budget_ms", "apply_budget_ms", "max_block_bytes",
         "epoch_length_blocks", "demotion_window",
@@ -244,6 +246,7 @@ private object NativeLaneParser {
         return SumeragiParameters(
             nonzero("block_cadence_ms"),
             u64("max_clock_drift_ms"),
+            nonzero("due_work_max_lag_ms"),
             u64("key_activation_lead_blocks"),
             u64("key_overlap_grace_blocks"),
             u64("key_expiry_grace_blocks"),

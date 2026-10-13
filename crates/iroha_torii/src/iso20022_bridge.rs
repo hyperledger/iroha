@@ -21,9 +21,7 @@ use iroha_data_model::{
     ValidationFail,
     account::address::AccountAddress,
     asset::AssetDefinitionAlias,
-    prelude::{
-        AccountId, AssetDefinitionId, AssetId, InstructionBox, TransactionBuilder, Transfer,
-    },
+    prelude::{AccountId, AssetDefinitionId, AssetId, InstructionBox, TransactionBuilder},
     transaction::{SignedTransaction, TransactionPayload, error::TransactionRejectionReason},
 };
 use iroha_model_base::chain::ChainId;
@@ -61,6 +59,14 @@ use x509_parser::{
     revocation_list::CertificateRevocationList,
     time::ASN1Time,
 };
+mod native_payment;
+pub(crate) use native_payment::{
+    IsoNativeBusinessSettlement, IsoNativeCarrierOutcome, IsoNativePaymentRequest,
+};
+use native_payment::{
+    IsoNativePayment, native_payment_from_value, native_payment_value, original_business_hash,
+    original_success_is_verified,
+};
 #[derive(Clone)]
 struct IsoCurrencyBinding {
     asset_definition: String,
@@ -92,6 +98,9 @@ pub struct Iso20022BridgeRuntime {
     state_lock: Arc<ReentrantMutex<()>>,
     records: DashMap<String, IsoMessageRecordV2>,
     tx_hash_index: DashMap<String, String>,
+    // Derived bounded index; authoritative links remain in the lifecycle journal records.
+    pending_return_originals: DashMap<String, usize>,
+    projection_dirty: Arc<tokio::sync::Notify>,
     payload_hash_index: DashMap<String, String>,
     business_message_id_index: DashMap<String, String>,
     uetr_index: DashMap<String, String>,
@@ -140,6 +149,14 @@ struct IsoLifecycleOriginalBinding {
     incarnation: IsoRecordIncarnation,
     transaction_hash: Option<String>,
 }
+/// Exact successful native execution already authenticated by the canonical carrier reader.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct IsoSuccessfulExecution<'a> {
+    /// Canonical signed transaction identity from the original lifecycle binding.
+    pub(crate) transaction_hash: &'a str,
+    /// Authenticated carrier creation time, shared with background reconciliation.
+    pub(crate) settled_at: SystemTime,
+}
 /// Opaque authorization tying one lifecycle admission to the exact original record observed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct IsoLifecycleAuthorization {
@@ -159,15 +176,22 @@ impl IsoLifecycleAuthorization {
         &self.parties
     }
 
+    /// Whether this notification claims successful settlement of the original business intent.
+    pub(crate) fn requires_successful_execution(
+        message_type: &str,
+        parsed: &ParsedMessage,
+    ) -> bool {
+        message_type == "pacs.002"
+            && lifecycle_status_code(message_type, parsed).is_some_and(is_settlement_status_code)
+    }
+
     /// Return the exact original transaction hash whose successful execution may authorize settlement.
     pub(crate) fn settlement_transaction_hash(
         &self,
         message_type: &str,
         parsed: &ParsedMessage,
     ) -> Result<Option<&str>, MsgError> {
-        if message_type != "pacs.002"
-            || !lifecycle_status_code(message_type, parsed).is_some_and(is_settlement_status_code)
-        {
+        if !Self::requires_successful_execution(message_type, parsed) {
             return Ok(None);
         }
         let referenced_id = canonical_lifecycle_referenced_message_id(message_type, parsed)?
@@ -238,6 +262,19 @@ pub struct IsoMessageContext {
     collateral_reason_code: Option<String>,
     plan_execution_order: Option<String>,
     plan_atomicity: Option<String>,
+    reported_return: Option<IsoReportedReturn>,
+    native_payment: Option<IsoNativePayment>,
+}
+/// Authenticated counterparty report; no reverse native execution is represented here.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct IsoReportedReturn {
+    disposition: IsoReturnReportDisposition,
+    original_message_id: String,
+    original_payload_hash: Option<String>,
+    original_transaction_hash: Option<String>,
+    amount: String,
+    currency: String,
+    reason_code: Option<String>,
 }
 impl IsoMessageContext {
     /// Ledger identifier supplied in the message, if any.
@@ -524,6 +561,26 @@ impl IsoMessageStatus {
     pub fn derived_status(&self) -> Pacs002Status {
         self.derived_status
     }
+    /// Separately recorded external return evidence, without a native refund assertion.
+    pub(crate) fn reported_return_json(&self) -> JsonValue {
+        reported_return_value(self.context.reported_return.as_ref())
+    }
+    /// Exact native intent and separate original business and attempted-carrier projections.
+    pub(crate) fn native_payment_json(&self) -> JsonValue {
+        let mut value = native_payment_value(self.context.native_payment.as_ref());
+        if let JsonValue::Object(object) = &mut value {
+            object.insert(
+                "verified".into(),
+                JsonValue::from(
+                    self.context
+                        .native_payment
+                        .as_ref()
+                        .is_some_and(IsoNativePayment::verified),
+                ),
+            );
+        }
+        value
+    }
     /// Profile/idempotency metadata captured for the message.
     pub fn metadata(&self) -> &IsoMessageMetadata {
         &self.metadata
@@ -782,6 +839,11 @@ impl IsoMessageRecordV2 {
     fn retention_protected(&self) -> bool {
         self.state == IsoMessageState::Pending
             || (self.ledger_tx_queued && self.settled_at.is_none())
+            || self
+                .context
+                .native_payment
+                .as_ref()
+                .is_some_and(|payment| payment.unresolved(self.transaction_hash.is_some()))
     }
     fn try_transition(
         &mut self,
@@ -893,14 +955,22 @@ fn new_iso_record_incarnation() -> IsoRecordIncarnation {
     IsoRecordIncarnation(Arc::new(()))
 }
 const ISO4217_MAX_MINOR_UNITS: u8 = 4;
+/// Durable ISO projection refusal surfaced to the canonical reconciliation worker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum IsoStatusHistoryLimitError {
+pub(crate) enum IsoStatusHistoryLimitError {
+    /// Exact status history has reached its entry bound.
     EntryCount,
+    /// Exact status history has reached its encoded byte bound.
     EncodedBytes,
+    /// Change reasons have reached their entry bound.
     ChangeReasonCount,
+    /// Change reasons have reached their encoded byte bound.
     ChangeReasonEncodedBytes,
+    /// Storage for the bounded candidate could not be allocated.
     Allocation,
+    /// The exact admitted record or its original binding is unavailable.
     MissingReservation,
+    /// The candidate could not be durably committed.
     Persistence,
 }
 /// Failure while applying an admitted ISO lifecycle message.
@@ -1961,6 +2031,8 @@ impl Iso20022BridgeRuntime {
             state_lock: Arc::new(ReentrantMutex::new(())),
             records: DashMap::new(),
             tx_hash_index: DashMap::new(),
+            pending_return_originals: DashMap::new(),
+            projection_dirty: Arc::new(tokio::sync::Notify::new()),
             payload_hash_index: DashMap::new(),
             business_message_id_index: DashMap::new(),
             uetr_index: DashMap::new(),
@@ -2017,14 +2089,13 @@ impl Iso20022BridgeRuntime {
                 field: iban_field.to_owned(),
                 kind: IdentifierKind::Iban,
             })?;
-        if let Some(hint) = hint {
-            let (hinted, _) = parse_iso_account_hint(hint, telemetry, context)?;
-            if hinted != configured {
-                return Err(MsgError::InvalidValue {
-                    field: hint_field.to_owned(),
-                    kind: InvalidValueKind::Enum,
-                });
-            }
+        let hint = hint.ok_or(MsgError::MissingField(hint_field))?;
+        let (hinted, _) = parse_iso_account_hint(hint, telemetry, context)?;
+        if hinted != configured || hint != configured.to_string() {
+            return Err(MsgError::InvalidValue {
+                field: hint_field.to_owned(),
+                kind: InvalidValueKind::Enum,
+            });
         }
         Ok(configured)
     }
@@ -2041,15 +2112,14 @@ impl Iso20022BridgeRuntime {
                 kind: IdentifierKind::Currency,
             }
         })?;
-        if let Some(hint) = hint {
-            let hinted = resolve_asset_definition_selector(world, hint, now_ms)
-                .ok_or(MsgError::ValidationFailed)?;
-            if hinted != configured {
-                return Err(MsgError::InvalidValue {
-                    field: "SplmtryData/AssetDefinitionId".to_owned(),
-                    kind: InvalidValueKind::Enum,
-                });
-            }
+        let hint = hint.ok_or(MsgError::MissingField("NexusSettlement/AssetDefinitionId"))?;
+        // Local aliases only resolve the configured policy. The payer's signed native
+        // identity must be the exact canonical definition, never another local alias.
+        if hint != configured.to_string() {
+            return Err(MsgError::InvalidValue {
+                field: "NexusSettlement/AssetDefinitionId".to_owned(),
+                kind: InvalidValueKind::Enum,
+            });
         }
         Ok(configured)
     }
@@ -2252,7 +2322,7 @@ impl Iso20022BridgeRuntime {
             .records
             .get(&referenced_id)
             .ok_or(IsoAdmissionError::NotAuthorized)?;
-        if !self.record_is_live_at(&original, SystemTime::now()) {
+        if !self.record_is_live_at(&referenced_id, &original, SystemTime::now()) {
             return Err(IsoAdmissionError::NotAuthorized);
         }
         if original.parties.pinned_profile_id != profile.id
@@ -2512,7 +2582,7 @@ impl Iso20022BridgeRuntime {
             .records
             .iter()
             .filter(|record| {
-                record.retention_protected()
+                self.record_retention_protected(record.key(), &record)
                     || wall_now.duration_since(record.replay_expires_at).is_err()
             })
             .map(|record| record.key().clone())
@@ -2629,7 +2699,7 @@ impl Iso20022BridgeRuntime {
     /// Remove an identity only after its replay TTL elapsed.
     fn remove_expired_message_locked(&self, message_id: &str, now: SystemTime) {
         if let Some(record) = self.records.get(message_id)
-            && (record.retention_protected()
+            && (self.record_retention_protected(message_id, &record)
                 || now.duration_since(record.replay_expires_at).is_err())
         {
             return;
@@ -2652,6 +2722,11 @@ impl Iso20022BridgeRuntime {
         let Some(previous) = self.records.get(message_id).map(|record| record.clone()) else {
             return false;
         };
+        // The monetary intent and its independently recovered projections are immutable here.
+        // Only the canonical native projection owner may advance them after initial admission.
+        if previous.context.native_payment.is_some() {
+            return false;
+        }
         let mut candidate = previous.clone();
         candidate.last_seen = Instant::now();
         candidate.updated_at = SystemTime::now();
@@ -2700,7 +2775,11 @@ impl Iso20022BridgeRuntime {
         let Some(previous) = self.records.get(message_id).map(|record| record.clone()) else {
             return false;
         };
-        if previous.state != IsoMessageState::Pending || previous.ledger_tx_queued {
+        if (previous.state != IsoMessageState::Pending
+            && !(previous.context.native_payment.is_some()
+                && original_success_is_verified(&previous)))
+            || previous.ledger_tx_queued
+        {
             return false;
         }
         if previous
@@ -2788,11 +2867,30 @@ impl Iso20022BridgeRuntime {
     ///
     /// Returns `false` when the exact history is exhausted.
     pub fn mark_settled(&self, message_id: &str, settled_at: SystemTime) -> bool {
+        self.mark_settled_with_canonical_hash(message_id, settled_at, None)
+    }
+    fn mark_settled_with_canonical_hash(
+        &self,
+        message_id: &str,
+        settled_at: SystemTime,
+        canonical_hash: Option<&str>,
+    ) -> bool {
         let _state_guard = self.state_lock.lock();
         let now = Instant::now();
         let previous = self.records.get(message_id).map(|record| record.clone());
+        if previous
+            .as_ref()
+            .is_some_and(|record| record.context.native_payment.is_some())
+        {
+            // Native intent success requires the complete original business receipt join,
+            // including the case where this exact carrier was only a rejected retry.
+            return false;
+        }
         if previous.as_ref().is_some_and(|record| {
-            record.is_rejected() && (!record.ledger_tx_queued || record.transaction_hash.is_none())
+            record.is_rejected()
+                && (!record.ledger_tx_queued || record.transaction_hash.is_none())
+                && (canonical_hash.is_none()
+                    || canonical_hash != record.transaction_hash.as_deref())
         }) {
             return false;
         }
@@ -2824,11 +2922,8 @@ impl Iso20022BridgeRuntime {
     pub fn mark_transaction_applied(&self, tx_hash: &str, settled_at: SystemTime) -> bool {
         let _state_guard = self.state_lock.lock();
         if let Some(message_id) = self.tx_hash_index.get(tx_hash).map(|entry| entry.clone()) {
-            let applied = self.mark_settled(&message_id, settled_at);
-            if applied {
-                self.tx_hash_index
-                    .remove_if(tx_hash, |_, owner| owner == &message_id);
-            }
+            let applied =
+                self.mark_settled_with_canonical_hash(&message_id, settled_at, Some(tx_hash));
             return applied;
         }
         false
@@ -2853,10 +2948,6 @@ impl Iso20022BridgeRuntime {
                     )
                 });
             let rejected = self.mark_rejected(&message_id, detail, reason_code.as_deref());
-            if rejected {
-                self.tx_hash_index
-                    .remove_if(tx_hash, |_, owner| owner == &message_id);
-            }
             return rejected;
         }
         false
@@ -2872,10 +2963,6 @@ impl Iso20022BridgeRuntime {
                 Some("transaction expired before admission".to_owned()),
                 Some("ED07"),
             );
-            if expired {
-                self.tx_hash_index
-                    .remove_if(tx_hash, |_, owner| owner == &message_id);
-            }
             return expired;
         }
         false
@@ -2888,7 +2975,10 @@ impl Iso20022BridgeRuntime {
             .iter()
             .filter_map(|entry| {
                 let record = entry.value();
-                if record.ledger_tx_queued && !record.is_terminal() {
+                if record.context.native_payment.is_none()
+                    && record.ledger_tx_queued
+                    && !record.is_terminal()
+                {
                     record.transaction_hash.clone()
                 } else {
                     None
@@ -3030,8 +3120,8 @@ impl Iso20022BridgeRuntime {
         }
         Ok(status)
     }
-    /// Prepare an accepted lifecycle after-image without publishing either side of the update.
-    fn prepare_lifecycle_accepted(
+    /// Prepare a lifecycle after-image, including a pending report, without publishing either side.
+    fn prepare_lifecycle_record(
         &self,
         message_id: &str,
         context: Option<IsoMessageContext>,
@@ -3047,11 +3137,18 @@ impl Iso20022BridgeRuntime {
         if let Some(context) = context {
             candidate.context = context;
         }
+        let lifecycle_state = candidate
+            .context
+            .reported_return
+            .as_ref()
+            .map_or(IsoMessageState::Accepted, |report| {
+                report.disposition.state()
+            });
         candidate.try_transition(|record| {
             record.transaction_hash = None;
             record.last_seen = now;
             record.updated_at = SystemTime::now();
-            record.state = IsoMessageState::Accepted;
+            record.state = lifecycle_state;
             record.detail = detail;
             record.ledger_tx_queued = false;
             record.settled_at = None;
@@ -3086,7 +3183,10 @@ impl Iso20022BridgeRuntime {
             return false;
         }
         if previous.as_ref().is_some_and(|record| {
-            record.is_rejected() && !record.ledger_tx_queued && record.transaction_hash.is_none()
+            record.is_rejected()
+                && !record.ledger_tx_queued
+                && (record.transaction_hash.is_none()
+                    || (record.detail == reason && record.rejection_reason_code == reason_code))
         }) {
             return true;
         }
@@ -3104,7 +3204,8 @@ impl Iso20022BridgeRuntime {
         };
         let transition = candidate
             .try_transition(|record| {
-                record.transaction_hash = None;
+                // An assigned signed carrier remains the immutable recovery identity.
+                // Local rejection or canonical failure cannot turn it into an unsubmitted message.
                 record.last_seen = now;
                 record.updated_at = SystemTime::now();
                 record.state = IsoMessageState::Rejected;
@@ -3157,7 +3258,7 @@ impl Iso20022BridgeRuntime {
         );
     }
     fn status_snapshot(message_id: &str, record: &IsoMessageRecordV2) -> IsoMessageStatus {
-        IsoMessageStatus {
+        let mut status = IsoMessageStatus {
             message_id: message_id.to_owned(),
             state: record.state,
             transaction_hash: record.transaction_hash.clone(),
@@ -3172,7 +3273,22 @@ impl Iso20022BridgeRuntime {
             rejection_reason_code: record.rejection_reason_code.clone(),
             status_history: record.status_history.clone(),
             parties: record.parties.clone(),
+        };
+        if record
+            .context
+            .native_payment
+            .as_ref()
+            .is_some_and(IsoNativePayment::requires_reauthentication)
+        {
+            // Restarted journal bytes are recovery material. Reauthenticate their original
+            // successful source before any live status/outbox can assert native settlement.
+            status.state = IsoMessageState::Pending;
+            status.settled_at = None;
+            status.derived_status = Pacs002Status::Pdng;
+            status.detail =
+                Some("native settlement awaits canonical recovery verification".to_owned());
         }
+        status
     }
     /// Return the stable group-header identity for an inbound payment message.
     ///
@@ -3271,7 +3387,12 @@ impl Iso20022BridgeRuntime {
             message_type,
             parsed,
             &authorization,
-            settlement_evidence.as_deref(),
+            settlement_evidence
+                .as_deref()
+                .map(|transaction_hash| IsoSuccessfulExecution {
+                    transaction_hash,
+                    settled_at: SystemTime::now(),
+                }),
         )
         .map_err(|error| match error {
             IsoLifecycleApplyError::Validation(error) => error,
@@ -3285,7 +3406,7 @@ impl Iso20022BridgeRuntime {
         message_type: &str,
         parsed: &ParsedMessage,
         authorization: &IsoLifecycleAuthorization,
-        applied_transaction_hash: Option<&str>,
+        applied_transaction: Option<IsoSuccessfulExecution<'_>>,
     ) -> Result<(IsoLifecycleOutcome, IsoMessageStatus), IsoLifecycleApplyError> {
         let _state_guard = self.state_lock.lock();
         let referenced_message_id =
@@ -3305,7 +3426,7 @@ impl Iso20022BridgeRuntime {
                 .get(original_id)
                 .ok_or(MsgError::ValidationFailed)?;
             if original.incarnation != binding.incarnation
-                || !self.record_is_live_at(&original, reference_time)
+                || !self.record_is_live_at(original_id, &original, reference_time)
             {
                 return Err(MsgError::ValidationFailed.into());
             }
@@ -3314,12 +3435,13 @@ impl Iso20022BridgeRuntime {
                     .as_deref()
                     .is_some_and(is_settlement_status_code)
             {
-                let expected_hash = binding
-                    .transaction_hash
-                    .as_deref()
-                    .ok_or(MsgError::ValidationFailed)?;
-                if applied_transaction_hash != Some(expected_hash)
-                    || original.transaction_hash.as_deref() != Some(expected_hash)
+                let expected_hash =
+                    original_business_hash(&original).ok_or(MsgError::ValidationFailed)?;
+                if applied_transaction.map(|outcome| outcome.transaction_hash)
+                    != Some(expected_hash)
+                    || original.transaction_hash != binding.transaction_hash
+                    || original.context.native_payment.is_some()
+                        && !original_success_is_verified(&original)
                 {
                     return Err(MsgError::ValidationFailed.into());
                 }
@@ -3342,15 +3464,34 @@ impl Iso20022BridgeRuntime {
                 status_code.as_deref(),
                 reason_code.as_deref(),
                 detail,
+                applied_transaction.map(|outcome| outcome.settled_at),
             )
             .map_err(|error| self.lifecycle_apply_error(original_id, error))?
         } else {
             ("recorded", None)
         };
+        let context = if action == "recorded_return" {
+            let binding = authorization
+                .original
+                .as_ref()
+                .ok_or(MsgError::ValidationFailed)?;
+            let original = self
+                .records
+                .get(&binding.message_id)
+                .ok_or(MsgError::ValidationFailed)?;
+            Some(reported_return_context(
+                binding,
+                &authorization.parties,
+                &original,
+                parsed,
+            )?)
+        } else {
+            lifecycle_context(message_type, parsed)
+        };
         let lifecycle_mutation = self
-            .prepare_lifecycle_accepted(
+            .prepare_lifecycle_record(
                 message_id,
-                lifecycle_context(message_type, parsed),
+                context,
                 Some(format!(
                     "recorded inbound ISO 20022 {message_type} lifecycle message"
                 )),
@@ -3399,11 +3540,15 @@ impl Iso20022BridgeRuntime {
             .records
             .get(&message_id)
             .ok_or(MsgError::ValidationFailed)?;
-        if !self.record_is_live_at(&original, SystemTime::now()) {
+        if !self.record_is_live_at(&message_id, &original, SystemTime::now()) {
             return Err(MsgError::ValidationFailed);
         }
+        let mut parties = original.parties.clone();
+        if message_type == "pacs.004" {
+            parties.admitting_participant_id = parties.counterparty_participant_id.clone();
+        }
         Ok(IsoLifecycleAuthorization {
-            parties: original.parties.clone(),
+            parties,
             original: Some(IsoLifecycleOriginalBinding {
                 message_id,
                 incarnation: original.incarnation.clone(),
@@ -3415,10 +3560,15 @@ impl Iso20022BridgeRuntime {
     fn lifecycle_reference_is_live_at(&self, message_id: &str, now: SystemTime) -> bool {
         self.records
             .get(message_id)
-            .is_some_and(|record| self.record_is_live_at(&record, now))
+            .is_some_and(|record| self.record_is_live_at(message_id, &record, now))
     }
-    fn record_is_live_at(&self, record: &IsoMessageRecordV2, now: SystemTime) -> bool {
-        if record.retention_protected() {
+    fn record_is_live_at(
+        &self,
+        message_id: &str,
+        record: &IsoMessageRecordV2,
+        now: SystemTime,
+    ) -> bool {
+        if self.record_retention_protected(message_id, record) {
             return true;
         }
         if self.store_dir.is_some() {
@@ -3431,7 +3581,7 @@ impl Iso20022BridgeRuntime {
             now.duration_since(record.replay_expires_at).is_err()
         }
     }
-    /// Create the exact unsigned transfer payload for a validated pacs.008 message.
+    /// Create the exact unsigned native payment payload for a validated pacs.008 message.
     pub fn build_pacs008_payload(
         &self,
         parsed: &ParsedMessage,
@@ -3488,8 +3638,8 @@ impl Iso20022BridgeRuntime {
         let debtor = self.resolve_bound_account(
             &debtor_iban,
             "DbtrAcct",
-            parsed.field_text("SplmtryData/SourceAccountId"),
-            "SplmtryData/SourceAccountId",
+            parsed.field_text("NexusSettlement/SourceAccountId"),
+            "NexusSettlement/SourceAccountId",
             telemetry,
             ISO_PACS008_CONTEXT,
         )?;
@@ -3503,8 +3653,8 @@ impl Iso20022BridgeRuntime {
         let creditor = self.resolve_bound_account(
             &creditor_iban,
             "CdtrAcct",
-            parsed.field_text("SplmtryData/TargetAccountId"),
-            "SplmtryData/TargetAccountId",
+            parsed.field_text("NexusSettlement/TargetAccountId"),
+            "NexusSettlement/TargetAccountId",
             telemetry,
             ISO_PACS008_CONTEXT,
         )?;
@@ -3519,14 +3669,21 @@ impl Iso20022BridgeRuntime {
             world,
             now_ms,
             &currency,
-            parsed.field_text("SplmtryData/AssetDefinitionId"),
+            parsed.field_text("NexusSettlement/AssetDefinitionId"),
         )?;
         context.asset_definition_id = Some(asset_definition.to_string());
         let amount = self.settlement_amount(&currency, amount_raw)?;
         let asset = AssetId::new(asset_definition.clone(), debtor.clone());
         let asset_id_str = asset.to_string();
         context.asset_id = Some(asset_id_str);
-        let transfer = Transfer::asset_quantity(asset, amount, creditor);
+        let intent = native_payment::build_native_iso_payment_intent(
+            parsed,
+            *network_id,
+            asset,
+            amount,
+            creditor,
+        )?;
+        context.native_payment = Some(IsoNativePayment::new(&intent)?);
         let mut metadata = Metadata::default();
         for (key, value) in [
             ("iso20022_ledger_id", context.ledger_id.as_deref()),
@@ -3569,7 +3726,7 @@ impl Iso20022BridgeRuntime {
             self.signer_account.clone(),
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
-        .with_instructions(core::iter::once(InstructionBox::from(transfer)));
+        .with_instructions(core::iter::once(InstructionBox::from(intent)));
         if metadata.iter().len() > 0 {
             builder = builder.with_metadata(metadata);
         }
@@ -3578,7 +3735,7 @@ impl Iso20022BridgeRuntime {
             .map_err(|_| MsgError::ValidationFailed)?;
         Ok((payload, context))
     }
-    /// Create the exact unsigned transfer payload for a validated pacs.009 message.
+    /// Create the exact unsigned native payment payload for a validated pacs.009 message.
     pub fn build_pacs009_payload(
         &self,
         parsed: &ParsedMessage,
@@ -3643,8 +3800,8 @@ impl Iso20022BridgeRuntime {
         let debtor = self.resolve_bound_account(
             &debtor_iban,
             "DbtrAcct",
-            parsed.field_text("SplmtryData/SourceAccountId"),
-            "SplmtryData/SourceAccountId",
+            parsed.field_text("NexusSettlement/SourceAccountId"),
+            "NexusSettlement/SourceAccountId",
             telemetry,
             ISO_PACS009_CONTEXT,
         )?;
@@ -3658,8 +3815,8 @@ impl Iso20022BridgeRuntime {
         let creditor = self.resolve_bound_account(
             &creditor_iban,
             "CdtrAcct",
-            parsed.field_text("SplmtryData/TargetAccountId"),
-            "SplmtryData/TargetAccountId",
+            parsed.field_text("NexusSettlement/TargetAccountId"),
+            "NexusSettlement/TargetAccountId",
             telemetry,
             ISO_PACS009_CONTEXT,
         )?;
@@ -3674,14 +3831,21 @@ impl Iso20022BridgeRuntime {
             world,
             now_ms,
             &currency,
-            parsed.field_text("SplmtryData/AssetDefinitionId"),
+            parsed.field_text("NexusSettlement/AssetDefinitionId"),
         )?;
         context.asset_definition_id = Some(asset_definition.to_string());
         let amount = self.settlement_amount(&currency, amount_raw)?;
         let asset = AssetId::new(asset_definition.clone(), debtor.clone());
         let asset_id_str = asset.to_string();
         context.asset_id = Some(asset_id_str);
-        let transfer = Transfer::asset_quantity(asset, amount, creditor);
+        let intent = native_payment::build_native_iso_payment_intent(
+            parsed,
+            *network_id,
+            asset,
+            amount,
+            creditor,
+        )?;
+        context.native_payment = Some(IsoNativePayment::new(&intent)?);
         let mut metadata = Metadata::default();
         for (key, value) in [
             ("iso20022_ledger_id", context.ledger_id.as_deref()),
@@ -3730,7 +3894,7 @@ impl Iso20022BridgeRuntime {
             self.signer_account.clone(),
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
-        .with_instructions(core::iter::once(InstructionBox::from(transfer)));
+        .with_instructions(core::iter::once(InstructionBox::from(intent)));
         if metadata.iter().len() > 0 {
             builder = builder.with_metadata(metadata);
         }
@@ -3759,6 +3923,7 @@ impl Iso20022BridgeRuntime {
         status_code: Option<&str>,
         reason_code: Option<&str>,
         detail: Option<String>,
+        authenticated_settled_at: Option<SystemTime>,
     ) -> Result<(&'static str, Option<IsoPreparedRecordMutation>), IsoStatusHistoryLimitError> {
         let Some(lifecycle_metadata) = self
             .records
@@ -3796,31 +3961,20 @@ impl Iso20022BridgeRuntime {
         if !lifecycle_update_matches_original(message_type, original_message_type.as_deref()) {
             return Ok(("ignored_message_family_mismatch", None));
         }
-        if original_state == IsoMessageState::Rejected || (settled && message_type != "pacs.004") {
+        if message_type == "pacs.004" {
+            // A separate report is journaled whether native outcome projection is ready or not.
+            return Ok(("recorded_return", None));
+        }
+        let authenticated_payment_success = message_type == "pacs.002"
+            && status_code.is_some_and(is_settlement_status_code)
+            && authenticated_settled_at.is_some();
+        if (original_state == IsoMessageState::Rejected && !authenticated_payment_success)
+            || settled
+        {
             return Ok(("ignored_stale_transition", None));
         }
         if original_state == IsoMessageState::Pending && !original_queued {
             return Ok(("ignored_in_flight", None));
-        }
-        if message_type == "pacs.004" {
-            if !settled {
-                return Ok(("ignored_unsettled_return", None));
-            }
-            let detail =
-                Some(detail.unwrap_or_else(|| "payment returned by inbound pacs.004".to_owned()));
-            let reason_code = reason_code
-                .or(Some("PRTRY:PAYMENT_RETURN"))
-                .map(ToOwned::to_owned);
-            let mutation = self.prepare_transition_existing(original_id, |record| {
-                record.last_seen = Instant::now();
-                record.updated_at = SystemTime::now();
-                record.state = IsoMessageState::Rejected;
-                record.detail = detail;
-                record.hold_reason_code = None;
-                record.change_reason_codes.clear();
-                record.rejection_reason_code = reason_code;
-            })?;
-            return Ok(("marked_returned", Some(mutation)));
         }
         if message_type == "camt.056" {
             let reason_code = reason_code.or(Some("CANC")).map(ToOwned::to_owned);
@@ -3853,7 +4007,7 @@ impl Iso20022BridgeRuntime {
                     record.updated_at = now;
                     record.state = IsoMessageState::Accepted;
                     record.set_queued();
-                    record.mark_settled(now);
+                    record.mark_settled(authenticated_settled_at.unwrap_or(now));
                     record.clear_hold();
                     record.rejection_reason_code = None;
                 })?;
@@ -3940,6 +4094,7 @@ impl Iso20022BridgeRuntime {
             status_code,
             reason_code,
             detail,
+            Some(SystemTime::now()),
         )?;
         if let Some(mutation) = mutation
             && !self.commit_record_candidate(
@@ -3997,7 +4152,7 @@ impl Iso20022BridgeRuntime {
             .records
             .iter()
             .filter_map(|entry| {
-                (!entry.retention_protected()
+                (!self.record_retention_protected(entry.key(), &entry)
                     && wall_now.duration_since(entry.replay_expires_at).is_ok())
                 .then(|| entry.key().clone())
             })
@@ -4079,6 +4234,7 @@ impl Iso20022BridgeRuntime {
         }
     }
     fn remove_record_indexes(&self, message_id: &str, record: &IsoMessageRecordV2) {
+        self.update_pending_return_index(Some(record), None);
         if let Some(hash) = record.transaction_hash.as_deref() {
             self.tx_hash_index
                 .remove_if(hash, |_, owner| owner == message_id);
@@ -4489,9 +4645,28 @@ impl Iso20022BridgeRuntime {
                 );
             }
         }
+        // Reconstruct original pinning before retention considers any terminal source record.
+        for (message_id, (_, record)) in &persisted_records {
+            if let Some(original_id) = pending_return_original(record) {
+                let Some((_, original)) = persisted_records.get(original_id) else {
+                    eyre::bail!(
+                        "ISO pending return `{message_id}` is missing its original payment"
+                    );
+                };
+                let Some(report) = record.context.reported_return.as_ref() else {
+                    continue;
+                };
+                if !return_original_binding_matches(report, &record.parties, original) {
+                    eyre::bail!(
+                        "ISO pending return `{message_id}` conflicts with its original payment"
+                    );
+                }
+                self.update_pending_return_index(None, Some(record));
+            }
+        }
         let mut retained = BTreeMap::new();
         for (message_id, (path, record)) in persisted_records {
-            if !record.retention_protected()
+            if !self.record_retention_protected(&message_id, &record)
                 && !self.store_retention.is_zero()
                 && now
                     .duration_since(record.updated_at)
@@ -4816,7 +4991,20 @@ impl Iso20022BridgeRuntime {
             self.tx_hash_index
                 .insert(candidate_hash.to_owned(), message_id.to_owned());
         }
+        self.update_pending_return_index(previous, Some(&candidate));
+        let projection_work = pending_return_original(&candidate).is_some()
+            || self.pending_return_originals.contains_key(message_id)
+            || candidate
+                .context
+                .native_payment
+                .as_ref()
+                .is_some_and(|payment| payment.unresolved(candidate.transaction_hash.is_some()));
         self.records.insert(message_id.to_owned(), candidate);
+        if projection_work {
+            // Publication follows durable journal/record commitment. Coalescing is safe because
+            // reconciliation derives all unresolved work from the retained records.
+            self.projection_dirty.notify_one();
+        }
     }
     fn commit_lifecycle_operation(
         &self,
@@ -5259,7 +5447,7 @@ impl Iso20022BridgeRuntime {
         self.records
             .iter()
             .filter(|entry| {
-                !entry.value().retention_protected()
+                !self.record_retention_protected(entry.key(), entry.value())
                     && now
                         .duration_since(entry.value().updated_at)
                         .is_ok_and(|age| age > self.store_retention)
@@ -5275,7 +5463,7 @@ impl Iso20022BridgeRuntime {
         self.records
             .iter()
             .filter(|entry| {
-                !entry.value().retention_protected()
+                !self.record_retention_protected(entry.key(), entry.value())
                     && now.duration_since(entry.value().replay_expires_at).is_ok()
             })
             .min_by(|left, right| {
@@ -5963,6 +6151,8 @@ const PERSISTED_CONTEXT_REQUIRED_KEYS: &[&str] = &[
     "collateral_reason_code",
     "plan_execution_order",
     "plan_atomicity",
+    "reported_return",
+    "native_payment",
 ];
 const PERSISTED_METADATA_REQUIRED_KEYS: &[&str] = &[
     "profile_id",
@@ -6076,6 +6266,16 @@ fn persisted_record_from_value(value: &JsonValue) -> Option<(String, IsoMessageR
     let rejection_reason_code = required_nullable_string(obj, "rejection_reason_code")?;
     let context = context_from_value(obj.get("context")?)?;
     let metadata = metadata_from_value(obj.get("metadata")?)?;
+    if context.reported_return.as_ref().is_some_and(|report| {
+        metadata.message_type() != Some("pacs.004")
+            || state != report.disposition.state()
+            || ledger_tx_queued
+            || transaction_hash.is_some()
+            || settled_at.is_some()
+            || report.original_message_id == message_id
+    }) {
+        return None;
+    }
     let parties = parties_from_value(obj.get("parties")?)?;
     let replay_expires_at = obj
         .get("replay_expires_at_ms")
@@ -6992,7 +7192,497 @@ fn context_value(context: &IsoMessageContext) -> JsonValue {
         "plan_atomicity".to_owned(),
         string_or_null(context.plan_atomicity.as_deref()),
     );
+    map.insert(
+        "reported_return".to_owned(),
+        reported_return_value(context.reported_return.as_ref()),
+    );
+    map.insert(
+        "native_payment".to_owned(),
+        native_payment_value(context.native_payment.as_ref()),
+    );
     JsonValue::Object(map)
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IsoReturnReportDisposition {
+    PendingOriginal,
+    ExternalReport,
+    OriginalRejected,
+    OriginalNotSubmitted,
+    InvalidTerms,
+}
+
+impl IsoReturnReportDisposition {
+    fn label(self) -> &'static str {
+        match self {
+            Self::PendingOriginal => "pending_original",
+            Self::ExternalReport => "external_report",
+            Self::OriginalRejected => "original_rejected",
+            Self::OriginalNotSubmitted => "original_not_submitted",
+            Self::InvalidTerms => "invalid_terms",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "pending_original" => Some(Self::PendingOriginal),
+            "external_report" => Some(Self::ExternalReport),
+            "original_rejected" => Some(Self::OriginalRejected),
+            "original_not_submitted" => Some(Self::OriginalNotSubmitted),
+            "invalid_terms" => Some(Self::InvalidTerms),
+            _ => None,
+        }
+    }
+
+    fn state(self) -> IsoMessageState {
+        match self {
+            Self::PendingOriginal => IsoMessageState::Pending,
+            Self::ExternalReport => IsoMessageState::Accepted,
+            Self::OriginalRejected | Self::OriginalNotSubmitted | Self::InvalidTerms => {
+                IsoMessageState::Rejected
+            }
+        }
+    }
+}
+
+fn pending_return_original(record: &IsoMessageRecordV2) -> Option<&str> {
+    record
+        .context
+        .reported_return
+        .as_ref()
+        .filter(|report| report.disposition == IsoReturnReportDisposition::PendingOriginal)
+        .map(|report| report.original_message_id.as_str())
+}
+
+fn return_parties_match(report: &IsoRecordParties, original: &IsoRecordParties) -> bool {
+    report.originator_participant_id == original.originator_participant_id
+        && report.counterparty_participant_id == original.counterparty_participant_id
+        && report.admitting_participant_id == original.counterparty_participant_id
+        && report.originator_financial_id == original.originator_financial_id
+        && report.counterparty_financial_id == original.counterparty_financial_id
+        && report.pinned_profile_id == original.pinned_profile_id
+        && report.pinned_signature_policy == original.pinned_signature_policy
+        && report.pinned_profile_policy_sha256 == original.pinned_profile_policy_sha256
+}
+
+fn return_original_binding_matches(
+    report: &IsoReportedReturn,
+    parties: &IsoRecordParties,
+    original: &IsoMessageRecordV2,
+) -> bool {
+    (report.original_transaction_hash.is_some() || report.original_payload_hash.is_some())
+        && report
+            .original_transaction_hash
+            .as_deref()
+            .is_none_or(|expected| original_business_hash(original) == Some(expected))
+        && report
+            .original_payload_hash
+            .as_deref()
+            .is_none_or(|expected| original.metadata.payload_hash() == Some(expected))
+        && return_parties_match(parties, &original.parties)
+        && lifecycle_update_matches_original("pacs.004", original.metadata.message_type())
+}
+
+// `None` means the original builder has not yet persisted its exact resolved terms.
+fn return_original_terms_match(
+    report: &IsoReportedReturn,
+    original: &IsoMessageRecordV2,
+) -> Option<bool> {
+    let amount = original.context.settlement_amount.as_deref()?;
+    let currency = original.context.settlement_currency.as_deref()?;
+    Some(
+        currency == report.currency
+            && Quantity::from_str(amount)
+                .ok()
+                .zip(Quantity::from_str(&report.amount).ok())
+                .is_some_and(|(original, returned)| !returned.is_zero() && returned <= original),
+    )
+}
+
+impl Iso20022BridgeRuntime {
+    fn record_retention_protected(&self, message_id: &str, record: &IsoMessageRecordV2) -> bool {
+        record.retention_protected() || self.pending_return_originals.contains_key(message_id)
+    }
+
+    fn update_pending_return_index(
+        &self,
+        previous: Option<&IsoMessageRecordV2>,
+        candidate: Option<&IsoMessageRecordV2>,
+    ) {
+        let previous = previous.and_then(pending_return_original);
+        let next = candidate.and_then(pending_return_original);
+        if previous == next {
+            return;
+        }
+        if let Some(original) = previous {
+            if let dashmap::mapref::entry::Entry::Occupied(mut count) =
+                self.pending_return_originals.entry(original.to_owned())
+            {
+                if *count.get() == 1 {
+                    count.remove();
+                } else {
+                    *count.get_mut() -= 1;
+                }
+            }
+        }
+        if let Some(original) = next {
+            *self
+                .pending_return_originals
+                .entry(original.to_owned())
+                .or_default() += 1;
+        }
+    }
+
+    /// Group bounded pending report identities by their original carrier, even after terminal projection.
+    pub(crate) fn pending_return_transactions(&self) -> BTreeMap<String, Vec<String>> {
+        let _state_guard = self.state_lock.lock();
+        let pending = self
+            .records
+            .iter()
+            .filter_map(|entry| {
+                let report = entry.context.reported_return.as_ref()?;
+                (report.disposition == IsoReturnReportDisposition::PendingOriginal).then(|| {
+                    (
+                        entry.key().clone(),
+                        report.original_message_id.clone(),
+                        report.original_transaction_hash.clone(),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut transactions = BTreeMap::<String, Vec<String>>::new();
+        for (report_id, original_id, retained_hash) in pending {
+            if self
+                .records
+                .get(&original_id)
+                .is_some_and(|original| original.context.native_payment.is_some())
+            {
+                continue;
+            }
+            let hash =
+                retained_hash.or_else(|| self.records.get(&original_id)?.transaction_hash.clone());
+            if let Some(hash) = hash {
+                transactions.entry(hash).or_default().push(report_id);
+            }
+        }
+        for reports in transactions.values_mut() {
+            reports.sort_unstable();
+        }
+        transactions
+    }
+
+    /// Recheck exact durable bindings before recording the original carrier's canonical outcome.
+    /// This never grants a native identity or settlement time to the return report itself.
+    pub(crate) fn resolve_pending_return_reports(
+        &self,
+        transaction_hash: &str,
+        report_ids: &[String],
+        applied: bool,
+    ) -> Result<(), IsoStatusHistoryLimitError> {
+        let _state_guard = self.state_lock.lock();
+        for id in report_ids {
+            let Some(previous) = self.records.get(id).map(|entry| entry.clone()) else {
+                continue;
+            };
+            let Some(report) =
+                previous.context.reported_return.as_ref().filter(|report| {
+                    report.disposition == IsoReturnReportDisposition::PendingOriginal
+                })
+            else {
+                continue;
+            };
+            let original = self
+                .records
+                .get(&report.original_message_id)
+                .ok_or(IsoStatusHistoryLimitError::MissingReservation)?;
+            if report
+                .original_transaction_hash
+                .as_deref()
+                .or_else(|| original_business_hash(&original))
+                != Some(transaction_hash)
+            {
+                return Err(IsoStatusHistoryLimitError::MissingReservation);
+            }
+            let disposition =
+                if !return_original_binding_matches(report, &previous.parties, &original) {
+                    IsoReturnReportDisposition::InvalidTerms
+                } else if !applied {
+                    IsoReturnReportDisposition::OriginalRejected
+                } else if return_original_terms_match(report, &original) == Some(true) {
+                    IsoReturnReportDisposition::ExternalReport
+                } else {
+                    IsoReturnReportDisposition::InvalidTerms
+                };
+            drop(original);
+            let mut resolved_report = report.clone();
+            if resolved_report.original_transaction_hash.is_none() {
+                resolved_report.original_transaction_hash = Some(transaction_hash.to_owned());
+            }
+            self.commit_resolved_return_report(id, previous, resolved_report, disposition)?;
+        }
+        Ok(())
+    }
+
+    fn commit_resolved_return_report(
+        &self,
+        id: &str,
+        previous: IsoMessageRecordV2,
+        mut resolved_report: IsoReportedReturn,
+        disposition: IsoReturnReportDisposition,
+    ) -> Result<(), IsoStatusHistoryLimitError> {
+        if disposition == IsoReturnReportDisposition::PendingOriginal {
+            return Err(IsoStatusHistoryLimitError::MissingReservation);
+        }
+        resolved_report.disposition = disposition;
+        let mut candidate = previous.clone();
+        candidate.try_transition(|record| {
+            record.context.reported_return = Some(resolved_report);
+            record.state = disposition.state();
+            record.last_seen = Instant::now();
+            record.updated_at = SystemTime::now();
+            record.hold_reason_code = None;
+            record.rejection_reason_code = match disposition {
+                IsoReturnReportDisposition::OriginalRejected => Some("PRTRY:ORIGINAL_REJECTED".to_owned()),
+                IsoReturnReportDisposition::OriginalNotSubmitted => Some("PRTRY:ORIGINAL_NOT_SUBMITTED".to_owned()),
+                IsoReturnReportDisposition::InvalidTerms => Some("PRTRY:RETURN_TERMS".to_owned()),
+                _ => None,
+            };
+            record.detail = Some(match disposition {
+                IsoReturnReportDisposition::ExternalReport => "external return report linked to successful original execution",
+                IsoReturnReportDisposition::OriginalRejected => "external return report references rejected original execution",
+                IsoReturnReportDisposition::OriginalNotSubmitted => "this gateway rejected the original before assigning a native carrier; no native outcome is asserted",
+                IsoReturnReportDisposition::InvalidTerms => "external return report does not match the original payment",
+                IsoReturnReportDisposition::PendingOriginal => "external return report awaits original execution",
+            }.to_owned());
+        })?;
+        self.commit_lifecycle_operation(
+            None,
+            IsoPreparedRecordMutation {
+                message_id: id.to_owned(),
+                previous,
+                candidate,
+            },
+        )
+    }
+
+    /// Resolve an exact original locally rejected before this gateway assigned or queued a carrier.
+    /// This disposition is a durable gateway observation, never a proof of native non-execution.
+    pub(crate) fn resolve_unsubmitted_return_reports(
+        &self,
+    ) -> Result<(), IsoStatusHistoryLimitError> {
+        let _state_guard = self.state_lock.lock();
+        let mut ids = self
+            .records
+            .iter()
+            .filter(|entry| pending_return_original(entry).is_some())
+            .map(|entry| entry.key().clone())
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        for id in ids {
+            let previous = self
+                .records
+                .get(&id)
+                .map(|entry| entry.clone())
+                .ok_or(IsoStatusHistoryLimitError::MissingReservation)?;
+            let report = previous
+                .context
+                .reported_return
+                .as_ref()
+                .ok_or(IsoStatusHistoryLimitError::MissingReservation)?;
+            let original = self
+                .records
+                .get(&report.original_message_id)
+                .ok_or(IsoStatusHistoryLimitError::MissingReservation)?;
+            if report.original_transaction_hash.is_some()
+                || original.context.native_payment.is_some()
+                || original.transaction_hash.is_some()
+                || original.ledger_tx_queued
+                || original.state != IsoMessageState::Rejected
+            {
+                continue;
+            }
+            let disposition =
+                if !return_original_binding_matches(report, &previous.parties, &original)
+                    || return_original_terms_match(report, &original) == Some(false)
+                {
+                    IsoReturnReportDisposition::InvalidTerms
+                } else {
+                    IsoReturnReportDisposition::OriginalNotSubmitted
+                };
+            let report = report.clone();
+            drop(original);
+            self.commit_resolved_return_report(&id, previous, report, disposition)?;
+        }
+        Ok(())
+    }
+
+    /// A coalescing local wakeup; the journal, not the notification, owns pending work.
+    pub(crate) async fn projection_work_available(&self) {
+        self.projection_dirty.notified().await;
+    }
+}
+
+fn reported_return_value(report: Option<&IsoReportedReturn>) -> JsonValue {
+    let Some(report) = report else {
+        return JsonValue::Null;
+    };
+    let mut obj = norito::json::Map::new();
+    obj.insert(
+        "disposition".to_owned(),
+        JsonValue::from(report.disposition.label()),
+    );
+    obj.insert(
+        "original_message_id".to_owned(),
+        JsonValue::from(report.original_message_id.as_str()),
+    );
+    obj.insert(
+        "original_payload_hash".to_owned(),
+        string_or_null(report.original_payload_hash.as_deref()),
+    );
+    obj.insert(
+        "original_transaction_hash".to_owned(),
+        string_or_null(report.original_transaction_hash.as_deref()),
+    );
+    obj.insert("amount".to_owned(), JsonValue::from(report.amount.as_str()));
+    obj.insert(
+        "currency".to_owned(),
+        JsonValue::from(report.currency.as_str()),
+    );
+    obj.insert(
+        "reason_code".to_owned(),
+        string_or_null(report.reason_code.as_deref()),
+    );
+    JsonValue::Object(obj)
+}
+fn reported_return_from_value(value: &JsonValue) -> Option<Option<IsoReportedReturn>> {
+    if matches!(value, JsonValue::Null) {
+        return Some(None);
+    }
+    let obj = value.as_object()?;
+    if !json_object_has_exact_keys(
+        obj,
+        &[
+            "disposition",
+            "original_message_id",
+            "original_payload_hash",
+            "original_transaction_hash",
+            "amount",
+            "currency",
+            "reason_code",
+        ],
+    ) {
+        return None;
+    }
+    let disposition = IsoReturnReportDisposition::parse(obj.get("disposition")?.as_str()?)?;
+    let original_transaction_hash = required_nullable_string(obj, "original_transaction_hash")?;
+    if let Some(hash) = original_transaction_hash.as_deref() {
+        crate::parse_signed_transaction_hash(hash).ok()?;
+    }
+    if disposition == IsoReturnReportDisposition::OriginalNotSubmitted
+        && original_transaction_hash.is_some()
+    {
+        return None;
+    }
+    let original_payload_hash = required_nullable_string(obj, "original_payload_hash")?;
+    if original_payload_hash
+        .as_deref()
+        .is_some_and(|hash| !is_canonical_sha256_hex(hash))
+    {
+        return None;
+    }
+    if original_transaction_hash.is_none() && original_payload_hash.is_none()
+        || matches!(
+            disposition,
+            IsoReturnReportDisposition::ExternalReport
+                | IsoReturnReportDisposition::OriginalRejected
+        ) && original_transaction_hash.is_none()
+    {
+        return None;
+    }
+    let amount = required_clean_string(obj, "amount")?;
+    let quantity = Quantity::from_str(&amount).ok()?;
+    if quantity.is_zero() || quantity.to_string() != amount {
+        return None;
+    }
+    let currency = required_clean_string(obj, "currency")?;
+    if require_identifier("RtrdInstdAmtCcy", IdentifierKind::Currency, &currency).ok()? != currency
+    {
+        return None;
+    }
+    Some(Some(IsoReportedReturn {
+        disposition,
+        original_message_id: required_clean_string(obj, "original_message_id")?,
+        original_payload_hash,
+        original_transaction_hash,
+        amount,
+        currency,
+        reason_code: required_nullable_string(obj, "reason_code")?,
+    }))
+}
+fn reported_return_context(
+    binding: &IsoLifecycleOriginalBinding,
+    parties: &IsoRecordParties,
+    original: &IsoMessageRecordV2,
+    parsed: &ParsedMessage,
+) -> Result<IsoMessageContext, MsgError> {
+    if binding
+        .transaction_hash
+        .as_deref()
+        .is_some_and(|expected| original.transaction_hash.as_deref() != Some(expected))
+        || parsed
+            .iter()
+            .any(|(field, _)| field.starts_with("TxInf[") && !field.starts_with("TxInf[0]/"))
+    {
+        return Err(MsgError::ValidationFailed);
+    }
+    if let Some(hash) = original.transaction_hash.as_deref() {
+        crate::parse_signed_transaction_hash(hash).map_err(|_| MsgError::ValidationFailed)?;
+    }
+    let amount = Quantity::from_str(
+        parsed
+            .field_text("TxInf[0]/RtrdInstdAmt")
+            .ok_or(MsgError::MissingField("RtrdInstdAmt"))?,
+    )
+    .map_err(|_| MsgError::ValidationFailed)?;
+    let currency = require_identifier(
+        "RtrdInstdAmtCcy",
+        IdentifierKind::Currency,
+        parsed
+            .field_text("TxInf[0]/RtrdInstdAmtCcy")
+            .ok_or(MsgError::MissingField("RtrdInstdAmtCcy"))?,
+    )?;
+    let reason_code =
+        unique_field_text_by_suffix(parsed, &["RtrdRsn/Cd", "RtrdRsn/Prtry"], "RtrdRsn")?
+            .map(|reason| clean_persisted_string(reason).ok_or(MsgError::ValidationFailed))
+            .transpose()?;
+    let report = IsoReportedReturn {
+        disposition: if original_success_is_verified(original) {
+            IsoReturnReportDisposition::ExternalReport
+        } else {
+            IsoReturnReportDisposition::PendingOriginal
+        },
+        original_message_id: binding.message_id.clone(),
+        original_payload_hash: original.metadata.payload_hash().map(ToOwned::to_owned),
+        original_transaction_hash: original_business_hash(original).map(ToOwned::to_owned),
+        amount: amount.to_string(),
+        currency,
+        reason_code,
+    };
+    if amount.is_zero()
+        || report
+            .original_payload_hash
+            .as_deref()
+            .is_some_and(|hash| !is_canonical_sha256_hex(hash))
+        || !return_original_binding_matches(&report, parties, original)
+        || return_original_terms_match(&report, original) == Some(false)
+        || report.disposition == IsoReturnReportDisposition::ExternalReport
+            && return_original_terms_match(&report, original) != Some(true)
+    {
+        return Err(MsgError::ValidationFailed);
+    }
+    Ok(IsoMessageContext {
+        reported_return: Some(report),
+        ..IsoMessageContext::default()
+    })
 }
 fn context_from_value(value: &JsonValue) -> Option<IsoMessageContext> {
     let obj = value.as_object()?;
@@ -7045,6 +7735,8 @@ fn context_from_value(value: &JsonValue) -> Option<IsoMessageContext> {
         collateral_reason_code: required_nullable_string(obj, "collateral_reason_code")?,
         plan_execution_order: required_nullable_string(obj, "plan_execution_order")?,
         plan_atomicity: required_nullable_string(obj, "plan_atomicity")?,
+        reported_return: reported_return_from_value(obj.get("reported_return")?)?,
+        native_payment: native_payment_from_value(obj.get("native_payment")?)?,
     })
 }
 fn metadata_value(metadata: &IsoMessageMetadata) -> JsonValue {

@@ -33,7 +33,9 @@ use iroha::data_model::block::consensus::{
     MAX_VALIDATORS_PER_HEIGHT, MIN_VALIDATORS_PER_HEIGHT, is_valid_committee_size,
 };
 use iroha::data_model::sumeragi::SumeragiStatus;
-use iroha::{blocking::Client, client::Client as AsyncClient, data_model::prelude::*};
+use iroha::{
+    blocking::Client, client::Client as AsyncClient, data_model::prelude::*, secrecy::SecretString,
+};
 use iroha_config::base::{
     ParameterOrigin,
     env::MockEnv,
@@ -5835,6 +5837,7 @@ pub struct NetworkBuilder {
     observer_p2p_bootstrap: Option<ObserverP2pBootstrap>,
     observer_slow_reader_relays: Option<ObserverSlowReaderRelayConfig>,
     config_layers: Vec<Table>,
+    client_api_token: Option<SecretString>,
     block_cadence: Option<Duration>,
     sync_timeout: Option<Duration>,
     peer_startup_timeout: Option<Duration>,
@@ -6717,6 +6720,7 @@ impl NetworkBuilder {
             observer_p2p_bootstrap: None,
             observer_slow_reader_relays: None,
             config_layers: vec![],
+            client_api_token: None,
             block_cadence: Some(LOCALNET_BLOCK_CADENCE),
             sync_timeout: None,
             peer_startup_timeout: None,
@@ -7239,6 +7243,25 @@ impl NetworkBuilder {
         self.config_layers.push(table);
         self
     }
+    /// Provision one explicit listener credential for all peers and their clients.
+    ///
+    /// This authors `torii.require_api_token` and `torii.api_tokens` through the
+    /// normal node configuration and carries the same owner-held credential into
+    /// readiness probes, event streams and account clients. Later configuration
+    /// layers still take precedence, so an intentionally mismatched listener
+    /// remains an authentication failure. It grants no ledger or debit permission.
+    pub fn with_api_token(mut self, token: SecretString) -> Self {
+        self.config_layers.push(
+            Table::new()
+                .write(["torii", "require_api_token"], true)
+                .write(
+                    ["torii", "api_tokens"],
+                    vec![token.expose_secret().to_owned()],
+                ),
+        );
+        self.client_api_token = Some(token);
+        self
+    }
     /// Push a pre-built TOML configuration layer.
     pub fn with_config_table(mut self, table: Table) -> Self {
         self.config_layers.push(table);
@@ -7400,6 +7423,7 @@ impl NetworkBuilder {
             observer_p2p_bootstrap,
             observer_slow_reader_relays,
             mut config_layers,
+            client_api_token,
             block_cadence,
             sync_timeout,
             peer_startup_timeout,
@@ -8280,6 +8304,7 @@ impl NetworkBuilder {
             network_id,
             chain_discriminant,
             policy: PeerClientPolicy::from_env(),
+            api_token: client_api_token,
         };
         for peer in network.all_peers() {
             peer.client_config
@@ -8463,6 +8488,7 @@ struct PeerClientConfig {
     network_id: NetworkId,
     chain_discriminant: u16,
     policy: PeerClientPolicy,
+    api_token: Option<SecretString>,
 }
 
 /// Immutable request and transaction deadlines for one attached peer.
@@ -9684,6 +9710,10 @@ impl NetworkPeer {
             .expect("peer client config should be valid")
             .parse()
             .expect("peer client config should be valid");
+        let config = iroha::config::Config {
+            api_token: identity.api_token.clone(),
+            ..config
+        };
         let mut builder = AsyncClient::builder(config);
         builder.operator_key_pair = Some(self.key_pair.clone());
         builder
@@ -9862,11 +9892,11 @@ impl NetworkPeer {
     }
     fn write_base_config(&self) {
         let cfg = self.base_config_table();
-        std::fs::write(
-            self.dir.join("config.base.toml"),
-            toml::to_string(&cfg).unwrap(),
+        write_private_peer_config(
+            &self.dir.join("config.base.toml"),
+            toml::to_string(&cfg).unwrap().as_bytes(),
         )
-        .unwrap();
+        .expect("write owner-private peer base configuration");
         self.ensure_rans_tables();
     }
     fn base_config_table(&self) -> Table {
@@ -10024,7 +10054,7 @@ impl NetworkPeer {
             })
             .collect();
         for (path, table) in &extra_layers {
-            tokio::fs::write(self.dir.join(path), toml::to_string(table)?).await?;
+            write_private_peer_config(&self.dir.join(path), toml::to_string(table)?.as_bytes())?;
         }
         let mut final_config = Table::new().write(
             "extends",
@@ -10043,10 +10073,25 @@ impl NetworkPeer {
                 final_config.write(["genesis", "file"], path.to_string_lossy().to_string());
         }
         let path = self.dir.join(format!("run-{run}-config.toml"));
-        tokio::fs::write(&path, toml::to_string(&final_config)?).await?;
+        write_private_peer_config(&path, toml::to_string(&final_config)?.as_bytes())?;
         Ok(path)
     }
 }
+// Configurations contain signing keys and may contain listener credentials.
+// On Unix, NamedTempFile creates the original bytes with mode 0600 and atomically
+// replaces any prior run-owned file without publishing a world-readable file.
+// The mode assertion below is Unix-only; Windows ACL custody is not qualified here.
+fn write_private_peer_config(path: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| eyre!("peer config has no parent"))?;
+    let mut staged = tempfile::NamedTempFile::new_in(parent)?;
+    staged.write_all(bytes)?;
+    staged.as_file().sync_all()?;
+    staged.persist(path)?;
+    Ok(())
+}
+
 /// Retry an async operation with exponential backoff.
 ///
 /// - Starts at 50ms and doubles up to a 1s cap.
@@ -11138,6 +11183,7 @@ mod tests {
                     )),
                     chain_discriminant: defaults::common::chain_discriminant(),
                     policy: PeerClientPolicy::from_env(),
+                    api_token: None,
                 })
                 .is_ok()
         );
@@ -11516,6 +11562,92 @@ mod tests {
         assert!(!torii_request_error_is_transient(&report));
     }
     #[test]
+    fn explicit_listener_token_is_shared_by_readiness_and_account_clients_without_debug_leak() {
+        let token = "test-owner-listener-token-which-is-never-a-production-credential";
+        let builder = NetworkBuilder::new().with_api_token(SecretString::new(token.to_owned()));
+        let mut listener = Table::new();
+        for layer in &builder.config_layers {
+            merge_tables(&mut listener, layer);
+        }
+        let torii = listener.get("torii").unwrap().as_table().unwrap();
+        assert_eq!(
+            torii.get("require_api_token").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            torii.get("api_tokens").unwrap().as_array().unwrap(),
+            &vec![Value::String(token.to_owned())]
+        );
+        let dir = tempdir().unwrap();
+        let env = Environment {
+            dir: dir.path().to_path_buf(),
+        };
+        let peer = NetworkPeer::builder().build(&env);
+        let identity = PeerClientConfig {
+            chain: config::chain_id(),
+            network_id: NetworkId::from_genesis_hash(
+                HashOf::<iroha_data_model::block::BlockHeader>::from_untyped_unchecked(
+                    CryptoHash::prehashed([0xA8; CryptoHash::LENGTH]),
+                ),
+            ),
+            chain_discriminant: defaults::common::chain_discriminant(),
+            policy: PeerClientPolicy::from_env(),
+            api_token: builder.client_api_token,
+        };
+        assert!(!format!("{identity:?}").contains(token));
+        assert!(peer.client_config.set(identity).is_ok());
+        let readiness = peer.client();
+        let explicit = peer.client_for(&*ALICE_ID, ALICE_KEYPAIR.private_key().clone());
+        for client in [readiness, explicit] {
+            assert_eq!(
+                client
+                    .client()
+                    .headers()
+                    .get("x-api-token")
+                    .map(String::as_str),
+                Some(token)
+            );
+            assert!(!format!("{:?}", client.client()).contains(token));
+        }
+        assert!(!format!("{peer:?}").contains(token));
+    }
+
+    #[tokio::test]
+    async fn peer_run_configs_keep_listener_credentials_owner_private_on_restart() {
+        let dir = tempdir().unwrap();
+        let env = Environment {
+            dir: dir.path().to_path_buf(),
+        };
+        let peer = NetworkPeer::builder().build(&env);
+        let token = "test-owner-listener-token-which-is-never-a-production-credential";
+        let layer = Table::new()
+            .write(["torii", "require_api_token"], true)
+            .write(["torii", "api_tokens"], vec![token.to_owned()]);
+        for run in 1..=2 {
+            peer.write_run_config(std::iter::once(Arc::new(layer.clone())), None, None, run)
+                .await
+                .unwrap();
+            for name in [
+                "config.base.toml".to_owned(),
+                format!("run-{run}-config.layer-0.toml"),
+                format!("run-{run}-config.toml"),
+            ] {
+                let path = peer.dir.join(name);
+                assert!(fs::symlink_metadata(&path).unwrap().file_type().is_file());
+                #[cfg(unix)]
+                assert_eq!(
+                    fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                    0o600
+                );
+            }
+            let retained =
+                fs::read_to_string(peer.dir.join(format!("run-{run}-config.layer-0.toml")))
+                    .unwrap();
+            assert_eq!(toml::from_str::<Table>(&retained).unwrap(), layer);
+        }
+    }
+
+    #[test]
     fn peer_client_ignores_ambient_identity_and_endpoint_overrides() {
         let _guard = lock_env_guard(&CONFIG_ENV_GUARD);
         let dir = tempdir().expect("peer client fixture directory");
@@ -11535,6 +11667,7 @@ mod tests {
                     network_id,
                     chain_discriminant: defaults::common::chain_discriminant(),
                     policy: PeerClientPolicy::from_env(),
+                    api_token: None,
                 })
                 .is_ok()
         );

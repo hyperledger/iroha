@@ -22,10 +22,25 @@ pub(crate) fn current_global_tip(
     limits: NativeFinalityLimits,
     unavailable: fn() -> Error,
 ) -> Result<CommittedBlock, Error> {
+    current_root_tip(
+        view,
+        height,
+        iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        limits,
+        unavailable,
+    )
+}
+
+/// Authenticate the current cut of the independently selected native root.
+pub(crate) fn current_root_tip(
+    view: &impl StateReadOnly,
+    height: u64,
+    scope: iroha_data_model::block::consensus::SumeragiRootScope,
+    limits: NativeFinalityLimits,
+    unavailable: fn() -> Error,
+) -> Result<CommittedBlock, Error> {
     limits.validate().map_err(|_| capacity())?;
-    if iroha_core::sumeragi::lanes::routing::committed_root_scope(view.world())
-        != Some(iroha_data_model::block::consensus::SumeragiRootScope::Global)
-    {
+    if iroha_core::sumeragi::lanes::routing::committed_root_scope(view.world()) != Some(scope) {
         return Err(unavailable());
     }
     if height < 2 || u64::try_from(view.height()).ok() != Some(height) {

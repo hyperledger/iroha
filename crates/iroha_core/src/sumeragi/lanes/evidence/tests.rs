@@ -60,13 +60,28 @@ impl AnchorSource for Anchors {
 }
 struct NoTransactions;
 impl LaneTransactions for NoTransactions {
+    type Lease = ();
+
     fn candidates(
         &self,
         _height: u64,
         _max_bytes: usize,
         _skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, crate::sumeragi::lanes::executor::LaneSelectionError> {
-        Ok(Vec::new())
+        _: &iroha_allocation::AllocationBudget,
+    ) -> Result<
+        (Vec<SignedTransaction>, Self::Lease),
+        crate::sumeragi::lanes::executor::LaneSelectionError,
+    > {
+        Ok((Vec::new(), ()))
+    }
+
+    fn retain_prefix(&self, _: &mut Self::Lease, _: usize) {}
+    fn lease_is_current(
+        &self,
+        _: &Self::Lease,
+        _: &iroha_allocation::AllocationBudget,
+    ) -> Result<bool, crate::sumeragi::driver::traits::PublicationError> {
+        Ok(true)
     }
 }
 struct EmptyStore;
@@ -221,7 +236,7 @@ impl Fixture {
         )
         .complete()
         .unwrap_or_else(|(_, error)| panic!("empty original lane recovery: {error}"));
-        let Some(ExecOutcome::Valid(result)) =
+        let Some(ExecOutcome::Valid { result, .. }) =
             executor.execute(&block, &block.hash(&*crypto), false)
         else {
             panic!("original lane execution must be valid");

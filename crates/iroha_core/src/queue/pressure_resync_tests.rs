@@ -134,14 +134,19 @@ async fn backpressure_state_ignores_oldest_queue_age_without_capacity_pressure()
     // the richer age evidence or changing the existing coarse admission policy.
     let retiring = accepted_tx_by_someone(&time_source);
     let retiring_hash = retiring.hash_as_entrypoint();
-    queue.push(retiring, state.view()).expect("second input fits original capacity");
+    queue
+        .push(retiring, state.view())
+        .expect("second input fits original capacity");
     let detached = queue.txs.get(&retiring_hash).unwrap().value().clone();
     let retired_cost = Queue::retained_byte_cost(detached.entrypoint_bytes().len());
     assert_eq!(queue.remove_committed_hashes([retiring_hash], None), 1);
     let held = queue.pressure_snapshot();
     assert_eq!(held.tracked_tx_count, 1);
     assert_eq!(held.queued_tx_count, 1);
-    assert_eq!(held.oldest_queued_tx_age_ms, snapshot.oldest_queued_tx_age_ms);
+    assert_eq!(
+        held.oldest_queued_tx_age_ms,
+        snapshot.oldest_queued_tx_age_ms
+    );
     assert!(held.saturated_by_age);
     assert!(!queue.current_backpressure().is_saturated());
     let budget = state.ivm_execution_budget();
@@ -153,15 +158,16 @@ async fn backpressure_state_ignores_oldest_queue_age_without_capacity_pressure()
     assert_eq!(refunded.retained_bytes, held.retained_bytes - retired_cost);
     assert_eq!(refunded.tracked_tx_count, held.tracked_tx_count);
     assert_eq!(refunded.queued_tx_count, held.queued_tx_count);
-    assert_eq!(refunded.oldest_queued_tx_age_ms, held.oldest_queued_tx_age_ms);
+    assert_eq!(
+        refunded.oldest_queued_tx_age_ms,
+        held.oldest_queued_tx_age_ms
+    );
     assert!(refunded.saturated_by_age);
     assert!(!pressure.has_changed().unwrap());
     assert!(!pressure.borrow_and_update().is_saturated());
     assert_eq!(
         budget.reserved_bytes(),
-        occupied - iroha_allocation::shared::Shared::<
-            CheckedTransaction<'static>, resident_owner::QueueResidentCharge,
-        >::layout().size(),
+        occupied - QueuedTransaction::allocation_layout().size(),
         "only the actual last original shell refunds while its Queue ledger stays alive"
     );
 }

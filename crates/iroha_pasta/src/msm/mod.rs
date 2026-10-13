@@ -16,11 +16,12 @@
 //!   key; one bucket set and no doublings per MSM.
 //!
 //! Every entry point runs on the caller's Rayon pool
-//! (`rayon::current_num_threads()` of the pool the call is made from). There is
-//! no task blocks on scratch admission. [`MemoryBudget`] limits each kernel,
+//! (`rayon::current_num_threads()` of the pool the call is made from). Scratch
+//! admission never blocks. [`MemoryBudget`] limits each kernel,
 //! while [`SharedMemoryBudget`] bounds all concurrent MSM scratch in the process
-//! to 64 MiB. Contention lowers the plan or selects allocation-free serial
-//! multiplication, so nested Rayon work cannot deadlock on memory admission.
+//! to 64 MiB. Contention lowers the plan, streams contiguous chunks through bounded
+//! kernels, or selects allocation-free serial multiplication when no chunk fits.
+//! Nested Rayon work never waits for memory admission.
 //!
 //! Results are exact group elements and therefore identical across thread
 //! counts, budgets and architectures.
@@ -309,23 +310,115 @@ fn msm_impl<C: PastaCurve, const SECRET: bool>(
             budget: budget.bytes(),
         })
     })?;
-    // Never wait with a Rayon worker occupied: another kernel may need this
-    // worker to finish and release its own permit. A lost admission race has
-    // the same allocation-free fallback as an exhausted shared ceiling.
+    // Admission never waits: nested Rayon work may need this worker to release
+    // another permit. If the whole input cannot be admitted, stream smaller
+    // contiguous inputs through this same kernel before using the scalar path.
     if plan.bytes > shared.available_bytes() {
-        let Some(smaller) = pippenger::plan(
+        if let Some(smaller) = pippenger::plan(
             n,
             bits,
             threads,
             budget.bytes().min(shared.available_bytes()),
-        ) else {
-            return small_msm::<C, SECRET>(scalars, bases, cancellation);
-        };
-        plan = smaller;
+        ) {
+            plan = smaller;
+        } else {
+            return streaming_msm::<C, SECRET>(
+                scalars,
+                bases,
+                bits,
+                threads,
+                budget,
+                shared,
+                cancellation,
+            );
+        }
     }
-    let Some(_scratch) = shared.try_reserve(plan.bytes) else {
-        return small_msm::<C, SECRET>(scalars, bases, cancellation);
-    };
+    shared.try_reserve(plan.bytes).map_or_else(
+        || streaming_msm::<C, SECRET>(scalars, bases, bits, threads, budget, shared, cancellation),
+        |scratch| planned_msm::<C, SECRET>(scalars, bases, plan, scratch, cancellation),
+    )
+}
+
+/// Try strictly smaller public input lengths without waiting or allocating.
+/// Every failed admission halves the candidate, so contention cannot spin.
+fn streaming_plan(
+    maximum: usize,
+    bits: usize,
+    threads: usize,
+    budget: MemoryBudget,
+    shared: &SharedMemoryBudget,
+) -> Option<(usize, pippenger::Plan, ScratchReservation<'_>)> {
+    let mut length = maximum;
+    while length > SMALL_MSM {
+        let available = budget.bytes().min(shared.available_bytes());
+        if let Some(plan) = pippenger::plan(length, bits, threads, available)
+            && let Some(scratch) = shared.try_reserve(plan.bytes)
+        {
+            return Some((length, plan, scratch));
+        }
+        length /= 2;
+    }
+    None
+}
+
+/// Sum admitted contiguous chunks using the unchanged public/secret kernel.
+/// Chunk lengths depend only on public length, width, workers and admission.
+fn streaming_msm<C: PastaCurve, const SECRET: bool>(
+    scalars: &[C::ScalarExt],
+    bases: &[C::AffineExt],
+    bits: usize,
+    threads: usize,
+    budget: MemoryBudget,
+    shared: &SharedMemoryBudget,
+    cancellation: Option<&CancellationToken>,
+) -> Result<C, MsmError> {
+    let maximum = scalars.len() / 2;
+    let mut position = 0;
+    let mut accumulator = Zeroizing::new(C::identity());
+    while position < scalars.len() {
+        CancellationToken::checkpoint(cancellation)?;
+        let remaining = scalars.len() - position;
+        let Some((length, plan, scratch)) =
+            streaming_plan(maximum.min(remaining), bits, threads, budget, shared)
+        else {
+            // Zero available scratch, a lost series of admission races, or a
+            // tiny remainder: no heap allocation or waiting is needed.
+            let sum = Zeroizing::new(small_msm::<C, SECRET>(
+                &scalars[position..],
+                &bases[position..],
+                cancellation,
+            )?);
+            *accumulator += *sum;
+            CancellationToken::checkpoint(cancellation)?;
+            return Ok(*accumulator);
+        };
+        let end = position + length;
+        let sum = Zeroizing::new(planned_msm::<C, SECRET>(
+            &scalars[position..end],
+            &bases[position..end],
+            plan,
+            scratch,
+            cancellation,
+        )?);
+        *accumulator += *sum;
+        position = end;
+        // planned_msm joined its jobs and dropped all scratch before returning;
+        // the next chunk never reserves while this chunk still owns a permit.
+    }
+    CancellationToken::checkpoint(cancellation)?;
+    Ok(*accumulator)
+}
+
+/// Execute one already admitted plan. The permit outlives all kernel buffers,
+/// including during cancellation/unwinding, and no nested admission occurs.
+fn planned_msm<C: PastaCurve, const SECRET: bool>(
+    scalars: &[C::ScalarExt],
+    bases: &[C::AffineExt],
+    plan: pippenger::Plan,
+    _scratch: ScratchReservation<'_>,
+    cancellation: Option<&CancellationToken>,
+) -> Result<C, MsmError> {
+    CancellationToken::checkpoint(cancellation)?;
     // Identity bases contribute nothing and would break the affine formulas.
     let skip: Vec<bool> = bases.iter().map(|b| bool::from(b.is_identity())).collect();
     let digits = pippenger::Digits::new_cancellable(scalars, plan.c, plan.nw, cancellation)?;
@@ -367,7 +460,7 @@ fn msm_impl<C: PastaCurve, const SECRET: bool>(
     Ok(result)
 }
 
-/// Point-by-point MSM for tiny inputs.
+/// Point-by-point MSM for tiny inputs or zero-fit shared scratch.
 fn small_msm<C: PastaCurve, const SECRET: bool>(
     scalars: &[C::ScalarExt],
     bases: &[C::AffineExt],
@@ -536,3 +629,7 @@ mod tests {
 
 #[cfg(test)]
 mod bounded_tests;
+
+#[cfg(test)]
+#[path = "streaming_tests.rs"]
+mod streaming_tests;

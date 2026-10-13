@@ -8,7 +8,7 @@ use super::{
     PreparedLocalnet, Result,
     native_operation::{
         ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid, now_ms,
-        require_deadline, require_empty,
+        require_deadline,
     },
     service_authority::{CheckpointImportScope, NetworkPurpose, ProviderPurpose, ServiceAuthority},
 };
@@ -501,7 +501,7 @@ impl Setup {
     ) -> Result<ManagedInitialServiceSetupProgress> {
         self.authority.validate_profile()?;
         self.validate_intent(&intent)?;
-        let directory = self.authority.directory.ensure_child("setup")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "setup")?;
         let original = self.select_intent(&directory, intent, options.deadline)?;
         journal::explicit(
             &directory,
@@ -519,12 +519,17 @@ impl Setup {
         intent: Intent,
         deadline: Instant,
     ) -> Result<Original> {
+        journal::recover_intent(directory, |original| {
+            original.matches_intent(&intent)?;
+            self.validate_original(original)?;
+            Ok(())
+        })?;
         if let Some(original) = journal::read_intent(directory)? {
             original.matches_intent(&intent)?;
             self.validate_original(&original)?;
             return Ok(original);
         }
-        require_empty(directory)?;
+        attempts::metadata::require_unselected(directory)?;
         let verifier = self.authority.observe_finality(deadline)?;
         let original = Original {
             intent,
@@ -571,7 +576,7 @@ impl Setup {
                 "service setup differs from original authorized policies",
             ));
         }
-        let directory = self.authority.directory.ensure_child("setup")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "setup")?;
         let original = self.select_intent(&directory, intent, deadline)?;
         let account = self.wallet()?;
         let account = authorization.bind_account(account)?;

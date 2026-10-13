@@ -8,7 +8,7 @@ use super::{
     ManagedHistoricalReserveTopUp, PreparedLocalnet, Result,
     native_operation::{
         MAX_CHECKPOINT_BYTES, ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid,
-        now_ms, read_optional, require_deadline, require_empty, verify_carrier,
+        now_ms, read_optional, require_deadline, verify_carrier,
     },
     service_authority::{CheckpointImportScope, ProviderPurpose, ServiceAuthority},
 };
@@ -177,7 +177,8 @@ impl ManagedReserveTopUpApproval {
         self.authority.validate_profile()?;
         self.validate_history(history)?;
         self.validate_intent(history, intent)?;
-        let directory = self.authority.directory.ensure_child("approval")?;
+        let directory =
+            attempts::metadata::ensure_operation(&self.authority.directory, "approval")?;
         let original = self.select_intent(&directory, history, intent, options.deadline)?;
         let account = AccountService::new(self.authority.config.clone())
             .map_err(|_| invalid("cannot open funding wallet"))?;
@@ -192,12 +193,17 @@ impl ManagedReserveTopUpApproval {
         intent: &ManagedReserveTopUpApprovalIntent,
         deadline: Instant,
     ) -> Result<Original> {
+        journal::recover_intent(directory, |original| {
+            original.matches_intent(intent)?;
+            self.validate_original(history, original)?;
+            Ok(())
+        })?;
         if let Some(original) = journal::read_intent(directory)? {
             original.matches_intent(intent)?;
             self.validate_original(history, &original)?;
             return Ok(original);
         }
-        require_empty(&directory)?;
+        attempts::metadata::require_unselected(&directory)?;
         let (verifier, current) = self.observe(&intent.policy, deadline)?;
         if current.height() < history.original().height
             || current.current() != Some(&intent.partition)
@@ -262,7 +268,8 @@ impl ManagedReserveTopUpApproval {
         }
         self.validate_history(history)?;
         self.validate_intent(history, intent)?;
-        let directory = self.authority.directory.ensure_child("approval")?;
+        let directory =
+            attempts::metadata::ensure_operation(&self.authority.directory, "approval")?;
         let original = self.select_intent(&directory, history, intent, deadline)?;
         let account = AccountService::new(self.authority.config.clone())
             .map_err(|_| invalid("cannot open funding wallet"))?;
@@ -377,7 +384,7 @@ impl ManagedReserveTopUpApproval {
             return Ok(None);
         };
         let Some(original) = journal::read_intent(&directory)? else {
-            require_empty(&directory)?;
+            attempts::metadata::require_unselected(&directory)?;
             return Ok(None);
         };
         self.validate_original(history, &original)?;

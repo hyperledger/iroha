@@ -91,6 +91,7 @@ impl NativeValidationFixture {
                 parent: parent.block(),
                 view: 0,
                 cadence,
+                proposed_time: std::time::Duration::ZERO,
             },
             &inputs,
         )
@@ -301,20 +302,27 @@ fn native_validation_uses_canonical_block_time_for_ttl() {
 }
 
 #[test]
-fn native_validation_enforces_original_signed_cadence() {
+fn native_validation_enforces_original_signed_cadence_floor() {
     let fixture = NativeValidationFixture::new();
     let transaction = fixture.transaction(1_001, None);
     let proposal = fixture.proposal(vec![transaction.clone()], fixture.cadence());
     let (_, overlay) = fixture.validate(proposal).unpack(|_| {}).unwrap();
     drop(overlay);
+    let wrong = fixture
+        .cadence()
+        .checked_sub(Duration::from_millis(1))
+        .unwrap();
+    let proposal = fixture.proposal(vec![transaction.clone()], wrong);
+    let (_, error) = fixture.validate(proposal).unpack(|_| {}).err().unwrap();
+    assert!(matches!(
+        *error,
+        BlockValidationError::BlockTimeBeforeRequiredFloor { .. }
+    ));
     for offset in [1, 20] {
-        let wrong = fixture.cadence() + Duration::from_millis(offset);
-        let proposal = fixture.proposal(vec![transaction.clone()], wrong);
-        let (_, error) = fixture.validate(proposal).unpack(|_| {}).err().unwrap();
-        assert!(matches!(
-            *error,
-            BlockValidationError::NonCanonicalBlockTime { .. }
-        ));
+        let later = fixture.cadence() + Duration::from_millis(offset);
+        let proposal = fixture.proposal(vec![transaction.clone()], later);
+        let (_, overlay) = fixture.validate(proposal).unpack(|_| {}).unwrap();
+        drop(overlay);
     }
     assert_eq!(fixture.chain.state().view().height(), 2);
 }

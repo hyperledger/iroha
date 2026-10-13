@@ -1,5 +1,6 @@
 //! Bounded retained-claim tests. Codec checkpoints and partitions do not construct native evidence.
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::now_ms;
 use crate::managed::native_operation::test_support::{UnavailablePeers, native_fixture::policy};
 use iroha_data_model::{
@@ -386,7 +387,7 @@ fn incomplete_funding_refuses_later_material_without_http_or_custody_mutation() 
         ProviderPurpose::InitialProviderCredit,
     )
     .unwrap();
-    let directory = later.directory.ensure_child("install").unwrap();
+    let directory = metadata::ensure_operation(&later.directory, "install").unwrap();
     drop(later);
     owner
         .require_no_later_material(FundingStep::Request)
@@ -450,7 +451,7 @@ fn unfinished_parent_refuses_held_later_purpose_and_preserves_same_source_retry(
             ProviderPurpose::InitialProviderCredit,
         )
         .unwrap();
-        let install = later.directory.ensure_child("install").unwrap();
+        let install = metadata::ensure_operation(&later.directory, "install").unwrap();
         (later._lock, install)
     };
     for step in [FundingStep::Request, FundingStep::Approval] {
@@ -460,7 +461,7 @@ fn unfinished_parent_refuses_held_later_purpose_and_preserves_same_source_retry(
         );
     }
     assert_eq!(funding.entries(3).unwrap(), original_names);
-    require_empty(&install).unwrap();
+    metadata::require_unselected(&install).unwrap();
     drop(held_lock);
     for step in [FundingStep::Request, FundingStep::Approval] {
         let ProviderFundingProgress::Unprepared {

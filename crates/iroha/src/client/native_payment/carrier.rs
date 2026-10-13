@@ -95,3 +95,47 @@ impl WorkflowAccount for NativePaymentAccount {
             .map(|(_, identity)| identity)
     }
 }
+
+/// Resume has no signing authority, while retaining the same canonical identity checks.
+pub(super) struct ResumePaymentAccount {
+    binding: WorkflowBindingV1,
+    request: NativePaymentRequest,
+}
+impl ResumePaymentAccount {
+    pub fn new(binding: WorkflowBindingV1, request: NativePaymentRequest) -> Self {
+        Self { binding, request }
+    }
+}
+impl WorkflowAccount for ResumePaymentAccount {
+    fn binding(&self) -> WorkflowBindingV1 {
+        self.binding.clone()
+    }
+    fn sign<'a>(
+        &'a self,
+        _: &'a [u8],
+    ) -> WorkflowFuture<'a, Result<SignedStepTransaction, StepFailure>> {
+        Box::pin(async {
+            Err(StepFailure::new(
+                WorkflowErrorCode::UnsupportedOperation,
+                "payment resume cannot authorize another signed carrier",
+            ))
+        })
+    }
+    fn identify(&self, bytes: &[u8]) -> Result<TransactionIdentityV1, StepFailure> {
+        self.request
+            .checked_signed_carrier(bytes)
+            .map(|(_, identity)| identity)
+    }
+}
+/// Same bound driver identity; payload construction is unavailable during resume.
+pub(super) struct ResumePaymentDriver(DriverIdentityV1);
+impl ResumePaymentDriver {
+    pub fn new(identity: DriverIdentityV1) -> Self {
+        Self(identity)
+    }
+}
+impl WorkflowDriver for ResumePaymentDriver {
+    fn identity(&self) -> DriverIdentityV1 {
+        self.0.clone()
+    }
+}

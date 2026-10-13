@@ -18,6 +18,7 @@ use std::{ffi::OsStr, sync::Arc};
 
 #[path = "body_history/records.rs"]
 mod records;
+pub(in crate::managed) use records::MAX_BODY_BYTES;
 pub(super) use records::UnsignedEnrollment;
 use records::*;
 
@@ -124,6 +125,7 @@ struct NamesSnapshot {
     directory: Arc<PrivateDirectory>,
     maximum: usize,
     names: Vec<std::ffi::OsString>,
+    reserved: bool,
 }
 impl NamesSnapshot {
     fn from_read(
@@ -135,14 +137,36 @@ impl NamesSnapshot {
             directory,
             maximum,
             names,
+            reserved: false,
         }
+    }
+    fn from_reserved_read(
+        directory: Arc<PrivateDirectory>,
+        names: Vec<std::ffi::OsString>,
+    ) -> Self {
+        Self {
+            directory,
+            maximum: 2,
+            names,
+            reserved: true,
+        }
+    }
+    fn revalidate_reserved(&self) -> Result<()> {
+        if self.reserved {
+            // This phase has one canonical empty image bound to the exact reservation.
+            // Its snapshot ends at Original publication, before attempt metadata mutates.
+            crate::managed::native_operation::attempts::metadata::require_reserved(
+                &self.directory,
+            )?;
+        }
+        Ok(())
     }
     fn revalidate(&self) -> Result<()> {
         // entries brackets the native census with fresh directory revalidation.
         if self.directory.entries(self.maximum)? != self.names {
             return Err(invalid("retained enrollment namespace changed"));
         }
-        Ok(())
+        self.revalidate_reserved()
     }
 }
 /// Persistent evidence chain shares prior snapshots instead of copying checkpoint frames.
@@ -174,6 +198,15 @@ impl SnapshotReadPass<'_> {
     }
 }
 impl Snapshot {
+    // Called immediately after the parser's successful final scan, with no intervening
+    // callback or native operation. A different head (including the empty-body container)
+    // or any newly active decoder retains the publication caller's separate full scan.
+    fn close_publication_after_parser(&self, parser_head: &Self) -> Result<()> {
+        if norito::core::decode_limits_active() || !std::ptr::eq(self, parser_head) {
+            self.revalidate()?;
+        }
+        Ok(())
+    }
     fn revalidate(&self) -> Result<()> {
         #[cfg(test)]
         let _snapshot_timing = finish_timing::phase(finish_timing::Phase::SnapshotRevalidate);
@@ -228,7 +261,9 @@ impl Snapshot {
                         .is_some_and(|directory| !Arc::ptr_eq(directory, &activation.directory))
                     || snapshot.names.len() > 1
                     || snapshot.names.first().is_some_and(|names| {
-                        names.maximum != 1 || !Arc::ptr_eq(&names.directory, &reserved.directory)
+                        names.maximum != 2
+                            || !names.reserved
+                            || !Arc::ptr_eq(&names.directory, &reserved.directory)
                     })
                 {
                     return None;
@@ -349,6 +384,7 @@ impl Snapshot {
                     if reader.entries(names.maximum)? != names.names {
                         return Err(invalid("retained enrollment namespace changed"));
                     }
+                    names.revalidate_reserved()?;
                     Ok::<_, crate::managed::Error>(())
                 })?,
                 None => names.revalidate()?,
@@ -834,6 +870,98 @@ impl BodyOriginalPlan<'_> {
 }
 
 impl BodyHistory {
+    /// Explicit no-signature recovery before a mutation coordinator selects fresh inputs.
+    /// The retained payload is checked against the actual owner and exact anchored body;
+    /// materializing it supplies no current epoch, wallet or dispatch authority.
+    pub(super) fn recover_original(
+        owner: &ManagedStreamTokenCustody,
+        purpose: CustodyPurpose,
+    ) -> Result<()> {
+        sequence(purpose)?;
+        owner.authority.validate_profile()?;
+        let (reference, reference_snapshot) = read_reference(owner, purpose)?;
+        let Some(root) = owner
+            .authority
+            .directory
+            .open_child_optional(purpose.directory_name()?)?
+        else {
+            if reference.is_some() {
+                return Err(ManagedBootstrapFailure::RetainedMaterial.into());
+            }
+            reference_snapshot.revalidate()?;
+            return Ok(());
+        };
+        let root = Arc::new(root);
+        checked_names(
+            &root,
+            &["original.nrt", "anchor.nrt", "bodies", "epochs"],
+            4,
+        )?;
+        let (selection, selection_snapshot): (Selection, _) =
+            read_observed(&root, "original.nrt", MAX_SELECTION_BYTES)?;
+        let plan = owner.authority.provider_plan()?;
+        selection.validate(owner, purpose, &plan)?;
+        let (anchor, anchor_snapshot): (Anchor, _) =
+            read_observed(&root, "anchor.nrt", MAX_BODY_BYTES)?;
+        let outer = selection.digest()?;
+        if anchor.outer != outer
+            || anchor.highest == 0
+            || anchor.highest > MAX_BODIES
+            || anchor.active.is_some_and(|n| n == 0 || n > anchor.highest)
+            || reference
+                .as_ref()
+                .is_some_and(|r| r.outer != outer || r.purpose != selection.purpose)
+        {
+            return Err(invalid(
+                "pending Original differs from its enrollment selection",
+            ));
+        }
+        let Some(ordinal) = anchor.active else {
+            return Ok(());
+        };
+        if reference.is_none() {
+            return Err(invalid("active enrollment lost its selection reference"));
+        }
+        let container = root.open_child("bodies")?;
+        let body = container.open_child(body_name(ordinal)?)?;
+        let raw = body.read("reserved.nrt", MAX_BODY_BYTES)?;
+        let reservation: Reservation = decode(&raw, MAX_BODY_BYTES)?;
+        if reservation.ordinal != ordinal || reservation.outer != outer {
+            return Err(invalid(
+                "pending Original differs from its anchored reservation",
+            ));
+        }
+        selection.matches_unsigned(&reservation.unsigned)?;
+        reservation
+            .unsigned
+            .validate(owner, purpose, || Ok(&plan))?;
+        attempts::metadata::recover_original(&body, journal::MAX_ORIGINAL_BYTES, |bytes| {
+            let original = journal::decode_original(bytes)?;
+            owner.validate_original(&original, purpose)?;
+            reservation.unsigned.matches_original(&original)?;
+            if anchor
+                .completed
+                .is_some_and(|digest| digest != *Hash::new(bytes).as_ref())
+            {
+                return Err(invalid(
+                    "pending Original differs from completed enrollment",
+                ));
+            }
+            if body.read("reserved.nrt", MAX_BODY_BYTES)?.as_slice() != raw.as_slice() {
+                return Err(invalid(
+                    "pending Original reservation changed during recovery",
+                ));
+            }
+            reference_snapshot.revalidate()?;
+            selection_snapshot.revalidate()?;
+            anchor_snapshot.revalidate()
+        })?;
+        reference_snapshot.revalidate()?;
+        selection_snapshot.revalidate()?;
+        anchor_snapshot.revalidate()?;
+        owner.authority.validate_profile()
+    }
+
     pub(super) fn open(
         owner: &ManagedStreamTokenCustody,
         purpose: CustodyPurpose,
@@ -1251,14 +1379,7 @@ impl BodyHistory {
             };
             let body_names = checked_names(
                 &directory,
-                &[
-                    "reserved.nrt",
-                    "original.nrt",
-                    "dispatch.nrt",
-                    "attempts",
-                    "closing.nrt",
-                    "closed.nrt",
-                ],
+                &["reserved.nrt", "original.nrt", "operation.nrt", "attempts"],
                 6,
             )?;
             let raw = directory.read("reserved.nrt", MAX_BODY_BYTES)?;
@@ -1358,7 +1479,7 @@ impl BodyHistory {
                 }
             } else {
                 // Absence is meaningful only under the original reservation. No paid/native files.
-                check_names(&directory, &["reserved.nrt"], 1)?;
+                check_names(&directory, &["reserved.nrt", "operation.nrt"], 2)?;
             }
             let semantic = original
                 .as_ref()
@@ -1382,7 +1503,11 @@ impl BodyHistory {
                     ));
                 }
                 if anchor.completed.is_none() && original.is_some() {
-                    check_names(&directory, &["reserved.nrt", "original.nrt"], 2)?;
+                    check_names(
+                        &directory,
+                        &["reserved.nrt", "original.nrt", "operation.nrt"],
+                        3,
+                    )?;
                 }
             }
             let records = vec![
@@ -1392,9 +1517,8 @@ impl BodyHistory {
                 unused_snapshot,
             ];
             let names = if original.is_none() {
-                vec![NamesSnapshot::from_read(
+                vec![NamesSnapshot::from_reserved_read(
                     Arc::clone(&directory),
-                    1,
                     body_names,
                 )]
             } else {
@@ -1476,7 +1600,14 @@ impl BodyHistory {
         drop(plan);
         #[cfg(test)]
         drop(records_timing);
-        value.verify_histories_from_with_wallets(owner, retained, None, &mut epochs, wallets)?;
+        value.verify_histories_from_with_wallets(
+            owner,
+            retained,
+            None,
+            &mut epochs,
+            wallets,
+            None,
+        )?;
         #[cfg(test)]
         parser_snapshot_tests::hit(
             parser_snapshot_tests::Point::HistoriesVerified,
@@ -1571,6 +1702,7 @@ impl BodyHistory {
         published: Option<&PublishedHistory>,
         epochs: &mut crate::managed::native_operation::authorization::EpochReader,
         mut wallets: Option<&mut FinishWalletReads<'_>>,
+        publication_tail: Option<&Snapshot>,
     ) -> Result<()> {
         #[cfg(test)]
         let _timing = finish_timing::phase(finish_timing::Phase::VerifyHistories);
@@ -1578,7 +1710,11 @@ impl BodyHistory {
             if let Some(wallets) = wallets.as_deref_mut() {
                 wallets.clear();
             }
-            return self.verify_histories_in_pass(owner, retained, published, epochs, None, None);
+            self.verify_histories_in_pass(owner, retained, published, epochs, None, None)?;
+            if let Some(tail) = publication_tail {
+                tail.revalidate()?;
+            }
+            return Ok(());
         }
         let snapshots = self.bodies.last().map_or_else(
             || Arc::clone(&self.root_snapshots),
@@ -1603,7 +1739,11 @@ impl BodyHistory {
         let result = EnrollmentReadPass::parse(&pass, parser, epochs);
         // Persistent immutable custody changes override every ordinary parser result.
         snapshots.revalidate()?;
-        result
+        result?;
+        if let Some(tail) = publication_tail {
+            tail.close_publication_after_parser(&snapshots)?;
+        }
+        Ok(())
     }
     fn verify_histories_in_pass(
         &mut self,
@@ -2296,7 +2436,7 @@ impl BodyHistory {
                 Ok(value)
             })?;
         } else {
-            check_names(&last.directory, &["reserved.nrt"], 1)?;
+            check_names(&last.directory, &["reserved.nrt", "operation.nrt"], 2)?;
         }
         let ordinal = self
             .anchor
@@ -2369,6 +2509,7 @@ impl BodyHistory {
         if let Some(pending) = &self.anchor.pending {
             let bytes = encode(pending, MAX_BODY_BYTES)?;
             let ordinal = pending.ordinal;
+            let metadata = attempts::metadata::reserved_body(&bytes)?;
             turn.check(&self.selection, deadline)?;
             let shared_publication = !norito::core::decode_limits_active();
             let body_root = match self.body_root.as_ref().filter(|_| shared_publication) {
@@ -2388,7 +2529,10 @@ impl BodyHistory {
                     if shared_publication {
                         let body = body_root.publish_private_child(
                             body_name(ordinal)?,
-                            &[("reserved.nrt", bytes.as_slice())],
+                            &[
+                                ("reserved.nrt", bytes.as_slice()),
+                                (attempts::metadata::FILE, metadata.as_slice()),
+                            ],
                         )?;
                         Some(PublishedBodyDelta::reserved(
                             &self,
@@ -2399,7 +2543,10 @@ impl BodyHistory {
                     } else {
                         private_parent(&body_root)?.publish_private_child(
                             body_name(ordinal)?,
-                            &[("reserved.nrt", bytes.as_slice())],
+                            &[
+                                ("reserved.nrt", bytes.as_slice()),
+                                (attempts::metadata::FILE, metadata.as_slice()),
+                            ],
                         )?;
                         None
                     }
@@ -2496,7 +2643,7 @@ impl BodyHistory {
                     }
                 } else {
                     let previous = &self.bodies[previous];
-                    check_names(&previous.directory, &["reserved.nrt"], 1)?;
+                    check_names(&previous.directory, &["reserved.nrt", "operation.nrt"], 2)?;
                     if now_ms()? < previous.reservation.unsigned.statement.expires_at_unix_ms {
                         return Err(invalid("unexpired reserved body cannot be retired unused"));
                     }

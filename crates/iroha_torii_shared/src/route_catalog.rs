@@ -4298,6 +4298,9 @@ pub mod contracts_and_verification_keys {
     const fn app_account_read_sdk_get(id: &'static str, path: &'static str) -> RouteDescriptor {
         app_account_read_get(id, path).with_projections(RouteProjections::SDK)
     }
+    const fn app_account_read_sdk_post(id: &'static str, path: &'static str) -> RouteDescriptor {
+        app_account_read_post(id, path).with_projections(RouteProjections::SDK)
+    }
     const fn app_account_compute_sdk_post(id: &'static str, path: &'static str) -> RouteDescriptor {
         app_account_compute_post(id, path).with_projections(RouteProjections::SDK)
     }
@@ -4416,6 +4419,7 @@ pub mod contracts_and_verification_keys {
         SORAFS_ORDERBOOK_EVENTS_WS_GET => app_unprojected_websocket_get("contracts.sorafs_orderbook_events_ws_get", "/v1/sorafs/orderbook/events/ws");
         SORAFS_RESERVE_POLICY_GET => app_account_read_sdk_get("contracts.sorafs_reserve_policy_get", "/v1/sorafs/reserve/policy");
         SORAFS_RESERVE_POLICY_PROOF_GET => app_account_read_sdk_get("contracts.sorafs_reserve_policy_proof_get", "/v1/sorafs/reserve/policy/{height}");
+        AMX_DEBIT_APPROVAL_PROOF_POST => app_account_read_sdk_post("contracts.amx_debit_approval_proof_post", "/v1/amx/debit-approval/{height}");
         KAGEMUSHA_ENROLLMENT_POST => app_account_mutation_post("contracts.kagemusha_enrollment_post", "/v1/kagemusha/enrollment");
         KAGEMUSHA_LOAD_ISSUANCE_GET => app_account_read_sdk_get("contracts.kagemusha_load_issuance_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}");
         KAGEMUSHA_LOAD_FINALITY_GET => app_account_read_sdk_get("contracts.kagemusha_load_finality_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/finality");

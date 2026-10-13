@@ -95,7 +95,10 @@ impl State {
                 .compliance
                 .clone(),
         );
-        fraud_monitoring = Some(self.fraud_monitoring.clone());
+        fraud_monitoring = Some(crate::fraud_admission_policy::effective_fraud(
+            self.fraud_monitoring.clone(),
+            acquired.world.parameters.get(),
+        ));
         zk = Some(effective_zk);
         gov = Some(self.gov.clone());
         content = Some(self.content.clone());

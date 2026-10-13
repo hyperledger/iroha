@@ -2,13 +2,15 @@
 
 Task S.2 of the [ZK delivery plan](zk_delivery_plan.md). This document is the
 normative contract for durable transaction and off-chain processes: issuer and
-pool bootstrap, distributed key generation, threshold opening and native payment.
+pool bootstrap, distributed key generation, threshold opening, native payment and
+prepared private settlement.
 Its machine-readable form and the shared scenario fixtures are in [`fixtures/zk/workflow_v1/`](../fixtures/zk/workflow_v1/README.md).
 
 What exists today: this contract, the fixtures, and the Rust implementation in
 `crates/iroha/src/workflow/` with its ledger adapter in
 `crates/iroha/src/client/workflow_ledger.rs`, plus the proof-gated native payment
-operation in `crates/iroha/src/client/native_payment.rs`. What does not exist: ports to the
+operation in `crates/iroha/src/client/native_payment.rs` and prepared private
+settlement in `crates/iroha/src/client/private_settlement/operation.rs`. What does not exist: ports to the
 other five SDK families (S.3 to S.5), any bootstrap, key-generation or threshold
 cryptography (C.4, C.7, R.10 supply drivers), and runs against real validators
 (the product deliveries and V.2). The generic engine tests use a fake ledger and clock; native payment tests add
@@ -50,7 +52,8 @@ Each returns a durable handle with `run`, `recover` (read-only), `cancel` and
 restart. A driver that does not implement a step kind returns
 `UnsupportedOperation`.
 
-The workflow kinds are `issuer_bootstrap`, `dkg`, `threshold_opening`, `native_payment` and `amx_relay`. The
+The workflow kinds are `issuer_bootstrap`, `dkg`, `threshold_opening`,
+`native_payment`, `amx_relay` and `private_settlement`. The
 kind is bound into the workflow identifier, so one request under two kinds is
 two workflows. Other multi-round processes (cross-lane, elections) add a kind
 when their delivery lands.
@@ -201,6 +204,13 @@ The engine checks every report:
 | Bounds on participants, transcript and references | `ResourceLimitExceeded` |
 
 A waiting round stores its participants and the call returns `RoundPending`.
+A driver may explicitly opt in with `supports_round_continuation`. During `Run`,
+a freshly recovered, correctly bound waiting round is checkpointed under the
+same identity and lease before `continue_round` performs authorized effects.
+A concurrent cancellation/CAS reload prevents continuation. `Recover` and
+`Cancelling` never call it. Drivers default to no continuation, so their waiting
+behavior is unchanged. Every continuation report passes the same binding,
+participant and transcript checks as the original report.
 A terminal failure makes the workflow `failed` with the driver's code.
 Duplicate, reordered or missing participants, a changed epoch or consent set,
 revocation and transcript substitution are covered at this level by the
@@ -380,6 +390,20 @@ the account as the payment namespace and debit owner. The independent request
 binds complete terms and exact `FeePaymentIntent`; `PipelineGas` is unsupported
 until an authenticated exact gas outcome exists.
 
+`submit` explicitly authorizes a paid attempt with that exact fee intent. A fresh
+journal may create a carrier, and replacing a known rejected local carrier also
+requires explicit `retry_rejected_step`. A previous included rejection may
+already have paid a fee; business uniqueness indexes successful settlement.
+`resume` first independently recovers prior business success, including from a
+fresh gateway. Otherwise it requires the original retained carrier identity and
+returns `NewAttemptAuthorizationRequired` for an absent or unsigned journal. Its
+same-journal account adapter contains no signer, its driver cannot build a new
+payload, and rejected replacement is disabled regardless of the options supplied.
+A retained never-dispatched signed carrier may be submitted unchanged; an unknown
+carrier must be reconciled before the existing exact-byte retransmission rules
+apply. A known rejected identity remains rejected. `recover` remains read-only.
+The full-return wrapper uses the same explicit submission/resume boundary.
+
 Journal integrity does not grant signing or dispatch authority. Before either
 effect, the native-payment adapter decodes the exact canonical carrier and checks
 its network, debit authority, sole complete instruction and fee intent against
@@ -419,3 +443,34 @@ successful block carries its own native certificate, so neither verification nor
 recovery requires subsequent unrelated traffic. The `payment_` SDK tests exercise
 real QCs with synthetic execution outputs; Core-to-SDK execution coverage remains
 owned by `integration_tests/tests/native_payment_receipt.rs`.
+
+## Prepared private settlement
+
+`AccountClient::private_settlement` binds the sponsor, network, complete prepared
+artifact digests, governed carrier limit and original authority rosters. Its five
+steps are availability certification, promotion/Prepare, Register, Commit and
+Finalize. Exact availability certificate bytes become durable before promotion:
+reselecting a signer subset would change the final manifest. Prepare and Commit
+reuse the existing certificate validators and quorum-equivalence rules. Each
+public transaction retains its own exact signing/submission identity and fee.
+Before Commit or Finalize, Register success is independently authenticated.
+
+The three public certificate transcripts each have a 1 MiB ceiling within the
+existing 16 MiB journal cap; restricted proofs, encrypted capsules and plaintext
+witnesses are never serialized into that journal. The caller supplies the same
+prepared artifacts on resume. This API performs structural request validation,
+not proof generation or local proof verification. Committee helpers keep their
+existing bounded fanout and deadlines; a bounded worker retains its permit and
+original artifact owner if an awaiting call is dropped.
+
+Only successful exact Finalize execution in a Global block verified from
+independently selected genesis constructs `VerifiedPrivateSettlementReceipt`.
+Status and public receipt queries supply locators only. Resume refetches and
+reverifies the original final-tip block without requiring unrelated traffic.
+`recover` cannot certify, promote, sign or submit. Promotion preserves the exact
+certificate while requiring `q = n - f` bound upload acknowledgements from the
+authorized endpoints; only the independently verified Prepare QC grants protocol
+authority. A replica missing its original provisional upload still requires exact
+material rehydration, whose recovery control remains open.
+New SDK fixtures exercise genuine signatures/certificates over synthetic outputs;
+full genuine-prover validator-network qualification remains open.

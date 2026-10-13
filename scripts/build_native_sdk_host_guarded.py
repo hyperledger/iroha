@@ -42,6 +42,28 @@ def changes(before: dict, after: dict):
     return sorted(key for key in before.keys() | after.keys() if before.get(key) != after.get(key))
 
 
+def source_guard(metadata, root, originals, original_ids, before, before_ids, after, after_ids, receipts):
+    """Keep literal broad observations while guarding every verified consumed input.
+
+    Complete Cargo dep-info must have been verified before this is called. The
+    original pre-build capture remains authoritative through retention and probe;
+    an unchanged hash never excuses replacement of a selected source file.
+    """
+    selected = custody.consumed_source_projection(metadata, root, originals, after, receipts)
+    unit.require(custody.consumed_source_projection(metadata, root, originals, before, receipts) == selected,
+                 "consumed source membership changed")
+    expected_ids = {name: original_ids[name] for name in selected}
+    first_ids = {name: before_ids[name] for name in selected}
+    last_ids = {name: after_ids[name] for name in selected}
+    unit.require(first_ids == last_ids == expected_ids, "consumed source identity changed")
+    identity_changes = changes(before_ids, after_ids)
+    return {"source_scope": unit.SOURCE_SCOPE, "source_before": before, "source_after": after,
+            "source_identity_changes": identity_changes,
+            "source_changes": sorted(set(changes(before, after)) | set(identity_changes)),
+            "consumed_source": selected, "consumed_identities_before": first_ids,
+            "consumed_identities_after": last_ids}
+
+
 def tool_identities(tools: dict):
     """Bind both tool aliases and retained executable identities across the whole run."""
     return {name: [str(Path(name).resolve(strict=True)), *file_identity(Path(name).resolve(strict=True))]
@@ -205,7 +227,7 @@ def _host_build_locked(root: Path, output: Path, target: Path, jobs: int | None,
         record["collector_toolchain_changes"] = sorted(set(changes(tools_before, tools_after))
              | set(changes(tool_ids_before, tool_identities(tools_after))))
         unit.require(result.returncode == 0, "Cargo failed naturally")
-        unit.require(not record["source_changes"] and not record["collector_toolchain_changes"], "prospective source/tool guard changed")
+        unit.require(not record["collector_toolchain_changes"], "prospective tool guard changed")
         messages = custody.cargo_messages((output / "artifacts.jsonl").read_text(), unit.duplicates)
         retained = output / "dep-info"
         retained.mkdir(mode=0o700)
@@ -216,6 +238,8 @@ def _host_build_locked(root: Path, output: Path, target: Path, jobs: int | None,
         except Exception as error:
             record["dep_info_errors"].append(str(error))
             raise
+        record.update(source_guard(metadata, root, before, identities_before, before, identities_before,
+                                   after, identities_after, record["dep_info"]))
         actual = [message for message in messages if message.get("reason") == "compiler-artifact"
                   and message.get("target", {}).get("name") == "connect_norito_bridge"]
         unit.require(len(actual) == 1, "Cargo did not emit one exact bridge artifact")
@@ -228,14 +252,16 @@ def _host_build_locked(root: Path, output: Path, target: Path, jobs: int | None,
         snapshot = output / dylib[0].name
         archive_snapshot = output / archives[0].name
         static_before = custody.capture(metadata, root, unit.digest)
-        unit.require(static_before == before, "source changed before actual archive retention")
+        static_ids_before = source_identities(root, static_before)
+        source_guard(metadata, root, before, identities_before, static_before, static_ids_before,
+                     static_before, static_ids_before, record["dep_info"])
         archive_identity = unit.regular(archives[0], single_link=True)
         unit.clone(dylib[0], snapshot)
         unit.clone(archives[0], archive_snapshot)
         static_after = custody.capture(metadata, root, unit.digest)
-        unit.require(static_after == static_before and
-                     not changes(identities_before, source_identities(root, static_after)),
-                     "source changed during actual archive retention")
+        static_ids_after = source_identities(root, static_after)
+        static_guard = source_guard(metadata, root, before, identities_before, static_before, static_ids_before,
+                                    static_after, static_ids_after, record["dep_info"])
         unit.require(file_identity(archives[0]) == [archive_identity.st_dev, archive_identity.st_ino,
                      archive_identity.st_size, archive_identity.st_mtime_ns, archive_identity.st_ctime_ns],
                      "original archive identity changed during retention")
@@ -253,8 +279,7 @@ def _host_build_locked(root: Path, output: Path, target: Path, jobs: int | None,
                "archive_original": str(archives[0]), "archive_snapshot": str(archive_snapshot),
                "archive_original_device": original.st_dev, "archive_original_inode": original.st_ino,
                "archive_bytes": archive_snapshot.stat().st_size, "archive_sha256": unit.digest(archive_snapshot),
-               "snapshot_method": "clonefile-cow", "source_before": static_before, "source_after": static_after,
-               "source_changes": [], "collector_tools": tools_before,
+               "snapshot_method": "clonefile-cow", **static_guard, "collector_tools": tools_before,
                "native_companion_sha256": unit.digest(snapshot), "finished_unix": time.time()}
     native = unit.module(root / "scripts/check_native_sdk_artifact.py", "guarded_host_native_policy")
     policy = unit.native_policy(root)
@@ -269,12 +294,14 @@ def _host_build_locked(root: Path, output: Path, target: Path, jobs: int | None,
     component = {"emitter_path": str(emitter), "emitter_sha256": emitter_sha, "qualified": True,
                  "scope": "host-ABI29-and-symbols-only", "observed_abi_version": abi,
                  "artifact_path": str(snapshot), "artifact_sha256": unit.digest(snapshot),
-                 "source_before": before, "source_after": custody.capture(metadata, root, unit.digest),
+                 "source_before": static_after, "source_after": custody.capture(metadata, root, unit.digest),
                  "toolchain_before": tools_before, "toolchain_after": collect_tools(root)[2],
                  "finished_unix": time.time(), "export_count": len(set(exports)),
                  "required_c_jni_symbols": policy["c_jni"], "privacy_c_exports": policy["privacy"],
                  "export_inventory_path": str(inventory), "export_inventory_sha256": unit.digest(inventory)}
-    unit.require(not changes(identities_before, source_identities(root, component["source_after"])), "source changed during retention/probe")
+    component.update(source_guard(metadata, root, before, identities_before, static_after, static_ids_after,
+                                  component["source_after"], source_identities(root, component["source_after"]),
+                                  record["dep_info"]))
     unit.require(not changes(tool_ids_before, tool_identities(component["toolchain_after"])), "tools changed during retention/probe")
     assert_custody()
     unit.check_record_semantics(record, capture, component, emitter, emitter_sha, unit.TARGETS[platform.machine()])

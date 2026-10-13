@@ -20,6 +20,15 @@ pub enum SigningError {
     Refused,
     /// The signing backend rejected its local input.
     InvalidInput,
+    /// The original time-sensitive execution is too old for a first Prepare.
+    StaleExecution {
+        /// Original authenticated block timestamp.
+        block_time_ms: u64,
+        /// Fresh injected wall-clock observation.
+        observed_ms: u64,
+        /// Committed allowance captured from the original parent.
+        max_lag_ms: u64,
+    },
 }
 
 impl core::fmt::Display for SigningError {
@@ -27,6 +36,7 @@ impl core::fmt::Display for SigningError {
         f.write_str(match self {
             Self::Refused => "local signing refused",
             Self::InvalidInput => "local signing input rejected",
+            Self::StaleExecution { .. } => "original execution is stale for first Prepare",
         })
     }
 }
@@ -63,6 +73,30 @@ pub trait Signer: Send + Sync {
     /// # Errors
     /// A local backend refusal; callers retain durable reservations and publish no message.
     fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError>;
+    /// Sign a first Prepare only after the original application owner admits this source.
+    /// The preimage is derived from the core-owned request, never supplied independently.
+    ///
+    /// # Errors
+    /// A local application-admission or signing refusal, preserving the reservation.
+    fn sign_prepare(
+        &self,
+        request: &crate::prepare_admission::PrepareSigningRequest,
+        admission: &crate::prepare_admission::ExecutionAdmission,
+    ) -> Result<Signature, SigningError> {
+        #[cfg(sumeragi_mutation = "MS64")]
+        let _ = admission;
+        #[cfg(not(sumeragi_mutation = "MS64"))]
+        admission.check(request)?;
+        self.sign(&crate::preimage::vote_preimage(
+            VoteKind::Prepare,
+            &request.instance(),
+            &request.epoch(),
+            request.height(),
+            request.view(),
+            &request.block_hash(),
+            &request.result(),
+        ))
+    }
 }
 
 /// Pure cryptographic primitives (§12.1): BLS in production, a fake scheme in the simulator.

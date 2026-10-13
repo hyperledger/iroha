@@ -37,13 +37,18 @@ pub const MAX_QUEUE_SCAN: NonZeroUsize = NonZeroUsize::new(4096).expect("non-zer
 /// Largest framed transaction a proposer of the committed chain can select for a transaction
 /// routed to `lane`: the committed transaction cap, bounded by the selection budget of the
 /// proposers that can carry it (`Parameters::max_includable_transaction_bytes`). Lane zero is
-/// carried by the global proposer only. A native lane adds its own proposer's budget. The
-/// global chain rescues a transaction of a stalled lane (`specs/sumeragi_lanes.md` §6.4) only
-/// within the global budget ([`select`] skips a larger one), so a transaction above the global
-/// budget depends on its lane's proposer alone. The lane budget is the payload limit pinned by
-/// the lane's committed record, which is what the lane proposer builds within; a later change
-/// of the lane policy does not move it. A transaction without a route, or routed to a lane
-/// without a committed record, is given the global budget.
+/// carried by the global proposer only. A native lane adds its own proposer's budget. Under a
+/// complete committed policy, the transaction cap plus the global proposer reserve fits the
+/// global payload limit, so every admitted input fits the full global selection budget. A
+/// smaller lane budget or the remaining space in a global proposal can still defer selection.
+/// Global rescue of a stalled lane (`specs/sumeragi_lanes.md` §6.4) checks that available budget
+/// in [`select`]. The lane budget is the payload limit pinned by the lane's committed record;
+/// a later lane-policy change does not move it. A transaction without a route, or routed to a
+/// lane without a committed record, is given the global budget.
+///
+/// The underlying helper also handles raw authoring parameters before complete policy
+/// validation. An unvalidated combination can describe a transaction that only the lane
+/// budget carries; that does not establish an admissible chain above the full global budget.
 #[must_use]
 pub fn max_includable_transaction_bytes_on_route(
     parameters: &Parameters,
@@ -217,13 +222,17 @@ pub struct Assembly<'a> {
     pub view: u64,
     /// The chain's block cadence (`ChainParams.block_time`).
     pub cadence: Duration,
+    /// One captured proposer clock reading, rounded down to milliseconds. The authenticated
+    /// proposal time is at least this reading and the committed parent/input time floor.
+    pub proposed_time: Duration,
 }
 
 /// Build the unsigned proposal carrying `transactions` (in order) over `assembly.parent`,
 /// reading the DA policy and confidential-feature digest from the committed `state`.
 ///
-/// Deterministic in its inputs: the block time is canonical (parent time plus the cadence,
-/// strictly after every timed input), not the local clock.
+/// Deterministic in its explicit inputs: the authenticated time is the maximum of the
+/// proposed time and the parent/cadence, lane and signed-input floors. Followers and replay
+/// consume that original authenticated timestamp; they never restamp from their clocks.
 ///
 /// # Errors
 /// There are no transactions, or the canonical block time overflows.
@@ -272,6 +281,10 @@ pub(crate) fn assemble_with_parent_service(
     if transactions.is_empty() && merges.merges.is_empty() {
         return Err(PayloadError::EmptyBlock);
     }
+    let proposed = Duration::from_millis(
+        u64::try_from(assembly.proposed_time.as_millis())
+            .map_err(|_| PayloadError::TimeOverflow)?,
+    );
     let parent_time = assembly.parent.header().creation_time();
     let minimum = parent_time
         .checked_add(assembly.cadence)
@@ -287,13 +300,14 @@ pub(crate) fn assemble_with_parent_service(
     let build = |time: Duration| -> Result<SignedBlock, PayloadError> {
         build_at(state, assembly, transactions, merges, time, parent_service)
     };
-    let first = build(minimum)?;
-    let canonical = ValidBlock::sumeragi_block_time(&first, parent_time, assembly.cadence)
-        .map_err(|_| PayloadError::TimeOverflow)?;
-    if canonical == first.header().creation_time() {
+    let first = build(minimum.max(proposed))?;
+    let required = ValidBlock::sumeragi_block_time_floor(&first, parent_time, assembly.cadence)
+        .map_err(|_| PayloadError::TimeOverflow)?
+        .max(proposed);
+    if required == first.header().creation_time() {
         Ok(first)
     } else {
-        build(canonical)
+        build(required)
     }
 }
 
@@ -334,8 +348,12 @@ pub(crate) fn recheck_sccp_forgery_for_proposal(
         } else {
             minimum.max(Duration::from_millis(merges.time_floor_ms))
         };
+        let proposed = Duration::from_millis(
+            u64::try_from(assembly.proposed_time.as_millis())
+                .map_err(|_| PayloadError::TimeOverflow)?,
+        );
         let time = crate::block::creation_time_after_inputs(
-            minimum,
+            minimum.max(proposed),
             selected.iter().map(AcceptedTransaction::entrypoint),
         )
         .ok_or(PayloadError::TimeOverflow)?;
@@ -771,8 +789,11 @@ pub fn select(
             } else {
                 minimum.max(Duration::from_millis(merges.time_floor_ms))
             };
+            let proposed = Duration::from_millis(
+                u64::try_from(wall_time.as_millis()).map_err(|_| PayloadError::TimeOverflow)?,
+            );
             let time = crate::block::creation_time_after_inputs(
-                minimum,
+                minimum.max(proposed),
                 selected
                     .iter()
                     .map(AcceptedTransaction::entrypoint)
@@ -949,6 +970,7 @@ mod tests {
                     parent: &parent,
                     view: 10,
                     cadence: Duration::from_millis(100),
+                    proposed_time: std::time::Duration::ZERO,
                 },
                 &[]
             ),
@@ -1093,6 +1115,7 @@ mod tests {
                 parent: &parent,
                 view: 0,
                 cadence: Duration::from_millis(1),
+                proposed_time: std::time::Duration::ZERO,
             },
             &[accepted],
         )

@@ -3,10 +3,10 @@
 compile_error!(
     "the feature-isolated Parliament fixture signers cannot be compiled into an optimized daemon"
 );
-/// Metadata derived from the authenticated and executed native genesis.
-pub mod authenticated_genesis;
 /// Durable, independently verified native AMX relay delivery.
 mod amx_relay;
+/// Metadata derived from the authenticated and executed native genesis.
+pub mod authenticated_genesis;
 /// Per-seat authenticated global-beacon DKG and exact-quorum rotation provisioning.
 #[cfg(unix)]
 pub mod beacon_bootstrap;
@@ -1067,7 +1067,9 @@ impl std::fmt::Display for StartError {
             StartError::InitKura => "error.init_kura",
             StartError::ListenOsSignal => "error.listen_os_signal",
             StartError::StartTorii => "error.start_torii",
-            StartError::StartAmxRelay => return f.write_str("failed to initialize native AMX relay"),
+            StartError::StartAmxRelay => {
+                return f.write_str("failed to initialize native AMX relay");
+            }
         };
         write!(f, "{}", i18n::t(key))
     }
@@ -1127,7 +1129,7 @@ fn apply_state_runtime_config_before_snapshot_auth(
     install_node_pipeline_config(state, config)?;
     state.set_crypto(config.crypto.clone());
     state.set_oracle(config.oracle.clone());
-    state.set_fraud_monitoring(config.fraud_monitoring.clone());
+    state.install_node_fraud_monitoring(config.fraud_monitoring.clone());
     state.set_gov(config.gov.clone());
     state.content = config.content.clone();
     state.set_settlement(config.settlement);
@@ -4297,15 +4299,16 @@ impl Iroha {
         };
         // The relay only receives the authenticated replayed State. Emergency inspection
         // cannot sign or dispatch AMX carriers. Invalid explicit custody fails activation.
-        if !emergency_fast
-            && let Some(child) = amx_relay::start(
+        if !emergency_fast {
+            let children = amx_relay::start(
                 Arc::clone(&state),
                 config.amx_relay.clone(),
                 supervisor.shutdown_signal(),
             )
-            .map_err(|error| Report::new(StartError::StartAmxRelay).attach(error.to_string()))?
-        {
-            supervisor.monitor(child);
+            .map_err(|error| Report::new(StartError::StartAmxRelay).attach(error.to_string()))?;
+            for child in children {
+                supervisor.monitor(child);
+            }
         }
         // The SCCP keeper is a supervised task of its own and never aborts the node: its
         // public RPC delays neither block production nor any other task.

@@ -53,25 +53,52 @@ require a separate request.
 | 5 — N11, C5 / B.2–B.3, S.1–S.6; private settlement/provers/SDKs | Integration: deliver genuine confidential settlement through one asynchronous operation and its prepared form, using authoritative context, encrypted audit material and durable recovery. Consolidate existing STARK consumers under the shared backend. Depends on the authority/resource work actually consumed. | Genuine proofs and money movement, nullifier/capsule/auditor/source/fee/replay negatives and crash recovery; private-settlement N=3 topology with sixteen validators and N=2/3/4/8/16 fault coverage. Measure the unchanged five-second proof-preparation-to-verified-receipt target, p50/p95/p99, throughput, memory and leakage across payload/query/storage/log/transport. |
 
 Native payments do not wait for general proofs of arbitrary IVM invocations.
-The AMX relay must also close the idle deadline path: `SumeragiAmxState::expire`
-currently runs only in an executed block after the signed deadline. Polling or
-sleeping cannot produce that height, and Prepared/Decision relaying alone does
-not prove timeout progress when a participant is unavailable. Qualify an
-authorized obligation-progress path with its consensus/resource controls; do
-not substitute empty blocks, unrelated transactions or local-time escrow release.
-A signed time deadline plus a funded instruction that records the actual Abort
-is a candidate revision, but it depends on the application clock guards in
-[Sumeragi §4.5](specs/sumeragi.md). Full State roots now forward the certified
+An authenticated Global Begin is a request, not authority to debit a private bank
+account. Qualify the exact owner-issued `CanPrepareAmx` permission under the
+participant's current committed direct grants, including distinct funded relay
+keys, revocation before signing/dispatch and native execution, changed terms,
+and recovery after a Yes vote. Historical permission proofs authenticate only
+the selected cut; they cannot defeat later revocation or replace the final native
+permission check. The same canonical payment identities and asset terms must be
+explicit in ISO instructions; local gateway mappings validate them rather than
+choose a new payer namespace.
+The AMX relay must qualify the current idle deadline candidate: mandatory signed
+time expiry, an original-Begin-authenticated funded `ExpireAmxV1` carrier, and
+bounded local Decision recovery before submission. Polling alone never changes
+escrow; participants need the actual certified Abort. The existing exact-carrier
+journal resumes after restart and remains independent of a Decision produced by
+another carrier. Qualify this path with its consensus/resource controls without
+empty blocks, unrelated transactions or local-time escrow release. It depends on
+the application clock guards in [Sumeragi §4.5](specs/sumeragi.md). Full State roots now forward the certified
 flag into a local vote guard; Global proposal pacing retains future-only work
 for timed retry and rechecks canonical time on original output reuse. Committed
 drift bounds are checked in genesis, parameter changes and lane policy. Current
-source qualification and routing-lane clock integration remain open. Complete
+source also guards routing-lane execution and retains its selected batch, existing
+Queue admission lease and funded encoding across clock waits. Current-source
+qualification of expiry, withdrawal and readmission during retained lending remains open.
+The Queue candidate now binds each retained input to its exact non-reusable admission
+incarnation in the existing funded owner. Unrelated arrivals preserve completed Global and
+lane payloads; removal and same-hash readmission retire them. Qualify the reproduced
+sustained-ingress controls and actual queue overflow/refund behavior on the combined candidate.
+Hash equality alone cannot authenticate a retained admission after removal and readmission. Complete
 those controls, including certified re-proposal/replay exemptions, before
 claiming timed abort guarantees.
 Specify the committed-time expiry semantics and clock-skew margin explicitly;
 an upper clock bound alone also does not prevent stale-time Commit decisions.
 Any required freshness guard belongs at Prepare admission, with the same certified
 exemptions, never in monetary validity or replay.
+Cached execution and a durable but unsigned Prepare reservation do not establish
+that a first vote was signed while fresh. Qualify the exact source/result-bound
+signing gate and the existing safety-record persistence barrier across stage waits,
+signer refusal, rebroadcast and restart. Only a genuinely held matching PrepareQC
+or an authenticated already-produced signature supplies the corresponding exemption.
+The native proposer-time candidate lets a fresh view retain the exact still-admissible
+signed inputs while authenticating a timestamp above the deterministic parent/input floor.
+Retained payload retries and certified re-proposals preserve their original timestamp;
+followers and cold replay use that authenticated value. Qualify this after an idle partition
+without replacing an unknown carrier or manufacturing unrelated work. Transaction TTL,
+Queue expiry, native AMX time deadlines and CT5 remain separate required controls; the
+simulator's wall-stamped payloads alone do not establish final-payment restart progress.
 External customer credits use durable application inbox/outbox handling; their
 database effects are not claimed to be atomic with ledger settlement. The current
 resource contract's carrier/block inequality holds numerically; X.2 still needs
@@ -185,7 +212,7 @@ with no node-schema key.
 | C6 | FHE/MKHE/Figure 9 | Crypto/model/proofs | Complete native40 correspondence/full-size eight-party replay; qPCS redesign within fixed work bounds, governed Figure 9 keys and independent measured ordinary-stack proofs. |
 | C7 | Acceleration | Native backends | Automatic target-appropriate daemon defaults, ten reproducible signed embedded CUDA PTX families, driverless daemon startup, actual CPU/Metal/CUDA KAT/root parity, authenticated library/device/calibration, fault quarantine, side-channel and RSS/throughput; unqualified T256/MKHE stay scalar. |
 | C8 | Kaigi sessions | Model/crypto/Core/SDKs | Complete authorization/usage circuits and account lifecycle/undo; keys/fixtures, suite-tagged HPKE, bounded accounting and authenticated relay recovery. |
-| C9 | Native PLONK/IPA prover | ZK/prover owners | Qualify source-bound VK-to-PK reconstruction, wallet admission and proving-buffer release across current native-finality operation stages. Resolve the real-Q one-worker timing margin: the measured lookup-mask preweight candidate passes native and emulated-x86 proof-byte checks, but its complete three-block M3 campaign has seven passing configurations and one borderline result. All hard limits pass; one real-Q block misses the required CPU margin. Complete fresh measurements for the subsequently applied selector-factor optimization, whose 432 native engine tests, 394 emulated-x86 library tests and strict lint pass; its initial full campaign stopped on manifest drift. The fresh campaign records a valid four-thread synthetic-Q hard failure at 11.276 seconds against 10 seconds and subsequently stops on source drift. Resolve the hard failure and complete a fresh source-bound campaign before qualification. An operation-count reduction alone is insufficient. Qualify the resulting candidate under the unchanged hard limits, margins, owned-witness method and process-wide 64 MiB MSM budget; retain earlier failures, borderline margins and invalid attempts. Qualify PIPA-R/PIPA-AS operation relations, corrected-claim branches, lineage, transport and CreditStatus through the complete authenticated catalog and real offline exchange; finish the soundness and joint privacy obligations under the explicitly accepted recursive Fiat–Shamir assumption, without treating that design decision as C12 closure. Rebuild and qualify the migrated, re-keyed [native consumers](specs/native_prover_migration_inventory.md) and SDK delivery. Retired vendor trees and the temporary oracle are deleted; source guards pass. First release has one production engine, with no compatibility decoder or old-key fallback. |
+| C9 | Native PLONK/IPA prover | ZK/prover owners | Qualify source-bound VK-to-PK reconstruction, wallet admission and proving-buffer release across current native-finality operation stages. Resolve the streaming-MSM candidate's valid four-thread real-Q failure at 10.22 seconds against the 10-second hard limit, then qualify all eight configurations under the unchanged margins, owned-witness method and process-wide 64 MiB MSM budget. Its thirteen selected heavy gadget cases pass; correctness does not establish timing qualification. Retain earlier failures, borderline margins and invalid attempts. Qualify PIPA-R/PIPA-AS operation relations, corrected-claim branches, lineage, transport and CreditStatus through the complete authenticated catalog and real offline exchange; finish the soundness and joint privacy obligations under the explicitly accepted recursive Fiat–Shamir assumption, without treating that design decision as C12 closure. Rebuild and qualify the migrated, re-keyed [native consumers](specs/native_prover_migration_inventory.md) and SDK delivery. Retired vendor trees and the temporary oracle are deleted; source guards pass. First release has one production engine, with no compatibility decoder or old-key fallback. |
 
 ## Services and deployment
 

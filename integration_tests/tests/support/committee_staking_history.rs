@@ -223,6 +223,7 @@ mod tests {
                 key_pair: iroha_test_samples::ALICE_KEYPAIR.clone(),
                 account: ALICE_ID.clone(),
                 account_chain_discriminant: iroha_torii_shared::MINAMOTO_CHAIN_DISCRIMINANT,
+                http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
                 torii_api_url: "http://committee-history.invalid/".parse()?,
                 torii_request_timeout: iroha::config::DEFAULT_TORII_REQUEST_TIMEOUT,
                 basic_auth: None,

@@ -392,7 +392,7 @@ fn native_pulse_refusals_preserve_the_exact_predecessor_and_require_actual_work(
     assert!(
         matches!(
             executor(&unrequested).execute(&requested_nothing, &hash, false),
-            Some(ExecOutcome::Valid(_))
+            Some(ExecOutcome::Valid { .. })
         ),
         "without the unrequested witness the same ordinary body is valid"
     );
@@ -679,7 +679,7 @@ fn pending_parliament_slots_create_no_native_control_demand_and_never_block_unre
                 &hash,
                 false
             ),
-            Some(ExecOutcome::Valid(_))
+            Some(ExecOutcome::Valid { .. })
         ),
         "without the unrequested witness the same body is valid at the governance slot"
     );

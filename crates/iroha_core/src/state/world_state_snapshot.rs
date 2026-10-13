@@ -11,6 +11,8 @@
 mod reserve_account;
 #[path = "world_state_snapshot/reserve_policy.rs"]
 mod reserve_policy;
+#[path = "world_state_snapshot/amx_approval.rs"]
+mod amx_approval;
 use super::world_state_cut::CutCapsule;
 use super::*;
 use crate::{

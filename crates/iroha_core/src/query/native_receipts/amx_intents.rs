@@ -4,10 +4,12 @@
 //! Original `.ami` bytes are only coordinates: the existing native proof reader authenticates
 //! the actual carrier, complete writes and Prepared record. No selector, filename, scalar
 //! projection or zero authority byte grants permission to sign, pay or submit a transaction.
-//! The daemon's supervised Prepared relay consumes this owner with separately configured
-//! account custody, fee funding and the existing exact-transaction workflow journal.
-//! TODO(S6): extend retained-source delivery to Begin, handoff and Decision, then qualify
-//! complete autonomous PvP and idle-obligation progress on independent real roots.
+//! The daemon's supervised relay consumes this Prepared owner alongside the source-bound
+//! Begin and Decision readers, with separately configured account custody, fee funding and
+//! the existing exact-transaction workflow journal.
+//! Boundary delivery shares this owner and the existing exact-identity journal.
+//! TODO(S6): qualify complete autonomous
+//! PvP and idle-obligation progress on independent real roots.
 
 use super::{
     NativeAmxRecordProofErrorV1, NativeAmxRecordProofPollV1, NativeAmxRecordProofReadV1,
@@ -31,6 +33,28 @@ use iroha_data_model::{
     },
 };
 
+/// Exact authenticated source kind in one retained certified carrier.
+///
+/// This selector provides durable identity only. Neither variant is standalone authority.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, norito::Encode, norito::Decode, norito::NoritoSchema,
+)]
+#[norito_schema(name = "iroha_core::query::native_receipts::NativeAmxRelaySourceV1")]
+pub enum NativeAmxRelaySourceV1 {
+    /// An authenticated ordinary-write record, including its kind and transaction id.
+    Record {
+        /// Complete original ordinary-write key.
+        key: [u8; AMX_RECORD_WITNESS_KEY_BYTES],
+    },
+    /// A certified final-epoch execution authorizing the exact adjacent context.
+    EpochBoundary {
+        /// Incumbent source epoch.
+        epoch: u64,
+        /// Adjacent epoch authorized by the original result.
+        next_epoch: u64,
+    },
+}
+
 /// Exact relay coordinates for durable identity and independently configured route selection.
 ///
 /// These copyable coordinates never authorize signing, funding or proof reconstruction.
@@ -43,10 +67,11 @@ pub struct NativeAmxRelayDescriptorV1 {
     pub(super) source_scope: SumeragiRootScope,
     pub(super) source_height: u64,
     pub(super) source_carrier: HashOf<BlockHeader>,
-    pub(super) source_record_key: [u8; AMX_RECORD_WITNESS_KEY_BYTES],
+    pub(super) source: NativeAmxRelaySourceV1,
     pub(super) target_network: NetworkId,
     pub(super) target_scope: SumeragiRootScope,
     pub(super) target_instance: [u8; 32],
+    pub(super) ready_at_ms: Option<u64>,
 }
 
 impl NativeAmxRelayDescriptorV1 {
@@ -70,10 +95,16 @@ impl NativeAmxRelayDescriptorV1 {
     pub const fn source_carrier(&self) -> HashOf<BlockHeader> {
         self.source_carrier
     }
-    /// Complete authenticated record key, including its record kind and AMX transaction.
+    /// Original record or final-epoch boundary, never an inferred witness key.
     #[must_use]
-    pub const fn source_record_key(&self) -> &[u8; AMX_RECORD_WITNESS_KEY_BYTES] {
-        &self.source_record_key
+    pub const fn source(&self) -> NativeAmxRelaySourceV1 {
+        self.source
+    }
+    /// Signed ledger-time wake coordinate of a Global expiry carrier, when present.
+    /// Local time may schedule work from this term but cannot authorize an Abort.
+    #[must_use]
+    pub const fn ready_at_ms(&self) -> Option<u64> {
+        self.ready_at_ms
     }
     /// Exact genesis identity of the intended destination root.
     #[must_use]
@@ -459,10 +490,11 @@ impl<V: StateReadOnly> NativeAmxPreparedRelayReadV1<'_, V> {
             },
             source_height: self.height,
             source_carrier: self.carrier,
-            source_record_key: row.key,
+            source: NativeAmxRelaySourceV1::Record { key: row.key },
             target_network: projection.parent_network(),
             target_scope: SumeragiRootScope::Global,
             target_instance: projection.parent_instance(),
+            ready_at_ms: None,
         };
         let instruction = self
             .instruction

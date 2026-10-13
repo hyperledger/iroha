@@ -130,16 +130,12 @@ impl PaymentSource for OnlinePaymentSource {
         &self,
         height: NonZeroU64,
     ) -> WorkflowFuture<'_, Result<SumeragiFinalityProof, NativePaymentObservationError>> {
-        let account = self.0.clone();
         Box::pin(async move {
-            tokio::task::spawn_blocking(move || {
-                account
-                    .client()
-                    .get_sumeragi_finality_proof(height, SumeragiRootScope::Global)
-            })
-            .await
-            .map_err(|error| NativePaymentObservationError::Worker(error.to_string()))?
-            .map_err(NativePaymentObservationError::Transport)
+            self.0
+                .client()
+                .get_sumeragi_finality_proof_async(height, SumeragiRootScope::Global)
+                .await
+                .map_err(NativePaymentObservationError::Transport)
         })
     }
 }

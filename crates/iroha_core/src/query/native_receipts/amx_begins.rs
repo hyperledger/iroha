@@ -22,7 +22,7 @@ use iroha_model_base::topology::DataSpaceId;
 
 use super::{
     NativeAmxRecordProofErrorV1, NativeAmxRecordProofPollV1, NativeAmxRecordProofReadV1,
-    NativeAmxRelayDescriptorV1, NativeAmxRelayIntentV1, amx_record_proof,
+    NativeAmxRelayDescriptorV1, NativeAmxRelayIntentV1, NativeAmxRelaySourceV1, amx_record_proof,
 };
 use crate::state::{StateReadOnly, WorldReadOnly};
 
@@ -67,7 +67,7 @@ pub struct NativeAmxBeginRelayReadV1<'v, V: StateReadOnly> {
     view: &'v V,
     budget: AllocationBudget,
     transaction: [u8; 32],
-    participant: DataSpaceId,
+    participant: Option<DataSpaceId>,
     height: u64,
     absent: bool,
     complete: bool,
@@ -112,13 +112,30 @@ pub fn begin_amx_relay<'v, V: StateReadOnly>(
         view,
         budget: view.prepared_contract_cache().execution_budget().clone(),
         transaction,
-        participant,
+        participant: Some(participant),
         height,
         absent: false,
         complete: false,
         #[cfg(test)]
         instruction_probe: None,
     })
+}
+
+/// Select an existing original successful Begin for its funded Global expiry carrier.
+/// Historical selection remains available after a decision so durable carrier recovery is
+/// never orphaned by pending-state pruning. The service must authenticate that decision
+/// before any new dispatch; this source alone does not assert the obligation is unresolved.
+///
+/// # Errors
+/// The source is not certified non-genesis Global history.
+pub fn expire_amx_relay<'v, V: StateReadOnly>(
+    view: &'v V,
+    height: u64,
+    transaction: [u8; 32],
+) -> Result<NativeAmxBeginRelayReadV1<'v, V>, NativeAmxBeginRelayErrorV1> {
+    let mut read = begin_amx_relay(view, height, transaction, DataSpaceId::UNIVERSAL)?;
+    read.participant = None;
+    Ok(read)
 }
 
 impl<V: StateReadOnly> NativeAmxBeginRelayReadV1<'_, V> {
@@ -138,6 +155,7 @@ impl<V: StateReadOnly> NativeAmxBeginRelayReadV1<'_, V> {
                     .as_any()
                     .downcast_ref::<PrepareAmxV1>()
                     .map(|value| &value.begin)
+                    .or_else(|| self.instruction.as_ref()?.amx_expiry_begin())
             })
             .ok_or(NativeAmxBeginRelayErrorV1::Source(
                 "original Begin graph missing",
@@ -224,8 +242,11 @@ impl<V: StateReadOnly> NativeAmxBeginRelayReadV1<'_, V> {
         };
         let transaction = self.original_transaction()?;
         if begin.tx != self.transaction
-            || !begin.has_participant(self.participant)
+            || self
+                .participant
+                .is_some_and(|participant| !begin.has_participant(participant))
             || begin.deadline != transaction.deadline
+            || begin.expires_at_ms != transaction.expires_at_ms
             || begin
                 .participants
                 .iter()
@@ -236,15 +257,37 @@ impl<V: StateReadOnly> NativeAmxBeginRelayReadV1<'_, V> {
                 "Begin does not authorize the exact transaction and participant",
             ));
         }
+        let Some(participant) = self.participant else {
+            return Ok(NativeAmxRelayDescriptorV1 {
+                source_network: *self.view.network_id(),
+                source_scope: SumeragiRootScope::Global,
+                source_height: self.height,
+                source_carrier: source.block_hash(),
+                source: NativeAmxRelaySourceV1::Record {
+                    key: iroha_data_model::sumeragi_amx::amx_record_witness_key(
+                        AmxRecordKind::Begin,
+                        begin.tx,
+                    ),
+                },
+                target_network: *self.view.network_id(),
+                target_scope: SumeragiRootScope::Global,
+                target_instance: source
+                    .header()
+                    .ok_or(Error::Source("original Global header missing"))?
+                    .instance
+                    .0,
+                ready_at_ms: Some(begin.expires_at_ms),
+            });
+        };
         let registration = self
             .view
             .world()
             .sumeragi_amx()
-            .dataspace(self.participant)
+            .dataspace(participant)
             .ok_or(Error::Source("original participant registration missing"))?;
         let scope = SumeragiRootScope::Dataspace {
             parent_network_id: *self.view.network_id(),
-            dataspace_id: self.participant,
+            dataspace_id: participant,
         };
         if registration.tracker.result_scope != scope.into() {
             return Err(Error::Source(
@@ -256,13 +299,16 @@ impl<V: StateReadOnly> NativeAmxBeginRelayReadV1<'_, V> {
             source_scope: SumeragiRootScope::Global,
             source_height: self.height,
             source_carrier: source.block_hash(),
-            source_record_key: iroha_data_model::sumeragi_amx::amx_record_witness_key(
-                AmxRecordKind::Begin,
-                self.transaction,
-            ),
+            source: NativeAmxRelaySourceV1::Record {
+                key: iroha_data_model::sumeragi_amx::amx_record_witness_key(
+                    AmxRecordKind::Begin,
+                    self.transaction,
+                ),
+            },
             target_network: registration.tracker.current.network_id,
             target_scope: scope,
             target_instance: registration.tracker.instance,
+            ready_at_ms: None,
         })
     }
 
@@ -299,12 +345,16 @@ impl<V: StateReadOnly> NativeAmxBeginRelayReadV1<'_, V> {
                 .input
                 .ok_or(Error::Source("original input not selected"))?;
             let block = self.read.completed_original()?.block().clone();
-            self.pending = Some(
-                self.begin
-                    .take()
-                    .ok_or(Error::Source("original Begin already moved"))?
-                    .into_prepare_from_block(self.participant, block, input, instruction),
-            );
+            let begin = self
+                .begin
+                .take()
+                .ok_or(Error::Source("original Begin already moved"))?;
+            self.pending = Some(match self.participant {
+                Some(participant) => {
+                    begin.into_prepare_from_block(participant, block, input, instruction)
+                }
+                None => begin.into_expire(),
+            });
         }
         if Some(self.joined_descriptor()?) != self.descriptor {
             return Err(Error::Source("original delivery binding changed"));

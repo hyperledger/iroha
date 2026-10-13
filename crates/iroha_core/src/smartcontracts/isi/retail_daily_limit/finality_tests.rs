@@ -640,6 +640,7 @@ fn merge_lane(chain: &mut CertifiedTestChain, stores: &LaneStores) {
                 parent: &parent,
                 view: 0,
                 cadence,
+                proposed_time: std::time::Duration::ZERO,
             },
             &[],
             &merges,

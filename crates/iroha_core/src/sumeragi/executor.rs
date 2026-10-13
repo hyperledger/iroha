@@ -779,6 +779,10 @@ struct Finishing<'s> {
     availability: AvailabilityFrame,
     source: iroha_sumeragi::availability::AvailabilitySource,
     valid: ValidBlock,
+    signature_decode: SignatureDecodeAttempt,
+    due_work_max_lag_ms: u64,
+    encoded_preimage: Option<iroha_allocation::ChargedBuffer<u8>>,
+    admission: Option<iroha_allocation::ChargedShared<prepare_admission::NativePrepareAdmission>>,
     overlay: Box<StateBlock<'s>>,
     witness: crate::state::CapturedExecWitness,
     phase: FinishingPhase,
@@ -795,6 +799,8 @@ struct Finishing<'s> {
 
 /// The executed overlay of one block.
 struct Live<'s> {
+    signature_decode: SignatureDecodeAttempt,
+    admission: iroha_allocation::ChargedShared<prepare_admission::NativePrepareAdmission>,
     telemetry_origin: Option<CommitTelemetryOrigin>,
     native_contexts: Option<PreparedNativeContext>,
     block_hash: Hash32,
@@ -867,6 +873,10 @@ enum PublicationPhase {
 #[path = "executor_control.rs"]
 mod control;
 mod preparation;
+mod prepare_admission;
+#[cfg(test)]
+#[path = "executor/prepare_admission_tests.rs"]
+mod prepare_admission_tests;
 mod publication;
 mod replay;
 
@@ -1371,9 +1381,10 @@ impl<'s> Worker<'s> {
             return None;
         }
         if let Some(reason) = &self.recovery {
-            return Some(execution_report(Err(PublicationError::RecoveryRequired(
-                reason.clone(),
-            ))));
+            return Some(execution_report(
+                Err(PublicationError::RecoveryRequired(reason.clone())),
+                None,
+            ));
         }
         if let Some(live) = &self.live {
             if live.block_hash == block_hash {
@@ -1386,7 +1397,16 @@ impl<'s> Worker<'s> {
                         &"execution retry changes its original header",
                     ));
                 }
-                return Some(ExecOutcome::Valid(live.result));
+                #[cfg(not(all(test, sumeragi_core_mutation = "HC280")))]
+                if let Err(refusal) = live.admission.check_freshness(certified) {
+                    let failure = self.rollback_stale_live().err().unwrap_or(refusal);
+                    return Some(ExecOutcome::Failed(failure.to_string()));
+                }
+                let live = self.live.as_ref().expect("same admitted original");
+                return Some(ExecOutcome::Valid {
+                    result: live.result,
+                    admission: prepare_admission::erased(&live.admission),
+                });
             }
         }
         if let Some((source, outcome)) = self.results.get(&block_hash) {
@@ -1412,8 +1432,14 @@ impl<'s> Worker<'s> {
             );
             return None;
         }
-        let outcome = execution_report(self.run_execution(block, block_hash, certified));
-        if !matches!(outcome, ExecOutcome::Valid(_) | ExecOutcome::Failed(_)) {
+        let executed = self.run_execution(block, block_hash, certified);
+        let admission = self
+            .live
+            .as_ref()
+            .filter(|live| live.block_hash == block_hash)
+            .map(|live| prepare_admission::erased(&live.admission));
+        let outcome = execution_report(executed, admission);
+        if !matches!(outcome, ExecOutcome::Valid { .. } | ExecOutcome::Failed(_)) {
             self.remember(block.source().clone(), block_hash, outcome.clone());
         }
         Some(outcome)
@@ -1474,7 +1500,7 @@ impl<'s> Worker<'s> {
         >,
     ) -> Result<Option<Hash32>, PublicationError> {
         let outcome = self.run_execution_with_finisher(block, block_hash, certified, |worker| {
-            worker.finish_execution_with_encoder(encode)
+            worker.finish_execution_with_encoder(certified, encode)
         });
         if matches!(outcome, Ok(None)) {
             // Only a completed intrinsic rejection retires this original decode custody.
@@ -1684,6 +1710,11 @@ impl<'s> Worker<'s> {
                 parent_service_preparation_error(error, &mut self.routing_refusal)
             })?;
         }
+        let due_work_max_lag_ms = original_view
+            .world()
+            .parameters()
+            .sumeragi()
+            .due_work_max_lag_ms();
         drop(original_view);
         let iroha_block = self
             .signature_decode
@@ -1840,7 +1871,15 @@ impl<'s> Worker<'s> {
             }
         };
         if self
-            .retain_validated_execution(block, block_hash, valid, overlay, committee, events)?
+            .retain_validated_execution(
+                block,
+                block_hash,
+                valid,
+                overlay,
+                committee,
+                events,
+                due_work_max_lag_ms,
+            )?
             .is_none()
         {
             return Ok(None);
@@ -1859,6 +1898,7 @@ impl<'s> Worker<'s> {
         mut overlay: Box<StateBlock<'s>>,
         committee: Vec<PeerId>,
         events: Vec<EventBox>,
+        due_work_max_lag_ms: u64,
     ) -> Result<Option<()>, PublicationError> {
         let height = block.header().height;
         if let Err(error) = overlay.take_sumeragi_lanes() {
@@ -1899,9 +1939,12 @@ impl<'s> Worker<'s> {
                 .clone();
             return Err(PublicationError::RecoveryRequired(reason));
         };
-        // The original valid block now retains the same immutable signature owner.
-        // Retire only its preparation controls/source; later phases move this exact block.
-        self.signature_decode = None;
+        // Retain original decoder custody until publication or a CT5 rollback. A local
+        // freshness refusal must return the actual graph without decoding another copy.
+        let signature_decode = self
+            .signature_decode
+            .take()
+            .expect("original validation custody");
         self.finishing = Some(Finishing {
             block_hash,
             height,
@@ -1909,6 +1952,10 @@ impl<'s> Worker<'s> {
             availability: block.availability().clone(),
             source: block.source().clone(),
             valid,
+            signature_decode,
+            due_work_max_lag_ms,
+            encoded_preimage: None,
+            admission: None,
             overlay,
             witness,
             phase: FinishingPhase::ContextProof {
@@ -2094,6 +2141,7 @@ impl<'s> Worker<'s> {
     /// Retry only proof or encoding of the original completed execution.
     fn finish_execution_with_encoder(
         &mut self,
+        certified: bool,
         encode: impl FnOnce(
             &iroha_allocation::RetainedPayload<CertifiedResultV1>,
             &iroha_allocation::AllocationBudget,
@@ -2104,42 +2152,68 @@ impl<'s> Worker<'s> {
     ) -> Result<Option<Hash32>, PublicationError> {
         self.prepare_original_result()?;
         self.prepare_original_context_archive()?;
-        let original = self
+        let budget = self.state.ivm_execution_budget();
+        if self.finishing.as_ref().unwrap().encoded_preimage.is_none() {
+            let original = self.finishing.as_ref().unwrap();
+            match encode(
+                original.phase.ready().expect("original prepared result"),
+                &budget,
+            ) {
+                Ok(preimage) => self.finishing.as_mut().unwrap().encoded_preimage = Some(preimage),
+                Err(error) => {
+                    let failure = if error.is_local_refusal() {
+                        preparation::encoding_failure(&error)
+                    } else {
+                        let reason = format!(
+                            "original result encoding invariant failed; recovery required: {error}"
+                        );
+                        self.recovery = Some(reason.clone());
+                        PublicationError::RecoveryRequired(reason)
+                    };
+                    self.finishing.as_mut().unwrap().encoding_refusal = Some(error);
+                    return Err(failure);
+                }
+            }
+        }
+        let original = self.finishing.as_ref().unwrap();
+        let result = result_of_preimage(original.encoded_preimage.as_ref().unwrap().as_slice())
+            .ok_or_else(|| {
+                PublicationError::RecoveryRequired("original encoded result is malformed".into())
+            })?;
+        if original.admission.is_none() {
+            let admission = prepare_admission::NativePrepareAdmission::capture(
+                original,
+                result,
+                &self.context.time_source,
+                self.context.root_scope,
+            )?;
+            self.finishing.as_mut().unwrap().admission = Some(admission);
+        }
+        // This final check follows every proof/encoding/allocation wait. It never changes R.
+        #[cfg(all(test, sumeragi_core_mutation = "HC279"))]
+        let _ = certified;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC279")))]
+        if let Err(refusal) = self
             .finishing
             .as_ref()
-            .expect("original completed execution");
-        let budget = self.state.ivm_execution_budget();
-        let preimage = match encode(
-            original.phase.ready().expect("original prepared result"),
-            &budget,
-        ) {
-            Ok(preimage) => preimage,
-            Err(error) => {
-                // TODO: driver retry dispatch must wait on this retained original
-                // capacity observation; diagnostic text is not a release source.
-                let failure = if error.is_local_refusal() {
-                    preparation::encoding_failure(&error)
-                } else {
-                    let reason = format!(
-                        "original result encoding invariant failed; recovery required: {error}"
-                    );
-                    self.recovery = Some(reason.clone());
-                    PublicationError::RecoveryRequired(reason)
-                };
-                self.finishing.as_mut().unwrap().encoding_refusal = Some(error);
-                return Err(failure);
-            }
-        };
-        let result = result_of_preimage(preimage.as_slice()).ok_or_else(|| {
-            let reason = "original encoded result is malformed".to_owned();
-            self.recovery = Some(reason.clone());
-            PublicationError::RecoveryRequired(reason)
-        })?;
+            .unwrap()
+            .admission
+            .as_ref()
+            .unwrap()
+            .check_freshness(certified)
+        {
+            self.rollback_stale_finishing()?;
+            return Err(refusal);
+        }
         let original = self.finishing.take().unwrap();
         let FinishingPhase::Ready(commitment) = original.phase else {
             unreachable!("encoded original result")
         };
         self.live = Some(Live {
+            signature_decode: original.signature_decode,
+            admission: original
+                .admission
+                .expect("original first-Prepare admission"),
             telemetry_origin: None,
             native_contexts: Some(
                 original
@@ -2153,7 +2227,7 @@ impl<'s> Worker<'s> {
             source: original.source,
             phase: PublicationPhase::Executed {
                 valid: original.valid,
-                preimage,
+                preimage: original.encoded_preimage.expect("original encoded result"),
             },
             overlay: Some(original.overlay),
             witness: Some(original.witness),
@@ -2164,6 +2238,39 @@ impl<'s> Worker<'s> {
             events: original.events,
         });
         Ok(Some(result))
+    }
+
+    /// Discard all provisional effects while restoring the same original signed graph.
+    fn rollback_stale_finishing(&mut self) -> Result<(), PublicationError> {
+        let original = self.finishing.take().expect("stale completed original");
+        let mut decoder = original.signature_decode;
+        let returned = decoder
+            .retain_validation_return(original.valid.into(), &self.state.ivm_execution_budget());
+        self.signature_decode = Some(decoder);
+        // The original overlay, events, context projections and witness drop here. No fee,
+        // escrow transition or receipt becomes committed and no Invalid cache is populated.
+        returned
+    }
+
+    fn rollback_stale_live(&mut self) -> Result<(), PublicationError> {
+        if !self
+            .live
+            .as_ref()
+            .is_some_and(|live| matches!(live.phase, PublicationPhase::Executed { .. }))
+        {
+            return Err(PublicationError::RecoveryRequired(
+                "cannot roll back a publication already carrying a certificate".into(),
+            ));
+        }
+        let original = self.live.take().expect("stale live original");
+        let PublicationPhase::Executed { valid, .. } = original.phase else {
+            unreachable!()
+        };
+        let mut decoder = original.signature_decode;
+        let returned =
+            decoder.retain_validation_return(valid.into(), &self.state.ivm_execution_budget());
+        self.signature_decode = Some(decoder);
+        returned
     }
 
     /// Admit the keys of the committee scheduled for `height` into the driver's cryptography.
@@ -3126,12 +3233,15 @@ impl<'s> Worker<'s> {
         let max_bytes = usize::try_from(max_bytes).unwrap_or(usize::MAX);
         let selection: Option<crate::queue::PendingPayloadSelection> =
             queue.begin_pending_payload_selection(self.state, original_generation);
+        // One reading governs FIFO filtering, final SCCP recheck and payload assembly.
+        // Retries of a retained original never replace its already authenticated time.
+        let proposed_time = self.context.time_source.now();
         let mut selected = match payload::select(
             &current_view,
             queue,
             max_bytes.saturating_sub(PAYLOAD_OVERHEAD),
             &merges,
-            self.context.time_source.now(),
+            proposed_time,
         ) {
             Ok(selected) => {
                 self.routing_refusal = None;
@@ -3184,6 +3294,11 @@ impl<'s> Worker<'s> {
             parent: &parent,
             view,
             cadence: Duration::from_millis(scheduled.params.block_time_ms),
+            proposed_time: if cfg!(all(test, sumeragi_core_mutation = "HC273")) {
+                Duration::ZERO
+            } else {
+                proposed_time
+            },
         };
         while !selected.is_empty() || !merges.merges.is_empty() {
             if let Err(error) = payload::recheck_sccp_forgery_for_proposal(
@@ -3500,9 +3615,17 @@ fn invalid(height: u64, reason: &dyn std::fmt::Display) -> ExecOutcome {
 }
 
 /// Internal attempts retain exact local sources until the terminal execution report.
-fn execution_report(outcome: Result<Option<Hash32>, PublicationError>) -> ExecOutcome {
+fn execution_report(
+    outcome: Result<Option<Hash32>, PublicationError>,
+    admission: Option<iroha_sumeragi::prepare_admission::ExecutionAdmission>,
+) -> ExecOutcome {
     match outcome {
-        Ok(Some(result)) => ExecOutcome::Valid(result),
+        Ok(Some(result)) => match admission {
+            Some(admission) => ExecOutcome::Valid { result, admission },
+            None => ExecOutcome::Failed(
+                "completed execution lost its original first-Prepare admission".into(),
+            ),
+        },
         Ok(None) => ExecOutcome::Invalid,
         Err(error) => ExecOutcome::Failed(error.to_string()),
     }
@@ -3613,12 +3736,15 @@ mod tests {
     fn lane_custody_allocation_refusal_is_local_and_semantic_errors_remain_invalid() {
         use lanes::step::LaneStepError;
         assert!(matches!(
-            execution_report(classify_lane_step(
-                2,
-                &LaneStepError::Deferred(
-                    ivm::error::ExecutionDeferral::AllocationUnavailable.into()
+            execution_report(
+                classify_lane_step(
+                    2,
+                    &LaneStepError::Deferred(
+                        ivm::error::ExecutionDeferral::AllocationUnavailable.into()
+                    ),
                 ),
-            )),
+                None
+            ),
             ExecOutcome::Failed(_)
         ));
         for error in [
@@ -3627,7 +3753,7 @@ mod tests {
             LaneStepError::MissingLane(iroha_model_base::topology::LaneId::new(1)),
         ] {
             assert!(matches!(
-                execution_report(classify_lane_step(2, &error)),
+                execution_report(classify_lane_step(2, &error), None),
                 ExecOutcome::Invalid
             ));
         }
@@ -3709,7 +3835,10 @@ mod tests {
         ];
         for error in &local {
             assert!(
-                matches!(execution_report(classify(2, error)), ExecOutcome::Failed(_)),
+                matches!(
+                    execution_report(classify(2, error), None),
+                    ExecOutcome::Failed(_)
+                ),
                 "{error:?} is local"
             );
         }
@@ -3720,7 +3849,10 @@ mod tests {
         ];
         for error in &invalid {
             assert!(
-                matches!(execution_report(classify(2, error)), ExecOutcome::Invalid),
+                matches!(
+                    execution_report(classify(2, error), None),
+                    ExecOutcome::Invalid
+                ),
                 "{error:?} is a property of the block"
             );
         }

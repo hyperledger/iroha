@@ -506,7 +506,7 @@ fn det_l17_hidden_pqc_reexecutes() {
             let outcome = if variant == 'a' {
                 ExecOutcome::Cancelled
             } else {
-                ExecOutcome::Valid(result_of(&b))
+                crate::testing::valid_execution(result_of(&b))
             };
             h.fire(Event::Executed {
                 block_hash: bh,
@@ -788,7 +788,7 @@ fn det_l23_commit_before_own_execution() {
     let out = h.fire(Event::Executed {
         block_hash: bh1,
         req: r1,
-        outcome: ExecOutcome::Valid(result_of(&b1)),
+        outcome: crate::testing::valid_execution(result_of(&b1)),
     });
     assert_eq!(executes(&out).len(), 1, "B2 is executed at once");
     assert!(h.core.tip.exec_ok);
@@ -804,7 +804,7 @@ fn det_l23_commit_before_own_execution() {
     let out = h.fire(Event::Executed {
         block_hash: bh1,
         req: r1,
-        outcome: ExecOutcome::Valid(Hash32([0x42; 32])),
+        outcome: crate::testing::valid_execution(Hash32([0x42; 32])),
     });
     assert!(matches!(
         faults(&out)[..],

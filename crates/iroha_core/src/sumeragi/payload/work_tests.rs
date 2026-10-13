@@ -134,7 +134,8 @@ fn previous_two_build_reference(
     // Match the standalone assembler, which acquires and authenticates its native
     // parent service internally; the retained worker preparation is absent here.
     let first = build_at(state, assembly, transactions, merges, minimum, None).unwrap();
-    let canonical = ValidBlock::sumeragi_block_time(&first, parent_time, assembly.cadence).unwrap();
+    let canonical =
+        ValidBlock::sumeragi_block_time_floor(&first, parent_time, assembly.cadence).unwrap();
     if canonical == first.header().creation_time() {
         first
     } else {
@@ -155,6 +156,7 @@ fn merge_floor_avoids_duplicate_original_parent_build_with_exact_wire_parity() {
         parent: &parent,
         view: 7,
         cadence: Duration::from_millis(1),
+        proposed_time: std::time::Duration::ZERO,
     };
     let base = u64::try_from(parent.header().creation_time().as_millis())
         .unwrap()
@@ -233,6 +235,7 @@ fn empty_work_and_cadence_overflow_refuse_before_any_parent_build() {
         parent: &parent,
         view: 0,
         cadence: Duration::from_millis(1),
+        proposed_time: std::time::Duration::ZERO,
     };
     let (empty, calls) = counted(|| {
         assemble_with_merges(

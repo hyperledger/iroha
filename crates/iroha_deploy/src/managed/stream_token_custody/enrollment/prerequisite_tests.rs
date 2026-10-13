@@ -1,12 +1,9 @@
 //! Genuine original prerequisites share one parse and retain canonical custody refusal.
 
 use super::*;
-use crate::managed::{
-    native_operation::test_support::UnavailablePeers,
-    stream_token_custody::{
-        renewal_tests::{Fixture, wait_until},
-        tests::count_wallet_constructions,
-    },
+use crate::managed::stream_token_custody::{
+    renewal_tests::{Fixture, wait_until},
+    tests::count_wallet_constructions,
 };
 use std::{cell::Cell, path::PathBuf};
 
@@ -47,7 +44,7 @@ fn assert_same(actual: &RetainedCustodyEnrollment, expected: &RetainedCustodyEnr
 fn renewal_contexts_verify_configuration_and_read_initial_history_once() {
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::enrolled(4_000);
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let deadline = fixture.options.deadline;
     let expected = fixture
         .owner
@@ -171,7 +168,7 @@ fn retained_paths(fixture: &Fixture) -> Vec<(PathBuf, &'static str, usize)> {
 fn initial_prerequisite_refuses_changed_configure_and_initial_original_wallet_and_carrier() {
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::enrolled(4_000);
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let deadline = fixture.options.deadline;
     let expected = fixture
         .owner
@@ -209,7 +206,7 @@ fn initial_prerequisite_refuses_changed_configure_and_initial_original_wallet_an
 fn selected_initial_handoff_rechecks_current_original_wallet_and_carrier() {
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::enrolled(4_000);
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let deadline = fixture.options.deadline;
     let expected = fixture
         .owner
@@ -262,7 +259,7 @@ fn generated_authorization_verifies_configure_once_and_rechecks_each_call() {
 
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::enrolled(4_000);
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let deadline = fixture.options.deadline;
     wait_until(
         fixture.initial.issued_at_unix_ms + 2_000,
@@ -321,7 +318,7 @@ fn generated_authorization_verifies_configure_once_and_rechecks_each_call() {
 fn configure_handoff_rechecks_exact_original_wallet_carrier_and_deadline() {
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::enrolled(4_000);
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let deadline = fixture.options.deadline;
     let expected = fixture
         .owner
@@ -392,7 +389,7 @@ fn configure_handoff_rechecks_exact_original_wallet_carrier_and_deadline() {
 fn renewal_selection_reuses_exact_authenticated_checkpoint_and_rejects_substitution() {
     let _guard = crate::managed::native_test_guard();
     let mut fixture = Fixture::enrolled(4_000);
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let deadline = fixture.options.deadline;
     wait_until(
         fixture.initial.issued_at_unix_ms + 2_000,
@@ -569,7 +566,7 @@ fn renewal_selection_reuses_exact_authenticated_checkpoint_and_rejects_substitut
 fn retained_carriers_share_exact_checkpoint_imports_and_recheck_transaction_and_file_custody() {
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::enrolled(4_000);
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let deadline = fixture.options.deadline;
     let expected = fixture
         .owner
@@ -737,7 +734,7 @@ fn retained_carriers_share_exact_checkpoint_imports_and_recheck_transaction_and_
 fn prerequisite_epoch_workspace_keeps_original_phase_source_refusal_and_same_source_retry() {
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::enrolled(4_000);
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let deadline = fixture.options.deadline;
     let expected = fixture
         .owner
@@ -874,7 +871,7 @@ fn prerequisite_epoch_workspace_preserves_finite_outer_admission_and_custody_ret
     }
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::enrolled(4_000);
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let deadline = fixture.options.deadline;
     let warm = fixture
         .owner

@@ -8,6 +8,7 @@ use iroha_data_model::isi::sumeragi_amx::PrepareAmxV1;
 fn restarted_paid_begin() -> (Roots, CertifiedTestChain, [u8; 32]) {
     let mut roots = paid_roots();
     let transaction = roots.transaction(100, 0xB7);
+    roots.approve_all(&transaction);
     let tx = transaction.id().unwrap();
     let rejected = paid_global_sign(
         &roots.global,
@@ -94,6 +95,7 @@ fn native_amx_begin_delivery_after_restart_uses_successful_input_and_exact_regis
         assert_eq!(prepare.transaction.id().unwrap(), tx);
         assert_eq!(prepare.dataspace, FIRST);
         assert_eq!(prepare.begin.record.tx(), tx);
+        let comparison_baseline = budget.reserved_bytes();
         let source = restored.committed(tip);
         let (_, signed) = source.block().external_signed_transaction_at(1).unwrap();
         let Executable::Instructions(instructions) = signed.instructions() else {
@@ -110,6 +112,10 @@ fn native_amx_begin_delivery_after_restart_uses_successful_input_and_exact_regis
             original.legs.as_ptr(),
             "additional Prepare fields are prepaid copies of the retained original"
         );
+        // This independent comparison receipt owns its decoded certified result too.
+        // Retire it before checking the delivery reader's exact remaining allocation.
+        drop(source);
+        assert_eq!(budget.reserved_bytes(), comparison_baseline);
         assert!(intent.instruction().amx_proof_admitted_to(&budget));
         assert!(read.complete().is_err());
         let (_, instruction) = intent.into_parts();

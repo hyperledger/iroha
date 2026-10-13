@@ -182,6 +182,37 @@ impl fmt::Debug for NativeAmxRecordProofOwnedV1 {
     }
 }
 impl NativeAmxRecordProofOwnedV1 {
+    // A sibling's retained continuation may join only a fully completed original source.
+    // Its caller must additionally bind this carrier to its current captured State history.
+    pub(super) fn completed_original(
+        &self,
+    ) -> Result<&CertifiedBlock, NativeAmxRecordProofErrorV1> {
+        use NativeAmxRecordProofErrorV1 as Error;
+        if !self.source.completed || !self.source.authenticated {
+            return Err(Error::Source(
+                "detached delivery requires completed original verification",
+            ));
+        }
+        self.source
+            .read
+            .as_ref()
+            .ok_or(Error::Source(
+                "original detached archive descriptor missing",
+            ))?
+            .recheck_namespace()?;
+        let source = self
+            .source
+            .certified
+            .as_ref()
+            .ok_or(Error::Source("original detached certified carrier missing"))?;
+        if source.commitment().schedule.current.network_id != self.source.network_id {
+            return Err(Error::Source(
+                "detached carrier differs from original network",
+            ));
+        }
+        Ok(source)
+    }
+
     /// Resume the exact detached source; refusal retains every completed acquisition stage.
     ///
     /// # Errors

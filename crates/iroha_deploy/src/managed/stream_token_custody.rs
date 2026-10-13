@@ -9,7 +9,7 @@ use super::{
     PreparedLocalnet, Result,
     native_operation::{
         MAX_CHECKPOINT_BYTES, ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid,
-        now_ms, read_optional, read_selected_peers, require_deadline, require_empty,
+        now_ms, read_optional, read_selected_peers, require_deadline,
     },
     service_authority::{
         CheckpointImportScope, CheckpointImports, ProviderPurpose, ServiceAuthority,
@@ -243,7 +243,8 @@ impl ManagedStreamTokenCustody {
     ) -> Result<ManagedCustodyProgress> {
         self.authority.validate_profile()?;
         self.validate_policy(policy)?;
-        let directory = self.authority.directory.ensure_child("configure")?;
+        let directory =
+            attempts::metadata::ensure_operation(&self.authority.directory, "configure")?;
         let (original, _) = self.select_configuration(&directory, policy, options.deadline)?;
         journal::explicit(
             &directory,
@@ -274,12 +275,17 @@ impl ManagedStreamTokenCustody {
             Instant,
         ) -> Result<(FinalityVerifier, VerifiedStreamTokenCustodyStateV1)>,
     ) -> Result<(Original, Option<InitialAdmission<'a>>)> {
+        journal::recover_intent(directory, |original| {
+            original.matches_configuration(policy)?;
+            self.validate_original(original, CustodyPurpose::Configure)?;
+            Ok(())
+        })?;
         if let Some(original) = journal::read_intent(directory)? {
             original.matches_configuration(policy)?;
             self.validate_original(&original, CustodyPurpose::Configure)?;
             return Ok((original, None));
         }
-        require_empty(directory)?;
+        attempts::metadata::require_unselected(directory)?;
         let (verifier, current) = observe(self, &policy.binding, deadline)?;
         if current.current().is_some() {
             return Err(invalid("initial custody configuration already exists"));
@@ -305,6 +311,7 @@ impl ManagedStreamTokenCustody {
     ) -> Result<ManagedCustodyProgress> {
         self.authority.validate_profile()?;
         let (policy, finalized) = self.retained_configuration(options.deadline)?;
+        BodyHistory::recover_original(self, CustodyPurpose::InitialEnroll)?;
         let existing = BodyHistory::open(self, CustodyPurpose::InitialEnroll)?;
         if let Some(history) = &existing {
             history.matches_policy(&policy)?;
@@ -406,7 +413,8 @@ impl ManagedStreamTokenCustody {
             ));
         }
         self.validate_policy(policy)?;
-        let directory = self.authority.directory.ensure_child("configure")?;
+        let directory =
+            attempts::metadata::ensure_operation(&self.authority.directory, "configure")?;
         let (original, admission) = self.select_configuration(&directory, policy, deadline)?;
         self.select_generated_attempt(
             &directory,
@@ -442,6 +450,7 @@ impl ManagedStreamTokenCustody {
         if configured != *policy {
             return Err(invalid("original Configure policy differs from enrollment"));
         }
+        BodyHistory::recover_original(self, CustodyPurpose::InitialEnroll)?;
         let existing = BodyHistory::open(self, CustodyPurpose::InitialEnroll)?;
         if let Some(history) = &existing {
             history.matches_policy(policy)?;

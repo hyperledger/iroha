@@ -406,6 +406,15 @@ scenario_test!(f25_relay_tampering, "F25", scenarios::f25);
 scenario_test!(f26_byzantine_responders, "F26", scenarios::f26);
 scenario_test!(f27_storage_faults, "F27", scenarios::f27);
 scenario_test!(f28_key_rotation, "F28", scenarios::f28);
+
+/// The original lost-predecessor failure stays covered by every ordinary short run.
+#[test]
+fn f28_seed177_restored_empty_body_want_catches_up() {
+    if let Err(report) = run(scenarios::f28(177)) {
+        panic!("{report}");
+    }
+}
+
 scenario_test!(f29_cpu_flood, "F29", scenarios::f29);
 scenario_test!(f32_cluster_restart_lock_or_cqc, "F32", scenarios::f32);
 scenario_test!(f33_hidden_pqc, "F33", scenarios::f33);
@@ -481,17 +490,30 @@ fn f36_late_leaders() {
 
 #[test]
 fn det_l30_crashed_proxy_latency_is_not_late_body_latency() {
-    let world = run(scenarios::f36(1813)).expect("crashed proxy recovery stays within O-PERF");
+    let mut scenario = scenarios::f36(1813);
+    // Bound normal post-body delivery below T(0)/2, while a crashed proxy plus the
+    // stage retry and both certificate exchanges crosses it. Explicit link delay makes
+    // the positive latency control independent of a particular safety-write event race.
+    scenario.net.delay_min = 150;
+    scenario.net.delay_max = 150;
+    let world = run(scenario).expect("crashed proxy recovery stays within O-PERF");
     for replica in world.honest() {
         assert_eq!(
             world.oracle.reps[replica].max_start_level_before_heal, 0,
             "late body delivery alone must not raise replica {replica}'s start level"
         );
     }
-    // Replica 1 gets the body at 60013 ms, after machine 5 crashes at 60000 ms.
-    // Retrying votes through the stage ladder delays CommitQC to 61136 ms: this
-    // genuinely exceeds T(0)/2 and §9.2 must continue to adapt to that latency.
-    assert_eq!(world.oracle.reps[1].max_start_level, 1);
+    // Retrying votes through the stage ladder genuinely exceeds T(0)/2 after the
+    // original body arrives; §9.2 must continue adapting to that post-body latency.
+    assert_eq!(
+        world
+            .honest()
+            .into_iter()
+            .map(|replica| world.oracle.reps[replica].max_start_level)
+            .max(),
+        Some(1),
+        "post-body certificate delay through a crashed proxy must still raise the start level"
+    );
 }
 
 #[test]

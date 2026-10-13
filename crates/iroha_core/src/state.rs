@@ -30760,6 +30760,10 @@ impl State {
                 self.pipeline.clone(),
                 world.parameters.get(),
             );
+            let fraud_monitoring = crate::fraud_admission_policy::effective_fraud(
+                self.fraud_monitoring.clone(),
+                world.parameters.get(),
+            );
             return Ok(StateView {
                 canonical_runtime,
                 canonical_runtime_predecessor,
@@ -30787,7 +30791,7 @@ impl State {
                 lane_incarnations,
                 lane_incarnation_activation_heights,
                 lane_manifests,
-                fraud_monitoring: self.fraud_monitoring.clone(),
+                fraud_monitoring,
                 zk,
                 gov: self.gov.clone(),
                 content: self.content.clone(),
@@ -33459,9 +33463,19 @@ impl State {
         self.tiered_startup_geometry = None;
         Ok(())
     }
-    /// Update fraud monitoring settings using loaded configuration.
-    pub fn set_fraud_monitoring(&mut self, cfg: iroha_config::parameters::actual::FraudMonitoring) {
-        self.fraud_monitoring = cfg;
+    /// Install node-local assessment transport, never an admission policy.
+    pub fn install_node_fraud_monitoring(
+        &mut self,
+        cfg: iroha_config::parameters::actual::FraudMonitoring,
+    ) {
+        self.fraud_monitoring = crate::fraud_admission_policy::node_local_resources(cfg);
+    }
+    /// Effective fraud admission read from this exact committed parameters version.
+    pub fn fraud_monitoring_snapshot(&self) -> iroha_config::parameters::actual::FraudMonitoring {
+        crate::fraud_admission_policy::effective_fraud(
+            self.fraud_monitoring.clone(),
+            &self.world.parameters.view(),
+        )
     }
     /// Install complete zero-knowledge verification settings, validity values included.
     ///
@@ -35939,6 +35953,7 @@ pub(crate) fn consensus_owned_custom_parameter_ids()
         SumeragiNposParameters::parameter_id(),
         crate::zk_validity_policy::ZkValidityPolicyV1::parameter_id(),
         crate::pipeline_validity_policy::PipelineValidityPolicyV1::parameter_id(),
+        crate::fraud_admission_policy::FraudAdmissionPolicyV1::parameter_id(),
         SumeragiLanePolicy::parameter_id(),
         DaIngestAdmissionPolicyV1::parameter_id(),
         NexusRuntimeCatalogV1::parameter_id(),
@@ -36018,6 +36033,7 @@ mod consensus_owned_parameter_tests {
         for name in [
             "zk_validity_policy_v1",
             "pipeline_validity_policy_v1",
+            "fraud_admission_policy_v1",
             "sumeragi_lane_policy",
             "ivm_gas_tech_account_id",
             "ivm_gas_accepted_assets",
@@ -36054,6 +36070,9 @@ mod consensus_owned_parameter_tests {
                 "ivm_gas_accepted_assets" | "ivm_gas_units_per_gas" => {
                     Json::new(Vec::<String>::new())
                 }
+                "fraud_admission_policy_v1" => Json::new(
+                    crate::fraud_admission_policy::FraudAdmissionPolicyV1::protocol_default(),
+                ),
                 "pipeline_validity_policy_v1" => Json::new(
                     crate::pipeline_validity_policy::PipelineValidityPolicyV1::protocol_default(),
                 ),
@@ -36584,8 +36603,42 @@ impl State {
             nexus,
             lane_manifests,
             lane_compliance,
-            &self.fraud_monitoring,
+            &self.fraud_monitoring_snapshot(),
             &zk,
+            &self.gov,
+            &self.content,
+            &self.settlement,
+        )
+    }
+}
+impl StateBlock<'_> {
+    /// Derive signed-genesis metadata from its authored, validated fraud parameter.
+    ///
+    /// H1 execution still consumes its frozen predecessor projection. The signed
+    /// genesis policy commitment identifies the policy its original instructions
+    /// install for successor admission, using this same uncommitted World owner.
+    ///
+    /// # Errors
+    /// Returns an error if the frozen Nexus policy cannot be represented canonically.
+    pub(crate) fn genesis_execution_policy_digest_v1(
+        &self,
+    ) -> core::result::Result<
+        [u8; 32],
+        iroha_config::parameters::actual::NexusConsensusPolicyDigestError,
+    > {
+        let authored_fraud = crate::fraud_admission_policy::effective_fraud(
+            self.fraud_monitoring.clone(),
+            self.world.parameters.get(),
+        );
+        compute_execution_policy_digest_v1(
+            &self.pipeline,
+            &self.oracle,
+            self.crypto.as_ref(),
+            &self.nexus,
+            self.lane_manifests.as_ref(),
+            self.lane_compliance.as_deref(),
+            &authored_fraud,
+            &self.zk,
             &self.gov,
             &self.content,
             &self.settlement,

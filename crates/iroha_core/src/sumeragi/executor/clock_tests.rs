@@ -52,14 +52,16 @@ pub(crate) fn assert_clock_ahead_defers_original(
                 assert!(events.try_recv().is_err());
             }
             clock.set(boundary);
-            let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
+            let Some(ExecOutcome::Valid { result, admission }) =
+                worker.execute(&block, hash, false)
+            else {
                 panic!("exact clock boundary must permit genuine execution of the same source")
             };
             // A valid original was already guarded; later clock regression does not erase it.
             clock.set(Duration::ZERO);
             assert_eq!(
                 worker.execute(&block, hash, false),
-                Some(ExecOutcome::Valid(result))
+                Some(ExecOutcome::Valid { result, admission })
             );
         },
     );
@@ -69,6 +71,80 @@ pub(crate) fn assert_clock_ahead_defers_original(
 fn prepare_withheld_while_block_time_ahead() {
     assert_clock_ahead_defers_original(|| {
         CertifiedTestChain::start(TestChainConfig::new(crate::state::World::new(), 1_000)).unwrap()
+    });
+}
+
+#[test]
+fn authenticated_proposer_time_above_floor_executes_and_replays_without_restamping() {
+    let chosen = Duration::from_millis(20_000);
+    let (clock, source) = TimeSource::new_mock(chosen);
+    publication_tests::with_worker_clock(source, move |chain, worker, blocks, _events| {
+        let original = publication_tests::proposal(chain, worker);
+        let proposal = payload::decode(original.payload().as_slice()).unwrap();
+        assert!(proposal.header().creation_time() < chosen);
+        let mut header = proposal.header();
+        header.creation_time_ms = u64::try_from(chosen.as_millis()).unwrap();
+        let mut builder = iroha_data_model::block::builder::BlockBuilder::new(header);
+        for transaction in proposal.external_transactions() {
+            builder.push_transaction(transaction.clone());
+        }
+        builder.set_da_commitments(proposal.da_commitments().cloned());
+        builder.set_da_proof_policies(proposal.da_proof_policies().cloned());
+        builder.set_da_pin_intents(proposal.da_pin_intents().cloned());
+        builder.set_npos_consensus_effects(proposal.npos_consensus_effects().cloned());
+        builder.set_global_beacon_pulse(proposal.global_beacon_pulse().cloned());
+        builder.set_execution_context(proposal.execution_context().cloned());
+        let fresh = builder.build(Default::default());
+        assert_eq!(
+            fresh.external_entrypoints_slice(),
+            proposal.external_entrypoints_slice()
+        );
+        let bytes = payload::encode(&fresh).unwrap();
+        let mut native_header = original.header().clone();
+        native_header.payload_hash = iroha_sumeragi::preimage::payload_hash(
+            &**worker.context.crypto.as_ref().unwrap(),
+            &bytes,
+        );
+        native_header.payload_len = u32::try_from(bytes.len()).unwrap();
+        let body = chain.author_payload(native_header, bytes);
+        let hash = body.hash(&**worker.context.crypto.as_ref().unwrap());
+        let outcome = worker.execute(&body, hash, false);
+        assert!(
+            matches!(outcome, Some(ExecOutcome::Valid { .. })),
+            "authenticated proposer time above the input floor must execute: {outcome:?}"
+        );
+        let Some(ExecOutcome::Valid { result, .. }) = outcome else {
+            unreachable!()
+        };
+        let qc = chain.commit_qc(
+            2,
+            hash,
+            result,
+            crate::sumeragi::test_chain::Signers::Quorum,
+        );
+        worker.discard(2, &[]);
+        clock.set(Duration::ZERO);
+        let context = worker.context.clone();
+        let mut executor = StateExecutor::spawn(context.clone()).unwrap();
+        assert!(matches!(executor.execute(&body, &hash, false),
+            Some(ExecOutcome::Failed(reason)) if reason.contains("ClockAhead")));
+        assert_eq!(executor.prepare(&body, &qc).unwrap(), Some(result));
+        blocks.append(&body, &qc).unwrap();
+        // A restart releases the original prepared owner before cold replay can acquire it.
+        drop(executor);
+        let mut restored = StateExecutor::spawn(context).unwrap();
+        restored.replay(&body, &qc).unwrap();
+        assert_eq!(
+            worker.state.view().native_execution_tip().unwrap().result(),
+            result
+        );
+        assert_eq!(
+            payload::decode(body.payload().as_slice())
+                .unwrap()
+                .header()
+                .creation_time(),
+            chosen
+        );
     });
 }
 
@@ -86,9 +162,9 @@ fn certified_execution_skips_clock_guards() {
             executor.execute(&block, &qc.block_hash, false),
             Some(ExecOutcome::Failed(reason)) if reason.contains("ClockAhead")
         ));
-        assert_eq!(
-            executor.execute(&block, &qc.block_hash, true),
-            Some(ExecOutcome::Valid(qc.result)),
+        assert!(
+            matches!(executor.execute(&block, &qc.block_hash, true),
+            Some(ExecOutcome::Valid { result, .. }) if result == qc.result),
             "the genuine certified re-proposal executes the exact same deterministic result"
         );
         executor.discard(block.header().height, &[]);

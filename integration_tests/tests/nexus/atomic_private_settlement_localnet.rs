@@ -11,6 +11,9 @@
 
 #[path = "atomic_private_settlement_observation.rs"]
 mod peer_observation;
+#[cfg(feature = "atomic-private-settlement-smoke")]
+#[path = "atomic_private_settlement_prepared_operation.rs"]
+mod prepared_operation;
 use peer_observation::collect_bounded_observations;
 
 use super::localnet_npos::npos_override_instruction;
@@ -3532,57 +3535,41 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
             },
         )?;
         let materials = provisional_materials(manifest, &prepared, &committees)?;
+        let endpoint_matrix = committees
+            .iter()
+            .map(|committee| committee.endpoints.clone())
+            .collect::<Vec<_>>();
+        let journal_directory = tempfile::tempdir_in(network.env_dir())?.keep();
+        let operation = prepared_operation::PreparedSdkFlow::new(
+            &network,
+            &sponsor,
+            &materials,
+            endpoint_matrix,
+            &journal_directory.join("prepared-settlement"),
+        )?;
         let availability_timing =
             SmokeDiagnosticSpanV1::start(SmokeDiagnosticPhaseV1::AvailabilityCertification, None);
-        // Borrow the immutable SDK context, without capturing the blocking runtime
-        // or rebuilding its transport/signing configuration for individual legs.
-        let client = sponsor.client();
-        let certification_jobs =
-            std::array::from_fn(|ordinal| (&materials[ordinal], &committees[ordinal]));
-        let certificates = collect_three_smoke_phase_jobs_v1(
-            SmokeLegJobPhaseV1::AvailabilityCertification,
-            certification_jobs,
-            |_, (material, committee)| {
-                client
-                    .certify_private_settlement_leg_availability_v1(&committee.endpoints, material)
-            },
-        )?;
+        // This injects an SDK journal acknowledgement loss after the real durable
+        // availability CAS. It is not a process crash; real committee restarts below
+        // remain a distinct acceptance check.
+        operation.interrupt_after(&runtime, 0)?;
         availability_timing.complete();
-        let mut final_manifest = materials[0].manifest.clone();
-        for (ordinal, certificate) in certificates.iter().enumerate() {
-            final_manifest.legs[ordinal].availability_certificate_digest = certificate.digest()?;
-        }
-        final_manifest.validate()?;
+        let original_availability_checkpoint = operation.availability_checkpoint()?;
+        let certificates = operation
+            .round::<Vec<iroha_data_model::nexus::PrivateSettlementSidecarAvailabilityV1>>(0)?;
+        let final_manifest = operation.availability_manifest(&materials)?;
+        evidence_files.push(write_smoke_evidence(
+            &evidence_root,
+            "prepared-artifact-sizes.json",
+            &prepared_operation::artifact_sizes(&materials, &final_manifest, &certificates)?,
+        )?);
         let upload_timing =
             SmokeDiagnosticSpanV1::start(SmokeDiagnosticPhaseV1::RestrictedUpload, None);
-        let upload_jobs = std::array::from_fn(|ordinal| {
-            (
-                &materials[ordinal],
-                &certificates[ordinal],
-                &committees[ordinal],
-            )
-        });
-        collect_three_smoke_phase_jobs_v1(
-            SmokeLegJobPhaseV1::RestrictedUpload,
-            upload_jobs,
-            |ordinal, (material, certificate, committee)| {
-                let request = PrivateSettlementLegUploadRequestV1 {
-                    manifest: final_manifest.clone(),
-                    audit_policy: material.audit_policy.clone(),
-                    committee_authority: material.committee_authority.clone(),
-                    payload: material.payload_with_certificate(certificate.clone()),
-                };
-                for endpoint in &committee.endpoints {
-                    let response =
-                        client.upload_private_settlement_leg_to_v1(endpoint, &request)?;
-                    ensure!(
-                        usize::from(response.leg_ordinal) == ordinal,
-                        "upload ordinal substitution"
-                    );
-                }
-                Ok(())
-            },
-        )?;
+        // Run the public SDK before any audit approvals. It promotes the exact
+        // persisted certificate and must stop at Prepare. That redacted error alone
+        // is not evidence of the cause: the quorum auditor view below authenticates
+        // the exact Collecting material, and only approvals change before retry.
+        operation.await_independent_audit(&runtime)?;
         upload_timing.complete();
         assert_no_partial_visibility(&network, final_manifest.bundle_id, "collecting")?;
         let state = capture_fault_state_snapshot(&network, "smoke-collecting")?;
@@ -3613,6 +3600,16 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
             ensure!(
                 fetched.lifecycle == PrivateSettlementLifecycleDtoV1::Collecting,
                 "unexpected audit lifecycle"
+            );
+            ensure!(
+                fetched.manifest == final_manifest
+                    && fetched.audit_policy == materials[ordinal].audit_policy
+                    && fetched.committee_authority == materials[ordinal].committee_authority
+                    && fetched.statement == materials[ordinal].statement
+                    && fetched.delta == materials[ordinal].delta
+                    && fetched.audit_capsule == materials[ordinal].audit_capsule
+                    && fetched.availability == certificates[ordinal],
+                "authenticated auditor view replaced original prepared material or availability certificate"
             );
             let authoritative_height = fetched.authoritative_height;
             let view = PrivateSettlementAuditorSidecarViewV1 {
@@ -3662,26 +3659,14 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
             &state,
         )?);
 
-        let endpoint_matrix = committees
-            .iter()
-            .map(|committee| committee.endpoints.clone())
-            .collect::<Vec<_>>();
-        let authorities = committees
-            .iter()
-            .map(|committee| committee.authority.clone())
-            .collect::<Vec<_>>();
-        let deltas = prepared
-            .iter()
-            .map(|leg| leg.prepared.delta.clone())
-            .collect::<Vec<_>>();
+        ensure!(
+            operation.availability_checkpoint()? == original_availability_checkpoint,
+            "independent audit changed the original durable availability snapshot"
+        );
         let prepare_timing =
             SmokeDiagnosticSpanV1::start(SmokeDiagnosticPhaseV1::PrepareCertification, None);
-        let barrier = sponsor.client().prepare_private_settlement_bundle_v1(
-            &endpoint_matrix,
-            &final_manifest,
-            &authorities,
-            &deltas,
-        )?;
+        operation.interrupt_after(&runtime, 1)?;
+        let barrier = operation.barrier(final_manifest.clone(), &materials)?;
         prepare_timing.complete();
         assert_no_partial_visibility(&network, final_manifest.bundle_id, "prepared")?;
         let state = capture_fault_state_snapshot(&network, "smoke-prepared")?;
@@ -3694,17 +3679,7 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
         let registration_timing =
             SmokeDiagnosticSpanV1::start(SmokeDiagnosticPhaseV1::PrepareRegistration, None);
         let fee_before_registration = sponsor_nexus_fee_balance(&sponsor)?;
-        sponsor
-            .client()
-            .register_private_settlement_prepare_and_wait_v1(
-                &barrier,
-                u64::try_from(PRIVATE_SETTLEMENT_MAX_RECEIPT_BYTES_V1)
-                    .expect("V1 carrier ceiling fits u64"),
-                iroha::client::TransactionWaitOptions {
-                    timeout: FINALITY_TIMEOUT,
-                    poll_interval: POLL_INTERVAL,
-                },
-            )?;
+        operation.interrupt_after(&runtime, 2)?;
         let fee_after_registration = sponsor_nexus_fee_balance(&sponsor)?;
         ensure_exact_private_settlement_carrier_fee(
             &fee_before_registration,
@@ -3728,9 +3703,9 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
         )?);
         let commit_timing =
             SmokeDiagnosticSpanV1::start(SmokeDiagnosticPhaseV1::CommitCertification, None);
-        let commits = sponsor
-            .client()
-            .recover_or_commit_private_settlement_bundle_v1(&endpoint_matrix, &barrier)?;
+        operation.interrupt_after(&runtime, 3)?;
+        let commits = operation
+            .round::<Vec<iroha_data_model::nexus::PrivateSettlementPhaseCertificateV1>>(3)?;
         commit_timing.complete();
         evidence_files.push(write_smoke_evidence(
             &evidence_root,
@@ -3746,28 +3721,43 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
             &state,
         )?);
 
-        let request = sponsor
-            .client()
-            .build_private_settlement_finalization_request_v1(
-                &barrier,
-                &commits,
-                u64::try_from(PRIVATE_SETTLEMENT_MAX_RECEIPT_BYTES_V1)
-                    .expect("V1 carrier ceiling fits u64"),
-            )?;
         let fee_before_finalization = sponsor_nexus_fee_balance(&sponsor)?;
         observer.begin_phase("finalization", &[], true)?;
         observer.checkpoint_active_phase(&[])?;
         let finality_timing =
             SmokeDiagnosticSpanV1::start(SmokeDiagnosticPhaseV1::FinalityWorkflow, None);
-        let submission_timing =
-            SmokeDiagnosticSpanV1::start(SmokeDiagnosticPhaseV1::FinalizationSubmission, None);
-        sponsor
-            .client()
-            .submit_private_settlement_bundle_v1(&request)?;
-        submission_timing.complete();
+        // The public operation includes submission and independent finality reads;
+        // its duration belongs to FinalityWorkflow, not an HTTP-only submission span.
+        let settled = operation.finish(&runtime)?;
+        let verified_receipt = settled.receipt;
+        let request = prepared_operation::original_finalization(&verified_receipt)?;
+        ensure!(
+            operation.availability_checkpoint()? == original_availability_checkpoint,
+            "finalization replaced the original durable availability certificate"
+        );
+        let carrier_norito_bytes = request.transaction.encode_wire_v1()?.len();
+        let carrier_json_bytes = norito::json::to_vec(&request)?.len();
+        ensure!(carrier_norito_bytes <= PRIVATE_SETTLEMENT_MAX_RECEIPT_BYTES_V1);
+        ensure!(
+            (carrier_json_bytes as u64)
+                <= iroha_config::parameters::defaults::torii::MAX_CONTENT_LEN.0
+        );
+        evidence_files.push(write_smoke_evidence(
+            &evidence_root, "verified-carrier-sizes.json",
+            &norito::json!({
+                "signed_carrier_norito_bytes": carrier_norito_bytes,
+                "signed_carrier_json_bytes": carrier_json_bytes,
+                "public_receipt_norito_bytes": (norito::encode_canonical(verified_receipt.receipt())?.len()),
+                "carrier_bound_bytes": PRIVATE_SETTLEMENT_MAX_RECEIPT_BYTES_V1,
+            }),
+        )?);
         let receipt_timing =
             SmokeDiagnosticSpanV1::start(SmokeDiagnosticPhaseV1::AllPeerReceipt, None);
         let receipt = wait_for_identical_receipt(&network, final_manifest.bundle_id)?;
+        ensure!(
+            &receipt == verified_receipt.receipt(),
+            "all-peer informational receipt differs from independently verified successful Finalize"
+        );
         receipt_timing.complete();
         let fee_after_finalization = sponsor_nexus_fee_balance(&sponsor)?;
         ensure_exact_private_settlement_carrier_fee(
@@ -3796,6 +3786,13 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
         }
         let after = wait_for_converged_fault_state_snapshot(&network, "smoke-finalized")?;
         ensure_fault_state_finalized_once(&before, &after, shape.participants)?;
+        prepared_operation::require_final_tip(
+            after
+                .validators
+                .iter()
+                .map(|observation| (observation.peer_index, observation.height)),
+            receipt.finalized_height,
+        )?;
         observe_smoke_diagnostic_milestone_v1(
             SmokeDiagnosticPhaseV1::FinancialApplicationVerified,
             receipt.finalized_height,
@@ -3844,6 +3841,13 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
             "acknowledged finalization retry charged a third carrier fee"
         );
         ensure_fault_state_reverted(&after, &replayed)?;
+        prepared_operation::require_final_tip(
+            replayed
+                .validators
+                .iter()
+                .map(|observation| (observation.peer_index, observation.height)),
+            receipt.finalized_height,
+        )?;
         evidence_files.push(write_smoke_evidence(
             &evidence_root,
             "state-replay.json",
@@ -3954,8 +3958,32 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
                 wait_for_identical_receipt(&network, final_manifest.bundle_id)? == receipt,
                 "smoke restart target #{peer_index} changed the finalized receipt"
             );
+            let recovered_receipt = operation.recover(&runtime)?;
+            ensure!(
+                recovered_receipt.receipt() == verified_receipt.receipt()
+                    && recovered_receipt.transaction_hash() == verified_receipt.transaction_hash()
+                    && recovered_receipt.context_id() == verified_receipt.context_id()
+                    && recovered_receipt.nexus_fee_receipt()
+                        == verified_receipt.nexus_fee_receipt(),
+                "reopened SDK journal did not recover the exact original successful Finalize after peer restart"
+            );
+            ensure!(
+                operation.availability_checkpoint()? == original_availability_checkpoint,
+                "read-only restart recovery replaced the original certificate"
+            );
+            ensure!(
+                sponsor_nexus_fee_balance(&sponsor)? == fee_after_finalization,
+                "read-only SDK recovery charged another carrier fee"
+            );
             let recovered = wait_for_converged_fault_state_snapshot(&network, "smoke-restarted")?;
             ensure_fault_state_reverted(&after, &recovered)?;
+            prepared_operation::require_final_tip(
+                recovered
+                    .validators
+                    .iter()
+                    .map(|observation| (observation.peer_index, observation.height)),
+                receipt.finalized_height,
+            )?;
             evidence_files.push(write_smoke_evidence(
                 &evidence_root,
                 &format!("state-restarted-{peer_index:02}.json"),

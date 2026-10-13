@@ -31,6 +31,19 @@ fn retained_record(h: &H) -> SafetyRecord {
             block_hash: lock.block_hash,
             result: lock.result,
         }),
+        prepare_signature: Some(
+            h.signers[0]
+                .sign(&crate::preimage::vote_preimage(
+                    VoteKind::Prepare,
+                    &I,
+                    &h.config(h.height()).epoch.id,
+                    h.height(),
+                    2,
+                    &lock.block_hash,
+                    &lock.result,
+                ))
+                .unwrap(),
+        ),
         timeout: Some(RecordedTimeout {
             view: 2,
             high_pqc: Some(lock.clone()),

@@ -60,10 +60,7 @@ fn resident_fixture() -> (State, TimeSource) {
 }
 
 fn resident_shell_layout() -> std::alloc::Layout {
-    iroha_allocation::shared::Shared::<
-        CheckedTransaction<'static>,
-        resident_owner::QueueResidentCharge,
-    >::layout()
+    QueuedTransaction::allocation_layout()
 }
 
 #[test]
@@ -293,6 +290,10 @@ fn every_queue_retirement_defers_original_refund_until_its_mutation_fence_releas
         register_accepted_tx_authority_for_queue_test(&mut state, &original);
         let hash = original.hash_as_entrypoint();
         queue.push(original, state.view()).unwrap();
+        // Acquire the revalidation fixture's State source before arming a pool-wide
+        // release callback: a new EBR read may reclaim unrelated retired State rows.
+        // The observed boundary below is Queue retirement, not that fixture read.
+        let view = state.view();
         let budget = state.ivm_execution_budget();
         let mut registration = crate::unit_test_support::release_registration(&budget);
         let occupied = budget.reserved_bytes();
@@ -323,7 +324,6 @@ fn every_queue_retirement_defers_original_refund_until_its_mutation_fence_releas
             _ => {
                 clock.advance(Duration::from_secs(2));
                 let router = queue.router.read().clone();
-                let view = state.view();
                 queue.revalidate_pending_transactions(
                     &router,
                     &view,

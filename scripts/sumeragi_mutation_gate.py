@@ -180,6 +180,19 @@ def m(mid, site, tests, scenarios=(), *, causes=()):
 
 # id, site and change, named deterministic test(s), randomized scenario(s) — mirrors §13.4.
 MUTATIONS = [
+    m("MS64", "first Prepare signs without consulting its original application admission",
+      ["machine::tests::signing::det_ct5_cached_execution_waits_for_stage_and_checks_actual_first_signing_time",
+       "sim::world::clock_guard::tests::det_ct5_world_retained_execution_rechecks_clock_at_first_prepare"], [], causes=(
+          ExpectedFailure("cached Valid cannot bypass first-Prepare freshness after stage delay",
+              "crates/iroha_sumeragi/src/machine/tests/signing.rs"),
+          ExpectedFailure("a retained World result must not sign after its actual wall clock advances",
+              "crates/iroha_sumeragi/src/sim/world/clock_guard/tests.rs"))),
+    m("MS65", "restore synthesizes a successful signature from an unsigned Prepare reservation",
+      ["machine::tests::signing::det_ct5_unsigned_prepare_reservation_restart_never_synthesizes_first_signature"], [], causes=(ExpectedFailure("a durable unsigned reservation cannot synthesize a first Prepare without fresh source-bound execution or a genuine matching PQC",
+          "crates/iroha_sumeragi/src/machine/tests/signing.rs"),)),
+    m("MS66", "restore accepts a checksummed fabricated successful Prepare signature",
+      ["machine::tests::signing::det_ct5_successful_prepare_signature_is_exact_durable_and_authenticated_on_restart"], [], causes=(ExpectedFailure("a checksummed fabricated successful signature is not restart authority",
+          "crates/iroha_sumeragi/src/machine/tests/signing.rs"),)),
     # ---- safety rules (one mutation per rule of §7.1)
     m("MS1", "propose/restore: rule 0 skipped, a restarted leader builds a new block",
       ["det_s1_leader_restart_no_second_proposal"], ["f13"]),
@@ -362,6 +375,13 @@ MUTATIONS = [
       ["det_l29_late_leader_does_not_raise"], ["f36"]),
     m("ML31", "validate_chain: omits the outer sync response allowance",
       ["det_l31_chain_parameters_leave_a_feasible_sync_frame_budget"], []),
+    m("ML32", "process_sync_buffer: existing body wants never learn sync responders",
+      ["det_l32_sync_enriches_restored_body_want",
+       "f28_seed177_restored_empty_body_want_catches_up"], ["f28"]),
+    m("ML33", "process_sync_buffer: a verified donor is excluded by saturated source history",
+      ["det_l33_verified_sync_donor_survives_saturated_history"], []),
+    m("ML34", "process_sync_buffer: rejected deferred donor cannot refresh the missing height",
+      ["det_l34_deferred_sync_donor_failure_refetches_current_height"], []),
     m("MS42", "original publication recovery does not halt the core",
       ["det_s42_original_publication_recovery_halts"], []),
     m("MS43", "signing domains omit epoch identity and complete context", ["det_s43_every_signature_binds_epoch_and_complete_context"], []),
@@ -471,11 +491,35 @@ MUTATIONS = [
       ["det_amx_handoff_keeps_previous_epoch"], []),
     m("MX12", "Tracker::verify: the result-preimage check deleted",
       ["det_amx_record_bound_to_result"], ["f31"]),
+    m("MX13", "Relayer: omit authenticated Begin's actionable expiry work",
+      ["sim::tests::amx_final_payment::amx_final_payment_silent_participant_requires_actionable_abort"],
+      causes=(ExpectedFailure("healthy global root must resolve the due final obligation without unrelated height advancement",
+          "crates/iroha_sumeragi/src/sim/tests/amx_final_payment.rs"),)),
+    m("MX14", "GlobalState::vote: permit Commit at or after the signed time expiry",
+      ["sim::amx::tests::det_amx_time_expiry_orders_last_yes_and_expire_identically"],
+      causes=(ExpectedFailure("signed time expiry must dominate the last Yes at the exact boundary regardless of payload order",
+          "crates/iroha_sumeragi/src/sim/amx/tests.rs"),)),
+    m("MX15", "AMX carrier classification: omit Begin and Vote from stale-time admission",
+      ["sim::amx::tests::det_amx_time_sensitive_carriers_refuse_stale_time_but_certified_replay_is_exempt"],
+      causes=(ExpectedFailure("Begin and Vote carriers must enforce certified-time freshness alongside Expire",
+          "crates/iroha_sumeragi/src/sim/amx/tests.rs"),)),
 ]
 
 # Core-owned rules use the same strict harness classifier; no simulator hook can stand in
 # for production State/custody admission. Opt in explicitly with --core.
 CORE_MUTATIONS = [
+    m("HC279", "omit native final freshness after original encoding and admission waits",
+      ["sumeragi::executor::prepare_admission_tests::ct5_post_encoding_clock_advance_rolls_back_actual_begin_and_fees_with_original_decode"], causes=(ExpectedFailure("time-sensitive effects must be locally deferred after the last encoding wait",
+          "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs"),)),
+    m("HC280", "reuse cached native Valid without checking the actual wall clock",
+      ["sumeragi::executor::prepare_admission_tests::ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source"], causes=(ExpectedFailure("cached native Valid cannot bypass a fresh local clock check",
+          "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs"),)),
+    m("HC281", "allow a first-Prepare request to substitute the original native result",
+      ["sumeragi::executor::prepare_admission_tests::ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source"], causes=(ExpectedFailure("a certificate flag cannot substitute another result",
+          "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs"),)),
+    m("HC282", "omit native first-signing freshness after execution",
+      ["sumeragi::executor::prepare_admission_tests::ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source"], causes=(ExpectedFailure("native first signing must recheck the actual wall clock after execution",
+          "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs"),)),
     m("HC257", "Full State executor: omit the uncertified CT1 clock-ahead guard",
       ["sumeragi::executor::clock_tests::prepare_withheld_while_block_time_ahead"],
       causes=(ExpectedFailure("uncertified future block must defer before execution",
@@ -856,8 +900,9 @@ CORE_MUTATIONS = [
     m("HC144", "Queue payload lease: erase original capture admission refusal as absent work",
       ["queue::payload_leases::tests::pending_payload_lease_preserves_original_capacity_refusal_and_refuses_generation_wrap"]),
 
-    m("HC145", "Queue payload lease: wrap the original ownership generation instead of latching refusal",
-      ["queue::payload_leases::tests::pending_payload_lease_preserves_original_capacity_refusal_and_refuses_generation_wrap"]),
+    m("HC145", "Queue payload lease: wrap the original admission high-water instead of latching refusal",
+      ["queue::payload_leases::tests::pending_payload_lease_preserves_original_capacity_refusal_and_refuses_generation_wrap",
+       "queue::payload_leases::tests::pending_payload_admission_exhaustion_refuses_before_input_publication"]),
 
     m("HC146", "State preverify: omit exact compiled native descriptor/key admission before dedup publication",
       ["state::state_preverify_backend_admission_tests::unsupported_retired_and_claimed_backends_fail_state_admission",
@@ -1146,6 +1191,66 @@ CORE_MUTATIONS = [
       causes=(ExpectedFailure("same direct payment identity charges one execution fee across distinct carriers",
           "crates/iroha_core/src/executor/settlement_replay_tests.rs"),)),
 
+    m("HC270", "AMX discovery: require an AMX coordinates file for authenticated zero-record history",
+      ["sumeragi::amx::native::tests::paid_borrowed_custody::discovery::native_amx_discovery_advances_ordinary_global_height_then_delivers_both_final_tip_decisions"],
+      causes=(ExpectedFailure("authenticated zero-record height must advance without an AMX coordinates file",
+          "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/discovery.rs"),)),
+
+    m("HC275", "AMX handoff discovery: omit authenticated final epoch boundaries without AMX records",
+      ["sumeragi::amx::native::tests::paid_borrowed_custody::handoffs::native_amx_handoff_discovery_delivers_final_boundary_without_record_and_replays_both_roots"],
+      causes=(ExpectedFailure("authenticated final epoch boundary must deliver its handoff without an AMX row or successor",
+          "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/handoffs.rs"),)),
+
+    m("HC286", "AMX approval scope: omit the exact direct private-root consent classifier",
+      ["sumeragi::amx::native::tests::paid_borrowed_custody::authorization::native_amx_exact_owner_grant_revocation_and_separate_relay_preserve_settlement",
+       "sumeragi::amx::native::tests::paid_borrowed_custody::approval_proof::native_amx_approval_proof_requires_owner_grant_and_rechecks_exact_private_cut"],
+      causes=(
+          ExpectedFailure("actual debit owner grants the exact native AMX intent",
+              "crates/iroha_core/src/sumeragi/amx/native/tests.rs"),
+          ExpectedFailure("actual debit owner grants the exact native AMX intent",
+              "crates/iroha_core/src/sumeragi/amx/native/tests.rs"),)),
+
+    m("HC287", "AMX discovery: acquire another destination's target graph before route selection",
+      ["sumeragi::amx::native::tests::paid_borrowed_custody::route_discovery::native_amx_route_discovery_retains_refused_handoff_while_another_destination_advances"],
+      causes=(ExpectedFailure("requested route must be selected before unrelated target graph acquisition",
+          "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/route_discovery.rs"),)),
+
+    m("HC283", "AMX expiry recovery: accept a Decision source from the wrong root",
+      ["sumeragi::amx::native::tests::paid_borrowed_custody::expiry_recovery::native_amx_expiry_recovery_authenticates_final_decision_after_restart_and_rechecks_cached_positive"],
+      causes=(ExpectedFailure("a child root cannot authenticate the Global expiry decision",
+          "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/expiry_recovery.rs"),)),
+
+    m("HC284", "AMX expiry recovery: promote a cached positive height without a fresh authenticated read",
+      ["sumeragi::amx::native::tests::paid_borrowed_custody::expiry_recovery::native_amx_expiry_recovery_authenticates_final_decision_after_restart_and_rechecks_cached_positive"],
+      causes=(ExpectedFailure("cached positive height must reauthenticate original proof before suppressing a carrier",
+          "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/expiry_recovery.rs"),)),
+
+    m("HC278", "Routing lane first Prepare: accept a substituted execution source",
+      ["sumeragi::lanes::executor::native_decode_tests::native_lane_first_prepare_admission_binds_original_source_and_retains_its_charge"],
+      causes=(ExpectedFailure("certification never exempts source substitution",
+          "crates/iroha_core/src/sumeragi/lanes/executor/native_decode_tests.rs"),)),
+
+    m("HC273", "Fresh proposer: omit captured time while retaining original signed inputs",
+      ["sumeragi::executor::payload_owner::tests::fresh_view_refreshes_authenticated_block_time_without_replacing_signed_input"],
+      causes=(ExpectedFailure("fresh view must refresh certified time without another signed transaction",
+          "crates/iroha_core/src/sumeragi/executor/payload_owner.rs"),)),
+
+    m("HC274", "Native execution: reject authenticated proposer time above the required floor",
+      ["sumeragi::executor::clock_tests::authenticated_proposer_time_above_floor_executes_and_replays_without_restamping"],
+      causes=(ExpectedFailure("authenticated proposer time above the input floor must execute",
+          "crates/iroha_core/src/sumeragi/executor/clock_tests.rs"),)),
+
+    m("HC272", "Routing lane: lend retained payload after its original Queue admission retires",
+      ["sumeragi::lanes::executor::queue_lease_tests::lane_original_queue_lease_retires_expiry_and_withdrawal_during_clock_wait",
+       "sumeragi::lanes::executor::queue_lease_tests::lane_original_queue_lease_rechecks_withdrawal_after_actual_encoding",
+       "sumeragi::lanes::executor::queue_lease_tests::lane_original_queue_lease_preserves_same_output_across_clock_rewind_and_retires_readmission"],
+      causes=(ExpectedFailure("lane clock retry must retire expired or withdrawn original Queue admission",
+          "crates/iroha_core/src/sumeragi/lanes/executor/queue_lease_tests.rs"),
+          ExpectedFailure("lane retained output must not outlive its original Queue admission",
+          "crates/iroha_core/src/sumeragi/lanes/executor/queue_lease_tests.rs"),
+          ExpectedFailure("same-hash readmission must not revive the retained lane Queue lease",
+          "crates/iroha_core/src/sumeragi/lanes/executor/queue_lease_tests.rs"))),
+
     m("HC271", "Begin delivery: skip original source revalidation after funded Prepare admission",
       ["sumeragi::amx::native::tests::paid_borrowed_custody::begins::native_amx_begin_delivery_final_namespace_refusal_preserves_original_instruction"],
       causes=(ExpectedFailure("source namespace must be rechecked after instruction admission",
@@ -1319,12 +1424,34 @@ MODEL_MUTATIONS = [
 
     m("DM36", "committed clock drift: omit the CT4 protocol bound",
       ["parameter::system::tests::clock_drift_bound_accepts_exact_limit_and_rejects_excess_without_overflow"]),
+    m("DM37", "committed due-work policy: omit combined drift/cadence margin and overflow checks",
+      ["parameter::system::tests::due_work_policy_checks_combined_margin_and_overflow_without_local_clock"]),
+    m("DM38", "AMX debit approval: trust a permission cut under a foreign authenticated root",
+      ["sumeragi_amx::approval_proof::tests::exact_debit_approval_rejects_substituted_roots_terms_relays_schema_and_permission_preimages"]),
+    m("DM39", "last Yes ignores signed ledger-time expiry",
+      ["sumeragi_amx::tests::time_tests::sumeragi_amx_time_boundary_is_exclusive_and_height_boundary_inclusive"], causes=(ExpectedFailure("late Yes must never decide Commit",
+          "crates/iroha_data_model/src/sumeragi_amx/time_tests.rs"),)),
+    m("DM40", "time expiry mutates a pending decision before its original writer accepts",
+      ["sumeragi_amx::tests::time_tests::sumeragi_amx_time_expiry_preserves_all_pending_rows_on_writer_refusal"], causes=(ExpectedFailure("failed witness publication cannot prune time-expired obligations",
+          "crates/iroha_data_model/src/sumeragi_amx/time_tests.rs"),)),
 
 ]
 
 
 # Daemon integration rules execute only in the owning daemon unit-test crate.
 DAEMON_MUTATIONS = [
+    m("HC285", "AMX expiry recovery: treat decoded terminal journal state as fresh exact-carrier proof",
+      ["amx_relay::ledger::expiry_recovery_tests::independently_decided_expiry_recovers_only_the_existing_exact_carrier_without_dispatch"],
+      causes=(ExpectedFailure("read-only carrier recovery must preserve independently authenticated outcomes: unknown",
+          "crates/irohad/src/amx_relay/expiry_recovery_tests.rs"),)),
+    m("HC276", "AMX handoff recovery: omit independently applied original handoffs after epoch advancement",
+      ["amx_relay::ledger::handoff_recovery_tests::fresh_relayer_recovers_independent_native_handoffs_after_two_epochs_and_restart"],
+      causes=(ExpectedFailure("fresh relayer must recover the original independent successful handoff after its source epoch is no longer tracked",
+          "crates/irohad/src/amx_relay/handoff_recovery_tests.rs"),)),
+    m("HC277", "AMX source scan: continually move the frontier before retrying pending original handoffs",
+      ["amx_relay::tests::growing_source_tip_cannot_starve_pending_original_handoff_retry"],
+      causes=(ExpectedFailure("continuous source growth must not starve bounded retry of the original handoff",
+          "crates/irohad/src/amx_relay.rs"),)),
     m("HC266", "AMX relay journal identity substitutes an unrelated authenticated successful carrier",
       ["amx_relay::ledger::proof_tests::relay_journal_identity_cannot_substitute_an_unrelated_successful_carrier"]),
     m("HC105", "DKG generation restore: ignore original input marker or later producer intent",

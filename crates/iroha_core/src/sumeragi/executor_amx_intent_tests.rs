@@ -62,7 +62,7 @@ fn paid_block(
         chain.sign(customer, instructions, time)
     });
     let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-    let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
+    let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, hash, false) else {
         panic!("genuine paid original must execute");
     };
     let qc = chain.commit_qc(block.header().height, hash, result, Signers::Quorum);
@@ -200,7 +200,7 @@ fn original_paid_intent_capacity_refusal_retains_completed_context_and_same_pool
                     .try_reserve_bytes(limit - budget.reserved_bytes())
                     .unwrap(),
             );
-            worker.finish_execution_with_encoder(encode_result_preimage)
+            worker.finish_execution_with_encoder(false, encode_result_preimage)
         });
         let Err(PublicationError::Deferred(refusal)) = outcome else {
             panic!("intent must preserve typed original pool refusal");
@@ -227,7 +227,7 @@ fn original_paid_intent_capacity_refusal_retains_completed_context_and_same_pool
         assert!(budget.same_pool(&worker.state.ivm_execution_budget()));
         drop(blocker.take());
         worker
-            .finish_execution_with_encoder(encode_result_preimage)
+            .finish_execution_with_encoder(false, encode_result_preimage)
             .unwrap();
         let live = worker.live.as_ref().unwrap();
         let context = live.native_contexts.as_ref().unwrap();
@@ -508,7 +508,7 @@ fn original_paid_intent_capture_rejects_changed_carrier_execution_and_foreign_po
             );
             assert_eq!(context.canonical_bytes().as_ptr(), pointer);
             original.native_contexts = Some(context);
-            worker.finish_execution_with_encoder(encode_result_preimage)
+            worker.finish_execution_with_encoder(false, encode_result_preimage)
         });
         assert!(matches!(outcome, Ok(Some(_))));
     });
@@ -523,7 +523,7 @@ fn original_paid_prepared_witness_survives_same_block_pruning_before_intent_comm
                     let block = publication_tests::proposal_with_transaction(chain, worker,
                         |chain, time| chain.sign(&customer, instructions, time));
                     let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-                    let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else { panic!("actual paid same-block Prepare originals must execute"); };
+                    let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, hash, false) else { panic!("actual paid same-block Prepare originals must execute"); };
                     let qc = chain.commit_qc(block.header().height, hash, result, Signers::Quorum);
                     let live = worker.live.as_ref().unwrap();
                     let overlay = live.overlay.as_deref().unwrap();

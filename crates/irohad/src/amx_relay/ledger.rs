@@ -24,6 +24,7 @@ use iroha_data_model::{
     block::{SignedBlock, consensus::SumeragiRootScope},
     isi::InstructionBox,
     query::CommittedTransaction,
+    sumeragi_amx::{AmxDebitApprovalV1, VerifiedAmxDebitApprovalV1},
     sumeragi_finality::{SumeragiFinalityProof, SumeragiFinalityVerifier, VerifiedSumeragiBlock},
     transaction::{
         Executable, FeePaymentIntent, SignedTransaction, TransactionEntrypoint, TransactionPayload,
@@ -40,12 +41,39 @@ enum Location {
 trait Source: Send + Sync {
     fn locate(&self, hash: HashOf<SignedTransaction>) -> WorkflowFuture<'_, Result<Location>>;
     fn proof(&self, height: NonZeroU64) -> WorkflowFuture<'_, Result<SumeragiFinalityProof>>;
+    // Untrusted scan bound only: successful effects require independently verified blocks.
+    fn applied_height(&self) -> WorkflowFuture<'_, Result<u64>>;
+    fn approval<'a>(
+        &'a self,
+        _approval: &'a AmxDebitApprovalV1,
+        _relay: &'a AccountId,
+        _schema: Hash,
+        _block: &'a VerifiedSumeragiBlock,
+    ) -> WorkflowFuture<'a, Result<VerifiedAmxDebitApprovalV1>> {
+        Box::pin(async { Err(eyre!("exact AMX debit approval proof is unavailable")) })
+    }
 }
 struct OnlineSource {
     client: Arc<Client>,
     scope: SumeragiRootScope,
 }
 impl Source for OnlineSource {
+    fn approval<'a>(
+        &'a self,
+        approval: &'a AmxDebitApprovalV1,
+        relay: &'a AccountId,
+        schema: Hash,
+        block: &'a VerifiedSumeragiBlock,
+    ) -> WorkflowFuture<'a, Result<VerifiedAmxDebitApprovalV1>> {
+        Box::pin(async move {
+            self.client
+                .get_amx_debit_approval_state_async(approval, relay, schema, block)
+                .await
+        })
+    }
+    fn applied_height(&self) -> WorkflowFuture<'_, Result<u64>> {
+        Box::pin(async move { Ok(self.client.status().get().await?.blocks) })
+    }
     fn locate(&self, hash: HashOf<SignedTransaction>) -> WorkflowFuture<'_, Result<Location>> {
         Box::pin(async move {
             let response = match self.scope {
@@ -66,13 +94,19 @@ impl Source for OnlineSource {
         })
     }
     fn proof(&self, height: NonZeroU64) -> WorkflowFuture<'_, Result<SumeragiFinalityProof>> {
-        let client = self.client.clone();
-        let scope = self.scope;
         Box::pin(async move {
-            tokio::task::spawn_blocking(move || client.get_sumeragi_finality_proof(height, scope))
-                .await?
+            self.client
+                .get_sumeragi_finality_proof_async(height, self.scope)
+                .await
         })
     }
+}
+
+#[derive(Default)]
+struct HandoffScan {
+    effect: Option<Hash>,
+    next: u64,
+    found: Option<u64>,
 }
 
 pub(super) struct RelayLedger {
@@ -83,6 +117,8 @@ pub(super) struct RelayLedger {
     authority: AccountId,
     fee_payment: FeePaymentIntent,
     instruction: Mutex<Option<Hash>>,
+    approval: Mutex<Option<AmxDebitApprovalV1>>,
+    handoff_scan: Mutex<HandoffScan>,
     max_reads: usize,
     reads: AtomicUsize,
 }
@@ -106,6 +142,8 @@ impl RelayLedger {
             authority: account.authority().clone(),
             fee_payment,
             instruction: Mutex::new(None),
+            approval: Mutex::new(None),
+            handoff_scan: Mutex::new(HandoffScan::default()),
             source: Arc::new(OnlineSource { client, scope }),
             dispatch,
             verifier: Mutex::new(verifier),
@@ -113,11 +151,61 @@ impl RelayLedger {
             reads: AtomicUsize::new(max_reads),
         }
     }
-    pub(super) fn begin_observation(&self, instruction: Hash) -> Result<()> {
+    pub(super) fn begin_observation(
+        &self,
+        instruction: Hash,
+        approval: Option<AmxDebitApprovalV1>,
+    ) -> Result<()> {
         *locked(&self.instruction)? = Some(instruction);
+        *locked(&self.approval)? = approval;
         self.reads.store(self.max_reads, Ordering::Relaxed);
         Ok(())
     }
+    /// Recover an already successful handoff delivered by any authorized carrier. The
+    /// retained cursor/locator only saves read work; every positive result is reverified.
+    pub(super) async fn recover_handoff(&self, expected: &InstructionBox) -> Result<bool> {
+        if cfg!(all(test, sumeragi_daemon_mutation = "HC276")) {
+            return Ok(false);
+        }
+        let effect = handoff_effect(expected)?
+            .ok_or_else(|| eyre!("original boundary intent does not contain a handoff"))?;
+        let found = {
+            let mut scan = locked(&self.handoff_scan)?;
+            if scan.effect != Some(effect) {
+                *scan = HandoffScan {
+                    effect: Some(effect),
+                    next: 2,
+                    found: None,
+                };
+            }
+            scan.found
+        };
+        if let Some(height) = found {
+            let block = self.verified_block(height).await?;
+            if successful_handoff(&block, &self.network, effect)? {
+                return Ok(true);
+            }
+            return Err(eyre!(
+                "original successful handoff locator changed its authenticated effect"
+            ));
+        }
+        let tip = self.source.applied_height().await?;
+        loop {
+            let next = locked(&self.handoff_scan)?.next;
+            if next > tip {
+                return Ok(false);
+            }
+            let block = self.verified_block(next).await?;
+            if successful_handoff(&block, &self.network, effect)? {
+                locked(&self.handoff_scan)?.found = Some(next);
+                return Ok(true);
+            }
+            locked(&self.handoff_scan)?.next = next
+                .checked_add(1)
+                .ok_or_else(|| eyre!("AMX handoff recovery height overflow"))?;
+        }
+    }
+
     // Journal labels and checksums are not authorization. Inspect the actual payload
     // against the independently reconstructed source before signing or dispatching.
     fn check_payload(&self, payload: &TransactionPayload) -> Result<()> {
@@ -148,6 +236,48 @@ impl RelayLedger {
         if payload.fee_payment_intent() != &self.fee_payment {
             return Err(eyre!(
                 "AMX carrier fee intent differs from current explicit route authorization"
+            ));
+        }
+        Ok(())
+    }
+    async fn authorize_debit(&self, payload: &TransactionPayload) -> Result<()> {
+        use iroha_data_model::isi::sumeragi_amx::PrepareAmxV1;
+        self.check_authorized_payload(payload)?;
+        let Executable::Instructions(instructions) = payload.instructions() else {
+            unreachable!("checked native payload")
+        };
+        if instructions[0]
+            .as_any()
+            .downcast_ref::<PrepareAmxV1>()
+            .is_none()
+        {
+            return Ok(());
+        }
+        let approval = locked(&self.approval)?.clone().ok_or_else(|| {
+            eyre!("native AMX Prepare has no independently selected debit approval")
+        })?;
+        // Status is only a locator. Once this route has authenticated a later cut, a
+        // stale/Byzantine status reply cannot roll consent verification back to an old
+        // grant. A fresh process still establishes a historical fact, not proof that
+        // no later revoke exists; native execution always rechecks current permission.
+        let height = self
+            .source
+            .applied_height()
+            .await?
+            .max(locked(&self.verifier)?.authenticated_height().unwrap_or(0));
+        let block = self.verified_block(height).await?;
+        let schema = iroha_core::state::State::native_world_schema_hash_v1()
+            .map_err(|error| eyre!(error))?;
+        let verified = self
+            .source
+            .approval(&approval, &self.authority, schema, &block)
+            .await?;
+        if verified.approval() != &approval
+            || verified.relay() != &self.authority
+            || verified.height() != block.height()
+        {
+            return Err(eyre!(
+                "native AMX debit approval proof differs from its original intent and relay"
             ));
         }
         Ok(())
@@ -310,6 +440,17 @@ impl WorkflowAccount for RelayAccount {
                 .map_err(|error| {
                     StepFailure::new(WorkflowErrorCode::BindingMismatch, error.to_string())
                 })?;
+            self.ledger
+                .authorize_debit(&payload)
+                .await
+                .map_err(|error| {
+                    // Failed evidence acquisition is not a monetary or authorization
+                    // verdict. Keep this exact unsigned reservation available to retry.
+                    StepFailure::new(
+                        WorkflowErrorCode::LocalResourceUnavailable,
+                        error.to_string(),
+                    )
+                })?;
             self.account.sign(unsigned_payload).await
         })
     }
@@ -340,6 +481,25 @@ impl WorkflowLedger for RelayLedger {
                     detail: error.detail,
                 };
             }
+            let transaction = match SignedTransaction::decode_all_versioned(bytes) {
+                Ok(transaction) => transaction,
+                Err(error) => {
+                    return DispatchOutcome::NotAdmitted {
+                        code: if error.is_local_resource_refusal() {
+                            WorkflowErrorCode::LocalResourceUnavailable
+                        } else {
+                            WorkflowErrorCode::NonCanonicalEncoding
+                        },
+                        detail: error.to_string(),
+                    };
+                }
+            };
+            if let Err(error) = self.authorize_debit(transaction.payload()).await {
+                return DispatchOutcome::NotAdmitted {
+                    code: WorkflowErrorCode::LocalResourceUnavailable,
+                    detail: error.to_string(),
+                };
+            }
             conservative_dispatch(self.dispatch.dispatch(bytes, identity).await)
         })
     }
@@ -355,6 +515,85 @@ impl WorkflowLedger for RelayLedger {
                 })
         })
     }
+}
+
+// Local equality key for a verified handoff scan, never a proof or dispatch authority.
+// Both expected and observed handoffs use this sole nominal frame; the borrowed
+// original header and result are streamed without copying their private preimages.
+#[derive(norito::SerializePayload, norito::NoritoSchema)]
+#[norito_schema(name = "irohad::amx_relay::HandoffEffect")]
+struct HandoffEffect<'a> {
+    direction: u8,
+    dataspace: iroha_model_base::topology::DataSpaceId,
+    consensus_header: &'a [u8],
+    result_preimage: &'a [u8],
+}
+
+fn handoff_effect(instruction: &InstructionBox) -> Result<Option<Hash>> {
+    use iroha_data_model::isi::sumeragi_amx::{RelayAmxHandoffV1, RelayGlobalAmxHandoffV1};
+    let (direction, dataspace, proof) =
+        if let Some(value) = instruction.as_any().downcast_ref::<RelayAmxHandoffV1>() {
+            (0u8, value.dataspace, &value.proof)
+        } else if let Some(value) = instruction
+            .as_any()
+            .downcast_ref::<RelayGlobalAmxHandoffV1>()
+        {
+            (1u8, value.dataspace, &value.proof)
+        } else {
+            return Ok(None);
+        };
+    // A different valid exact-quorum QC may certify the same original boundary.
+    // Both its source header and certified result remain byte-exact; destination
+    // successful execution authenticates the candidate's own QC and authorization.
+    let original = HandoffEffect {
+        direction,
+        dataspace,
+        consensus_header: proof.block.consensus_header.as_slice(),
+        result_preimage: proof.block.result_preimage.as_slice(),
+    };
+    let mut cause = None;
+    let hash = Hash::new_from_writer(|writer| {
+        norito::core::write_canonical_to_writer(&original, writer).map_err(|error| {
+            cause = Some(error);
+            std::io::Error::from(std::io::ErrorKind::InvalidData)
+        })
+    });
+    if let Some(cause) = cause {
+        return Err(cause.into());
+    }
+    Ok(Some(hash?))
+}
+
+fn successful_handoff(
+    verified: &VerifiedSumeragiBlock,
+    network: &NetworkId,
+    expected: Hash,
+) -> Result<bool> {
+    for (index, entry) in verified.block().network_entrypoints().enumerate() {
+        let TransactionEntrypoint::External(transaction) = entry else {
+            continue;
+        };
+        let Executable::Instructions(instructions) = transaction.instructions() else {
+            continue;
+        };
+        let mut matches = false;
+        for instruction in instructions.iter() {
+            if handoff_effect(instruction)? == Some(expected) {
+                matches = true;
+                break;
+            }
+        }
+        if !matches {
+            continue;
+        }
+        let index = u32::try_from(index).map_err(|_| eyre!("handoff input index overflow"))?;
+        let evidence = evidence(verified.block(), index)?;
+        verified.verify_transaction_execution(network, &evidence)?;
+        if evidence.result().is_ok() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub(super) fn instruction_digest(instruction: &InstructionBox) -> Result<Hash> {
@@ -438,3 +677,23 @@ mod proof_tests;
 #[cfg(test)]
 #[path = "retry_tests.rs"]
 mod retry_tests;
+
+#[cfg(test)]
+#[path = "handoff_recovery_tests.rs"]
+mod handoff_recovery_tests;
+
+#[cfg(test)]
+#[path = "online_tests.rs"]
+mod online_tests;
+
+#[cfg(test)]
+#[path = "handoff_effect_tests.rs"]
+mod handoff_effect_tests;
+
+#[cfg(test)]
+#[path = "approval_tests.rs"]
+mod approval_tests;
+
+#[cfg(test)]
+#[path = "expiry_recovery_tests.rs"]
+mod expiry_recovery_tests;

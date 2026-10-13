@@ -121,6 +121,15 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         UseOwner::Roots(&["execution_witness_roots", "validation_fee_policy_snapshot"]),
     ),
     function(
+        "crates/iroha_core/src/query/native_receipts/amx_begins.rs",
+        "original_begin",
+        1,
+        UseOwner::Other(
+            Use::Record,
+            "Borrows the retained original Begin record-proof graph across the relay reader's paid source, pending instruction or completed instruction owners; it constructs no hash, State root or new authentication authority",
+        ),
+    ),
+    function(
         "crates/iroha_core/src/query/native_receipts/amx_read.rs",
         "complete",
         1,
@@ -593,6 +602,12 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         "first",
         1,
         UseOwner::Other(Use::Record, BLOCK_HASH),
+    ),
+    function(
+        "crates/iroha_core/src/state.rs",
+        "genesis_execution_policy_digest_v1",
+        1,
+        UseOwner::Roots(&["execution_policy_digest"]),
     ),
     function(
         "crates/iroha_core/src/state.rs",

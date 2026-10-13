@@ -729,6 +729,9 @@ pub mod isi {
         {
             return account_subject_matches(&permission.account, account_id);
         }
+        if let Ok(permission) = iroha_executor_data_model::permission::amx::CanPrepareAmx::try_from(permission) {
+            return account_subject_matches(permission.approval.debited_asset.account(), account_id);
+        }
         if let Ok(permission) =
             iroha_executor_data_model::permission::settlement::CanExecuteSettlement::try_from(
                 permission,
@@ -898,6 +901,9 @@ pub mod isi {
             )
         {
             return &permission.asset_definition == asset_definition_id;
+        }
+        if let Ok(permission) = iroha_executor_data_model::permission::amx::CanPrepareAmx::try_from(permission) {
+            return permission.approval.debited_asset.definition() == asset_definition_id;
         }
         if let Ok(permission) =
             iroha_executor_data_model::permission::settlement::CanExecuteSettlement::try_from(

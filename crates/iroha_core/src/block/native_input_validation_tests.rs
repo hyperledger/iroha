@@ -144,16 +144,21 @@ fn native_execution_rejects_forged_and_zero_advertised_fragment_counts() {
 
 #[test]
 fn native_validation_enforces_fraud_policy_with_a_populated_stateless_cache() {
-    use iroha_config::parameters::actual::{FraudMonitoring, FraudRiskBand};
+    use iroha_data_model::fraud::{FraudAdmissionPolicyV1, FraudRiskBandV1};
     use iroha_primitives::json::Json;
     let fixture = NativeValidationFixture::with_configuration(|config| {
         config.pipeline.stateless_cache_cap = 64;
-        config.fraud_monitoring = FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(FraudRiskBand::High),
-            missing_assessment_grace: Duration::ZERO,
-            ..Default::default()
-        };
+        config
+            .genesis_parameters
+            .push(iroha_data_model::parameter::Parameter::Custom(
+                FraudAdmissionPolicyV1 {
+                    enabled: true,
+                    required_minimum_band: Some(FraudRiskBandV1::High),
+                    missing_assessment_permitted: false,
+                    ..FraudAdmissionPolicyV1::protocol_default()
+                }
+                .into_custom_parameter(),
+            ));
     });
     let mut low_assessment = Metadata::default();
     low_assessment.insert("fraud_assessment_band".parse().unwrap(), Json::new("low"));

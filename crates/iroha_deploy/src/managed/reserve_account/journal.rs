@@ -3,7 +3,6 @@
 use super::*;
 use crate::managed::native_operation::MAX_CHECKPOINT_BYTES;
 use crate::managed::native_operation::attempts::{self, History, Observation, Purpose, Selected};
-use iroha_fs::PublishMode;
 use iroha_wallet::operations::ReserveAccountRegistrationRequest;
 
 pub(super) const MAX_POLICY_BYTES: usize = 32 * 1024;
@@ -105,18 +104,22 @@ impl Selected<Original> {
 pub(super) fn read_intent(directory: &PrivateDirectory) -> Result<Option<Original>> {
     let names = directory.entries(3)?;
     if names.iter().any(|name| {
-        !["original.nrt", "dispatch.nrt", "attempts"]
+        !["original.nrt", "operation.nrt", "attempts"]
             .iter()
             .any(|allowed| name == *allowed)
     }) {
         return Err(invalid("reserve registration contains unknown material"));
     }
     let Some(bytes) = read_optional(directory, "original.nrt", MAX_ORIGINAL_BYTES)? else {
-        require_empty(directory)?;
+        attempts::metadata::require_unselected(directory)?;
         return Ok(None);
     };
+    attempts::metadata::require_published(directory, &bytes)?;
+    decode_original(&bytes).map(Some)
+}
+fn decode_original(bytes: &[u8]) -> Result<Original> {
     let original: Original = norito::decode_canonical_with_limits(
-        &bytes,
+        bytes,
         norito::DecodeLimits::new(
             // Vec<u8> checkpoints consume the sequence-element allowance as bytes. Keep the
             // aggregate element/allocation limits while admitting the documented checkpoint cap.
@@ -129,7 +132,16 @@ pub(super) fn read_intent(directory: &PrivateDirectory) -> Result<Option<Origina
     )
     .map_err(|_| invalid("invalid bounded original reserve intent"))?;
     original.validate()?;
-    Ok(Some(original))
+    Ok(original)
+}
+/// Complete only the exact retained initialization before selecting fresh native inputs.
+pub(super) fn recover_intent(
+    directory: &PrivateDirectory,
+    validate: impl FnOnce(&Original) -> Result<()>,
+) -> Result<()> {
+    attempts::metadata::recover_original(directory, MAX_ORIGINAL_BYTES, |bytes| {
+        validate(&decode_original(bytes)?)
+    })
 }
 pub(super) fn read_original(directory: &PrivateDirectory) -> Result<Option<Selected<Original>>> {
     let Some(intent) = read_intent(directory)? else {
@@ -149,15 +161,15 @@ pub(super) fn required_original(directory: &PrivateDirectory) -> Result<Selected
 pub(super) fn publish_intent(directory: &PrivateDirectory, original: &Original) -> Result<()> {
     original.validate()?;
     let bytes = encode(original, MAX_ORIGINAL_BYTES)?;
-    if let Some(retained) = read_optional(directory, "original.nrt", MAX_ORIGINAL_BYTES)? {
-        if retained != bytes {
-            return Err(invalid("original reserve registration changed"));
-        }
-        return Ok(());
-    }
-    directory.write_atomic("original.nrt", &bytes, PublishMode::CreateNew)?;
-    Ok(())
+    crate::managed::native_operation::initial_intent::PublishedInitialIntent::publish(
+        directory,
+        bytes,
+        MAX_ORIGINAL_BYTES,
+        "original reserve registration changed",
+    )
+    .map(|_| ())
 }
+
 pub(super) fn explicit(
     directory: &PrivateDirectory,
     original: &Original,

@@ -2097,6 +2097,7 @@ fn client_config_with_defaults(
         basic_auth: None,
         api_token: None,
         torii_api_url,
+        http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
         torii_request_timeout: iroha::config::DEFAULT_TORII_REQUEST_TIMEOUT,
         transaction_ttl: iroha::config::DEFAULT_TRANSACTION_TIME_TO_LIVE,
         transaction_status_timeout: iroha::config::DEFAULT_TRANSACTION_STATUS_TIMEOUT,
@@ -2127,6 +2128,10 @@ fn config_to_json(
         (
             "torii_api_url",
             json_utils::json_value(&config.torii_api_url)?,
+        ),
+        (
+            "http_transport_policy",
+            json_utils::json_value(&config.http_transport_policy.as_str())?,
         ),
         (
             "torii_request_timeout",

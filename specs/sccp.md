@@ -970,11 +970,14 @@ rotation (§5.4).
 
 ### 4.3 Certified time
 
-Canonical block time is `max(parent + cadence, lane time floor, max
-tx.creation_time + 1)`, and only genesis is checked against a wall clock. One
-Byzantine leader could therefore move Taira's clock arbitrarily far forward
-with a post-dated transaction, or include an old due transaction and anchor due
-work at a stale time. SCCP and the governance clock anchor deadlines at
+Certified block time is the original authenticated timestamp in the proposal body.
+Validity requires at least `max(parent + cadence, lane time floor, max
+tx.creation_time + 1)`. A fresh proposer also includes one captured wall-clock
+reading in that maximum. It can reuse the exact same still-admissible signed
+inputs at a fresh view after an idle period; certified blocks retain their
+original bytes and time. Followers and replay never restamp them. Without the
+Prepare guards below, a Byzantine leader could choose an arbitrarily far-future
+time or include old due work at a stale time. SCCP and the governance clock anchor deadlines at
 certified block times (generation starts, fast-pause expiries, Parliament
 anchors), so both directions need a bound. The rules are application-level
 executor rules, specified normatively in `specs/sumeragi.md` §4.5; no validity

@@ -529,6 +529,36 @@ def test_a_read_of_an_uncommitted_node_policy_field_is_detected(tmp_path: Path) 
     assert owners["crypto.allowed_signing"] == "cfg.crypto.algorithms"
 
 
+def test_fraud_reads_use_the_exact_committed_catalog_owner(tmp_path: Path) -> None:
+    """The State spelling cannot hide policy reads or turn transport into validity."""
+    write(tmp_path, CHECKER["RESOURCE_CONTRACT"], json.dumps(CONTRACT))
+    path = "crates/iroha_core/src/new_reader.rs"
+    write(tmp_path, path, """
+        fn read(state: &State) {
+            let _ = state.fraud_monitoring.policy.enabled;
+            let _ = state.fraud_monitoring.policy.attesters;
+            let _ = state.fraud_monitoring.service_endpoints;
+            let _ = state.fraud_monitoring.connect_timeout;
+            let _ = state.fraud_monitoring.request_timeout;
+            let _ = state.fraud_monitoring.missing_assessment_grace;
+        }
+    """)
+    found = rows(tmp_path)
+    policy_reads = {key: count for key, count in found.items()
+                    if key[1] == "node_policy_read"}
+    assert policy_reads == {(path, "node_policy_read", "fraud.policy"): 2}
+    assert_unlisted(tmp_path, path, "node_policy_read", "fraud.policy")
+    policy = entry(CENSUS, "cfg.fraud.committed_policy")
+    assert policy["status"] == "done" and policy["owner"] == "F.4"
+    assert policy["decided_by"].startswith("The exact FraudAdmissionPolicyV1")
+    assert "freezes its predecessor" in policy["decided_by"]
+    assert "did not demonstrate two admitted validators" in policy["note"]
+    assert any(anchor["contains"] == 'policy.push("fraud.policy", &fraud_monitoring.policy);'
+               for anchor in policy["anchors"])
+    # This split must preserve the independently unfinished Oracle authority.
+    assert entry(CENSUS, "cfg.oracle")["status"] == "open"
+
+
 def test_the_handshake_switches_are_detected_in_the_p2p_crate(tmp_path: Path) -> None:
     path = "crates/iroha_p2p/src/peer.rs"
     write(tmp_path, path, """
@@ -906,28 +936,47 @@ def test_native_owner_reconciliation_preserves_unfinished_relations() -> None:
     """New native source names must not turn unfinished functionality into completion."""
     registration = entry(CENSUS, "sccp.qualification")
     assert registration["status"] == "out_of_plan"
-    assert registration["symbol"] == "fn register_route(register:"
-    assert "RegisterRoute remains fail-closed" in registration["note"]
-    assert "incomplete authenticated committee pin and deployment checks" in registration["note"]
-    # The retired readiness name is absent; its underlying incomplete relation remains.
+    assert registration["symbol"] == "fn register_route("
+    assert "unconditionally refuses missing launch/reconciliation and forgery authority" in registration["note"]
+    assert "Native EVM creation-code/deployer authority is still unavailable" in registration["note"]
+    # Available native checks do not authorize the remaining launch relations.
     assert registration["sites"] == []
     governance = (ROOT / registration["path"]).read_text(encoding="utf-8")
-    assert "if !parliament_iface::parliament_binding_ballot_available() {" in governance
-    assert "authenticated committee pin and deployment checks are incomplete" in governance
+    assert "registration::validate_available(state_transaction, register)?;" in governance
+    assert 'Err(refuse(\n        "RegisterRoute launch/reconciliation and forgery authority are unavailable",' in governance
+    registration_source = (ROOT / "crates/iroha_core/src/smartcontracts/isi/sccp/governance/registration.rs").read_text(encoding="utf-8")
+    assert "native EVM creation-code/deployer authority is unavailable" in registration_source
+    assert "stx.block_unix_timestamp_ms(),\n        params.committee_heartbeat_ms," in registration_source
+    assert "pin.until_ms != pinned.deadline_ms" in registration_source
     parliament = (ROOT / "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs").read_text(encoding="utf-8")
     assert "pub const fn parliament_binding_ballot_available() -> bool {\n    false\n}" in parliament
     unavailable = entry(CENSUS, "sccp.unavailable")
     assert unavailable["status"] == "out_of_plan"
-    assert "request-funded original receipt acquisition" in unavailable["note"]
-    assert "absent archive custody" in unavailable["note"]
-    assert "Generation/anchor retirement still awaits actual Pending forgery State" in unavailable["note"]
+    assert "Missing or inconsistent original source/rotation custody remains unavailable, not authenticated absence" in unavailable["note"]
+    assert "block hook still omits generation/anchor retirement" in unavailable["note"]
+    hook = (ROOT / "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs").read_text(encoding="utf-8")
+    assert "generation/anchor-root retirement requires the real Pending SCCP forgery" in hook
     torii = (ROOT / unavailable["path"]).read_text(encoding="utf-8")
-    assert "fn proof_unavailable() -> Response {\n    error(\n        StatusCode::SERVICE_UNAVAILABLE," in torii
-    assert torii.count("\n    proof_unavailable()\n}") == 2
-    # The native producer exists: HTTP acquisition is the gap, not a missing control relation.
-    control = (ROOT / "crates/iroha_core/src/smartcontracts/isi/sccp/read/control.rs").read_text(encoding="utf-8")
-    assert "pub fn control_proof_from_native(" in control
-    assert "let source = NativeProofSource::new(view, native)?;" in control
+    assert "HistoryProducerOwner::from_admission(&admission)?" in torii
+    assert "read::with_state_view(&state, control," in torii
+    assert '(StatusCode::REQUEST_TIMEOUT, "request_timeout")' in torii
+    assert '(StatusCode::SERVICE_UNAVAILABLE, "sccp_capacity")' in torii
+    assert '_ => (StatusCode::SERVICE_UNAVAILABLE, "sccp_unavailable")' in torii
+    assert 'SccpNativeReadError::Pruned(_) => (StatusCode::GONE, "sccp_pruned")' in torii
+    native = (ROOT / "crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs").read_text(encoding="utf-8")
+    assert "pub fn control_proof(" in native and "pub fn message_proof(" in native
+    assert "let view = state.try_view_once()?;" in native
+    controls = entry(CENSUS, "sccp.native_read_controls")
+    assert controls["status"] == "not_a_gate" and controls["attribution"] == "read"
+    assert "not an invalid-evidence verdict" in controls["note"]
+    assert "deadline_ms copied from and compared against the committed message record" in controls["note"]
+    assert "Instant::now() >= control.deadline" in native
+    execution = (ROOT / "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution.rs").read_text(encoding="utf-8")
+    assert "VerificationControl::Synchronous," in execution
+    assert "stx.arm_local_storage_refusal(local);" in execution
+    pin_shape = entry(CENSUS, "sccp.committee_pin_shape")
+    assert pin_shape["status"] == "not_a_gate" and pin_shape["symbol"] == "ZeroPinCoordinate"
+    assert "Shape validation does not authenticate a committee" in pin_shape["note"]
     features = entry(CENSUS, "feature.zk_halo2_family")
     assert features["status"] == "open"
     assert features["symbol"] == "zk-ipa-native = []"

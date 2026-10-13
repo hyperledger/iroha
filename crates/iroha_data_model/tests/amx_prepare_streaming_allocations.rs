@@ -256,6 +256,7 @@ fn transaction(count: usize, bytes: usize) -> AmxTransactionV1 {
             })
             .collect(),
         deadline: 50,
+        expires_at_ms: 1_000_000,
         nonce: [9; 32],
     }
 }
@@ -272,6 +273,8 @@ fn original_begin(transaction: &AmxTransactionV1, tx: [u8; 32]) -> AmxBeginV1 {
         tx,
         participants: transaction.legs.iter().map(|leg| leg.dataspace).collect(),
         deadline: transaction.deadline,
+
+        expires_at_ms: transaction.expires_at_ms,
     }
 }
 
@@ -448,6 +451,7 @@ fn begin_matches_borrows_original_graph_without_heap_allocations() {
             );
             assert_eq!(begin.tx, expected);
             assert_eq!(begin.deadline, transaction.deadline);
+            assert_eq!(begin.expires_at_ms, transaction.expires_at_ms);
             assert_eq!(graph_pointers(&transaction), pointers);
             assert_eq!(begin.participants.as_ptr(), participants);
             assert!(norito::encode_canonical(&transaction).unwrap() == original_frame);
@@ -469,6 +473,8 @@ fn malformed_transactions_and_substituted_begins_refuse_without_heap_allocations
         },
         AmxBeginV1 {
             deadline: 51,
+
+            expires_at_ms: 1_000_000,
             ..begin.clone()
         },
         AmxBeginV1 {

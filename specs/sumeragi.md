@@ -823,17 +823,32 @@ slow resource stopped every honest node at once. Here:
 
 ### 4.5 Application clock guard on Prepare votes (application layer)
 
-**Status.** These are application-level executor rules of the node driver (`iroha_core`), not
-rules of the sans-IO core; the core's only part is the `certified` flag of `Action::Execute`
-(§4.2, §12.1), which `iroha_sumeragi` emits. The rules are the target of `specs/sccp.md`
-revision 5. Core forwards that flag and implements CT1 for full State roots and routing lanes; the CT5
-stale-work guard remains open. The simulator models the full guards (§13.1).
+**Status.** Clock policy belongs to the application executor (`iroha_core`). The sans-IO
+core supplies the genuine `certified` flag and retains the application's source-bound local
+admission owner with a successful execution. It checks that owner immediately before a first
+Prepare signature, including cached execution and signing retries. Core implements CT1 for
+full State roots and routing lanes. The native CT5 candidate classifies Global AMX Begin and
+Decision effects from the original sealed execution witness; governance and SCCP effect
+classification remains open. The simulator models execution-time guards (§13.1); its AMX
+first-signing integration remains open. Current component controls do not establish network
+qualification.
 `specs/sccp.md` §4.3 and `specs/parliament_private_ballot_design.md` §3.4 rely on them.
 
-Canonical block time is `max(parent + cadence, lane time_floor_ms, max tx.creation_time + 1)`
-and is compared with a local wall clock before uncertified full-State execution. Genesis keeps
-its original wall-clock validation. Without these guards a Byzantine leader could move the
-chain's clock arbitrarily far forward with a post-dated transaction, or anchor due work at a
+Block time is the original timestamp in the authenticated resultless block body, bound by
+its signed RS16 payload and finality certificate. Validity requires
+`t(block) >= max(parent + cadence, lane time_floor_ms, max tx.creation_time + 1)`.
+A fresh proposer chooses the maximum of that floor and one captured wall-clock reading,
+rounded down to milliseconds; the same reading governs input selection and the final SCCP
+forgery recheck. The original timestamp is compared with the local clock before uncertified
+full-State execution. Genesis keeps its original wall-clock validation.
+
+A fresh view can therefore propose the exact same still-admissible signed inputs at a later
+authenticated time after an idle period or partition. It needs no replacement payment signature,
+keepalive or unrelated transaction. A retained payload retry keeps its original bytes and time;
+a PrepareQC-certified or locked block is never restamped. Followers, apply and cold replay derive
+execution from the original authenticated timestamp, never from their own clocks. This changes
+neither transaction TTL nor Queue expiry, and does not authorize empty blocks. Without these
+guards a Byzantine leader could move the chain's clock arbitrarily far forward with a post-dated transaction, or anchor due work at a
 stale time with an old one. Deadlines of the SCCP and governance applications are anchored at
 certified block times, so both directions need a bound. No validity rule reads a clock:
 
@@ -841,9 +856,9 @@ certified block times, so both directions need a bound. No validity rule reads a
 |---|---|
 | CT1 | **Clock ahead.** For every non-genesis block of every instance of the network (global and lanes) executed with `certified = false`, the executor MUST answer `Failed(ClockAhead)` while `t(block) > local_wall_ms + max_clock_drift_ms`. It MUST NOT answer `Invalid`. Under §4.2 that is `LocalFault(ExecutorFailed)` and a retry with backoff; meanwhile no `Valid` is recorded, so §4.3 condition 4 withholds the Prepare vote. Commit votes are not guarded directly: `try_commit` Commit-votes a PrepareQC of the current view without executing, and the bound reaches every CommitQC through that PrepareQC. |
 | CT2 | **Scope.** The apply and replay path of CommitQC-certified blocks never consults the clock. Genesis keeps its existing wall-clock check. |
-| CT3 | **Builder pacing.** The payload builder MUST NOT include a transaction with `creation_time_ms > local_wall_ms`, and MUST NOT propose while the block's canonical time, including lane merge floors, would exceed `local_wall_ms`; it waits instead. |
+| CT3 | **Builder pacing.** The payload builder MUST NOT include a transaction with `creation_time_ms > local_wall_ms`. A fresh full-State proposal chooses `max(captured local_wall_ms, required time floor)` and MUST NOT publish while its original timestamp, including lane merge floors, exceeds `local_wall_ms`; it waits instead. Routing-lane batches keep their anchor/input-derived time rule. |
 | CT4 | **Bound.** `max_clock_drift_ms` is a committed chain parameter (`SumeragiParameters`), not a node-local setting, so every honest voter's guard uses the same value. Genesis validation and `validate_parameter_change` MUST enforce `max_clock_drift_ms ≤ MAX_CLOCK_DRIFT_BOUND_MS = 60 000`. |
-| CT5 | **Stale due work** (global executor). The executor MUST answer `Failed(StaleDueWork)` for a block executed with `certified = false` that applies due governance or SCCP work, exactly the keepalive validity predicate of `specs/sccp.md` §4.7.4 K2, while `local_wall_ms − t(block) > gov.due_work_max_lag_ms`. It is in the same class as CT1: liveness only, never `Invalid`, never on apply or replay. `gov.due_work_max_lag_ms` is a committed governance parameter (default 60 000) and MUST be at least `2·max_clock_drift_ms + 4·block_cadence_ms`. Wherever CT5 can delay a block, a fresh keepalive is admissible, so an honest proposer can always satisfy it. |
+| CT5 | **Stale due work** (global executor). An uncertified candidate that applies time-sensitive effects MUST defer while `local_wall_ms − t(block) > sumeragi.due_work_max_lag_ms`: before returning a successful execution and again before the first Prepare signature. The native owner currently recognizes Global AMX Begin and Decision writes, including indirect execution and finalizers; a partial Yes that creates no Decision is outside this rule. Governance and SCCP classification, including `specs/sccp.md` §4.7.4 K2, remains required. Refusal is local (`Failed(StaleDueWork)` or typed signing refusal), never `Invalid`, never on certified apply or replay. `SumeragiParameters::due_work_max_lag_ms` is committed, defaults to 60 000, and MUST be at least `2·max_clock_drift_ms + 4·block_cadence_ms` with checked arithmetic. A fresh proposal can authenticate a later time without replacing its signed inputs. |
 
 **Clock-drift parameter ownership.** `max_clock_drift_ms` belongs to the application State;
 it is absent from the lag-two `ChainParamsRecord`. The guard for height `h` reads the committed
@@ -856,13 +871,18 @@ Zero and the exact 60 000 ms bound are permitted;
 larger values reject deterministically without consulting a clock. CT4 does not itself implement
 the local guards or establish a real-time expiry guarantee; their implementation scope is below.
 
+The same parent-State rule governs `DueWorkMaxLagMs`. Genesis, lane policy admission and
+parameter changes validate the combined drift/lag/cadence bound. A parameter write cannot
+weaken its own block's admission. The native execution owner captures the parent lag before
+executing any instruction; cached admission does not reread a later State or node setting.
+
 **Certified re-proposals.** The core sets `certified = !certified_results(bh).is_empty()` whenever
 it emits `Execute` (§6.2 step 9), re-evaluated when a `RetryAt` entry re-emits it; this covers a
 re-proposal's `Q` and the node's own lock. The executor skips CT1 and CT5 iff `certified` is
 true, and the verdict never depends on it. Without the exemption, nodes that discarded the
 execution on a view change, sat behind a hidden PrepareQC (F33) or restarted would answer
 `StaleDueWork` forever for a re-proposal, which keeps its original time, and a due-work block
-whose PrepareQC was hidden for longer than `gov.due_work_max_lag_ms` could never gather Prepare
+whose PrepareQC was hidden for longer than `sumeragi.due_work_max_lag_ms` could never gather Prepare
 votes again, breaking L4. The exemption is sound by induction over the PrepareQCs of the block.
 The first one formed has `q` Prepare signers, at least `f + 1` of them honest; no PrepareQC of
 the block existed when they voted, so each executed it with `certified = false` and passed CT1
@@ -886,13 +906,13 @@ PrepareQC that this argument already covers, so the bound of that first PrepareQ
   durable Prepare that was guarded when first signed; the Prepare votes of a certified
   re-proposal are exempt and rest on that first PrepareQC.
 - **Lower bound for anchors.** Every block that anchors governance work or an SCCP heartbeat
-  has `t(h) ≥ W_i − gov.due_work_max_lag_ms` for some honest first Prepare voter, at the time of
+  has `t(h) ≥ W_i − sumeragi.due_work_max_lag_ms` for some honest first Prepare voter, at the time of
   that first Prepare. Between the first honest Prepare and the commit, view changes, a hidden
   PrepareQC or a halt can add unbounded delay, so an anchor can be older than wall time at
   commit; the applications state their recovery rules (`specs/sccp.md` §4.3).
 - **Liveness.** An honest leader's fresh block satisfies CT1 at every honest voter whose clock is
-  within `max_clock_drift_ms` of the leader's; CT5 is satisfied by including a fresh keepalive;
-  certified re-proposals are exempt; larger skew only delays votes.
+  within `max_clock_drift_ms` of the leader's. Its captured proposal time also satisfies CT5;
+  certified re-proposals are exempt, and larger skew only delays votes.
 - **Determinism.** `Valid(R)` / `Invalid` is unchanged and never depends on `certified` or a
   clock; only the timing of Prepare votes does.
 
@@ -905,24 +925,49 @@ timestamp from its authenticated anchor time and signed input creation times (§
 `specs/sumeragi_lanes.md`), using the allowance pinned in its incarnation. The lane executor
 retains its original decoded admission across clock waits and rejoins the original anchor identity.
 
+**First-Prepare ownership.** The implementation's successful outcome is
+`ExecOutcome::Valid { result, admission }`. `admission` has no wire decoder: it retains the
+original paid application owner and binds instance, epoch, height, original block hash and
+result. Native sensitivity comes from the schema-owned AMX witness-key classifier after
+original witness authentication, restricted to the Global root. A final clock read follows
+encoding and resource waits; a stale result discards the provisional overlay, fees and writes,
+returning the original decoder for retry without negative caching. Cached `Live` execution
+rechecks the same rule. The retained signing owner checks a fresh injected wall clock after
+stage or backend waits; only a genuinely matching PrepareQC held by the core exempts it.
+A decoded safety reservation cannot supply admission. Once a Prepare signature succeeds,
+its exact bytes are persisted before publication and may be reused after restart without
+creating a later first signature. These rules bound first-Prepare admission, not commit time.
+
 **Builder ownership.** Global and routing-lane selection leave future signed inputs in their
 original Queue admission. Future-only work returns a clock retry instead of an empty answer, so the driver's
 timer retries the final input without another admission. The original assembled header gates
-publication, including parent cadence and certified lane floors. Clock waiting retains the
-same source, input lease and funded output; completed output reuse rechecks the clock after
-the physical parent and Queue lease. A local clock regression withholds that same output until
-the boundary recovers, without changing its canonical bytes or any validity result.
+publication, including parent cadence and certified lane floors. Global clock waiting retains
+the same source, input lease and funded output; completed output reuse rechecks the clock after
+the physical parent and Queue lease. The current routing-lane candidate also carries that
+existing Queue admission lease through selected batches and funded encoding. It rechecks
+expiry, withdrawal and admission generation before work and after encoding, retaining the
+original output only while its original admission remains live; runtime qualification is open.
+Global merge still enforces monetary expiry and duplicate
+validity. A local clock regression withholds the retained output until the boundary recovers,
+without changing its canonical bytes or any validity result.
 
 **Verification.** Full-State CT1 and certified-flag forwarding have Core controls HC257/HC258
 (SC5 and the CT1 portion of SC17). Global CT3 input and canonical publication pacing have
 HC259/HC260 controls, including original retained output and certified lane floors (SC6).
 Routing-lane CT1 and effective builder pacing have HC268/HC269 controls; future-only lane
-retry is HC264. CT5 remains open (SC12 and the remaining SC17 scope in §13.4). The machine's
+retry is HC264. Native AMX CT5 has final-publication, cached-result and source-bound
+first-signing controls; its actual mutation and whole-network qualification remain required.
+General governance/SCCP CT5 remains open (SC12 and the remaining SC17 scope in §13.4). The machine's
 emission of `certified` is MS51, killed by `det_s51_execute_certified_flag` and
 `f33_hidden_prepareqc_due_work_block_commits_after_lag`. The deterministic simulator models CT1
 and CT5 in its toy application (§13.1): per-machine wall clocks with skew, block times stamped
 by the builders at their wall clock (so honest blocks satisfy CT3), honest executors that answer
-`Failed` for uncertified executions and skip both rules for certified ones. Its block time is
+`Failed` for uncertified executions and skip both rules for certified ones. Successful
+World execution now retains the exact source and a shared clock updated by the same event
+owner. First Prepare checks that current clock after execution, stage and durability waits;
+AMX sensitivity comes from the actual Global Begin/Decision result records. The
+`det_ct5_world_retained_execution_rechecks_clock_at_first_prepare` control exercises clock
+steps and ordinary event advancement, exact-source refusal and certified admission. Its block time is
 the builder's stamp, not the canonical `max(parent + cadence, …)`, so a committed post-dated
 block does not raise the next block's time and CT3's wait is not exercised (`TODO:` model the
 canonical floor and the builder wait in the simulator; SC6 covers CT3 in the Core). Its tests
@@ -939,14 +984,15 @@ are:
   some certified time exceeds an honest clock by more than one drift, and no far-future block
   commits. It kills MS52, the simulator mutation that deletes CT1.
 - `f33_hidden_prepareqc_due_work_block_commits_after_lag`: in F33, every transaction applies due
-  work, and a hidden PrepareQC delays the re-proposal past `gov.due_work_max_lag_ms`. The honest
+  work, and a hidden PrepareQC delays the re-proposal past `sumeragi.due_work_max_lag_ms`. The honest
   members execute it with `certified = true` and it commits. With MS51, CT5 refuses it forever.
 - F39 (§13.3) is the randomized scenario of MS51 and MS52.
 
 A simulator test cannot kill a Core mutation. The full-State CT1 portion of SC17 has the
 Core controls above; `certified_execution_skips_clock_guards` additionally exercises a genuine
 certificate and cold replay. Routing-lane controls retain the corresponding original admission
-and encoding; CT5 stale-work integration remains open.
+and encoding. Native AMX stale-work and first-Prepare controls require current-source
+qualification; governance/SCCP classification remains open.
 
 ---
 
@@ -1471,7 +1517,12 @@ two heights (§10.2).
    source on *every* request (sources: the senders of target CommitQCs and members whose `Status`
    shows a higher height); deadline `now + sync_retry`. Before a request, buffered entries above
    a gap in the heights from `h` on are dropped (they are fetched again), so `from_height`
-   always continues the contiguous buffered prefix. A request unanswered by its deadline counts
+   always continues the contiguous buffered prefix. If a deferred donor alternative fails
+   authentication at the current missing-body height, retain the original verified carrier and
+   refresh that height with this same one-outstanding requester and source rotation, even when
+   the contiguous buffer is full. The verified original QC sustains the refresh target. Empty or
+   invalid replies and timeouts do not clear refresh; a validated same-value donor refresh or
+   actual height advance does. A request unanswered by its deadline counts
    as an empty response for rule 1. The next request is sent as soon as a
    response has been checked, so fetching the next batch overlaps applying the buffered one, but
    not while the buffer holds ≥ `sync_batch` entries.
@@ -1487,8 +1538,28 @@ two heights (§10.2).
    for the current `h` additionally needs `C_h` known, `verify_qc(c, C_h)`,
    `header.parent_hash == tip.block_hash`, `header.parent_result == tip.result` and the exact
    scheduled epoch. Without body custody the entry
-   remains buffered, creates a want and starts source-bound acquisition; it cannot advance sync
-   merely from the signature table. Once custody is held it runs §6.8 (commit, enter the next
+   remains buffered, creates a want or merges its sync responders into the existing want,
+   and starts source-bound acquisition. The merge preserves the original height/hash and
+   retry state, deduplicates peers within the existing bound, and applies even when a restart
+   left the want without fetch sources. Each buffered entry retains its exact requested responder,
+   whose maximum key storage is reserved at initial buffer admission. A late carrier with the same complete
+   manifest and certified value may refresh that responder only after its own CommitQC
+   verifies under the authenticated height config; different valid exact-q signer subsets are
+   allowed. The original carrier is retained. Before that config is known, retain at most one
+   deferred donor/certificate alternative per entry. Initial admission reserves an architecture-independent
+   record allowance, the maximum QC bitmap and both maximum responder keys against the same
+   buffer bound, even when that slot is empty; legal donor refreshes therefore need no extra capacity.
+   A newer unverified alternative
+   may supersede it. Verify the retained alternative at that height; if it fails, discard only
+   the alternative and refresh this current height as in rule2, while continuing acquisition
+   from the valid original carrier. After the current-height checks above, the responder enters the want even
+   when its peer list is full: replace the first nonmember of the wanted-height committee,
+   preserving the `n+8` cap and every retained member. The latest verified responder is pinned
+   in subsequent retries, and a donor change emits at most one immediate one-peer fetch without
+   changing the retry cursor, attempt or deadline. Reprocessing the same donor adds no fetch.
+   These rules address finite stale-source history; they do not assert resistance to unlimited
+   authenticated relay churn. It cannot advance sync merely from the signature table.
+   Once custody is held it runs §6.8 (commit, enter the next
    height), and buffered entries are processed in the same way in
    height order. Entries for heights `> h` are buffered (≤ `2·sync_batch`) until their turn. The
    first failing entry is dropped together with the rest of that response. A prefix shorter than
@@ -1503,7 +1574,9 @@ two heights (§10.2).
    TC-selected re-proposal and each body missing from `pending_apply`. At creation and each
    `fetch_retry`, emit `FetchPayload { source, peers }`, where `source` binds the independently
    selected instance, height, hash and complete authenticated height config. Select the next
-   `min(2^(attempt+1), |sources|)` peers cyclically. The driver first starts or resumes a typed
+   `min(2^(attempt+1), |sources|)` peers cyclically. If the latest verified sync responder is
+   absent from that batch, replace its final peer with the responder: fanout and the cyclic
+   cursor update are unchanged. The driver first starts or resumes a typed
    local read/restoration job. Actual absence permits `PayloadRequest`; temporary admission/I/O
    refusal retains the same read, and corruption is an error rather than absence. A source
    change cannot silently replace an in-flight owner.
@@ -1807,6 +1880,7 @@ struct SafetyRecord {
     parent_commit_qc: Option<Qc>,                    // CommitQC of height − 1 (None at g + 1)
     proposal: Option<(u64, Hash32, Option<TimeoutCert>)>, // (view, bh, justify) of the last proposal reserved for signing
     prepare: Option<(u64, Hash32, Hash32)>,    // (view, bh, R) of the last Prepare reserved for signing
+    prepare_signature: Option<Signature>,            // exact successful signature; None for an unsigned reservation
     timeout: Option<(u64, Option<Qc>)>,              // (view, exact PrepareQC carried) of the last timeout reserved for signing
     lock: Option<Qc>,                                // high_pqc at write time; also the record of every Commit (§6.5)
     high_tc: Option<TimeoutCert>,                    // high_tc at write time (the certificate that justified the view)
@@ -1827,6 +1901,15 @@ of authorizing a recommit before its complete certificate graph can be checked. 
 bounded by the envelope and certificate limits. Nothing else is persisted by the core; the block
 bodies it relies on are written by the driver on `StoreBody`.
 Votes, pools, pacemaker level and routing stage are re-derived or re-fetched.
+
+`prepare_signature` is a mandatory current-layout field. `Some(signature)` requires a
+matching `prepare` and must verify under the retained key over the exact instance, epoch,
+height, view, block hash and result. Restore checks this signature as well as the complete
+certificate graph. A checksum alone is insufficient. `None` preserves the sign-once
+reservation but proves no successful signature; a restart must reacquire ordinary execution
+admission before first signing. Successful Prepare bytes are persisted through the same
+safety barrier before they enter a vote pool or transport. They are reused exactly on retry,
+rebroadcast and restart. There is no alternate signature journal or retired-layout decoder.
 
 **Body durability.** Every body the core accepts is handed to `StoreBody`, and a `PersistSafety`
 is durable only after every earlier `StoreBody` (§12.3 O2). Hence the body of every block this node
@@ -1930,8 +2013,11 @@ value drawn by the driver for every `Init`; the simulator draws it from its seed
    gives identical bytes, §12.1); `view` = the maximum of `proposal.view`, `prepare.view`,
    `timeout.view`, `lock.view` and `high_tc.view + 1` over the entries present (0 if none; the
    views of `parent_commit_qc` and of certificates nested inside entries are not used); timers
-   start at `now`. The recorded timeout is re-sent at the first rebroadcast and a recorded Prepare
-   of the current view on the retransmit schedule with `t_vote = now`; `try_commit()` is called
+   start at `now`. The recorded timeout is re-sent at the first rebroadcast. A recorded Prepare
+   of the current view is re-sent on the retransmit schedule with `t_vote = now` only when
+   its stored `prepare_signature` verified; the exact bytes are reused. An unsigned reservation
+   requests the original body and retains its sign-once constraint, but cannot synthesize a
+   first signature on restore. `try_commit()` is called
    (it re-signs the identical Commit if the lock is of the current view); a recorded proposal is
    re-sent only as recorded (§6.10 rule 0). If `me == L(h, view)`, no proposal is recorded at
    `view` and `timeout_view < view`: at `view > 0` with `high_tc` = TC(`view − 1`) propose as
@@ -2901,6 +2987,8 @@ pub enum Action {
 pub trait Signer: Send + Sync {
     fn public_key(&self) -> &PublicKey;
     fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError>;
+    fn sign_prepare(&self, request: &PrepareSigningRequest, admission: &ExecutionAdmission)
+        -> Result<Signature, SigningError>;
 } // deterministic; SigningError is owned by iroha_sumeragi, independent of the backend
 pub trait Crypto {                                  // pure; BLS in production, fake in the simulator
     fn hash_chunks(&self, chunks: &[&[u8]]) -> Hash32; // required; exact concatenation without bulk copy
@@ -2914,7 +3002,12 @@ pub trait Crypto {                                  // pure; BLS in production, 
 `Signer::sign` runs inside `handle` and MUST be local and non-blocking (an in-memory key or a
 local device with bounded latency); a remote signer would block the core and its timers. It MUST
 be deterministic (same key and preimage → same bytes; BLS signatures are): the core re-creates
-recorded messages after a restart by signing their recorded preimages again (§6.10 rule 0, §7.4).
+recorded proposals, Commits and timeouts after a restart by signing their recorded preimages
+again (§6.10 rule 0, §7.4). Prepare instead reuses its exact stored successful signature.
+`sign_prepare` checks the source-bound application admission immediately before calling the
+backend, then derives the canonical Prepare preimage from the private core-owned request;
+it cannot sign an unrelated supplied preimage. Local admission and backend refusals neither
+publish nor pool a vote. An unsigned reservation retries the check after a backend refusal.
 Signers are shared as immutable `Arc<dyn Signer>` between Core and the bounded author worker.
 Availability signatures are made outside `handle` after exact request/config validation; ordinary
 consensus signatures retain the local bounded-latency requirement above. Payload hashing uses
@@ -2965,10 +3058,13 @@ A new request may borrow the exact completed nonempty global payload while its o
 State-funded backing and selected-input table remain live. This requires the same applied
 native parent, State publication generation, height, view, byte limit and execution budget;
 every request first reads and authenticates the physical canonical parent. The actual Queue
-mutation fence captures the original ownership generation before selection and binds every
-selected signed input to that same admission boundary, checks
-that every input is still pending and unexpired, and refuses reuse after any insertion or
-removal. The earliest actual selected-input expiry bounds physical retention; the Worker
+mutation fence captures the admission high-water before selection. Each original funded
+Queue owner carries a checked, non-reusable incarnation, and each prepaid selected-input row
+binds its exact hash and incarnation. Capture refuses rows admitted after the selection;
+lending rechecks the exact live incarnations, pending status and expiry. Unrelated insertion
+or removal preserves the completed payload, while selected removal or same-hash readmission
+revokes it. Exhaustion latches refusal before a new input or fee reservation can publish.
+The earliest actual selected-input expiry bounds physical retention; the Worker
 reclaims the original owner on an idle receive timeout after rechecking its actual TimeSource,
 and checks source and Queue withdrawal before every request. These checks acquire one
 nonblocking State view. A genuine busy reader or publisher retains only the original paid
@@ -3000,8 +3096,8 @@ A retained partial global builder must pass those fresh parent and current-scope
 before returning its first completed output. Its signed lane merge section must equal the
 current proposal from the actual lane journals, including its time floor; newly mandatory
 lane work withdraws the old plan. Every selected Queue input, including in a mixed payload,
-retains its original admission receipt before encoding. Queue mutation, actual expiry or
-completed State publication withdraws that receipt, so a later request rebuilds from current
+retains its original admission receipt before encoding. Selected-input removal or readmission,
+actual expiry or completed State publication withdraws that receipt, so a later request rebuilds from current
 inputs. The Worker checks this non-lending storage lease before unrelated State/native
 refusals and includes its actual earliest expiry in the idle receive timeout. Thus expired
 partial bytes refund even while their physical parent remains unavailable without a new build
@@ -3477,7 +3573,7 @@ that only observes the lane crashes and restarts → every replica of both insta
 included, commits after the lane recovers (O-LIVE, O-AGR) · F39 application clock guard (§4.5):
 every honest wall clock is within `[0, max_clock_drift_ms]` of real time, a third of the
 transactions apply due work, and `f` Byzantine members run no guard. Their builders date blocks
-`+2·max_clock_drift_ms`, far in the future, or older than `gov.due_work_max_lag_ms`, in turn.
+`+2·max_clock_drift_ms`, far in the future, or older than `sumeragi.due_work_max_lag_ms`, in turn.
 Variant 0: the Byzantine members vote or withhold every vote. Variant 1: as variant 0, and one
 honest wall clock jumps 30 s ahead for 15 s, then converges back. Variant 2: an F33 hidden-PrepareQC
 proxy tail, and every transaction applies due work, so re-proposals are older than the lag and
@@ -3545,7 +3641,7 @@ Detection needs targeted adversaries: random faults alone did not kill the TC-ru
 | MS32c | `on_body` (§6.9 rule 6) — the parent-link check of the `pending_apply` flush deleted | `det_s32c_r5_block_not_extending_tip`: R5 with a harness-valid CommitQC(t+1) whose block's parent is not the local tip (simulated block-store corruption) → `Halt(SafetyRecordInconsistent)` when the body arrives, no `CommitBlock` | — | expects `Halt` |
 | MS33a | fake driver record store — one file per instance for all keys | `det_s33_key_rotation_restart` (a): rotation K1 → K2 at h_new, restarts at h_new − 1 and h_new → each key keeps its own record, no halt, no double signature | F28 | O-SIGN, O-HALT |
 | MS33b | `enter_height` — `signer` = the first configured key, regardless of membership in `C_h` | `det_s33_key_rotation_restart` (a): X signs at h_new with K2, never with K1 | F28 | O-SIGN, O-LIVE |
-| MS33c | `restore` — keys processed one by one in configuration order, each R4/R5 overwriting the round (no composition) | `det_s33_key_rotation_restart` (b): store tip t, K2 (listed first) with a record at t+2, K1 with a record at t+1 → start in round t+2 from K2's record, exactly one `CommitBlock` for t+1, the tip never moves back | F28 with R4/R5 splits | O-AGR, O-SIGN |
+| MS33c | `restore` — keys classified against the pre-R5 tip rather than the advanced tip | `det_s33_key_rotation_restart` (b): one authenticated committee, K1 retired after its real height-t+1 round, active K2 with a real record at t+2; truncate the store to t and retain both original records → start in round t+2 from K2's record, exactly one `CommitBlock` for t+1, the tip never moves back | F28 with R4/R5 splits | O-AGR, O-SIGN |
 | MS33d | fake driver record store — the store-id comparison deleted (a rolled-back log is trusted: a key it lists as generated on this node gets an initial record for every instance the log lacks) | `det_s33d_installation_log_rollback`: key K generated on X; dataspace instance I created later (initial record, `(I, K)` entry, new store id); X Prepares B at (t+1, 0) for I, block store at t; X's key store is restored from a snapshot taken before I existed and X's record for I is deleted; restart → the driver marks K imported, `Init` carries `Absent` for (I, K), and X does not Prepare the twin B′ at (t+1, 0); variant: the same old key store onto a new, empty record store → `Absent` likewise | F24 (key store restored from an older backup) | O-SIGN, O-AGR, direct assertion on `Init` |
 | MS34 | fake driver apply — the commitment comparison skipped | `det_s34_apply_divergence_halts`: X's executor diverges deterministically (cached and re-executed commitments differ from `commit_qc.result`) → `ApplyDiverged` → `Halt` | F21 | O-VAL, O-HALT |
 | MS35 | `on_manifest_rejected`: an unsigned availability-carrier rejection early-times-out the held current-view proposal | `det_s35_relay_tamper_no_evidence`: altered or stripped carrier bytes cannot accuse or time out the original author; the genuine carrier still executes and Prepares | F25 | O-EVID, O-PERF |
@@ -3559,7 +3655,7 @@ Detection needs targeted adversaries: random faults alone did not kill the TC-ru
 | MS42 | `PublicationRecoveryRequired` handler — ignores the irreversible local failure | `det_s42_original_publication_recovery_halts`: the original publication cannot retry, so halt immediately, sign/schedule nothing and retain serving | — | O-HALT, O-SIGN |
 | MS49 | Native codec converts scoped resource refusals to malformed-frame text | `scoped_decode_refusal_is_not_malformed_native_evidence`, `codec_resource_errors_survive_lossless_norito_conversion`: preserve exact typed refusals, retry identical bytes outside the refused scope, and continue rejecting corrupt frames | — | typed refusal and exact retry |
 | MS50 | Static byte-domain length violations become retryable local resource refusals | `protocol_byte_lengths_are_terminal_codec_errors`: reject empty or oversized availability rows and oversized control witnesses as malformed bytes; valid rows still retry after local decode limits are removed | — | permanent wire bounds versus local limits |
-| MS51 | `request_exec` — emits `Execute { certified: false }` for a block that a held PrepareQC certifies (the application clock guard of §4.5 then applies to certified re-proposals) | `f33_hidden_prepareqc_due_work_block_commits_after_lag`: n=4 F33 with the simulator's clock guard, every transaction applies due work; a Byzantine proxy tail hides PQC(B) of a due-work block B; the views fail until a TC carries PQC(B) and B is re-proposed past `gov.due_work_max_lag_ms` of the honest wall clocks → the honest nodes execute B with `certified = true` (CT5 skipped), Prepare, and B commits in a later view. `det_s51_execute_certified_flag`: a fresh block and its retry after `Failed(ClockAhead)` are executed with `certified = false`; after TC(1) carries the hidden PQC(B, 0), the re-proposal and its retry after `Failed(StaleDueWork)` are executed with `certified = true`, and X Prepares `Q.result`; on a second core, a PQC(C, 0) formed by the others reaches X while the guard refuses C, and the retry of C is executed with `certified = true` (the node's lock) | F39 | O-LIVE |
+| MS51 | `request_exec` — emits `Execute { certified: false }` for a block that a held PrepareQC certifies (the application clock guard of §4.5 then applies to certified re-proposals) | `f33_hidden_prepareqc_due_work_block_commits_after_lag`: n=4 F33 with the simulator's clock guard, every transaction applies due work; a Byzantine proxy tail hides PQC(B) of a due-work block B; the views fail until a TC carries PQC(B) and B is re-proposed past `sumeragi.due_work_max_lag_ms` of the honest wall clocks → the honest nodes execute B with `certified = true` (CT5 skipped), Prepare, and B commits in a later view. `det_s51_execute_certified_flag`: a fresh block and its retry after `Failed(ClockAhead)` are executed with `certified = false`; after TC(1) carries the hidden PQC(B, 0), the re-proposal and its retry after `Failed(StaleDueWork)` are executed with `certified = true`, and X Prepares `Q.result`; on a second core, a PQC(C, 0) formed by the others reaches X while the guard refuses C, and the retry of C is executed with `certified = true` (the node's lock) | F39 | O-LIVE |
 | MS52 | fake driver executor (the simulator's model of §4.5) — CT1 deleted: an honest executor never answers `Failed(ClockAhead)` | `clock_guard_certified_time_within_two_drifts`: n=4, two honest wall clocks at `+max_clock_drift_ms`, one at real time; a Byzantine member that votes proposes in turn blocks dated `+2·max_clock_drift_ms` and far-future blocks → the far-future blocks are refused and never commit, and every committed block time is within `2·max_clock_drift_ms` of the smallest honest wall clock. Under MS52 a far-future block commits. `clock_guard_liveness_with_f_plus_one_slow_clocks` also detects it | F39 | O-TIME |
 | MS53 | Accept a zero-length proposal at a later view | `empty_proposals_are_rejected_at_every_view`: reject empty fresh proposals and certified re-proposals at every view | — | O-SIGN, nonempty work |
 | MS54 | A refused local signature is published and pooled | `det_signing_refusal_prepare_preserves_reservation_without_pooling`: refusal retains the reservation, emits only a local fault and permits only the identical retry | — | O-SIGN, O-CERT |
@@ -3572,6 +3668,9 @@ Detection needs targeted adversaries: random faults alone did not kill the TC-ru
 | MS61 | General Status admission suppresses a probe retry after refused Echo signing | `det_signing_refusal_echo_does_not_consume_rate_limit`: refusal consumes no successful-Echo allowance, identical retry succeeds and subsequent successful sends remain rate-limited | — | O-LIVE |
 | MS62 | A retained earlier-view Timeout suppresses current-view signing retry | `det_signing_refusal_current_timeout_retries_with_prior_timeout_retained`: the current reserved Timeout retries despite an earlier successful Timeout | — | O-LIVE, O-SIGN |
 | MS63 | Periodic proposal retry consumes its marker while the original body is unavailable | `det_signing_retry_retains_restored_proposal_until_delayed_body_arrives`: the marker survives a due tick, and delayed original body delivery resends the exact recorded proposal | — | O-LIVE, O-SIGN |
+| MS64 | first Prepare signs without consulting its original application admission | `det_ct5_cached_execution_waits_for_stage_and_checks_actual_first_signing_time`, `det_ct5_world_retained_execution_rechecks_clock_at_first_prepare` | — | Cached Valid cannot bypass first-Prepare freshness after stage delay; a retained World result must not sign after its actual wall clock advances. |
+| MS65 | restore synthesizes a successful signature from an unsigned Prepare reservation | `det_ct5_unsigned_prepare_reservation_restart_never_synthesizes_first_signature` | — | a durable unsigned reservation cannot synthesize a first Prepare without fresh source-bound execution or a genuine matching PQC. |
+| MS66 | restore accepts a checksummed fabricated successful Prepare signature | `det_ct5_successful_prepare_signature_is_exact_durable_and_authenticated_on_restart` | — | a checksummed fabricated successful signature is not restart authority. |
 
 
 
@@ -3622,6 +3721,9 @@ and MS30.
 | ML29 | `commit_height` — `d_c` measured from the anchor `min(t_enter + P(v), t_prop)` (the E40 rule) | `det_l29_late_leader_does_not_raise`: n=4, X in set B; (a) the view-0 proposal arrives `T(0)/2 + 100` after `t_enter + P(0)`, commit 50 ms later → `start = 0`; (b) the same at view 1 → 0; (c) a proposal whose authenticated rows are delayed at once, its body `T(0)/2 + 100` later → 0; (d) X holds A from the start, CommitQC of its twin B `T(0)/2 + 100` later → 0; (e) control: body at once, commit `T(0)/2 + 1` later → 1 | F36 | direct assertion (start level), O-PERF P4 per gap |
 | ML30 | `commit_height` — `d_c` measured from `t_prop` of any held proposal (a late body or a twin counts) | `det_l29_late_leader_does_not_raise` (c), (d) | F36 (body variant) | direct assertion (start level) |
 | ML31 | `validate_chain` — outer sync response allowance omitted | `det_l31_chain_parameters_leave_a_feasible_sync_frame_budget`: a 16 MiB payload requires both allowances; exact budget passes, one byte less and the former payload-only budget fail | none; deterministic configuration boundary | direct assertion (an available sync setting) |
+| ML32 | `process_sync_buffer` — an existing body want does not learn sync responders | `det_l32_sync_enriches_restored_body_want`: restore a recorded proposal after original body loss, with an empty or stale peer list; a verified sync entry enriches the same bounded want without resetting retries, and only actual rows permit ordered commits. `f28_seed177_restored_empty_body_want_catches_up` retains the original failure in short ordinary runs. | F28, including seed 177 | O-LIVE, original body custody |
+| ML33 | `process_sync_buffer` — omit verified responder retention and retry pinning | `det_l33_verified_sync_donor_survives_saturated_history`: a requested later-generation donor enters an `n+8` stale list, preserves member peers and retry state, accepts a different valid exact-q certificate for the same manifest/value, and survives cyclic retries without extra fanout; unsolicited, invalid and foreign-value carriers cannot promote donors | none; deterministic saturation boundary | O-LIVE, original body custody |
+| ML34 | `process_sync_buffer` — rejected deferred donor does not refresh the current missing-body height | `det_l34_deferred_sync_donor_failure_refetches_current_height`: valid then invalid alternative while C_h is unknown; preserve the original carrier, prepay full deferred storage, and once C_h is known retry the same height through empty/invalid replies and timeout until a valid donor refresh; only actual rows allow commit | none; deterministic deferred-authority boundary | O-LIVE, original body custody |
 | ML26 | `on_proposal` step 2 — no early timeout on proven leader equivocation (evidence only) | `det_l25_equivocating_leader_early_timeout`: n=4, X in set A; twin B of the held A (both signed by `L(h, 0)`), with and without X's Prepare of A first → `ProposalEquivocation` evidence and exactly one timeout at view 0 (`hq = None`); no further vote at view 0, even with PQC(A); the twin again → nothing; `q − 1` other timeouts → view 1 at once; not equivocation (no evidence, no timeout): a same signed proposal with a damaged availability carrier of A, B signed by another member, B carrying A's signature, twins of view 0 after X entered view 1 | F5 | direct assertion, O-LIVE |
 
 Shared tests: `det_s2_s27_prepare_once_across_restart` kills MS2 and MS27;
@@ -3662,6 +3764,24 @@ blocks.
 | MX10 | `Tracker::context` — the tracked epoch need not contain the certified height | `det_amx_tracker_epoch_window`: epoch 0's committee certifies a height of epoch 1 under epoch 0's id → rejected; epoch 1 verifies only after its handoff, and a removed committee cannot certify it | — | direct assertion |
 | MX11 | `Tracker::handoff` — `C_{J,e−1}` is not kept | `det_amx_handoff_keeps_previous_epoch`: a record of epoch 0 relayed after the handoff into 1 still verifies; handoffs only in sequence and from the last block; a replay is stale | — | direct assertion |
 | MX12 | `Tracker::verify` — the result-preimage check deleted | `det_amx_record_bound_to_result`: a genuine `Yes` whose disclosed record is rewritten to `No` → rejected | F31 (forging relayer) | O-AMX |
+| MX13 | Simulator relayer omits expiry work learned from authenticated Begin | `amx_final_payment_silent_participant_requires_actionable_abort`: the only payment has one silent participant and real Yes escrow on the healthy participant; the healthy Global root must certify Abort and release that escrow without unrelated transactions or height advancement | — | Exact final obligation and escrow outcome |
+| MX14 | Simulator Global vote accepts Commit at or after signed time expiry | `det_amx_time_expiry_orders_last_yes_and_expire_identically`: last Yes and explicit Expire, in both orders at one millisecond before, exactly at and after expiry, produce one immutable Commit before the boundary and Abort at or after it | — | Exact certified-time boundary and decision |
+| MX15 | Simulator carrier classification omits Begin and Vote from stale-time admission | `det_amx_time_sensitive_carriers_refuse_stale_time_but_certified_replay_is_exempt`: original registered Begin, Vote and Expire carriers pass at the freshness boundary, defer one millisecond beyond it, and bypass that guard when the certified execution flag is set | — | Actual carrier classification and clock-admission outcome |
+
+MX13–MX15 cover the simulator candidate for final-payment progress: signed terms bind
+an absolute ledger-time expiry; a relayer reconstructs due work from authenticated Begin
+after restart and submits a real Expire input. Only execution of that input for a known,
+undecided, due obligation emits Abort. The same certified-block-time predicate prohibits
+Commit at the expiry boundary. Local scheduler time cannot release participant escrow.
+Begin, Vote and Expire carriers all enter the simulator's CT5 stale-time guard; certified
+re-proposals and replay retain the same exemption. That bounds their first uncertified
+Prepare admission, not the time a hidden certificate or interrupted chain finally commits.
+The simulator's 60-second window is a harness policy, not a wall-clock settlement
+guarantee. The native implementation now carries signed ledger-time expiry, committed
+freshness bounds, funded expiry dispatch and authenticated Decision recovery alongside
+the height deadline in §11. These remain an implementation candidate: current-source
+native and daemon checks and the independent-root, final-payment network scenario must
+pass before this establishes whole-node settlement readiness.
 
 The node's AMX rules live outside the crate the gate mutates; their deterministic tests are
 `iroha_data_model::sumeragi_amx::tests` (`sumeragi_amx_commit_needs_every_yes_by_the_deadline`,
@@ -3829,11 +3949,11 @@ profile and the same strict named-test, normal-exit and complete-harness require
 | HC138 | Observe absent Queue resident custody before acquiring its actual mutation fence | `cold_queue_retirement_holds_original_fence_until_first_admission_can_publish` | Cold retirement must acquire the existing original Queue writer before observing its shared resident ledger. A competing first admission cannot initialize and publish an accepted owner between that observation and removal. The same original finite pool, typed refusal and graph remain; the actual Queue guard releases before after-unlock actions, watch updates or physical refund callbacks. Nexus revalidation preserves Nexus-before-Queue acquisition and retains that original Nexus owner through its after-unlock actions. An independent thread synchronously probes the real cold writer, then actual prepared signed four-validator admission retains original graph/cache identity and exact ledger/shell charges; real original-pool pressure and retirement verify exact release after both physical guards. The mutant skips only the original Queue writer; no allocator/protocol hook, timing sleep, new lock or alternate owner is introduced. Full nested graph funding, detached owned copies, monetary/network/restart and complete mutation qualification remain open. |
 | HC139 | Rewalk complete executed ancestry when selecting the signed-genesis root for a new certificate or native successor context | `prepared_certificate_uses_bounded_signed_root_without_rewalking_execution_history`, `successor_context_uses_original_parent_and_bounded_signed_root_without_history_rewalk` | Root instance selection consumes only the exact durable State-pinned signed genesis through the existing `CertifiedChain::new` reader. Network/journal identity, complete signed proposal commitments, genesis signatures and original decode/pool refusals remain mandatory. The original current-parent native tip read continues to authenticate execution `R` and all three parent identities; signed genesis grants no result-only genesis execution, current World authority, restoration or cached-body trust. Actual four-validator chains measure the completed original single-root/current-parent decode cut, refuse the unnecessary historical walk under that same original limit, preserve exact certificate quorum and native context negatives, and publish the unchanged original funded execution. Both test-only mutations restore only the unnecessary executed-genesis read. No history/sample edits, cached verdict, pool replacement, deadline change or whole-node qualification is introduced. |
 | HC140 | Reuse a pending-input lease after actual certified State publication withdraws its original cut | `pending_payload_lease_retires_on_actual_certified_state_publication` | A real signed clock block executes and publishes on the existing exact four-validator CertifiedTestChain. The Queue still holds the original unexecuted input, but the earlier even publication generation grants no current lease. The mutant skips only the authoritative current-lease publication-generation comparison; original State publisher Busy/release observations, Queue fence, applied-input/expiry checks and pool ownership remain. This is a component custody rule; full paid nested graph funding, whole-node/restart and full mutation qualification remain separate. |
-| HC141 | Adopt same-hash clear/readmission during an earlier pending-input selection | `pending_payload_selection_cannot_adopt_clear_and_readmission_during_selection` | Selection captures the original Queue generation before its actual bounded signed-input snapshot. Clear and same-hash readmission preserve the exact ingress timestamp yet create a new original admission boundary. Capture must refuse the prior selection and refund its temporary hash table; the current selection must succeed. The mutant skips only the capture generation comparison, preserving actual inputs, State generation and original mutation fence. This is a component custody rule; full paid nested graph funding, whole-node/restart and full mutation qualification remain separate. |
+| HC141 | Adopt same-hash clear/readmission during an earlier pending-input selection | `pending_payload_selection_cannot_adopt_clear_and_readmission_during_selection` | Selection captures the original Queue admission high-water before its actual bounded signed-input snapshot. Clear and same-hash readmission preserve the exact ingress timestamp yet create a new checked incarnation. Capture must refuse a row whose incarnation exceeds the prior selection high-water and refund its temporary admission table; the current selection must succeed. The mutant skips only that incarnation comparison, preserving actual inputs, State generation and original mutation fence. This is a component custody rule; full paid nested graph funding, whole-node/restart and full mutation qualification remain separate. |
 | HC142 | Lend an original selected-input lease through a foreign Queue | `pending_payload_lease_uses_original_backing_and_retires_on_expiry_withdrawal_or_foreign_queue` | Two actual Queues admit the same signed input from the same certified State and original finite pool. Equal input bytes, pool and generation do not make their Queue identity interchangeable. The mutant skips only the authoritative current-lease Queue-address check; original State identity, generation, expiry, applied-input and hash checks remain. This is a component custody rule; full paid nested graph funding, whole-node/restart and full mutation qualification remain separate. |
 | HC143 | Treat zero or expired original selected-input residence as a current lend | `pending_payload_lease_uses_original_backing_and_retires_on_expiry_withdrawal_or_foreign_queue` | The actual mock clock advances beyond the original Queue TTL while the signed input still occupies its original Queue. Before withdrawal the original lease must already refuse lending. The mutant admits zero remaining residence and skips only the matching live-input expiry check in the authoritative current-lease read. Actual time, Queue parameters, ownership/State generations, applied-input checks and timer-only storage fallback are unchanged. This is a component custody rule; full paid nested graph funding, whole-node/restart and full mutation qualification remain separate. |
 | HC144 | Erase original pending-input capture Capacity refusal into absent work | `pending_payload_lease_preserves_original_capacity_refusal_and_refuses_generation_wrap` | The original certified State pool is genuinely saturated after a prepaid release registration. Hash-table capture must return the exact original Capacity fields and pre-refund ReleaseWait, notify after the held charge drops, and retry from the same pool. The mutant converts only a ChargedBuffer Admission failure to Ok(None), without allocating replacement backing, replacing the budget or publishing a lease; physical allocator errors remain errors. This is a component custody rule; full paid nested graph funding, whole-node/restart and full mutation qualification remain separate. |
-| HC145 | Wrap an exhausted original Queue ownership generation instead of refusing reuse | `pending_payload_lease_preserves_original_capacity_refusal_and_refuses_generation_wrap` | Actual expiry removes the original signed input while its ownership generation is at u64::MAX. Exhaustion must latch the original admission fault, retire the previous lease and refuse later selection/capture; hash-table, release registration and Queue ledger charges conserve exactly. The mutant changes only checked generation increment to wrapping increment. The fixed representation and actual removal/refund/lock order are unchanged. This is a component custody rule; full paid nested graph funding, whole-node/restart and full mutation qualification remain separate. |
+| HC145 | Wrap an exhausted original Queue admission high-water instead of refusing new custody | `pending_payload_lease_preserves_original_capacity_refusal_and_refuses_generation_wrap`; `pending_payload_admission_exhaustion_refuses_before_input_publication` | Actual expiry or a new admission encounters the original high-water at u64::MAX. Exhaustion must latch the original admission fault, retire the previous lease and refuse selection/capture and new input publication; admission-table, release registration and Queue ledger charges conserve exactly. The refused new input cannot appear in the Queue or take a fee reservation. The mutant changes only checked incarnation increment to wrapping increment. The fixed representation and actual removal/refund/lock order are unchanged. This is a component custody rule; full paid nested graph funding, whole-node/restart and full mutation qualification remain separate. |
 | HC146 | Omit exact compiled native descriptor/key admission before State dedup publication | `unsupported_retired_and_claimed_backends_fail_state_admission`, `native_compiled_descriptor_refusal_preserves_key_admission_and_original_retry` | State preserves its payload size/budget guards and current CoreZK backend, activity, commitment and canonical metadata refusal order using a fresh one-entry admission cache. Before publishing a Native PIPA-R dedup key, supplied bounded verifier originals must match the locally compiled relation, including descriptor/parameter identity and processed key. Consistently rehashed foreign descriptors, keys, foreign relations, bare/trailing carriers and oversized originals refuse without poisoning retry; exact original native proofs/keys remain admitted and share the existing explicit/resolved-commitment dedup preimage. STARK keeps its independent admission. The test-only mutant skips only the Core caller's compiled native material guard. Lightweight preverification does not establish cryptographic verification or admit retired names, monetary authority or compatibility labels. |
 | HC147 | Replace an original native AMX archive-write pool refusal with a generic source failure | `persisted_amx_original_read_retains_acquired_inode_and_exact_pool_through_decode_refusal` | The authenticated archive reader retains the exact capacity cause, original pool and release observation; refusal is neither record absence nor substituted authority. The control saturates the actual pool after bounded acquisition, compares the original refusal and release wake, then retries the same source. |
 | HC148 | Discard an acquired original AMX archive prefix after its owning decode refuses | `persisted_amx_original_read_retains_acquired_inode_and_exact_pool_through_decode_refusal` | A pending producer keeps the original descriptor and charged complete prefix through physical and inherited decoder refusal. Replacing the pathname cannot replace that source on retry; exact charge conservation and successful verification of the same certified record are required. |
@@ -3942,6 +4062,23 @@ profile and the same strict named-test, normal-exit and complete-harness require
 | HC253 | Native parent reads classify unavailable original journal path bindings as corrupt history | `sumeragi::executor::payload_owner::tests::retained_partial_payload_refuses_missing_original_parent_and_resumes_same_paid_wire`; `sumeragi::executor::payload_owner::tests::retained_partial_payload_refuses_substituted_original_parent_and_resumes_same_paid_wire` | Missing or replaced paths must refuse before body I/O while retaining the exact paid payload, queue lease and pool charge. Restoring the original journal must resume that same payload. This availability classification applies only to the original pathname/descriptor binding; malformed bytes and contradictory durable slots remain errors. |
 | HC265 | A direct payment retry consumes another execution fee after its payer-scoped business identity succeeded | `executor::settlement_replay::tests::direct_payment_replay_two_carriers_charge_once_and_recover_after_certified_restart` | Distinct signed carriers of the same owner-authorized singleton intent charge once, preserve the original receipt and recover its original successful block after certified replay. The mutant must fail at the exact fee-balance assertion. A typed retry outcome rejects the new carrier; verification of the original successful execution remains mandatory. |
 | HC266 | AMX relay outcome omits its freshly authenticated source-instruction and explicit-authority binding | `amx_relay::ledger::proof_tests::relay_journal_identity_cannot_substitute_an_unrelated_successful_carrier` | A valid exact-quorum block and exact input/output proof for a different native instruction cannot complete the relay. The mutant removes only the fresh source instruction/authority comparison; genesis, finality, exact carrier identity and successful execution checks remain. The deterministic test uses real certificates over synthetic results and does not establish whole-network AMX qualification. |
+| HC270 | AMX discovery requires a coordinates file for a certified height with no AMX writes | `native_amx_discovery_advances_ordinary_global_height_then_delivers_both_final_tip_decisions` | The reader authenticates the complete original execution witness and its zero record count before advancing an ordinary height with no `.ami` file. It then discovers genuine Begin and final-tip Decision deliveries from the same replayed Global root. |
+| HC272 | Routing-lane builder lends a retained payload after its original Queue admission retires | `lane_original_queue_lease_retires_expiry_and_withdrawal_during_clock_wait`; `lane_original_queue_lease_rechecks_withdrawal_after_actual_encoding`; `lane_original_queue_lease_preserves_same_output_across_clock_rewind_and_retires_readmission` | Actual Queue selection retains its original admission lease through clock waits and encoding. Expiry, withdrawal and same-hash readmission retire that source; clock rewind alone preserves the same output. These named controls require current-source runtime and mutation qualification. |
+| HC273 | Omit the captured proposer time for a fresh view | `fresh_view_refreshes_authenticated_block_time_without_replacing_signed_input` | Genuine Queue work retains byte-identical payloads within one view and the exact signed input across a fresh view. Advancing the clock must refresh only the new authenticated header time, without another payment or unrelated input. |
+| HC274 | Reject an authenticated timestamp above the required parent/input floor | `authenticated_proposer_time_above_floor_executes_and_replays_without_restamping` | The real worker executes a signed RS16 proposal with a later timestamp and unchanged signed inputs. After a local clock rewind, uncertified execution waits; genuine quorum preparation and cold replay retain the original result and exact body time. |
+| HC275 | Omit authenticated epoch-boundary handoff discovery when no AMX record exists | `native_amx_handoff_discovery_delivers_final_boundary_without_record_and_replays_both_roots` | Actual native execution at the final epoch boundary must produce its handoff without an AMX coordinates row or a successor block. Independently executed roots apply the original proof and replay it after restart. |
+| HC278 | Accept a substituted execution source at routing-lane first Prepare signing | `native_lane_first_prepare_admission_binds_original_source_and_retains_its_charge` | The paid admission retains its original lane, epoch, height, block and execution result through the final signer check. Certification cannot exempt source substitution. |
+| HC283 | Accept a Decision read from a child root as a Global expiry decision | `native_amx_expiry_recovery_authenticates_final_decision_after_restart_and_rechecks_cached_positive` | Recovery joins the original Global root, instance, Begin, intent and authenticated Decision. A child root at the same height cannot supply that authority. |
+| HC284 | Promote a cached positive Decision height without rereading authenticated source | `native_amx_expiry_recovery_authenticates_final_decision_after_restart_and_rechecks_cached_positive` | Cached coordinates retain progress only. Capacity refusal on the original source read remains deferred, including after restart. |
+| HC285 | Treat decoded terminal expiry journal state as fresh exact-carrier evidence | `independently_decided_expiry_recovers_only_the_existing_exact_carrier_without_dispatch` | An independent Decision suppresses new expiry dispatch but does not establish an unknown existing carrier outcome. Read-only recovery requires current authenticated evidence for that exact carrier. |
+| HC286 | Omit the exact direct private-root AMX consent classifier | `native_amx_exact_owner_grant_revocation_and_separate_relay_preserve_settlement`, `native_amx_approval_proof_requires_owner_grant_and_rechecks_exact_private_cut` | A bank must route direct account Grant/Revoke of exact `CanPrepareAmx` consent to its existing debit-owner authorization. The classifier binds the immutable parent, bank network, instance and dataspace; it grants no authority to a holder or role. Omitting it reproduces the actual paid owner-Grant rejection (`instruction has no reviewed private-root scope owner`) before consent publication. Local decode refusal remains retryable. |
+| HC287 | Acquire an unrelated destination's target graph before route selection | `native_amx_route_discovery_retains_refused_handoff_while_another_destination_advances` | Complete common-source authentication precedes route selection. A refused route retains its original funded graph while another destination can acquire and deliver only its own target graph. |
+| HC276 | Omit recovery of handoffs already applied by an independent relayer | `fresh_relayer_recovers_independent_native_handoffs_after_two_epochs_and_restart` | A fresh relay must authenticate the original successful destination effect after two epochs, even when the source epoch is no longer tracked. Local journal state, a rejected carrier, or a substituted proof cannot establish completion. |
+| HC277 | Extend the source scan frontier on every pass | `growing_source_tip_cannot_starve_pending_original_handoff_retry` | Each bounded sweep pins a finite frontier so continuous source growth cannot prevent retry of an earlier pending handoff. This scheduling control does not establish whole-network liveness. |
+| HC279 | omit native final freshness after original encoding and admission waits | `ct5_post_encoding_clock_advance_rolls_back_actual_begin_and_fees_with_original_decode` | time-sensitive effects must be locally deferred after the last encoding wait. |
+| HC280 | reuse cached native Valid without checking the actual wall clock | `ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source` | cached native Valid cannot bypass a fresh local clock check. |
+| HC281 | allow a first-Prepare request to substitute the original native result | `ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source` | a certificate flag cannot substitute another result. |
+| HC282 | omit native first-signing freshness after execution | `ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source` | native first signing must recheck the actual wall clock after execution. |
 | HC271 | Begin delivery skips the original successful-input and namespace join after Prepare admission | `native_amx_begin_delivery_final_namespace_refusal_preserves_original_instruction` | Genuine paid Global Begin execution and native replay retain the original signed input. Replacing its archive namespace after the Prepare proof and fields are admitted must refuse delivery without releasing or replacing them; restoring the original namespace resumes the same proof and transaction pointers with exact final refund. |
 | HC267 | Decision delivery skips the original Begin/Decision namespace join after instruction admission | `native_amx_decision_delivery_final_namespace_refusal_preserves_original_instruction` | Genuine paid execution and native replay produce the original Decision. Replacing its archive namespace immediately after funded instruction admission must refuse delivery while retaining that exact instruction; restoring the original namespace permits delivery with unchanged proof pointers and complete refund. |
 | HC257 | Omit CT1 in full State execution | `sumeragi::executor::clock_tests::prepare_withheld_while_block_time_ahead` | A genuine future block returns local Failed before effects and without a negative cache entry. Advancing the injected clock to the exact committed allowance boundary permits the same original execution. |
@@ -4004,6 +4141,10 @@ restart and full release qualification remain separate required controls.
 | DM34 | Reconstruct an owning canonical epoch snapshot for optional validation reuse | `sumeragi_finality::epoch_graph::validation_tests::epoch_scope_retains_exact_context_without_a_hidden_heap_graph` | The actual cache retains all original scalar and ordered key/PoP values inline under the native maximum of 31. Mandatory context validation is measured independently; the named physical-allocation assertion runs with adequate original capacity before optional insertion assertions. A separate full-pool phase checks fresh insertion/hits, unchanged cumulative debit and final refund. Exact fields, last-member/order/overflow refusal, source independence and default-stack layout remain required; complete authority/configuration/source graph funding is still separate. Every declared control must fail at its own exact assertion; worker controls retain their original child and join panic ownership. |
 | DM35 | Discard an evicted authenticated global context while an unresolved AMX Yes still needs it | `sumeragi_amx_delayed_decisions_survive_three_rotations_and_restart` | A delayed genuine Commit or Abort remains verifiable after three authenticated committee rotations and canonical participant State serialization/restart. Handoffs never release escrow, the successful decision creates exactly one effect, and replay cannot create another. Missing required historical authority fails restored-State validation. |
 | DM36 | Omit the shared CT4 clock-drift bound | `parameter::system::tests::clock_drift_bound_accepts_exact_limit_and_rejects_excess_without_overflow` | Zero and 60 000 ms are admitted; 60 001 ms and `u64::MAX` are rejected by the single model validator used by structured genesis, executed genesis and committed parameter changes. No local clock enters deterministic parameter validity. |
+| DM37 | Omit the committed due-work margin and checked arithmetic | `parameter::system::tests::due_work_policy_checks_combined_margin_and_overflow_without_local_clock` | Admit the exact `2 × drift + 4 × cadence` lag boundary; refuse one below, zero cadence and multiplication/addition overflow. The same committed policy is checked before signing genesis, after executing genesis and on parameter changes. |
+| DM38 | Accept an exact debit permission under a foreign certified root | `sumeragi_amx::approval_proof::tests::exact_debit_approval_rejects_substituted_roots_terms_relays_schema_and_permission_preimages` | A genuine Global certificate over the same synthetic permission preimages cannot authenticate private-root debit consent. Exact parent, participant, instance, terms, relay, schema and World preimages remain independently selected. Native Grant/Prepare qualification is separate. |
+| DM39 | last Yes ignores signed ledger-time expiry | `sumeragi_amx::tests::time_tests::sumeragi_amx_time_boundary_is_exclusive_and_height_boundary_inclusive` | late Yes must never decide Commit. |
+| DM40 | time expiry mutates a pending decision before its original writer accepts | `sumeragi_amx::tests::time_tests::sumeragi_amx_time_expiry_preserves_all_pending_rows_on_writer_refusal` | failed witness publication cannot prune time-expired obligations. |
 
 SDK public-read and Deploy managed-bootstrap rules use separate owning `--sdk` and
 `--deploy` unit-test families (`SUMERAGI_SDK_MUTATION`/`sumeragi_sdk_mutation` and

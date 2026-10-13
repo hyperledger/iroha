@@ -288,8 +288,14 @@ fn current_payload_selects_full_block_gas_call_with_idle_catalog_route() {
             "the global chain cannot steal fresh native-lane work"
         );
         let selected = lane_inputs
-            .candidates(4, max_bytes, &BTreeSet::new())
-            .expect("completed original lane routing read");
+            .candidates(
+                4,
+                max_bytes,
+                &BTreeSet::new(),
+                &state.ivm_execution_budget(),
+            )
+            .expect("completed original lane routing read")
+            .0;
         assert_eq!(
             selected.len(),
             1,

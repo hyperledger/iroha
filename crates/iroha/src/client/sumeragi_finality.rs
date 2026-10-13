@@ -418,9 +418,46 @@ impl Client {
             None,
             ActivationEvidenceReadAuth::Public,
         )?;
+        self.decode_sumeragi_finality_proof_response(&response, height, expected_scope)
+    }
+
+    /// Fetch the same structurally checked proof using this context's async transport.
+    /// The caller still authenticates its committee and execution from independent genesis.
+    ///
+    /// # Errors
+    /// Original deadline, bounded transport or codec refusal, wrong height, or malformed
+    /// certificate structure under the selected scope. These errors do not establish
+    /// ledger rejection; exact root and committee authentication remain with the verifier.
+    pub async fn get_sumeragi_finality_proof_async(
+        &self,
+        height: NonZeroU64,
+        expected_scope: iroha_data_model::block::consensus::SumeragiRootScope,
+    ) -> Result<iroha_data_model::sumeragi_finality::SumeragiFinalityProof> {
+        self.ensure_query_compatibility().await?;
+        let path = iroha_torii_shared::route_catalog::sumeragi::BRIDGE_FINALITY
+            .path()
+            .replace("{height}", &height.get().to_string());
+        let response = self
+            .send_activation_evidence_read_async(
+                &path,
+                SUMERAGI_FINALITY_RESPONSE_MAX_BYTES,
+                None,
+                ActivationEvidenceReadAuth::Public,
+            )
+            .await?;
+        self.decode_sumeragi_finality_proof_response(&response, height, expected_scope)
+    }
+
+    /// One height, scope and bounded canonical-codec gate for either transport capability.
+    fn decode_sumeragi_finality_proof_response(
+        &self,
+        response: &Response<Vec<u8>>,
+        height: NonZeroU64,
+        expected_scope: iroha_data_model::block::consensus::SumeragiRootScope,
+    ) -> Result<iroha_data_model::sumeragi_finality::SumeragiFinalityProof> {
         let proof: iroha_data_model::sumeragi_finality::SumeragiFinalityProof =
             Self::decode_canonical_norito_response(
-                &response,
+                response,
                 SUMERAGI_FINALITY_RESPONSE_MAX_BYTES,
                 "sumeragi.finality_proof.read",
             )?;

@@ -62,13 +62,28 @@ impl TransactionCheck for IntrinsicComponentCheck {
 }
 struct NoRows;
 impl LaneTransactions for NoRows {
+    type Lease = ();
+
     fn candidates(
         &self,
         _: u64,
         _: usize,
         _: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, crate::sumeragi::lanes::executor::LaneSelectionError> {
-        Ok(Vec::new())
+        _: &iroha_allocation::AllocationBudget,
+    ) -> Result<
+        (Vec<SignedTransaction>, Self::Lease),
+        crate::sumeragi::lanes::executor::LaneSelectionError,
+    > {
+        Ok((Vec::new(), ()))
+    }
+
+    fn retain_prefix(&self, _: &mut Self::Lease, _: usize) {}
+    fn lease_is_current(
+        &self,
+        _: &Self::Lease,
+        _: &iroha_allocation::AllocationBudget,
+    ) -> Result<bool, crate::sumeragi::driver::traits::PublicationError> {
+        Ok(true)
     }
 }
 struct Schedule(AvailabilitySource);
@@ -313,9 +328,8 @@ fn signed_four_validator_lane_execution_refusal_never_caches_invalid_or_publishe
         assert_eq!(fixture.body.payload().as_slice().as_ptr(), pointer);
         assert_eq!(fixture.budget.reserved_bytes(), retained);
     }
-    assert_eq!(
-        lane.execute(&fixture.body, &hash, false),
-        Some(ExecOutcome::Valid(fixture.qc.result))
+    assert!(
+        matches!(lane.execute(&fixture.body, &hash, false), Some(ExecOutcome::Valid { result, .. }) if result == fixture.qc.result)
     );
     assert_eq!(
         lane.prepare(&fixture.body, &fixture.qc),
@@ -382,9 +396,8 @@ fn anchor_read_refusal_retains_original_lane_body_until_capacity_returns() {
     assert!(registration.poll_wait(&released, &mut context).is_pending());
     drop(occupied);
     assert!(registration.poll_wait(&released, &mut context).is_ready());
-    assert_eq!(
-        lane.execute(&fixture.body, &fixture.qc.block_hash, false),
-        Some(ExecOutcome::Valid(fixture.qc.result))
+    assert!(
+        matches!(lane.execute(&fixture.body, &fixture.qc.block_hash, false), Some(ExecOutcome::Valid { result, .. }) if result == fixture.qc.result)
     );
     assert!(lane.anchor_refusal.is_none());
     assert_eq!(
@@ -500,23 +513,20 @@ fn signed_lane_clock_retains_original_admission_until_exact_boundary_and_certifi
             input_pointer
         );
         clock.set(boundary);
-        assert_eq!(
-            lane.execute(&fixture.body, &fixture.qc.block_hash, false),
-            Some(ExecOutcome::Valid(fixture.qc.result))
+        assert!(
+            matches!(lane.execute(&fixture.body, &fixture.qc.block_hash, false), Some(ExecOutcome::Valid { result, .. }) if result == fixture.qc.result)
         );
         clock.set(Duration::ZERO);
-        assert_eq!(
-            lane.execute(&fixture.body, &fixture.qc.block_hash, false),
-            Some(ExecOutcome::Valid(fixture.qc.result))
+        assert!(
+            matches!(lane.execute(&fixture.body, &fixture.qc.block_hash, false), Some(ExecOutcome::Valid { result, .. }) if result == fixture.qc.result)
         );
         lane.discard(1, &[]);
         assert!(matches!(
             lane.execute(&fixture.body, &fixture.qc.block_hash, false),
             Some(ExecOutcome::Failed(_))
         ));
-        assert_eq!(
-            lane.execute(&fixture.body, &fixture.qc.block_hash, true),
-            Some(ExecOutcome::Valid(fixture.qc.result))
+        assert!(
+            matches!(lane.execute(&fixture.body, &fixture.qc.block_hash, true), Some(ExecOutcome::Valid { result, .. }) if result == fixture.qc.result)
         );
         lane.discard(1, &[]);
         assert_eq!(
@@ -565,8 +575,148 @@ fn signed_lane_clock_wait_cannot_reuse_a_foreign_anchor_identity() {
     assert!(lane.admission.is_none());
     assert!(lane.cache.is_empty());
     lane.anchors = fixture.anchor.clone();
+    assert!(
+        matches!(lane.execute(&fixture.body, &fixture.qc.block_hash, true), Some(ExecOutcome::Valid { result, .. }) if result == fixture.qc.result)
+    );
+}
+
+#[test]
+fn native_lane_first_prepare_admission_binds_original_source_and_retains_its_charge() {
+    use iroha_sumeragi::testing::prepare_signing_request;
+    let fixture = Fixture::new(true);
+    let mut lane = fixture
+        .recovery()
+        .complete()
+        .unwrap_or_else(|_| panic!("original lane"));
+    let Some(ExecOutcome::Valid { result, admission }) =
+        lane.execute(&fixture.body, &fixture.qc.block_hash, false)
+    else {
+        panic!("genuine native lane admission")
+    };
+    assert_eq!(admission.result(), result);
+    let source = fixture.body.source();
+    let request = |instance, epoch, height, hash, result, certified| {
+        prepare_signing_request(instance, epoch, height, 0, hash, result, certified)
+    };
+    let exact = request(
+        source.instance(),
+        source.config().epoch.id,
+        fixture.body.header().height,
+        fixture.qc.block_hash,
+        result,
+        false,
+    );
+    assert!(admission.check(&exact).is_ok());
+    let mut changed_epoch = source.config().epoch.id;
+    changed_epoch.context.0[0] ^= 1;
+    for changed in [
+        request(
+            Hash32::ZERO,
+            exact.epoch(),
+            exact.height(),
+            exact.block_hash(),
+            result,
+            false,
+        ),
+        request(
+            exact.instance(),
+            changed_epoch,
+            exact.height(),
+            exact.block_hash(),
+            result,
+            false,
+        ),
+        request(
+            exact.instance(),
+            exact.epoch(),
+            exact.height() + 1,
+            exact.block_hash(),
+            result,
+            false,
+        ),
+        request(
+            exact.instance(),
+            exact.epoch(),
+            exact.height(),
+            Hash32::ZERO,
+            result,
+            false,
+        ),
+        request(
+            exact.instance(),
+            exact.epoch(),
+            exact.height(),
+            exact.block_hash(),
+            Hash32::ZERO,
+            false,
+        ),
+        request(
+            exact.instance(),
+            exact.epoch(),
+            exact.height(),
+            Hash32::ZERO,
+            result,
+            true,
+        ),
+    ] {
+        assert!(
+            admission.check(&changed).is_err(),
+            "certification never exempts source substitution"
+        );
+    }
+    let reserved = fixture.budget.reserved_bytes();
+    lane.discard(exact.height(), &[]);
+    assert_eq!(fixture.budget.reserved_bytes(), reserved);
+    assert!(admission.check(&exact).is_ok());
+    drop(admission);
     assert_eq!(
-        lane.execute(&fixture.body, &fixture.qc.block_hash, true),
-        Some(ExecOutcome::Valid(fixture.qc.result))
+        fixture.budget.reserved_bytes(),
+        reserved - ChargedShared::<LanePrepareAdmission>::allocation_layout().size()
+    );
+}
+
+#[test]
+fn native_lane_first_prepare_owner_refusal_preserves_original_decoded_admission() {
+    let fixture = Fixture::new(true);
+    let effective = Duration::from_millis(6_001);
+    let boundary = effective - fixture.record.params.max_clock_drift();
+    let (clock, time) =
+        iroha_primitives::time::TimeSource::new_mock(boundary - Duration::from_millis(1));
+    let mut lane = fixture
+        .recovery_with_clock(time)
+        .complete()
+        .unwrap_or_else(|_| panic!("original lane"));
+    assert!(matches!(
+        lane.execute(&fixture.body, &fixture.qc.block_hash, false),
+        Some(ExecOutcome::Failed(_))
+    ));
+    let pointer = lane.admission.as_ref().unwrap().batch.transactions.as_ptr();
+    let reserved = fixture.budget.reserved_bytes();
+    let bytes = ChargedShared::<LanePrepareAdmission>::allocation_layout().size();
+    clock.set(boundary);
+    fixture.budget.set_limit_bytes(reserved + bytes - 1);
+    for _ in 0..2 {
+        assert!(
+            lane.execute(&fixture.body, &fixture.qc.block_hash, false)
+                .is_none()
+        );
+        assert!(
+            lane.anchor_refusal
+                .as_ref()
+                .unwrap()
+                .allocation_refusal()
+                .is_some()
+        );
+        assert!(lane.cache.is_empty());
+        assert_eq!(
+            lane.admission.as_ref().unwrap().batch.transactions.as_ptr(),
+            pointer
+        );
+        assert_eq!(fixture.budget.reserved_bytes(), reserved);
+    }
+    fixture.budget.set_limit_bytes(reserved + bytes);
+    assert!(
+        matches!(lane.execute(&fixture.body, &fixture.qc.block_hash, false),
+        Some(ExecOutcome::Valid { result, .. }) if result == fixture.qc.result)
     );
 }

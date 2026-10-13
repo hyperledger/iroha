@@ -2139,6 +2139,58 @@ fn parse_key_values(message_type: &str, text: &str) {
         }
     });
 }
+/// Owned ISO supplementary namespace for exact native payment network and absolute expiry.
+pub const NEXUS_SETTLEMENT_XML_NAMESPACE: &str = "urn:iroha:iso20022:nexus:v1";
+
+fn nexus_settlement_xml_parent(message_type: &str) -> Option<&'static str> {
+    match canonical_message_type(message_type).as_ref() {
+        "pacs.008" => Some("Document/FIToFICstmrCdtTrf/SplmtryData/Envlp"),
+        "pacs.009" => Some("Document/FICdtTrf/SplmtryData/Envlp"),
+        _ => None,
+    }
+}
+
+// Only a fixed, owned native intent subtree is a semantic namespace extension.
+// The caller rejects a second NexusSettlement root and every non-xmlns attribute.
+fn is_nexus_settlement_xml_element(
+    message_type: &str,
+    parent_path: &str,
+    parent_namespace: &str,
+    name: &str,
+    namespace: Option<&str>,
+) -> Result<bool, MsgError> {
+    if parent_namespace != NEXUS_SETTLEMENT_XML_NAMESPACE
+        && namespace != Some(NEXUS_SETTLEMENT_XML_NAMESPACE)
+    {
+        return Ok(false);
+    }
+    let expected_parent =
+        nexus_settlement_xml_parent(message_type).ok_or(MsgError::InvalidFormat)?;
+    if namespace != Some(NEXUS_SETTLEMENT_XML_NAMESPACE) {
+        return Err(MsgError::InvalidFormat);
+    }
+    if parent_namespace == NEXUS_SETTLEMENT_XML_NAMESPACE {
+        let Some(extension_parent) = parent_path.strip_suffix("/NexusSettlement") else {
+            return Err(MsgError::InvalidFormat);
+        };
+        if extension_parent != expected_parent
+            || !matches!(
+                name,
+                "NetworkId"
+                    | "ExpiresAtHeight"
+                    | "SourceAccountId"
+                    | "TargetAccountId"
+                    | "AssetDefinitionId"
+            )
+        {
+            return Err(MsgError::InvalidFormat);
+        }
+    } else if parent_path != expected_parent || name != "NexusSettlement" {
+        return Err(MsgError::InvalidFormat);
+    }
+    Ok(true)
+}
+
 fn parse_real_iso20022(message_type: &str, text: &str) -> Result<(), MsgError> {
     begin_real_xml_provenance(text.as_bytes());
     let mut stack: Vec<String> = Vec::new();
@@ -2152,6 +2204,8 @@ fn parse_real_iso20022(message_type: &str, text: &str) -> Result<(), MsgError> {
     let mut repeat_counters: HashMap<String, usize> = HashMap::new();
     let mut declared_message_type: Option<String> = None;
     let mut document_root_seen = false;
+    let mut nexus_settlement_fields = 0_u8;
+    let mut payment_transaction_count = 0_usize;
     let mut top_level_root_seen = false;
     let mut namespace_scopes: Vec<Vec<(String, String)>> = Vec::new();
     let mut text_buffers: HashMap<String, String> = HashMap::new();
@@ -2350,10 +2404,50 @@ fn parse_real_iso20022(message_type: &str, text: &str) -> Result<(), MsgError> {
             observe_declared_message_type(&mut declared_message_type, &definition)?;
             Some(namespace.to_owned())
         } else if let Some(owner) = parent_namespace.as_deref() {
-            if !is_dsig_signature && element_namespace.as_deref() != Some(owner) {
-                return Err(MsgError::InvalidFormat);
+            let parent_path = current_path(&stack).ok_or(MsgError::InvalidFormat)?;
+            if is_nexus_settlement_xml_element(
+                message_type,
+                &parent_path,
+                owner,
+                lname,
+                element_namespace.as_deref(),
+            )? {
+                if attrs
+                    .iter()
+                    .any(|(name, _)| name != "xmlns" && !name.starts_with("xmlns:"))
+                {
+                    return Err(MsgError::InvalidFormat);
+                }
+                let field = match lname {
+                    "NexusSettlement" => 1,
+                    "NetworkId" => 2,
+                    "ExpiresAtHeight" => 4,
+                    "SourceAccountId" => 8,
+                    "TargetAccountId" => 16,
+                    "AssetDefinitionId" => 32,
+                    _ => return Err(MsgError::InvalidFormat),
+                };
+                if nexus_settlement_fields & field != 0 {
+                    return Err(MsgError::InvalidFormat);
+                }
+                nexus_settlement_fields |= field;
+                Some(NEXUS_SETTLEMENT_XML_NAMESPACE.to_owned())
+            } else {
+                if !is_dsig_signature && element_namespace.as_deref() != Some(owner) {
+                    return Err(MsgError::InvalidFormat);
+                }
+                if lname == "CdtTrfTxInf"
+                    && matches!(
+                        parent_path.as_str(),
+                        "Document/FIToFICstmrCdtTrf" | "Document/FICdtTrf"
+                    )
+                {
+                    payment_transaction_count = payment_transaction_count
+                        .checked_add(1)
+                        .ok_or(MsgError::InvalidFormat)?;
+                }
+                Some(owner.to_owned())
             }
-            Some(owner.to_owned())
         } else {
             None
         };
@@ -2481,6 +2575,11 @@ fn parse_real_iso20022(message_type: &str, text: &str) -> Result<(), MsgError> {
         }
     }
     if !qname_stack.is_empty() || !text_buffers.is_empty() || !top_level_root_seen {
+        return Err(MsgError::InvalidFormat);
+    }
+    if nexus_settlement_fields != 0
+        && (nexus_settlement_fields != 63 || payment_transaction_count != 1)
+    {
         return Err(MsgError::InvalidFormat);
     }
     if let Some(declared) = declared_message_type {

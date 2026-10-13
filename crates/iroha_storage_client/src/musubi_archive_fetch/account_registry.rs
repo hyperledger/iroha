@@ -875,6 +875,7 @@ mod tests {
             key_pair,
             basic_auth: None,
             api_token: None,
+            http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
             torii_api_url: Url::parse("https://registry.example.com/").unwrap(),
             torii_request_timeout: Duration::from_secs(1),
             transaction_ttl: Duration::from_secs(1),

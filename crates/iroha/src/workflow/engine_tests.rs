@@ -713,3 +713,6 @@ fn a_waiting_round_cannot_be_recovered_as_never_started() {
         .expect_err("wrong driver");
     assert_eq!(error.code, WorkflowErrorCode::BindingMismatch);
 }
+
+#[path = "round_continuation_tests.rs"]
+mod round_continuation_tests;

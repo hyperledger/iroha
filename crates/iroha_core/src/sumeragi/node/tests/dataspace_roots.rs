@@ -679,6 +679,7 @@ fn preaccepted_foreign_input_reaches_private_executor_but_cannot_publish_or_spen
             parent: &parent,
             view: 0,
             cadence: Duration::from_millis(100),
+            proposed_time: std::time::Duration::ZERO,
         },
         &selected,
     )

@@ -8,7 +8,7 @@ use super::{
     PreparedLocalnet, Result,
     native_operation::{
         ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid, now_ms,
-        read_optional, read_selected_peers, require_deadline, require_empty,
+        read_optional, read_selected_peers, require_deadline,
     },
     service_authority::{CheckpointImportScope, NetworkPurpose, ServiceAuthority},
 };
@@ -162,7 +162,7 @@ impl ManagedInitialReservePolicy {
     ) -> Result<ManagedReservePolicyProgress> {
         self.authority.validate_profile()?;
         self.validate_policy(policy)?;
-        let directory = self.authority.directory.ensure_child("set")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "set")?;
         let (original, _) = self.select_intent(&directory, policy, options.deadline)?;
         let account = AccountService::new(self.authority.config.clone())
             .map_err(|_| invalid("cannot open initial reserve wallet"))?;
@@ -190,12 +190,17 @@ impl ManagedInitialReservePolicy {
             Instant,
         ) -> Result<(FinalityVerifier, VerifiedReservePolicyStateV1)>,
     ) -> Result<(Original, Option<InitialAdmission<'a>>)> {
+        journal::recover_intent(directory, |original| {
+            original.matches_policy(policy)?;
+            self.validate_original(original)?;
+            Ok(())
+        })?;
         if let Some(original) = journal::read_intent(directory)? {
             original.matches_policy(policy)?;
             self.validate_original(&original)?;
             return Ok((original, None));
         }
-        require_empty(directory)?;
+        attempts::metadata::require_unselected(directory)?;
         let (verifier, current) = observe(self, policy, deadline)?;
         if current.current().is_some() {
             return Err(invalid("initial reserve policy already exists"));
@@ -224,7 +229,7 @@ impl ManagedInitialReservePolicy {
             ));
         }
         self.validate_policy(policy)?;
-        let directory = self.authority.directory.ensure_child("set")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "set")?;
         let (original, mut admission) = self.select_intent(&directory, policy, deadline)?;
         let account = AccountService::new(self.authority.config.clone())
             .map_err(|_| invalid("cannot open initial reserve wallet"))?;
@@ -323,7 +328,7 @@ impl ManagedInitialReservePolicy {
             return Ok(None);
         };
         let Some(original) = journal::read_intent(&directory)? else {
-            require_empty(&directory)?;
+            attempts::metadata::require_unselected(&directory)?;
             return Ok(None);
         };
         self.validate_original(&original)?;
@@ -788,3 +793,7 @@ mod epoch_test_support;
 #[cfg(test)]
 #[path = "reserve_policy/initial_admission_tests.rs"]
 mod initial_admission_tests;
+
+#[cfg(test)]
+#[path = "reserve_policy/metadata_recovery_tests.rs"]
+mod metadata_recovery_tests;

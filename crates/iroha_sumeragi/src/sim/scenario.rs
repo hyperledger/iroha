@@ -258,7 +258,7 @@ impl Default for Workload {
 pub struct ClockGuard {
     /// `max_clock_drift_ms`, the committed chain parameter of CT1 (CT4).
     pub max_clock_drift_ms: Millis,
-    /// `gov.due_work_max_lag_ms`, the committed governance parameter of CT5.
+    /// `sumeragi.due_work_max_lag_ms`, the committed parameter of CT5.
     pub due_work_max_lag_ms: Millis,
     /// Initial wall offsets (ms) per machine, relative to its monotonic clock (missing: 0).
     pub wall_offsets: Vec<i64>,

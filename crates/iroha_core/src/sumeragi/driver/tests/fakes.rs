@@ -502,7 +502,7 @@ impl Executor for FakeExecutor {
             state.cache.get(&block.header().parent_hash)?.1
         };
         let outcome = Self::run(&mut state, &parent, block, block_hash);
-        if let ExecOutcome::Valid(result) = outcome {
+        if let ExecOutcome::Valid { result, .. } = outcome {
             state
                 .cache
                 .insert(*block_hash, (block.header().height, result));
@@ -533,7 +533,7 @@ impl Executor for FakeExecutor {
         }
         let parent = state.applied.2;
         match Self::run(&mut state, &parent, block, &commit_qc.block_hash) {
-            ExecOutcome::Valid(result) => {
+            ExecOutcome::Valid { result, .. } => {
                 state
                     .cache
                     .insert(commit_qc.block_hash, (block.header().height, result));

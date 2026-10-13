@@ -4,6 +4,9 @@
 //! and shared by actual signed/accepted/block clones. This original borrowed control remains
 //! mandatory; ordinary envelope/decoder allocations and whole-node relaying are separate gates.
 
+#[path = "paid_borrowed_custody/approval_proof.rs"]
+mod approval_proof;
+
 use super::*;
 use crate::{
     state::{StateReadOnly, WorldReadOnly},
@@ -316,6 +319,7 @@ fn authenticate_original_prepared(
 fn paid_original_relay() -> (Roots, AcceptedTransaction<'static>, ProofPointers, [u8; 32]) {
     let mut roots = paid_roots();
     let transaction = roots.transaction(100, 0x63);
+    roots.approve_all(&transaction);
     let tx = transaction.id().unwrap();
     let signed = paid_global_sign(
         &roots.global,
@@ -535,6 +539,7 @@ fn native_amx_original_begin_instruction_refusal_preserves_same_pool_and_last_ow
         use iroha_data_model::isi::AmxInstructionAdmissionErrorV1;
         let mut roots = paid_roots();
         let transaction = roots.transaction(100, 0x71);
+        roots.approve_all(&transaction);
         let tx = transaction.id().unwrap();
         let signed = paid_global_sign(
             &roots.global,
@@ -870,6 +875,7 @@ fn with_paid_prepare_retry_fixture_with_receiver(
         );
         leg.payload = norito::encode_canonical(&transfer).unwrap();
     }
+    roots.approve_all(&transaction);
     let tx = transaction.id().unwrap();
     let signed = paid_global_sign(
         &roots.global,
@@ -904,6 +910,7 @@ pub(super) fn with_paid_prepare_pruning_fixture(
     let mut roots = paid_roots();
     let mut expired = roots.transaction(2_000, 0x65);
     expired.deadline = 5;
+    roots.approve_all(&expired);
     let expired_tx = expired.id().unwrap();
     let signed = paid_global_sign(
         &roots.global,
@@ -938,6 +945,7 @@ pub(super) fn with_paid_prepare_pruning_fixture(
     );
     assert_eq!(roots.global.commit_at(4_000, vec![clock]), vec![true]);
     let next = roots.transaction(100, 0x66);
+    roots.approve_all(&next);
     let next_tx = next.id().unwrap();
     let signed = paid_global_sign(
         &roots.global,
@@ -994,6 +1002,7 @@ fn with_restarted_paid_prepared_intent(
 ) {
     let mut roots = paid_roots();
     let transaction = roots.transaction(100, 0x78);
+    roots.approve_all(&transaction);
     let tx = transaction.id().unwrap();
     let signed = paid_global_sign(
         &roots.global,
@@ -1072,7 +1081,7 @@ fn restarted_paid_intent_delivers_exact_native_prepared_relay_and_refunds_origin
             assert_eq!(descriptor.source_network(), chain.network_id());
             assert_eq!(descriptor.source_height(), chain.height());
             assert_eq!(descriptor.source_carrier(), chain.committed(chain.height()).block().hash());
-            assert_eq!(descriptor.source_record_key(), &expected.canonical().record.witness_key());
+            assert_eq!(descriptor.source(), crate::query::native_receipts::NativeAmxRelaySourceV1::Record { key: expected.canonical().record.witness_key() });
             assert_eq!(descriptor.source_scope(), view.native_execution_tip().unwrap().root_scope());
             let parent = view.world().sumeragi_amx_participant().authenticated_parent_source(&budget).unwrap();
             assert_eq!(descriptor.target_network(), parent.participant.global.current.network_id);
@@ -1324,6 +1333,9 @@ fn restarted_paid_intent_refuses_authenticated_row_subset_before_any_delivery() 
     use crate::query::native_receipts::NativeAmxPreparedRelayErrorV1 as Error;
     let mut roots = paid_roots();
     let transactions = [roots.transaction(40, 0x79), roots.transaction(60, 0x7A)];
+    for transaction in &transactions {
+        roots.approve_all(transaction);
+    }
     let signed = paid_global_sign(
         &roots.global,
         transactions.iter().map(|transaction| {
@@ -1403,7 +1415,7 @@ fn restarted_paid_intent_refuses_authenticated_row_subset_before_any_delivery() 
         let mut complete = crate::query::native_receipts::prepared_amx_relays(&view, restored.height()).unwrap();
         let (first_descriptor, first) = complete.complete_next().unwrap().unwrap().into_parts();
         let (second_descriptor, second) = complete.complete_next().unwrap().unwrap().into_parts();
-        assert_ne!(first_descriptor.source_record_key(), second_descriptor.source_record_key());
+        assert_ne!(first_descriptor.source(), second_descriptor.source());
         assert_ne!(instruction_relay(&first).record.tx(), instruction_relay(&second).record.tx());
         for original in &expected {
             assert!([instruction_relay(&first), instruction_relay(&second)].into_iter().any(|delivered| delivered == original.canonical()));
@@ -1456,6 +1468,30 @@ fn native_amx_decision_delivery_after_restart_settles_exact_registered_child_at_
     budget.with_deferred_refund_notifications(|_| {
         let view = restored.state().view();
         let baseline = budget.reserved_bytes();
+        let admitted = decision_amx_relay(&view, begin_height, tip, tx, FIRST).unwrap();
+        let job_bytes = budget.reserved_bytes() - baseline;
+        assert!(
+            job_bytes > 0,
+            "retained Decision readers use the original pool"
+        );
+        drop(admitted);
+        assert_eq!(budget.reserved_bytes(), baseline);
+        let occupied = budget
+            .try_reserve_bytes(budget.limit_bytes() - baseline - job_bytes + 1)
+            .unwrap();
+        assert!(
+            matches!(
+                decision_amx_relay(&view, begin_height, tip, tx, FIRST),
+                Err(crate::query::native_receipts::NativeAmxDecisionRelayErrorV1::Allocation(
+                    iroha_allocation::ChargedBufferError::Admission(
+                        iroha_allocation::AllocationRefusal::Capacity { requested_bytes, .. }
+                    )
+                )) if requested_bytes == job_bytes
+            ),
+            "Decision delivery must admit both original readers before acquiring a source"
+        );
+        drop(occupied);
+        assert_eq!(budget.reserved_bytes(), baseline);
         let mut read = decision_amx_relay(&view, begin_height, tip, tx, FIRST).unwrap();
         let intent = read.complete().unwrap();
         let descriptor = *intent.descriptor();
@@ -1620,5 +1656,51 @@ fn native_amx_decision_delivery_final_namespace_refusal_preserves_original_instr
 #[path = "paid_borrowed_custody/discovery.rs"]
 mod discovery;
 
+#[path = "paid_borrowed_custody/route_discovery.rs"]
+mod route_discovery;
+
 #[path = "paid_borrowed_custody/begins.rs"]
 mod begins;
+
+#[path = "paid_borrowed_custody/handoffs.rs"]
+mod handoffs;
+
+#[path = "paid_borrowed_custody/authorization.rs"]
+mod authorization;
+
+#[path = "paid_borrowed_custody/idle_expiry.rs"]
+mod idle_expiry;
+
+#[path = "paid_borrowed_custody/expiry_recovery.rs"]
+mod expiry_recovery;
+
+/// Exact paid Global Begin input before any provisional execution.
+pub(super) fn with_paid_global_begin_fixture(
+    test: impl FnOnce(&CertifiedTestChain, SignedTransaction),
+) {
+    let roots = paid_roots();
+    let transaction = roots.transaction(100, 0xD8);
+    let created_ms = roots
+        .global
+        .committed(roots.global.height())
+        .block_time_ms()
+        + roots
+            .global
+            .state()
+            .view()
+            .world()
+            .parameters()
+            .sumeragi()
+            .block_cadence_ms()
+            .get()
+        - 1;
+    let signed = paid_global_sign(
+        &roots.global,
+        [BeginAmxV1 { transaction }.into()],
+        created_ms,
+    );
+    test(&roots.global, signed);
+}
+
+#[path = "paid_borrowed_custody/time_expiry.rs"]
+mod time_expiry;

@@ -244,7 +244,7 @@ const fn definite(
 /// queue rejection there is not classified here. Any response outside this
 /// table proves nothing about admission and stays ambiguous: the node-side
 /// failures `queue_governance_invalid`, `queue_nexus_fee_config_invalid` and
-/// `queue_admission_invariant` are deliberately absent.
+/// `queue_admission_invariant` and `sccp_forgery_unavailable` are deliberately absent.
 pub(super) const DEFINITE_DISPATCH_ROWS: &[DefiniteDispatchRow] = {
     use DefiniteDispatchResult::{AlreadyKnown, Deferred, Refused};
     &[
@@ -283,6 +283,28 @@ pub(super) const DEFINITE_DISPATCH_ROWS: &[DefiniteDispatchRow] = {
             "PRTRY:QUEUE_RATE",
             true,
             Deferred,
+        ),
+        definite(
+            429,
+            "sccp_forgery_throttled",
+            "PRTRY:SCCP_FORGERY_THROTTLED",
+            true,
+            Deferred,
+        ),
+        // A duplicate offence does not identify this exact signed carrier as admitted.
+        definite(
+            409,
+            "sccp_evidence_duplicate",
+            "PRTRY:SCCP_EVIDENCE_DUPLICATE",
+            true,
+            Refused,
+        ),
+        definite(
+            400,
+            "sccp_evidence_rejected",
+            "PRTRY:SCCP_EVIDENCE_REJECTED",
+            true,
+            Refused,
         ),
         definite(400, "transaction_expired", "ED07", true, Refused),
         definite(

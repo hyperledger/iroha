@@ -118,7 +118,7 @@ classified_owner!(State, check_state_fields, STATE_FIELDS, {
     tiered_snapshot_worker: TieredSnapshotWorker => ("state.tiered_snapshot_worker",
         Role::Local("Physical tiered storage and background persistence; logical authority stays in State and authenticated history"));
     fraud_monitoring: iroha_config::parameters::actual::FraudMonitoring => ("state.fraud_monitoring",
-        Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:fraud_monitoring:v1", encoder: "state::authority_registry::fraud_policy::FraudAdmissionPolicyV1::from_actual; tx::enforce_fraud_policy", layout: V1_LAYOUT })));
+        Role::Derived { sources: &["world.parameters"], check: DerivationCheck::Rebuild("fraud_admission_policy::effective_fraud from the same validated StateParameters version; only endpoint and timeout fields are local") });
     zk: iroha_config::parameters::actual::Zk => ("state.zk",
         Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:zk:v1", encoder: "state::authority_registry::zk_policy::ZkConsensusPolicyV1::from_actual; exact native PIPA-R/STARK/SCCP/confidential verification and gas fields, excluding local prover queues and timeouts", layout: V1_LAYOUT })));
     gov: iroha_config::parameters::actual::Governance => ("state.gov",

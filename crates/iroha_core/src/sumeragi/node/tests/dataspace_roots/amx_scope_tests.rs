@@ -35,6 +35,7 @@ fn coordinator_instructions() -> (Vec<InstructionBox>, [u8; 32]) {
             })
             .collect(),
         deadline: 8,
+        expires_at_ms: 1_000_000,
         nonce: [13; 32],
     };
     let tx = transaction.id().unwrap();

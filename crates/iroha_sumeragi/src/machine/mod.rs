@@ -199,14 +199,16 @@ struct Me {
 }
 
 /// Execution state of a block (§6.0 `exec`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum ExecState {
     Pending {
         since: Millis,
         req: u64,
         attempt: u32,
     },
-    Valid(Hash32),
+    Valid {
+        admission: crate::prepare_admission::ExecutionAdmission,
+    },
     Invalid,
     RetryAt {
         at: Millis,
@@ -316,6 +318,8 @@ enum PqcVia {
 struct Want {
     height: u64,
     sources: Vec<PublicKey>,
+    /// Latest requested and fully verified sync donor; also present in `sources`.
+    sync_responder: Option<PublicKey>,
     cursor: usize,
     attempt: u32,
     next_retry: Millis,

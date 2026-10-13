@@ -100,6 +100,72 @@ fn readiness_peer_contexts_share_original_transport_without_rebinding_policy() {
 }
 
 #[test]
+fn readiness_generated_context_preserves_direct_loopback_policy() {
+    let _resources = crate::managed::native_test_guard();
+    let temporary = tempfile::tempdir().unwrap();
+    let ports = crate::managed::LocalnetPorts::reserve().unwrap();
+    let prepared = crate::localnet::prepare_localnet_at(
+        "direct-readiness",
+        &temporary.path().join("generation"),
+        &ports,
+        crate::localnet::LocalnetServiceProfile::Standard,
+        None,
+    )
+    .unwrap();
+    let config = prepared.context.load_client_config().unwrap();
+    assert_eq!(
+        config.http_transport_policy,
+        iroha::config::HttpTransportPolicy::DirectLoopback
+    );
+    let urls = prepared
+        .peers
+        .iter()
+        .map(|peer| peer.torii_url.parse().unwrap())
+        .collect::<Vec<url::Url>>();
+    let transport = Arc::new(Captured::default());
+    let mut builder = iroha::client::Client::builder(config).http_transport(transport.clone());
+    builder.torii_request_timeout = Duration::from_secs(5);
+    builder.wire_format_preference = iroha::client::WireFormatPreference::JsonOnly;
+    builder
+        .headers
+        .insert("x-readiness-fixture".into(), "same-owner".into());
+    let expected = builder.clone();
+    let clients =
+        readiness_clients(builder, &urls, Instant::now() + Duration::from_secs(10)).unwrap();
+    for (client, url) in clients.iter().zip(&urls) {
+        let actual = client.client().to_builder();
+        assert_eq!(&actual.torii_url, url);
+        assert_eq!(actual.account, expected.account);
+        assert_eq!(actual.network_id, expected.network_id);
+        assert_eq!(actual.chain, expected.chain);
+        assert_eq!(actual.headers, expected.headers);
+        assert_eq!(actual.key_pair.public_key(), expected.key_pair.public_key());
+        assert_eq!(
+            client.client().http_transport_policy(),
+            iroha::config::HttpTransportPolicy::DirectLoopback
+        );
+        client.status().get().unwrap();
+    }
+    let requests = transport.0.lock().unwrap();
+    assert_eq!(requests.len(), 4);
+    for (request, url) in requests.iter().zip(&urls) {
+        assert_eq!(request.url, url.join("status").unwrap());
+        assert!(request.direct_loopback);
+        assert!(
+            request
+                .headers
+                .iter()
+                .any(|(key, value)| key == "x-readiness-fixture" && value == "same-owner")
+        );
+        assert!(
+            request
+                .timeout
+                .is_some_and(|timeout| timeout <= Duration::from_secs(5))
+        );
+    }
+}
+
+#[test]
 fn readiness_peer_contexts_refuse_wrong_submission_endpoint_and_invalid_peers() {
     let urls = endpoints("http://127.0.0.1:18432");
     let transport = Arc::new(Captured::default());

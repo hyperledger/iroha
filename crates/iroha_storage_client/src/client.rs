@@ -662,6 +662,7 @@ mod tests {
             key_pair,
             basic_auth: None,
             api_token: None,
+            http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
             torii_api_url: "http://127.0.0.1:8080/".parse().expect("Torii URL"),
             torii_request_timeout: DEFAULT_TORII_REQUEST_TIMEOUT,
             transaction_ttl: Duration::from_secs(5),

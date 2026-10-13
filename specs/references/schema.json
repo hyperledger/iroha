@@ -990,11 +990,55 @@
       }
     ]
   },
+  "AmxDebitApprovalProofV1": {
+    "Struct": [
+      {
+        "name": "world",
+        "type": "WorldStateSnapshotV1"
+      },
+      {
+        "name": "relay_permissions",
+        "type": "SortedVec<Permission>"
+      }
+    ]
+  },
+  "AmxDebitApprovalV1": {
+    "Struct": [
+      {
+        "name": "global_network",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
+        "name": "participant_network",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
+        "name": "participant_instance",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "dataspace",
+        "type": "DataSpaceId"
+      },
+      {
+        "name": "transaction_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "debited_asset",
+        "type": "AssetId"
+      }
+    ]
+  },
   "AmxForeignInstanceV1": {
     "Struct": [
       {
         "name": "instance",
         "type": "Array<u8, 32>"
+      },
+      {
+        "name": "result_scope",
+        "type": "CertifiedResultScope"
       },
       {
         "name": "current",
@@ -3688,6 +3732,18 @@
       {
         "discriminant": 2,
         "tag": "Withdrawn"
+      }
+    ]
+  },
+  "CertifiedResultScope": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "TairaGlobal"
+      },
+      {
+        "discriminant": 1,
+        "tag": "NonGlobal"
       }
     ]
   },
@@ -9123,6 +9179,11 @@
         "discriminant": 58,
         "tag": "ExecutionProofVerification",
         "type": "Hash"
+      },
+      {
+        "discriminant": 59,
+        "tag": "SettlementReceipt",
+        "type": "SettlementId"
       }
     ]
   },
@@ -9927,6 +9988,62 @@
       {
         "name": "gas_budget",
         "type": "Option<u64>"
+      }
+    ]
+  },
+  "FraudAdmissionAttesterV1": {
+    "Struct": [
+      {
+        "name": "engine_id",
+        "type": "String"
+      },
+      {
+        "name": "public_key",
+        "type": "PublicKey"
+      }
+    ]
+  },
+  "FraudAdmissionPolicyV1": {
+    "Struct": [
+      {
+        "name": "version",
+        "type": "u8"
+      },
+      {
+        "name": "enabled",
+        "type": "bool"
+      },
+      {
+        "name": "required_minimum_band",
+        "type": "Option<FraudRiskBandV1>"
+      },
+      {
+        "name": "missing_assessment_permitted",
+        "type": "bool"
+      },
+      {
+        "name": "attesters",
+        "type": "Vec<FraudAdmissionAttesterV1>"
+      }
+    ]
+  },
+  "FraudRiskBandV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "low"
+      },
+      {
+        "discriminant": 1,
+        "tag": "medium"
+      },
+      {
+        "discriminant": 2,
+        "tag": "high"
+      },
+      {
+        "discriminant": 3,
+        "tag": "critical"
       }
     ]
   },
@@ -17491,6 +17608,9 @@
   "Option<ForwardCursor>": {
     "Option": "ForwardCursor"
   },
+  "Option<FraudRiskBandV1>": {
+    "Option": "FraudRiskBandV1"
+  },
   "Option<GameCommitmentSetV1>": {
     "Option": "GameCommitmentSetV1"
   },
@@ -24952,6 +25072,46 @@
       }
     ]
   },
+  "SccpCommitteeGenerationCreatedV1": {
+    "Struct": [
+      {
+        "name": "generation",
+        "type": "u64"
+      },
+      {
+        "name": "cause",
+        "type": "SccpGenerationCauseV1"
+      },
+      {
+        "name": "committee_root",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "start_height",
+        "type": "u64"
+      },
+      {
+        "name": "deadline_ms",
+        "type": "u64"
+      }
+    ]
+  },
+  "SccpCommitteeResyncV1": {
+    "Struct": [
+      {
+        "name": "generation",
+        "type": "u64"
+      },
+      {
+        "name": "committee_root",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "start_height",
+        "type": "u64"
+      }
+    ]
+  },
   "SccpControlRecordedV1": {
     "Struct": [
       {
@@ -24967,8 +25127,20 @@
         "type": "u64"
       },
       {
-        "name": "paused",
+        "name": "track",
+        "type": "u8"
+      },
+      {
+        "name": "parliament_paused",
         "type": "bool"
+      },
+      {
+        "name": "fast_pause_until_ms",
+        "type": "u64"
+      },
+      {
+        "name": "certificate_id",
+        "type": "Array<u8, 32>"
       },
       {
         "name": "height",
@@ -24993,84 +25165,139 @@
         "type": "SccpBlockCommittedV1"
       },
       {
-        "discriminant": 10,
+        "discriminant": 2,
         "tag": "inbound_proven",
         "type": "SccpInboundProvenV1"
       },
       {
-        "discriminant": 11,
+        "discriminant": 3,
         "tag": "recipient_registered",
         "type": "SccpRecipientRegisteredV1"
       },
       {
-        "discriminant": 12,
+        "discriminant": 4,
         "tag": "inbound_released",
         "type": "SccpInboundReleasedV1"
       },
       {
-        "discriminant": 13,
+        "discriminant": 5,
         "tag": "inbound_bounced",
         "type": "SccpInboundBouncedV1"
       },
       {
-        "discriminant": 14,
+        "discriminant": 6,
         "tag": "inbound_liability_shortfall",
         "type": "SccpInboundLiabilityShortfallV1"
       },
       {
-        "discriminant": 15,
+        "discriminant": 7,
         "tag": "outbound_voided",
         "type": "SccpOutboundVoidedV1"
       },
       {
-        "discriminant": 16,
+        "discriminant": 8,
         "tag": "outbound_refunded",
         "type": "SccpOutboundRefundedV1"
       },
       {
-        "discriminant": 17,
+        "discriminant": 9,
         "tag": "outbound_stranded",
         "type": "SccpOutboundStrandedV1"
       },
       {
-        "discriminant": 18,
+        "discriminant": 10,
         "tag": "stranded_released",
         "type": "SccpStrandedReleasedV1"
       },
       {
-        "discriminant": 19,
+        "discriminant": 11,
         "tag": "light_client_advanced",
         "type": "SccpLightClientAdvancedV1"
       },
       {
-        "discriminant": 20,
+        "discriminant": 12,
         "tag": "light_client_frozen",
         "type": "SccpLightClientFrozenV1"
       },
       {
-        "discriminant": 21,
+        "discriminant": 13,
         "tag": "light_client_initialized",
         "type": "SccpLightClientInitializedV1"
       },
       {
-        "discriminant": 22,
+        "discriminant": 14,
         "tag": "trusted_checkpoint_installed",
         "type": "SccpTrustedCheckpointInstalledV1"
       },
       {
-        "discriminant": 23,
+        "discriminant": 15,
         "tag": "revision_activation_changed",
         "type": "SccpRevisionActivationChangedV1"
       },
       {
-        "discriminant": 24,
+        "discriminant": 16,
         "tag": "control_recorded",
         "type": "SccpControlRecordedV1"
       },
       {
-        "discriminant": 25,
+        "discriminant": 17,
         "tag": "governance_enacted",
         "type": "SccpGovernanceEnactedV1"
+      },
+      {
+        "discriminant": 18,
+        "tag": "committee_generation_created",
+        "type": "SccpCommitteeGenerationCreatedV1"
+      },
+      {
+        "discriminant": 19,
+        "tag": "generation_member_unslashable",
+        "type": "SccpGenerationMemberUnslashableV1"
+      },
+      {
+        "discriminant": 20,
+        "tag": "committee_resync",
+        "type": "SccpCommitteeResyncV1"
+      },
+      {
+        "discriminant": 21,
+        "tag": "generation_destination_cleared",
+        "type": "SccpGenerationDestinationClearedV1"
+      },
+      {
+        "discriminant": 22,
+        "tag": "finality_degraded",
+        "type": "SccpFinalityDegradedV1"
+      },
+      {
+        "discriminant": 23,
+        "tag": "fast_pause_lapsed",
+        "type": "SccpFastPauseLapsedV1"
+      },
+      {
+        "discriminant": 24,
+        "tag": "forgery_evidence_recorded",
+        "type": "SccpForgeryEvidenceRecordedV1"
+      },
+      {
+        "discriminant": 25,
+        "tag": "forgery_offender_unslashable",
+        "type": "SccpForgeryOffenderUnslashableV1"
+      },
+      {
+        "discriminant": 26,
+        "tag": "revision_forgery_held",
+        "type": "SccpRevisionForgeryHeldV1"
+      },
+      {
+        "discriminant": 27,
+        "tag": "revision_forgery_released",
+        "type": "SccpRevisionForgeryReleasedV1"
+      },
+      {
+        "discriminant": 28,
+        "tag": "revision_quarantined",
+        "type": "SccpRevisionQuarantinedV1"
       }
     ]
   },
@@ -25160,10 +25387,230 @@
         {
           "mask": 131072,
           "name": "GovernanceEnacted"
+        },
+        {
+          "mask": 262144,
+          "name": "CommitteeGenerationCreated"
+        },
+        {
+          "mask": 524288,
+          "name": "GenerationMemberUnslashable"
+        },
+        {
+          "mask": 1048576,
+          "name": "CommitteeResync"
+        },
+        {
+          "mask": 2097152,
+          "name": "GenerationDestinationCleared"
+        },
+        {
+          "mask": 4194304,
+          "name": "FinalityDegraded"
+        },
+        {
+          "mask": 8388608,
+          "name": "FastPauseLapsed"
+        },
+        {
+          "mask": 16777216,
+          "name": "ForgeryEvidenceRecorded"
+        },
+        {
+          "mask": 33554432,
+          "name": "ForgeryOffenderUnslashable"
+        },
+        {
+          "mask": 67108864,
+          "name": "RevisionForgeryHeld"
+        },
+        {
+          "mask": 134217728,
+          "name": "RevisionForgeryReleased"
+        },
+        {
+          "mask": 268435456,
+          "name": "RevisionQuarantined"
         }
       ],
       "repr": "u32"
     }
+  },
+  "SccpFastPauseLapsedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "certificate_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "until_ms",
+        "type": "u64"
+      }
+    ]
+  },
+  "SccpFinalityDegradedReasonV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "missing_inputs"
+      },
+      {
+        "discriminant": 1,
+        "tag": "invalid_inputs"
+      },
+      {
+        "discriminant": 2,
+        "tag": "missing_generation"
+      },
+      {
+        "discriminant": 3,
+        "tag": "invalid_generation"
+      },
+      {
+        "discriminant": 4,
+        "tag": "missing_parent"
+      },
+      {
+        "discriminant": 5,
+        "tag": "counter_exhausted"
+      }
+    ]
+  },
+  "SccpFinalityDegradedV1": {
+    "Struct": [
+      {
+        "name": "height",
+        "type": "u64"
+      },
+      {
+        "name": "reason",
+        "type": "SccpFinalityDegradedReasonV1"
+      }
+    ]
+  },
+  "SccpForgeryEvidenceRecordedV1": {
+    "Struct": [
+      {
+        "name": "evidence_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "generation",
+        "type": "u64"
+      },
+      {
+        "name": "height",
+        "type": "u64"
+      },
+      {
+        "name": "rule",
+        "type": "SccpForgeryRuleV1"
+      },
+      {
+        "name": "offenders",
+        "type": "Vec<SccpForgeryOffenderV1>"
+      }
+    ]
+  },
+  "SccpForgeryOffenderUnslashableV1": {
+    "Struct": [
+      {
+        "name": "generation",
+        "type": "u64"
+      },
+      {
+        "name": "signer",
+        "type": "u32"
+      }
+    ]
+  },
+  "SccpForgeryOffenderV1": {
+    "Struct": [
+      {
+        "name": "signer",
+        "type": "u32"
+      },
+      {
+        "name": "lane_id",
+        "type": "LaneId"
+      },
+      {
+        "name": "validator",
+        "type": "AccountId"
+      },
+      {
+        "name": "activation_height",
+        "type": "u64"
+      }
+    ]
+  },
+  "SccpForgeryRuleV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "E1"
+      },
+      {
+        "discriminant": 1,
+        "tag": "E2"
+      },
+      {
+        "discriminant": 2,
+        "tag": "E3"
+      },
+      {
+        "discriminant": 3,
+        "tag": "E4"
+      }
+    ]
+  },
+  "SccpGenerationCauseV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "genesis"
+      },
+      {
+        "discriminant": 1,
+        "tag": "key_change"
+      },
+      {
+        "discriminant": 2,
+        "tag": "heartbeat"
+      },
+      {
+        "discriminant": 3,
+        "tag": "resync"
+      }
+    ]
+  },
+  "SccpGenerationDestinationClearedV1": {
+    "Struct": [
+      {
+        "name": "generation",
+        "type": "u64"
+      },
+      {
+        "name": "lc",
+        "type": "u64"
+      }
+    ]
+  },
+  "SccpGenerationMemberUnslashableV1": {
+    "Struct": [
+      {
+        "name": "generation",
+        "type": "u64"
+      },
+      {
+        "name": "index",
+        "type": "u8"
+      }
+    ]
   },
   "SccpGovernanceEnactedV1": {
     "Struct": [
@@ -25582,6 +26029,62 @@
       }
     ]
   },
+  "SccpRevisionForgeryHeldV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "revision",
+        "type": "u32"
+      },
+      {
+        "name": "forgery_floor",
+        "type": "u64"
+      },
+      {
+        "name": "generation",
+        "type": "u64"
+      }
+    ]
+  },
+  "SccpRevisionForgeryReleasedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "revision",
+        "type": "u32"
+      },
+      {
+        "name": "forgery_floor",
+        "type": "u64"
+      }
+    ]
+  },
+  "SccpRevisionQuarantinedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "revision",
+        "type": "u32"
+      },
+      {
+        "name": "certificate_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "since_height",
+        "type": "u64"
+      }
+    ]
+  },
   "SccpRouteActivationV1": {
     "Enum": [
       {
@@ -25871,7 +26374,11 @@
   "SettlementId": {
     "Struct": [
       {
-        "name": "name",
+        "name": "owner",
+        "type": "AccountId"
+      },
+      {
+        "name": "reference",
         "type": "Name"
       }
     ]
@@ -25901,6 +26408,38 @@
       {
         "name": "details",
         "type": "SettlementDetails"
+      }
+    ]
+  },
+  "SettlementReplayDispositionV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "AlreadySettled"
+      },
+      {
+        "discriminant": 1,
+        "tag": "ConflictingIntent"
+      }
+    ]
+  },
+  "SettlementReplayV1": {
+    "Struct": [
+      {
+        "name": "settlement_id",
+        "type": "SettlementId"
+      },
+      {
+        "name": "disposition",
+        "type": "SettlementReplayDispositionV1"
+      },
+      {
+        "name": "committed_block_height",
+        "type": "u64"
+      },
+      {
+        "name": "committed_block_hash",
+        "type": "HashOf<BlockHeader>"
       }
     ]
   },
@@ -30691,31 +31230,36 @@
       },
       {
         "discriminant": 1,
-        "tag": "PayloadRetryIntervalMs",
+        "tag": "DueWorkMaxLagMs",
         "type": "NonZero<u64>"
       },
       {
         "discriminant": 2,
-        "tag": "ExecBudgetMs",
+        "tag": "PayloadRetryIntervalMs",
         "type": "NonZero<u64>"
       },
       {
         "discriminant": 3,
-        "tag": "ApplyBudgetMs",
+        "tag": "ExecBudgetMs",
         "type": "NonZero<u64>"
       },
       {
         "discriminant": 4,
+        "tag": "ApplyBudgetMs",
+        "type": "NonZero<u64>"
+      },
+      {
+        "discriminant": 5,
         "tag": "MaxBlockBytes",
         "type": "NonZero<u32>"
       },
       {
-        "discriminant": 5,
+        "discriminant": 6,
         "tag": "EpochLengthBlocks",
         "type": "NonZero<u64>"
       },
       {
-        "discriminant": 6,
+        "discriminant": 7,
         "tag": "DemotionWindow",
         "type": "NonZero<u64>"
       }
@@ -30730,6 +31274,10 @@
       {
         "name": "max_clock_drift_ms",
         "type": "u64"
+      },
+      {
+        "name": "due_work_max_lag_ms",
+        "type": "NonZero<u64>"
       },
       {
         "name": "key_activation_lead_blocks",
@@ -32440,10 +32988,15 @@
       },
       {
         "discriminant": 7,
-        "tag": "TooComplex"
+        "tag": "SettlementReplay",
+        "type": "SettlementReplayV1"
       },
       {
         "discriminant": 8,
+        "tag": "TooComplex"
+      },
+      {
+        "discriminant": 9,
         "tag": "InternalError"
       }
     ]
@@ -32904,6 +33457,9 @@
   "Vec<FinalityValidator>": {
     "Vec": "FinalityValidator"
   },
+  "Vec<FraudAdmissionAttesterV1>": {
+    "Vec": "FraudAdmissionAttesterV1"
+  },
   "Vec<GameForcedBatchV1>": {
     "Vec": "GameForcedBatchV1"
   },
@@ -33254,6 +33810,9 @@
   },
   "Vec<RwaParentRef>": {
     "Vec": "RwaParentRef"
+  },
+  "Vec<SccpForgeryOffenderV1>": {
+    "Vec": "SccpForgeryOffenderV1"
   },
   "Vec<SccpGovernanceSubjectV1>": {
     "Vec": "SccpGovernanceSubjectV1"

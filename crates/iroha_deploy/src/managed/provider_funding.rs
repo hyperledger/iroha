@@ -829,7 +829,9 @@ impl ProviderFundingBootstrap {
             ));
         }
         match owner.directory.open_child_optional(child)? {
-            Some(directory) => require_empty(&directory),
+            Some(directory) => {
+                crate::managed::native_operation::attempts::metadata::require_unselected(&directory)
+            }
             None => Ok(()),
         }
     }

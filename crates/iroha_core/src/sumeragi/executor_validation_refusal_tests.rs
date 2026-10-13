@@ -36,7 +36,7 @@ fn original_prepared_certificate_read_refusal_retains_worker_owner_and_funded_ex
     publication_tests::with_worker(|chain, worker, _blocks, events| {
         let block = publication_tests::proposal(chain, worker);
         let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
+        let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, hash, false) else {
             panic!("the actual available body must execute before certification refusal");
         };
         let qc = chain.commit_qc(
@@ -212,7 +212,7 @@ fn original_post_merge_validation_refusal_retains_worker_owner_and_exact_availab
         );
         assert!(matches!(
             worker.execute(&block, hash, false),
-            Some(ExecOutcome::Valid(_))
+            Some(ExecOutcome::Valid { .. })
         ));
         let PublicationPhase::Executed { valid, .. } = &worker.live.as_ref().unwrap().phase else {
             panic!("same original decoded graph completes production validation");
@@ -242,7 +242,7 @@ fn prepared_certificate_busy_retries_same_execution_after_original_reader_releas
     publication_tests::with_worker(|chain, worker, _blocks, events| {
         let block = publication_tests::proposal(chain, worker);
         let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
+        let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, hash, false) else {
             panic!("the actual signed body must execute before reader contention");
         };
         let qc = chain.commit_qc(
@@ -700,7 +700,8 @@ fn original_lane_finalizer_refusal_returns_same_graph_before_seal_and_publishes_
                 reached_lane_finalizer,
                 "native capacity probes reached the real late lane step"
             );
-            let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
+            let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, hash, false)
+            else {
                 panic!("the same original proposal retries after local capacity is restored");
             };
             let PublicationPhase::Executed { valid, .. } = &worker.live.as_ref().unwrap().phase
@@ -753,6 +754,13 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
             let height = worker.state.view().height();
             let original_available = block.payload().as_slice().as_ptr();
             let original_source = std::ptr::from_ref(block.source());
+            let due_work_max_lag_ms = worker
+                .state
+                .view()
+                .world()
+                .parameters()
+                .sumeragi()
+                .due_work_max_lag_ms();
             let mut attempt = SignatureDecodeAttempt {
                 block_hash: hash,
                 source: block.clone(),
@@ -833,6 +841,7 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
                 overlay,
                 committee,
                 recorded_events,
+                due_work_max_lag_ms,
             );
             if fault == 0 {
                 assert!(outcome.unwrap().is_some());
@@ -848,7 +857,8 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
                 original.witness.verify_source_binding().unwrap();
                 assert!(worker.recovery.is_none());
                 assert!(worker.signature_decode.is_none());
-                let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
+                let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, hash, false)
+                else {
                     panic!("ordinary witness handoff completes the same actual execution");
                 };
                 let qc = chain.commit_qc(
@@ -963,7 +973,8 @@ fn prepared_certificate_uses_bounded_signed_root_without_rewalking_execution_his
             assert_eq!(chain.validators().len(), 4);
             let block = publication_tests::proposal(chain, worker);
             let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-            let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
+            let Some(ExecOutcome::Valid { result, .. }) = worker.execute(&block, hash, false)
+            else {
                 panic!("the genuine successor executes under its original native parent");
             };
             let qc = chain.commit_qc(block.header().height, hash, result, Signers::Quorum);

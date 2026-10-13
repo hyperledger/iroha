@@ -5472,97 +5472,29 @@ impl StreamingCodec {
         Some(accel)
     }
 }
-/// User-level enumeration translating `FraudRiskBand` settings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString, strum::Display)]
-#[strum(serialize_all = "snake_case")]
-pub enum FraudRiskBand {
-    /// Indicates low fraud risk assessments.
-    Low,
-    /// Indicates medium fraud risk assessments.
-    Medium,
-    /// Indicates high fraud risk assessments.
-    High,
-    /// Indicates critical fraud risk assessments.
-    Critical,
-}
-impl json::JsonSerialize for FraudRiskBand {
-    fn json_serialize(&self, out: &mut String) {
-        json::write_json_string(&self.to_string(), out);
-    }
-}
-impl json::JsonDeserialize for FraudRiskBand {
-    fn json_deserialize(
-        parser: &mut json::Parser<'_>,
-    ) -> ::core::result::Result<Self, json::Error> {
-        let raw = parser.parse_string()?;
-        Self::from_str(&raw).map_err(|err| json::Error::InvalidField {
-            field: "fraud_monitoring.required_minimum_band".into(),
-            message: err.to_string(),
-        })
-    }
-}
-/// User-level configuration container for `FraudMonitoring`.
+/// Node-local transport for obtaining assessment material.
+/// Admission policy is the committed `fraud_admission_policy_v1` parameter.
 #[derive(Debug, ReadConfig, Clone, norito::JsonDeserialize)]
+#[norito(deny_unknown_fields)]
 pub struct FraudMonitoring {
-    #[config(
-        env = "FRAUD_MONITORING_ENABLED",
-        default = "defaults::fraud_monitoring::ENABLED"
-    )]
-    /// Master enable switch for the fraud monitoring client.
-    pub enabled: bool,
+    /// Assessment endpoints; these cannot authorize or reject ledger effects.
     #[config(default = "Vec::new()")]
-    /// Fraud monitoring REST endpoints the node should query.
     pub service_endpoints: Vec<Url>,
-    #[config(
-        env = "FRAUD_MONITORING_CONNECT_TIMEOUT_MS",
-        default = "defaults::fraud_monitoring::CONNECT_TIMEOUT.into()"
-    )]
-    /// Connection timeout for reaching a fraud monitoring endpoint.
+    /// HTTP connection timeout.
+    #[config(default = "defaults::fraud_monitoring::CONNECT_TIMEOUT.into()")]
     pub connect_timeout_ms: DurationMs,
-    #[config(
-        env = "FRAUD_MONITORING_REQUEST_TIMEOUT_MS",
-        default = "defaults::fraud_monitoring::REQUEST_TIMEOUT.into()"
-    )]
-    /// Timeout applied to an in-flight fraud monitoring request.
+    /// HTTP request timeout.
+    #[config(default = "defaults::fraud_monitoring::REQUEST_TIMEOUT.into()")]
     pub request_timeout_ms: DurationMs,
-    #[config(
-        env = "FRAUD_MONITORING_MISSING_ASSESSMENT_GRACE_SECS",
-        default = "defaults::fraud_monitoring::MISSING_ASSESSMENT_GRACE_SECS"
-    )]
-    /// Grace period (seconds) tolerated without an updated risk assessment.
-    pub missing_assessment_grace_secs: u64,
-    /// Lowest acceptable risk band before flagging an account as non-compliant.
-    pub required_minimum_band: Option<FraudRiskBand>,
-    #[config(default = "Vec::new()")]
-    /// Registered attesters whose signatures must verify assessment envelopes.
-    pub attesters: Vec<FraudAttester>,
 }
 impl FraudMonitoring {
     fn parse(self) -> actual::FraudMonitoring {
         actual::FraudMonitoring::new(
-            self.enabled,
             self.service_endpoints,
             self.connect_timeout_ms.get(),
             self.request_timeout_ms.get(),
-            self.missing_assessment_grace_secs,
-            self.required_minimum_band.map(actual::FraudRiskBand::from),
-            self.attesters
-                .into_iter()
-                .map(|attester| actual::FraudAttester {
-                    engine_id: attester.engine_id,
-                    public_key: attester.public_key,
-                })
-                .collect(),
         )
     }
-}
-/// User-level definition of a fraud assessment attester.
-#[derive(Debug, ReadConfig, Clone, norito::JsonDeserialize)]
-pub struct FraudAttester {
-    /// Engine identifier embedded in signed assessments.
-    pub engine_id: String,
-    /// Public key used to verify signatures (hex/base64 supported by PublicKey parser).
-    pub public_key: iroha_crypto::PublicKey,
 }
 /// File-only diagnostic polynomial-opening bounds.
 #[derive(Debug, ReadConfig, Clone, Copy)]

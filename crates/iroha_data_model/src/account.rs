@@ -529,6 +529,13 @@ impl Default for AccountDetails {
 pub type AccountValue = Owned<AccountDetails>;
 const ERR_ACCOUNT_LITERAL_FORMAT: &str = "AccountId must use a canonical I105 literal";
 impl AccountId {
+    /// Exact live scratch of the checked canonical JSON key writer.
+    pub(crate) fn checked_json_key_scratch_bytes(
+        &self,
+    ) -> Result<usize, norito::json::BoundedJsonError> {
+        i105_json::scratch_bytes(self)
+    }
+
     /// Construct a single-signature account identifier.
     #[inline]
     #[must_use]

@@ -137,6 +137,8 @@ contract_enum! {
         NativePayment => "native_payment",
         /// One supervised authenticated AMX relay carrier with its exact durable identity.
         AmxRelay => "amx_relay",
+        /// Prepared confidential artifacts, durable certificates and two verified carriers.
+        PrivateSettlement => "private_settlement",
     }
 }
 

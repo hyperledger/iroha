@@ -1,5 +1,6 @@
 //! Actual Configure native evidence cannot become a later signing prerequisite.
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::{
     native_operation::test_support::{
         UnavailablePeers,
@@ -65,7 +66,7 @@ fn first_configure_proof_is_consumed_before_changed_native_preparation_refusal()
     );
     assert_eq!(native.chain.commit(vec![reserve]), vec![true]);
     assert_eq!(native.chain.height(), 3);
-    let directory = owner.authority.directory.ensure_child("configure").unwrap();
+    let directory = metadata::ensure_operation(&owner.authority.directory, "configure").unwrap();
     let observations = Cell::new(0);
     let (original, admission) = owner
         .select_configuration_using(&directory, &policy, deadline, |owner, binding, _| {

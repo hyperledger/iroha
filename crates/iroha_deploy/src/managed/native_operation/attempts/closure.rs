@@ -401,7 +401,12 @@ impl History {
                     ReadPhase::PrepareAfterRetirement
                 }
                 PrepareNext::Closing(plan) => {
-                    write_record(&self.operation, "closing.nrt", &plan)?;
+                    metadata::retain(&self.operation, None, None, 1, &plan, |image| {
+                        if !image.same_bytes(&self.image) {
+                            return Err(invalid("closure source changed before publication"));
+                        }
+                        Ok(())
+                    })?;
                     ReadPhase::PrepareAfterClosing
                 }
                 PrepareNext::Ready => return Ok(PendingUnsignedClosure { history: self }),
@@ -720,12 +725,20 @@ impl PendingUnsignedClosure {
             .closing
             .as_ref()
             .ok_or_else(|| invalid("unsigned closing plan absent"))?;
-        write_record(
+        metadata::retain(
             &history.operation,
-            "closed.nrt",
+            None,
+            None,
+            2,
             &ClosureRecord {
                 plan: digest(plan)?,
                 tail: plan.tail.clone(),
+            },
+            |image| {
+                if !image.same_bytes(&history.image) {
+                    return Err(invalid("closure source changed before completion"));
+                }
+                Ok(())
             },
         )?;
         inspect.after_closed(history, successor, authorization, deadline)
@@ -790,11 +803,7 @@ fn require_missing_wallet(attempt: &Attempt) -> Result<()> {
     if attempt.is_committed() {
         return Err(invalid("committed request absence cannot close a body"));
     }
-    if attempt.directory.entries(7)?.iter().any(|name| {
-        !["authorization.nrt", "observation.nrt", "retired.nrt"]
-            .iter()
-            .any(|allowed| name == *allowed)
-    }) {
+    if !attempt.directory.entries(1)?.is_empty() {
         return Err(invalid(
             "missing-wallet body closure found later or unknown custody",
         ));

@@ -191,7 +191,7 @@ fn generate_iso20022_schema() -> Result<(), Box<dyn Error>> {
         return Err("ISO 20022 schema asset must use canonical LF lines with a final LF".into());
     }
     let mut lines = ISO20022_SCHEMA_ASSET.split_terminator('\n');
-    if lines.next() != Some("ivm-iso20022-schema-v1\t19\t193\t183") {
+    if lines.next() != Some("ivm-iso20022-schema-v1\t19\t200\t193") {
         return Err("unexpected ISO 20022 schema version/count header".into());
     }
     if lines.next() != Some("record\towner\tkey\trequirement\tmax_occurs\tkind\tvalues\ttarget") {
@@ -304,7 +304,7 @@ fn generate_iso20022_schema() -> Result<(), Box<dyn Error>> {
             kind => return Err(format!("unknown ISO 20022 schema record `{kind}`").into()),
         }
     }
-    if schemas.len() != 19 || field_count != 193 || alias_count != 183 {
+    if schemas.len() != 19 || field_count != 200 || alias_count != 193 {
         return Err(format!(
             "ISO 20022 schema inventory drifted: schemas={} fields={field_count} aliases={alias_count}",
             schemas.len()

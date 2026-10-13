@@ -39,7 +39,7 @@ use super::{
 };
 use crate::{
     Core,
-    api::{Action, CommittedTip, Event, ExecOutcome, Init, LocalParams},
+    api::{Action, CommittedTip, Event, Init, LocalParams},
     availability::AvailableBody,
     crypto::Signer,
     message::{BlockHeader, Qc, VoteKind, WireMessage},
@@ -206,7 +206,7 @@ impl Rig {
             self.fire(Event::Executed {
                 block_hash,
                 req,
-                outcome: ExecOutcome::Valid(result_of(&block)),
+                outcome: crate::testing::valid_execution(result_of(&block)),
             });
         }
     }

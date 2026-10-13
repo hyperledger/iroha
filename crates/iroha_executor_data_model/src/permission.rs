@@ -788,6 +788,22 @@ pub mod smart_contract {
         }
     }
 }
+/// Owner-issued permission for an exact native atomic cross-dataspace debit.
+pub mod amx {
+    use super::*;
+    use iroha_data_model::sumeragi_amx::AmxDebitApprovalV1;
+    permission! {
+        /// Direct consent for a relay account to prepare one exact bank debit.
+        ///
+        /// Only the balance owner may issue or revoke this token. Holding the token,
+        /// owning a role or controlling the Global coordinator never permits delegation.
+        /// Prepare checks the current grant; settled decisions remain deliverable after revoke.
+        pub struct CanPrepareAmx {
+            /// Complete root, balance and canonical transaction fingerprint.
+            pub approval: AmxDebitApprovalV1,
+        }
+    }
+}
 /// Permission tokens governing native FX corridors.
 pub mod settlement {
     use super::*;

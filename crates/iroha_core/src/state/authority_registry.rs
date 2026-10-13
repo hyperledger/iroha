@@ -235,14 +235,7 @@ mod content_policy;
 )]
 mod crypto_policy;
 mod domain_ownership;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TODO: consume the fraud admission projection in the complete State root owner"
-    )
-)]
-mod fraud_policy;
+
 #[cfg_attr(
     not(test),
     expect(

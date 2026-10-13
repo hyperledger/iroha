@@ -1,9 +1,7 @@
 //! Genuine standalone body parses preserve source custody and original active admission.
 
 use super::*;
-use crate::managed::{
-    native_operation::test_support::UnavailablePeers, service_authority::CheckpointImports,
-};
+use crate::managed::service_authority::CheckpointImports;
 use iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1;
 use norito::core::DecodeBudgetContext;
 
@@ -74,7 +72,7 @@ fn epoch_charge(validation: &mut EpochValidationScope, context: &ValidatorEpochC
 fn standalone_epoch_parse_keeps_exact_two_context_bound_and_fresh_custody() {
     let _resources = crate::managed::native_test_guard();
     let (fixture, history) = shared_snapshot_tests::history();
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     assert!(fixture.owner.authority.checkpoint_import_scope().is_none());
     let context =
         iroha_data_model::sumeragi_finality::authenticated_genesis(fixture.native.chain.genesis())
@@ -185,7 +183,7 @@ fn standalone_epoch_parse_keeps_exact_two_context_bound_and_fresh_custody() {
 fn standalone_epoch_parse_keeps_exact_active_charges_refusal_and_retry() {
     let _resources = crate::managed::native_test_guard();
     let (fixture, history) = shared_snapshot_tests::history();
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let warm = standalone(&fixture.owner).unwrap();
     assert_same(&warm, &history);
     assert_same(&history.read_current(&fixture.owner).unwrap(), &history);

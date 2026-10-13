@@ -1750,6 +1750,11 @@
         "discriminant": 58,
         "tag": "ExecutionProofVerification",
         "type": "Hash"
+      },
+      {
+        "discriminant": 59,
+        "tag": "SettlementReceipt",
+        "type": "SettlementId"
       }
     ]
   },
@@ -3679,6 +3684,50 @@
         {
           "mask": 131072,
           "name": "GovernanceEnacted"
+        },
+        {
+          "mask": 262144,
+          "name": "CommitteeGenerationCreated"
+        },
+        {
+          "mask": 524288,
+          "name": "GenerationMemberUnslashable"
+        },
+        {
+          "mask": 1048576,
+          "name": "CommitteeResync"
+        },
+        {
+          "mask": 2097152,
+          "name": "GenerationDestinationCleared"
+        },
+        {
+          "mask": 4194304,
+          "name": "FinalityDegraded"
+        },
+        {
+          "mask": 8388608,
+          "name": "FastPauseLapsed"
+        },
+        {
+          "mask": 16777216,
+          "name": "ForgeryEvidenceRecorded"
+        },
+        {
+          "mask": 33554432,
+          "name": "ForgeryOffenderUnslashable"
+        },
+        {
+          "mask": 67108864,
+          "name": "RevisionForgeryHeld"
+        },
+        {
+          "mask": 134217728,
+          "name": "RevisionForgeryReleased"
+        },
+        {
+          "mask": 268435456,
+          "name": "RevisionQuarantined"
         }
       ],
       "repr": "u32"
@@ -3713,6 +3762,50 @@
       {
         "name": "period_ms",
         "type": "Option<u64>"
+      }
+    ]
+  },
+  "SettlementId": {
+    "Struct": [
+      {
+        "name": "owner",
+        "type": "AccountId"
+      },
+      {
+        "name": "reference",
+        "type": "Name"
+      }
+    ]
+  },
+  "SettlementReplayDispositionV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "AlreadySettled"
+      },
+      {
+        "discriminant": 1,
+        "tag": "ConflictingIntent"
+      }
+    ]
+  },
+  "SettlementReplayV1": {
+    "Struct": [
+      {
+        "name": "settlement_id",
+        "type": "SettlementId"
+      },
+      {
+        "name": "disposition",
+        "type": "SettlementReplayDispositionV1"
+      },
+      {
+        "name": "committed_block_height",
+        "type": "u64"
+      },
+      {
+        "name": "committed_block_hash",
+        "type": "HashOf<BlockHeader>"
       }
     ]
   },
@@ -4037,6 +4130,10 @@
       {
         "name": "max_clock_drift_ms",
         "type": "u64"
+      },
+      {
+        "name": "due_work_max_lag_ms",
+        "type": "NonZero<u64>"
       },
       {
         "name": "key_activation_lead_blocks",
@@ -4372,10 +4469,15 @@
       },
       {
         "discriminant": 7,
-        "tag": "TooComplex"
+        "tag": "SettlementReplay",
+        "type": "SettlementReplayV1"
       },
       {
         "discriminant": 8,
+        "tag": "TooComplex"
+      },
+      {
+        "discriminant": 9,
         "tag": "InternalError"
       }
     ]

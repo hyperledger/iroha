@@ -621,7 +621,16 @@ fn prepare_fresh(
         };
         custody::write(&path, rendered.as_bytes())?;
     }
-    write_client_config(&root, ports.base_api, &hosts, &chain, None, &owner, None)?;
+    write_client_config(
+        &root,
+        ports.base_api,
+        &hosts,
+        &chain,
+        None,
+        &owner,
+        HttpTransportPolicy::DirectLoopback,
+        None,
+    )?;
     let client_path = root.join("client.toml");
     let client = iroha_fs::read_private(&client_path, 1024 * 1024)?;
     let mut table = crate::secret_toml::Table::new(crate::secret_toml::parse_table(

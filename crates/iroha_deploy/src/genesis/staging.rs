@@ -829,7 +829,7 @@ fn configure_staged_genesis_state(
             .install_node_pipeline(staged_genesis_pipeline(config.pipeline.clone()))
             .map_err(|error| eyre!("invalid pipeline config for staged genesis: {error}"))?;
         state.set_oracle(config.oracle.clone());
-        state.set_fraud_monitoring(config.fraud_monitoring.clone());
+        state.install_node_fraud_monitoring(config.fraud_monitoring.clone());
         state.set_gov(config.gov.clone());
         state.content = config.content.clone();
         state.set_settlement(config.settlement);
@@ -1056,6 +1056,63 @@ mod tests {
             mismatch
                 .to_string()
                 .contains("genesis manifest consensus mode differs from signed metadata")
+        );
+    }
+    #[test]
+    fn committed_fraud_genesis_staging_signs_and_restages_authored_policy() {
+        use iroha_data_model::{
+            fraud::{FraudAdmissionPolicyV1, FraudRiskBandV1},
+            parameter::Parameter,
+        };
+        let key = KeyPair::try_from_seed(vec![0x6F; 32], Algorithm::Ed25519).unwrap();
+        let mut hashes = Vec::new();
+        for band in [FraudRiskBandV1::Low, FraudRiskBandV1::High] {
+            let policy = FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(band),
+                missing_assessment_permitted: false,
+                ..FraudAdmissionPolicyV1::protocol_default()
+            };
+            let raw =
+                GenesisBuilder::new_without_executor(ChainId::from("fraud-genesis-staging"), ".")
+                    .set_topology(default_test_topology())
+                    .with_sumeragi_context_parameters(
+                        SumeragiGenesisContextParameters::recommended(),
+                    )
+                    .append_parameter(Parameter::Custom(policy.into_custom_parameter()))
+                    .build_raw()
+                    .unwrap()
+                    .with_consensus_mode(SumeragiConsensusMode::Permissioned)
+                    .with_consensus_meta()
+                    .unwrap();
+            let (manifest, signed) = bind_and_sign_staged_sumeragi_context(
+                raw,
+                &key,
+                None,
+                None,
+                iroha_core::state::default_genesis_confidential_policy_hash(),
+                Some(1_700_000_000_000),
+            )
+            .unwrap();
+            assert!(
+                signed
+                    .0
+                    .output_results()
+                    .all(|result| result.as_ref().is_ok()),
+                "H1 admission remains the fixed predecessor while its policy is authored"
+            );
+            let restaged =
+                restage_signed_sumeragi_context_hashes(&manifest, None, &signed.0).unwrap();
+            assert_eq!(restaged.executed_block.hash(), signed.0.hash());
+            assert_eq!(
+                restaged.execution_policy_hash,
+                Hash::prehashed(manifest.sumeragi_context_parameters().execution_policy_hash)
+            );
+            hashes.push(restaged.execution_policy_hash);
+        }
+        assert_ne!(
+            hashes[0], hashes[1],
+            "the signed fingerprint binds the authored band, not default transport"
         );
     }
 }

@@ -2,6 +2,7 @@
 
 use super::tests::{codec_original, fixture, options, policy};
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::test_support::{UnavailablePeers, wallet_http::WalletHttp};
 use iroha_data_model::transaction::FeePaymentIntent;
 use std::{io, time::Duration};
@@ -76,7 +77,7 @@ fn invalid_capacity_policy_and_unavailable_finality_never_publish_or_quote() {
             .directory
             .open_child("declare")
             .unwrap();
-        require_empty(&directory).unwrap();
+        metadata::require_unselected(&directory).unwrap();
         assert_eq!(
             directory.open_child("transaction").err().unwrap().kind(),
             io::ErrorKind::NotFound
@@ -123,11 +124,8 @@ fn unproved_capacity_checkpoint_refuses_before_http_and_preserves_original() {
     let (_temporary, prepared, mut coordinator) = fixture();
     let mut peers = UnavailablePeers::start(&prepared);
     let original = codec_original(&coordinator);
-    let directory = coordinator
-        .authority
-        .directory
-        .ensure_child("declare")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "declare").unwrap();
     let original = super::tests::retain_explicit_request(
         &coordinator,
         &directory,
@@ -166,11 +164,8 @@ fn unproved_capacity_checkpoint_refuses_before_http_and_preserves_original() {
 fn capacity_wallet503_reopen_preserves_original_wire_and_single_dispatch() {
     let _resources = crate::managed::native_test_guard();
     let (_temporary, prepared, mut coordinator) = fixture();
-    let directory = coordinator
-        .authority
-        .directory
-        .ensure_child("declare")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "declare").unwrap();
     let original = codec_original(&coordinator);
     let options = options();
     // This codec-only original exercises wallet custody; no fake checkpoint enters advance.
