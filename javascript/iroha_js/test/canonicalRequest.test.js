@@ -677,3 +677,29 @@ test("canonical request signing: explicit query overrides query strings in paths
   assert.equal(signerInput.path, "/torii/v1/aliases/resolve");
   assert.equal(signerInput.query, "alias_scope=paynet");
 });
+
+test("canonical request signing: retained JSON originals keep their exact bytes", async () => {
+  const { privateKey, publicKey } = deterministicKeyPair(9);
+  const bodyText = '{ "amount": 9007199254740993, "memo": "Kina ₭" }\n';
+  const request = await buildCanonicalJsonRequest({
+    accountId: "admin1@mibank.bpng", networkId: TEST_NETWORK_ID,
+    path: "/v1/multisig/propose", baseUrl: "https://torii.example/gateway",
+    bodyText, privateKey, timestampMs: 1717171717002, nonce: "retained-original",
+  });
+  assert.equal(request.body, bodyText);
+  const signature = Buffer.from(request.headers["X-Iroha-Signature"], "base64");
+  const message = (body) => canonicalRequestSignatureMessage({
+    networkId: TEST_NETWORK_ID, method: "POST", path: "/gateway/v1/multisig/propose",
+    body, timestampMs: 1717171717002, nonce: "retained-original",
+  });
+  assert.equal(verifyEd25519(message(bodyText), signature, publicKey), true);
+  assert.equal(verifyEd25519(message(JSON.stringify(JSON.parse(bodyText))), signature, publicKey), false);
+});
+
+test("canonical request signing: retained JSON original cannot be replaced by another body", async () => {
+  const { privateKey } = deterministicKeyPair(9);
+  const common = {accountId: "admin1@mibank.bpng", networkId: TEST_NETWORK_ID,
+    path: "/v1/multisig/propose", privateKey};
+  await assert.rejects(buildCanonicalJsonRequest({...common, bodyText: "{}", body: {amount: 1}}), /cannot be combined/);
+  await assert.rejects(buildCanonicalJsonRequest({...common, bodyText: new Uint8Array([123, 125])}), /pre-serialized JSON string/);
+});
