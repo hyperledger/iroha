@@ -11,7 +11,7 @@ import { NetworkId, networkIdBytes } from "./networkId.js";
 export { NetworkId };
 
 /** Exact current binary FrameV1 + EnvelopeV1 + AEAD overhead for SignRequestTx. */
-export const CONNECT_SIGN_REQUEST_TX_FRAME_OVERHEAD_V1 = 216;
+export const CONNECT_SIGN_REQUEST_TX_FRAME_OVERHEAD_V1 = 472;
 
 /** Validate endpoint-reported WebSocket/buffer capacity; this is not wallet or finality authentication. */
 export function validateConnectTransactionTransportStatus(status, payloadLength) {
@@ -67,6 +67,11 @@ const PAYLOAD_SIGN_RESULT_OK = 3;
 const PAYLOAD_SIGN_RESULT_ERR = 4;
 const CONTROL_AFTER_KEY_CLOSE = 0;
 const CONTROL_AFTER_KEY_REJECT = 1;
+// Plain Connect frames use the native Norito layout the Torii relay decodes and
+// re-encodes: `[u8; 32]` fields carry one u64-length-prefixed byte per element,
+// and `sig_wallet` is a u32 algorithm plus an element-framed signature sequence.
+const CONNECT_FIXED_ARRAY_BYTES = 32;
+const CONNECT_ELEMENT_FRAME_BYTES = 9;
 const ALGORITHM_ED25519 = 0;
 
 export const TORII_CANONICAL_REQUEST_DOMAIN_TAG =
@@ -633,6 +638,46 @@ function encodeNoritoStruct(fields) {
   return concatBytes(...fields.map((field) => encodeLengthPrefixed(field)));
 }
 
+/** Element-frame raw bytes: each byte is its own u64-length-prefixed element. */
+function encodeElementFramedBytes(bytes) {
+  const out = new Uint8Array(bytes.length * CONNECT_ELEMENT_FRAME_BYTES);
+  bytes.forEach((byte, index) => {
+    const offset = index * CONNECT_ELEMENT_FRAME_BYTES;
+    out[offset] = 1;
+    out[offset + 8] = byte;
+  });
+  return out;
+}
+
+function decodeElementFramedBytes(bytes, count, label) {
+  if (bytes.length !== count * CONNECT_ELEMENT_FRAME_BYTES) {
+    throw new Error(`${label} must contain ${count} element-framed bytes`);
+  }
+  const out = new Uint8Array(count);
+  for (let index = 0; index < count; index += 1) {
+    const offset = index * CONNECT_ELEMENT_FRAME_BYTES;
+    if (readU64(bytes, offset, `${label}[${index}].length`) !== 1) {
+      throw new Error(`${label}[${index}] must be exactly one byte`);
+    }
+    out[index] = bytes[offset + 8];
+  }
+  return out;
+}
+
+/** Encode a native `[u8; 32]` field. */
+function encodeFixedByteArray(value, label) {
+  const bytes = toUint8Array(value, label);
+  if (bytes.length !== CONNECT_FIXED_ARRAY_BYTES) {
+    throw new TypeError(`${label} must be ${CONNECT_FIXED_ARRAY_BYTES} bytes`);
+  }
+  return encodeElementFramedBytes(bytes);
+}
+
+/** Strictly decode a native `[u8; 32]` field. */
+function decodeFixedByteArray(bytes, label) {
+  return decodeElementFramedBytes(bytes, CONNECT_FIXED_ARRAY_BYTES, label);
+}
+
 function encodeDir(dir) {
   return u32ToBytes(dir === DIR_WALLET_TO_APP ? DIR_WALLET_TO_APP : DIR_APP_TO_WALLET);
 }
@@ -711,7 +756,7 @@ function encodePermissions(permissions) {
 
 function encodeOpenControl({ appPublicKey, networkId, appMeta, permissions }) {
   const body = encodeNoritoStruct([
-    toUint8Array(appPublicKey, "appPublicKey"),
+    encodeFixedByteArray(appPublicKey, "appPublicKey"),
     encodeAppMeta(appMeta),
     encodeNoritoStruct([networkIdBytes(networkId, "networkId")]),
     encodePermissions(permissions),
@@ -788,7 +833,7 @@ function encodeControlFrame({ sidBytes, dir, seq, control }) {
 
 function encodeConnectFrame({ sidBytes, dir, seq, kind }) {
   return encodeNoritoStruct([
-    toUint8Array(sidBytes, "sidBytes"),
+    encodeFixedByteArray(sidBytes, "sidBytes"),
     encodeDir(dir),
     u64ToBytes(seq),
     kind,
@@ -838,6 +883,30 @@ function decodeNoritoBytes(bytes, label) {
   return payload;
 }
 
+/**
+ * Strictly decode a plain-frame `WalletSignatureV1`: a u32 algorithm field and a
+ * u64 count followed by that many element-framed signature bytes.
+ */
+function decodeRelayWalletSignature(bytes, label) {
+  const state = { offset: 0 };
+  const algorithmBytes = readLengthPrefixedSlice(bytes, state, `${label}.algorithm`);
+  if (algorithmBytes.length !== 4) {
+    throw new Error(`${label}.algorithm must be a 4-byte discriminant`);
+  }
+  const sequence = readLengthPrefixedSlice(bytes, state, `${label}.signature`);
+  if (state.offset !== bytes.length) {
+    throw new Error(`${label} length mismatch`);
+  }
+  if (sequence.length < 8) {
+    throw new Error(`${label}.signature is truncated`);
+  }
+  const count = readU64(sequence, 0, `${label}.signature.count`);
+  return {
+    algorithm: readU32(algorithmBytes, 0, `${label}.algorithm`),
+    signature: decodeElementFramedBytes(sequence.subarray(8), count, `${label}.signature`),
+  };
+}
+
 function decodeWalletSignature(bytes, label) {
   const state = { offset: 0 };
   const algorithmBytes = readLengthPrefixedSlice(bytes, state, `${label}.algorithm`);
@@ -863,23 +932,32 @@ function decodeConnectControl(bytes) {
   }
   const tag = readU32(bytes, 0, "control.tag");
   const bodyLength = readU64(bytes, 4, "control.length");
-  if (12 + bodyLength > bytes.length) {
-    throw new Error("control frame body exceeded available bytes");
+  if (12 + bodyLength !== bytes.length) {
+    throw new Error("control frame body length mismatch");
   }
   const body = bytes.subarray(12, 12 + bodyLength);
   const state = { offset: 0 };
+  const requireConsumed = (label) => {
+    if (state.offset !== body.length) {
+      throw new Error(`${label} length mismatch`);
+    }
+  };
   if (tag === CONTROL_APPROVE) {
-    const walletPk = readLengthPrefixedSlice(body, state, "approve.wallet_pk");
+    const walletPk = decodeFixedByteArray(
+      readLengthPrefixedSlice(body, state, "approve.wallet_pk"),
+      "approve.wallet_pk",
+    );
     const accountId = decodeNoritoString(
       readLengthPrefixedSlice(body, state, "approve.account_id"),
       "approve.account_id",
     );
     const permissions = readLengthPrefixedSlice(body, state, "approve.permissions");
     const proof = readLengthPrefixedSlice(body, state, "approve.proof");
-    const signature = decodeWalletSignature(
+    const signature = decodeRelayWalletSignature(
       readLengthPrefixedSlice(body, state, "approve.sig_wallet"),
       "approve.sig_wallet",
     );
+    requireConsumed("approve");
     return {
       kind: "approve",
       walletPublicKey: walletPk,
@@ -900,6 +978,7 @@ function decodeConnectControl(bytes) {
       readLengthPrefixedSlice(body, state, "reject.reason"),
       "reject.reason",
     );
+    requireConsumed("reject");
     return { kind: "reject", code, codeId, reason };
   }
   if (tag === CONTROL_CLOSE) {
@@ -917,6 +996,10 @@ function decodeConnectControl(bytes) {
       "close.reason",
     );
     const retryableBytes = readLengthPrefixedSlice(body, state, "close.retryable");
+    requireConsumed("close");
+    if (retryableBytes.length !== 1 || retryableBytes[0] > 1) {
+      throw new Error("close.retryable must be one boolean byte");
+    }
     return {
       kind: "close",
       who,
@@ -962,7 +1045,10 @@ function decodeConnectCiphertext(bytes) {
 
 function decodeConnectFrame(bytes) {
   const state = { offset: 0 };
-  const sidBytes = readLengthPrefixedSlice(bytes, state, "frame.sid");
+  const sidBytes = decodeFixedByteArray(
+    readLengthPrefixedSlice(bytes, state, "frame.sid"),
+    "frame.sid",
+  );
   const dir = decodeDir(readLengthPrefixedSlice(bytes, state, "frame.dir"), "frame.dir");
   const seq = readU64(readLengthPrefixedSlice(bytes, state, "frame.seq"), 0, "frame.seq");
   const kindBytes = readLengthPrefixedSlice(bytes, state, "frame.kind");
@@ -971,8 +1057,8 @@ function decodeConnectFrame(bytes) {
   }
   const tag = readU32(kindBytes, 0, "frame.kind.tag");
   const bodyLength = readU64(kindBytes, 4, "frame.kind.length");
-  if (12 + bodyLength > kindBytes.length) {
-    throw new Error("connect frame kind body exceeded available bytes");
+  if (12 + bodyLength !== kindBytes.length) {
+    throw new Error("connect frame kind body length mismatch");
   }
   const body = kindBytes.subarray(12, 12 + bodyLength);
   if (tag === FRAME_KIND_CONTROL) {
@@ -1364,6 +1450,10 @@ export function createConnectAppSession(options = {}) {
   }
 
   const approval = createDeferred();
+  // Observe early socket failures so a session that fails before the caller
+  // awaits waitForApproval() does not raise an unhandled rejection (which
+  // terminates Node.js); waitForApproval() still rejects with that error.
+  approval.promise.catch(() => {});
   let pendingSign = null;
   let appSeq = 1;
   let walletSeq = 1;
