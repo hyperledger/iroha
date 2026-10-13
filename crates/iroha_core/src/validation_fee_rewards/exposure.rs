@@ -81,11 +81,19 @@ fn capture_stakes(
     let mut exposure = HistoricalStake::new();
     for (lane, accounts) in validators {
         for validator in accounts {
-            let current = shares
-                .range::<dyn ranges::AsStakePrefix>(ranges::StakeBounds::new(lane, validator))
-                .inspect(|_| visit(CaptureVisit::Current))
-                .map(|(key, _)| key);
-            let mut keys: BTreeSet<_> = current.collect();
+            let mut keys = BTreeSet::new();
+            for (key, _) in
+                shares.range::<dyn ranges::AsStakePrefix>(ranges::StakeBounds::new(lane, validator))
+            {
+                visit(CaptureVisit::Current);
+                // Valid state admits at most MAX_REWARD_RECIPIENTS positions per
+                // validator. Refuse malformed or transiently oversized blocks as
+                // soon as the bound is crossed instead of materializing an
+                // unbounded current-prefix set before checking the parent.
+                if keys.insert(key.clone()) && keys.len() > MAX_REWARD_RECIPIENTS {
+                    return Err(fail("historical reward stake recipient capacity exceeded"));
+                }
+            }
             // A removed parent position exists only in undo. Conversely, an undo
             // None was created after the earning boundary and cannot contribute.
             for (key, before) in shares
@@ -93,8 +101,8 @@ fn capture_stakes(
                 .range::<_, dyn ranges::AsStakePrefix>(ranges::StakeBounds::new(lane, validator))
             {
                 visit(CaptureVisit::Undo);
-                if before.is_some() {
-                    keys.insert(key);
+                if before.is_some() && keys.insert(key) && keys.len() > MAX_REWARD_RECIPIENTS {
+                    return Err(fail("historical reward stake recipient capacity exceeded"));
                 }
             }
             let mut parent_count = 0_usize;

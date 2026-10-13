@@ -235,7 +235,13 @@ fn malformed_parent_identity_and_excess_recipient_count_are_rejected() {
             (key.clone(), share(&key, Quantity::one()))
         })
         .collect();
-    assert!(capture_stakes(&storage.block(), &selected, |_| {}).is_err());
+    let mut visits = 0_usize;
+    assert!(capture_stakes(&storage.block(), &selected, |_| visits += 1).is_err());
+    assert_eq!(
+        visits,
+        MAX_REWARD_RECIPIENTS + 1,
+        "oversized current prefixes stop at the first impossible recipient"
+    );
 }
 
 thread_local! {
