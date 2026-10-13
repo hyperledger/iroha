@@ -232,11 +232,21 @@ fn wallet_advance_v1_anchor_create_is_add_only() {
         Err(KagemushaWalletProviderErrorV1::Uncertain(_))
     ));
     platform.with(|state| state.anchor_write = AnchorWriteV1::UncertainApplied);
-    assert_eq!(kagemusha_wallet_create_anchor_v1(&platform, &other), Ok(()));
+    assert!(matches!(
+        kagemusha_wallet_create_anchor_v1(&platform, &other),
+        Err(KagemushaWalletProviderErrorV1::Uncertain(_))
+    ));
     assert_eq!(
         stored(&platform, &other),
         Some(KagemushaWalletAnchorV1::none())
     );
+    // The visible NONE must not bypass acknowledgement on the retried add-only path.
+    assert!(matches!(
+        kagemusha_wallet_create_anchor_v1(&platform, &other),
+        Err(KagemushaWalletProviderErrorV1::Uncertain(_))
+    ));
+    platform.with(|state| state.anchor_write = AnchorWriteV1::Normal);
+    kagemusha_wallet_create_anchor_v1(&platform, &other).expect("acknowledged retry");
 }
 
 #[test]
@@ -261,9 +271,12 @@ fn wallet_advance_v1_anchor_raise_never_lowers() {
         stored(&platform, &slot),
         Some(KagemushaWalletAnchorV1::naming(&released))
     );
-    // Already current: no write. Lower: refused as a rollback.
+    // Already current still requires a mutation acknowledgement. Lower remains a rollback.
     platform.with(|state| state.anchor_write = AnchorWriteV1::Refused);
-    kagemusha_wallet_raise_anchor_v1(&platform, &released).expect("current");
+    assert!(matches!(
+        kagemusha_wallet_raise_anchor_v1(&platform, &released),
+        Err(KagemushaWalletProviderErrorV1::Unavailable(_))
+    ));
     assert_eq!(
         kagemusha_wallet_raise_anchor_v1(&platform, &selected),
         Err(KagemushaWalletProviderErrorV1::LostCustody(
@@ -291,11 +304,20 @@ fn wallet_advance_v1_anchor_raise_never_lowers() {
         Err(KagemushaWalletProviderErrorV1::Uncertain(_))
     ));
     platform.with(|state| state.anchor_write = AnchorWriteV1::UncertainApplied);
-    kagemusha_wallet_raise_anchor_v1(&platform, &released).expect("uncertain but applied");
+    assert!(matches!(
+        kagemusha_wallet_raise_anchor_v1(&platform, &released),
+        Err(KagemushaWalletProviderErrorV1::Uncertain(_))
+    ));
     assert_eq!(
         stored(&platform, &slot),
         Some(KagemushaWalletAnchorV1::naming(&released))
     );
+    assert!(matches!(
+        kagemusha_wallet_raise_anchor_v1(&platform, &released),
+        Err(KagemushaWalletProviderErrorV1::Uncertain(_))
+    ));
+    platform.with(|state| state.anchor_write = AnchorWriteV1::Normal);
+    kagemusha_wallet_raise_anchor_v1(&platform, &released).expect("acknowledged retry");
 }
 
 #[test]

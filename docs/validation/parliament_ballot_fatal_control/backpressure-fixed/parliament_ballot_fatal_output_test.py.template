@@ -1,0 +1,127 @@
+"""Fatal-output regression evidence must preserve exact debit and source identity."""
+import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+import struct
+import subprocess
+import sys
+from unittest.mock import patch
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import check_parliament_ballot_fatal_output as check
+
+
+def observation():
+    page = os.sysconf('SC_PAGESIZE')
+    value = {'outcome': 'resource_exhausted', 'charged_units': 1, 'charged_bytes': 1,
+             'fatal_control_reserved_bytes': page, 'arena_enforced': True,
+             'complete_workspace_certificate': False, 'profile_qualified': False}
+    result = subprocess.CompletedProcess(['worker'], 73, json.dumps(value), '')
+    result.supervisor_evidence = {
+        'raw_exit': 73, 'raw_stdout': '', 'raw_stderr': '', 'stdout_captured': False,
+        'fatal_report_synthesized': True, 'read_after_child_exit': True, 'refund_permitted': False,
+        'fatal_control': {'state': 3, 'charged_units': 1, 'charged_bytes': 1, 'reserved_bytes': page},
+        'fatal_control_hex': (struct.pack('=4Q', 0x5041524C46415431, 3, 1, 1) + bytes(page - 32)).hex()}
+    return result
+
+
+def test_validation_requires_exact_debit_quiescent_page_and_parent_only_report():
+    result = observation()
+    page = os.sysconf('SC_PAGESIZE')
+    assert check.validate(result, page)['charged_units'] == 1
+    for key, value in [('raw_exit', -6), ('raw_stdout', 'child output'), ('raw_stderr', 'error'),
+                       ('stdout_captured', True), ('fatal_report_synthesized', False),
+                       ('read_after_child_exit', False), ('refund_permitted', True),
+                       ('timeout', True), ('failure', 'lost control')]:
+        changed = copy.deepcopy(result)
+        changed.supervisor_evidence[key] = value
+        with pytest.raises(ValueError):
+            check.validate(changed, page)
+    for replacement in ('00', (bytes(page)).hex(), result.supervisor_evidence['fatal_control_hex'][:-2] + '01'):
+        changed = copy.deepcopy(result)
+        changed.supervisor_evidence['fatal_control_hex'] = replacement
+        with pytest.raises(ValueError):
+            check.validate(changed, page)
+    for key, value in [('charged_units', True), ('charged_bytes', 2), ('profile_qualified', True)]:
+        changed = copy.deepcopy(result)
+        report = json.loads(changed.stdout)
+        report[key] = value
+        changed.stdout = json.dumps(report)
+        with pytest.raises(ValueError):
+            check.validate(changed, page)
+    changed = copy.deepcopy(result)
+    changed.supervisor_evidence['fatal_control']['state'] = 2
+    with pytest.raises(ValueError):
+        check.validate(changed, page)
+
+
+def build(tmp_path):
+    files = {}
+    for name in ('source', 'metadata', 'portable', 'accel', 'log'):
+        path = tmp_path / name
+        path.write_text(name)
+        files[name] = path
+    receipt = {'schema': 'parliament-memory-entry-build-v1', 'source_stable': True,
+               'profile_qualified': False, 'complete_workspace_certificate': False,
+               'source_files': {str(files['source']): check.digest(files['source'])},
+               'dependency_metadata_path': str(files['metadata']),
+               'dependency_metadata_sha256': check.digest(files['metadata']),
+               'binaries': {mode: {'path': str(files[mode]), 'sha256': check.digest(files[mode])}
+                            for mode in ('portable', 'accel')},
+               'commands': [{'exit': 0, 'source_changes': {}, 'log': str(files['log']),
+                             'log_sha256': check.digest(files['log'])} for _ in range(6)]}
+    path = tmp_path / 'receipt.json'
+    path.write_text(json.dumps(receipt))
+    return path, receipt, files
+
+
+def test_build_inputs_require_unchanged_sources_metadata_logs_and_both_binaries(tmp_path):
+    path, receipt, files = build(tmp_path)
+    guards, binaries = check.guarded_build(path)
+    assert len(guards) == 6 and set(binaries) == {'portable', 'accel'}
+    assert check.digest(files['source']) == hashlib.sha256(b'source').hexdigest()
+    for file in files.values():
+        before = file.read_bytes()
+        file.write_bytes(b'changed')
+        with pytest.raises(ValueError):
+            check.guarded_build(path)
+        file.write_bytes(before)
+    for field, value in [('source_stable', False), ('profile_qualified', True),
+                          ('source_files', {}), ('commands', receipt['commands'][:-1]), ('binaries', {})]:
+        changed = copy.deepcopy(receipt)
+        changed[field] = value
+        path.write_text(json.dumps(changed))
+        with pytest.raises(ValueError):
+            check.guarded_build(path)
+    changed = copy.deepcopy(receipt)
+    changed['commands'][0]['exit'] = False
+    path.write_text(json.dumps(changed))
+    with pytest.raises(ValueError):
+        check.guarded_build(path)
+
+
+def test_missing_build_failure_is_durable_and_existing_output_is_refused(tmp_path):
+    output = tmp_path / 'output'
+    result = check.campaign(tmp_path, tmp_path / 'missing-receipt', output)
+    assert not result['diagnostic_passed'] and result['observations'] == 0 and result['failure']
+    assert json.loads((output / 'report.json').read_text()) == result
+    assert (output / 'cases.jsonl').read_bytes() == b''
+    assert (output / 'check_parliament_ballot_fatal_output.py.template').is_file()
+    with pytest.raises(FileExistsError):
+        check.campaign(tmp_path, tmp_path / 'missing-receipt', output)
+
+
+def test_cli_requires_explicit_paths_and_returns_failure(tmp_path, capsys):
+    with patch.object(sys, 'argv', ['fatal-output', '--help']):
+        with pytest.raises(SystemExit) as exited:
+            check.main()
+        assert exited.value.code == 0 and '--build-receipt' in capsys.readouterr().out
+    with patch.object(sys, 'argv', ['fatal-output', '--root', str(tmp_path),
+                                  '--build-receipt', str(tmp_path / 'missing'),
+                                  '--output', str(tmp_path / 'cli-output')]):
+        assert check.main() == 1
+        assert json.loads(capsys.readouterr().out)['diagnostic_passed'] is False

@@ -17,6 +17,7 @@ def create_kaigi_relay_client_mixin() -> type:
 
     class KaigiRelayClientMixin:
         _ensure_mapping: Callable[..., Any]
+        _get_kaigi_relay_json_object: Callable[..., Any]
         _expect_status: Callable[..., None]
         _normalize_canonical_account_id: Callable[..., str]
         _operator_get: Callable[..., Any]

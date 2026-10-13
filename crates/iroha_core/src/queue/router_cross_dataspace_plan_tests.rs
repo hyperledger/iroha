@@ -105,14 +105,14 @@ fn strict_scoped_permission_decision_apis_match_full_plan_rejection() {
     };
 
     crate::queue::router::assert_completed_routing_error_eq(
-        &(router.try_route(&tx))
+        (router.try_route(&tx))
             .as_ref()
             .expect_err("expected completed routing rejection"),
         &(expected_error()),
         format_args!("completed routing rejection"),
     );
     crate::queue::router::assert_completed_routing_error_eq(
-        &(router.try_route_plan(&tx))
+        (router.try_route_plan(&tx))
             .as_ref()
             .expect_err("expected completed routing rejection"),
         &(expected_error()),
@@ -131,14 +131,14 @@ fn strict_scoped_permission_decision_apis_match_full_plan_rejection() {
         &(None)
     );
     crate::queue::router::assert_completed_routing_error_eq(
-        &(evaluate_policy_with_catalog(&policy, &lane_catalog, &dataspace_catalog, &tx))
+        (evaluate_policy_with_catalog(&policy, &lane_catalog, &dataspace_catalog, &tx))
             .as_ref()
             .expect_err("expected completed routing rejection"),
         &(expected_error()),
         format_args!("completed routing rejection"),
     );
     crate::queue::router::assert_completed_routing_error_eq(
-        &(evaluate_policy_plan_with_catalog(&policy, &lane_catalog, &dataspace_catalog, &tx))
+        (evaluate_policy_plan_with_catalog(&policy, &lane_catalog, &dataspace_catalog, &tx))
             .as_ref()
             .expect_err("expected completed routing rejection"),
         &(expected_error()),
@@ -149,21 +149,21 @@ fn strict_scoped_permission_decision_apis_match_full_plan_rejection() {
     install_router_nexus(&mut state, &router);
     let state_view = state.view();
     crate::queue::router::assert_completed_routing_error_eq(
-        &(router.try_route_with_view(&tx, &state_view))
+        (router.try_route_with_view(&tx, &state_view))
             .as_ref()
             .expect_err("expected completed routing rejection"),
         &(expected_error()),
         format_args!("completed routing rejection"),
     );
     crate::queue::router::assert_completed_routing_error_eq(
-        &(router.try_route_plan_with_view(&tx, &state_view))
+        (router.try_route_plan_with_view(&tx, &state_view))
             .as_ref()
             .expect_err("expected completed routing rejection"),
         &(expected_error()),
         format_args!("completed routing rejection"),
     );
     crate::queue::router::assert_completed_routing_error_eq(
-        &(evaluate_policy_with_catalog_and_world(
+        (evaluate_policy_with_catalog_and_world(
             &policy,
             &lane_catalog,
             &dataspace_catalog,
@@ -176,7 +176,7 @@ fn strict_scoped_permission_decision_apis_match_full_plan_rejection() {
         format_args!("completed routing rejection"),
     );
     crate::queue::router::assert_completed_routing_error_eq(
-        &(evaluate_policy_plan_with_catalog_and_world(
+        (evaluate_policy_plan_with_catalog_and_world(
             &policy,
             &lane_catalog,
             &dataspace_catalog,
@@ -265,7 +265,7 @@ fn explicit_universal_target_is_not_rewritten_by_authority_account_rule() {
         format_args!("completed routing rejection"),
     );
     crate::queue::router::assert_completed_routing_error_eq(
-        &(evaluate_policy_with_catalog_and_world(
+        (evaluate_policy_with_catalog_and_world(
             &policy,
             &lane_catalog,
             &dataspace_catalog,
@@ -454,7 +454,7 @@ fn strict_amx_policy_rejects_cross_dataspace_primary_alias_compare_and_set() {
         metadata,
     );
     crate::queue::router::assert_completed_routing_error_eq(
-        &(router.try_route_plan(&tx))
+        (router.try_route_plan(&tx))
             .as_ref()
             .expect_err("expected completed routing rejection"),
         &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
@@ -497,7 +497,7 @@ fn strict_amx_policy_rejects_mixed_domain_write_targets() {
         metadata,
     );
     crate::queue::router::assert_completed_routing_error_eq(
-        &(router.try_route(&tx))
+        (router.try_route(&tx))
             .as_ref()
             .expect_err("expected completed routing rejection"),
         &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
@@ -540,7 +540,7 @@ fn strict_amx_policy_rejects_mixed_proved_overlay_write_targets() {
         metadata,
     );
     crate::queue::router::assert_completed_routing_error_eq(
-        &(router.try_route(&tx))
+        (router.try_route(&tx))
             .as_ref()
             .expect_err("expected completed routing rejection"),
         &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
@@ -583,7 +583,7 @@ fn strict_amx_policy_value_is_trimmed_and_case_insensitive() {
         metadata,
     );
     crate::queue::router::assert_completed_routing_error_eq(
-        &(router.try_route(&tx))
+        (router.try_route(&tx))
             .as_ref()
             .expect_err("expected completed routing rejection"),
         &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
@@ -636,7 +636,7 @@ fn strict_amx_policy_rejects_mixed_dataspace_scoped_permissions() {
         metadata,
     );
     crate::queue::router::assert_completed_routing_error_eq(
-        &(router.try_route(&tx))
+        (router.try_route(&tx))
             .as_ref()
             .expect_err("expected completed routing rejection"),
         &(RoutingResolveError::ConflictingDataspaceScopedPermissions {
@@ -686,7 +686,7 @@ fn mixed_dataspace_scoped_permissions_without_universal_lane_fail_closed() {
         ],
     );
     crate::queue::router::assert_completed_routing_error_eq(
-        &(router.try_route(&tx))
+        (router.try_route(&tx))
             .as_ref()
             .expect_err("expected completed routing rejection"),
         &(RoutingResolveError::NoLaneForDataspace {
@@ -1037,7 +1037,7 @@ fn resolve_query_routing_decision_rejects_autoscale_owned_default_lane_without_s
         autoscale_elastic_lane_config(LaneId::new(1), DataSpaceId::UNIVERSAL, 7),
     ]);
     crate::queue::router::assert_completed_routing_error_eq(
-        &(resolve_query_routing_decision(
+        (resolve_query_routing_decision(
             &policy,
             &lane_catalog,
             &DataSpaceCatalog::default(),
@@ -1073,7 +1073,7 @@ fn resolve_query_routing_decision_rejects_autoscale_owned_rule_lane_without_stat
         autoscale_elastic_lane_config(LaneId::new(1), DataSpaceId::UNIVERSAL, 7),
     ]);
     crate::queue::router::assert_completed_routing_error_eq(
-        &(resolve_query_routing_decision(
+        (resolve_query_routing_decision(
             &policy,
             &lane_catalog,
             &DataSpaceCatalog::default(),

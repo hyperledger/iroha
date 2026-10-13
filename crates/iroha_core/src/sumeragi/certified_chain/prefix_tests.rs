@@ -380,7 +380,7 @@ fn standalone_and_scoped_frame_reads_agree_without_skipping_shape_checks() {
             assert_eq!(actual, expected)
         }
         (actual, expected) => panic!("expected completed rejections: {actual:?} != {expected:?}"),
-    };
+    }
     assert!(matches!(
         fresh_error,
         ExecutionAttemptError::Rejected(ChainReadError::Malformed { height: 3, .. })
@@ -580,7 +580,7 @@ fn checked_prefix_finish_preserves_refusal_rejection_and_same_source_retry() {
             (actual, expected) => {
                 panic!("expected completed rejections: {actual:?} != {expected:?}")
             }
-        };
+        }
         assert!(matches!(actual, ExecutionAttemptError::Rejected(_)));
         assert_eq!(calls, 0);
         assert_eq!(projected.prefix.tip.id(), retained);
@@ -796,7 +796,7 @@ fn admitted_prefix_finish_preserves_original_pool_refusal_and_certificate_error_
             assert_eq!(actual, expected)
         }
         (actual, expected) => panic!("expected completed rejections: {actual:?} != {expected:?}"),
-    };
+    }
     assert!(matches!(actual, ExecutionAttemptError::Rejected(_)));
     assert_eq!(budget.reserved_bytes(), 0);
     assert_eq!(admitted.prefix.tip.id(), retained);

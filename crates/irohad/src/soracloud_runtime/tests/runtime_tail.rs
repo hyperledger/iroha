@@ -292,6 +292,8 @@ fn vm_verification_deferral_moves_original_owner_and_refuses_mailbox_results() -
 
 #[test]
 fn vm_nested_call_faults_keep_distinct_deterministic_mailbox_labels_when_metered() -> Result<()> {
+    type ErrorFactory = fn() -> VMError;
+
     let bundle = load_deployment_bundle_fixture()?;
     let request = sample_ordered_mailbox_request(
         &bundle,
@@ -304,7 +306,7 @@ fn vm_nested_call_faults_keep_distinct_deterministic_mailbox_labels_when_metered
         SoraServiceHealthStatusV1::Degraded,
     );
     let mut commitments = Vec::new();
-    let cases: [(fn() -> VMError, &str); 2] = [
+    let cases: [(ErrorFactory, &str); 2] = [
         (|| VMError::ReentrantCall, "reentrant_call"),
         (|| VMError::CallDepthExceeded, "call_depth_exceeded"),
     ];

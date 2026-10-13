@@ -54,6 +54,7 @@ fn journaled(leaf: &str) -> bool {
         "Claim/",
         "Attempt/",
         "ExposureSource/",
+        "BeneficiaryHistory/",
     ]
     .iter()
     .any(|prefix| leaf.starts_with(prefix))
@@ -65,9 +66,40 @@ pub(super) fn journal_write(
     key: &StatePath,
     bytes: &[u8],
 ) -> Result<(), Error> {
-    let Some((scope, _)) = leaf(key).filter(|(_, suffix)| journaled(suffix)) else {
+    let Some((scope, suffix)) = leaf(key).filter(|(_, suffix)| journaled(suffix)) else {
         return Ok(());
     };
+    // Current owner revisions remain hot. Recovery explicitly journals only
+    // the predecessor after its successor has been installed.
+    if suffix.starts_with("BeneficiaryHistory/") {
+        return Ok(());
+    }
+    journal_record(stx, scope, key, bytes)
+}
+
+/// Retire a superseded owner only after its recovery block is authenticated.
+pub(super) fn journal_superseded_revision(
+    stx: &mut StateTransaction<'_, '_>,
+    key: &StatePath,
+    bytes: &[u8],
+) -> Result<(), Error> {
+    let Some((scope, suffix)) = leaf(key) else {
+        return Err(fail("invalid reward beneficiary retirement scope"));
+    };
+    if !suffix.starts_with("BeneficiaryHistory/") {
+        return Err(fail(
+            "reward beneficiary retirement names a different family",
+        ));
+    }
+    journal_record(stx, scope, key, bytes)
+}
+
+fn journal_record(
+    stx: &mut StateTransaction<'_, '_>,
+    scope: &str,
+    key: &StatePath,
+    bytes: &[u8],
+) -> Result<(), Error> {
     let journal_key: StatePath = format!(
         "{scope}/HistoryJournal/{:020}/{}",
         stx.block_height(),
@@ -117,7 +149,14 @@ pub(super) fn validate_journals(
         read_from_world(world, &state_key(binding, "AllocationCursor")?)?;
     let mut expected = BTreeMap::new();
     let mut actual = BTreeMap::new();
-    for (key, bytes) in world.smart_contract_state().iter() {
+    let scope: StatePath = prefix
+        .parse()
+        .map_err(|error| fail(format!("invalid reward history prefix: {error}")))?;
+    for (key, bytes) in world
+        .smart_contract_state()
+        .range(scope..)
+        .take_while(|(key, _)| key.as_ref().starts_with(prefix))
+    {
         let Some(suffix) = key.as_ref().strip_prefix(prefix) else {
             continue;
         };
@@ -193,6 +232,23 @@ pub(super) fn validate_journals(
                 state_key(binding, &format!("Attempt/{}", value.attempted_at_height))?,
                 false,
             )
+        } else if suffix.starts_with("BeneficiaryHistory/") {
+            let value: iroha_data_model::validation_fee_rewards::ValidationFeeRewardBeneficiaryRevision =
+                read_from_world(world, key)?.ok_or_else(|| fail("reward revision disappeared"))?;
+            let canonical =
+                iroha_data_model::validation_fee_rewards::validation_fee_beneficiary_revision_key(
+                    binding,
+                    &value.beneficiary_id,
+                    value.revision,
+                )
+                .map_err(fail)?;
+            if *key != canonical {
+                return Err(fail("noncanonical reward beneficiary retirement key").into());
+            }
+            let Some(height) = beneficiary::retirement_height(world, binding, &value)? else {
+                continue;
+            };
+            (height, canonical, false)
         } else {
             let height = suffix
                 .strip_prefix("ExposureSource/")
@@ -263,6 +319,7 @@ fn payload_bytes(
         Payload::RewardClaim(value) => norito::to_bytes(value),
         Payload::RewardAttempt(value) => norito::to_bytes(value),
         Payload::RewardExposure(value) => norito::to_bytes(value),
+        Payload::RewardBeneficiaryRevision(value) => norito::to_bytes(value),
         _ => return Ok(None),
     };
     bytes
@@ -393,6 +450,33 @@ pub(super) fn compact(
                 claims.insert(value.sequence, value);
             }
             Payload::RewardAttempt(_) => (),
+            Payload::RewardBeneficiaryRevision(value) => {
+                if beneficiary::retirement_height(&stx.world, binding, value)
+                    .map_err(|error| stx.world.attempt_error_to_instruction_error(error))?
+                    != Some(height)
+                {
+                    return Err(fail(
+                        "reward owner was not superseded in its retirement block",
+                    ));
+                }
+                let next_key = iroha_data_model::validation_fee_rewards::validation_fee_beneficiary_revision_key(
+                    binding, &value.beneficiary_id,
+                    value.revision.checked_add(1).ok_or_else(|| fail("beneficiary revision exhausted"))?,
+                ).map_err(fail)?;
+                let next = stx
+                    .world
+                    .smart_contract_state
+                    .get(&next_key)
+                    .ok_or_else(|| fail("superseded reward owner has no successor"))?;
+                if originals
+                    .get(&next_key)
+                    .is_none_or(|(hash, _)| *hash != Hash::new(next))
+                {
+                    return Err(fail(
+                        "reward owner successor lacks original recovery evidence",
+                    ));
+                }
+            }
             _ => return Err(fail("unexpected archived reward journal source")),
         }
     }
@@ -558,6 +642,51 @@ pub(super) fn permits_retirement(
         let allocation: ValidationFeeRewardAllocation = norito::decode_canonical(bytes)
             .map_err(|error| norito_decode_attempt_error(error, |error| error.to_string()))?;
         return Ok(allocation.sequence < checkpoint.next_allocation);
+    }
+    if suffix.starts_with("BeneficiaryHistory/") {
+        let revision: iroha_data_model::validation_fee_rewards::ValidationFeeRewardBeneficiaryRevision =
+            norito::decode_canonical(bytes)
+                .map_err(|error| norito_decode_attempt_error(error, |error| error.to_string()))?;
+        let next_key: StatePath = format!(
+            "{scope}/BeneficiaryHistory/{}/{:020}",
+            hex::encode(Hash::new(revision.beneficiary_id.to_string().as_bytes()).as_ref()),
+            revision
+                .revision
+                .checked_add(1)
+                .ok_or("beneficiary revision exhausted")?,
+        )
+        .parse()
+        .map_err(|error| format!("invalid beneficiary successor key: {error}"))?;
+        let Some(next_bytes) = stx.world.smart_contract_state.get_before_block(&next_key) else {
+            return Ok(false);
+        };
+        let next: iroha_data_model::validation_fee_rewards::ValidationFeeRewardBeneficiaryRevision =
+            norito::decode_canonical(next_bytes)
+                .map_err(|error| norito_decode_attempt_error(error, |error| error.to_string()))?;
+        if next.beneficiary_id != revision.beneficiary_id
+            || next.revision != revision.revision + 1
+            || next.previous_account_id.as_ref() != Some(&revision.account_id)
+            || next.authorized_at_height > checkpoint.height
+        {
+            return Ok(false);
+        }
+        let journal_key: StatePath = format!(
+            "{scope}/HistoryJournal/{:020}/{}",
+            next.authorized_at_height,
+            hex::encode(Hash::new(key.as_ref().as_bytes()).as_ref()),
+        )
+        .parse()
+        .map_err(|error| format!("invalid beneficiary retirement key: {error}"))?;
+        let Some(journal_bytes) = stx
+            .world
+            .smart_contract_state
+            .get_before_block(&journal_key)
+        else {
+            return Ok(false);
+        };
+        let journal: JournalEntry = norito::decode_canonical(journal_bytes)
+            .map_err(|error| norito_decode_attempt_error(error, |error| error.to_string()))?;
+        return Ok(journal.key == *key && journal.hash == Hash::new(bytes));
     }
     let recorded = if suffix.starts_with("Entitlement/") {
         norito::decode_canonical::<ValidationFeeRewardEntitlement>(bytes)

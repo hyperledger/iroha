@@ -63,16 +63,29 @@ fn metadata<C: PastaCurve>(
 
 // The shared offline/intake factory reconstructs every fixed context word from
 // the already-qualified Q keys and installed root. No signed context is a recipe.
+#[cfg(test)]
 pub(super) fn plan(
     scope: SourceScopeV1,
     recipe: &QProgramRecipeV1,
 ) -> Result<native::Plan, BootstrapQualificationErrorV1> {
+    let pallas = PinnedParams::derive(16).map_err(|_| BootstrapQualificationErrorV1::Source)?;
+    let vesta = PinnedParams::derive(16).map_err(|_| BootstrapQualificationErrorV1::Source)?;
+    plan_with_parameters(scope, recipe, pallas, vesta)
+}
+
+pub(super) fn plan_with_parameters(
+    scope: SourceScopeV1,
+    recipe: &QProgramRecipeV1,
+    pallas: PinnedParams<Ep>,
+    vesta: PinnedParams<Eq>,
+) -> Result<native::Plan, BootstrapQualificationErrorV1> {
+    if pallas.k() != 16 || vesta.k() != 16 {
+        return Err(BootstrapQualificationErrorV1::Source);
+    }
     if recipe.signatures().len() != 1 || recipe.keys().len() != 2 {
         return Err(BootstrapQualificationErrorV1::Source);
     }
     let policy = scope.bootstrap()?;
-    let pallas = PinnedParams::derive(16).map_err(|_| BootstrapQualificationErrorV1::Source)?;
-    let vesta = PinnedParams::derive(16).map_err(|_| BootstrapQualificationErrorV1::Source)?;
     let keys = recipe
         .keys()
         .iter()
@@ -116,6 +129,27 @@ impl AuthenticatedProducerInventoryV1 {
         originals: &mut dyn OriginalSourceV1,
         config: ReadConfig,
     ) -> Result<QualifiedBootstrapProgramV1, BootstrapQualificationErrorV1> {
+        self.qualify_bootstrap_program_with_admission(
+            installed,
+            qualified_q,
+            program,
+            originals,
+            config,
+            0,
+            super::builtin::Admission::Strict,
+        )
+    }
+
+    pub(super) fn qualify_bootstrap_program_with_admission(
+        &self,
+        installed: &InstalledVerifierPackV1,
+        qualified_q: &QualifiedQProgramV1,
+        program: u32,
+        originals: &mut dyn OriginalSourceV1,
+        config: ReadConfig,
+        route_index: u32,
+        admission: super::builtin::Admission<'_>,
+    ) -> Result<QualifiedBootstrapProgramV1, BootstrapQualificationErrorV1> {
         let scheme = installed.verifier().scheme();
         let identity = (scheme.scheme_id(), installed.verifier().manifest_digest());
         if identity != self.installation() || qualified_q.identity() != (identity, program) {
@@ -136,7 +170,12 @@ impl AuthenticatedProducerInventoryV1 {
         {
             return Err(Error::Inventory.into());
         }
-        let plan = plan(SourceScopeV1::from_scheme(scheme)?, qualified_q.recipe())?;
+        let plan = plan_with_parameters(
+            SourceScopeV1::from_scheme(scheme)?,
+            qualified_q.recipe(),
+            installed.verifier().pallas_parameters().as_ref().clone(),
+            installed.verifier().vesta_parameters(16)?.as_ref().clone(),
+        )?;
         let schema: Vec<_> = plan
             .context()
             .schema()
@@ -156,21 +195,45 @@ impl AuthenticatedProducerInventoryV1 {
             let original = self.read_original(record.a[0], originals, config.maximum_bytes)?;
             InstalledSourceSealV1::new(
                 record.a[0],
-                prover.import_first(&original.proving_key, config)?,
+                match admission.member(&[3, route_index, 0])? {
+                    Some(member) => prover.import_first_builtin_cancellable(
+                        &original.proving_key,
+                        config,
+                        member,
+                        None,
+                    )?,
+                    None => prover.import_first(&original.proving_key, config)?,
+                },
             )
         };
         let wrapper = {
             let original = self.read_original(record.w[0], originals, config.maximum_bytes)?;
             InstalledSourceSealV1::new(
                 record.w[0],
-                prover.import_wrapper(&original.proving_key, config)?,
+                match admission.member(&[4, route_index, 0])? {
+                    Some(member) => prover.import_wrapper_builtin_cancellable(
+                        &original.proving_key,
+                        config,
+                        member,
+                        None,
+                    )?,
+                    None => prover.import_wrapper(&original.proving_key, config)?,
+                },
             )
         };
         let terminal = {
             let original = self.read_original(record.a[1], originals, config.maximum_bytes)?;
             InstalledSourceSealV1::new(
                 record.a[1],
-                prover.import_terminal(&original.proving_key, config)?,
+                match admission.member(&[3, route_index, 1])? {
+                    Some(member) => prover.import_terminal_builtin_cancellable(
+                        &original.proving_key,
+                        config,
+                        member,
+                        None,
+                    )?,
+                    None => prover.import_terminal(&original.proving_key, config)?,
+                },
             )
         };
         Ok(QualifiedBootstrapProgramV1 {

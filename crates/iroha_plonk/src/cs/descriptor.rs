@@ -1459,13 +1459,58 @@ impl CircuitDescriptorV1 {
             &descriptions,
             usize::from(self.degree),
             cancellation,
-        )
-        .map_err(|error| match error {
+        );
+        self.require_selector_plan(plan, cancellation)
+    }
+
+    /// Recheck a canonical packed VK suffix with the identical selector planner.
+    pub(crate) fn check_packed_selector_plan_cancellable(
+        &self,
+        activations: &[u8],
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(), DescriptorError> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(CsError::from)?;
+        let entries = &self.selectors.entries;
+        let n = self.n()?;
+        let width = n.div_ceil(8);
+        if width.checked_mul(entries.len()) != Some(activations.len()) {
+            return Err(DescriptorRule::Selectors.into());
+        }
+        let mut descriptions = Vec::with_capacity(entries.len());
+        for (selector, (rows, entry)) in activations.chunks_exact(width).zip(entries).enumerate() {
+            iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(CsError::from)?;
+            if n % 8 != 0 && rows[width - 1] >> (n % 8) != 0 {
+                return Err(DescriptorRule::Selectors.into());
+            }
+            descriptions.push(selector_compression::PackedSelectorDescription {
+                selector,
+                activations: rows,
+                max_degree: usize::from(entry.max_degree),
+            });
+        }
+        if !self.selectors.compress {
+            return Ok(());
+        }
+        let plan = selector_compression::plan_packed_cancellable(
+            &descriptions,
+            usize::from(self.degree),
+            cancellation,
+        );
+        self.require_selector_plan(plan, cancellation)
+    }
+
+    fn require_selector_plan(
+        &self,
+        plan: Result<Vec<Vec<usize>>, selector_compression::CompressionError>,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(), DescriptorError> {
+        let plan = plan.map_err(|error| match error {
             selector_compression::CompressionError::Cancelled => {
                 DescriptorError::from(CsError::Cancelled)
             }
             _ => DescriptorError::from(DescriptorRule::Selectors),
         })?;
+        let entries = &self.selectors.entries;
         for (combination, members) in plan.iter().enumerate() {
             iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(CsError::from)?;
             for (member, selector) in members.iter().enumerate() {

@@ -4,9 +4,9 @@ import base64
 import subprocess
 from urllib.parse import quote
 
+import iroha_native._loader as native_loader
 import pytest
 
-import iroha_native._loader as native_loader
 import iroha_python.connect as connect
 
 _STALE_LIBPYTHON_PATH = (

@@ -1537,53 +1537,239 @@ fn wallet_advance_v1_crash_matrix_keychain_write_loss() {
 }
 
 #[test]
-fn wallet_advance_v1_crash_matrix_keychain_residual_window_is_documented() {
-    // Design risk (iOS residual window, test plan item iii): if the last anchor raise is lost
-    // to power loss and the files are then restored to exactly the state before that Advance,
-    // the rollback is not detected. Two independent events are needed. This test pins the
-    // current behaviour so a future fix (for example raising the anchor before release
-    // acknowledgement is reported) must update it deliberately.
-    // TODO(G2-iOS): device power-cut tests of `SecItemUpdate` durability.
-    let (device, slot, request, _competitor) =
-        advance_base(KagemushaWalletAnchorPolicyV1::Keychain, 0x7d);
-    let before = device.fork();
-    let mut provider = device.open();
-    released(
-        provider
-            .advance(&slot, &TestOwnerV1, &request)
-            .expect("advance"),
-    );
-    drop(provider);
-    device.platform.lose_last_anchor_writes();
-    let restored = DeviceV1 {
-        fs: before.fs.fork(),
-        platform: device.platform.fork(None),
-    };
-    let status = restored.open().status(&slot);
-    assert!(
-        matches!(status, Ok(KagemushaWalletSlotStatusV1::Released(ref record)) if record.generation() == 2),
-        "residual window: {status:?}"
-    );
-    // Without the lost write the same restore is a rollback.
-    let (device, slot, request, _competitor) =
+fn wallet_advance_v1_crash_matrix_keychain_last_write_loss_rejects_restored_spend() {
+    // Defense in depth for the simulator's one-lost-write model: a released payment has
+    // acknowledged both Selected and Released anchors. Losing the last update retains the
+    // Selected anchor, which still rejects a pre-Advance snapshot and a competing spend.
+    // This test does not establish a bound on power-loss write loss on a physical iPhone.
+    for lose_last in [false, true] {
+        let (device, slot, request, competitor) =
+            advance_base(KagemushaWalletAnchorPolicyV1::Keychain, 0x7d);
+        let before = device.fork();
+        let mut provider = device.open();
+        let original = released(
+            provider
+                .advance(&slot, &TestOwnerV1, &request)
+                .expect("advance"),
+        );
+        assert_eq!(
+            released(
+                provider
+                    .advance(&slot, &TestOwnerV1, &request)
+                    .expect("exact retry")
+            ),
+            original
+        );
+        drop(provider);
+        device.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced, BOOT_B);
+        if lose_last {
+            device.platform.lose_last_anchor_writes();
+        }
+        let restored = DeviceV1 {
+            fs: before.fs.fork(),
+            platform: device.platform.fork(None),
+        };
+        let signed = restored.platform.with(|state| state.sign_calls);
+        let mut provider = restored.open();
+        let rollback =
+            KagemushaWalletProviderErrorV1::LostCustody(KagemushaWalletLostCustodyV1::RolledBack);
+        assert_eq!(provider.status(&slot), Err(rollback));
+        assert_eq!(
+            provider.advance(&slot, &TestOwnerV1, &competitor),
+            Err(rollback)
+        );
+        assert_eq!(
+            provider.advance(&slot, &TestOwnerV1, &request),
+            Err(rollback)
+        );
+        assert_eq!(restored.platform.with(|state| state.sign_calls), signed);
+    }
+}
+
+#[test]
+fn wallet_advance_v1_crash_matrix_keychain_multiple_write_loss_remains_unqualified() {
+    // Counterexample to treating two acknowledgements as a durability fence: the API does
+    // not promise that only its final write can be lost. If *both* new anchor values are
+    // lost and the files revert too, the prior head and surviving key can release a competing
+    // successor. This adversarial simulator schedule is not a demonstrated stock-iOS restore.
+    // TODO(G2-iOS): establish the actual platform persistence/restore contract and run the
+    // corresponding physical-device schedules before claiming rollback closure.
+    let (device, slot, request, competitor) =
         advance_base(KagemushaWalletAnchorPolicyV1::Keychain, 0x7e);
     let before = device.fork();
+    let anchors_before = device.platform.with(|state| state.anchors.clone());
     let mut provider = device.open();
-    released(
+    let original = released(
         provider
             .advance(&slot, &TestOwnerV1, &request)
             .expect("advance"),
     );
     drop(provider);
+    device.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced, BOOT_B);
+    device.platform.with(|state| state.anchors = anchors_before);
     let restored = DeviceV1 {
         fs: before.fs.fork(),
         platform: device.platform.fork(None),
     };
+    let mut provider = restored.open();
+    let conflict = released(
+        provider
+            .advance(&slot, &TestOwnerV1, &competitor)
+            .expect("modeled residual window"),
+    );
+    assert_ne!(original.operation_id, conflict.operation_id);
+    assert_eq!(original.selected_generation, conflict.selected_generation);
+}
+
+#[test]
+fn wallet_advance_v1_crash_matrix_keychain_uncertain_readback_cannot_release() {
+    for (stage, reopen) in [(0, false), (0, true), (1, false), (1, true)] {
+        let (device, slot, request, competitor) =
+            advance_base(KagemushaWalletAnchorPolicyV1::Keychain, 0x7f);
+        let mut provider = device.open();
+        provider
+            .status(&slot)
+            .expect("prime reconciled predecessor");
+        let signed_before = device.platform.with(|state| state.sign_calls);
+        device.platform.with(|state| {
+            state.anchor_fault_at =
+                Some((state.anchor_writes + stage, AnchorWriteV1::UncertainApplied));
+        });
+        assert!(matches!(
+            provider.advance(&slot, &TestOwnerV1, &request),
+            Ok(KagemushaWalletAdvanceOutcomeV1::Pending { .. })
+        ));
+        assert_eq!(
+            device.platform.with(|state| state.sign_calls),
+            signed_before + stage,
+            "Selected acknowledgement precedes signing; Released follows it"
+        );
+        device.platform.with(|state| {
+            state.anchor_fault_at = None;
+            state.anchor_write = AnchorWriteV1::UncertainApplied;
+        });
+        let mut provider = if reopen {
+            drop(provider);
+            device.fs.restart();
+            device.open()
+        } else {
+            provider
+        };
+        // An ownerless status/lookup may cache an adopted Selected head, but cannot return
+        // a completion. A visible Released head must still obtain an acknowledgement.
+        let status = provider.status(&slot);
+        let lookup = provider.lookup(&slot, &request.operation_id);
+        if stage == 0 {
+            assert!(matches!(
+                status,
+                Ok(KagemushaWalletSlotStatusV1::Pending(_))
+            ));
+            assert!(matches!(
+                lookup,
+                Ok(KagemushaWalletLookupV1::SelectedUnsigned { .. })
+            ));
+        } else {
+            assert!(matches!(
+                status,
+                Err(KagemushaWalletProviderErrorV1::Uncertain(_))
+            ));
+            assert!(matches!(
+                lookup,
+                Err(KagemushaWalletProviderErrorV1::Uncertain(_))
+            ));
+        }
+        for attempted in [&request, &competitor, &request] {
+            let outcome = provider.advance(&slot, &TestOwnerV1, attempted);
+            assert!(
+                released_of(&outcome).is_none(),
+                "a visible unacknowledged anchor must not release (reopen={reopen}): {outcome:?}"
+            );
+        }
+        assert_eq!(
+            device.platform.with(|state| state.sign_calls),
+            signed_before + stage
+        );
+        device
+            .platform
+            .with(|state| state.anchor_write = AnchorWriteV1::Normal);
+        let retained = released(
+            provider
+                .advance(&slot, &TestOwnerV1, &request)
+                .expect("acknowledged retry"),
+        );
+        assert_eq!(
+            device.platform.with(|state| state.sign_calls),
+            signed_before + 1
+        );
+        assert_eq!(
+            released(
+                provider
+                    .advance(&slot, &TestOwnerV1, &request)
+                    .expect("exact replay")
+            ),
+            retained
+        );
+        assert!(matches!(
+            provider.advance(&slot, &TestOwnerV1, &competitor),
+            Ok(KagemushaWalletAdvanceOutcomeV1::NotPerformed(
+                KagemushaWalletNotPerformedV1::StaleHead
+            ))
+        ));
+    }
+}
+
+#[test]
+fn wallet_advance_v1_crash_matrix_keychain_cached_selection_requires_acknowledged_retry() {
+    let (device, slot, request, _) = advance_base(KagemushaWalletAnchorPolicyV1::Keychain, 0x80);
+    let mut provider = device.open();
+    let signed_before = device.platform.with(|state| {
+        state.sign_fault_at = Some(state.sign_calls);
+        state.sign_calls
+    });
+    assert!(matches!(
+        provider.advance(&slot, &TestOwnerV1, &request),
+        Ok(KagemushaWalletAdvanceOutcomeV1::Pending { .. })
+    ));
     assert_eq!(
-        restored.open().status(&slot),
-        Err(KagemushaWalletProviderErrorV1::LostCustody(
-            KagemushaWalletLostCustodyV1::RolledBack
-        ))
+        device.platform.with(|state| state.sign_calls),
+        signed_before + 1
+    );
+    // A signer stall retains the verified Selected head in memory. That fast path must
+    // still require a new anchor acknowledgement before attempting the signer again.
+    device
+        .platform
+        .with(|state| state.anchor_write = AnchorWriteV1::UncertainApplied);
+    assert!(matches!(
+        provider.advance(&slot, &TestOwnerV1, &request),
+        Ok(KagemushaWalletAdvanceOutcomeV1::Pending { .. })
+    ));
+    assert_eq!(
+        device.platform.with(|state| state.sign_calls),
+        signed_before + 1
+    );
+    device
+        .platform
+        .with(|state| state.anchor_write = AnchorWriteV1::Normal);
+    let retained = released(
+        provider
+            .advance(&slot, &TestOwnerV1, &request)
+            .expect("retry"),
+    );
+    assert_eq!(
+        device.platform.with(|state| state.sign_calls),
+        signed_before + 2
+    );
+    assert_eq!(
+        released(
+            provider
+                .advance(&slot, &TestOwnerV1, &request)
+                .expect("exact retry")
+        ),
+        retained
+    );
+    assert_eq!(
+        device.platform.with(|state| state.sign_calls),
+        signed_before + 2
     );
 }
 

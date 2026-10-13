@@ -1,0 +1,49 @@
+{
+  "absence_changed": [],
+  "binding_ballot_available": false,
+  "command": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "scripts/formal/check_sora_parliament_source_contract.py"
+  ],
+  "exit": 1,
+  "guarded_absent_paths": [],
+  "log": "docs/validation/parliament_ballot_b6/fatal-stack-source-check.txt",
+  "log_sha256": "3937d34cc2a8e66fb358c4504f8ec6ccd60631ca29c6bdd3c5b9293d489a4897",
+  "no_experimental_core_torii_dependencies": true,
+  "observed_at_utc": "2026-10-13T11:04:50.845199+00:00",
+  "observed_main_error": "crates/iroha_core/src/queue.rs: missing modeled source binding(s): 'Executable::IvmProved(proved)'",
+  "observed_read_set_matches_cli": true,
+  "profile_qualified": false,
+  "qualified_attempt_latency_ms": null,
+  "schema": "parliament-fatal-stack-source-check-v1",
+  "scope": "Observed executed read set plus actual CLI; first failure only, later assertions unexecuted. No production source changes.",
+  "source_after": {
+    "crates/iroha_core/Cargo.toml": "4d78cf26b0f43903acb43d14a3a0bc3134a8b5e44b1ca673cde2614eb1eacc16",
+    "crates/iroha_core/src/block.rs": "55aefe743c75b5160de2c480254f45c6600deae4332c2cfe4002011210db959b",
+    "crates/iroha_core/src/pipeline/overlay.rs": "fb3fe1a82490fdfddfe744188d061d9df236b4c900916a11698927cbc33ba8b9",
+    "crates/iroha_core/src/queue.rs": "635f7b916d2f4bd487dcbbd20e03a318f98b2bfedf6ec1eea3cf7fbe1a8bdb9c",
+    "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs": "efaba6b927534f7096898e8a20206b86a3926fc561984cdd53bb8d7279ab0786",
+    "crates/iroha_core/src/validation_fee.rs": "48ed89459295996d9936754f924ae6426a821bf5d1179ebc856937f5ef220a8c",
+    "crates/iroha_data_model/src/transaction/executable.rs": "cef6182ba0acd6186e6ccaf8514b94f8c58e14ed96f09762b3d2a8ba61943cea",
+    "crates/iroha_data_model/src/transaction/mod.rs": "ad005fec48941a1429a0489f8f9f61b0cdceba074a8391387e9c1d84b0c2d91d",
+    "crates/iroha_data_model/src/transaction/signed.rs": "1b595ccc43d7cd3466b925df32c24310e6fc11296a3db5a49c8d81dac4fcdfa3",
+    "crates/iroha_torii/Cargo.toml": "54d1465c3bde69fc49650df85d1014bf99ffd80fef7ac5a0f0a346d440cc52df",
+    "scripts/formal/check_sora_parliament_source_contract.py": "b627a207d5b7164e6d1866d3c0fe048e96c05c23f0f199793a5f4bc22afc35b3",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82"
+  },
+  "source_before": {
+    "crates/iroha_core/Cargo.toml": "4d78cf26b0f43903acb43d14a3a0bc3134a8b5e44b1ca673cde2614eb1eacc16",
+    "crates/iroha_core/src/block.rs": "55aefe743c75b5160de2c480254f45c6600deae4332c2cfe4002011210db959b",
+    "crates/iroha_core/src/pipeline/overlay.rs": "fb3fe1a82490fdfddfe744188d061d9df236b4c900916a11698927cbc33ba8b9",
+    "crates/iroha_core/src/queue.rs": "635f7b916d2f4bd487dcbbd20e03a318f98b2bfedf6ec1eea3cf7fbe1a8bdb9c",
+    "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs": "efaba6b927534f7096898e8a20206b86a3926fc561984cdd53bb8d7279ab0786",
+    "crates/iroha_core/src/validation_fee.rs": "48ed89459295996d9936754f924ae6426a821bf5d1179ebc856937f5ef220a8c",
+    "crates/iroha_data_model/src/transaction/executable.rs": "cef6182ba0acd6186e6ccaf8514b94f8c58e14ed96f09762b3d2a8ba61943cea",
+    "crates/iroha_data_model/src/transaction/mod.rs": "ad005fec48941a1429a0489f8f9f61b0cdceba074a8391387e9c1d84b0c2d91d",
+    "crates/iroha_data_model/src/transaction/signed.rs": "1b595ccc43d7cd3466b925df32c24310e6fc11296a3db5a49c8d81dac4fcdfa3",
+    "crates/iroha_torii/Cargo.toml": "54d1465c3bde69fc49650df85d1014bf99ffd80fef7ac5a0f0a346d440cc52df",
+    "scripts/formal/check_sora_parliament_source_contract.py": "b627a207d5b7164e6d1866d3c0fe048e96c05c23f0f199793a5f4bc22afc35b3",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82"
+  },
+  "source_changes": {}
+}

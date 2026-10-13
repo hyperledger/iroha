@@ -79,7 +79,10 @@ class _ToriiHTTPServer(ThreadingHTTPServer):
         # The mock only serves a numeric loopback address. HTTPServer's default
         # binding performs a reverse-DNS lookup that can stall isolated runners.
         socketserver.TCPServer.server_bind(self)
-        self.server_name, self.server_port = self.server_address[:2]
+        server_name, self.server_port = self.server_address[:2]
+        if not isinstance(server_name, str):
+            raise TypeError("mock Torii requires a numeric loopback host string")
+        self.server_name = server_name
 
 
 class _ToriiHandler(BaseHTTPRequestHandler):

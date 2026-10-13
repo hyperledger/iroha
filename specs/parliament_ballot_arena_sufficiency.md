@@ -156,6 +156,37 @@ state; no unconditional free frontier is removed. The separate
 checks a non-Custom return path and the ordinary charged-read source lemma,
 without proving whole-worker variant flow or closing its indirect frontier.
 
+The separate [normal-return analysis](../docs/validation/parliament_ballot_noreturn_frontiers/README.md)
+derives 15 local no-normal-return functions from three pinned Rust `!`
+declarations. It conditionally excludes 50 reservation and 52 worker return
+continuations and 23/26 traps from ordinary entry flow. Seven native unwind
+continuations per root, every original unconditional frontier and all failure,
+exceptional and native costs remain open. This is not a termination or complete
+stack bound.
+
+A new [in-memory entry](../crates/iroha_parliament_ballot_proof/examples/memory_entry/README.md)
+structurally removes file reads and their error destructors from the charged
+worker. It has its own build and execution evidence; the frozen image's
+addresses, stack analysis and frontier counts do not transfer to it.
+The [shared-control revision](../docs/validation/parliament_ballot_fatal_control/README.md)
+also removes the fatal stdout write after reproducing its charged-path blockage.
+Its separately counted page brings the Mac reservation to 41.109375 MiB; its
+122 observations and output controls pass. This repairs that specific path,
+without transferring any earlier image's compiled bounds.
+The [new-image stack captures](../docs/validation/parliament_ballot_fatal_stack_eon/README.md)
+remove the unsupported `STLUR`/`EON` decoder stops, with 62 regressions and zero
+frame-analysis errors in either image. Their local worker/fatal frames are
+176/16 bytes. Resolved-region bounds still exclude native/indirect/exceptional
+costs and a positive-weight recursive component; no full stack certificate follows.
+The [adapter-only bound](../docs/validation/parliament_ballot_adapter_bound/README.md)
+now separates a conditional 336-byte stack contribution, 5,298 issued
+instructions and at most one 524,288-byte input block in both current images.
+The input block occupies the existing heap reservation. Opaque verifier and
+native routine costs, return invariants and exceptional paths are not discharged
+by that local bound; its checker passes 20 focused tests.
+Subsequent lockfile/allocator edits are recorded separately and make current-source
+reproduction refuse. The retained bound applies to the captured source interval.
+
 TODO: establish complete target-specific allocation correspondence and
 ordinary/exceptional path conditions; discharge the provider-target premises
 and resolve remaining indirect stack sites and the runtime recursive component

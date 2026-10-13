@@ -620,7 +620,7 @@ def _account_ed25519_public_key(
     account_id: str,
     expected_chain_discriminant: int,
 ) -> bytes:
-    from .address import AccountAddress, CurveId
+    from .address import AccountAddress, ControllerPayload, CurveId
 
     try:
         exact = _exact_account_id_for_chain(
@@ -638,7 +638,11 @@ def _account_ed25519_public_key(
             "approved account must be a canonical single-key Ed25519 I105 account",
         ) from exc
     controller = address.controller
-    if controller.tag != controller.CONTROLLER_SINGLE_KEY_TAG or controller.curve != CurveId.ED25519:
+    if (
+        not isinstance(controller, ControllerPayload)
+        or controller.tag != ControllerPayload.CONTROLLER_SINGLE_KEY_TAG
+        or controller.curve != CurveId.ED25519
+    ):
         raise NexusAppError(
             "missing_signing_public_key",
             "approved account must be a canonical single-key Ed25519 I105 account",

@@ -311,6 +311,30 @@ final class TransactionInputValidatorTests: XCTestCase {
         )
     }
 
+    func testTransferRejectsCrossChainAuthorityAndDestination() throws {
+        let authority = try AccountAddress
+            .fromAccount(publicKey: validEd25519PublicKey(seed: 0xC1))
+            .toI105(networkPrefix: AccountId.defaultNetworkPrefix)
+        let destination = try AccountAddress
+            .fromAccount(publicKey: validEd25519PublicKey(seed: 0xC2))
+            .toI105(networkPrefix: TairaTestnetProfile.i105Discriminant)
+
+        XCTAssertThrowsError(
+            try TransactionInputValidator.validateSameChainDiscriminant(
+                authority: authority, account: destination, field: "destination"
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? TransactionInputError,
+                .accountChainDiscriminantMismatch(
+                    field: "destination",
+                    expected: AccountId.defaultNetworkPrefix,
+                    actual: TairaTestnetProfile.i105Discriminant
+                )
+            )
+        }
+    }
+
     func testCanonicalNoritoAccountEncodersPreserveTairaLiteral() throws {
         let address = try AccountAddress.fromAccount(
             publicKey: validEd25519PublicKey(seed: 0xB3)

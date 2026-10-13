@@ -53,18 +53,14 @@ fn interpreter_statement(
     vm.load_program(&program).unwrap();
     vm.set_register(left_register.into(), left);
     vm.set_register(right_register.into(), right);
-    assert!(
-        match (&(vm.set_program_counter(2)), &(ivm::VMError::DecodeError)) {
-            (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError) => true,
-            _ => false,
-        }
-    );
-    assert!(
-        match (&(vm.set_program_counter(12)), &(ivm::VMError::DecodeError)) {
-            (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError) => true,
-            _ => false,
-        }
-    );
+    assert!(matches!(
+        (&(vm.set_program_counter(2)), &(ivm::VMError::DecodeError)),
+        (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError)
+    ));
+    assert!(matches!(
+        (&(vm.set_program_counter(12)), &(ivm::VMError::DecodeError)),
+        (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError)
+    ));
     vm.set_program_counter(branch_pc).unwrap();
     vm.run_with_host_diagnostic_steps(&mut DefaultHost::default(), &mut recorder)
         .unwrap();

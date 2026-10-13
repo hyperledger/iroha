@@ -369,18 +369,27 @@ fn ton_deployment_refuses_substituted_code_at_its_matching_state_init_address() 
     };
     let original = ton_action(&record, &identity);
     assert!(deployment(&original, &retained, &identity).is_ok());
-    for coordinate in 0..6 {
+    for variant in 0..9 {
         let mut changed = original.clone();
         let SccpDeploymentV1::Ton(ton) = &mut changed.deployment else {
             unreachable!()
         };
-        let code = match coordinate / 2 {
+        let code_index = if variant < 3 {
+            variant
+        } else {
+            (variant - 3) / 2
+        };
+        let code = match code_index {
             0 => &mut ton.minter_code,
             1 => &mut ton.wallet_code,
             2 => &mut ton.bucket_code,
             _ => unreachable!(),
         };
-        if coordinate % 2 == 0 {
+        if variant < 3 {
+            // Substitute another actual compiled contract: the malicious code ref and
+            // resulting StateInit are realizable, not just an invented hash/depth pair.
+            *code = locked_code_refs()[(code_index + 1) % 3];
+        } else if (variant - 3) % 2 == 0 {
             code.hash[0] ^= 1;
         } else {
             code.depth += 1;
@@ -405,7 +414,7 @@ fn ton_deployment_refuses_substituted_code_at_its_matching_state_init_address() 
         );
         assert!(
             result.unwrap_err().to_string().contains("locked artifacts"),
-            "coordinate {coordinate}"
+            "variant {variant}"
         );
     }
 }

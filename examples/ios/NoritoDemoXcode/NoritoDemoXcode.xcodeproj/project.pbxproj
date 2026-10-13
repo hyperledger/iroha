@@ -15,6 +15,7 @@
 		3F1C3AC52C7F4F7A00C1C001 /* AccelerationConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F1C3AC42C7F4F7A00C1C001 /* AccelerationConfig.swift */; };
 		3F1C3AC72C7F4F7A00C1C001 /* AccelerationConfigLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F1C3AC62C7F4F7A00C1C001 /* AccelerationConfigLoaderTests.swift */; };
 		BF0250000000000000000002 /* NativePrivacyPhysicalDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0250000000000000000001 /* NativePrivacyPhysicalDeviceTests.swift */; };
+		BF0250000000000000000004 /* KagemushaStoragePhysicalDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0250000000000000000003 /* KagemushaStoragePhysicalDeviceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +30,7 @@
 		3F1C3AC42C7F4F7A00C1C001 /* AccelerationConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccelerationConfig.swift; sourceTree = "<group>"; };
 		3F1C3AC62C7F4F7A00C1C001 /* AccelerationConfigLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccelerationConfigLoaderTests.swift; sourceTree = "<group>"; };
 		BF0250000000000000000001 /* NativePrivacyPhysicalDeviceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePrivacyPhysicalDeviceTests.swift; sourceTree = "<group>"; };
+		BF0250000000000000000003 /* KagemushaStoragePhysicalDeviceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaStoragePhysicalDeviceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -57,6 +59,7 @@
 			3F1C3AAD2C7F11B500C1C001 /* ConnectViewModelTests.swift */,
 			3F1C3AC62C7F4F7A00C1C001 /* AccelerationConfigLoaderTests.swift */,
 			BF0250000000000000000001 /* NativePrivacyPhysicalDeviceTests.swift */,
+			BF0250000000000000000003 /* KagemushaStoragePhysicalDeviceTests.swift */,
 			3F1C3AB02C7F11B500C1C001 /* Info.plist */,
 		); path = NoritoDemoXcodeTests; sourceTree = "<group>"; };
 /* End PBXGroup section */
@@ -99,6 +102,7 @@
 			3F1C3AAE2C7F11B500C1C001 /* ConnectViewModelTests.swift in Sources */,
 			3F1C3AC72C7F4F7A00C1C001 /* AccelerationConfigLoaderTests.swift in Sources */,
 			BF0250000000000000000002 /* NativePrivacyPhysicalDeviceTests.swift in Sources */,
+			BF0250000000000000000004 /* KagemushaStoragePhysicalDeviceTests.swift in Sources */,
 		); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 

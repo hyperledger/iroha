@@ -132,7 +132,7 @@ impl ValidationFeePayoutPolicyEntryV1 {
     name = "iroha_data_model::validation_fee::payout::ValidationFeePayoutPolicyRegistryV1"
 )]
 pub struct ValidationFeePayoutPolicyRegistryV1 {
-    /// Append-only independent conversion enactments in revision order.
+    /// Contiguous retained conversion enactments in revision order.
     pub entries: Vec<ValidationFeePayoutPolicyEntryV1>,
 }
 impl ValidationFeePayoutPolicyRegistryV1 {
@@ -142,7 +142,7 @@ impl ValidationFeePayoutPolicyRegistryV1 {
     ///
     /// Returns an error for an empty registry, invalid authority, noncontiguous
     /// revisions, changed custody, decreasing enactment heights, or duplicate proposals.
-    pub fn validate(&self) -> Result<(), String> {
+    pub(crate) fn validate(&self, retired_revision: u64) -> Result<(), String> {
         let first = self
             .entries
             .first()
@@ -151,7 +151,12 @@ impl ValidationFeePayoutPolicyRegistryV1 {
         let mut previous_height = 0;
         let mut proposals = BTreeSet::new();
         for (index, entry) in self.entries.iter().enumerate() {
-            if entry.revision != index as u64 + 1
+            let expected = u64::try_from(index)
+                .ok()
+                .and_then(|index| retired_revision.checked_add(index))
+                .and_then(|revision| revision.checked_add(1))
+                .ok_or("independent conversion revision overflow")?;
+            if entry.revision != expected
                 || entry.invariant_error().is_some()
                 || entry.payout_binding.custody() != custody
                 || entry.parliament_authorization.enacted_at_height < previous_height

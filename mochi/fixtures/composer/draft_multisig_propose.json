@@ -1,18 +1,19 @@
 {
-  "account": "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D",
+  "account": "sorau\uff9b1PaQ\uff7dGh1\uff746pA\uff9cnq\uff78fJu\uff7fM\uff91Vq\uff8fvQ\uff90\uff9a\uff7c\uff7e\uff8ba\uff88\uff73\uff8ac1\uff7a\uff8a1GGM2D",
   "instructions": [
     {
-      "asset": "6pEP9RjNoZ7beWkT3pLfKoM1dyfi#sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D",
+      "asset": "6pEP9RjNoZ7beWkT3pLfKoM1dyfi#sorau\uff9b1PaQ\uff7dGh1\uff746pA\uff9cnq\uff78fJu\uff7fM\uff91Vq\uff8fvQ\uff90\uff9a\uff7c\uff7e\uff8ba\uff88\uff73\uff8ac1\uff7a\uff8a1GGM2D",
       "kind": "mint_asset",
       "quantity": "5"
     },
     {
-      "asset": "6pEP9RjNoZ7beWkT3pLfKoM1dyfi#sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D",
-      "destination": "sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76",
+      "asset": "6pEP9RjNoZ7beWkT3pLfKoM1dyfi#sorau\uff9b1PaQ\uff7dGh1\uff746pA\uff9cnq\uff78fJu\uff7fM\uff91Vq\uff8fvQ\uff90\uff9a\uff7c\uff7e\uff8ba\uff88\uff73\uff8ac1\uff7a\uff8a1GGM2D",
+      "destination": "sorau\uff9b1Nf\uff77g\uff89\uff93\uff89B\uff66K\uff8c\uff98\uff92o\uff87\uff82\uff9brG81\uff8bjW\uff8e\uff95Vncw\uff8cS\uff713p\uff98\uff8b\uff89hUS9Q76",
       "kind": "transfer_asset",
       "quantity": "1"
     }
   ],
   "kind": "multisig_propose",
-  "transaction_ttl_ms": 3600000
+  "transaction_ttl_ms": 3600000,
+  "proposal_nonce": "0707070707070707070707070707070707070707070707070707070707070707"
 }

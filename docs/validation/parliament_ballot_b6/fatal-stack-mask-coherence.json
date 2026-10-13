@@ -1,0 +1,67 @@
+{
+  "binding_ballot_available": false,
+  "broken_links": [],
+  "complete_workspace_certificate": false,
+  "core_source_contract_passed": false,
+  "current_mask_guards_checked": 27,
+  "current_stack_guards_checked": 2059,
+  "current_status_roadmap_sha256": {
+    "roadmap.md": "82e2a3a60cfaa950d7efc39146f64e77f09b003050632420a02809a8154ee0ca",
+    "status.md": "9ff7a58c86c92db2f3121710358da38392a45cc42610fbd40b3e4bb1a6d31e38"
+  },
+  "frozen_new_manifests": [
+    {
+      "entries": 19,
+      "path": "docs/validation/parliament_ballot_fatal_stack/SHA256SUMS",
+      "sha256": "66f24e6f15aaaaf56104a69d9b1ade685b1cc5ac8052df987042e142ce616546"
+    },
+    {
+      "entries": 19,
+      "path": "docs/validation/parliament_ballot_fatal_stack_eon/SHA256SUMS",
+      "sha256": "44f4361b01a7f4d78805055b187a8073448d516391bd407c91c70b658fa0ea48"
+    },
+    {
+      "entries": 5,
+      "path": "docs/validation/parliament_ballot_mask_coordinate/SHA256SUMS",
+      "sha256": "80182ca22c54e5b7144bb2102380228844d51380c3fb7afc6ef5b374c79d1648"
+    }
+  ],
+  "independent_cryptographic_review": false,
+  "local_links_checked": 229,
+  "observed_at_utc": "2026-10-13T11:05:19.428379+00:00",
+  "prior_entries": 935,
+  "prior_manifest_sha256": "afc4c1b50ff5cffe455141fc7848fdac118100fc60361e21ac4f1362f27dd236",
+  "profile_qualified": false,
+  "qualified_attempt_latency_ms": null,
+  "schema": "parliament-fatal-stack-mask-coherence-v1",
+  "scope_note": "Preserves all prior frozen evidence. New current-image analysis removes decoder errors without bounding opaque costs. The conditional joint mask bijection reaches ideal-material IdealPublicPatched only; entry, deletion, reverse material bridge and complete resources remain open.",
+  "source_gate_inputs_still_match": true,
+  "source_gate_receipt": "docs/validation/parliament_ballot_b6/fatal-stack-source-check.json",
+  "source_gate_receipt_sha256": "126867569c35bafa7d99dbdc2d51a7de16deac44b4f6d96d60141e158407d9d0",
+  "updated_live_entries": {
+    "docs/validation/parliament_ballot_b6.md": {
+      "after": "91de5fd47ea2781b0c2c3eddc3d23ad0200a1bf3d0cbc4fb2b18b6d10e28e36c",
+      "before": "448cd0905374e9a771e1d7f417ef3d636248c1ad6a8f53e7638511424b8fc93f"
+    },
+    "scripts/parliament_ballot_stack_audit.py": {
+      "after": "d54365c9f3460635cd9ba653d7139827b737161052a1d409ecaf06f9dd19830e",
+      "before": "a14cfb28a381e9bcaa449f01e5a8b8fcc4ac04f134d1fc0cb5522c87961d452f"
+    },
+    "scripts/tests/parliament_ballot_stack_audit_test.py": {
+      "after": "8aa57e41ec678ec3f18d0aa563b4874680b6dfacb967f335e0d2ff51eb3643fe",
+      "before": "019be367b0d6c8f1407f0821c1282453ff98e331729e98d8175a6bcd7f0b5b33"
+    },
+    "specs/parliament_ballot_arena_sufficiency.md": {
+      "after": "1c4adf4edbf81fc80e94ad818f42c16603d6ad95da1ce4b28dde00cc3255ed4b",
+      "before": "514b54866832423f670027dcb908013863e0ec9cd7100a9a2eff5c36055b207b"
+    },
+    "specs/parliament_ballot_b6_requirement_audit.md": {
+      "after": "a652adac3e79442f06783de24a7eeb9d400566f54ec8ad1858969c7e80651699",
+      "before": "0bdf6081056ed67ed5e97699277d18f8be43d5571c19abfa8addb98a21fe0957"
+    },
+    "specs/parliament_ballot_implementation_goals.md": {
+      "after": "81ec6e6028d88337c975e6a5fbd49a7ee6b58f7701e7089d4a4e0a5cd109f6d2",
+      "before": "69c3a881e390331d62a74aadb558218060f89bcddf7bb96ffa54ad99c2729c3e"
+    }
+  }
+}

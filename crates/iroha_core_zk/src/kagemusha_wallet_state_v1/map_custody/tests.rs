@@ -44,6 +44,44 @@ fn exact_state_roots_and_canonical_snapshot_survive_restart() {
 }
 
 #[test]
+fn fee_member_or_low_authenticates_real_empty_and_populated_paths_without_mutation() {
+    let mut store = MemoryArchive::new();
+    let maps = SourceMapsV1::default();
+    let initial = state();
+    let mut view = PreparationMapsV1::new(&mut store, &maps, &initial, K::Send, None).unwrap();
+    let (leaf, opening) = view
+        .member_or_low(PreparationMapV1::Fee, &field(7))
+        .unwrap();
+    assert_eq!(
+        opening.leaf_root(&leaf).unwrap(),
+        initial.core.fee_claim_root
+    );
+    assert_eq!(
+        archive::encode(&view.snapshot()).unwrap(),
+        archive::encode(&maps).unwrap()
+    );
+    let insertion = view
+        .insert(PreparationMapV1::Fee, field(7), field(11))
+        .unwrap();
+    let mut after = initial;
+    after.core.fee_claim_root = insertion
+        .verify(&initial.core.fee_claim_root, &field(7), &field(11))
+        .unwrap();
+    let retained = view.finish(&after).unwrap();
+    let before_bytes = archive::encode(&retained).unwrap();
+    let mut view = PreparationMapsV1::new(&mut store, &retained, &after, K::Send, None).unwrap();
+    for query in [field(7), field(9)] {
+        let (leaf, opening) = view.member_or_low(PreparationMapV1::Fee, &query).unwrap();
+        assert_eq!(leaf.key, field(7));
+        assert_eq!(opening.leaf_root(&leaf).unwrap(), after.core.fee_claim_root);
+    }
+    assert_eq!(
+        archive::encode(&view.finish(&after).unwrap()).unwrap(),
+        before_bytes
+    );
+}
+
+#[test]
 fn every_operation_can_only_mutate_its_fixed_map_roles() {
     for kind in K::ALL {
         let refresh = (kind == K::RefreshPolicy).then_some(R::Blacklist);

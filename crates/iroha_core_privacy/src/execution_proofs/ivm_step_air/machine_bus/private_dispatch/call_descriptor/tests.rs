@@ -850,16 +850,16 @@ fn actual_native_frame_work_oog_retains_opcode_debit_without_completing_or_writi
         let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
         let mut recorder =
             ivm::execution_step_recorder::DiagnosticStepRecorder::try_new(3, &budget).unwrap();
-        assert!(match (
-            &(vm.run_with_host_diagnostic_steps(
-                &mut ivm::host::DefaultHost::default(),
-                &mut recorder
-            )),
-            &(ivm::VMError::OutOfGas)
-        ) {
-            (Err(ivm::VMError::OutOfGas), ivm::VMError::OutOfGas) => true,
-            _ => false,
-        });
+        assert!(matches!(
+            (
+                &(vm.run_with_host_diagnostic_steps(
+                    &mut ivm::host::DefaultHost::default(),
+                    &mut recorder
+                )),
+                &(ivm::VMError::OutOfGas)
+            ),
+            (Err(ivm::VMError::OutOfGas), ivm::VMError::OutOfGas)
+        ));
         assert_eq!(recorder.records().len(), 3);
         assert!(
             recorder.records()[..2].iter().all(

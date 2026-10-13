@@ -8,6 +8,12 @@ macro_rules! chain {
     ($worker:expr, $route:expr, $owner:expr, $inputs:expr, $checkpoints:expr,
      $originals:expr, $cancel:expr, $public:expr, $order:ident) => {{
         let owner = $owner;
+        #[cfg(test)]
+        eprintln!(
+            "NATIVE_FOLD_STAGE route={:?} phase=prepare retained={}",
+            $route,
+            $checkpoints.len()
+        );
         let session = proof(owner.prepare_cancellable(
             $inputs,
             $worker.budget,
@@ -22,6 +28,11 @@ macro_rules! chain {
         let mut a = None;
         let mut w = None;
         for (position, original) in checkpoints.iter().enumerate() {
+            #[cfg(test)]
+            eprintln!(
+                "NATIVE_FOLD_STAGE route={:?} phase=restore position={position}",
+                $route
+            );
             $cancel.check()?;
             if original.len() != layouts[position].payload_bytes() {
                 return Err(Error::Proof("native checkpoint length"));
@@ -50,6 +61,11 @@ macro_rules! chain {
         }
         $cancel.check()?;
         let position = checkpoints.len();
+        #[cfg(test)]
+        eprintln!(
+            "NATIVE_FOLD_STAGE route={:?} phase=produce position={position}",
+            $route
+        );
         if position == layouts.len() {
             let terminal = proof(session.terminal_cancellable(
                 a.as_ref().ok_or(Error::Proof("native terminal source"))?,

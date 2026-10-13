@@ -1,6 +1,4 @@
 """Real Requests worker deadlines, immutable configuration and exact cleanup."""
-from concurrent.futures import ThreadPoolExecutor
-from collections import OrderedDict
 import base64
 import errno
 import os
@@ -8,6 +6,8 @@ import selectors
 import subprocess
 import sys
 import time
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 import requests
@@ -130,12 +130,18 @@ def test_bounded_requests_rejects_unsupported_session_before_child_or_dispatch(k
     class CustomAdapter(requests.adapters.HTTPAdapter):
         pass
     session = CustomSession() if kind == "session" else requests.Session()
-    if kind == "adapter": session.mount("http://", CustomAdapter())
-    if kind == "hooks": session.hooks["response"].append(lambda value: value)
-    if kind == "cookies": session.cookies.set("session", "test")
-    if kind == "auth": session.auth = ("test", "test")
-    if kind == "retry": session.mount("http://", requests.adapters.HTTPAdapter(max_retries=1))
-    if kind == "tls_pool": session.get_adapter("http://x").poolmanager.connection_pool_kw["ssl_context"] = object()
+    if kind == "adapter":
+        session.mount("http://", CustomAdapter())
+    if kind == "hooks":
+        session.hooks["response"].append(lambda value: value)
+    if kind == "cookies":
+        session.cookies.set("session", "test")
+    if kind == "auth":
+        session.auth = ("test", "test")
+    if kind == "retry":
+        session.mount("http://", requests.adapters.HTTPAdapter(max_retries=1))
+    if kind == "tls_pool":
+        session.get_adapter("http://x").poolmanager.connection_pool_kw["ssl_context"] = object()
     with observation_server() as server:
         with pytest.raises((TypeError, ValueError)):
             send(server["url"], session=session)
@@ -317,40 +323,74 @@ def test_bounded_requests_custom_nested_state_rejects_without_callbacks_encoding
     adapter = session.adapters["http://"]
     pool = adapter.poolmanager
     headers = {"Content-Type": "application/x-norito"}
-    if kind == "cookies": session.cookies = Object()
-    if kind == "cookie_storage": session.cookies._cookies = Mapping()
-    if kind == "cookie_policy": session.cookies._policy = Object()
-    if kind == "cookie_lock": session.cookies._cookies_lock = Object()
-    if kind == "adapters": session.adapters = Mapping()
-    if kind == "adapters_items": session.adapters.items = fail
-    if kind == "adapter_prefix": session.adapters = OrderedDict([("https://", session.adapters["https://"]), (Text("http://"), adapter)])
-    if kind == "get_adapter": session.get_adapter = fail
-    if kind == "header_storage": session.headers._store = Mapping()
-    if kind == "header_items": session.headers._store.items = fail
-    if kind == "header_entry": session.headers._store["user-agent"] = Tuple(("User-Agent", "exact"))
-    if kind == "hooks": session.hooks = Mapping()
-    if kind == "hook_list": session.hooks["response"] = Sequence()
-    if kind == "auth": session.auth = Object()
-    if kind == "retry": adapter.max_retries = Object()
-    if kind == "retry_total": adapter.max_retries.total = Object()
-    if kind == "retry_history": adapter.max_retries.history = Tuple()
-    if kind == "pool": adapter.poolmanager = Object()
-    if kind == "pool_headers": pool.headers = Mapping()
-    if kind == "pool_config": pool.connection_pool_kw = Mapping()
-    if kind == "pool_classes": pool.pool_classes_by_scheme = {"http": Object(), "https": pool.pool_classes_by_scheme["https"]}
-    if kind == "pool_keys": pool.key_fn_by_scheme["http"] = Object()
-    if kind == "pool_entries": pool.pools._container = Mapping()
-    if kind == "pool_size": pool.pools._maxsize = Object()
-    if kind == "adapter_config": adapter.config = Mapping()
-    if kind == "adapter_proxy": adapter.proxy_manager = Mapping()
-    if kind == "adapter_send": adapter.send = fail
-    if kind == "pool_key_keywords": monkeypatch.setitem(pool.key_fn_by_scheme["http"].keywords, "context", "altered")
-    if kind == "pool_connections": adapter._pool_connections = Object()
-    if kind == "params": session.params = Mapping()
-    if kind == "proxies": session.proxies = Mapping()
-    if kind == "verify": session.verify = Text("/path")
-    if kind == "cert": session.cert = (Text("/certificate"), "/key")
-    if kind == "request_headers": headers = Mapping()
+    if kind == "cookies":
+        session.cookies = Object()
+    if kind == "cookie_storage":
+        session.cookies._cookies = Mapping()
+    if kind == "cookie_policy":
+        session.cookies._policy = Object()
+    if kind == "cookie_lock":
+        session.cookies._cookies_lock = Object()
+    if kind == "adapters":
+        session.adapters = Mapping()
+    if kind == "adapters_items":
+        session.adapters.items = fail
+    if kind == "adapter_prefix":
+        session.adapters = OrderedDict([("https://", session.adapters["https://"]), (Text("http://"), adapter)])
+    if kind == "get_adapter":
+        session.get_adapter = fail
+    if kind == "header_storage":
+        session.headers._store = Mapping()
+    if kind == "header_items":
+        session.headers._store.items = fail
+    if kind == "header_entry":
+        session.headers._store["user-agent"] = Tuple(("User-Agent", "exact"))
+    if kind == "hooks":
+        session.hooks = Mapping()
+    if kind == "hook_list":
+        session.hooks["response"] = Sequence()
+    if kind == "auth":
+        session.auth = Object()
+    if kind == "retry":
+        adapter.max_retries = Object()
+    if kind == "retry_total":
+        adapter.max_retries.total = Object()
+    if kind == "retry_history":
+        adapter.max_retries.history = Tuple()
+    if kind == "pool":
+        adapter.poolmanager = Object()
+    if kind == "pool_headers":
+        pool.headers = Mapping()
+    if kind == "pool_config":
+        pool.connection_pool_kw = Mapping()
+    if kind == "pool_classes":
+        pool.pool_classes_by_scheme = {"http": Object(), "https": pool.pool_classes_by_scheme["https"]}
+    if kind == "pool_keys":
+        pool.key_fn_by_scheme["http"] = Object()
+    if kind == "pool_entries":
+        pool.pools._container = Mapping()
+    if kind == "pool_size":
+        pool.pools._maxsize = Object()
+    if kind == "adapter_config":
+        adapter.config = Mapping()
+    if kind == "adapter_proxy":
+        adapter.proxy_manager = Mapping()
+    if kind == "adapter_send":
+        adapter.send = fail
+    if kind == "pool_key_keywords":
+        monkeypatch.setitem(pool.key_fn_by_scheme["http"].keywords, "context", "altered")
+    if kind == "pool_connections":
+        adapter._pool_connections = Object()
+    if kind == "params":
+        session.params = Mapping()
+    if kind == "proxies":
+        session.proxies = Mapping()
+    if kind == "verify":
+        session.verify = Text("/path")
+    if kind == "cert":
+        session.cert = (Text("/certificate"), "/key")
+    if kind == "request_headers":
+        headers = Mapping()
     calls.clear()
     monkeypatch.setattr(owner, "encode", fail)
     with observation_server() as server:
@@ -376,24 +416,40 @@ def test_bounded_requests_oversized_scalars_and_cardinality_reject_before_encodi
     session = requests.Session()
     session.trust_env = False
     headers = {"Content-Type": "application/x-norito"}
-    method = "POST"; media_type = "application/x-norito"
+    method = "POST"
+    media_type = "application/x-norito"
     suffix = ""
     large = "x" * (owner._FRAME_LIMIT + 1)
-    if kind == "method": method = large
-    if kind == "url": suffix = "/" + large
-    if kind == "verify": session.verify = large
-    if kind == "cert": session.cert = large
-    if kind == "cert_pair": session.cert = ("/certificate", large)
-    if kind == "media_type": media_type = large
-    if kind == "header_key": headers = {large: "x"}
-    if kind == "header_value": headers["X-Test"] = large
-    if kind == "utf8_value": headers["X-Test"] = "\u0800" * 21846
-    if kind == "session_header": session.headers["X-Test"] = large
-    if kind == "proxy": session.proxies["https"] = large
-    if kind == "parameter": session.params["q"] = large
-    if kind == "request_entries": headers = {str(index): "x" for index in range(129)}
-    if kind == "session_entries": session.params = {str(index): "x" for index in range(129)}
-    if kind == "adapter_prefix": session.adapters = OrderedDict([("https://", session.adapters["https://"]), (large, session.adapters["http://"])])
+    if kind == "method":
+        method = large
+    if kind == "url":
+        suffix = "/" + large
+    if kind == "verify":
+        session.verify = large
+    if kind == "cert":
+        session.cert = large
+    if kind == "cert_pair":
+        session.cert = ("/certificate", large)
+    if kind == "media_type":
+        media_type = large
+    if kind == "header_key":
+        headers = {large: "x"}
+    if kind == "header_value":
+        headers["X-Test"] = large
+    if kind == "utf8_value":
+        headers["X-Test"] = "\u0800" * 21846
+    if kind == "session_header":
+        session.headers["X-Test"] = large
+    if kind == "proxy":
+        session.proxies["https"] = large
+    if kind == "parameter":
+        session.params["q"] = large
+    if kind == "request_entries":
+        headers = {str(index): "x" for index in range(129)}
+    if kind == "session_entries":
+        session.params = {str(index): "x" for index in range(129)}
+    if kind == "adapter_prefix":
+        session.adapters = OrderedDict([("https://", session.adapters["https://"]), (large, session.adapters["http://"])])
     with observation_server() as server:
         with pytest.raises((TypeError, ValueError)):
             owner.send_bounded_request(session=session, method=method, url=server["url"] + suffix,
@@ -413,8 +469,10 @@ def test_bounded_requests_aggregate_ipc_envelope_is_admitted_before_full_encodin
     session.trust_env = False
     text = "x" * 65000
     session.headers = requests.structures.CaseInsensitiveDict({"s": text})
-    session.params = {"p": text}; session.proxies = {"https": text}
-    session.verify = text; session.cert = (text, text)
+    session.params = {"p": text}
+    session.proxies = {"https": text}
+    session.verify = text
+    session.cert = (text, text)
     with observation_server() as server:
         with pytest.raises(ValueError, match="envelope"):
             owner.send_bounded_request(session=session, method="POST", url=server["url"] + "/" + "x" * 10000,
@@ -455,7 +513,7 @@ def alias_logger(stream=None):
 
 
 def test_bounded_staking_genuine_refresh_proof_updates_exact_metrics_and_logs_once_per_response(children):
-    from staking_preparation_test import fixture, client
+    from staking_preparation_test import client, fixture
     request, prepared, _, body = fixture()
     headers, proof = alias_fixture_headers()
     read_fd, write_fd = os.pipe()
@@ -482,13 +540,14 @@ def test_bounded_staking_genuine_refresh_proof_updates_exact_metrics_and_logs_on
         # The worker owns duplicate descriptors; the original logger stays open.
         assert not stream.closed and os.fstat(write_fd)
     finally:
-        stream.close(); os.close(read_fd)
+        stream.close()
+        os.close(read_fd)
     assert len(children) == 2
 
 
 @pytest.mark.parametrize("kind", ["invalid", "expired"])
 def test_bounded_staking_alias_proof_rejection_uses_real_native_policy_and_no_metrics(kind, children):
-    from staking_preparation_test import fixture, client
+    from staking_preparation_test import client, fixture
     request, prepared, _, body = fixture()
     headers, _ = alias_fixture_headers(expired=kind == "expired")
     if kind == "invalid":
@@ -506,7 +565,8 @@ def test_bounded_staking_alias_proof_rejection_uses_real_native_policy_and_no_me
 @pytest.mark.parametrize("kind", ["callback", "handler", "logger", "filter", "formatter", "format_width", "manager", "metrics", "previous"])
 def test_bounded_staking_rejects_blocking_alias_graph_before_callback_child_or_dispatch(kind, children):
     import logging
-    from staking_preparation_test import fixture, client
+
+    from staking_preparation_test import client, fixture
     request, prepared, _, body = fixture()
     headers, _ = alias_fixture_headers()
     markers = []
@@ -525,17 +585,24 @@ def test_bounded_staking_rejects_blocking_alias_graph_before_callback_child_or_d
         def format(self, record): blocked(record)
     with observation_server(body, headers=headers) as server:
         api = client(server["url"], prepared.network_id, timeout=0.6)
-        if kind == "callback": api.set_sorafs_alias_warning(blocked)
-        if kind == "handler": api._sorafs_alias_logger.handlers = [Handler()]
-        if kind == "logger": api._sorafs_alias_logger = Logger("unowned")
-        if kind == "filter": api._sorafs_alias_logger.filters = [Filter()]
+        if kind == "callback":
+            api.set_sorafs_alias_warning(blocked)
+        if kind == "handler":
+            api._sorafs_alias_logger.handlers = [Handler()]
+        if kind == "logger":
+            api._sorafs_alias_logger = Logger("unowned")
+        if kind == "filter":
+            api._sorafs_alias_logger.filters = [Filter()]
         if kind in ("formatter", "format_width"):
             handler = logging.StreamHandler()
             handler.setFormatter(Formatter() if kind == "formatter" else logging.Formatter("%(message)999999999999s"))
             api._sorafs_alias_logger.handlers = [handler]
-        if kind == "manager": api._sorafs_alias_logger.manager = object()
-        if kind == "metrics": api._sorafs_alias_metrics = Metrics()
-        if kind == "previous": api._last_sorafs_alias_evaluation = object()
+        if kind == "manager":
+            api._sorafs_alias_logger.manager = object()
+        if kind == "metrics":
+            api._sorafs_alias_metrics = Metrics()
+        if kind == "previous":
+            api._last_sorafs_alias_evaluation = object()
         started = time.monotonic()
         with pytest.raises((TypeError, ValueError)):
             api.prepare_public_lane_plan(request, prepared.xor_asset_definition_id)
@@ -544,7 +611,7 @@ def test_bounded_staking_rejects_blocking_alias_graph_before_callback_child_or_d
 
 
 def test_bounded_staking_standard_alias_log_pipe_block_is_owned_by_original_deadline(children):
-    from staking_preparation_test import fixture, client
+    from staking_preparation_test import client, fixture
     request, prepared, _, body = fixture()
     headers, _ = alias_fixture_headers()
     read_fd, write_fd = os.pipe()
@@ -577,13 +644,15 @@ def test_bounded_staking_standard_alias_log_pipe_block_is_owned_by_original_dead
                 break
         assert bytes(drained) == b"x" * filled
     finally:
-        stream.close(); os.close(read_fd)
+        stream.close()
+        os.close(read_fd)
     assert len(children) == 1
 
 
 def test_bounded_staking_default_last_resort_logging_stays_in_owned_worker(monkeypatch, children):
     import logging
-    from staking_preparation_test import fixture, client
+
+    from staking_preparation_test import client, fixture
     request, prepared, _, body = fixture()
     headers, _ = alias_fixture_headers()
     read_fd, write_fd = os.pipe()
@@ -602,15 +671,17 @@ def test_bounded_staking_default_last_resort_logging_stays_in_owned_worker(monke
         assert os.read(read_fd, 4096).count(b"SoraFS alias 'docs/sora'") == 1
     finally:
         monkeypatch.undo()
-        stream.close(); os.close(read_fd)
+        stream.close()
+        os.close(read_fd)
     assert len(children) == 1
 
 
 @pytest.mark.parametrize("state", ["fresh", "hard_expired"])
 def test_bounded_staking_worker_preserves_exact_configured_alias_thresholds(state, children):
     from dataclasses import replace
+
     from iroha_python.sorafs import SorafsAliasPolicy, evaluate_alias_proof
-    from staking_preparation_test import fixture, client
+    from staking_preparation_test import client, fixture
     request, prepared, _, body = fixture()
     headers, proof = alias_fixture_headers()
     policy = SorafsAliasPolicy.defaults()
@@ -640,8 +711,8 @@ def test_bounded_staking_worker_preserves_exact_configured_alias_thresholds(stat
     "default_headers", "header_key", "timeout", "base_url", "request_codec",
     "request_field", "quantity_field", "local_context"])
 def test_bounded_staking_parent_graph_refuses_before_original_point35_second_callbacks(kind, children):
-    from staking_preparation_test import fixture, client
     from iroha_python import ToriiClient
+    from staking_preparation_test import client, fixture
     request, prepared, _, body = fixture()
     markers = []
 
@@ -672,16 +743,26 @@ def test_bounded_staking_parent_graph_refuses_before_original_point35_second_cal
         api = client(server["url"], prepared.network_id, timeout=0.1)
         if kind == "subclass":
             api.__class__ = CustomClient
-        if kind == "instance_dispatch": api._request = blocked
-        if kind == "instance_context": api._require_local_signing_context = blocked
-        if kind == "default_headers": api._default_headers = Headers()
-        if kind == "header_key": api._default_headers = {Text("Accept"): "application/x-norito"}
-        if kind == "timeout": api._timeout = Number(0.1)
-        if kind == "base_url": api._base_url = Text(server["url"])
-        if kind == "request_codec": object.__setattr__(request, "to_norito", blocked)
-        if kind == "request_field": object.__setattr__(request.operation, "validator", Text(request.operation.validator))
-        if kind == "quantity_field": object.__setattr__(request.operation.amount, "mantissa", Number(1))
-        if kind == "local_context": api._ToriiClient__local_signing_context = object()
+        if kind == "instance_dispatch":
+            api._request = blocked
+        if kind == "instance_context":
+            api._require_local_signing_context = blocked
+        if kind == "default_headers":
+            api._default_headers = Headers()
+        if kind == "header_key":
+            api._default_headers = {Text("Accept"): "application/x-norito"}
+        if kind == "timeout":
+            api._timeout = Number(0.1)
+        if kind == "base_url":
+            api._base_url = Text(server["url"])
+        if kind == "request_codec":
+            object.__setattr__(request, "to_norito", blocked)
+        if kind == "request_field":
+            object.__setattr__(request.operation, "validator", Text(request.operation.validator))
+        if kind == "quantity_field":
+            object.__setattr__(request.operation.amount, "mantissa", Number(1))
+        if kind == "local_context":
+            api._ToriiClient__local_signing_context = object()
         started = time.monotonic()
         # Invoke the inherited public entry even when an instance has a virtual
         # dispatch override; unsupported state must reject before that callback.
@@ -693,8 +774,8 @@ def test_bounded_staking_parent_graph_refuses_before_original_point35_second_cal
 
 @pytest.mark.parametrize("kind", ["method", "path", "headers", "stream_flag", "timeout"])
 def test_bounded_request_entry_admits_scalars_before_ordinary_helpers(kind, children):
-    from staking_preparation_test import fixture, client
     from iroha_python import ToriiClient
+    from staking_preparation_test import client, fixture
     request, prepared, request_body, response_body = fixture()
     markers = []
 
@@ -722,19 +803,24 @@ def test_bounded_request_entry_admits_scalars_before_ordinary_helpers(kind, chil
             data=request_body, stream=True, allow_retry=False, allow_redirects=False,
             _operation_deadline_ns=time.monotonic_ns() + 100_000_000,
             _maximum_body_bytes=256 * 1024, _response_media_type="application/x-norito")
-        if kind == "method": values["method"] = Text("POST")
-        if kind == "path": values["path"] = Text("/v1/nexus/staking/prepare")
-        if kind == "headers": values["headers"] = Headers()
-        if kind == "stream_flag": values["stream"] = Flag()
-        if kind == "timeout": values["timeout"] = Number(0.1)
+        if kind == "method":
+            values["method"] = Text("POST")
+        if kind == "path":
+            values["path"] = Text("/v1/nexus/staking/prepare")
+        if kind == "headers":
+            values["headers"] = Headers()
+        if kind == "stream_flag":
+            values["stream"] = Flag()
+        if kind == "timeout":
+            values["timeout"] = Number(0.1)
         with pytest.raises((TypeError, ValueError)):
             ToriiClient._request(api, **values)
         assert markers == [] and children == [] and server["calls"] == []
 
 
 def test_bounded_staking_admission_retains_original_closed_inputs_after_caller_rebinding():
-    from staking_preparation_test import fixture, client
     from iroha_python.validator_staking import encode_staking_preparation_frame_v1
+    from staking_preparation_test import client, fixture
     request, prepared, request_bytes, _ = fixture()
     api = client("http://127.0.0.1:1", prepared.network_id)
     timeout, network, frozen = owner.check_preparation_inputs(api, request, prepared.xor_asset_definition_id)

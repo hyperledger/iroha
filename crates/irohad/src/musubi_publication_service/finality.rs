@@ -1437,6 +1437,7 @@ pub mod tests {
         use iroha_core::query::musubi_pin_outbox::{
             MusubiPinOutboxCheckExpectedV1, begin_musubi_pin_outbox_check_v1,
         };
+        use iroha_data_model::musubi::MusubiPinOutboxCheckExpectationV1;
 
         let fixture = reader_fixture_with_finality(false);
         assert!(matches!(
@@ -1446,7 +1447,6 @@ pub mod tests {
                 .expect_err("an uncertified Kura body must fail closed"),
             MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Invalid
         ));
-        use iroha_data_model::musubi::MusubiPinOutboxCheckExpectationV1;
         // The deliberately uncertified State must not manufacture a committed receipt.
         // Keep the exact height/hash/context from the genuine source before certificate removal.
         assert_eq!(

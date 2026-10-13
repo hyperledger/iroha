@@ -1,7 +1,8 @@
 """Protocol-1 JSON codec controls, not generated finality or execution captures."""
+import json
 from copy import deepcopy
 from dataclasses import FrozenInstanceError
-import json
+
 import pytest
 from iroha_torii_client.native_sumeragi import SumeragiStatus, parse_native_status_json
 
@@ -16,58 +17,78 @@ def test_exact_observer_and_owned_native_values():
     value["footprint"]["votes"]=123
     assert status.protocol_version==1 and status.leader is None
     assert status.footprint.votes==0
-    with pytest.raises(FrozenInstanceError): status.height=9
+    with pytest.raises(FrozenInstanceError):
+        status.height=9
 
 @pytest.mark.parametrize("field", list(BASE))
 def test_every_field_including_nullables_is_mandatory(field):
-    value=deepcopy(BASE);del value[field]
-    with pytest.raises((ValueError,TypeError)):parse(value)
+    value=deepcopy(BASE)
+    del value[field]
+    with pytest.raises((ValueError,TypeError)):
+        parse(value)
 
 @pytest.mark.parametrize("field", list(BASE["footprint"]))
 def test_every_footprint_field_is_mandatory(field):
-    value=deepcopy(BASE);del value["footprint"][field]
-    with pytest.raises((ValueError,TypeError)):parse(value)
+    value=deepcopy(BASE)
+    del value["footprint"][field]
+    with pytest.raises((ValueError,TypeError)):
+        parse(value)
 
 @pytest.mark.parametrize("field", ["height","view","t_retx_ms","committed_height","applied_height"])
 def test_full_u64_and_overflow(field):
-    value=deepcopy(BASE);value[field]=(1<<64)-1
+    value=deepcopy(BASE)
+    value[field]=(1<<64)-1
     assert getattr(parse(value),field)==(1<<64)-1
     for bad in [(1<<64),-1,True,1.0,"1"]:
         value[field]=bad
-        with pytest.raises((ValueError,TypeError)):parse(value)
+        with pytest.raises((ValueError,TypeError)):
+            parse(value)
 
 @pytest.mark.parametrize("token", ["-0","-1","1.0","1e0","NaN","Infinity"])
 def test_noncanonical_unsigned_tokens_fail(token):
     wire=json.dumps(BASE).replace('"height": 1','"height": '+token)
-    with pytest.raises((ValueError,TypeError)):SumeragiStatus.from_payload(parse_native_status_json(wire.encode()))
+    with pytest.raises((ValueError,TypeError)):
+        SumeragiStatus.from_payload(parse_native_status_json(wire.encode()))
 
 @pytest.mark.parametrize("reason", ["safety_record_corrupt","safety_record_inconsistent","driver_anomaly","safety_violation","apply_diverged","publication_recovery_required"])
 def test_all_native_halt_tags_and_explicit_details(reason):
     unit=reason in ["safety_record_corrupt","safety_record_inconsistent","driver_anomaly"]
-    value=deepcopy(BASE);value["halted"]={"reason":reason,"details":None if unit else (1<<64)-1}
+    value=deepcopy(BASE)
+    value["halted"]={"reason":reason,"details":None if unit else (1<<64)-1}
     assert parse(value).halted.reason==reason
     value["halted"]["details"]=1 if unit else None
-    with pytest.raises((ValueError,TypeError)):parse(value)
+    with pytest.raises((ValueError,TypeError)):
+        parse(value)
 
 def test_beacon_readiness_and_nested_shape():
-    value=deepcopy(BASE);value["beacon_horizon"]={"epoch_length_blocks":10,"next_required_pulse_height":20,"active_session_id":"AB"*32,"session_covers_next_pulse":True,"local_provider_ready":True}
+    value=deepcopy(BASE)
+    value["beacon_horizon"]={"epoch_length_blocks":10,"next_required_pulse_height":20,"active_session_id":"AB"*32,"session_covers_next_pulse":True,"local_provider_ready":True}
     assert parse(value).beacon_horizon.active_session_id=="AB"*32
     for field in list(value["beacon_horizon"]):
-        bad=deepcopy(value);del bad["beacon_horizon"][field]
-        with pytest.raises((ValueError,TypeError)):parse(bad)
+        bad=deepcopy(value)
+        del bad["beacon_horizon"][field]
+        with pytest.raises((ValueError,TypeError)):
+            parse(bad)
     for field in ["active_session_id","next_required_pulse_height"]:
-        bad=deepcopy(value);bad["beacon_horizon"][field]=None
-        with pytest.raises((ValueError,TypeError)):parse(bad)
+        bad=deepcopy(value)
+        bad["beacon_horizon"][field]=None
+        with pytest.raises((ValueError,TypeError)):
+            parse(bad)
 
 def test_duplicate_unknown_encoding_bound_and_retired_schema_rejected():
     wire=json.dumps(BASE)
     for raw in [b"\xff",b"",b" "*(1024*1024+1),wire.replace('"height": 1','"height": 1, "height": 1').encode(),b'{"protocol_version":4}']:
-        with pytest.raises((ValueError,TypeError)):SumeragiStatus.from_payload(parse_native_status_json(raw))
-    value=deepcopy(BASE);value["execution_commitment"]={}
-    with pytest.raises((ValueError,TypeError)):parse(value)
+        with pytest.raises((ValueError,TypeError)):
+            SumeragiStatus.from_payload(parse_native_status_json(raw))
+    value=deepcopy(BASE)
+    value["execution_commitment"]={}
+    with pytest.raises((ValueError,TypeError)):
+        parse(value)
     for field in ["config_fingerprint","instance"]:
-        value=deepcopy(BASE);value[field]="00"
-        with pytest.raises((ValueError,TypeError)):parse(value)
+        value=deepcopy(BASE)
+        value[field]="00"
+        with pytest.raises((ValueError,TypeError)):
+            parse(value)
 
 
 @pytest.mark.parametrize("field", ["leader", "proxy_tail", "signer"])

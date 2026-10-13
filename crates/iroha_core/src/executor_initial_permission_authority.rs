@@ -47,6 +47,9 @@ fn validate_initial_permission_payload_constraints(
         }};
     }
     match permission.name() {
+        "CanReadCertifiedOriginals" => {
+            validate_exact_unit_permission!(executor_permission::query::CanReadCertifiedOriginals)
+        }
         "CanUseContractPermission" => validate_exact_deployment_permission!(
             executor_permission::smart_contract::CanUseContractPermission
         ),
@@ -438,6 +441,14 @@ fn initial_permission_capability_root_authority(
         };
     }
     let result = match permission.name() {
+        "CanReadCertifiedOriginals" => {
+            let _ = decode!(executor_permission::query::CanReadCertifiedOriginals);
+            authority_has_permission(
+                &state_transaction.world,
+                authority,
+                &executor_permission::query::CanReadAllLedgerData.into(),
+            )?
+        }
         "CanUnregisterDomain" => {
             let token = decode!(executor_permission::domain::CanUnregisterDomain);
             authority_owns_domain(&state_transaction.world, authority, &token.domain)?
@@ -953,6 +964,7 @@ fn initial_permission_delegation_allowed(
             permission.name(),
             "CanManageSmartContractCode"
                 | "CanReadAccountData"
+                | "CanReadCertifiedOriginals"
                 | "CanResolveAccountAlias"
                 | "CanIssueSoranetVpnQuote"
                 | "CanExecuteSettlement"
@@ -3067,6 +3079,7 @@ const INITIAL_EXECUTOR_PERMISSION_NAMES: &[&str] = &[
     "CanDelegateAccountAliasResolution",
     "CanResolveAccountAlias",
     "CanReadAllLedgerData",
+    "CanReadCertifiedOriginals",
     "CanReadAccountData",
     "CanReadRestrictedDataspace",
     "CanMintAssetWithDefinition",

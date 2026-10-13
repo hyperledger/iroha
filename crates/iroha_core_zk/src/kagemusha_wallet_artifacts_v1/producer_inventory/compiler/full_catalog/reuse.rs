@@ -31,7 +31,7 @@ fn collect(root: &Path) -> Result<Vec<OriginalV1>, Error> {
         if blobs.insert(hash, blob).is_some() {
             return Err(Error::Inventory);
         }
-        if bytes.starts_with(b"PIPAPK01") {
+        if bytes.starts_with(&iroha_plonk::keys::pk::artifact::MAGIC) {
             if bytes.len() < 44 || keys.len() >= ARTIFACT_MAX_COUNT_V1 {
                 return Err(Error::Inventory);
             }
@@ -164,7 +164,7 @@ fn reuse_intake_requires_exact_complete_content_addresses() {
     fs::write(root.path().join("unaddressed"), b"DATA").unwrap();
     assert!(collect(root.path()).is_err());
     fs::remove_file(root.path().join("unaddressed")).unwrap();
-    let body = b"PIPAPK01";
+    let body = &iroha_plonk::keys::pk::artifact::MAGIC;
     fs::write(root.path().join(hex::encode(BlobV1::of(body).sha256)), body).unwrap();
     assert!(collect(root.path()).is_err());
     fs::write(

@@ -8,7 +8,7 @@ the responsibility of the protocol that consumes them.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from typing import TYPE_CHECKING, Literal, Mapping
 
 if TYPE_CHECKING:
@@ -106,10 +106,10 @@ def _sequence(value: object, maximum: int) -> list:
 
 
 def _note(value: object, kind: type) -> dict[str, object]:
-    if not isinstance(value, kind):
+    if not is_dataclass(kind) or not isinstance(value, kind):
         raise ConfidentialProverError("invalid_input", f"expected {kind.__name__}")
     # Copy references only; do not use dataclasses.asdict, which deep-copies inputs.
-    return {name: getattr(value, name) for name in kind.__dataclass_fields__}
+    return {field.name: getattr(value, field.name) for field in fields(kind)}
 
 
 class ConfidentialProver:
@@ -199,10 +199,10 @@ class ConfidentialProver:
                 or not proof.proof
             ):
                 raise ValueError("native proof output does not match the requested root")
-            if len(proof.nullifiers) != len(arguments["inputs"]):
+            if len(proof.nullifiers) != len(_sequence(arguments["inputs"], 2)):
                 raise ValueError("native proof input cardinality mismatch")
             expected = (
-                len(arguments["outputs"])
+                len(_sequence(arguments["outputs"], 2))
                 if operation == "prove_transfer"
                 else int(arguments["change_note"] is not None)
             )

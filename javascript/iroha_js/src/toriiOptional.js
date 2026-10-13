@@ -9,9 +9,9 @@ export {
   decodeValidatorStakingPreparationFrameV1,
   validateValidatorStakingPreparationV1,
   noritoEncodeFeePaymentIntentArchive,
-  noritoEncodeMultisigProposeRequest,
   noritoEncodeSorafsBillingAcknowledgementProofV1,
   noritoEncodeTransactionPayloadBatch,
+  retailFeeAssessmentMarkerMessage,
 } from "./norito.js";
 
 export {
@@ -64,3 +64,5 @@ export {
   validateSorafsOrderbookSubmissionHeaders,
   verifySorafsOrderbookSubmissionReceipt,
 } from "./sorafsOrderbookSubmission.js";
+
+export { hashInstructionBatch } from "./transaction.js";

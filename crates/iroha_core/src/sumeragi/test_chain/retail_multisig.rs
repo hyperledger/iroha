@@ -25,7 +25,8 @@ use iroha_data_model::{
     validation_fee::*,
 };
 use iroha_executor_data_model::isi::multisig::{
-    DEFAULT_MULTISIG_TTL_MS, MultisigApprove, MultisigPropose, MultisigRegister, MultisigSpec,
+    DEFAULT_MULTISIG_TTL_MS, MultisigApprove, MultisigProposalId, MultisigProposalNonce,
+    MultisigPropose, MultisigRegister, MultisigSpec,
 };
 use iroha_model_base::{domain::DomainId, state_path::StatePath};
 use iroha_primitives::numeric::{NumericSpec, Quantity};
@@ -55,6 +56,10 @@ pub struct NativeRetailMultisigTransferFixture {
     pub source_holding: AssetId,
     /// Original Transfer and native monthly assessment marker.
     pub instructions: Vec<InstructionBox>,
+    /// Native identity of this intentional transfer occurrence.
+    pub proposal_id: MultisigProposalId,
+    /// Original nonce persisted before preparation.
+    pub proposal_nonce: MultisigProposalNonce,
     /// Native hash of the exact reviewed instruction vector.
     pub instructions_hash: HashOf<Vec<InstructionBox>>,
     /// Original locally signed proposal transaction.
@@ -477,6 +482,7 @@ fn install_monthly_policy(
     });
     let authorization = install_enacted(transaction, kind);
     let registry = ValidationFeePolicyRegistryV1 {
+        history: None,
         registered_policies: vec![
             ValidationFeePolicyRegistryEntryV1::from_enactment(policy, authorization).unwrap(),
         ],
@@ -489,7 +495,9 @@ fn install_monthly_policy(
         .world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(registry.into_custom_parameter()))
+        .set_parameter(Parameter::Custom(registry.into_custom_parameter().expect(
+            "validation-fee fixture registry fits the canonical JSON parameter",
+        )))
         .expect("valid fixture parameters");
     let record = RetailFeeAccountStateV1::enroll(source.clone(), START, 1000).unwrap();
     crate::retail_fee::write_account(&mut transaction.world, &record).unwrap();
@@ -603,9 +611,11 @@ pub fn native_retail_multisig_transfer_fixture() -> NativeRetailMultisigTransfer
         Log::new(Level::TRACE, marker).into(),
     ];
     let instructions_hash = HashOf::new(&instructions);
+    let proposal_nonce = MultisigProposalNonce::new([7; 32]).unwrap();
+    let proposal_id = MultisigProposalId::derive(&chain.network_id(), &source, &proposal_nonce);
     let proposal_transaction = chain.sign(
         &first,
-        [MultisigPropose::new(source.clone(), instructions.clone(), None).into()],
+        [MultisigPropose::new(source.clone(), proposal_nonce, instructions.clone(), None).into()],
         now + 1,
     );
     assert_eq!(
@@ -615,7 +625,7 @@ pub fn native_retail_multisig_transfer_fixture() -> NativeRetailMultisigTransfer
     let approval_created_ms = now + 2;
     let approval_transaction = chain.sign(
         &second,
-        [MultisigApprove::new(source.clone(), instructions_hash).into()],
+        [MultisigApprove::new(source.clone(), proposal_id, instructions_hash).into()],
         approval_created_ms,
     );
     let entrypoint_hash = *approval_transaction.hash_as_entrypoint().as_ref();
@@ -639,12 +649,12 @@ pub fn native_retail_multisig_transfer_fixture() -> NativeRetailMultisigTransfer
         crate::smartcontracts::isi::multisig::multisig_approval_outcome_state_key(
             entrypoint_hash,
             &source,
-            &instructions_hash,
+            &proposal_id,
         ),
         crate::smartcontracts::isi::multisig::multisig_proposal_terminal_execution_state_key(
             entrypoint_hash,
             &source,
-            &instructions_hash,
+            &proposal_id,
         ),
     ];
     {
@@ -673,6 +683,8 @@ pub fn native_retail_multisig_transfer_fixture() -> NativeRetailMultisigTransfer
         source_holding,
         instructions,
         instructions_hash,
+        proposal_id,
+        proposal_nonce,
         proposal_transaction,
         approval_transaction,
         assessment,

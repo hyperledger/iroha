@@ -1,0 +1,28 @@
+{
+  "build_receipt_sha256": "b1a63ffc0be83f64daf37bd6af6da14811378aaccc33942f8786157327d4c8a8",
+  "build_sources_verified": 2019,
+  "campaign_guarded_inputs": 2031,
+  "campaign_helper_check_sha256": "170acbffebdae1ef5f6fe91e553c86de4d9d898020c3f9f0e4dfce59de73ba38",
+  "campaign_report_sha256": "69c3d7f128e301fe633eacd69c9c383b3fd336ddfe79acecedc0d1646ab217be",
+  "complete_workspace_certificate": false,
+  "findings_resolved": true,
+  "independent_external_review": false,
+  "observed_at_utc": "2026-10-13T10:01:56.203931+00:00",
+  "profile_qualified": false,
+  "reviewed_files": {
+    "crates/iroha_parliament_ballot_proof/examples/memory_entry/driver.rs": "8fe13091714b9150e84a67edb3a217bcbc20a9619b27bbe9566cefae4bfb1591",
+    "crates/iroha_parliament_ballot_proof/examples/memory_entry/staging.rs": "fcfebbbdfdc26bc40fa85c8f400fa987bc609693966f3c19f4a269d3fea226f0",
+    "scripts/check_parliament_ballot_memory_entry.py": "b6cdd41bfe3f15db450ad2f6329d5ad2ec442c75850e2263311b460cf678d331",
+    "scripts/prepare_parliament_ballot_memory_entry.py": "209726d5e21f86002c60c118b3ba8e819bc9782b9d8192c077a5f182fdddded0",
+    "scripts/tests/parliament_ballot_memory_entry_test.py": "53bec4b8acaaab60e45a9cc9eae108f1c31ff55b09c547096779f223b2c930b0",
+    "scripts/tests/parliament_ballot_memory_prepare_test.py": "0b670f9cbefda3f0a004338dc131474fff083339beb2d89578888651dc491ac1"
+  },
+  "reviews": [
+    "Same-borrow pointer/length, reserve-before-copy ordering, File closure before invocation, immutable caller lifetime through synchronous join, ACTIVE reset on returning errors and nonreturning join failure.",
+    "Exact generated workspace derivation; frozen allocator, reservation, stack and native modules unchanged; one-shot process and concurrency premises explicit.",
+    "All six locked release commands, source/log/metadata/binary hashes and generated snapshots verified.",
+    "Strict finite JSON, schemas, outcomes, modes, debits, stages, partitions, 61 unique inputs, borrowed oversize admission, source drift and partial-failure persistence reviewed."
+  ],
+  "schema": "parliament-memory-entry-review-v1",
+  "scope": "Independent local engineering review by another agent and root; not independent external cryptographic or unsafe-implementation certification."
+}

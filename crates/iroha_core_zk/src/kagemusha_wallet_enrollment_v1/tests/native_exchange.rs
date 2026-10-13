@@ -40,10 +40,14 @@ mod archive;
 mod load;
 #[path = "native_exchange/load_seam.rs"]
 mod load_seam;
+#[path = "native_exchange/message_census.rs"]
+mod message_census;
 #[path = "native_exchange/network_settlement.rs"]
 mod network_settlement;
 #[path = "native_exchange/proof_negative.rs"]
 mod proof_negative;
+#[path = "native_exchange/send_recovery.rs"]
+mod send_recovery;
 #[path = "native_exchange/settlement.rs"]
 mod settlement;
 #[path = "native_exchange/setup.rs"]
@@ -683,11 +687,15 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     let f_c = sources.fixture(&setup, 2);
     let device_b = HostDevice::create(&output.join("wallet-b"), 89);
     let frames_b = device_b.enroll(&f_b);
+    device_b.save_simulator();
+    retain_frames(&device_b, &frames_b);
     let mut b = sources.open(&device_b, &f_b, &frames_b);
     complete(b.bootstrap().unwrap());
     fold(&mut b);
     let device_c = HostDevice::create(&output.join("wallet-c"), 97);
     let frames_c = device_c.enroll(&f_c);
+    device_c.save_simulator();
+    retain_frames(&device_c, &frames_c);
     let mut c = sources.open(&device_c, &f_c, &frames_c);
     complete(c.bootstrap().unwrap());
     fold(&mut c);
@@ -718,7 +726,80 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     );
     drop(a);
     let mut a = sources.open(&device_a, &f, &frames_a);
-    let payment_ab = complete(a.execute(send_ab.clone()).unwrap());
+    assert_eq!(a.execute(send_ab.clone()).unwrap(), Completion::Pending);
+    let payment_ab = complete(a.resume().unwrap().expect("selected Send remains pending"));
+    finish_exchange(
+        output,
+        sources,
+        setup,
+        target_bytes,
+        [
+            Participant {
+                wallet: a,
+                device: device_a,
+                fixture: f,
+                frames: frames_a,
+            },
+            Participant {
+                wallet: b,
+                device: device_b,
+                fixture: f_b,
+                frames: frames_b,
+            },
+            Participant {
+                wallet: c,
+                device: device_c,
+                fixture: f_c,
+                frames: frames_c,
+            },
+        ],
+        send_ab,
+        payment_ab,
+    );
+}
+
+struct Participant {
+    wallet: Wallet,
+    device: HostDevice,
+    fixture: Fixture,
+    frames: [Vec<u8>; 4],
+}
+
+fn retain_frames(device: &HostDevice, frames: &[Vec<u8>; 4]) {
+    for (name, bytes) in FRAME_NAMES.into_iter().zip(frames) {
+        publish(&device.root.join(name), bytes);
+    }
+}
+
+fn finish_exchange(
+    output: PathBuf,
+    sources: Sources,
+    setup: LedgerSetup,
+    target_bytes: Vec<u8>,
+    participants: [Participant; 3],
+    send_ab: OperationRequestV1,
+    payment_ab: Vec<u8>,
+) {
+    let [
+        Participant {
+            wallet: mut a,
+            device: device_a,
+            fixture: f,
+            frames: frames_a,
+        },
+        Participant {
+            wallet: mut b,
+            device: device_b,
+            fixture: f_b,
+            frames: frames_b,
+        },
+        Participant {
+            wallet: mut c,
+            device: device_c,
+            fixture: f_c,
+            frames: frames_c,
+        },
+    ] = participants;
     require_payment_bound(&payment_ab, &f.config.scheme.scheme_id());
     assert_eq!(
         a.snapshot().unwrap().owned_balance,
@@ -855,6 +936,95 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     let (reopened_b, archived_bc) =
         archive::exercise(b, &device_b, &sources, &f_b, &frames_b, &credited_bc);
     b = reopened_b;
+    finish_unload(
+        output,
+        sources,
+        setup,
+        target_bytes,
+        [
+            Participant {
+                wallet: a,
+                device: device_a,
+                fixture: f,
+                frames: frames_a,
+            },
+            Participant {
+                wallet: b,
+                device: device_b,
+                fixture: f_b,
+                frames: frames_b,
+            },
+            Participant {
+                wallet: c,
+                device: device_c,
+                fixture: f_c,
+                frames: frames_c,
+            },
+        ],
+        ExchangeOriginals {
+            payment_ab,
+            payment_bc,
+            received_ab,
+            received_bc,
+            credited_ab,
+            credited_bc,
+            archived_ab,
+            archived_bc,
+        },
+    );
+}
+
+struct ExchangeOriginals {
+    payment_ab: Vec<u8>,
+    payment_bc: Vec<u8>,
+    received_ab: Vec<u8>,
+    received_bc: Vec<u8>,
+    credited_ab: Vec<u8>,
+    credited_bc: Vec<u8>,
+    archived_ab: Vec<u8>,
+    archived_bc: Vec<u8>,
+}
+
+// Shared unchanged Unload/proof/conservation/export assertions. Entry requires both
+// independently verified Archive branches and their exact retained originals.
+fn finish_unload(
+    output: PathBuf,
+    sources: Sources,
+    setup: LedgerSetup,
+    target_bytes: Vec<u8>,
+    participants: [Participant; 3],
+    originals: ExchangeOriginals,
+) {
+    let [
+        Participant {
+            wallet: mut a,
+            device: _device_a,
+            fixture: f,
+            frames: _frames_a,
+        },
+        Participant {
+            wallet: mut b,
+            device: _device_b,
+            fixture: f_b,
+            frames: _frames_b,
+        },
+        Participant {
+            wallet: mut c,
+            device: device_c,
+            fixture: f_c,
+            frames: frames_c,
+        },
+    ] = participants;
+    let ExchangeOriginals {
+        payment_ab,
+        payment_bc,
+        received_ab,
+        received_bc,
+        credited_ab,
+        credited_bc,
+        archived_ab,
+        archived_bc,
+    } = originals;
     // B has an incoming credit, so its public status also exposes the final
     // pending-outgoing root after folding the independently verified C evidence.
     let ab: KagemushaWalletPaymentV1 = decode(&payment_ab);
@@ -909,15 +1079,44 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
             + payout.account_payout,
         LOAD_AMOUNT
     );
+    let second_unload = action(
+        231,
+        OperationActionV1::Unload {
+            amount: 100,
+            charge: None,
+        },
+    );
+    let before_fold = c.snapshot().unwrap();
+    let before_second_unload_signs = device_c.platform.with(|state| state.sign_calls);
+    assert_eq!(before_fold.owned_balance, 0);
+    assert_eq!(before_fold.folded_balance, None);
+    assert!(matches!(
+        c.execute(second_unload.clone()),
+        Err(state::Error::FoldRequired)
+    ));
+    assert_eq!(c.snapshot().unwrap(), before_fold);
+    fold(&mut c);
+    let exhausted = c.snapshot().unwrap();
+    assert_eq!(exhausted.owned_balance, 0);
+    assert_eq!(exhausted.folded_balance, Some(0));
+    let outcome = c.execute(second_unload);
     assert!(
-        c.execute(action(
-            231,
-            OperationActionV1::Unload {
-                amount: 100,
-                charge: None
-            }
-        ))
-        .is_err()
+        matches!(
+            &outcome,
+            Err(state::Error::Proof(
+                "installed native operation preparation"
+            ))
+        ),
+        "positive Unload from the fully folded zero balance must fail native preparation: {outcome:?}"
+    );
+    assert_eq!(c.snapshot().unwrap(), exhausted);
+    assert_eq!(
+        device_c.platform.with(|state| state.sign_calls),
+        before_second_unload_signs
+    );
+    assert_eq!(
+        c.unload_claim_bytes(&unload_id, None).unwrap(),
+        claim_original
     );
     // Adversarial DATA uses the existing simulated C payment key outside the provider.
     // It never replaces the genuine released claim or performs another monetary operation.
@@ -943,6 +1142,12 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
         &output.join("c-unload-bad-sigma-claim.norito"),
         &bad_sigma_claim,
     );
+    let message_envelopes = message_census::retain(
+        &output,
+        &sources,
+        [&payment_ab, &payment_bc],
+        [&credited_ab, &credited_bc],
+    );
     let archive_originals = [
         ("a-credited-receive.norito", credited_ab),
         ("b-credited-status.norito", credited_bc),
@@ -965,14 +1170,22 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     ] {
         publish(&output.join(name), &bytes);
     }
-    // Keep exactly C's existing test-only private platform key for the separate actual-ledger
-    // settlement consumer. Public continuation originals grant no new custody or authority.
-    device_c.save_simulator();
+    // C's key and open originals were retained before any transfer. Revalidate those exact
+    // originals for the separate consumer; never recreate custody after monetary execution.
+    let credential_c =
+        KagemushaWalletCredentialV1::decode_canonical(&frames_c[0], &f_c.config.scheme.scheme_id())
+            .unwrap();
+    let restored_c = HostDevice::restore(&device_c.root, &credential_c);
+    assert_eq!(restored_c.platform.with(|state| state.sign_calls), 0);
+    drop(restored_c);
     let c_open_originals = FRAME_NAMES
         .into_iter()
         .zip(&frames_c)
         .map(|(name, bytes)| {
-            publish(&device_c.root.join(name), bytes);
+            assert_eq!(
+                read_pin(&device_c.root.join(name), 32768, &sha(bytes)),
+                *bytes
+            );
             norito::json!({ "name": name, "bytes": (bytes.len()), "sha256": (sha(bytes)) })
         })
         .collect::<Vec<_>>();
@@ -984,12 +1197,14 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
         "b_account_digest": (hex::encode(kagemusha_wallet_account_digest_v1(&f_b.account).unwrap())),
         "c_account_digest": (hex::encode(kagemusha_wallet_account_digest_v1(&f_c.account).unwrap())),
         "c_open_originals": c_open_originals,
+        "c_custody_root": (device_c.root.to_str().unwrap()),
         "c_wallet_id": (hex::encode(claim.credential.body.wallet_id)),
         "c_unload_request_id": (hex::encode(unload_id)),
         "c_unload_claim_sha256": (sha(&claim_original)),
         "c_unload_bad_sigma_claim": bad_sigma_original,
         "archive_receive_folded": true, "archive_status_folded": true,
         "archive_exact_replay_after_restart": true, "archive_originals": archive_originals,
+        "message_envelopes": message_envelopes,
         "ledger_settlement_executed": false, "physical_device_qualified": false,
         "scope": "Real installed proof source, finalized receipt proof, native host custody, exact replay and local folds; simulated hardware. Exported Unload claim still requires actual ledger execution and replay qualification." });
     publish(

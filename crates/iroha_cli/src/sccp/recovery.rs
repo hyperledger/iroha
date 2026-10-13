@@ -54,80 +54,80 @@ pub(super) fn run(context: &mut impl RunContext, args: Args) -> Result<()> {
         Some(&args.ton_wallet),
         &args.key_file,
     )?;
-    destination.verify_identity(original.network, original.instance)?;
-    let previous = flow.latest(Action::RetryRecovery)?;
-    let retained = match &previous {
-        Some(step) if !flows::retry_allowed(&flow, Action::RetryRecovery, step)? => {
-            flows::check_flow(&flow, step)?;
-            Some(
-                step.record()
-                    .evidence
-                    .iter()
-                    .find(|item| item.label == "ton.recovery.original_row")
-                    .ok_or_else(|| eyre!("original retry lacks recovery row custody"))?
-                    .bytes
-                    .clone(),
-            )
-        }
-        _ => None,
-    };
-    drop(previous);
-    let row = if let Some(bytes) = retained {
-        iroha_sccp::v1::ton_cell::cell_from_boc(&bytes)?
-    } else {
-        let Some(row) = destination.recovery_row(args.operation_id)? else {
-            context.println("No recovery row remains; verify the original terminal event to establish the transfer outcome.")?;
-            return Ok(());
-        };
-        row
-    };
-    let initial = recovery_row(&row)?;
-    ensure!(
-        initial.phase != 3,
-        "queued recovery is advanced by its original predecessor"
-    );
-    let retained = SccpEvidenceItemV1 {
-        label: "ton.recovery.original_row".to_owned(),
-        bytes: row.to_boc()?,
-    };
     flows::ton_observed(
         context,
         &original,
         &flow,
         Action::RetryRecovery,
         destination.lite(),
-        vec![retained],
-        |_| destination.prepare_retry(&wallet, args.operation_id),
-        |_| {
-            let current = destination.recovery_row(args.operation_id)?;
-            if let Some(current) = &current {
-                let state = recovery_row(current)?;
-                ensure!(
-                    state.identity == initial.identity,
-                    "immutable recovery cause changed"
-                );
-                if state.stage == initial.stage
-                    && state.phase == initial.phase
-                    && state.attempt == initial.attempt
-                {
-                    return Ok(None);
-                }
-            }
-            Ok(Some(vec![SccpEvidenceItemV1 {
-                label: if current.is_some() {
-                    "ton.recovery.advanced_row"
-                } else {
-                    "ton.recovery.row_absent"
-                }
-                .to_owned(),
-                bytes: current
-                    .as_ref()
-                    .map(|cell| cell.to_boc())
-                    .transpose()?
-                    .unwrap_or_else(|| args.operation_id.to_be_bytes().to_vec()),
-            }]))
+        Vec::new(),
+        |items| {
+            let (row, evidence) = super::ton_state::recovery_snapshot(
+                &client,
+                &original,
+                destination.lite(),
+                destination.minter(),
+                args.revision,
+                args.operation_id,
+            )?
+            .ok_or_else(|| {
+                eyre!(
+                    "Recovery account proof is unavailable; the original operation remains unknown."
+                )
+            })?;
+            let (_, bytes) = row.ok_or_else(|| eyre!("No authenticated recovery row remains; verify the original terminal event to establish the transfer outcome."))?;
+            let row = iroha_sccp::v1::ton_cell::cell_from_boc(&bytes)?;
+            ensure!(
+                recovery_row(&row)?.phase != 3,
+                "queued recovery is advanced by its original predecessor"
+            );
+            super::ton_state::recovery_baseline(&evidence)?;
+            items.extend(evidence);
+            items.push(SccpEvidenceItemV1 {
+                label: "ton.recovery.original_row".to_owned(),
+                bytes,
+            });
+            destination.prepare_retry(&wallet, args.operation_id)
+        },
+        |step| {
+            let (initial, baseline) = retry_baseline(step)?;
+            super::ton_state::recovery(
+                &client,
+                &original,
+                destination.lite(),
+                destination.minter(),
+                args.revision,
+                args.operation_id,
+                &initial,
+                &baseline,
+            )
         },
         SccpStepOutcomeKindV1::Superseded,
     )?;
     context.println("Recovery progress is separate from mint/burn completion; resume the original transfer to verify its terminal source event.")
+}
+
+/// Read custody from the exact locked step selected by the confirmation driver.
+pub(super) fn retry_baseline(
+    step: &iroha_sccp_wallet::journal::SccpJournalStep,
+) -> Result<(
+    iroha_sccp_wallet::pure::ton::RecoveryRowV1,
+    super::ton_state::RecoveryCut,
+)> {
+    let items = &step.record().evidence;
+    let mut rows = items
+        .iter()
+        .filter(|item| item.label == "ton.recovery.original_row");
+    let row = rows
+        .next()
+        .ok_or_else(|| eyre!("original retry lacks recovery row custody"))?;
+    ensure!(
+        rows.next().is_none(),
+        "original retry has duplicate recovery row custody"
+    );
+    let row = iroha_sccp::v1::ton_cell::cell_from_boc(&row.bytes)?;
+    Ok((
+        recovery_row(&row)?,
+        super::ton_state::recovery_baseline(items)?,
+    ))
 }

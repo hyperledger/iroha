@@ -1,0 +1,14 @@
+{
+  "independent_cryptographic_review": false,
+  "profile_qualified": false,
+  "regression_tests_passed": 13,
+  "review": "Source geometry and exact frontiers independently computed; helper/tests reviewed; imported-ledger binding finding fixed and independently retested. No remaining concrete findings in this narrow scope.",
+  "reviewed_files": {
+    "scripts/check_parliament_ballot_zero_challenge.py": "5b8ddb242415e186c76329415cf30769728b1e31efae96c26a740341f11d1e4c",
+    "scripts/tests/parliament_ballot_zero_challenge_test.py": "a5ed37db4ee96ddcace59c83b12e9d83426b513ed2ddd42c5dfc231063de2616"
+  },
+  "reviewer": "independent parallel code-review agent",
+  "schema": "parliament-zero-challenge-local-review-v1",
+  "test_command": ".venv/bin/python -m pytest -q scripts/tests/parliament_ballot_zero_challenge_test.py",
+  "test_log_sha256": "711be229200e10cc5c4b39b7747ac127cc990889f3345fbc7314cb39e6c86d4b"
+}

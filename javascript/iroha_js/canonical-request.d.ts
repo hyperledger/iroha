@@ -97,6 +97,8 @@ export interface CanonicalJsonRequestInput {
   baseUrl?: string;
   query?: string | URLSearchParams;
   body?: unknown;
+  /** Exact pre-serialized JSON original; cannot be combined with body. */
+  bodyText?: string;
   headers?:
     | Headers
     | ReadonlyArray<readonly [string, string]>

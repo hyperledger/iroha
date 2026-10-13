@@ -39,12 +39,14 @@ mod flows;
 mod governance;
 mod light_client;
 mod monitor;
+mod native_receipt;
 mod origin;
 mod recipient_claim;
 mod reconcile;
 mod record;
 mod recovery;
 mod ton;
+mod ton_state;
 mod transfers;
 
 use eyre::{Result, WrapErr as _, eyre};
@@ -65,6 +67,7 @@ use iroha_sccp_rpc::builders::{
     AdvanceBudgetV1, BuildError, LightClientReplayV1, SourceChainBuilder, SourceEventRefV1,
     SourceEvidenceV1, TairaLightClientView,
 };
+use iroha_sccp_wallet::journal::SccpEvidenceItemV1;
 
 use crate::{Run, RunContext};
 
@@ -765,6 +768,7 @@ fn source_builder(
 /// builders look up are kept, so the evidence is verified locally against exactly the data it
 /// was built from (§7.2 step 5).
 struct ToriiLightClient<'a> {
+    original: Option<&'a origin::AuthenticatedOrigin>,
     profiles: iroha_sccp::light_client::profile::SccpChainProfilesV1,
     client: &'a BlockingClient,
     network: SccpNetworkV1,
@@ -781,6 +785,7 @@ impl<'a> ToriiLightClient<'a> {
         profiles: iroha_sccp::light_client::profile::SccpChainProfilesV1,
     ) -> Result<Self> {
         Ok(Self {
+            original: None,
             profiles,
             client,
             network,
@@ -788,6 +793,21 @@ impl<'a> ToriiLightClient<'a> {
             sets: client.sccp().light_client_sets(network)?,
             checkpoints: std::cell::RefCell::new(Vec::new()),
         })
+    }
+
+    fn authenticated(
+        client: &'a BlockingClient,
+        original: &'a origin::AuthenticatedOrigin,
+        network: SccpNetworkV1,
+        profiles: iroha_sccp::light_client::profile::SccpChainProfilesV1,
+    ) -> Result<Self> {
+        let mut view = Self::read(client, network, profiles)?;
+        original.verify_light_client(network, &view.light_client)?;
+        for set in &view.sets {
+            original.verify_light_client_set(network, set)?;
+        }
+        view.original = Some(original);
+        Ok(view)
     }
 
     /// A local replay of what was read.
@@ -800,6 +820,48 @@ impl<'a> ToriiLightClient<'a> {
             self.checkpoints.borrow().clone(),
         )
     }
+
+    fn retained_trust(&self, now: u64) -> Result<SccpEvidenceItemV1> {
+        let original = self
+            .original
+            .ok_or_else(|| eyre!("source trust was not authenticated to an original cut"))?;
+        retain_source_trust(SourceTrust {
+            network: self.network,
+            original_cut: original.receipt_cut(),
+            verification_time_ms: now,
+            light_client: self.light_client,
+            sets: self.sets.clone(),
+            checkpoints: self.checkpoints.borrow().clone(),
+        })
+    }
+}
+
+/// Original authenticated records sufficient to replay a retained source proof and backfills.
+#[derive(norito::derive::JsonSerialize, norito::derive::JsonDeserialize)]
+#[norito(deny_unknown_fields)]
+struct SourceTrust {
+    network: SccpNetworkV1,
+    original_cut: norito::json::Value,
+    verification_time_ms: u64,
+    light_client: SccpLightClientV1,
+    sets: Vec<SccpLcConsensusSetV1>,
+    checkpoints: Vec<SccpLcCheckpointV1>,
+}
+
+fn retain_source_trust(mut trust: SourceTrust) -> Result<SccpEvidenceItemV1> {
+    trust
+        .checkpoints
+        .sort_by_key(|checkpoint| checkpoint.data.source_height);
+    trust.checkpoints.dedup();
+    let bytes = norito::json::to_json_bounded_boxed(
+        &trust,
+        iroha_sccp_wallet::journal::MAX_RECORD_BYTES as usize,
+    )
+    .map_err(|error| eyre!("source trust exceeds durable evidence bound: {error:?}"))?;
+    Ok(SccpEvidenceItemV1 {
+        label: "source.original_trust".to_owned(),
+        bytes: bytes.into_vec(),
+    })
 }
 
 impl TairaLightClientView for ToriiLightClient<'_> {
@@ -822,6 +884,13 @@ impl TairaLightClientView for ToriiLightClient<'_> {
         {
             Ok(cover) => {
                 let checkpoint = cover.nearest.checkpoint;
+                if let Some(original) = self.original {
+                    original
+                        .verify_light_client_checkpoint(self.network, &checkpoint)
+                        .map_err(|error| {
+                            BuildError::Inconsistent(format!("original checkpoint: {error}"))
+                        })?;
+                }
                 self.checkpoints.borrow_mut().push(checkpoint);
                 Ok(Some(checkpoint))
             }
@@ -840,19 +909,53 @@ impl TairaLightClientView for ToriiLightClient<'_> {
 fn prove(
     profiles: iroha_sccp::light_client::profile::SccpChainProfilesV1,
     client: &BlockingClient,
+    original: &origin::AuthenticatedOrigin,
     network: SccpNetworkV1,
     builder: &dyn SourceChainBuilder,
     event: &SourceEventRefV1,
-) -> Result<SourceEvidenceV1> {
-    let view = ToriiLightClient::read(client, network, profiles)?;
-    let now = wall_clock_ms();
-    iroha_sccp_rpc::builders::build_verified(
+) -> Result<(
+    SourceEvidenceV1,
+    iroha_sccp::light_client::proof::SccpVerifiedProofV1,
+    SccpEvidenceItemV1,
+)> {
+    let view = ToriiLightClient::authenticated(client, original, network, profiles)?;
+    let now = original.source_verification_time_ms(wall_clock_ms());
+    let evidence = iroha_sccp_rpc::builders::build_verified(
         builder.source_attempts(),
         || builder.evidence(event, &view, now),
         |evidence| view.replay().verify_evidence(evidence, now).map(|_| ()),
         || builder.rotate_endpoints(),
-    )
-    .map_err(Into::into)
+    )?;
+    let verified = view.replay().verify_evidence(&evidence, now)?;
+    require_ton_reference(event, &evidence)?;
+    Ok((evidence, verified, view.retained_trust(now)?))
+}
+
+fn require_ton_reference(event: &SourceEventRefV1, evidence: &SourceEvidenceV1) -> Result<()> {
+    if let SourceEventRefV1::Ton {
+        minter,
+        lt,
+        hash,
+        message_index,
+    } = event
+    {
+        let iroha_sccp::light_client::proof::SccpSourceProofV1::Ton(proof) =
+            iroha_sccp::light_client::proof::SccpSourceProofV1::from_frame(
+                evidence.proof.as_bytes(),
+            )?
+        else {
+            return Err(eyre!("TON discovery produced another proof type"));
+        };
+        eyre::ensure!(
+            proof.minter == *minter
+                && proof.transaction_lt == *lt
+                && proof.message_index == *message_index
+                && iroha_sccp::ton_canonical_boc_single_root_hash_v1(&proof.transaction)
+                    == Some(*hash),
+            "authenticated TON transaction differs from the exact discovered original"
+        );
+    }
+    Ok(())
 }
 
 /// `iroha sccp claim` for TON: `--tx-hash <lt>:<hash hex>` names the minter transaction whose
@@ -900,6 +1003,7 @@ fn ton_claim(
     let evidence = recipient_claim::prove_claim(
         profiles,
         client,
+        original,
         SccpNetworkV1::TonMainnet,
         &builder,
         &event,
@@ -968,6 +1072,7 @@ fn evm_claim(
     let evidence = recipient_claim::prove_claim(
         profiles,
         client,
+        original,
         network,
         builder.as_ref(),
         &event,
@@ -1029,25 +1134,26 @@ fn claim<C: RunContext>(context: &mut C, args: ClaimArgs) -> Result<()> {
         args.register_self,
         args.max_advances,
     )?;
-    let flow = flows::open(context, SccpFlowKindV1::Inbound, &args.flow, default_id)?;
-    if flows::recover_taira(context, &flow, Action::ProveInbound)? {
-        return Ok(());
-    }
-    if flows::recover_advance(context, &flow)? {
-        return Ok(());
-    }
     let client = blocking(context)?;
     let original = origin::authenticate_origin(context, &client, &args.origin)?;
+    let flow = flows::open(context, SccpFlowKindV1::Inbound, &args.flow, default_id)?;
+    if flows::recover_taira(context, &original, &flow, Action::ProveInbound)? {
+        return Ok(());
+    }
+    if flows::recover_advance(context, &original, &flow)? {
+        return Ok(());
+    }
     let config = context.sccp_config()?;
     let (revision, payload, evidence) = if network == SccpNetworkV1::TonMainnet {
         ton_claim(&config, &client, &original, &args)?
     } else {
         evm_claim(&config, &client, &original, network, &args)?
     };
-    let raw_evidence = iroha_sccp_wallet::journal::SccpEvidenceItemV1 {
+    let mut raw_evidence = evidence.trust.clone();
+    raw_evidence.push(iroha_sccp_wallet::journal::SccpEvidenceItemV1 {
         label: "source.verified_proof".to_owned(),
         bytes: evidence.source.proof.as_bytes().to_vec(),
-    };
+    });
     if args.self_claim {
         let parameters = original.parameters(&client.sccp().capabilities()?)?;
         recipient_claim::require_recipient(
@@ -1065,16 +1171,18 @@ fn claim<C: RunContext>(context: &mut C, args: ClaimArgs) -> Result<()> {
         )?;
         flows::taira(
             context,
+            &original,
             &flow,
             Action::ProveInbound,
             instructions,
-            vec![raw_evidence],
+            raw_evidence,
         )?;
         return Ok(());
     }
     for advance in evidence.source.backfills {
         let outcome = flows::taira(
             context,
+            &original,
             &flow,
             Action::Advance,
             vec![
@@ -1085,7 +1193,7 @@ fn claim<C: RunContext>(context: &mut C, args: ClaimArgs) -> Result<()> {
                 }
                 .into(),
             ],
-            vec![raw_evidence.clone()],
+            raw_evidence.clone(),
         )?;
         if !flows::confirmed(&outcome) {
             return Ok(());
@@ -1093,6 +1201,7 @@ fn claim<C: RunContext>(context: &mut C, args: ClaimArgs) -> Result<()> {
     }
     flows::taira(
         context,
+        &original,
         &flow,
         Action::ProveInbound,
         vec![InstructionBox::from(SubmitSccpInboundMessageV1 {
@@ -1101,7 +1210,7 @@ fn claim<C: RunContext>(context: &mut C, args: ClaimArgs) -> Result<()> {
             payload,
             proof: evidence.source.proof,
         })],
-        vec![raw_evidence],
+        raw_evidence,
     )?;
     Ok(())
 }

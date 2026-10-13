@@ -8,9 +8,9 @@ use iroha_plonk_gadgets::p256::native::{Affine, words_from_be};
 
 use super::*;
 
-/// Wallet-private strict-origin record, retained only by qualified installation owners.
+/// Wallet-private source-qualified record, retained only by qualified installation owners.
 /// This wrapper is never decoded from inventory DATA. Call sites create it only
-/// after the complete source-specific original importer returned successfully.
+/// after strict source import or exact compiled-member admission succeeds.
 /// Installation identity belongs to the enclosing qualified owner; member/role
 /// selection must match before any original is opened.
 #[derive(Clone, Debug)]

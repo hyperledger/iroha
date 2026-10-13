@@ -211,7 +211,7 @@ fn retirement_marks_exact_boundary_and_policy_extension_precedes_withdrawal() {
     state.lanes.push(lane);
     state.custody.push(obligation(&original, 1));
     prepare_retirement(&mut state, &world, 19).unwrap();
-    assert!(matches!(state.custody[0].retired_at, None));
+    assert!(state.custody[0].retired_at.is_none());
     prepare_retirement(&mut state, &world, 20).unwrap();
     assert_eq!(state.custody[0].retired_at, Some(20));
     world.sumeragi_lanes.get_mut().custody = state.custody.clone();

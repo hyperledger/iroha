@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 import requests
+from iroha_torii_client.client import ElectionTally as LowElectionTally
+from iroha_torii_client.client import ToriiClient as LowToriiClient
 from requests.structures import CaseInsensitiveDict
 
 from iroha_python import ElectionTally
@@ -17,8 +19,6 @@ from iroha_python.client import (
     canonical_network_request_signature_message,
 )
 from iroha_python.crypto import NetworkId
-from iroha_torii_client.client import ElectionTally as LowElectionTally
-from iroha_torii_client.client import ToriiClient as LowToriiClient
 
 NETWORK_ID = "hash:32C903E5B3497E34C2B844EBFE8A39C19E6CF8F95D44C1FFB8BA9DCB42F91149#A2F0"
 ACCOUNT_ID = "sorauﾛ1PｺfMﾇﾘｾﾄoﾂﾊﾔH7ZdﾘhﾚmAｸdnｳu1ｱﾄ1ｺﾋuSﾑﾀﾇﾐuHEB5DP"

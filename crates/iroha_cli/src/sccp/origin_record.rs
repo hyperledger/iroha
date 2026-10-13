@@ -4,6 +4,23 @@ use super::*;
 use iroha::data_model::sccp::{control::SccpControlRecordV1, registry::SccpRouteRevisionV1};
 
 impl AuthenticatedOrigin {
+    pub(crate) fn source_verification_time_ms(&self, wall_time_ms: u64) -> u64 {
+        self.world.block_time_ms().max(wall_time_ms)
+    }
+
+    pub(crate) fn verify_light_client_set(
+        &self,
+        network: SccpNetworkV1,
+        set: &iroha::data_model::sccp::light_client::SccpLcConsensusSetV1,
+    ) -> Result<()> {
+        self.world.verify_table_value(
+            "world.sccp_light_client_sets",
+            &(network, set.set_id),
+            set,
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn verify_light_client(
         &self,
         network: SccpNetworkV1,
@@ -125,9 +142,29 @@ mod tests {
             superseded_at_source_ms: None,
             set_bytes: vec![1, 2, 3],
         };
+        let checkpoint = iroha::data_model::sccp::light_client::SccpLcCheckpointV1 {
+            data: iroha::data_model::sccp::light_client::SccpLcCheckpointDataV1 {
+                source_height: 10,
+                block_hash: [3; 32],
+                state_root: Some([4; 32]),
+                receipts_or_tx_root: [5; 32],
+                source_time_ms: 20,
+            },
+            recorded_at_taira_ms: 21,
+            origin: iroha::data_model::sccp::light_client::SccpLcCheckpointOriginV1::Proof,
+        };
         let mut snapshot = WorldStateSnapshotV1 {
             schema_hash: Hash::new(b"burn original sources"),
             entries: vec![
+                WorldStateSnapshotEntryV1 {
+                    field_id: "world.sccp_light_client_checkpoints".into(),
+                    kind: WorldStateElementKindV1::Table,
+                    key_hash: Some(
+                        world_state_value_hash_v1(&(network, checkpoint.data.source_height))
+                            .unwrap(),
+                    ),
+                    value_hash: world_state_value_hash_v1(&checkpoint).unwrap(),
+                },
                 WorldStateSnapshotEntryV1 {
                     field_id: "world.sccp_light_clients".into(),
                     kind: WorldStateElementKindV1::Table,
@@ -153,8 +190,38 @@ mod tests {
             network: [1; 32],
             instance: [2; 32],
             world: snapshot.authenticate(&tip).unwrap(),
-            element_count: 2,
+            element_count: 3,
+            verifier: fixture.verifier(),
         };
+        original.verify_light_client(network, &client).unwrap();
+        original.verify_light_client_set(network, &set).unwrap();
+        let later_time = original.world.block_time_ms() + 1_000_000;
+        assert_eq!(
+            original.source_verification_time_ms(0),
+            original.world.block_time_ms()
+        );
+        assert_eq!(original.source_verification_time_ms(later_time), later_time);
+        original
+            .verify_light_client_checkpoint(network, &checkpoint)
+            .unwrap();
+        for field in 0..3 {
+            let mut changed = checkpoint;
+            match field {
+                0 => changed.data.source_height += 1,
+                1 => changed.data.state_root = Some([99; 32]),
+                _ => changed.recorded_at_taira_ms += 1,
+            }
+            assert!(
+                original
+                    .verify_light_client_checkpoint(network, &changed)
+                    .is_err()
+            );
+        }
+        assert!(
+            original
+                .verify_light_client_checkpoint(SccpNetworkV1::EthereumMainnet, &checkpoint)
+                .is_err()
+        );
         assert_eq!(
             original
                 .verify_burn_light_client(network, &client, &set)
@@ -163,6 +230,12 @@ mod tests {
         );
         let mut changed = client;
         changed.head.latest_finalized.source_time_ms += 1;
+        assert!(original.verify_light_client(network, &changed).is_err());
+        assert!(
+            original
+                .verify_light_client(SccpNetworkV1::EthereumMainnet, &client)
+                .is_err()
+        );
         assert!(
             original
                 .verify_burn_light_client(network, &changed, &set)
@@ -170,6 +243,11 @@ mod tests {
         );
         let mut changed_set = set.clone();
         changed_set.set_bytes.push(4);
+        assert!(
+            original
+                .verify_light_client_set(network, &changed_set)
+                .is_err()
+        );
         assert!(
             original
                 .verify_burn_light_client(network, &client, &changed_set)
@@ -236,6 +314,7 @@ mod tests {
             instance: [2; 32],
             world: snapshot.authenticate(&tip).unwrap(),
             element_count: 3,
+            verifier: fixture.verifier(),
         };
         assert_eq!(AuthenticatedOrigin::record_margin(60_000).unwrap(), 180_000);
         assert!(AuthenticatedOrigin::record_margin(u64::MAX).is_err());

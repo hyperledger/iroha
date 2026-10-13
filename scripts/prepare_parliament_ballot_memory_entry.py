@@ -4,8 +4,9 @@
 Python 3.11+, reviewed resource-worker sources and a new explicit output path.
 No environment variables, network, builds or root manifest/lock changes. File
 retrieval and staging ownership remain outside charged execution. The derived
-worker reserves the actual borrowed length before copying into its arena. It
-requires separate build and execution evidence and never qualifies production.
+worker reserves the actual borrowed length before copying into its arena and
+publishes fatal debits through a separately counted shared page without output.
+It requires separate build and execution evidence and never qualifies production.
 """
 from __future__ import annotations
 
@@ -31,16 +32,25 @@ def digest(path: Path) -> str:
 def derive_workspace(source: str) -> str:
     """Replace file retrieval with one lifetime-bounded borrowed-slice copy.
 
-    The original allocator, reservation, supplied stack, join and cleanup code
-    remains intact. This is a new worker; no old evidence transfers to it.
+    The original allocator routing, reservation, supplied stack, join and cleanup
+    remain intact. Fatal exhaustion now publishes to shared control before exit.
+    This is a new worker; no old evidence transfers to it.
     """
     changes = [
         ("    ffi::OsStr,\n    fs::OpenOptions,\n    io::Read,\n    os::unix::{ffi::OsStrExt, fs::OpenOptionsExt},\n    path::Path,\n", ""),
+        ("AtomicBool, AtomicPtr, AtomicU64, Ordering", "AtomicBool, AtomicPtr, Ordering"),
+        ("static CHARGED_UNITS: AtomicU64 = AtomicU64::new(0);\nstatic CHARGED_BYTES: AtomicU64 = AtomicU64::new(0);\n", ""),
+        ("    CHARGED_UNITS.store(0, Ordering::Relaxed);\n    CHARGED_BYTES.store(0, Ordering::Relaxed);\n", ""),
+        ("    CHARGED_UNITS.store(charge.verification_units, Ordering::Relaxed);\n    CHARGED_BYTES.store(charge.input_bytes, Ordering::Relaxed);", "    super::fatal::admit(charge.verification_units, charge.input_bytes);"),
+        ("    pub workspace_reserved_bytes: usize,", "    pub workspace_reserved_bytes: usize,\n    pub fatal_control_reserved_bytes: usize,"),
+        ("    let mapping = native::Mapping::new(options.heap_limit)?;", "    let fatal_control_reserved_bytes = super::fatal::reserved_bytes()\n        .map_err(|error| native::NativeError(error.0, error.1))?;\n    let mapping = native::Mapping::new(options.heap_limit)?;\n    let workspace_reserved_bytes = mapping.length().checked_add(fatal_control_reserved_bytes)\n        .filter(|bytes| *bytes <= native::WORKSPACE_LIMIT)\n        .ok_or(native::NativeError(\"workspace_with_fatal_control\", 0))?;"),
+        ("    let workspace_reserved_bytes = mapping.length();\n", ""),
+        ("            workspace_reserved_bytes,", "            workspace_reserved_bytes,\n            fatal_control_reserved_bytes,"),
         ("    pub path: &'a Path,", "    /// Immutable caller bytes retained until the synchronous worker join.\n    pub record: &'a [u8],"),
         ("    path: [u8; 4096],\n    path_length: usize,", "    // Derived from the same borrowed slice in run; never supplied separately.\n    record: *const u8,\n    record_length: usize,"),
         ("    if options.path.as_os_str().as_bytes().len() > 4096 || options.heap_limit > HEAP_BYTES {", "    if options.heap_limit > HEAP_BYTES {"),
         ("    let mut path = [0u8; 4096];\n    let path_bytes = options.path.as_os_str().as_bytes();\n    path[..path_bytes.len()].copy_from_slice(path_bytes);\n", ""),
-        ("    // Request fields are fixed-size; no external caller input buffer is retained.", "    // Request retains a read-only pointer derived from options.record. Its\n    // borrow remains valid until run returns after joining any started worker."),
+        ("    // SAFETY: the fixed control partition is aligned and large enough, and all\n    // Request fields are fixed-size; no external caller input buffer is retained.", "    // SAFETY: the fixed control partition is aligned and large enough for\n    // Request. Its read-only pointer is derived from options.record; that\n    // borrow remains valid until run returns after joining any started worker."),
         ("            path,\n            path_length: path_bytes.len(),", "            record: options.record.as_ptr(),\n            record_length: options.record.len(),"),
         ("    let mut result = ResultState::failure(\"input_error\", \"read\", 3);", "    let mut result = ResultState::failure(\"worker_error\", \"not_verified\", 4);"),
         ("    if file.read_exact(&mut record).is_err() || !matches!(file.read(&mut [0u8; 1]), Ok(0)) {\n        return result;\n    }", "    // SAFETY: run derived pointer and length from one live immutable slice;\n    // it cannot return before this worker joins. reserve checked the actual\n    // length before ACTIVE and before this owned arena copy. The borrowed\n    // caller capacity is never adopted by the arena.\n    let staged = unsafe { std::slice::from_raw_parts(request.record, length) };\n    record.copy_from_slice(staged);"),
@@ -49,6 +59,16 @@ def derive_workspace(source: str) -> str:
         if source.count(old) != 1:
             raise ValueError("reviewed workspace anchor changed: " + old.splitlines()[0])
         source = source.replace(old, new)
+    fatal_begin = source.index("fn exhausted() -> ! {")
+    fatal_end = source.index("#[derive(Clone, Copy)]\npub struct Options", fatal_begin)
+    fatal_old = source[fatal_begin:fatal_end]
+    if (fatal_old.count("libc::write(") != 1 or fatal_old.count("libc::_exit(73)") != 1
+            or fatal_old.count("fn decimal(") != 1 or fatal_old.count("fn append(") != 1):
+        raise ValueError("reviewed exhaustion block changed")
+    source = source[:fatal_begin] + "fn exhausted() -> ! {\n    super::fatal::exhausted()\n}\n\n" + source[fatal_end:]
+    test_begin = source.index("    #[test]\n    fn exhaustion_decimal_writer_is_bounded_and_exact()")
+    test_end = source.index("    #[test]\n    fn operational_failures_are_never_invalid_proofs()", test_begin)
+    source = source[:test_begin] + source[test_end:]
     begin = source.index("fn execute(request: &Request) -> ResultState {\n") + len("fn execute(request: &Request) -> ResultState {\n")
     end = source.index("    let mut budget = Budget::new(request.units, request.input_bytes);", begin)
     retrieval = source[begin:end]
@@ -60,7 +80,8 @@ def derive_workspace(source: str) -> str:
     execute = source[begin:source.index("fn classify(", begin)]
     if any(word in execute for word in ("file.", "OpenOptions", "read_exact", "Path::", "metadata()")):
         raise ValueError("retrieval remained inside charged worker")
-    if not (execute.index("budget.reserve(length)") < execute.index("ACTIVE.store(true")
+    if not (execute.index("budget.reserve(length)") < execute.index("super::fatal::admit(")
+            < execute.index("ACTIVE.store(true")
             < execute.index("vec![0u8; length]") < execute.index("record.copy_from_slice(staged)")
             < execute.index("reservation.verify(")):
         raise ValueError("reservation/copy/verification ordering changed")
@@ -107,11 +128,11 @@ def prepare(output: Path, root: Path = ROOT) -> dict:
     for name in required:
         if digest(root / name) != frozen.get(name):
             raise ValueError("frozen source changed: " + name)
-    required += [f"{PROBE}/{name}.rs" for name in ("driver", "staging")]
+    required += [f"{PROBE}/{name}.rs" for name in ("driver", "staging", "fatal")]
     required += ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "scripts/prepare_parliament_ballot_memory_entry.py"]
     sources = {name: digest(root / name) for name in required}
     output.mkdir(parents=True)
-    for name in ("driver", "staging"):
+    for name in ("driver", "staging", "fatal"):
         (output / f"{name}.rs").write_bytes((root / PROBE / f"{name}.rs").read_bytes())
     driver = (output / "driver.rs").read_text()
     for name in ("arena", "budget", "native"):

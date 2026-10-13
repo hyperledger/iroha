@@ -2732,12 +2732,19 @@ again before an `ActivateRevision` is proposed, reviewers (the Review Panel and
 FMA Committee members first, and anyone else) run locally:
 
 ```
-iroha sccp deployment verify --network <p> --address <a> --initial-generation <G>
+iroha sccp deployment verify <original-authority flags> --network <p> --revision <r> --actions <actions.json>
 ```
 
-The tool reads generations from the reviewer's own node or cross-checks several
-Torii peers, and reads the destination from the reviewer's configured RPC at a
-finalized (EVM `finalized` tag) block. It MUST confirm:
+The tool authenticates generations and compiled profiles against the selected
+original native World cut. `--actions` reviews a proposed action file;
+`--proposal-id` selects the exact stored proposal body. These flags are mutually
+exclusive. Omitting both reviews the authenticated registered revision. It reads
+the destination from the reviewer's configured RPC at one fixed finalized EVM
+block or TON masterchain block. Initial `until_ms` must equal the original
+native generation deadline; later installed generations follow the protocol
+bounds. An initial committee at `high = start − 1` has no checkpoint yet.
+EVM checks sample the highest accepted checkpoint and at most sixteen explicit
+`--checkpoint-height` values; TON checks every occupied one of its three slots. It MUST confirm:
 
 - **EVM.** The address equals the P4 recomputation, and the runtime code
   (`eth_getCode`) equals the runtime that `SCCP_EVM_CREATION_CODE` deploys with
@@ -2908,12 +2915,15 @@ citizens' invitation responses, endorsements and ballots itself. Disposable
 devnets MAY build irohad with the `test-network-parliament-signers` feature for
 the beacon signers; public Taira never does.
 
-**Bring-up.** Once the launch gate is open (§10.2), three proposals seat the
-three routes (§4.18): one for ETH and BSC (`RegisterRoute`,
-`InitializeLightClient` and `ActivateRevision` each, 6 actions over 4
-subjects), one with only the TON `InitializeLightClient`, both proposed at
-once, and after the TON light client is installed, one with the TON
-`RegisterRoute` and `ActivateRevision`. The TON light client is proposed alone
+**Bring-up.** Once the launch gate is open (§10.2), first install the three
+source light clients (§4.18): one proposal may initialize ETH and BSC, while
+a separate proposal initializes TON. After each initialization is authenticated
+at the operator's selected cut, deploy and prove the destination under that light
+client (§7.4). Subsequent proposals register and activate those proven
+deployments: ETH and BSC may share a proposal, while TON may proceed separately.
+Initialization requires no registered route. A combined initialization and
+registration proposal is usable only when a prior authenticated light client
+already established deployment finality. The TON light client is proposed alone
 because a TON bootstrap stays fresh only until `utime_until + stake_held_for −
 margin`, 9.1 to 27.3 hours after capture with mainnet values (65 536 s rounds,
 32 768 s stake hold), and actions are atomic: a stale TON bootstrap at
@@ -4999,11 +5009,48 @@ through `iroha_operation_journal`, keyed by `NetworkId`, before submitting
 anything, so it resumes after a crash. A resumed command uses the retained
 original intent and signed bytes. `--rebroadcast` first reconciles the original
 operation, then may resend only those identical bytes; `--retry` cannot replace
-an unknown outcome. TON discovery retains a bounded, non-authoritative history
+an unknown outcome. Confirmation derives the control nonce, checkpoint target,
+recovery baseline and deployment pin from the exact locked journal step selected
+by the driver. A cached deployment outcome must match that retained pin before
+printing its address or registration action. Concurrent selection cannot refresh
+the original authority or replace signed bytes. TON discovery retains a bounded, non-authoritative history
 cursor. Expiry or absence alone never proves execution or failure. Even after
-a destination effect is observed, the original wallet sequence must have
-advanced before the journal permits another action, preventing unrelated
-upkeep from freeing a still-live envelope. Deadlines anchored at certified Taira
+a destination effect is observed, native TON finality must authenticate a higher
+sequence in the exact original basechain wallet's state before the journal
+permits another action. The proof binds the signed masterchain anchor, registered
+shard block, state-update root, exact account dictionary key, immutable standard
+v5r1 code hash, wallet id and data sequence. A getter response, expiry or missing
+proof cannot retire that envelope. Missing evidence leaves the original pending
+and permits only exact-byte rebroadcast. Control, checkpoint, deployment and
+recovery progress require the same native account proof of the locked minter's
+storage; getters cannot complete a step. Recovery-row absence follows a complete
+bounded dictionary traversal and the monotonic operation-id frontier. A retry
+retains the authenticated minter cut with its original row and accepts progress
+only at a strictly later target masterchain cut with a changed registered shard
+block and a permitted forward recovery transition; an older authentic row cannot
+become progress merely because the payer's wallet sequence has advanced. Source
+proofs bind the exact discovered transaction root and the authenticated event's
+emitter, type, message, nonce and payload. All consumed native light-client,
+validator-set and retained-checkpoint records authenticate to the selected World
+cut; weak-subjectivity freshness uses the later of that cut's time and the
+current local time, so retaining an old cut cannot preserve an expired set.
+The journal retains the original light-client, validator-set and consumed
+checkpoint records, their source identifiers, selected cut identity and verification
+time alongside the proof, so offline replay does not depend on current RPC state.
+EVM terminal outcomes likewise require
+native-light-client-authenticated block ancestry and both the original signed
+transaction and receipt at one identical trie index; finalized mint completion
+also authenticates the consumed bitmap under that block's state root. The journal
+retains these proof bytes within its finite reopenable record bound. Taira terminal
+outcomes require native certified execution inclusion of the exact original signed
+envelope at or below the explicitly selected original cut. RPC `Applied`,
+`Rejected` or `Expired` status alone never completes a journal step. A final message
+also requires its exact authenticated World record, including the original route
+when deriving stranded state. A transaction beyond the selected cut remains
+pending; resume the same flow with a newer authenticated `--at-height` or
+`--world-snapshot`. `settle` therefore requires the original-authority arguments
+too. All network requests in each confirmation loop share one absolute deadline.
+Deadlines anchored at certified Taira
 time can fire up to `2·max_clock_drift_ms` early relative to an individual
 clock (§4.3), so wallets submit at least that plus inclusion latency before a
 deadline.
@@ -5192,25 +5239,36 @@ the control step of step 5.
   Anyone may also run `iroha sccp light-client advance --network <p>`.
 - **Fast pause.** Panel members run `iroha sccp fast-pause
   panel|accept|endorse|status` (§4.14.7).
+- **Source trust before deployment.** For a network without a usable native light
+  client, first obtain genuine Parliament enactment of `InitializeLightClient`,
+  using `iroha sccp light-client bootstrap build|verify`. Initialization does not
+  require a registered route. Select a cut containing that initialization before
+  deployment; no endpoint observation or bootstrap fallback substitutes for this
+  authenticated source-chain authority.
 - **Deployment.** `iroha sccp deploy --network <profile>` deploys from locked
   artifacts with the deployer's key: EVM only through `SCCP_EVM_DEPLOYER`
   (§5.2.1), TON with its canonical initial data followed by `sccp_init`. It
   pins a retained generation that satisfies P2 at the expected enactment time,
   read from the operator's own node or cross-checked across the configured
-  peers, and prints the `RegisterRoute` action. Ethereum and BSC deployments of
+  peers, proves deployment finality under the already authenticated source light
+  client, and prints the `RegisterRoute` action. Ethereum and BSC deployments of
   one revision get different addresses because their constructor arguments
   differ, so destination words stay unique (§4.14.3).
 - **Registration and every other decision.** Once the launch gate is open
   (§10.2), a bonded citizen (or a holder of `CanProposeSccpRouteGovernance`)
   runs `iroha sccp governance propose --actions <file>`, which builds and
-  checks an `SccpGovernanceProposalV1` (for a new route: `RegisterRoute`,
-  `InitializeLightClient` with a bootstrap from `iroha sccp light-client
-  bootstrap build`, and `ActivateRevision`) and submits
-  `ProposeSccpRouteGovernance`. Reviewers run `iroha sccp deployment verify`
+  checks an `SccpGovernanceProposalV1` (for a newly proven deployment:
+  `RegisterRoute` and `ActivateRevision`) and submits
+  `ProposeSccpRouteGovernance`. Reviewers run `iroha sccp deployment verify --network <p> --revision <r>
+  --actions <file>` before proposal, or select the stored `--proposal-id`,
   and `iroha sccp light-client bootstrap verify` (§4.14.4) against the body
   shown by `iroha sccp governance show`. Anyone MAY run `iroha sccp governance
   drive` (§4.14.5 item 4). Seated members act with the `iroha gov parliament`
   commands and the Parliament wallet, and enactment is automatic (§4.14.3).
+  A combined initialization and registration proposal remains legal only when
+  deployment was independently proven under a prior authenticated light client.
+  Both launch gates currently remain false (§10.2); this sequence introduces no
+  substitute authority or bypass.
 
 ## 8. Off-chain Rust
 
@@ -6318,25 +6376,26 @@ qualification work is stated separately from external Parliament authority.
 |---|---|
 | Payload codec, amounts, transfer leaf, commitment tree, history accumulator (§3.1–§3.5) | Implemented with the sole 199-byte control leaf, complete independent pause state and exact authenticated cause. Native message/control/history proofs and wire fixtures cover the current layouts. |
 | `RecordSccpMessage`, signed-only execution and the ABI closure for contract-originated sends (§4.4) | Implemented. Original-parent degradation, permanent forgery/quarantine and active pause gates run before monetary, nonce or leaf writes. The instruction frame authenticates signed-only pause operations and prevents nested or repeated dispatch from substituting authority. |
-| Inbound prove and settle, self-claim, bounce, holds, liability shortfall, escrow guards, voids, refunds, strands and FASTPQ-bounded refunds (§4.12, §4.15, §4.16) | Accounting consumers and R1–R6 reconciliation are implemented, including exact proven payload binding, pending-refund reservation, floor-rounded U256 payouts and refusal without advancing claims. Native proof admission and self-claim retain their original allocation and work custody; current Core execution qualification remains open. |
-| Exempt eligibility predicate and charge-on-failure (§4.19) | Original-parent predicates, class quotas, any-authority keeper advances, shared Keepalive and R-EX are implemented. The admitted native proof pipeline is implemented; complete queue/execution qualification remains open. |
-| Light clients for Ethereum, BSC and TON; profiles, aged-proof builders and RPC hygiene (§4.13, §8) | Protocol verifiers and builders are implemented. All three native kernels use original-pool admission and retained storage, including bootstrap, advance, proofs and equivocation. Component tests cover the current kernels; complete Core dispatch qualification remains open. Live RPC and real fork activation evidence remain external qualification. |
-| Light-client keeper task | Node-generated keeper key, independent light-client advance, Keepalive, bounded destination-watch and L5 duties are implemented. Watch queues retain verified evidence through publication or expiry, and endpoint rotation/health telemetry expose unavailable duties. Current daemon and network qualification remains open. |
+| Inbound prove and settle, self-claim, bounce, holds, liability shortfall, escrow guards, voids, refunds, strands and FASTPQ-bounded refunds (§4.12, §4.15, §4.16) | Accounting consumers and R1–R6 reconciliation are implemented, including exact proven payload binding, pending-refund reservation, floor-rounded U256 payouts and refusal without advancing claims. Native proof admission and self-claim retain their original allocation and work custody; current Core execution component qualification passes; end-to-end monetary enactment still requires qualified Parliament authority. |
+| Exempt eligibility predicate and charge-on-failure (§4.19) | Original-parent predicates, class quotas, any-authority keeper advances, shared Keepalive and R-EX are implemented. The admitted native proof pipeline and its original-budget queue/execution controls pass Core component qualification. |
+| Light clients for Ethereum, BSC and TON; profiles, aged-proof builders and RPC hygiene (§4.13, §8) | Protocol verifiers and builders are implemented. All three native kernels use original-pool admission and retained storage, including bootstrap, advance, proofs and equivocation. Component and Core dispatch tests cover the current kernels. Live RPC and real fork activation evidence remain external qualification. |
+| Light-client keeper task | Node-generated keeper key, independent light-client advance, Keepalive, bounded destination-watch and L5 duties are implemented. Watch queues retain verified evidence through publication or expiry, and endpoint rotation/health telemetry expose unavailable duties. Daemon component qualification passes; live source-network progress remains externally qualified. |
 | Parliament SCCP payload, subjects, attempts, `OnlyGenesis` grant and CLI (§4.14.3, §4.14.5) | Native actions, per-subject heads, monotone deployment progress, permanent quarantine, reconciliation opening and bounded pause suspension are implemented. Retired bridge-key fault clearing is removed. Proposer permission does not bypass the ballot launch gate. The actual binding certificate and casting-open provenance must come from the Parliament owner. |
-| Torii read routes and Rust SDK (§6) | Native finality, committee DATA, message/control/history, anchor, forgery-hold, fast-pause and reconciliation views are implemented with request admission and retained response custody. The current-generation coalition slashable-floor projection reads the original staking, incarnation and offence records and is implemented. Current CLI/SDK/daemon qualification remains open. |
+| Torii read routes and Rust SDK (§6) | Native finality, committee DATA, message/control/history, anchor, forgery-hold, fast-pause and reconciliation views are implemented with request admission and retained response custody. The current-generation coalition slashable-floor projection reads the original staking, incarnation and offence records and is implemented. SDK, Torii and daemon component qualification passes. CLI observers authenticate terminal state against the original certified source cut and retained signed submission. |
+| Wallet and CLI flows (§7) | Implemented with durable original signed submissions, authenticated native/EVM/TON terminal proofs, retained source-trust preimages and bounded confirmation deadlines. Recovery, maintenance and deployment read the exact locked journal step, including cached deployment outcomes. Current CLI regressions and independent step-selection review pass; live monetary flows still require qualified Parliament authority and external deployment evidence. |
 | EVM contract (§5.1–§5.2) | Native EIP-2537 verification, committee handoff/checkpoints, exact calldata, consumed bitmap, supply cap and CREATE2 deployment are implemented. Locked Prague/Osaka suites exercise authenticated deployment and native certificate/control artifacts. A genuine four-validator native certificate passes local chain-id-1 checkpoint replay on both forks, with signature, network, replay and expired-committee refusals. Monetary routes remain launch-gated; independent audit and live deployment/value qualification remain open. |
 | TON contracts (§5.3) | Minter, wallet and consumed buckets implement bounded 512-entry recovery with authenticated acknowledgements and exact finalized-event behavior. The minter storage allowance is 2,380 cells/790,000 bits; worst-case retained recovery and measured gas have native emulator coverage. Tolk/Python/Rust StateInit and message fixtures are updated. Independent audit and live deployment/value qualification remain open. |
-| Consensus signing API and `DST_SIG` (§3.8) | The native allowlisted consensus BLS suite is used by signers, certificate readers and model proof verification. Old-suite and invalid-input rejection controls remain. Crypto component qualification passes; the updated certified-clock simulator and whole-node qualification remain required. |
-| Finality header, certified result `R` and every reader (§3.6, §4.6) | Native producer/readers bind `X` into `R` and derive scope from original genesis/chain custody. Core, private-scope and publication tests cover the boundary; whole-node/network qualification remains open. The 31-seat body measurement is 30,763 of 65,315 bytes (§13 item 5). |
+| Consensus signing API and `DST_SIG` (§3.8) | The native allowlisted consensus BLS suite is used by signers, certificate readers and model proof verification. Old-suite and invalid-input rejection controls remain. Crypto component and current full certified-clock simulator qualification pass; the four-peer candidate exports a genuine native certificate for local EVM replay. |
+| Finality header, certified result `R` and every reader (§3.6, §4.6) | Native producer/readers bind `X` into `R` and derive scope from original genesis/chain custody. Core, private-scope and publication tests cover the boundary; the four-peer native export and local EVM replay exercise the actual certificate boundary. The 31-seat body measurement is 30,763 of 65,315 bytes (§13 item 5). |
 | `iroha_sccp::v1` reference and cross-language fixtures (§8, §11) | Native finality, committee, control and destination models and generators are implemented. SCCP CI runs independent Python drift checks, Rust/BLS fixtures, native EVM and native TON suites. Current combined-candidate qualification remains required. |
-| Certified time CT1–CT5 and `Execute.certified` (§4.3) | Original-parent bounded due observations and the actual native Prepare signing guard are implemented; certified execution does not inherit a local-clock refusal. The simulator now retains work through committed-parent and creation-floor pacing and models the same deterministic floors. Updated clock baselines and causal mutations, full simulator, Core and whole-node qualification remain open. |
+| Certified time CT1–CT5 and `Execute.certified` (§4.3) | Original-parent bounded due observations and the actual native Prepare signing guard are implemented; certified execution does not inherit a local-clock refusal. The simulator retains the original work and completed payload through committed-parent and immutable creation-floor pacing, and rechecks the clock immediately before fresh proposal signing. The current full simulator, clock baselines and all eight causal clock controls pass. Production Core controls remain part of the pending full Core mutation gate. |
 | Genesis and Kagami SCCP staking profile (§4.8 L1) | Implemented with matching epoch geometry of at least one hour, 21-day unbonding, nonzero slash policy, original G1 staking bindings and fresh durable reset identities whose nonces are consumed exactly once. Kagami places initialization after automatic NPoS bootstrap. No routes are seeded. Current profile, signing-order and reset-history regressions pass; the real four-validator SCCP candidate also starts and publishes native finality while refusing unqualified route governance. |
-| Frozen-surface golden tests and mutation entries (§11.6) | Native wire/reference fixtures and SCCP clock/Core mutation entries are registered. Updated clock and Core controls and the full current frozen-surface suite still require qualification with passing baselines and causal named-test kills. Compiler failures never count as mutation kills. |
+| Frozen-surface golden tests and mutation entries (§11.6) | Native wire/reference fixtures and SCCP clock/Core mutation entries are registered. Current clock controls pass with a passing baseline and causal named-test kills; the full current Core mutation gate remains open. Compiler failures never count as mutation kills. |
 | Self-contained penalty records, L3 release gate and daemon L1 refusal (§4.8–§4.9) | Native forgery evidence, permanent offence ownership, closed penalty records, retained liability release checks and configuration refusal are implemented. Current node/network qualification remains open. |
 | Committee generations, anchors, `X`, degradation/resync and pruning (§4.2, §4.5, §4.6, §4.11) | Original-pool SCCP records and current/undo custody, genesis/key/heartbeat/resync transitions, destination clearance, original-parent anchors and sealed `X` publication are implemented. Bounded pruning reads the actual pending-forgery owner. Current combined candidate qualification remains open. |
 | Shared Keepalive, `governance_due`, positions and millisecond clock (§4.7) | SCCP original-parent due work, quotas, certified-time handling and positioned rank-3 pause/reconciliation consumers are implemented. The minimum work budget is ten. The actual Parliament due iterator, ranks 0–2 and carried remaining budget are external owner inputs; unavailable authority is never treated as an empty set or a successful pass. |
 | Control leaf and fast-pause track (§3.4, §4.14.6–§4.14.7) | Funded panels, acceptance/replacement, endorsement rounds, original-source certification, suspension, capacity/nonce preflight, enactment, expiry and selective lift consumers are implemented. Drawing reads the original verified pulse at its carrying height. Parliament must supply eligible citizens, the draw, shared positions and genuine Policy Jury casting-open provenance before this lifecycle can run end to end. |
-| Liability clock, L5, evidence and L1 checks (§4.8–§4.9) | Parent-time clamping, retained-generation parameter bounds, keeper L5 feed, original forgery floor and release guards are implemented. Current daemon and whole-corridor qualification remain open. |
+| Liability clock, L5, evidence and L1 checks (§4.8–§4.9) | Parent-time clamping, retained-generation parameter bounds, keeper L5 feed, original forgery floor and release guards are implemented. Daemon component qualification passes; monetary corridor qualification still requires qualified Parliament authority and live deployment evidence. |
 | Per-revision holds, quarantine and reconciliation (§4.10) | Original permanent causes and monotone floors, proof-window accounting and bounded shared due settlement are implemented. Opening/enactment require authentic external Parliament authority and cannot be manufactured by a component test. |
 | Launch gates (§10.2) | Both readiness gates remain `false`. Native proposer/registration paths fail closed; no interim governance or genesis route can substitute for the missing qualified Parliament authority. |
 | SCCP-owned governance specification | `specs/governance_pipeline.md` describes the implemented SCCP consumers and the explicit external Parliament interfaces. Full shared-pass qualification is still required. |

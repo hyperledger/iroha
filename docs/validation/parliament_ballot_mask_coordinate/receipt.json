@@ -1,0 +1,491 @@
+{
+  "additional_source_observed_at_utc": {
+    "crates/iroha_zkp_vole/src/bavc.rs": "2026-10-13T10:56:01.272766+00:00",
+    "docs/validation/parliament_ballot_zero_challenge/report.json": "2026-10-13T10:56:01.272766+00:00"
+  },
+  "algebra": {
+    "bilinear_basis_pairs": 127488,
+    "head_correction_scope": "c_0=0, only c_1 through c_(tau-1) are free",
+    "low_high_mask_maps_bijective_both_rows": true,
+    "own_label_scope": "logical cached slots totalization; uses existing H5 coupling allowance, not two oracle values at one address",
+    "six_QS_then_four_VOLEHash_inverse": "unit-diagonal triangular followed by additive; no division; works at Delta=0"
+  },
+  "complete_quantum_resource_vector": false,
+  "derivation": {
+    "path": "specs/parliament_ballot_b6_mask_coordinate.md",
+    "sha256": "0d4da06cd29cf8ea3e1b2fe8c6c15d7f78352295aed098c715402787129c3e45"
+  },
+  "exact_endpoint": {
+    "entire_patched_public_execution_pad_independent": false,
+    "exhaustion_preserved": true,
+    "from": "PatchH5_slots",
+    "joint_oracle_state_preserved": true,
+    "primary_counter_history_preserved": true,
+    "same_frozen_Sim_plus_material_distribution": false,
+    "to": "IdealPublicPatched"
+  },
+  "finite_check": {
+    "checker": {
+      "path": "docs/validation/parliament_ballot_mask_coordinate/finite_crt_check.py",
+      "sha256": "bd77a2c7f44b100964b8c6d8d7a6a4bbdfa0d530ae9bb4d69118fa2303f4e93c"
+    },
+    "command": "python3.11 docs/validation/parliament_ballot_mask_coordinate/finite_crt_check.py --root \"$PWD\"",
+    "independent_rerun_matches_report_bytes": true,
+    "limitations": "Finite mathematical model and selected checker controls only; not formal verification of Python, compiled Rust execution, or cryptographic entry.",
+    "optimized_python_exit_code": 1,
+    "optimized_python_rejected": true,
+    "real_table_mutations_rejected": 6,
+    "report": {
+      "path": "docs/validation/parliament_ballot_mask_coordinate/finite_crt_report.json",
+      "sha256": "a5b94c965d7e7b4f1d3a437de112a9d2c4bda58fbf338cc611a40679426e8e9c"
+    },
+    "runs": [
+      {
+        "command": ".venv/bin/python /private/tmp/parliament-mask-independent-review/check.py --root /Users/mtakemiya/dev/iroha",
+        "interpreter": "Python 3.14.8",
+        "runner": "ownership agent",
+        "scope": "original finite check and controls"
+      },
+      {
+        "command": "python3.11 docs/validation/parliament_ballot_mask_coordinate/finite_crt_check.py --root /Users/mtakemiya/dev/iroha",
+        "interpreter": "Python 3.11.17",
+        "runner": "security_obligations agent",
+        "scope": "independent retained-copy rerun, byte-identical report"
+      }
+    ],
+    "self_validation": [
+      "asymmetric two-by-three matrix orientation",
+      "65-bit little-endian word boundary",
+      "independent and dependent rank controls",
+      "GF(2) product and remainder examples",
+      "source GF(2^256) reduction taps"
+    ],
+    "source_hashes_match_receipt": true
+  },
+  "frozen_arguments_and_ledger_modified": false,
+  "frozen_at_utc": "2026-10-13T10:57:58.046355+00:00",
+  "ideal_entry_proved_here": false,
+  "independent_cryptographic_review": false,
+  "local_links": [
+    {
+      "exists": true,
+      "path": "specs/parliament_ballot_b6_h5_fixed_opening.md",
+      "reference": "parliament_ballot_b6_h5_fixed_opening.md"
+    },
+    {
+      "exists": true,
+      "path": "specs/parliament_ballot_b6_hybrid_driver.md",
+      "reference": "parliament_ballot_b6_hybrid_driver.md"
+    },
+    {
+      "exists": true,
+      "path": "specs/parliament_ballot_proof_arguments.md",
+      "reference": "parliament_ballot_proof_arguments.md"
+    },
+    {
+      "exists": true,
+      "path": "docs/validation/parliament_ballot_mask_coordinate/receipt.json",
+      "reference": "../docs/validation/parliament_ballot_mask_coordinate/receipt.json"
+    },
+    {
+      "exists": true,
+      "path": "crates/iroha_zkp_vole/src/vole.rs",
+      "reference": "../crates/iroha_zkp_vole/src/vole.rs"
+    },
+    {
+      "exists": true,
+      "path": "crates/iroha_zkp_vole/src/quicksilver/prover.rs",
+      "reference": "../crates/iroha_zkp_vole/src/quicksilver/prover.rs"
+    },
+    {
+      "exists": true,
+      "path": "crates/iroha_zkp_vole/src/quicksilver/verifier.rs",
+      "reference": "../crates/iroha_zkp_vole/src/quicksilver/verifier.rs"
+    },
+    {
+      "exists": true,
+      "path": "crates/iroha_zkp_vole/src/universal_hash.rs",
+      "reference": "../crates/iroha_zkp_vole/src/universal_hash.rs"
+    },
+    {
+      "exists": true,
+      "path": "crates/iroha_zkp_vole/src/proof.rs",
+      "reference": "../crates/iroha_zkp_vole/src/proof.rs"
+    }
+  ],
+  "material_obstruction": {
+    "candidate_zero_frontier_nodes": [
+      6432,
+      3216,
+      1608,
+      804,
+      402,
+      100,
+      50,
+      23,
+      12,
+      6,
+      1
+    ],
+    "fresh_fully_replaced_frontier_support": "2^(11*256)",
+    "implication": "No exact material equality; a reverse computational bridge or separately specified ideal-material simulator remains necessary.",
+    "real_frontier_support_at_most": "2^256",
+    "scope": "fixed IV and concrete generators versus explicitly fully replaced fresh-per-node-slot ideal endpoint; no partial-hybrid or alias-cache independence assumption"
+  },
+  "numerical_ledger_value_adopted": false,
+  "observed_at_utc": "2026-10-13T10:44:32.797770+00:00",
+  "oracle_deletion_composition_proved_here": false,
+  "owner_acceptance": false,
+  "premises": [
+    "classical atomic requests with persistent oracle and adversary state",
+    "fixed admissible opening or independent bounded-schedule mixture including exhaustion fallback",
+    "fresh independent ideal selected expanded rows",
+    "separately ideal fresh independent root high-mask output; not inferred from row replacement",
+    "fresh independent latent pad; source API does not enforce caller entropy",
+    "valid application witness and arbitrary binary pad for either role",
+    "independently prescribed challenge1/challenge2 samples from entered programmed game",
+    "visible H5 cache before current hidden writes and exact logical-slot totalization on own-label branch"
+  ],
+  "primitive_interface_embedding_proved": false,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "reverse_material_bridge_proved": false,
+  "schema": "parliament-b6-mask-coordinate-derivation-v1",
+  "scope": "Exact joint-state middle equality PatchH5_slots == IdealPublicPatched, conditional on the stated ideal material, fresh pad and challenge-programmed entry; no exact equality to frozen real-root Sim+.",
+  "source_changes": {},
+  "source_changes_at_freeze": {},
+  "source_count": 27,
+  "source_references": [
+    {
+      "end_line": 15,
+      "excerpt_sha256": "a01859d45abd46c801aca31717af33c5140c70f30d71683f673e905e7c597147",
+      "meaning": "disjoint proving-tape offsets and caller entropy contract",
+      "path": "crates/iroha_parliament_ballot_proof/src/proving.rs",
+      "start_line": 1
+    },
+    {
+      "end_line": 108,
+      "excerpt_sha256": "aad3d504479c5a02361e87da2c5363e091933a9b2119b74bb8e354ac95c2b027",
+      "meaning": "caller fill and reproducible bytes do not enforce independent random pad",
+      "path": "crates/iroha_parliament_ballot_proof/src/proving.rs",
+      "start_line": 69
+    },
+    {
+      "end_line": 184,
+      "excerpt_sha256": "c713c2f486a3fb2a0f47df2280591d88ac129cabfc1510cbeb32562fcf419181",
+      "meaning": "same two VOLE rows",
+      "path": "crates/iroha_parliament_ballot_proof/src/profile.rs",
+      "start_line": 173
+    },
+    {
+      "end_line": 402,
+      "excerpt_sha256": "57ff3be270b5b100873a5bc3460f933db75142ca620eecb79645fb85fc5a4ed1",
+      "meaning": "role-specific namespace and shared row geometry",
+      "path": "crates/iroha_parliament_ballot_proof/src/profile.rs",
+      "start_line": 385
+    },
+    {
+      "end_line": 40,
+      "excerpt_sha256": "381e4e3043b17ff8772f563829d8754f2c8ef6f05f639327a2a4bae1268ad348",
+      "meaning": "pad/application coordinate separation",
+      "path": "crates/iroha_parliament_ballot_proof/src/layout.rs",
+      "start_line": 9
+    },
+    {
+      "end_line": 263,
+      "excerpt_sha256": "9aad761c70df12795cc89588c0176ac6a869113ffd986209002c25b9fa6ed5a1",
+      "meaning": "registration emitter uses only application coordinates",
+      "path": "crates/iroha_parliament_ballot_proof/src/registration.rs",
+      "start_line": 235
+    },
+    {
+      "end_line": 383,
+      "excerpt_sha256": "87cf241a2668d120ce042ea30bdebae19ba14a9e27f60200cfe91f6c299e936a",
+      "meaning": "vote emitter uses only application coordinates",
+      "path": "crates/iroha_parliament_ballot_proof/src/vote.rs",
+      "start_line": 325
+    },
+    {
+      "end_line": 13,
+      "excerpt_sha256": "4df53ea619132790f0fc3068ff374de73f272f23e71bb795291a2f0e241eb1b2",
+      "meaning": "little-endian row and word matrix orientation",
+      "path": "crates/iroha_zkp_vole/src/crt/matrix.rs",
+      "start_line": 1
+    },
+    {
+      "end_line": 17,
+      "excerpt_sha256": "cfc4a9bba9855f6c778815691b5daa9f151757b304f82369b1fd4cc44ea817f4",
+      "meaning": "matrix dimensions and polynomial residue interpretation",
+      "path": "crates/iroha_zkp_vole/src/crt/tables.rs",
+      "start_line": 1
+    },
+    {
+      "end_line": 80,
+      "excerpt_sha256": "177ec475002c518b5f61e1e1c0ed8f78fbcd8b4bc095e32609b927aec88dc01c",
+      "meaning": "actual generated-array binding to CRT table fields",
+      "path": "crates/iroha_zkp_vole/src/crt/generated.rs",
+      "start_line": 51
+    },
+    {
+      "end_line": 507,
+      "excerpt_sha256": "e39a5605603ae0414e40efbbc24dc957020f302aae29e3f96a0ba9c375f0bf76",
+      "meaning": "GF(2^256) polynomial reduction taps",
+      "path": "crates/iroha_zkp_vole/src/field.rs",
+      "start_line": 500
+    },
+    {
+      "end_line": 19,
+      "excerpt_sha256": "cacb61093dc2220ceb0c250a5d4889cf5136e0e03eedfae3654bf9124d7a9ca3",
+      "meaning": "small-VOLE omitted-row identities",
+      "path": "crates/iroha_zkp_vole/src/vole/convert.rs",
+      "start_line": 1
+    },
+    {
+      "end_line": 117,
+      "excerpt_sha256": "254547119fff2f22f56f71f2b54aeddb5d581fcae93e9803475801036889bfba",
+      "meaning": "actual fold and hidden-index shift",
+      "path": "crates/iroha_zkp_vole/src/vole/convert.rs",
+      "start_line": 73
+    },
+    {
+      "end_line": 516,
+      "excerpt_sha256": "7355d318f326d910848777cff8298251805ea2ca06665fcd55364db485797cc9",
+      "meaning": "mask tail layout, low residues, and separate root high stream",
+      "path": "crates/iroha_zkp_vole/src/vole.rs",
+      "start_line": 451
+    },
+    {
+      "end_line": 558,
+      "excerpt_sha256": "772bd89ea0bd93c707276d84ed3283f88b6c5fbedd17c8832ffba2201bad2a74",
+      "meaning": "prefix-only gate labels and W_TREE/W_GATE combination",
+      "path": "crates/iroha_zkp_vole/src/vole.rs",
+      "start_line": 520
+    },
+    {
+      "end_line": 838,
+      "excerpt_sha256": "dfe90dfe56f2c7b30ee938ebe2c7c38a1a64f2f71e02f61c5db9ac8a963b1636",
+      "meaning": "commit head corrections, masks, H5 reads/corrections and mask tags",
+      "path": "crates/iroha_zkp_vole/src/vole.rs",
+      "start_line": 746
+    },
+    {
+      "end_line": 1100,
+      "excerpt_sha256": "564b46cad63e2f4eff46c8eba5e813fd7b987b1a9c8b5130bec3fcaccd5a924a",
+      "meaning": "head-only correction, revealed tail shares and cached-label reconstruction algebra",
+      "path": "crates/iroha_zkp_vole/src/vole.rs",
+      "start_line": 1012
+    },
+    {
+      "end_line": 560,
+      "excerpt_sha256": "fc331947b95ba70e658bcffeaeba040bb03d1cd92d4f64840b3afcc7812f3bc4",
+      "meaning": "same relation streams into source prover and verifier",
+      "path": "crates/iroha_zkp_vole/src/quicksilver.rs",
+      "start_line": 489
+    },
+    {
+      "end_line": 168,
+      "excerpt_sha256": "0ab8cba9c5cd108a48ec1f03ebfe02abffac6fbd09d03bcc06d1b81e7b99c628",
+      "meaning": "witness/tag-only constructor, Booleanity and adjacent mask finish",
+      "path": "crates/iroha_zkp_vole/src/quicksilver/prover.rs",
+      "start_line": 68
+    },
+    {
+      "end_line": 280,
+      "excerpt_sha256": "35ae98e961721d8e4a585d8dc3cc5a5ed979e8aaeab298aa7b0b731b357f6768",
+      "meaning": "degree lift and coefficient hash alignment",
+      "path": "crates/iroha_zkp_vole/src/quicksilver/prover.rs",
+      "start_line": 250
+    },
+    {
+      "end_line": 152,
+      "excerpt_sha256": "5b52e0aebbd1c19653850f05d690b682cd5e4ddac8ede9d535f2e1e622e58615",
+      "meaning": "Q plus d Delta evaluation and A0 recovery",
+      "path": "crates/iroha_zkp_vole/src/quicksilver/verifier.rs",
+      "start_line": 102
+    },
+    {
+      "end_line": 159,
+      "excerpt_sha256": "719708fae208ee131db7aceec463fe1cc38015f57ffede137a1fb6ffa31a679a",
+      "meaning": "field-linear VOLE hash and four additive final masks",
+      "path": "crates/iroha_zkp_vole/src/universal_hash.rs",
+      "start_line": 121
+    },
+    {
+      "end_line": 232,
+      "excerpt_sha256": "c4ea4b870d98218dc7a72fc5c44fe5578e533b3ca4e3418a1ede33a7d371c9c8",
+      "meaning": "field-linear ZK hash and additive final mask",
+      "path": "crates/iroha_zkp_vole/src/universal_hash.rs",
+      "start_line": 213
+    },
+    {
+      "end_line": 413,
+      "excerpt_sha256": "e7c8effd22acd751ea9dc3ea8d750ab69d54135f4b428aab5c5bc7f01f4dfd66",
+      "meaning": "six absorbed masks and four additive masks",
+      "path": "crates/iroha_zkp_vole/src/proof.rs",
+      "start_line": 394
+    },
+    {
+      "end_line": 654,
+      "excerpt_sha256": "60ccfa4f60292fa14eccebd187398e5065742a700684a19f0427ec384f06115c",
+      "meaning": "challenge order, transmitted coefficients and primary stopping/exhaustion",
+      "path": "crates/iroha_zkp_vole/src/proof.rs",
+      "start_line": 515
+    },
+    {
+      "end_line": 776,
+      "excerpt_sha256": "12dcee1f67e9a5fcc3e0459e42476bbe729972821d3404d51e725cc0ff4b4827",
+      "meaning": "public reconstruction of Vtilde and A0",
+      "path": "crates/iroha_zkp_vole/src/proof.rs",
+      "start_line": 694
+    },
+    {
+      "end_line": 462,
+      "excerpt_sha256": "a8507d1f2b3cfe5fee48d786d33ad999e4837c7c94eb00a2cbf0e3835813dc0e",
+      "meaning": "deterministic child expansion for fixed key/IV/tweak",
+      "path": "crates/iroha_zkp_vole/src/bavc.rs",
+      "start_line": 452
+    },
+    {
+      "end_line": 884,
+      "excerpt_sha256": "85eea3c12a4ed87e5dde84ec2a00da9f29f54ca0fc3bda82582160a8f789f036",
+      "meaning": "real BAVC keys deterministic from root and IV",
+      "path": "crates/iroha_zkp_vole/src/bavc.rs",
+      "start_line": 853
+    },
+    {
+      "end_line": 960,
+      "excerpt_sha256": "399a65dfe1a031e8d04317efffab4f5858a91e45646ddbf5a5bd2f4ee63a8ae2",
+      "meaning": "actual cached opening boundary material",
+      "path": "crates/iroha_zkp_vole/src/bavc.rs",
+      "start_line": 927
+    }
+  ],
+  "source_sha256_after": {
+    "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": "f757f491b81c52563b34e425a9ded20547419200c848c4ad5231ef1fd32374f5",
+    "crates/iroha_parliament_ballot_proof/src/layout.rs": "33db7b2cb59ccebaa557a73ee6db899c3cfa32a288bdc3382384d151fab4c6f0",
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+    "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+    "crates/iroha_parliament_ballot_proof/src/registration.rs": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+    "crates/iroha_parliament_ballot_proof/src/vote.rs": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+    "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+    "crates/iroha_zkp_vole/src/crt/generated.rs": "0426a8ecc21975316132db16e6ddfc0b63836c871eb69173d5f6bf230ffd7f98",
+    "crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs": "a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e",
+    "crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs": "535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f",
+    "crates/iroha_zkp_vole/src/crt/matrix.rs": "810bad5d8087109e52ce650a5ac596e87e6df8a167cde36b97f24834bbf7281f",
+    "crates/iroha_zkp_vole/src/crt/tables.rs": "77c1197bba8e107fda8e833be0550e98b45825f805d3630c7dbac92810bac3cb",
+    "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+    "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+    "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+    "crates/iroha_zkp_vole/src/quicksilver.rs": "99260f5f4f0cb1b8e8e6356ce14b0deb20099d25549b852441bc541588c6f3ad",
+    "crates/iroha_zkp_vole/src/quicksilver/prover.rs": "85d7e743228f7b808c33c74be1e3a6d3b151d78f75b1c42db7dfd4782aaf5c63",
+    "crates/iroha_zkp_vole/src/quicksilver/verifier.rs": "7b038e8b2aa647d89f06d38bcdf371efb97b4abf6f2edb43585be89609051dfe",
+    "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+    "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+    "crates/iroha_zkp_vole/src/vole/bits.rs": "4e41952eb31574505fcf97d02a4f9074035818660958ff3dbf9cf2650749d079",
+    "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+    "docs/validation/parliament_ballot_zero_challenge/report.json": "da1c8d3259301e9f65dd53de054372928cc757aea63ab841a9c3194b00fb69ac",
+    "specs/parliament_ballot_b6_h5_fixed_opening.md": "5476eedeb50e1efaa11e5d6e892174fabed16a02e2b31ab906a375aa5ed6f15e",
+    "specs/parliament_ballot_b6_hybrid_driver.md": "a95739b192f2a431cbf2a95c6964817137a6c5e0856121b20d4465a036f5835a",
+    "specs/parliament_ballot_proof_arguments.md": "c2aca2dd5b936004edaaa3ff99b823de8d92d9fa6f9b1003056135d983fb776c"
+  },
+  "source_sha256_at_freeze": {
+    "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": "f757f491b81c52563b34e425a9ded20547419200c848c4ad5231ef1fd32374f5",
+    "crates/iroha_parliament_ballot_proof/src/layout.rs": "33db7b2cb59ccebaa557a73ee6db899c3cfa32a288bdc3382384d151fab4c6f0",
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+    "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+    "crates/iroha_parliament_ballot_proof/src/registration.rs": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+    "crates/iroha_parliament_ballot_proof/src/vote.rs": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+    "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+    "crates/iroha_zkp_vole/src/crt/generated.rs": "0426a8ecc21975316132db16e6ddfc0b63836c871eb69173d5f6bf230ffd7f98",
+    "crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs": "a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e",
+    "crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs": "535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f",
+    "crates/iroha_zkp_vole/src/crt/matrix.rs": "810bad5d8087109e52ce650a5ac596e87e6df8a167cde36b97f24834bbf7281f",
+    "crates/iroha_zkp_vole/src/crt/tables.rs": "77c1197bba8e107fda8e833be0550e98b45825f805d3630c7dbac92810bac3cb",
+    "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+    "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+    "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+    "crates/iroha_zkp_vole/src/quicksilver.rs": "99260f5f4f0cb1b8e8e6356ce14b0deb20099d25549b852441bc541588c6f3ad",
+    "crates/iroha_zkp_vole/src/quicksilver/prover.rs": "85d7e743228f7b808c33c74be1e3a6d3b151d78f75b1c42db7dfd4782aaf5c63",
+    "crates/iroha_zkp_vole/src/quicksilver/verifier.rs": "7b038e8b2aa647d89f06d38bcdf371efb97b4abf6f2edb43585be89609051dfe",
+    "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+    "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+    "crates/iroha_zkp_vole/src/vole/bits.rs": "4e41952eb31574505fcf97d02a4f9074035818660958ff3dbf9cf2650749d079",
+    "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+    "docs/validation/parliament_ballot_zero_challenge/report.json": "da1c8d3259301e9f65dd53de054372928cc757aea63ab841a9c3194b00fb69ac",
+    "specs/parliament_ballot_b6_h5_fixed_opening.md": "5476eedeb50e1efaa11e5d6e892174fabed16a02e2b31ab906a375aa5ed6f15e",
+    "specs/parliament_ballot_b6_hybrid_driver.md": "a95739b192f2a431cbf2a95c6964817137a6c5e0856121b20d4465a036f5835a",
+    "specs/parliament_ballot_proof_arguments.md": "c2aca2dd5b936004edaaa3ff99b823de8d92d9fa6f9b1003056135d983fb776c"
+  },
+  "source_sha256_before": {
+    "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": "f757f491b81c52563b34e425a9ded20547419200c848c4ad5231ef1fd32374f5",
+    "crates/iroha_parliament_ballot_proof/src/layout.rs": "33db7b2cb59ccebaa557a73ee6db899c3cfa32a288bdc3382384d151fab4c6f0",
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+    "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+    "crates/iroha_parliament_ballot_proof/src/registration.rs": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+    "crates/iroha_parliament_ballot_proof/src/vote.rs": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+    "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+    "crates/iroha_zkp_vole/src/crt/generated.rs": "0426a8ecc21975316132db16e6ddfc0b63836c871eb69173d5f6bf230ffd7f98",
+    "crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs": "a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e",
+    "crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs": "535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f",
+    "crates/iroha_zkp_vole/src/crt/matrix.rs": "810bad5d8087109e52ce650a5ac596e87e6df8a167cde36b97f24834bbf7281f",
+    "crates/iroha_zkp_vole/src/crt/tables.rs": "77c1197bba8e107fda8e833be0550e98b45825f805d3630c7dbac92810bac3cb",
+    "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+    "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+    "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+    "crates/iroha_zkp_vole/src/quicksilver.rs": "99260f5f4f0cb1b8e8e6356ce14b0deb20099d25549b852441bc541588c6f3ad",
+    "crates/iroha_zkp_vole/src/quicksilver/prover.rs": "85d7e743228f7b808c33c74be1e3a6d3b151d78f75b1c42db7dfd4782aaf5c63",
+    "crates/iroha_zkp_vole/src/quicksilver/verifier.rs": "7b038e8b2aa647d89f06d38bcdf371efb97b4abf6f2edb43585be89609051dfe",
+    "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+    "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+    "crates/iroha_zkp_vole/src/vole/bits.rs": "4e41952eb31574505fcf97d02a4f9074035818660958ff3dbf9cf2650749d079",
+    "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+    "docs/validation/parliament_ballot_zero_challenge/report.json": "da1c8d3259301e9f65dd53de054372928cc757aea63ab841a9c3194b00fb69ac",
+    "specs/parliament_ballot_b6_h5_fixed_opening.md": "5476eedeb50e1efaa11e5d6e892174fabed16a02e2b31ab906a375aa5ed6f15e",
+    "specs/parliament_ballot_b6_hybrid_driver.md": "a95739b192f2a431cbf2a95c6964817137a6c5e0856121b20d4465a036f5835a",
+    "specs/parliament_ballot_proof_arguments.md": "c2aca2dd5b936004edaaa3ff99b823de8d92d9fa6f9b1003056135d983fb776c"
+  },
+  "status": "CONDITIONAL_DERIVATION_LOCALLY_REVIEWED",
+  "validation": {
+    "compiled_source_tests_run": false,
+    "local_links_exist": true,
+    "peer_review": {
+      "receipt_review": {
+        "result": "All 27 before/after input hashes, all 29 excerpt hashes, derivation hash and retained checker/report hashes verified; no mathematical blocker.",
+        "reviewer": "ownership agent",
+        "scope": "Read-only local consistency and provenance review; not independent cryptographic review."
+      },
+      "reviews": [
+        {
+          "limitations": "Automated local consistency review only; no entry, deletion, full Sim+ equivalence or resource certification.",
+          "result": "No blocking issue under explicit entry premises; requested latent pad entropy limitation added.",
+          "reviewer": "root agent",
+          "scope": [
+            "actual VOLE mask construction, folds and labels",
+            "QuickSilver and universal hash source equations",
+            "joint inverse and chronological oracle preservation",
+            "high-output premise and exact endpoint limitation"
+          ]
+        },
+        {
+          "limitations": "Automated local mathematical/source review only; not independent cryptographic review or qualification.",
+          "result": "No concrete algebra or dependency error under explicit high-mask/challenge entry; correction-index and salt clarifications added.",
+          "reviewer": "ownership agent",
+          "scope": [
+            "all actual-table CRT ranks, residues and bilinear bases",
+            "source reconstruction, QuickSilver and VOLEHash formulas",
+            "unit-diagonal joint inverse and qbar independence",
+            "Delta=0, own-label totalization and material endpoint distinction"
+          ]
+        }
+      ],
+      "status": "completed_local_consistency_reviews"
+    },
+    "production_source_modified": false,
+    "source_bytes_unchanged": true
+  },
+  "whole_driver_proved": false,
+  "written_at_utc": "2026-10-13T10:56:01.272766+00:00"
+}

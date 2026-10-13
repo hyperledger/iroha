@@ -146,17 +146,100 @@ pub fn plan_cancellable(
         }
     }
 
+    let metadata: Vec<_> = selectors
+        .iter()
+        .map(|selector| (selector.selector, selector.max_degree))
+        .collect();
+    plan_with_overlap(&metadata, max_degree, cancellation, |left, right| {
+        for (index, (left, right)) in selectors[left]
+            .activations
+            .iter()
+            .zip(selectors[right].activations)
+            .enumerate()
+        {
+            if index % 1024 == 0 {
+                iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+            }
+            if *left && *right {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })
+}
+
+/// One canonical packed selector, in the descriptor's original order.
+pub(crate) struct PackedSelectorDescription<'a> {
+    pub(crate) selector: usize,
+    pub(crate) activations: &'a [u8],
+    pub(crate) max_degree: usize,
+}
+
+/// Plan canonical packed activations without expanding their row bits.
+/// The caller validates the row count, selector count and zero padding before
+/// supplying equally sized bitmap slices. Metadata remains in descriptor order.
+pub(crate) fn plan_packed_cancellable(
+    selectors: &[PackedSelectorDescription<'_>],
+    max_degree: usize,
+    cancellation: Option<&iroha_pasta::CancellationToken>,
+) -> Result<Vec<Vec<usize>>, CompressionError> {
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    let Some(first) = selectors.first() else {
+        return Ok(Vec::new());
+    };
+    for selector in selectors {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+        if selector.activations.len() != first.activations.len() {
+            return Err(CompressionError::ActivationLength {
+                selector: selector.selector,
+                expected: first.activations.len().saturating_mul(8),
+                found: selector.activations.len().saturating_mul(8),
+            });
+        }
+    }
+    let metadata: Vec<_> = selectors
+        .iter()
+        .map(|selector| (selector.selector, selector.max_degree))
+        .collect();
+    plan_with_overlap(&metadata, max_degree, cancellation, |left, right| {
+        for (index, (left, right)) in selectors[left]
+            .activations
+            .iter()
+            .zip(selectors[right].activations)
+            .enumerate()
+        {
+            // At most the same 1024 logical rows between checkpoints.
+            if index % 128 == 0 {
+                iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+            }
+            if left & right != 0 {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })
+}
+
+// One combination algorithm for native synthesis and packed VK admission.
+// Only the equivalent pair-overlap computation differs between representations.
+fn plan_with_overlap(
+    selectors: &[(usize, usize)],
+    max_degree: usize,
+    cancellation: Option<&iroha_pasta::CancellationToken>,
+    mut overlaps: impl FnMut(usize, usize) -> Result<bool, CompressionError>,
+) -> Result<Vec<Vec<usize>>, CompressionError> {
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
     // Complex (and unused) selectors cannot share a column.
     let mut combinations: Vec<Vec<usize>> = selectors
         .iter()
         .enumerate()
-        .filter(|(_, selector)| selector.max_degree == 0)
+        .filter(|(_, selector)| selector.1 == 0)
         .map(|(index, _)| vec![index])
         .collect();
     let simple: Vec<usize> = selectors
         .iter()
         .enumerate()
-        .filter_map(|(index, selector)| (selector.max_degree != 0).then_some(index))
+        .filter_map(|(index, selector)| (selector.1 != 0).then_some(index))
         .collect();
 
     // Lower-triangular exclusion matrix: two selectors active on one row
@@ -168,22 +251,9 @@ pub fn plan_cancellable(
         })
         .collect::<Result<_, CompressionError>>()?;
     for (i, &selector_index) in simple.iter().enumerate() {
-        let rows = selectors[selector_index].activations;
         for (j, &other_index) in simple.iter().enumerate().take(i) {
             iroha_pasta::CancellationToken::checkpoint(cancellation)?;
-            for (index, (left, right)) in rows
-                .iter()
-                .zip(selectors[other_index].activations)
-                .enumerate()
-            {
-                if index % 1024 == 0 {
-                    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
-                }
-                if *left && *right {
-                    exclusion[i][j] = true;
-                    break;
-                }
-            }
+            exclusion[i][j] = overlaps(selector_index, other_index)?;
         }
     }
 
@@ -195,15 +265,15 @@ pub fn plan_cancellable(
         }
         added[i] = true;
         let selector = &selectors[selector_index];
-        if selector.max_degree > max_degree {
+        if selector.1 > max_degree {
             return Err(CompressionError::DegreeExceedsCircuit {
-                selector: selector.selector,
-                degree: selector.max_degree,
+                selector: selector.0,
+                degree: selector.1,
                 max_degree,
             });
         }
         // The virtual selector's own degree is replaced by the combination.
-        let mut d = selector.max_degree - 1;
+        let mut d = selector.1 - 1;
         let mut combination = vec![selector_index];
         let mut combination_added = vec![i];
 
@@ -221,7 +291,7 @@ pub fn plan_cancellable(
                 }
             }
             let candidate = &selectors[candidate_index];
-            let new_d = d.max(candidate.max_degree - 1);
+            let new_d = d.max(candidate.1 - 1);
             if new_d + combination.len() + 1 > max_degree {
                 continue 'candidates;
             }
@@ -532,3 +602,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod packed_tests;

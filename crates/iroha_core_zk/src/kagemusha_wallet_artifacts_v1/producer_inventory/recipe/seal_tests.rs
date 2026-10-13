@@ -52,12 +52,40 @@ fn check<C: PastaCurve>() {
     let source = Shape(C::ScalarExt::ONE);
     let producer = keygen_pk_v2(&params, &source, &config).unwrap();
     let original = producer.artifact_bytes_v2().unwrap();
+    assert_eq!(original.len(), 108 + producer.vk().to_bytes().len());
     let read = ReadConfig {
         maximum_bytes: original.len(),
         maximum_rows: 64,
         coset_cache: CosetCachePolicy::OnDemand,
         msm_budget: iroha_pasta::msm::MemoryBudget::DEFAULT,
     };
+    let foreign = keygen_pk_v2(&params, &Shape(C::ScalarExt::from(2)), &config).unwrap();
+    assert_eq!(foreign.binding(), producer.binding());
+    let mut substituted = original.clone();
+    let foreign_vk = foreign.vk().to_bytes();
+    substituted[44..44 + foreign_vk.len()].copy_from_slice(&foreign_vk);
+    assert!(matches!(
+        iroha_plonk::ProvingKey::from_artifact_v2(
+            &substituted,
+            producer.binding(),
+            &params,
+            &source,
+            read,
+        ),
+        Err(iroha_plonk::keys::pk::artifact::Error::Commitment)
+    ));
+    let mut changed_fingerprint = original.clone();
+    *changed_fingerprint.last_mut().unwrap() ^= 1;
+    assert!(matches!(
+        iroha_plonk::ProvingKey::from_artifact_v2(
+            &changed_fingerprint,
+            producer.binding(),
+            &params,
+            &source,
+            read,
+        ),
+        Err(iroha_plonk::keys::pk::artifact::Error::Source)
+    ));
     let imported = iroha_plonk::ProvingKey::from_artifact_v2(
         &original,
         producer.binding(),
@@ -78,7 +106,20 @@ fn check<C: PastaCurve>() {
     let view = installed.bind(7, &key, None).unwrap();
     assert!(core::ptr::eq(view.binding(), key.binding()));
     assert!(core::ptr::eq(view.verifying_key(), key.key()));
-    let foreign = keygen_pk_v2(&params, &Shape(C::ScalarExt::from(2)), &config).unwrap();
+    let reconstructed = iroha_plonk::keys::keygen_pk_from_vk_v2(
+        &params,
+        &source,
+        &view,
+        CosetCachePolicy::OnDemand,
+    )
+    .unwrap();
+    assert_eq!(reconstructed.artifact_bytes_v2().unwrap(), original);
+    assert_eq!(reconstructed.fixed_values(), producer.fixed_values());
+    assert_eq!(
+        reconstructed.permutation_values(),
+        producer.permutation_values()
+    );
+    drop(reconstructed);
     assert_eq!(foreign.binding(), key.binding());
     let foreign_key = KeyArtifact::new(foreign.binding().clone(), foreign.vk().clone()).unwrap();
     assert!(matches!(

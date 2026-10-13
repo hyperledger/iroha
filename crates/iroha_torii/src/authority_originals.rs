@@ -1,10 +1,11 @@
-//! Signed-body, scoped original publication for an existing native full-ledger reader.
+//! Signed-body, scoped original publication for an authorized certified-original reader.
 //!
 //! This route publishes data under current permission, never a permission grant or
 //! finality/ownership fact. Every private original is borrowed from one qualified
 //! native pre-tail cut and output keeps the aggregate finite pool through egress.
 
 use super::*;
+use crate::certified_originals_auth::{authenticate as authenticate_body, require_permission};
 use crate::native_projection_response::{capacity, encode, native_committee_original_bytes};
 use iroha_core::{
     state::AllocationBudget,
@@ -16,8 +17,8 @@ use iroha_torii_shared::authority_originals::{
     NativeAccountAliasStateRefV1, NativeAuthorityOriginalsFamilyRefV1,
     NativeAuthorityOriginalsRefV1, NativeAuthorityOriginalsRequestV1,
     NativeAuthorityOriginalsSelectorV1, NativeGlobalFeeProgramStateRefV1,
-    NativeIdentifierPolicyStateRefV1, decode_native_authority_originals_request_v1,
-    native_authority_originals_request_digests_v1,
+    NativeIdentifierPolicyStateRefV1, NativeRetailPolicyStateRefV1,
+    decode_native_authority_originals_request_v1, native_authority_originals_request_digests_v1,
 };
 
 // Payload fields physically drop before their prepaid intake reservation. The
@@ -79,38 +80,6 @@ fn target(method: &Method, uri: &Uri, headers: &HeaderMap) -> Result<(), Error> 
             )
         })?;
     Ok(())
-}
-
-fn authenticate_body(
-    app: &SharedAppState,
-    headers: &HeaderMap,
-    method: &Method,
-    uri: &Uri,
-    body: &[u8],
-) -> Result<AccountId, Error> {
-    let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(app) {
-            Ok(owner) => owner,
-            Err(error) => {
-                return Err(error);
-            }
-        };
-
-    let verified = crate::app_auth::verify_canonical_network_request(
-        &app.state,
-        app.state.network_id_ref(),
-        headers,
-        crate::app_auth::CanonicalRequestParts { method, uri, body },
-        None,
-        authentication_owner.allocation_context(),
-    )?
-    .ok_or_else(|| Error::AppUnauthorized {
-        code: "canonical_authentication_required",
-        message: "canonical signed-body account authentication is required for authority originals"
-            .into(),
-    })?;
-    require_full_ledger_carrier_permission(app, &verified.account)?;
-    Ok(verified.account)
 }
 
 fn request_original(
@@ -198,7 +167,7 @@ async fn handle(
     };
     let admission = acquire_query_admission(app.as_ref(), true).await?;
     // Admission awaited: recheck a live grant before queuing any private cut work.
-    require_full_ledger_carrier_permission(&app, &account)?;
+    require_permission(&app, &account)?;
     let driver = app.sumeragi.as_ref().ok_or_else(unavailable)?;
     if driver.restart_required() {
         return Err(unavailable());
@@ -367,6 +336,30 @@ async fn handle(
                         },
                     )
                     .map_err(|_| unavailable())?,
+                NativeAuthorityOriginalsSelectorV1::RetailPolicy { asset, dataspace } => state
+                    .with_native_retail_policy_originals_v1(
+                        &tip,
+                        &capture_authority,
+                        asset,
+                        *dataspace,
+                        &budget,
+                        |snapshot, policy, activation| {
+                            let family = NativeAuthorityOriginalsFamilyRefV1::RetailPolicy(
+                                NativeRetailPolicyStateRefV1::new(policy, activation),
+                            );
+                            let payload = NativeAuthorityOriginalsRefV1::new(
+                                &digest,
+                                &intake.request.selector,
+                                &attestation,
+                                snapshot,
+                                family,
+                            );
+                            encode(&payload, format, max_response, &budget, unavailable).map_err(
+                                |_| "native authority retail serialization refused".to_owned(),
+                            )
+                        },
+                    )
+                    .map_err(|_| unavailable())?,
                 NativeAuthorityOriginalsSelectorV1::IdentifierPolicy(policy_id) => state
                     .with_native_identifier_policy_originals_v1(
                         &tip,
@@ -404,7 +397,7 @@ async fn handle(
         },
     )
     .await?;
-    require_full_ledger_carrier_permission(&app, &account)?;
+    require_permission(&app, &account)?;
     let response = proof_response_with_exact_egress(
         app.as_ref(),
         &headers,
@@ -414,7 +407,7 @@ async fn handle(
         true,
     )
     .await?;
-    require_full_ledger_carrier_permission(&app, &account)?;
+    require_permission(&app, &account)?;
     Ok(response)
 }
 

@@ -115,10 +115,8 @@ object ContractJsonParser {
             ok = true,
             resolvedMultisigAccountId = requiredExactAccountId(root["resolved_multisig_account_id"], "multisig response.resolved_multisig_account_id"),
             submitted = requiredBoolean(root["submitted"], "multisig response.submitted"),
-            proposalId = optionalString(root["proposal_id"], "multisig response.proposal_id"),
-            instructionsHash = if (root.containsKey("instructions_hash") && root["instructions_hash"] != null)
-                HttpClientTransport.normalizeHex32(requiredString(root["instructions_hash"], "multisig response.instructions_hash"), "instructionsHash")
-            else null,
+            proposalId = requiredString(root["proposal_id"], "multisig response.proposal_id").also { check(Regex("[0-9a-f]{64}").matches(it) && it.any { digit -> digit != '0' }) { "canonical nonzero proposal_id required" } },
+            instructionsHash = requiredString(root["instructions_hash"], "multisig response.instructions_hash").also { check(Regex("[0-9a-f]{64}").matches(it)) { "canonical instructions_hash required" } },
             txHashHex = if (root.containsKey("tx_hash_hex") && root["tx_hash_hex"] != null)
                 transactionHash(root["tx_hash_hex"], "multisig response.tx_hash_hex")
             else null,

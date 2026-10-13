@@ -105,6 +105,87 @@ fn equality<C: PastaCurve>() {
         let expected = source_fingerprint_v2(&params, &source, &config, None).unwrap();
         assert_eq!(expected.binding(), key.binding());
         assert_ne!(expected.digest(), &[0; 32]);
+        // Export/rebuild uses packed bytes while cold source admission hashes
+        // independently synthesized booleans. Both must retain the exact frame.
+        let expanded: Vec<Vec<bool>> = key
+            .vk()
+            .selectors()
+            .iter()
+            .map(|rows| rows.iter().collect())
+            .collect();
+        for selectors in [expanded.as_slice().into(), key.vk().selectors().into()] {
+            assert_eq!(
+                super::from_tables(
+                    key.binding(),
+                    key.copy_digest(),
+                    selectors,
+                    key.fixed_values(),
+                    key.permutation_values(),
+                    None
+                )
+                .unwrap(),
+                expected
+            );
+        }
+        for selectors in [expanded.as_slice().into(), key.vk().selectors().into()] {
+            let (fused, columns) = super::from_tables_with_columns(
+                key.binding(),
+                key.copy_digest(),
+                selectors,
+                key.fixed_values(),
+                key.permutation_values(),
+                None,
+            )
+            .unwrap();
+            assert_eq!(fused, expected);
+            for (column, point) in columns.iter().zip(
+                key.vk()
+                    .fixed_commitments()
+                    .iter()
+                    .chain(key.vk().permutation_commitments()),
+            ) {
+                assert_eq!(
+                    params
+                        .commit_hashed_public_column_cancellable(
+                            column,
+                            MemoryBudget::DEFAULT,
+                            None,
+                        )
+                        .unwrap(),
+                    *point
+                );
+            }
+        }
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        for selectors in [expanded.as_slice().into(), key.vk().selectors().into()] {
+            assert_eq!(
+                super::from_tables(
+                    key.binding(),
+                    key.copy_digest(),
+                    selectors,
+                    key.fixed_values(),
+                    key.permutation_values(),
+                    Some(&cancelled)
+                )
+                .unwrap_err(),
+                KeyError::Cancelled
+            );
+        }
+        for selectors in [expanded.as_slice().into(), key.vk().selectors().into()] {
+            assert_eq!(
+                super::from_tables_with_columns(
+                    key.binding(),
+                    key.copy_digest(),
+                    selectors,
+                    key.fixed_values(),
+                    key.permutation_values(),
+                    Some(&cancelled),
+                )
+                .unwrap_err(),
+                KeyError::Cancelled
+            );
+        }
         let read = read_config(&original, 6);
         let actual =
             artifact::source_fingerprint_v2::<C>(&original, key.binding(), read, None).unwrap();
@@ -202,8 +283,8 @@ fn untrusted<C: PastaCurve>() {
     let read = read_config(&original, 6);
     let expected =
         artifact::source_fingerprint_v2::<C>(&original, key.binding(), read, None).unwrap();
-    // Replace one commitment by a different canonical nonidentity point, retaining every
-    // source table. Lookup equality must never authenticate this well-formed false key.
+    // Replace one commitment by a different canonical nonidentity point, retaining
+    // the declared source digest. Lookup equality cannot authenticate a false key.
     let mut false_key = original.clone();
     let vk_point = 44 + 10;
     let replacement = key.vk().to_bytes()[42..74].to_vec();
@@ -225,24 +306,46 @@ fn untrusted<C: PastaCurve>() {
         ProvingKey::<C>::from_artifact_v2(&original, key.binding(), &params, &other_source, read)
             .is_err()
     );
-    let tables = 44 + key.vk().to_bytes().len() + 32;
-    for index in [
-        tables - 32,
-        tables,
-        tables + 64 * 32 * key.fixed_values().len(),
-    ] {
-        let mut changed = original.clone();
-        changed[index] ^= 1;
-        assert_ne!(
-            artifact::source_fingerprint_v2::<C>(&changed, key.binding(), read, None).unwrap(),
-            expected
-        );
-    }
-    let mut malformed = original.clone();
-    malformed[tables..tables + 32].fill(0xff);
+    let source_digest = 44 + key.vk().to_bytes().len() + 32;
+    let mut changed_copy = original.clone();
+    changed_copy[source_digest - 32] ^= 1;
+    // The declared fingerprint is only an index. Even a same-fingerprint original
+    // with a substituted copy digest must fail the independent native source check.
     assert_eq!(
-        artifact::source_fingerprint_v2::<C>(&malformed, key.binding(), read, None).err(),
-        Some(artifact::Error::Encoding)
+        artifact::source_fingerprint_v2::<C>(&changed_copy, key.binding(), read, None).unwrap(),
+        expected
+    );
+    assert_eq!(
+        ProvingKey::<C>::from_artifact_v2(&changed_copy, key.binding(), &params, &source, read)
+            .err(),
+        Some(artifact::Error::Source)
+    );
+    let mut changed_digest = original.clone();
+    changed_digest[source_digest..].fill(0xff);
+    assert_ne!(
+        artifact::source_fingerprint_v2::<C>(&changed_digest, key.binding(), read, None).unwrap(),
+        expected
+    );
+    assert_eq!(
+        ProvingKey::<C>::from_artifact_v2(&changed_digest, key.binding(), &params, &source, read)
+            .err(),
+        Some(artifact::Error::Source)
+    );
+    // A source hash rebound to a different real circuit still cannot replace the
+    // signed VK. Every recreated column must independently match its commitment.
+    let changed_source = Source {
+        fixed: C::ScalarExt::from(8),
+        ..source.clone()
+    };
+    let changed_key = keygen_pk_v2(&params, &changed_source, &config).unwrap();
+    assert_eq!(changed_key.binding(), key.binding());
+    let changed_original = changed_key.artifact_bytes_v2().unwrap();
+    let mut rebound = original.clone();
+    rebound[source_digest - 32..].copy_from_slice(&changed_original[source_digest - 32..]);
+    assert_eq!(
+        ProvingKey::<C>::from_artifact_v2(&rebound, key.binding(), &params, &changed_source, read)
+            .err(),
+        Some(artifact::Error::Commitment)
     );
     let mut changed = original.clone();
     changed[vk_point..vk_point + 32].fill(0);

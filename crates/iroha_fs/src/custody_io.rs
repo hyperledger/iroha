@@ -15,6 +15,8 @@ pub enum CustodyEntryKind {
 impl PrivateDirectory {
     /// Create an exclusive private writer relative to retained directory custody.
     /// The caller owns write/sync/publication ordering and retains this file until publication.
+    /// Creation alone is not durable: sync the completed file before publishing it,
+    /// then sync its directory. Flushing an empty staging file is unnecessary.
     ///
     /// # Errors
     /// Existing names, unsafe custody, or a genuine native creation error.
@@ -22,7 +24,7 @@ impl PrivateDirectory {
         Ok(RetainedFile {
             inner: self
                 .inner
-                .open_retained(checked_name(name.as_ref())?, true, true)?,
+                .create_custody_writer(checked_name(name.as_ref())?)?,
         })
     }
     /// Rename one private file only while its current name identifies `expected`.
@@ -89,6 +91,79 @@ impl PrivateDirectory {
 mod tests {
     use super::*;
     use std::io::Write as _;
+
+    #[test]
+    fn caller_ordered_writer_publishes_exact_bytes_and_consumes_publication_authority() {
+        let temporary = tempfile::tempdir().expect("temporary");
+        let path = temporary.path().join("custody");
+        let root = PrivateDirectory::open_or_create(&path).expect("private root");
+        let mut staged = root
+            .create_custody_writer("stage")
+            .expect("exclusive stage");
+        let original = staged.identity().expect("original identity");
+        staged
+            .file_mut()
+            .write_all(b"complete journal")
+            .expect("write");
+        staged.file().sync_all().expect("completed file sync");
+        staged
+            .rename_custody_file("stage", "record", PublishMode::CreateNew)
+            .expect("publish exact original");
+        root.sync().expect("publication directory sync");
+        assert_eq!(staged.identity().expect("published identity"), original);
+        assert!(
+            staged
+                .rename_custody_file("record", "second", PublishMode::CreateNew)
+                .is_err()
+        );
+        assert!(staged.remove_custody_file("record").is_err());
+        drop(root);
+
+        let reopened = PrivateDirectory::open_or_create(&path).expect("reopen");
+        assert_eq!(
+            reopened.read("record", 64).unwrap().as_slice(),
+            b"complete journal"
+        );
+        assert_eq!(
+            reopened.custody_entry_kind("stage").unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            reopened.custody_entry_kind("second").unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+    }
+
+    #[test]
+    fn caller_ordered_writer_refuses_replaced_staging_name_without_touching_replacement() {
+        let temporary = tempfile::tempdir().expect("temporary");
+        let root = PrivateDirectory::open_or_create(temporary.path().join("custody"))
+            .expect("private root");
+        let mut original = root.create_custody_writer("stage").expect("original");
+        original.file_mut().write_all(b"original").expect("write");
+        original.file().sync_all().expect("sync original");
+        std::fs::rename(root.path().join("stage"), root.path().join("saved"))
+            .expect("move original name");
+        let mut replacement = root.create_custody_writer("stage").expect("replacement");
+        replacement
+            .file_mut()
+            .write_all(b"replacement")
+            .expect("write replacement");
+        replacement.file().sync_all().expect("sync replacement");
+        assert!(
+            original
+                .rename_custody_file("stage", "record", PublishMode::CreateNew)
+                .is_err()
+        );
+        assert!(original.remove_custody_file("stage").is_err());
+        assert_eq!(root.read("stage", 64).unwrap().as_slice(), b"replacement");
+        assert_eq!(root.read("saved", 64).unwrap().as_slice(), b"original");
+        assert_eq!(
+            root.custody_entry_kind("record").unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+    }
+
     #[test]
     fn staged_publication_removal_and_space_preserve_descriptor_identity() {
         let temporary = tempfile::tempdir().expect("temporary");

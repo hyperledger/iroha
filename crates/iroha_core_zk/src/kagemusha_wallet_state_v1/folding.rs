@@ -74,6 +74,19 @@ impl LineageCache {
 }
 
 impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
+    /// Inspect the authenticated cursor before a bounded engineering continuation.
+    /// This does not verify a checkpoint or grant permission to skip native restoration.
+    #[cfg(test)]
+    pub(crate) fn fold_checkpoint_cursor_for_test(&mut self) -> Result<(u128, u32), Error> {
+        let (_, manifest) = self.sync_manifest()?;
+        let sequence = manifest.folded.map_or(Ok(0), |sequence| {
+            sequence
+                .checked_add(1)
+                .ok_or(Error::Invalid("sequence overflow"))
+        })?;
+        Ok((sequence, manifest.checkpoint_count))
+    }
+
     fn fold_seed(
         &mut self,
         manifest: &manifest::Manifest,

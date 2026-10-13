@@ -12,10 +12,11 @@ use iroha_data_model::{
     isi::{InstructionBox, Log},
     transaction::TransactionBuilder,
 };
+use iroha_executor_data_model::isi::multisig::MultisigProposalId;
 use iroha_model_base::metadata::Metadata;
 use std::time::Duration;
 
-/// Instructions, metadata and their canonical proposal identity validated together.
+/// Instructions, metadata and their canonical content commitment validated together.
 pub(super) struct ProposalIntent {
     pub(super) instructions: Vec<InstructionBox>,
     pub(super) metadata: Metadata,
@@ -132,14 +133,20 @@ fn validate_unsigned_instructions(
         .expect("creation time was matched to the decoded payload above");
     let propose_instruction = InstructionBox::from(
         iroha_executor_data_model::isi::multisig::MultisigPropose::new(
-            response.resolved_multisig_account_id.clone(),
+            request.multisig_account_id.clone(),
+            request.proposal_nonce,
             proposal_instructions,
             None,
         ),
     );
     let approve_instruction = InstructionBox::from(
         iroha_executor_data_model::isi::multisig::MultisigApprove::new(
-            response.resolved_multisig_account_id.clone(),
+            request.multisig_account_id.clone(),
+            MultisigProposalId::derive(
+                &network_id,
+                &request.multisig_account_id,
+                &request.proposal_nonce,
+            ),
             proposal_hash,
         ),
     );
@@ -178,11 +185,7 @@ pub(super) fn validate_response(
     if !response.ok {
         return Err(eyre!("multisig response.ok must be true"));
     }
-    if request
-        .multisig_account_id
-        .as_ref()
-        .is_some_and(|expected| expected != &response.resolved_multisig_account_id)
-    {
+    if request.multisig_account_id != response.resolved_multisig_account_id {
         return Err(eyre!(
             "multisig response resolved account does not match the requested account"
         ));
@@ -217,10 +220,6 @@ pub(super) fn validate_response(
         ));
     }
     for (field, value) in [
-        (
-            "multisig response.instructions_hash",
-            &response.instructions_hash,
-        ),
         ("multisig response.tx_hash_hex", &response.tx_hash_hex),
         (
             "multisig response.executed_tx_hash_hex",
@@ -231,18 +230,17 @@ pub(super) fn validate_response(
             canonicalize_hex32_literal(value, field)?;
         }
     }
-    if response.proposal_id.is_none()
-        || response.proposal_id.as_ref() != response.instructions_hash.as_ref()
+    let intent = canonical_propose_intent(request)?;
+    let expected_proposal_id = MultisigProposalId::derive(
+        &network_id,
+        &request.multisig_account_id,
+        &request.proposal_nonce,
+    );
+    if response.proposal_id != expected_proposal_id.to_string()
+        || response.instructions_hash != hex::encode(intent.hash.as_ref())
     {
         return Err(eyre!(
-            "multisig propose response proposal_id and instructions_hash must be the same canonical proposal hash"
-        ));
-    }
-    let intent = canonical_propose_intent(request)?;
-    let expected_proposal_id = hex::encode(intent.hash.as_ref());
-    if response.proposal_id.as_deref() != Some(expected_proposal_id.as_str()) {
-        return Err(eyre!(
-            "multisig response proposal hash does not match the exact requested instructions and validation-fee marker"
+            "multisig response occurrence or content hash does not match the exact requested intent"
         ));
     }
     match (
@@ -298,8 +296,11 @@ mod tests {
 
     fn request() -> MultisigProposeRequest {
         MultisigProposeRequest {
-            multisig_account_id: Some(iroha_test_samples::ALICE_ID.clone()),
-            multisig_account_alias: None,
+            proposal_nonce: iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new(
+                [7; 32],
+            )
+            .unwrap(),
+            multisig_account_id: iroha_test_samples::ALICE_ID.clone(),
             signer_account_id: iroha_test_samples::BOB_ID.clone(),
             public_key_hex: None,
             signature_b64: None,
@@ -353,6 +354,28 @@ mod tests {
                 .push(Log::new(level, format!("{RETAIL_ASSESSMENT_MARKER_PREFIX}00")).into());
             assert!(canonical_propose_intent(&request).is_err());
         }
+    }
+
+    #[test]
+    fn proposal_request_requires_independently_selected_concrete_account() {
+        let canonical = norito::json::to_value(&request()).unwrap();
+        let mut missing = canonical.clone();
+        missing
+            .as_object_mut()
+            .unwrap()
+            .remove("multisig_account_id");
+        assert!(norito::json::from_value::<MultisigProposeRequest>(missing.clone()).is_err());
+        missing.as_object_mut().unwrap().insert(
+            "multisig_account_alias".to_owned(),
+            norito::json::Value::from("council@bank.universal"),
+        );
+        assert!(norito::json::from_value::<MultisigProposeRequest>(missing).is_err());
+        let mut ambiguous = canonical;
+        ambiguous.as_object_mut().unwrap().insert(
+            "multisig_account_alias".to_owned(),
+            norito::json::Value::from("council@bank.universal"),
+        );
+        assert!(norito::json::from_value::<MultisigProposeRequest>(ambiguous).is_err());
     }
 
     #[test]

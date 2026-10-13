@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import base64
 import binascii
-from binascii import crc_hqx
-from dataclasses import dataclass
 import json
 import re
+from binascii import crc_hqx
+from dataclasses import dataclass
 from typing import Any, Mapping
+
 from ._public_key_multihash import decode_canonical_public_key_multihash
 from .bls_public_key import decode_bls_normal_peer_id
 

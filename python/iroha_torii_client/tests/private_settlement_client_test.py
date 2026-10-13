@@ -410,6 +410,11 @@ def test_auditor_capsule_attestation_rejects_substitution_and_type_confusion() -
         candidate["responder_attestation"]["body"][field] = replacement
         candidates.append(candidate)
 
+    for status in (None, [], {}, True, "unknown"):
+        candidate = copy.deepcopy(valid)
+        candidate["lifecycle"] = {"status": status, "value": None}
+        candidates.append(candidate)
+
     wrong_signature = copy.deepcopy(valid)
     wrong_signature["responder_attestation"]["signature"] = "AQ=="
     candidates.append(wrong_signature)
@@ -489,6 +494,11 @@ def test_approval_acknowledgement_binds_request_and_rejects_attestation_substitu
     for field, replacement in body_mutations:
         candidate = copy.deepcopy(valid)
         candidate["responder_attestation"]["body"][field] = replacement
+        candidates.append(candidate)
+
+    for status in (None, [], {}, True, "unknown"):
+        candidate = copy.deepcopy(valid)
+        candidate["lifecycle"] = {"status": status, "value": None}
         candidates.append(candidate)
 
     wrong_signature = copy.deepcopy(valid)

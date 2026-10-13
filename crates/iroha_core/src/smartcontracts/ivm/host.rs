@@ -1049,7 +1049,7 @@ fn execute_query_on_state_with_count_mode<R: StateReadOnly>(
         .map_err(map_query_validation_error)?;
     let (response, execution_stats) = validated
         .execute_ephemeral_with_stats(state.query_handle(), state, authority, budget)
-        .map_err(|err| map_query_execution_error(err))?;
+        .map_err(map_query_execution_error)?;
     Ok(QueryExecutionResult {
         response,
         processed_items: execution_stats.processed_items(),
@@ -7187,7 +7187,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             }
             let instr =
                 InstructionBox::from(UnregisterBox::from(Unregister::trigger(trigger_id.clone())));
-            return Ok(self.queue_instruction(instr)?);
+            return self.queue_instruction(instr);
         }
         let charge_asset_def = context.charge_asset_def.clone();
         let billing = plan.billing;
@@ -7505,7 +7505,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             subscription_json,
         );
         let instr = InstructionBox::from(SetKeyValueBox::from(isi));
-        Ok(self.queue_instruction(instr)?)
+        self.queue_instruction(instr)
     }
     fn subscription_context_for_trigger<S: StateReadOnly>(
         state: &S,
@@ -8749,7 +8749,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             return Err(ivm::VMError::DecodeError);
         }
         let instr = InstructionBox::from(batch);
-        Ok(self.queue_instruction(instr)?)
+        self.queue_instruction(instr)
     }
     fn handle_axt_begin(&mut self, vm: &mut IVM) -> Result<u64, ivm::VMError> {
         self.clear_axt_reject();
@@ -14607,6 +14607,10 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
                 vec![InstructionBox::from(
                     iroha_executor_data_model::isi::multisig::MultisigPropose::new(
                         authority.clone(),
+                        iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new(
+                            [0x61; 32],
+                        )
+                        .unwrap(),
                         vec![record()],
                         None,
                     ),

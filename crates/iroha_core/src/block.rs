@@ -6478,6 +6478,19 @@ pub(crate) mod valid {
                     Self::execution_context_error(reason)
                 }
             })?;
+            crate::validation_fee::policy_history::process(state_block).map_err(
+                |error| match error {
+                    crate::state::ExecutionOutputAttemptError::Storage(error) => {
+                        BlockValidationError::StateStorageAdmission(error)
+                    }
+                    crate::state::ExecutionOutputAttemptError::Deferred(reason) => {
+                        BlockValidationError::ExecutionDeferred(reason)
+                    }
+                    crate::state::ExecutionOutputAttemptError::Owner(reason) => {
+                        Self::execution_context_error(reason)
+                    }
+                },
+            )?;
             crate::validation_fee_rewards::process_reward_entitlements(state_block).map_err(
                 |error| match error {
                     crate::state::ExecutionOutputAttemptError::Storage(error) => {

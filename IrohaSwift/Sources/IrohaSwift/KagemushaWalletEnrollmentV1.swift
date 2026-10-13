@@ -277,8 +277,9 @@ public final class KagemushaWalletEnrollmentV1: KagemushaWalletCleanupResourceV1
     return KagemushaWalletInstalledRuntimeV1.adoptEnrolled(try loadRuntime())
   }
   /// Permanently abandon the unused enrollment, for example after an E1 refusal or an
-  /// interruption that cannot resume. Native refuses once Bootstrap is selected. Unavailable or
-  /// uncertain storage is a thrown error that wrote nothing, never the local form.
+  /// interruption that cannot resume. Before permit admission, Native durably cancels the exact
+  /// retained Client and refuses late permits. Native refuses once Bootstrap is selected.
+  /// Unavailable or uncertain storage is a thrown error, never a completed local abandonment.
   public func abandon() throws -> KagemushaWalletEnrollmentAbandonmentV1 {
     lock.lock(); defer { lock.unlock() }
     return try Self.abandonment(call(KagemushaWalletEnrollmentInputV1(10)))

@@ -90,11 +90,8 @@ impl<C: PastaCurve> VerifierPlan<C> {
         }
         let protocol = Protocol::new(d)?;
         let dummy = params
-            .params()
-            .g()
-            .iter()
-            .fold(C::identity(), |sum, point| sum + point.to_curve())
-            .to_affine();
+            .generator_prefix_sum(params.k())
+            .map_err(|_| VerifyError::ParamsMismatch)?;
         if bool::from(dummy.is_identity()) {
             return Err(VerifyError::ParamsMismatch);
         }

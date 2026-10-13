@@ -72,6 +72,7 @@ mod app_api;
 mod authority_originals;
 mod bridge_attestation;
 mod canonical_history;
+mod certified_originals_auth;
 mod finality_interval;
 mod game;
 mod history_producer;
@@ -16736,6 +16737,10 @@ fn target_scope_singular_query(
         SingularQueryBox::FindAssetDefinitionById(query) => {
             target_asset_definition_scope(&query.id)
         }
+        SingularQueryBox::FindAssetDefinitionDirectHome(query) => {
+            target_asset_definition_scope(query.asset_definition_id())
+        }
+        SingularQueryBox::FindParameters(_) => Some(SignedQueryScope::PublicControlPlane),
         SingularQueryBox::FindAccountById(query) => {
             Some(SignedQueryScope::TargetAccount(query.account_id().clone()))
         }
@@ -16891,6 +16896,9 @@ fn target_scope_singular_query_for_app(
         }
         SingularQueryBox::FindAssetDefinitionById(query) => {
             resolve_asset_definition_scope(app, &query.id)
+        }
+        SingularQueryBox::FindAssetDefinitionDirectHome(query) => {
+            resolve_asset_definition_scope(app, query.asset_definition_id())
         }
         _ => target_scope_singular_query(query),
     }
@@ -25981,11 +25989,12 @@ async fn finite_finality_response(
     );
     rate_limit_requests_with_cost(&app, &key, FINALITY_HEAVY_QUERY_RATE_COST).await?;
     let mut admission = acquire_query_admission(app.as_ref(), true).await?;
-    // Both bodyless local routes acquire the existing complete query owner when
-    // no admitted outer collection supplies it. Response custody alone cannot
-    // grant producer authority, and a present invalid owner is never replaced.
+    history_producer::HistoryProducerOwner::validate_finality_inheritance(&admission)?;
+    // These local GETs have no signed-query body. Account for that only when
+    // acquiring their original reservation; an existing outer request keeps its
+    // complete original geometry and is never replaced or enlarged.
     if admission._fanout_memory.is_none() {
-        admission._fanout_memory = Some(match try_acquire_new_query_fanout_memory(&app) {
+        admission._fanout_memory = Some(match try_acquire_bodyless_finality_memory(&app) {
             Ok(reservation) => reservation,
             Err(response) => return Ok(response),
         });

@@ -228,6 +228,7 @@ impl Run for Command {
                     offered.network_id == *context.config().network_id.as_bytes(),
                     "candidate names another configured network"
                 );
+                let original = origin::authenticate_origin(context, &client, &args.origin)?;
                 let flow = flows::open(
                     context,
                     iroha_sccp_wallet::journal::SccpFlowKindV1::EvidenceSubmission,
@@ -236,6 +237,7 @@ impl Run for Command {
                 )?;
                 if flows::recover_taira(
                     context,
+                    &original,
                     &flow,
                     iroha_sccp_wallet::flow::SccpFlowActionV1::RecordEvidence,
                 )? {
@@ -251,6 +253,7 @@ impl Run for Command {
                 let source = flows::evidence("sccp.native_evidence", &checked)?;
                 flows::taira(
                     context,
+                    &original,
                     &flow,
                     iroha_sccp_wallet::flow::SccpFlowActionV1::RecordEvidence,
                     vec![checked.evidence.into()],

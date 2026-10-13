@@ -9,6 +9,7 @@ mod game_instructions;
 mod json_u64;
 mod kaigi;
 mod lifecycle_instructions;
+mod log_instruction;
 mod manifest;
 mod plain_governance;
 mod retail_daily_limit_instructions;
@@ -1318,6 +1319,9 @@ where
 /// Returns an error when the value is not an instruction object, names an unsupported
 /// instruction, or violates the strict contract of the named instruction.
 pub fn value_to_instruction(value: json::Value) -> CodecResult<InstructionBox> {
+    if let Some(instruction) = log_instruction::from_json(&value) {
+        return instruction;
+    }
     // This standalone registration has one exact envelope and a full-width native dataspace
     // field. Refuse additional instruction keys before any other parser can consume them.
     if let json::Value::Object(fields) = &value
@@ -3592,6 +3596,9 @@ fn exact_json_object_fields(
 /// values cannot be serialized or rendered canonically, or when it violates an
 /// invariant its JSON contract requires.
 pub fn instruction_to_json_value(instruction: &InstructionBox) -> CodecResult<json::Value> {
+    if let Some(value) = log_instruction::to_json(instruction) {
+        return value;
+    }
     if let Some(value) = plain_governance::to_json(instruction) {
         return value;
     }
@@ -5123,3 +5130,6 @@ mod tests;
 
 mod multisig_contract;
 pub use multisig_contract::build_canonical_multisig_contract_call_json;
+
+mod multisig_occurrence;
+pub use multisig_occurrence::derive_multisig_proposal_id_json;

@@ -186,6 +186,10 @@ fn signed_bundle_uses_original_overlay_and_checks_each_advance_cas() {
 
 #[test]
 fn exhausted_bundle_admission_preserves_original_deferral_and_retry() {
+    // Retain this fixture's original EBR generation before any setup writes retire
+    // cells. Concurrent tests may otherwise reclaim those unrelated setup owners
+    // between our two exact measurements of the admission attempt's original pool.
+    let _fixture_retirement_pin = crossbeam_epoch::pin();
     let Fixture {
         chain,
         key,

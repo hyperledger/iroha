@@ -93,6 +93,7 @@ fn record_through_signed_multisig(block: &mut crate::state::StateBlock<'_>, sign
     block.admit_fastpq_source_for_testing(proposal_call);
     block.admit_fastpq_source_for_testing(approval_call);
     let mut tx = block.transaction_for_callback_testing();
+    let network_id = tx.network_id;
     let multisig = install_multisig_sender(
         &mut tx,
         signer1,
@@ -102,7 +103,12 @@ fn record_through_signed_multisig(block: &mut crate::state::StateBlock<'_>, sign
 
     let instructions: Vec<InstructionBox> = vec![outbound_record(2, [0x22; 20]).into()];
     let instructions_hash = HashOf::new(&instructions);
-    let proposal = MultisigPropose::new(multisig.clone(), instructions.clone(), None);
+    let proposal = MultisigPropose::new(
+        multisig.clone(),
+        test_nonce(&HashOf::new(&instructions.clone())),
+        instructions.clone(),
+        None,
+    );
     // A trigger body or contract output may not create the proposal.
     let opaque_proposal: InstructionBox = proposal.clone().into();
     assert_opaque_record_rejection(
@@ -116,7 +122,11 @@ fn record_through_signed_multisig(block: &mut crate::state::StateBlock<'_>, sign
     execute_propose(&mut tx, signer1, &proposal).expect("signed proposal");
     assert!(outbound_sender(&*tx.world, 0).is_none());
     // An opaque approval resolves the live proposal and is refused.
-    let approval = MultisigApprove::new(multisig.clone(), instructions_hash);
+    let approval = MultisigApprove::new(
+        multisig.clone(),
+        test_id(&network_id, &multisig.clone(), &instructions_hash),
+        instructions_hash,
+    );
     let opaque_approval: InstructionBox = approval.clone().into();
     assert_opaque_record_rejection(
         crate::deferred_authority::reject_opaque_instruction_authority(
@@ -138,6 +148,7 @@ fn signed_transactions_record_through_multisig_end_to_end() {
         2,
         2_000,
         |block, authority, _, _| {
+            let network_id = block.network_id;
             let key_pair = KeyPair::from_seed(vec![55; 32], Algorithm::Ed25519);
             assert_eq!(*authority, new_account_id(&key_pair));
             // The signed authority alone carries quorum weight, so its own signed
@@ -155,8 +166,19 @@ fn signed_transactions_record_through_multisig_end_to_end() {
             };
             let instructions: Vec<InstructionBox> = vec![outbound_record(2, [0x22; 20]).into()];
             let steps: [InstructionBox; 2] = [
-                MultisigPropose::new(multisig.clone(), instructions.clone(), None).into(),
-                MultisigApprove::new(multisig.clone(), HashOf::new(&instructions)).into(),
+                MultisigPropose::new(
+                    multisig.clone(),
+                    test_nonce(&HashOf::new(&instructions.clone())),
+                    instructions.clone(),
+                    None,
+                )
+                .into(),
+                MultisigApprove::new(
+                    multisig.clone(),
+                    test_id(&network_id, &multisig.clone(), &HashOf::new(&instructions)),
+                    HashOf::new(&instructions),
+                )
+                .into(),
             ];
             for (step, instruction) in steps.into_iter().enumerate() {
                 let signed = iroha_data_model::transaction::TransactionBuilder::new(

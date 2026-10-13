@@ -1,7 +1,7 @@
 """Shared nominal error, Unit, and cursor schema fixtures for the Python SDK."""
 
-from copy import deepcopy
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -11,7 +11,6 @@ from iroha_python import (
     ContractManifest,
     EntrypointValueTypeV1,
 )
-
 
 FIXTURE = Path(__file__).resolve().parents[3] / "fixtures/kotodama/nominal_errors_v1.json"
 
@@ -99,7 +98,7 @@ def test_state_only_nominal_errors_require_catalog_membership(type_name):
     value["entrypoints"] = []
     ContractManifest.from_payload(value)
     value["states"] = [{"name": "status", "type_name": type_name}]
-    with pytest.raises(TypeError, match="error_types catalog"):
+    with pytest.raises(TypeError, match="state nominal identity is not declared in an enum or error catalog"):
         ContractManifest.from_payload(value)
 
 
@@ -107,7 +106,7 @@ def test_state_only_nominal_errors_cannot_omit_the_catalog():
     value = payload()
     value["entrypoints"] = []
     value.pop("error_types")
-    with pytest.raises(TypeError, match="error_types catalog"):
+    with pytest.raises(TypeError, match="state nominal identity is not declared in an enum or error catalog"):
         ContractManifest.from_payload(value)
 
 
@@ -157,7 +156,7 @@ def test_exported_structs_retain_locked_identity_in_public_and_durable_schemas()
     value = json.loads(fixture)["manifest"]
     value["entrypoints"] = []
     value["error_types"] = []
-    with pytest.raises(TypeError, match="error_types catalog"):
+    with pytest.raises(TypeError, match="state nominal identity is not declared in an enum or error catalog"):
         ContractManifest.from_payload(value)
 
 

@@ -736,6 +736,32 @@ fn certified_direct_home_requires_exact_row_current_incarnation_and_domainless_d
         world
             .verify_asset_definition_direct_home(&definition, &row, home)
             .unwrap();
+        // The native definition query projects aliases from the separate binding table.
+        // Direct-home verification authenticates the stored definition, not that alias.
+        let mut queried_definition = definition.clone();
+        queried_definition.alias = Some("test#issuer".parse().unwrap());
+        assert!(
+            world
+                .verify_table_value("world.asset_definitions", &asset, &queried_definition)
+                .is_err()
+        );
+        world
+            .verify_asset_definition_direct_home(&queried_definition, &row, home)
+            .unwrap();
+        // Canonical asset fields still have to match exactly, even with a projected alias.
+        queried_definition.name = String::from("tampered");
+        assert!(
+            world
+                .verify_asset_definition_direct_home(&queried_definition, &row, home)
+                .is_err()
+        );
+        // Inline aliases are not a supported canonical stored layout.
+        queried_definition.name = definition.name.clone();
+        assert!(
+            make_world(&queried_definition, Some(&row), incarnation)
+                .verify_asset_definition_direct_home(&queried_definition, &row, home)
+                .is_err()
+        );
         // Wrong expected dataspace, including the reserved universal dataspace.
         assert!(
             world

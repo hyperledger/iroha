@@ -1,0 +1,12 @@
+{
+  "command": [
+    "cargo",
+    "metadata",
+    "--manifest-path",
+    "/private/tmp/parliament-fatal-slot/worker-src-1/Cargo.toml",
+    "--format-version",
+    "1"
+  ],
+  "exit": 0,
+  "elapsed_seconds": 0.2081335831899196
+}

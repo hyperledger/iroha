@@ -422,7 +422,8 @@ impl ArtifactSet {
             let pinned = match params.get(&k) {
                 Some(p) => Arc::clone(p),
                 None => {
-                    let p = Arc::new(PinnedParams::<Eq>::derive(k).map_err(|_| Error::Profile)?);
+                    let p =
+                        Arc::new(PinnedParams::<Eq>::for_domain(k).map_err(|_| Error::Profile)?);
                     params.insert(k, Arc::clone(&p));
                     p
                 }
@@ -439,9 +440,9 @@ impl ArtifactSet {
         }
         let vesta = match params.remove(&16) {
             Some(p) => p,
-            None => Arc::new(PinnedParams::<Eq>::derive(16).map_err(|_| Error::Profile)?),
+            None => Arc::new(PinnedParams::<Eq>::for_domain(16).map_err(|_| Error::Profile)?),
         };
-        let pallas = Arc::new(PinnedParams::<Ep>::derive(16).map_err(|_| Error::Profile)?);
+        let pallas = Arc::new(PinnedParams::<Ep>::for_domain(16).map_err(|_| Error::Profile)?);
         Ok(Self {
             scheme,
             manifest_digest: expected_manifest,

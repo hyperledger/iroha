@@ -11,6 +11,9 @@ from typing import Any
 
 import pytest
 import requests
+from iroha_torii_client.client import GovernanceTally as LowGovernanceTally
+from iroha_torii_client.client import ToriiClient as LowToriiClient
+from iroha_torii_client.governance_tally import GOVERNANCE_TALLY_RESPONSE_MAX_BYTES
 from requests.structures import CaseInsensitiveDict
 
 from iroha_python.address import AccountAddress
@@ -23,9 +26,6 @@ from iroha_python.client import (
 )
 from iroha_python.crypto import Ed25519KeyPair, NetworkId
 from iroha_python.sorafs import SorafsAliasPolicy
-from iroha_torii_client.client import GovernanceTally as LowGovernanceTally
-from iroha_torii_client.client import ToriiClient as LowToriiClient
-from iroha_torii_client.governance_tally import GOVERNANCE_TALLY_RESPONSE_MAX_BYTES
 
 _FIXTURES = Path(__file__).resolve().parents[3] / "fixtures/governance/plain_v1"
 _CASES = json.loads((_FIXTURES / "cases.json").read_bytes())

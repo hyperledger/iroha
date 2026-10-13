@@ -427,6 +427,7 @@ fn multisig_contract_trigger_proposal_routes_by_immutable_contract_dataspace() {
         submitter_keypair.private_key(),
         vec![InstructionBox::from(MultisigPropose::new(
             multisig_id.clone(),
+            test_nonce(&HashOf::new(&proposed)),
             proposed,
             None,
         ))],
@@ -496,8 +497,17 @@ fn multisig_contract_trigger_same_transaction_approval_keeps_contract_route() {
         let proposed = proposed.clone();
         let instructions_hash = HashOf::new(&proposed);
         vec![
-            InstructionBox::from(MultisigPropose::new(multisig_id.clone(), proposed, None)),
-            InstructionBox::from(MultisigApprove::new(multisig_id.clone(), instructions_hash)),
+            InstructionBox::from(MultisigPropose::new(
+                multisig_id.clone(),
+                test_nonce(&HashOf::new(&proposed)),
+                proposed,
+                None,
+            )),
+            InstructionBox::from(MultisigApprove::new(
+                multisig_id.clone().clone(),
+                test_id(&multisig_id.clone(), &instructions_hash),
+                instructions_hash,
+            )),
         ]
     };
     let executables = [
@@ -591,7 +601,8 @@ fn multisig_contract_trigger_later_approval_reads_persisted_contract_route() {
         &submitter_id,
         submitter_keypair.private_key(),
         vec![InstructionBox::from(MultisigApprove::new(
-            multisig_id.clone(),
+            multisig_id.clone().clone(),
+            test_id(&multisig_id.clone(), &instructions_hash),
             instructions_hash,
         ))],
     );
@@ -607,16 +618,19 @@ fn multisig_contract_trigger_later_approval_reads_persisted_contract_route() {
     );
     install_router_lane_catalog(&mut state, lane_catalog);
     let proposal_state = MultisigProposalState::new(
-        multisig_id.clone(),
+        super::super::queue_test_network_id(),
+        multisig_id.clone().clone(),
+        test_nonce(&instructions_hash),
+        test_id(&multisig_id.clone(), &instructions_hash),
         instructions_hash,
+        None,
         proposed,
         1,
         10_000,
         BTreeSet::new(),
-        None,
     );
     state.world.smart_contract_state_mut_for_testing().insert(
-        multisig_proposal_state_key(&multisig_id, &instructions_hash),
+        multisig_proposal_state_key(&multisig_id, &test_id(&multisig_id, &instructions_hash)),
         norito::to_bytes(&proposal_state).expect("proposal state should encode"),
     );
     let expected = RoutingPlan::single(RoutingDecision::new(LaneId::new(4), contract_dataspace));
@@ -701,6 +715,7 @@ fn non_contract_trigger_keeps_multisig_account_fallback() {
         submitter_keypair.private_key(),
         vec![InstructionBox::from(MultisigPropose::new(
             multisig_id.clone(),
+            test_nonce(&HashOf::new(&proposed)),
             proposed,
             None,
         ))],
@@ -728,6 +743,7 @@ fn multisig_propose_routes_by_embedded_instruction_dataspace() {
         submitter_keypair.private_key(),
         vec![InstructionBox::from(MultisigPropose::new(
             multisig_id,
+            test_nonce(&HashOf::new(&proposed)),
             proposed,
             None,
         ))],
@@ -785,6 +801,7 @@ fn multisig_propose_plan_prefers_embedded_dataspace_over_multiscope_account() {
         submitter_keypair.private_key(),
         vec![InstructionBox::from(MultisigPropose::new(
             multisig_id.clone(),
+            test_nonce(&HashOf::new(&proposed)),
             proposed,
             None,
         ))],
@@ -828,8 +845,17 @@ fn multisig_same_transaction_approve_uses_sibling_proposal_route() {
         &submitter_id,
         submitter_keypair.private_key(),
         vec![
-            InstructionBox::from(MultisigPropose::new(multisig_id.clone(), proposed, None)),
-            InstructionBox::from(MultisigApprove::new(multisig_id.clone(), proposal_hash)),
+            InstructionBox::from(MultisigPropose::new(
+                multisig_id.clone(),
+                test_nonce(&HashOf::new(&proposed)),
+                proposed,
+                None,
+            )),
+            InstructionBox::from(MultisigApprove::new(
+                multisig_id.clone().clone(),
+                test_id(&multisig_id.clone(), &proposal_hash),
+                proposal_hash,
+            )),
         ],
     );
     let mut scope_entry = crate::nexus::space_directory::AccountScopeDirectoryEntry::default();
@@ -863,7 +889,12 @@ fn custom_multisig_propose_defers_and_routes_by_embedded_instruction_dataspace()
         submitter_keypair.private_key(),
         vec![InstructionBox::from(CustomInstruction::new(
             iroha_primitives::json::Json::new(MultisigInstructionBox::Propose(
-                MultisigPropose::new(multisig_id, proposed, None),
+                MultisigPropose::new(
+                    multisig_id,
+                    test_nonce(&HashOf::new(&proposed)),
+                    proposed,
+                    None,
+                ),
             )),
         ))],
     );
@@ -901,7 +932,8 @@ fn multisig_approve_routes_by_multisig_account_scope() {
         &submitter_id,
         submitter_keypair.private_key(),
         vec![InstructionBox::from(MultisigApprove::new(
-            multisig_id.clone(),
+            multisig_id.clone().clone(),
+            test_id(&multisig_id.clone(), &instructions_hash),
             instructions_hash,
         ))],
     );
@@ -942,7 +974,11 @@ fn custom_multisig_approve_defers_and_routes_by_multisig_account_scope() {
         submitter_keypair.private_key(),
         vec![InstructionBox::from(CustomInstruction::new(
             iroha_primitives::json::Json::new(MultisigInstructionBox::Approve(
-                MultisigApprove::new(multisig_id.clone(), instructions_hash),
+                MultisigApprove::new(
+                    multisig_id.clone().clone(),
+                    test_id(&multisig_id.clone(), &instructions_hash),
+                    instructions_hash,
+                ),
             )),
         ))],
     );
@@ -982,23 +1018,27 @@ fn multisig_approve_routes_by_persisted_proposal_when_scope_is_missing() {
         &submitter_id,
         submitter_keypair.private_key(),
         vec![InstructionBox::from(MultisigApprove::new(
-            multisig_id.clone(),
+            multisig_id.clone().clone(),
+            test_id(&multisig_id.clone(), &instructions_hash),
             instructions_hash,
         ))],
     );
     let mut state = state_with_account_scope_entries(&[], catalog);
     install_router_lane_catalog(&mut state, lane_catalog);
     let proposal_state = MultisigProposalState::new(
-        multisig_id.clone(),
+        super::super::queue_test_network_id(),
+        multisig_id.clone().clone(),
+        test_nonce(&instructions_hash),
+        test_id(&multisig_id.clone(), &instructions_hash),
         instructions_hash,
+        None,
         proposed,
         1,
         10_000,
         BTreeSet::new(),
-        None,
     );
     state.world.smart_contract_state_mut_for_testing().insert(
-        multisig_proposal_state_key(&multisig_id, &instructions_hash),
+        multisig_proposal_state_key(&multisig_id, &test_id(&multisig_id, &instructions_hash)),
         norito::to_bytes(&proposal_state).expect("proposal state should encode"),
     );
     let expected_route = RoutingDecision::new(lane_id, dataspace_id);
@@ -1052,7 +1092,8 @@ fn multisig_approve_rejects_corrupt_proposal_state_with_account_scope() {
         &submitter_id,
         submitter_keypair.private_key(),
         vec![InstructionBox::from(MultisigApprove::new(
-            multisig_id.clone(),
+            multisig_id.clone().clone(),
+            test_id(&multisig_id.clone(), &instructions_hash),
             instructions_hash,
         ))],
     );
@@ -1061,7 +1102,7 @@ fn multisig_approve_rejects_corrupt_proposal_state_with_account_scope() {
     let mut state =
         state_with_account_scope_entries(&[(multisig_id.clone(), scope_entry)], catalog);
     install_router_lane_catalog(&mut state, lane_catalog);
-    let key = multisig_proposal_state_key(&multisig_id, &instructions_hash);
+    let key = multisig_proposal_state_key(&multisig_id, &test_id(&multisig_id, &instructions_hash));
     let corrupt = b"not a multisig proposal state".to_vec();
     state
         .world
@@ -1165,11 +1206,15 @@ fn multisig_approve_rejects_corrupt_proposal_state_with_account_scope() {
         match result {
             Err(RoutingResolveError::InvalidMultisigProposal {
                 account,
-                instructions_hash: rejected_hash,
+                proposal_id: rejected_id,
                 reason,
             }) => {
                 assert_eq!(account, multisig_id, "{entrypoint}");
-                assert_eq!(rejected_hash, instructions_hash, "{entrypoint}");
+                assert_eq!(
+                    rejected_id,
+                    test_id(&multisig_id, &instructions_hash),
+                    "{entrypoint}"
+                );
                 assert!(
                     !reason.is_empty(),
                     "{entrypoint} must retain its rejection reason"
@@ -1220,7 +1265,8 @@ fn multisig_approve_ignores_unrelated_persisted_proposal_hash() {
         &submitter_id,
         submitter_keypair.private_key(),
         vec![InstructionBox::from(MultisigApprove::new(
-            multisig_id.clone(),
+            multisig_id.clone().clone(),
+            test_id(&multisig_id.clone(), &approved_hash),
             approved_hash,
         ))],
     );
@@ -1230,16 +1276,19 @@ fn multisig_approve_ignores_unrelated_persisted_proposal_hash() {
         state_with_account_scope_entries(&[(multisig_id.clone(), scope_entry)], catalog);
     install_router_lane_catalog(&mut state, lane_catalog);
     let stale_state = MultisigProposalState::new(
-        multisig_id.clone(),
+        super::super::queue_test_network_id(),
+        multisig_id.clone().clone(),
+        test_nonce(&stale_hash),
+        test_id(&multisig_id.clone(), &stale_hash),
         stale_hash,
+        None,
         stale_proposed,
         1,
         10_000,
         BTreeSet::new(),
-        None,
     );
     state.world.smart_contract_state_mut_for_testing().insert(
-        multisig_proposal_state_key(&multisig_id, &stale_hash),
+        multisig_proposal_state_key(&multisig_id, &test_id(&multisig_id, &stale_hash)),
         norito::to_bytes(&stale_state).expect("stale proposal state should encode"),
     );
     let expected_route = RoutingDecision::new(account_lane, account_dataspace);
@@ -1283,7 +1332,8 @@ fn multisig_approve_plan_prefers_visible_proposal_over_multiscope_account() {
         &submitter_id,
         submitter_keypair.private_key(),
         vec![InstructionBox::from(MultisigApprove::new(
-            multisig_id.clone(),
+            multisig_id.clone().clone(),
+            test_id(&multisig_id.clone(), &instructions_hash),
             instructions_hash,
         ))],
     );
@@ -1294,16 +1344,19 @@ fn multisig_approve_plan_prefers_visible_proposal_over_multiscope_account() {
         state_with_account_scope_entries(&[(multisig_id.clone(), scope_entry)], catalog);
     install_router_lane_catalog(&mut state, lane_catalog);
     let proposal_state = MultisigProposalState::new(
-        multisig_id.clone(),
+        super::super::queue_test_network_id(),
+        multisig_id.clone().clone(),
+        test_nonce(&instructions_hash),
+        test_id(&multisig_id.clone(), &instructions_hash),
         instructions_hash,
+        None,
         proposed,
         1,
         10_000,
         BTreeSet::new(),
-        None,
     );
     state.world.smart_contract_state_mut_for_testing().insert(
-        multisig_proposal_state_key(&multisig_id, &instructions_hash),
+        multisig_proposal_state_key(&multisig_id, &test_id(&multisig_id, &instructions_hash)),
         norito::to_bytes(&proposal_state).expect("proposal state should encode"),
     );
     let expected_route = RoutingDecision::new(lane_id, dataspace_id);

@@ -1,0 +1,62 @@
+{
+  "broken_links": [],
+  "complete_workspace_certificate": false,
+  "current_status_roadmap_sha256": {
+    "roadmap.md": "a28e0c79a588d571a7d75d45a10f79ceb5a27097612328e034b02bb7f2caebbf",
+    "status.md": "1f792281e924adf2e274ee10e9c54c3dac453f3d9f30153b06d4a72dce908832"
+  },
+  "final_campaign_helper_check_sha256": "170acbffebdae1ef5f6fe91e553c86de4d9d898020c3f9f0e4dfce59de73ba38",
+  "focused_checks_sha256": "891c51b3458820b1b1aa91bf22ed6b4f3b934a2bbe6c27999d7874c36cef60da",
+  "frozen_new_manifests": [
+    {
+      "entries": 36,
+      "path": "docs/validation/parliament_ballot_memory_entry/SHA256SUMS",
+      "sha256": "2eaeb823133a63dd02a823af4e3ec3ed7dd9cc7a61c29da4114b70d73ef0b363"
+    },
+    {
+      "entries": 7,
+      "path": "docs/validation/parliament_ballot_noreturn_frontiers/SHA256SUMS",
+      "sha256": "813a327d0da3c967c402e59acd10c1c422d2a28c1a414cd8ff523f63f2de56d6"
+    },
+    {
+      "entries": 3,
+      "path": "docs/validation/parliament_ballot_hybrid_driver/SHA256SUMS",
+      "sha256": "cafef98be2c9bf77c614a50afda07fc9b881fd93ace250cd173dc8961ca096f5"
+    }
+  ],
+  "local_document_links_checked": 181,
+  "memory_build_source_files": 2019,
+  "memory_campaign_guarded_inputs": 2031,
+  "memory_campaign_mode_pairs": 61,
+  "memory_campaign_observations": 122,
+  "observed_at_utc": "2026-10-13T10:05:13.406680+00:00",
+  "post_campaign_source_changes": {},
+  "prior_entries": 781,
+  "prior_manifest_sha256": "b301e51ea5fde9f9cf3d08dd011b2ff33d1858dc936085d2aaa54a5a559be430",
+  "profile_qualified": false,
+  "schema": "parliament-memory-driver-coherence-v1",
+  "scope_note": "Previous781entries unchanged except five explicitly listed current documents. Frozen experiments retain old identities. The final JSON overflow correction has its own20-test receipt after the earlier51-test interval. Complete runtime/cryptographic qualification remains open.",
+  "scoped_diff_check_exit": 0,
+  "updated_document_entries": {
+    "docs/validation/parliament_ballot_b6.md": {
+      "after": "97f6930267b7fb3133e591457264114d6654e51f548712b225fdc396a0e21547",
+      "before": "60211d3c6e31e4a29c8bca2c4d9279d06964693b5e349fbede864e648b7430d5"
+    },
+    "specs/parliament_ballot_arena_sufficiency.md": {
+      "after": "4a830d49b8135c2f31cef84e1f9e5dc08f95d60c56d03e485cd43992cace27f5",
+      "before": "50f4e36dfe39fdb03ae325f803204b798eb914aa9064153393ff58f3b6b38fe3"
+    },
+    "specs/parliament_ballot_b6_requirement_audit.md": {
+      "after": "6ee21c11868ae608e6c648e462c3986b4367c99916558fcbb66b59351bba2f8f",
+      "before": "345e4eee189e8869fd64a6af7710c61e91839cf6be3475dbab4d2b8c5a891c71"
+    },
+    "specs/parliament_ballot_implementation_goals.md": {
+      "after": "e9ed1d89a46a17d613e4648b5fa1e7805e0b31527908084859d982d9a034b28c",
+      "before": "00b1913f9b0fef57c2e9712decb365c26c34710111db218df9781efb835d07f1"
+    },
+    "specs/parliament_ballot_resource_contract.md": {
+      "after": "f484aab360c0af3806b0eb6c11ef323cb656b89b32a4c968ed844b8351408727",
+      "before": "b537ce661fe97757cfc4ba3cafdd73e41dd64e581bee2c97bdc3c3141495224c"
+    }
+  }
+}

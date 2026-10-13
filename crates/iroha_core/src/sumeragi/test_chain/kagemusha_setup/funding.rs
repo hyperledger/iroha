@@ -210,13 +210,41 @@ fn fund(setup: &mut ExecutedKagemushaSetup, input: &Inputs) {
             pack: input.pack.clone(),
         },
     );
-    let transaction = setup
-        .chain
-        .sign(&key(95), [register.into(), install.into()], 2_999);
+    let transaction = setup.chain.sign(&key(95), [register.into()], 2_999);
     assert_eq!(setup.chain.commit_at(3_000, vec![transaction]), [true]);
+    assert_eq!(
+        setup
+            .chain
+            .committed(3)
+            .block()
+            .external_transactions()
+            .count(),
+        1
+    );
+    // Both H4 routes read the committed H3 registration. Keep the separate
+    // authorities and FIFO execution: Install must complete before Activate.
+    // Load remains at H5, preserving the independently pinned wallet history.
+    let installation = setup.chain.sign(&key(95), [install.into()], 3_998);
     let activate = KagemushaWalletLedgerV1::new(scheme, Action::Activate(input.activation.clone()));
-    let transaction = setup.chain.sign(&key(41), [activate.into()], 3_999);
-    assert_eq!(setup.chain.commit_at(4_000, vec![transaction]), [true]);
+    let activation = setup.chain.sign(&key(41), [activate.into()], 3_999);
+    let expected_order = [
+        installation.hash_as_entrypoint(),
+        activation.hash_as_entrypoint(),
+    ];
+    assert_eq!(
+        setup.chain.commit_at(4_000, vec![installation, activation]),
+        [true, true]
+    );
+    assert_eq!(
+        setup
+            .chain
+            .committed(4)
+            .block()
+            .external_transactions()
+            .map(|transaction| transaction.hash_as_entrypoint())
+            .collect::<Vec<_>>(),
+        expected_order
+    );
     let transaction = setup
         .chain
         .sign(&key(41), [input.load.clone().into()], 4_999);

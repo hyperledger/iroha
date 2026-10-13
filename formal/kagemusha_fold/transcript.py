@@ -19,6 +19,8 @@ SOURCES = frozenset((
     'crates/iroha_pasta/src/curve/mod.rs',
     'crates/iroha_plonk/src/transcript/mod.rs',
     'crates/iroha_plonk/src/transcript/pipa_r.rs',
+    'crates/iroha_plonk/src/pcs/ipa/mod.rs',
+    'crates/iroha_plonk/src/pcs/ipa/generator_prefix.rs',
     'crates/iroha_plonk_recursion/src/accumulation.rs',
     'crates/iroha_plonk_recursion/src/accumulation_circuit.rs',
     'crates/iroha_plonk_recursion/src/transcript.rs',

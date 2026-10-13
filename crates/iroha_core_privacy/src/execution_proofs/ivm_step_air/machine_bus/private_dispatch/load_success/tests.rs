@@ -701,8 +701,8 @@ fn run_native(vm: &mut ivm::IVM) -> DiagnosticExecutionRecorders {
         &recorder.memory_accesses,
     )
     .unwrap();
-    assert_eq!(vm.call_result_word_count(), Ok(1));
-    assert_eq!(vm.public_call_result_word(0), Ok(0));
+    assert_eq!(vm.call_result_word_count().unwrap(), 1);
+    assert_eq!(vm.public_call_result_word(0).unwrap(), 0);
     recorder
 }
 impl Fixture {

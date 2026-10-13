@@ -499,8 +499,8 @@ fn actual_two_sigma_q_proof_verifies() {
         let mut corrupted = original.clone(); corrupted[8] ^= 1;
         assert!(mount(&corrupted, config).is_err());
         let vk_len = u32::from_le_bytes(original[40..44].try_into().unwrap()) as usize;
-        let tables_start = 44 + vk_len + 32;
-        corrupted = original.clone(); corrupted[tables_start..tables_start+32].fill(0xff);
+        let source_digest_start = 44 + vk_len + 32;
+        corrupted = original.clone(); corrupted[source_digest_start..source_digest_start+32].fill(0xff);
         assert!(mount(&corrupted, config).is_err());
         assert!(QSigmaProver::from_original_artifact(
             &source, params.clone(), &[0;32], installed_vk, &original, config,

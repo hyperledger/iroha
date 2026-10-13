@@ -42,6 +42,45 @@ class KagemushaWalletEnrollmentV1Test {
         }
         override fun close(handle: Long): Int {assertEquals(7,handle);closes++;return closeStatus}
     }
+    @Test fun `installed runtime transfer requires exact same owner native acknowledgement and happens once`() {
+        val driver = Driver()
+        val owner = KagemushaWalletEnrollmentV1(7, driver, byteArrayOf(1), Any(), 2)
+        for (reply in listOf(
+            KagemushaWalletCallV1(-5, 17, 23, 0, 0, 0, byteArrayOf()),
+            KagemushaWalletCallV1(20, -1, 0, 7, 0, 0, byteArrayOf()),
+            KagemushaWalletCallV1(26, -1, 0, 8, 0, 0, byteArrayOf()),
+        )) {
+            driver.reply = reply
+            assertFailsWith<KagemushaWalletExceptionV1> { owner.loadInstalledRuntime() }
+            assertFalse(owner.cleanupReleased())
+            assertEquals(0, driver.closes)
+        }
+        driver.reply = KagemushaWalletCallV1(26, -1, 0, 7, 0, 0, byteArrayOf())
+        val installed = owner.loadInstalledRuntime()
+        assertEquals(7, driver.lastSelector)
+        assertTrue(owner.cleanupReleased())
+        assertFalse(installed.cleanupReleased())
+        val calls = driver.calls
+        owner.close()
+        owner.retryCleanup()
+        assertEquals(0, driver.closes)
+        assertFailsWith<KagemushaWalletExceptionV1> { owner.loadInstalledRuntime() }
+        assertFailsWith<KagemushaWalletExceptionV1> { owner.progress() }
+        assertEquals(calls, driver.calls)
+        // This is only a managed FFI projection: no JNI resource was allocated, so do not send
+        // the fixture handle to Native close or claim successful wallet admission.
+    }
+
+    @Test fun `failed transfer leaves enrollment as the single cleanup owner`() {
+        val driver = Driver()
+        val owner = KagemushaWalletEnrollmentV1(7, driver, byteArrayOf(1), Any(), 2)
+        driver.reply = KagemushaWalletCallV1(-5, 17, 23, 0, 0, 0, byteArrayOf())
+        assertFailsWith<KagemushaWalletExceptionV1> { owner.loadInstalledRuntime() }
+        owner.close()
+        owner.close()
+        assertEquals(1, driver.closes)
+        assertTrue(owner.cleanupReleased())
+    }
     @Test fun `renewed session keeps exact originals and requires same owner nonmonetary acknowledgement`() {
         val driver = Driver()
         val owner = KagemushaWalletEnrollmentV1(7,driver,byteArrayOf(1,2),Any(),2)
@@ -119,6 +158,11 @@ class KagemushaWalletEnrollmentV1Test {
         driver.closeStatus = -5
         val failure = assertFailsWith<KagemushaWalletExceptionV1> { owner.close() }
         assertFalse(owner.cleanupReleased())
+        val waitingDriver = Driver()
+        val waiting = KagemushaWalletEnrollmentV1(7, waitingDriver, byteArrayOf(1), Any(), 2)
+        assertSame(failure, assertFailsWith<KagemushaWalletExceptionV1> { waiting.loadInstalledRuntime() })
+        assertEquals(0, waitingDriver.calls)
+        waiting.close()
         assertSame(failure, assertFailsWith<KagemushaWalletExceptionV1> { owner.progress() })
         assertSame(failure, assertFailsWith<KagemushaWalletExceptionV1> { owner.close() })
         assertEquals(1, driver.closes)

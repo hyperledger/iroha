@@ -226,8 +226,10 @@ pub(super) fn send<C: RunContext>(context: &mut C, args: SendArgs) -> Result<()>
         recipient: hex::encode(&recipient),
         revision: args.revision,
     })?);
+    let client = blocking(context)?;
+    let original = origin::authenticate_origin(context, &client, &args.origin)?;
     let flow = flows::open(context, SccpFlowKindV1::Outbound, &args.flow, intent)?;
-    if flows::recover_taira(context, &flow, Action::Record)? {
+    if flows::recover_taira(context, &original, &flow, Action::Record)? {
         let step = flow
             .latest(Action::Record)?
             .ok_or_else(|| eyre!("original record custody disappeared"))?;
@@ -258,8 +260,6 @@ pub(super) fn send<C: RunContext>(context: &mut C, args: SendArgs) -> Result<()>
         )?;
         return context.print_data(&view);
     }
-    let client = blocking(context)?;
-    let original = origin::authenticate_origin(context, &client, &args.origin)?;
     let capabilities = client.sccp().capabilities()?;
     let parameters = original.parameters(&capabilities)?;
     let current = original.current_generation(&capabilities)?;
@@ -366,6 +366,7 @@ pub(super) fn send<C: RunContext>(context: &mut C, args: SendArgs) -> Result<()>
     )?);
     let outcome = flows::taira(
         context,
+        &original,
         &flow,
         Action::Record,
         vec![InstructionBox::from(RecordSccpMessage {

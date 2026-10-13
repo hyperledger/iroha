@@ -1,14 +1,15 @@
 [
   {
     "kind": "multisig_propose",
-    "account": "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D",
+    "account": "sorau\uff9b1PaQ\uff7dGh1\uff746pA\uff9cnq\uff78fJu\uff7fM\uff91Vq\uff8fvQ\uff90\uff9a\uff7c\uff7e\uff8ba\uff88\uff73\uff8ac1\uff7a\uff8a1GGM2D",
     "transaction_ttl_ms": 3600000,
     "instructions": [
       {
         "kind": "mint_asset",
-        "asset": "6pEP9RjNoZ7beWkT3pLfKoM1dyfi#sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D",
+        "asset": "6pEP9RjNoZ7beWkT3pLfKoM1dyfi#sorau\uff9b1PaQ\uff7dGh1\uff746pA\uff9cnq\uff78fJu\uff7fM\uff91Vq\uff8fvQ\uff90\uff9a\uff7c\uff7e\uff8ba\uff88\uff73\uff8ac1\uff7a\uff8a1GGM2D",
         "quantity": "5"
       }
-    ]
+    ],
+    "proposal_nonce": "0707070707070707070707070707070707070707070707070707070707070707"
   }
 ]

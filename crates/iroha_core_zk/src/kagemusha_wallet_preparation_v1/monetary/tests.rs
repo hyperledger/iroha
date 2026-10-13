@@ -266,6 +266,101 @@ fn actual_depth32_model_insert_preserves_all_native_path_values() {
 }
 
 #[test]
+fn zero_send_fee_requires_authenticated_depth32_noop_for_empty_and_populated_maps() {
+    let mut tree = KagemushaWalletIndexedTreeV1::new();
+    let fee = KagemushaWalletFeeClaimLeafV1 {
+        credit_id: Fp::from(233).to_repr(),
+        fee: 0,
+        fee_schedule_digest: [0; 32],
+    };
+    for populated in [false, true] {
+        if populated {
+            tree.insert(Fp::from(7).to_repr(), Fp::from(11).to_repr())
+                .unwrap();
+        }
+        let root = tree.root();
+        let (leaf, opening) = tree.non_membership(&fee.credit_id).unwrap();
+        let preserve = SendFeeMapV1::Preserve { leaf, opening };
+        let (unchanged, native) = send_fee_map(&root, fee, preserve).unwrap();
+        assert_eq!(unchanged, root);
+        assert_eq!(native.leaf_slot, native.slot);
+        assert_eq!(native.leaf_siblings, native.slot_siblings);
+        for (slot, siblings) in [
+            (native.leaf_slot, native.leaf_siblings),
+            (native.slot, native.slot_siblings),
+        ] {
+            assert_eq!(
+                path_root(
+                    INDEXED_NODE_DOMAIN,
+                    native.leaf.hash(),
+                    u64::from(slot),
+                    &siblings
+                )
+                .to_repr(),
+                root
+            );
+        }
+        let dummy = SendFeeMapV1::Preserve {
+            leaf: KagemushaWalletIndexedLeafV1::SENTINEL,
+            opening: KagemushaWalletIndexedOpeningV1 {
+                slot: 0,
+                siblings: [[0; 32]; 32],
+            },
+        };
+        assert_eq!(send_fee_map(&root, fee, dummy), Err(Error::Authority));
+        let mut changed = opening;
+        changed.siblings[31] = Fp::from(17).to_repr();
+        assert_eq!(
+            send_fee_map(
+                &root,
+                fee,
+                SendFeeMapV1::Preserve {
+                    leaf,
+                    opening: changed
+                }
+            ),
+            Err(Error::Authority)
+        );
+        assert_eq!(
+            send_fee_map(&Fp::from(19).to_repr(), fee, preserve),
+            Err(Error::Authority)
+        );
+        assert_eq!(
+            send_fee_map(
+                &root,
+                KagemushaWalletFeeClaimLeafV1 { fee: 1, ..fee },
+                preserve
+            ),
+            Err(Error::Authority),
+            "a nonzero fee cannot select a no-op"
+        );
+    }
+}
+
+#[test]
+fn nonzero_send_fee_keeps_exact_insertion_and_zero_fee_rejects_it() {
+    let mut tree = KagemushaWalletIndexedTreeV1::new();
+    let root = tree.root();
+    let fee = KagemushaWalletFeeClaimLeafV1 {
+        credit_id: Fp::from(233).to_repr(),
+        fee: 11,
+        fee_schedule_digest: Fp::from(19).to_repr(),
+    };
+    let insert = tree.insert(fee.key(), fee.leaf_value().unwrap()).unwrap();
+    let (new_root, witness) = send_fee_map(&root, fee, SendFeeMapV1::Insert(insert)).unwrap();
+    assert_eq!(new_root, tree.root());
+    assert_eq!(witness, insertion(&insert).unwrap());
+    assert_eq!(
+        send_fee_map(
+            &root,
+            KagemushaWalletFeeClaimLeafV1 { fee: 0, ..fee },
+            SendFeeMapV1::Insert(insert)
+        ),
+        Err(Error::Authority)
+    );
+}
+
+#[test]
 fn quota_segments_use_complete_signed_windows_and_running_actual_usage_paths() {
     let windows = vec![
         KagemushaWalletQuotaWindowV1 {

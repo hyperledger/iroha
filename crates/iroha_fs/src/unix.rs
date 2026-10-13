@@ -27,20 +27,24 @@ mod android_ancestry;
 #[path = "unix/android_ancestry_syscall_tests.rs"]
 mod android_ancestry_syscall_tests;
 
-/// Ancestors need search permission on Android; the actual selected directory stays readable.
+#[cfg(all(target_vendor = "apple", test))]
+#[path = "unix/apple_ancestry_syscall_tests.rs"]
+mod apple_ancestry_syscall_tests;
+
+/// Ancestors need search permission on Android and Apple; selected directories stay readable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DirectoryAccess {
     Read,
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_vendor = "apple"))]
     Search,
 }
 impl DirectoryAccess {
     fn for_component(last: bool) -> Self {
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_vendor = "apple"))]
         if !last {
             return Self::Search;
         }
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_vendor = "apple")))]
         let _ = last;
         Self::Read
     }
@@ -49,6 +53,10 @@ impl DirectoryAccess {
             Self::Read => OFlags::RDONLY,
             #[cfg(target_os = "android")]
             Self::Search => OFlags::PATH,
+            #[cfg(target_vendor = "apple")]
+            // Darwin sys/fcntl.h: O_SEARCH is O_EXEC (0x40000000) | O_DIRECTORY.
+            // rustix 1.1.4 does not expose O_SEARCH; DIRECTORY is added below.
+            Self::Search => OFlags::from_bits_retain(0x4000_0000),
         };
         access | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
     }
@@ -66,6 +74,10 @@ impl Link {
     fn sync(&self) -> io::Result<()> {
         match self.access {
             DirectoryAccess::Read => self.file.sync_all(),
+            #[cfg(target_vendor = "apple")]
+            // Keep File::sync_all's Darwin durability semantics on O_SEARCH; reopening
+            // O_RDONLY would require listing permission a write/search-only parent lacks.
+            DirectoryAccess::Search => self.file.sync_all(),
             #[cfg(target_os = "android")]
             DirectoryAccess::Search => {
                 // O_PATH cannot fsync. Reopen this held directory itself, requiring actual
@@ -696,6 +708,18 @@ impl Directory {
         RetainedFile::open_build_input(self.clone(), name.to_owned())
     }
 
+    pub(super) fn create_custody_writer(&self, name: &OsStr) -> io::Result<RetainedFile> {
+        // The journal caller syncs completed data and its published directory.
+        // Keep every native custody check without first flushing an empty stage.
+        RetainedFile::open_with_links(
+            self.clone(),
+            name.to_owned(),
+            true,
+            true,
+            LinkPolicy::Single,
+        )
+    }
+
     pub(super) fn read(
         &self,
         name: &OsStr,
@@ -1317,7 +1341,13 @@ pub fn snapshot_file(file: &File, private: bool) -> io::Result<FileSnapshot> {
 
 impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
     fn open(directory: D, name: N, private: bool, create_new: bool) -> io::Result<Self> {
-        Self::open_with_links(directory, name, private, create_new, LinkPolicy::Single)
+        let retained =
+            Self::open_with_links(directory, name, private, create_new, LinkPolicy::Single)?;
+        if create_new {
+            retained.file.sync_all()?;
+            retained.directory.borrow().sync()?;
+        }
+        Ok(retained)
     }
 
     fn open_build_input(directory: D, name: N) -> io::Result<Self> {
@@ -1360,10 +1390,6 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
             },
         };
         retained.revalidate()?;
-        if create_new {
-            retained.file.sync_all()?;
-            retained.directory.borrow().sync()?;
-        }
         Ok(retained)
     }
 

@@ -17,8 +17,9 @@ use iroha::{
             registry::SccpRouteV1,
         },
         sumeragi_finality::{
-            FinalityValidator, MAX_WORLD_STATE_SNAPSHOT_BYTES_V1, SumeragiFinalityVerifier,
-            VerifiedSumeragiBlock, VerifiedWorldStateSnapshotV1, WorldStateSnapshotV1,
+            FinalityValidator, MAX_WORLD_STATE_SNAPSHOT_BYTES_V1, SumeragiFinalityProof,
+            SumeragiFinalityVerifier, VerifiedSumeragiBlock, VerifiedWorldStateSnapshotV1,
+            WorldStateSnapshotV1,
         },
     },
 };
@@ -48,6 +49,7 @@ pub(super) struct OriginArgs {
     #[arg(long)]
     pub genesis_hash: Hash,
     /// Explicit applied height of the complete snapshot (at least 2).
+    /// Resume transaction confirmation with a selected cut at or after its committed height.
     #[arg(long, value_parser=clap::value_parser!(u64).range(2..))]
     pub at_height: u64,
     /// Complete canonical WorldStateSnapshotV1 frame exported at that native cut.
@@ -167,9 +169,98 @@ pub(super) struct AuthenticatedOrigin {
     pub instance: [u8; 32],
     world: VerifiedWorldStateSnapshotV1,
     element_count: usize,
+    verifier: SumeragiFinalityVerifier,
 }
 
 impl AuthenticatedOrigin {
+    /// Reopen only an original retained Global decision at or before the selected cut.
+    /// A later transaction requires a new independently selected cut when resuming.
+    pub fn verify_retained_block(
+        &self,
+        proof: &SumeragiFinalityProof,
+    ) -> Result<VerifiedSumeragiBlock> {
+        ensure!(
+            proof.height() <= self.height(),
+            "transaction is newer than the selected original cut; resume with a cut at or after its height"
+        );
+        let block = self.verifier.verify_retained_decision(proof)?;
+        let network = self.verifier.initial_epoch().network_id;
+        ensure!(
+            *network.as_bytes() == self.network && self.verifier.instance().0 == self.instance,
+            "retained verifier differs from the original native identity"
+        );
+        block.verify_global_scope(network, self.verifier.chain_id())?;
+        Ok(block)
+    }
+
+    /// Public original cut identity retained with a journal's authenticated receipt.
+    pub fn receipt_cut(&self) -> norito::json::Value {
+        norito::json!({
+            "network_id": (self.network),
+            "consensus_instance": (self.instance),
+            "chain_id": (self.verifier.chain_id()),
+            "height": (self.height()),
+            "context_id": (self.world.context_id()),
+            "world_root": (self.world.world_root()),
+            "schema_hash": (self.world.schema_hash()),
+        })
+    }
+
+    /// Authenticate an exact message record and derive finality from its stored lifecycle.
+    pub fn verify_message(
+        &self,
+        message_id: &[u8; 32],
+        status: &iroha_sccp::api::SccpMessageStatusV1,
+    ) -> Result<bool> {
+        use iroha_data_model::sccp::outbound::SccpOutboundStatusV1 as Stored;
+        use iroha_sccp::api::{
+            SccpMessageStatusV1 as Message, SccpOutboundStateV1 as State, SccpRecordedStateV1,
+        };
+        match status {
+            Message::Unknown => Ok(false),
+            Message::Inbound(view) => {
+                ensure!(
+                    &view.message_id == message_id,
+                    "inbound message identity differs"
+                );
+                self.world.verify_table_value(
+                    "world.sccp_inbound_messages",
+                    message_id,
+                    &view.record,
+                )?;
+                Ok(!view.record.status.is_pending())
+            }
+            Message::Outbound(view) => {
+                ensure!(
+                    &view.message_id == message_id,
+                    "outbound message identity differs"
+                );
+                self.world.verify_table_value(
+                    "world.sccp_outbound_messages",
+                    message_id,
+                    &view.record,
+                )?;
+                let expected = match view.record.status {
+                    Stored::Recorded => State::Recorded(SccpRecordedStateV1 {
+                        deadline_ms: view.record.deadline_ms,
+                        provable: view.record.height != 0 && view.record.height <= self.height(),
+                    }),
+                    Stored::Voided(value) => State::Voided(value),
+                    Stored::Refunded(value) => State::Refunded(value),
+                    Stored::Stranded(value) => State::Stranded(value),
+                };
+                ensure!(
+                    view.state == expected,
+                    "outbound status projection differs from the authenticated record"
+                );
+                Ok(matches!(
+                    view.record.status,
+                    Stored::Refunded(_) | Stored::Stranded(_)
+                ))
+            }
+        }
+    }
+
     /// The original native cut chosen by the caller, never a discovery response's tip.
     pub fn height(&self) -> u64 {
         self.world.height()
@@ -352,6 +443,7 @@ pub(super) fn authenticate_origin_with_anchor<C: RunContext>(
             instance: verifier.instance().0,
             world,
             element_count,
+            verifier,
         },
         anchor,
     ))
@@ -488,7 +580,13 @@ mod tests {
     }
     // Portable verification control: real native quorum, synthetic complete World outputs.
     // This fixture executes no World and does not qualify route launch or deployment readiness.
-    fn certified(record: &SccpGenerationV1) -> (WorldStateSnapshotV1, VerifiedSumeragiBlock) {
+    fn certified(
+        record: &SccpGenerationV1,
+    ) -> (
+        WorldStateSnapshotV1,
+        VerifiedSumeragiBlock,
+        SumeragiFinalityVerifier,
+    ) {
         let snapshot = WorldStateSnapshotV1 {
             schema_hash: Hash::new(b"independently selected synthetic registry schema"),
             entries: vec![
@@ -510,19 +608,20 @@ mod tests {
         let block = native.block_with_submitted_work(native.next_header());
         let proof = native.certify_with_world_root(block, snapshot.root().unwrap());
         let tip = native.verifier().verify_retained_decision(&proof).unwrap();
-        (snapshot, tip)
+        (snapshot, tip, native.verifier())
     }
 
     #[test]
     fn evidence_generation_preserves_original_unslashable_members_and_rejects_substitution() {
         let mut row = record();
         row.members[0] = None;
-        let (snapshot, tip) = certified(&row);
+        let (snapshot, tip, verifier) = certified(&row);
         let original = AuthenticatedOrigin {
             network: [1; 32],
             instance: [2; 32],
             world: snapshot.authenticate(&tip).unwrap(),
             element_count: 2,
+            verifier,
         };
         assert_eq!(original.height(), tip.height());
         assert!(original.verify_generation(1, row.clone()).unwrap().members[0].is_none());
@@ -572,6 +671,7 @@ mod tests {
             instance: [2; 32],
             world: snapshot.authenticate(&tip).unwrap(),
             element_count: 1,
+            verifier: native.verifier(),
         };
         original.verify_anchor_witness(1, &witness).unwrap();
         assert!(original.verify_anchor_witness(0, &witness).is_err());
@@ -591,12 +691,13 @@ mod tests {
     fn catch_up_generation_requires_original_identity_and_committed_cell() {
         use iroha_sccp::api::{SccpCurrentGenerationV1, SccpFinalityConstantsV1, SccpReadLimitsV1};
         let row = record();
-        let (snapshot, tip) = certified(&row);
+        let (snapshot, tip, verifier) = certified(&row);
         let original = AuthenticatedOrigin {
             network: [1; 32],
             instance: [2; 32],
             world: snapshot.authenticate(&tip).unwrap(),
             element_count: 2,
+            verifier,
         };
         let capabilities = SccpCapabilitiesV1 {
             network_id: original.network,
@@ -641,7 +742,7 @@ mod tests {
         let mut view = capabilities;
         view.parameters = Some(SccpParametersV1::taira_default());
         view.forgery_max_generation = Some(7);
-        let (mut snapshot, _) = certified(&row);
+        let (mut snapshot, _, _) = certified(&row);
         for (field, value_hash) in [
             (
                 "world.sccp_forgery_max_generation",
@@ -668,6 +769,7 @@ mod tests {
             instance: original.instance,
             world: snapshot.authenticate(&tip).unwrap(),
             element_count: snapshot.entries.len(),
+            verifier: native.verifier(),
         };
         assert_eq!(
             exact.parameters(&view).unwrap(),
@@ -732,6 +834,7 @@ mod tests {
             instance: [2; 32],
             world: snapshot.authenticate(&tip).unwrap(),
             element_count: 1,
+            verifier: native.verifier(),
         };
         original.verify_route(network, &route).unwrap();
         assert!(
@@ -789,7 +892,7 @@ mod tests {
     #[test]
     fn registered_deployment_pin_requires_exact_authenticated_generation() {
         let row = record();
-        let (snapshot, tip) = certified(&row);
+        let (snapshot, tip, verifier) = certified(&row);
         let wire = norito::encode_canonical(&snapshot).unwrap();
         let (world, element_count) =
             authenticated_world(&wire, snapshot.schema_hash, &tip).unwrap();
@@ -798,6 +901,7 @@ mod tests {
             instance: [2; 32],
             world,
             element_count,
+            verifier,
         };
         let pin = SccpCommitteePinV1 {
             generation: row.generation,
@@ -823,7 +927,7 @@ mod tests {
     #[test]
     fn deployment_pin_authenticates_exact_native_world_record_and_selected_schema() {
         let row = record();
-        let (snapshot, tip) = certified(&row);
+        let (snapshot, tip, _) = certified(&row);
         let wire = norito::encode_canonical(&snapshot).unwrap();
         let (world, count) = authenticated_world(&wire, snapshot.schema_hash, &tip).unwrap();
         assert_eq!(count, 2);
@@ -886,7 +990,7 @@ mod tests {
         let mut row = record();
         row.members[0] = None;
         assert!(native_record(row.clone()).is_well_formed());
-        let (snapshot, tip) = certified(&row);
+        let (snapshot, tip, _) = certified(&row);
         let (world, _) = authenticated_world(
             &norito::encode_canonical(&snapshot).unwrap(),
             snapshot.schema_hash,
@@ -1066,6 +1170,216 @@ mod profile_tests {
                 active.policy_hash()
             )
             .is_err()
+        );
+    }
+}
+
+/// Build a portable test cut from an actually verified native fixture prefix.
+#[cfg(test)]
+pub(super) fn test_cut(
+    native: &iroha_data_model::testing::native_finality::NativeFinalityFixture,
+    snapshot: &WorldStateSnapshotV1,
+    proof: &SumeragiFinalityProof,
+) -> AuthenticatedOrigin {
+    let verifier = native.verifier();
+    let tip = verifier.verify_retained_decision(proof).unwrap();
+    AuthenticatedOrigin {
+        network: *native.network_id().as_bytes(),
+        instance: verifier.instance().0,
+        world: snapshot.authenticate(&tip).unwrap(),
+        element_count: snapshot.entries.len(),
+        verifier,
+    }
+}
+
+#[cfg(test)]
+mod message_tests {
+    use super::*;
+    use iroha_crypto::{Algorithm, KeyPair};
+    use iroha_data_model::{
+        account::AccountId,
+        sccp::{
+            inbound::{
+                SccpInboundRecordV1, SccpInboundSettledV1, SccpInboundStatusV1,
+                SccpPendingReasonV1, SccpSourceLocatorV1,
+            },
+            outbound::{SccpOutboundMessageRecordV1, SccpOutboundStatusV1, SccpStatusHeightV1},
+        },
+        sumeragi_finality::{
+            WorldStateElementKindV1, WorldStateSnapshotEntryV1, world_state_value_hash_v1,
+        },
+        testing::native_finality::NativeFinalityFixture,
+    };
+    use iroha_sccp::api::{
+        SccpInboundMessageViewV1, SccpMessageStatusV1, SccpOutboundMessageViewV1,
+        SccpOutboundStateV1, SccpRecordedStateV1,
+    };
+
+    // A genuine native quorum certifies explicit synthetic World values; this does not
+    // execute an escrow transition or qualify a route for monetary operation.
+    fn original(id: [u8; 32], field: &str, value_hash: Hash) -> AuthenticatedOrigin {
+        let snapshot = WorldStateSnapshotV1 {
+            schema_hash: Hash::new(b"original SCCP message schema"),
+            entries: vec![WorldStateSnapshotEntryV1 {
+                field_id: field.into(),
+                kind: WorldStateElementKindV1::Table,
+                key_hash: Some(world_state_value_hash_v1(&id).unwrap()),
+                value_hash,
+            }],
+        };
+        let mut native = NativeFinalityFixture::start("sccp-message-fixture");
+        let block = native.block_with_submitted_work(native.next_header());
+        let proof = native.certify_with_world_root(block, snapshot.root().unwrap());
+        test_cut(&native, &snapshot, &proof)
+    }
+
+    #[test]
+    fn outbound_finality_uses_the_exact_original_record_and_status_projection() {
+        let id = [0x81; 32];
+        let key = KeyPair::from_seed(vec![32; 32], Algorithm::Ed25519);
+        let record = SccpOutboundMessageRecordV1 {
+            network: SccpNetworkV1::EthereumMainnet,
+            revision: 1,
+            nonce: 2,
+            height: 2,
+            commitment_index: 0,
+            deadline_ms: 10_000,
+            sender: AccountId::new(key.public_key().clone()),
+            amount: 300,
+            payload: vec![7; 40],
+            leaf: [8; 32],
+            status: SccpOutboundStatusV1::Recorded,
+        };
+        let root = original(
+            id,
+            "world.sccp_outbound_messages",
+            world_state_value_hash_v1(&record).unwrap(),
+        );
+        let mut view = SccpOutboundMessageViewV1 {
+            message_id: id,
+            record: record.clone(),
+            state: SccpOutboundStateV1::Recorded(SccpRecordedStateV1 {
+                deadline_ms: record.deadline_ms,
+                provable: true,
+            }),
+        };
+        assert!(
+            !root
+                .verify_message(&id, &SccpMessageStatusV1::Outbound(view.clone()))
+                .unwrap()
+        );
+        view.state = SccpOutboundStateV1::Refunded(SccpStatusHeightV1 { height: 2 });
+        assert!(
+            root.verify_message(&id, &SccpMessageStatusV1::Outbound(view.clone()))
+                .is_err(),
+            "an endpoint cannot project a recorded message as terminal"
+        );
+        for status in [
+            SccpOutboundStatusV1::Refunded(SccpStatusHeightV1 { height: 2 }),
+            SccpOutboundStatusV1::Stranded(SccpStatusHeightV1 { height: 2 }),
+        ] {
+            view.record.status = status;
+            view.state = match status {
+                SccpOutboundStatusV1::Refunded(v) => SccpOutboundStateV1::Refunded(v),
+                SccpOutboundStatusV1::Stranded(v) => SccpOutboundStateV1::Stranded(v),
+                _ => unreachable!(),
+            };
+            assert!(
+                root.verify_message(&id, &SccpMessageStatusV1::Outbound(view.clone()))
+                    .is_err(),
+                "substituting the record cannot forge a final cut"
+            );
+            let final_root = original(
+                id,
+                "world.sccp_outbound_messages",
+                world_state_value_hash_v1(&view.record).unwrap(),
+            );
+            assert!(
+                final_root
+                    .verify_message(&id, &SccpMessageStatusV1::Outbound(view.clone()))
+                    .unwrap()
+            );
+            let mut altered = view.clone();
+            altered.record.amount += 1;
+            assert!(
+                final_root
+                    .verify_message(&id, &SccpMessageStatusV1::Outbound(altered))
+                    .is_err()
+            );
+            assert!(
+                final_root
+                    .verify_message(&[0x82; 32], &SccpMessageStatusV1::Outbound(view.clone()))
+                    .is_err()
+            );
+        }
+        assert!(
+            !root
+                .verify_message(&id, &SccpMessageStatusV1::Unknown)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn inbound_finality_requires_the_exact_original_message_row() {
+        let id = [0x83; 32];
+        let mut view = SccpInboundMessageViewV1 {
+            message_id: id,
+            record: SccpInboundRecordV1 {
+                network: SccpNetworkV1::TonMainnet,
+                revision: 1,
+                payload: vec![9; 40],
+                source_locator: SccpSourceLocatorV1 {
+                    source_height: 10,
+                    block_hash: [10; 32],
+                    index_in_block: 0,
+                },
+                proven_at_height: 2,
+                fee_due: 0,
+                status: SccpInboundStatusV1::pending(SccpPendingReasonV1::Held),
+            },
+        };
+        let pending = original(
+            id,
+            "world.sccp_inbound_messages",
+            world_state_value_hash_v1(&view.record).unwrap(),
+        );
+        assert!(
+            !pending
+                .verify_message(&id, &SccpMessageStatusV1::Inbound(view.clone()))
+                .unwrap()
+        );
+        view.record.status = SccpInboundStatusV1::Released(SccpInboundSettledV1 {
+            height: 2,
+            payout: 300,
+        });
+        assert!(
+            pending
+                .verify_message(&id, &SccpMessageStatusV1::Inbound(view.clone()))
+                .is_err(),
+            "a forged released row cannot authorize completion"
+        );
+        let released = original(
+            id,
+            "world.sccp_inbound_messages",
+            world_state_value_hash_v1(&view.record).unwrap(),
+        );
+        assert!(
+            released
+                .verify_message(&id, &SccpMessageStatusV1::Inbound(view.clone()))
+                .unwrap()
+        );
+        let mut changed = view.clone();
+        changed.record.source_locator.block_hash[0] ^= 1;
+        assert!(
+            released
+                .verify_message(&id, &SccpMessageStatusV1::Inbound(changed))
+                .is_err()
+        );
+        view.message_id[0] ^= 1;
+        assert!(
+            released
+                .verify_message(&id, &SccpMessageStatusV1::Inbound(view))
+                .is_err()
         );
     }
 }

@@ -15076,12 +15076,14 @@ public struct ToriiMultisigUnsignedTransactionIntent: Sendable, Equatable {
 
     public let networkId: NetworkId
     public let resolvedMultisigAccountId: String
+    public let proposalId: String
     public let instructionsHash: String
     public let executable: Data
     public let metadata: [String: ToriiJSONValue]
 
     public init(networkId: NetworkId,
                 resolvedMultisigAccountId: String,
+                proposalId: String,
                 instructionsHash: String,
                 executable: Data,
                 metadata: [String: ToriiJSONValue]) throws {
@@ -15111,6 +15113,7 @@ public struct ToriiMultisigUnsignedTransactionIntent: Sendable, Equatable {
         _ = try ToriiCanonicalTransactionDraft.compactMetadata(metadata)
         self.networkId = networkId
         self.resolvedMultisigAccountId = normalizedAccountId
+        self.proposalId = try MultisigOccurrence.validateProposalId(proposalId)
         self.instructionsHash = normalizedInstructionsHash
         self.executable = Data(executable)
         self.metadata = metadata
@@ -15164,6 +15167,7 @@ public struct ToriiMultisigProposeInstruction: Encodable, Sendable, Equatable {
 
 public struct ToriiMultisigProposeRequest: Encodable, Sendable {
     public var selector: ToriiMultisigAccountSelector
+    public var proposalNonce: String
     public var signerAccountId: String
     public var publicKeyHex: String?
     public var signatureB64: String?
@@ -15172,12 +15176,13 @@ public struct ToriiMultisigProposeRequest: Encodable, Sendable {
     public var memo: String?
     public var validationFeeAssessment: RetailFeeAssessmentV1?
     public var instructions: [ToriiMultisigProposeInstruction]
-    /// Local-only exact transaction commitment required before an unsigned
-    /// response can be exposed for signing. It is not part of the Torii DTO.
+    /// Local-only exact transaction commitment required to authenticate proposal
+    /// responses, including submitted responses. It is not part of the Torii DTO.
     public var unsignedTransactionIntent: ToriiMultisigUnsignedTransactionIntent?
 
     public init(selector: ToriiMultisigAccountSelector,
                 signerAccountId: String,
+                proposalNonce: String,
                 publicKeyHex: String? = nil,
                 signatureB64: String? = nil,
                 creationTimeMs: UInt64? = nil,
@@ -15188,6 +15193,7 @@ public struct ToriiMultisigProposeRequest: Encodable, Sendable {
                 unsignedTransactionIntent: ToriiMultisigUnsignedTransactionIntent? = nil) {
         self.selector = selector
         self.signerAccountId = signerAccountId
+        self.proposalNonce = proposalNonce
         self.publicKeyHex = publicKeyHex
         self.signatureB64 = signatureB64
         self.creationTimeMs = creationTimeMs
@@ -15200,6 +15206,7 @@ public struct ToriiMultisigProposeRequest: Encodable, Sendable {
 
     public init(selector: ToriiMultisigAccountSelector,
                 signerAccountId: String,
+                proposalNonce: String,
                 publicKeyHex: String? = nil,
                 signatureB64: String? = nil,
                 creationTimeMs: UInt64? = nil,
@@ -15211,6 +15218,7 @@ public struct ToriiMultisigProposeRequest: Encodable, Sendable {
         try self.init(
             selector: selector,
             signerAccountId: signerAccountId,
+            proposalNonce: proposalNonce,
             publicKeyHex: publicKeyHex,
             signatureB64: signatureB64,
             creationTimeMs: creationTimeMs,
@@ -15228,6 +15236,7 @@ public struct ToriiMultisigProposeRequest: Encodable, Sendable {
         case multisigAccountId = "multisig_account_id"
         case multisigAccountAlias = "multisig_account_alias"
         case signerAccountId = "signer_account_id"
+        case proposalNonce = "proposal_nonce"
         case publicKeyHex = "public_key_hex"
         case signatureB64 = "signature_b64"
         case creationTimeMs = "creation_time_ms"
@@ -15238,6 +15247,7 @@ public struct ToriiMultisigProposeRequest: Encodable, Sendable {
     }
 
     public func encode(to encoder: Encoder) throws {
+        guard proposalNonce.count == 64, proposalNonce.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }), proposalNonce.contains(where: { $0 != "0" }) else { throw ToriiClientError.invalidPayload("proposal_nonce must be nonzero canonical 32-byte hex.") }
         let normalizedSelector = try selector.normalizedPayload(field: "multisig propose selector")
         let normalizedSignerAccountId = try normalizeToriiAccountIdQueryValue(
             signerAccountId,
@@ -15261,6 +15271,7 @@ public struct ToriiMultisigProposeRequest: Encodable, Sendable {
         try container.encodeIfPresent(normalizedSelector.multisigAccountId, forKey: .multisigAccountId)
         try container.encodeIfPresent(normalizedSelector.multisigAccountAlias, forKey: .multisigAccountAlias)
         try container.encode(normalizedSignerAccountId, forKey: .signerAccountId)
+        try container.encode(proposalNonce, forKey: .proposalNonce)
         try container.encodeIfPresent(normalizedPublicKeyHex, forKey: .publicKeyHex)
         try container.encodeIfPresent(normalizedSignatureB64, forKey: .signatureB64)
         try container.encodeIfPresent(creationTimeMs, forKey: .creationTimeMs)
@@ -15273,6 +15284,7 @@ public struct ToriiMultisigProposeRequest: Encodable, Sendable {
 
 public struct ToriiMultisigContractCallProposeRequest: Encodable, Sendable {
     public var selector: ToriiMultisigAccountSelector
+    public var proposalNonce: String
     public var signerAccountId: String
     public var publicKeyHex: String?
     public var signatureB64: String?
@@ -15282,12 +15294,13 @@ public struct ToriiMultisigContractCallProposeRequest: Encodable, Sendable {
     public var entrypoint: String
     public var payload: ToriiJSONValue?
     public var feePayment: FeePaymentIntent
-    /// Local-only exact transaction commitment required before an unsigned
-    /// response can be exposed for signing. It is not part of the Torii DTO.
+    /// Local-only exact transaction commitment required to authenticate proposal
+    /// responses, including submitted responses. It is not part of the Torii DTO.
     public var unsignedTransactionIntent: ToriiMultisigUnsignedTransactionIntent?
 
     public init(selector: ToriiMultisigAccountSelector,
                 signerAccountId: String,
+                proposalNonce: String,
                 publicKeyHex: String? = nil,
                 signatureB64: String? = nil,
                 creationTimeMs: UInt64? = nil,
@@ -15299,6 +15312,7 @@ public struct ToriiMultisigContractCallProposeRequest: Encodable, Sendable {
                 unsignedTransactionIntent: ToriiMultisigUnsignedTransactionIntent? = nil) {
         self.selector = selector
         self.signerAccountId = signerAccountId
+        self.proposalNonce = proposalNonce
         self.publicKeyHex = publicKeyHex
         self.signatureB64 = signatureB64
         self.creationTimeMs = creationTimeMs
@@ -15314,6 +15328,7 @@ public struct ToriiMultisigContractCallProposeRequest: Encodable, Sendable {
         case multisigAccountId = "multisig_account_id"
         case multisigAccountAlias = "multisig_account_alias"
         case signerAccountId = "signer_account_id"
+        case proposalNonce = "proposal_nonce"
         case publicKeyHex = "public_key_hex"
         case signatureB64 = "signature_b64"
         case creationTimeMs = "creation_time_ms"
@@ -15325,6 +15340,7 @@ public struct ToriiMultisigContractCallProposeRequest: Encodable, Sendable {
     }
 
     public func encode(to encoder: Encoder) throws {
+        guard proposalNonce.count == 64, proposalNonce.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }), proposalNonce.contains(where: { $0 != "0" }) else { throw ToriiClientError.invalidPayload("proposal_nonce must be nonzero canonical 32-byte hex.") }
         let normalizedSelector = try selector.normalizedPayload(field: "multisig propose selector")
         let normalizedSignerAccountId = try normalizeToriiAccountIdQueryValue(
             signerAccountId,
@@ -15351,6 +15367,7 @@ public struct ToriiMultisigContractCallProposeRequest: Encodable, Sendable {
         try container.encodeIfPresent(normalizedSelector.multisigAccountId, forKey: .multisigAccountId)
         try container.encodeIfPresent(normalizedSelector.multisigAccountAlias, forKey: .multisigAccountAlias)
         try container.encode(normalizedSignerAccountId, forKey: .signerAccountId)
+        try container.encode(proposalNonce, forKey: .proposalNonce)
         try container.encodeIfPresent(normalizedPublicKeyHex, forKey: .publicKeyHex)
         try container.encodeIfPresent(normalizedSignatureB64, forKey: .signatureB64)
         try container.encodeIfPresent(creationTimeMs, forKey: .creationTimeMs)
@@ -15369,8 +15386,8 @@ public struct ToriiMultisigContractCallApproveRequest: Encodable, Sendable {
     public var signatureB64: String?
     public var creationTimeMs: UInt64?
     public var feePayment: FeePaymentIntent
-    public var proposalId: String?
-    public var instructionsHash: String?
+    public var proposalId: String
+    public var instructionsHash: String
     /// Local-only exact transaction commitment required before an unsigned
     /// response can be exposed for signing. It is not part of the Torii DTO.
     public var unsignedTransactionIntent: ToriiMultisigUnsignedTransactionIntent?
@@ -15380,8 +15397,8 @@ public struct ToriiMultisigContractCallApproveRequest: Encodable, Sendable {
                 publicKeyHex: String? = nil,
                 signatureB64: String? = nil,
                 creationTimeMs: UInt64? = nil,
-                proposalId: String? = nil,
-                instructionsHash: String? = nil,
+                proposalId: String,
+                instructionsHash: String,
                 feePayment: FeePaymentIntent,
                 unsignedTransactionIntent: ToriiMultisigUnsignedTransactionIntent? = nil) {
         self.selector = selector
@@ -15418,16 +15435,10 @@ public struct ToriiMultisigContractCallApproveRequest: Encodable, Sendable {
             try ToriiRequestValidation.normalizedExactBase64($0, field: "signature_b64")
         }
         _ = try feePayment.canonicalJSONData()
-        let normalizedProposalId = try ToriiRequestValidation.normalizedOptionalNonEmpty(proposalId, field: "proposal_id")
-        let normalizedInstructionsHash = try ToriiRequestValidation.normalizedOptional32ByteHex(
-            instructionsHash,
-            field: "instructions_hash"
+        let normalizedProposalId = try MultisigOccurrence.validateProposalId(proposalId)
+        let normalizedInstructionsHash = try ToriiRequestValidation.exactLowercase32ByteHex(
+            instructionsHash, field: "instructions_hash"
         )
-        guard normalizedProposalId != nil || normalizedInstructionsHash != nil else {
-            throw ToriiClientError.invalidPayload(
-                "approve request requires proposal_id or instructions_hash."
-            )
-        }
 
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(normalizedSelector.multisigAccountId, forKey: .multisigAccountId)
@@ -15437,8 +15448,8 @@ public struct ToriiMultisigContractCallApproveRequest: Encodable, Sendable {
         try container.encodeIfPresent(normalizedSignatureB64, forKey: .signatureB64)
         try container.encodeIfPresent(creationTimeMs, forKey: .creationTimeMs)
         try container.encode(feePayment, forKey: .feePayment)
-        try container.encodeIfPresent(normalizedProposalId, forKey: .proposalId)
-        try container.encodeIfPresent(normalizedInstructionsHash, forKey: .instructionsHash)
+        try container.encode(normalizedProposalId, forKey: .proposalId)
+        try container.encode(normalizedInstructionsHash, forKey: .instructionsHash)
     }
 }
 
@@ -15446,8 +15457,8 @@ public struct ToriiMultisigContractCallResponse: Decodable, Sendable {
     public let ok: Bool
     public let resolvedMultisigAccountId: String
     public let submitted: Bool
-    public let proposalId: String?
-    public let instructionsHash: String?
+    public let proposalId: String
+    public let instructionsHash: String
     public let txHashHex: String?
     public let executedTxHashHex: String?
     public let creationTimeMs: UInt64?
@@ -15495,31 +15506,8 @@ public struct ToriiMultisigContractCallResponse: Decodable, Sendable {
             debugName: "resolved_multisig_account_id"
         )
         submitted = try container.decode(Bool.self, forKey: .submitted)
-        if let proposalIdRaw = try container.decodeIfPresent(String.self, forKey: .proposalId) {
-            proposalId = try exactDetachedAssetTransferHash(
-                proposalIdRaw,
-                field: "proposal_id",
-                codingPath: container.codingPath + [CodingKeys.proposalId]
-            )
-        } else {
-            proposalId = nil
-        }
-        if let instructionsHashRaw = try container.decodeIfPresent(String.self, forKey: .instructionsHash) {
-            instructionsHash = try exactDetachedAssetTransferHash(
-                instructionsHashRaw,
-                field: "instructions_hash",
-                codingPath: container.codingPath + [CodingKeys.instructionsHash]
-            )
-        } else {
-            instructionsHash = nil
-        }
-        if let proposalId, let instructionsHash, proposalId != instructionsHash {
-            throw DecodingError.dataCorruptedError(
-                forKey: .proposalId,
-                in: container,
-                debugDescription: "proposal_id and instructions_hash must identify the same proposal"
-            )
-        }
+        proposalId = try MultisigOccurrence.validateProposalId(container.decode(String.self, forKey: .proposalId))
+        instructionsHash = try exactDetachedAssetTransferHash(container.decode(String.self, forKey: .instructionsHash), field: "instructions_hash", codingPath: container.codingPath + [CodingKeys.instructionsHash])
         if let txHashRaw = try container.decodeIfPresent(String.self, forKey: .txHashHex) {
             txHashHex = try exactDetachedAssetTransferHash(
                 txHashRaw,
@@ -15597,7 +15585,7 @@ public struct ToriiMultisigContractCallResponse: Decodable, Sendable {
         selector: ToriiMultisigAccountSelector,
         requestedProposalId: String? = nil,
         requestedInstructionsHash: String? = nil,
-        requiresProposalId: Bool,
+        requestedProposalNonce: String? = nil,
         requestedFeePayment: FeePaymentIntent,
         requestedCreationTimeMs: UInt64?,
         unsignedTransactionIntent: ToriiMultisigUnsignedTransactionIntent?,
@@ -15628,39 +15616,28 @@ public struct ToriiMultisigContractCallResponse: Decodable, Sendable {
             )
         }
 
-        let normalizedProposalId = try ToriiRequestValidation.normalizedOptional32ByteHex(
-            requestedProposalId,
-            field: "proposal_id"
-        )
-        let normalizedInstructionsHash = try ToriiRequestValidation.normalizedOptional32ByteHex(
-            requestedInstructionsHash,
-            field: "instructions_hash"
-        )
-        if let normalizedProposalId,
-           let normalizedInstructionsHash,
-           normalizedProposalId != normalizedInstructionsHash {
-            throw ToriiClientError.invalidPayload(
-                "requested proposal_id and instructions_hash identify different proposals."
-            )
+        let normalizedProposalId = try requestedProposalId.map {
+            try MultisigOccurrence.validateProposalId($0)
         }
-        let requestedHash = normalizedProposalId ?? normalizedInstructionsHash
-        if let requestedHash,
-           instructionsHash != requestedHash || proposalId.map({ $0 == requestedHash }) == false {
-            throw ToriiClientError.invalidPayload(
-                "multisig response proposal identity differs from the request."
-            )
+        let normalizedInstructionsHash = try requestedInstructionsHash.map {
+            try ToriiRequestValidation.exactLowercase32ByteHex($0, field: "instructions_hash")
         }
-        if requiresProposalId,
-           proposalId == nil || instructionsHash == nil || proposalId != instructionsHash {
-            throw ToriiClientError.invalidPayload(
-                "multisig propose response omitted its exact proposal identity."
-            )
+        if let normalizedProposalId, proposalId != normalizedProposalId { throw ToriiClientError.invalidPayload("multisig response changed proposal occurrence.") }
+        if let normalizedInstructionsHash, instructionsHash != normalizedInstructionsHash { throw ToriiClientError.invalidPayload("multisig response changed instruction commitment.") }
+        if let requestedProposalNonce {
+            guard let clientNetworkId,
+                  let unsignedTransactionIntent,
+                  unsignedTransactionIntent.networkId == clientNetworkId else {
+                throw ToriiClientError.invalidPayload("Proposal occurrence requires caller-pinned network, resolved account, and instruction commitment.")
+            }
+            let account = normalizedSelector.multisigAccountId ?? unsignedTransactionIntent.resolvedMultisigAccountId
+            guard proposalId == (try MultisigOccurrence.derive(networkId: clientNetworkId, accountId: account, proposalNonce: requestedProposalNonce)) else { throw ToriiClientError.invalidPayload("multisig response changed proposal nonce or occurrence.") }
         }
 
         if let unsignedTransactionIntent {
             guard unsignedTransactionIntent.resolvedMultisigAccountId == resolvedMultisigAccountId,
                   instructionsHash == unsignedTransactionIntent.instructionsHash,
-                  proposalId.map({ $0 == unsignedTransactionIntent.instructionsHash }) != false else {
+                  proposalId == unsignedTransactionIntent.proposalId else {
                 throw ToriiClientError.invalidPayload(
                     "multisig response differs from the independently constructed transaction intent."
                 )
@@ -15770,11 +15747,9 @@ public struct ToriiMultisigProposalEntry: Decodable, Sendable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        proposalId = try container.decode(String.self, forKey: .proposalId)
-        let hashRaw = try container.decode(String.self, forKey: .instructionsHash)
-        instructionsHash = try ToriiValidation.normalized32ByteHex(
-            hashRaw,
-            field: "instructions_hash",
+        proposalId = try MultisigOccurrence.validateProposalId(container.decode(String.self, forKey: .proposalId))
+        instructionsHash = try exactDetachedAssetTransferHash(
+            container.decode(String.self, forKey: .instructionsHash), field: "instructions_hash",
             codingPath: container.codingPath + [CodingKeys.instructionsHash]
         )
         operationType = try container.decode(String.self, forKey: .operationType)
@@ -15853,47 +15828,38 @@ public struct ToriiMultisigProposalsQueryResponse: Decodable, Sendable, Equatabl
             debugName: "resolved_multisig_account_id"
         )
         proposals = try container.decode([ToriiMultisigProposalEntry].self, forKey: .proposals)
+        guard Set(proposals.map(\.proposalId)).count == proposals.count else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .proposals, in: container, debugDescription: "Duplicate multisig occurrence in query response."
+            )
+        }
         nextCursor = try container.decodeIfPresent(String.self, forKey: .nextCursor)
     }
 }
 
 public struct ToriiMultisigProposalsResolveRequest: Encodable, Sendable {
     public var selector: ToriiMultisigAccountSelector
-    public var proposalId: String?
-    public var instructionsHash: String?
+    public var proposalId: String
 
     public init(selector: ToriiMultisigAccountSelector,
-                proposalId: String? = nil,
-                instructionsHash: String? = nil) {
+                proposalId: String) {
         self.selector = selector
         self.proposalId = proposalId
-        self.instructionsHash = instructionsHash
     }
 
     private enum CodingKeys: String, CodingKey {
         case multisigAccountId = "multisig_account_id"
         case multisigAccountAlias = "multisig_account_alias"
         case proposalId = "proposal_id"
-        case instructionsHash = "instructions_hash"
     }
 
     public func encode(to encoder: Encoder) throws {
         let normalizedSelector = try selector.normalizedPayload(field: "multisig proposal resolve selector")
-        let normalizedProposalId = try ToriiRequestValidation.normalizedOptionalNonEmpty(proposalId, field: "proposal_id")
-        let normalizedInstructionsHash = try ToriiRequestValidation.normalizedOptional32ByteHex(
-            instructionsHash,
-            field: "instructions_hash"
-        )
-        guard (normalizedProposalId != nil) != (normalizedInstructionsHash != nil) else {
-            throw ToriiClientError.invalidPayload(
-                "multisig proposal resolve request requires exactly one of proposal_id or instructions_hash."
-            )
-        }
+        let normalizedProposalId = try MultisigOccurrence.validateProposalId(proposalId)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(normalizedSelector.multisigAccountId, forKey: .multisigAccountId)
         try container.encodeIfPresent(normalizedSelector.multisigAccountAlias, forKey: .multisigAccountAlias)
-        try container.encodeIfPresent(normalizedProposalId, forKey: .proposalId)
-        try container.encodeIfPresent(normalizedInstructionsHash, forKey: .instructionsHash)
+        try container.encode(normalizedProposalId, forKey: .proposalId)
     }
 }
 
@@ -15925,11 +15891,9 @@ public struct ToriiMultisigProposalResolveResponse: Decodable, Sendable, Equatab
             forKey: .resolvedMultisigAccountId,
             debugName: "resolved_multisig_account_id"
         )
-        proposalId = try container.decode(String.self, forKey: .proposalId)
-        let hashRaw = try container.decode(String.self, forKey: .instructionsHash)
-        instructionsHash = try ToriiValidation.normalized32ByteHex(
-            hashRaw,
-            field: "instructions_hash",
+        proposalId = try MultisigOccurrence.validateProposalId(container.decode(String.self, forKey: .proposalId))
+        instructionsHash = try exactDetachedAssetTransferHash(
+            container.decode(String.self, forKey: .instructionsHash), field: "instructions_hash",
             codingPath: container.codingPath + [CodingKeys.instructionsHash]
         )
         operationType = try container.decode(String.self, forKey: .operationType)
@@ -18793,12 +18757,6 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
     public func proposeMultisig(_ requestBody: ToriiMultisigProposeRequest,
                                 completion: @escaping (Result<ToriiMultisigContractCallResponse, Swift.Error>) -> Void) -> Task<Void, Never> {
         runTask(completion) { try await self.proposeMultisig(requestBody) }
-    }
-
-    @discardableResult
-    public func proposeMultisig(noritoBody: Data,
-                                completion: @escaping (Result<ToriiMultisigContractCallResponse, Swift.Error>) -> Void) -> Task<Void, Never> {
-        runTask(completion) { try await self.proposeMultisig(noritoBody: noritoBody) }
     }
 
     @discardableResult
@@ -22200,34 +22158,12 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
             .validatingRequestBindings(
                 signerAccountId: requestBody.signerAccountId,
                 selector: requestBody.selector,
-                requiresProposalId: true,
+                requestedProposalNonce: requestBody.proposalNonce,
                 requestedFeePayment: requestBody.feePayment,
                 requestedCreationTimeMs: requestBody.creationTimeMs,
                 unsignedTransactionIntent: requestBody.unsignedTransactionIntent,
                 clientNetworkId: localSigningContext?.networkId
             )
-    }
-
-    public func proposeMultisig(noritoBody: Data) async throws -> ToriiMultisigContractCallResponse {
-        guard !noritoBody.isEmpty else {
-            throw ToriiClientError.invalidPayload("noritoBody must be a non-empty MultisigProposeDtoV1 frame.")
-        }
-        let request = try makeRequest(path: "/v1/multisig/propose",
-                                      method: .post,
-                                      queryItems: nil,
-                                      body: noritoBody,
-                                      headers: [
-                                          "Content-Type": "application/x-norito",
-                                          "Accept": "application/json"
-                                      ])
-        let data = try await data(for: request)
-        let response = try decodeJSON(ToriiMultisigContractCallResponse.self, from: data)
-        guard response.submitted else {
-            throw ToriiClientError.invalidPayload(
-                "raw MultisigProposeDtoV1 responses cannot safely expose unsigned signing bytes because Swift cannot bind an opaque DTO body to its executable; use the typed request with unsignedTransactionIntent."
-            )
-        }
-        return response
     }
 
     public func proposeMultisigContractCall(_ requestBody: ToriiMultisigContractCallProposeRequest) async throws -> ToriiMultisigContractCallResponse {
@@ -22241,7 +22177,7 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
             .validatingRequestBindings(
                 signerAccountId: requestBody.signerAccountId,
                 selector: requestBody.selector,
-                requiresProposalId: true,
+                requestedProposalNonce: requestBody.proposalNonce,
                 requestedFeePayment: requestBody.feePayment,
                 requestedCreationTimeMs: requestBody.creationTimeMs,
                 unsignedTransactionIntent: requestBody.unsignedTransactionIntent,
@@ -22262,7 +22198,6 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
                 selector: requestBody.selector,
                 requestedProposalId: requestBody.proposalId,
                 requestedInstructionsHash: requestBody.instructionsHash,
-                requiresProposalId: false,
                 requestedFeePayment: requestBody.feePayment,
                 requestedCreationTimeMs: requestBody.creationTimeMs,
                 unsignedTransactionIntent: requestBody.unsignedTransactionIntent,
@@ -22277,7 +22212,12 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
                                       body: body,
                                       canonicalAuth: canonicalAuth)
         let data = try await data(for: request)
-        return try decodeJSON(ToriiMultisigSpecResponse.self, from: data)
+        let response = try decodeJSON(ToriiMultisigSpecResponse.self, from: data)
+        if let account = try requestBody.selector.normalizedPayload(field: "multisig spec selector").multisigAccountId,
+           response.resolvedMultisigAccountId != account {
+            throw ToriiClientError.invalidPayload("Multisig spec changed the selected account.")
+        }
+        return response
     }
 
     public func queryMultisigProposals(_ requestBody: ToriiMultisigProposalsQueryRequest, canonicalAuth: ToriiCanonicalRequestAuth) async throws -> ToriiMultisigProposalsQueryResponse {
@@ -22287,7 +22227,12 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
                                       body: body,
                                       canonicalAuth: canonicalAuth)
         let data = try await data(for: request)
-        return try decodeJSON(ToriiMultisigProposalsQueryResponse.self, from: data)
+        let response = try decodeJSON(ToriiMultisigProposalsQueryResponse.self, from: data)
+        if let account = try requestBody.selector.normalizedPayload(field: "multisig query selector").multisigAccountId,
+           response.resolvedMultisigAccountId != account {
+            throw ToriiClientError.invalidPayload("Multisig query changed the selected account.")
+        }
+        return response
     }
 
     public func resolveMultisigProposal(_ requestBody: ToriiMultisigProposalsResolveRequest, canonicalAuth: ToriiCanonicalRequestAuth) async throws -> ToriiMultisigProposalResolveResponse {
@@ -22297,7 +22242,15 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
                                       body: body,
                                       canonicalAuth: canonicalAuth)
         let data = try await data(for: request)
-        return try decodeJSON(ToriiMultisigProposalResolveResponse.self, from: data)
+        let response = try decodeJSON(ToriiMultisigProposalResolveResponse.self, from: data)
+        guard response.proposalId == requestBody.proposalId else {
+            throw ToriiClientError.invalidPayload("Multisig resolve changed the selected occurrence.")
+        }
+        if let account = try requestBody.selector.normalizedPayload(field: "multisig resolve selector").multisigAccountId,
+           response.resolvedMultisigAccountId != account {
+            throw ToriiClientError.invalidPayload("Multisig resolve changed the selected account.")
+        }
+        return response
     }
 
     /// Quote one exact unsigned transaction payload using canonical account authentication.
@@ -23211,6 +23164,13 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
 
     private static func isCanonicalSignedTransactionSchemaHashHex(_ value: String) -> Bool {
         value.count == 32 && value == value.lowercased() && Data(hexString: value) != nil
+    }
+
+    /// Validate this client's node against the current transaction schema before recording a
+    /// dispatch intent. Successful validation is cached and reused by transaction submission.
+    /// No transaction is submitted by this check.
+    public func validateTransactionSubmissionCompatibility() async throws {
+        try await ensureDataModelValidation()
     }
 
     private func ensureDataModelValidation() async throws {

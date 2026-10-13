@@ -477,6 +477,7 @@ impl Selection {
             RuntimeAuthority::BpngTairaV7 => {
                 runtime_fields.extend([
                     "enrollment_session",
+                    "eligibility_template_hex",
                     "python_path",
                     "python_sha256",
                     "openssl_path",
@@ -509,6 +510,25 @@ impl Selection {
             &sha(text(runtime, "scheme_id")?)?,
         )
         .map_err(|_| invalid())?;
+        if trust.authority == RuntimeAuthority::BpngTairaV7 {
+            use iroha_data_model::kagemusha::{
+                KAGEMUSHA_ELIGIBILITY_MAX_BYTES_V1, KagemushaEligibilityPolicyTemplateV1,
+            };
+            let encoded = text(runtime, "eligibility_template_hex")?;
+            if encoded.len() > KAGEMUSHA_ELIGIBILITY_MAX_BYTES_V1 * 2 {
+                return Err(invalid());
+            }
+            let bytes = hex::decode(encoded).map_err(|_| invalid())?;
+            if hex::encode(&bytes) != encoded {
+                return Err(invalid());
+            }
+            let template = KagemushaEligibilityPolicyTemplateV1::decode_canonical(&bytes)
+                .map_err(|_| invalid())?;
+            if template.network_id != scheme.network_id || template.scheme_id != scheme.scheme_id()
+            {
+                return Err(invalid());
+            }
+        }
         if let ApplicationBinding::CbsiReleaseV1 { scheme_id, .. } = &application
             && scheme.scheme_id() != *scheme_id
         {

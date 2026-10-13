@@ -1250,7 +1250,7 @@ def test_retained_multisig_proposals_bind_exact_approved_body_and_physical_row()
     rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC68"]
     assert rule.tests == (
         'smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_body_binding_rolls_back_original_signed_xor_transfer',
-        'smartcontracts::isi::multisig::tests::proposal_attempt::proposal_migration_validates_original_physical_key_and_body_before_writes',
+        'smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_missing_malformed_and_rebound_state_are_not_deferrals',
         'queue::router::tests::persisted_multisig_body_binding_and_local_refusal_reach_signed_queue_admission',
         'state::deserialize::decode_tests::restored_multisig_proposals_require_exact_body_and_preserve_local_read_refusal',
     )
@@ -1259,6 +1259,16 @@ def test_retained_multisig_proposals_bind_exact_approved_body_and_physical_row()
     assert not gate.has_switch("HC68")
     source = gate.REPO / "crates/iroha_core/src/smartcontracts/isi/multisig.rs"
     assert 'sumeragi_core_mutation = "HC68"' in source.read_text()
+    # Decoder-capacity invalidation alone does not exercise HC68's disabled
+    # body/occurrence/physical-key guard. Keep its adversarial binding control.
+    attempts = source.parent / "multisig/tests/proposal_attempt.rs"
+    leaf = rule.tests[1].rsplit("::", 1)[-1]
+    body = attempts.read_text().split(f"fn {leaf}()", 1)[1].split("#[test]", 1)[0]
+    for coordinate in ("multisig_account_id", "instructions_hash", "proposal_nonce",
+                       "proposal_id", "network_id", "transaction_ttl_ms"):
+        assert f"altered.{coordinate} =" in body
+    assert "ExecutionAttemptError::Rejected" in body
+    assert "tx.execution_deferral().is_none()" in body
 
 
 def test_multisig_cancellation_and_expiry_keep_original_custom_decode_refusal():
@@ -5024,7 +5034,7 @@ def test_private_root_home_mutations_have_isolated_native_guard_controls():
 
 def test_finite_finality_interval_mutations_have_original_native_owner_controls():
     cases = {'HC210': ('sumeragi::finality::proof_reader_tests::finite_finality_interval_under_original_codec_checks_each_real_quorum_once',
-               'sumeragi/certified_chain.rs',
+               'sumeragi/certified_chain/query_reader.rs',
                'sumeragi/finality/proof_reader_tests.rs'),
      'HC211': ('sumeragi::finality::interval::tests::finite_interval_rejects_earlier_real_qc_changed_after_verification_before_publication',
                'sumeragi/finality/interval.rs',

@@ -1,7 +1,9 @@
 """Automatic BN254 Python/native contract; these tests do not qualify CUDA hardware."""
 
 import operator
+
 import pytest
+
 from iroha_python import gpu
 
 MODULUS = 0x30644E72E131A029B85045B68181585D2833E84879B9709143E1F593F0000001
@@ -17,7 +19,7 @@ def test_automatic_batch_matches_full_width_reference_without_device_requirement
     left = [0, 1, MODULUS - 1, (1 << 192) - 1]
     right = [MODULUS - 1, 2, MODULUS - 1, (1 << 128) + 1]
     assert operation([limbs(value) for value in left], [limbs(value) for value in right]) == tuple(
-        limbs(relation(a, b) % MODULUS) for a, b in zip(left, right)
+        limbs(relation(a, b) % MODULUS) for a, b in zip(left, right, strict=True)
     )
     assert operation([], []) == ()
     assert not hasattr(gpu, f"bn254_{name}_cuda_many")

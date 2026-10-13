@@ -2,8 +2,8 @@
 //!
 //! One actual query reservation funds the original Core owner, cooperative stop
 //! control and encoded response. No response DTO is copied into another graph.
-//! Nested native verifier graphs retain the Core producer's explicit TODO; this
-//! route does not turn a cumulative decode allowance into physical graph custody.
+//! Core retains a prepaid bounded live-graph working set while walking history;
+//! the complete original reservation survives physical work and the last response byte.
 
 use super::*;
 use iroha_allocation::ChargedShared;
@@ -104,6 +104,8 @@ fn invalid_interval() -> Error {
     }
 }
 fn source_error(error: FinalityProofIntervalReadError) -> Error {
+    use iroha_core::sumeragi::finality::NativeFinalityProofRefusal;
+
     match error {
         FinalityProofIntervalReadError::StateView(StateViewError::Busy(_)) => {
             Error::AppServiceUnavailable {
@@ -111,22 +113,24 @@ fn source_error(error: FinalityProofIntervalReadError) -> Error {
                 message: "The original State publication has not completed.".to_owned(),
             }
         }
-        FinalityProofIntervalReadError::Proof(
-            NativeFinalityProofIntervalError::Backing(_)
-            | NativeFinalityProofIntervalError::Destination(
-                ProofDestinationError::Admission(_)
-                | ProofDestinationError::Buffer(_)
-                | ProofDestinationError::Key(_),
-            ),
-        ) => native_projection_response::capacity(),
-        FinalityProofIntervalReadError::Proof(NativeFinalityProofIntervalError::Proof(
-            iroha_core::sumeragi::finality::ProofError::Deferred(original),
+        FinalityProofIntervalReadError::Proof(NativeFinalityProofIntervalError::Backing(_))
+        | FinalityProofIntervalReadError::Proof(NativeFinalityProofIntervalError::Destination(
+            ProofDestinationError::Admission(_)
+            | ProofDestinationError::Buffer(_)
+            | ProofDestinationError::Key(_),
+        )) => native_projection_response::capacity(),
+        FinalityProofIntervalReadError::Proof(NativeFinalityProofIntervalError::Deferred(
+            original,
         )) => canonical_history::query_attempt_error(
             iroha_core::execution_attempt::ExecutionAttemptError::Deferred(original),
         ),
-        FinalityProofIntervalReadError::Proof(NativeFinalityProofIntervalError::Proof(error)) => {
-            routing::map_current_finality_error(error)
-        }
+        FinalityProofIntervalReadError::Proof(NativeFinalityProofIntervalError::Native(
+            NativeFinalityProofRefusal::NotCommitted { .. }
+            | NativeFinalityProofRefusal::NotInView { .. }
+            | NativeFinalityProofRefusal::MissingCertificate { .. },
+        )) => Error::Query(iroha_data_model::ValidationFail::QueryFailed(
+            iroha_data_model::query::error::QueryExecutionFail::NotFound,
+        )),
         error => Error::Query(iroha_data_model::ValidationFail::InternalError(
             error.to_string(),
         )),
@@ -221,8 +225,14 @@ pub async fn prepare(
         return Ok(PreparedResponse::deadline(format));
     }
     run_with_stop(admission, owner, move |owner, physical_cancel| {
+        if Instant::now() >= deadline {
+            return Ok(PreparedResponse::deadline(format));
+        }
+        if physical_cancel.load(Ordering::Acquire) {
+            return Err(native_projection_response::capacity());
+        }
         let interval = match state.read_finality_proof_interval(
-            &owner.canonical_history_budget(),
+            &owner.finality_budget()?,
             &limits,
             &physical_cancel,
         ) {
@@ -291,12 +301,21 @@ where
 {
     let cancelled = CancelOnDrop::new(&owner)?;
     let physical_cancel = cancelled.flag.clone();
-    let result = routing::run_admitted_blocking(
-        admission,
-        "finite finality interval worker failed",
-        move || work(owner, physical_cancel),
-    )
-    .await;
+    let worker = crate::panic_recovery::spawn_blocking_recoverable(move || {
+        // The blocking task retains every original permit through actual completion,
+        // even if the HTTP future disappears. Core owns its prepaid graph phases;
+        // entering the generic cumulative history scope here would debit freed
+        // ancestors forever. Physical admission and inherited scopes remain intact.
+        let _admission = admission;
+        owner.physical_scope(|| work(owner.clone(), physical_cancel))
+    });
+    let result = crate::panic_recovery::join_recoverable(worker)
+        .await
+        .map_err(|_| {
+            Error::Query(iroha_data_model::ValidationFail::InternalError(
+                "finite finality interval worker failed".to_owned(),
+            ))
+        })?;
     // On cancellation this guard is dropped with the HTTP future. The physical
     // worker keeps the original flag and every admission permit until it retires.
     drop(cancelled);

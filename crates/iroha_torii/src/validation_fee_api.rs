@@ -60,7 +60,7 @@ fn inconsistent(message: impl Into<String>) -> Error {
     }
     Error::AppServiceUnavailable {
         code: "validation_fee_state_inconsistent",
-        message,
+        message: message.into(),
     }
 }
 fn catch_up_required() -> Error {
@@ -82,7 +82,7 @@ fn quote_unavailable(message: impl Into<String>) -> Error {
     }
     Error::AppConflict {
         code: "retail_fee_quote_unavailable",
-        message,
+        message: message.into(),
     }
 }
 fn not_found(message: impl Into<String>) -> Error {
@@ -124,7 +124,7 @@ fn retained_proposal_operator(proposal_kind: &ProposalKind) -> Result<&AccountId
     }
 }
 fn public_proposal_record(
-    world: &impl WorldReadOnly,
+    state: &impl StateReadOnly,
     registry: Option<&ValidationFeePolicyRegistryV1>,
     proposal_id: [u8; 32],
     proposal: &iroha_core::state::GovernanceProposalRecord,
@@ -135,6 +135,7 @@ fn public_proposal_record(
     ),
     Error,
 > {
+    let world = state.world();
     if !matches!(
         proposal.kind,
         ProposalKind::ValidationFeePolicy(_) | ProposalKind::ValidationFeePayoutLifecycle(_)
@@ -221,7 +222,7 @@ fn public_proposal_record(
         ));
     }
     let certificate = latest_attempt.and_then(|attempt| attempt.certificate().cloned());
-    let authorization = retained_registry_authorization(registry, proposal_id)?;
+    let mut authorization = retained_registry_authorization(registry, proposal_id)?.cloned();
     if proposal.status == iroha_core::state::GovernanceProposalStatus::Enacted {
         let enacted_attempt_count = attempts
             .iter()
@@ -233,8 +234,21 @@ fn public_proposal_record(
         let certificate = certificate.as_ref().ok_or_else(|| {
             inconsistent("enacted validation-fee proposal has no Parliament certificate")
         })?;
+        if authorization.is_none() {
+            // Compaction leaves the complete original authorization in its enactment corpus.
+            // Never derive a replacement authorization from a present-day proposal record.
+            let original = iroha_core::query::native_receipts::fee_evidence_block_proof(
+                state,
+                certificate.enact_at_height,
+            )
+            .map_err(|error| {
+                inconsistent(format!("enacted policy archive is unavailable: {error}"))
+            })?;
+            authorization =
+                retained_registry_authorization(original.registry(), proposal_id)?.cloned();
+        }
         let authorization = authorization.ok_or_else(|| {
-            inconsistent("enacted validation-fee proposal has no protected registry authorization")
+            inconsistent("enacted validation-fee proposal has no original registry authorization")
         })?;
         if enacted_attempt_count != 1
             || attempt.terminal_height() != Some(certificate.enact_at_height)
@@ -296,11 +310,13 @@ fn current_validation_fee_registry(
         .map_err(|error| inconsistent(format!("protected registry is invalid: {error}")))?;
     Ok(Some(registry))
 }
-fn retained_registry_authorization(
-    registry: Option<&ValidationFeePolicyRegistryV1>,
+fn retained_registry_authorization<'a>(
+    registry: Option<&'a ValidationFeePolicyRegistryV1>,
     proposal_id: [u8; 32],
-) -> Result<Option<&iroha_data_model::validation_fee::ValidationFeeParliamentAuthorizationV1>, Error>
-{
+) -> Result<
+    Option<&'a iroha_data_model::validation_fee::ValidationFeeParliamentAuthorizationV1>,
+    Error,
+> {
     let Some(registry) = registry else {
         return Ok(None);
     };
@@ -342,7 +358,7 @@ fn bounded_validation_fee_proposal_keys<'a>(
     (keys, has_more)
 }
 /// Return one bounded page of typed validation-fee Parliament proposals.
-pub async fn handler_proposals(
+pub(crate) async fn handler_proposals(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     ConnectInfo(remote): ConnectInfo<std::net::SocketAddr>,
@@ -366,8 +382,9 @@ pub async fn handler_proposals(
         .map(decode_validation_fee_proposal_cursor_v1)
         .transpose()
         .map_err(bad_request)?;
-    let world = app.state.world_view();
-    let registry = current_validation_fee_registry(&world)?;
+    let view = app.state.view();
+    let world = view.world();
+    let registry = current_validation_fee_registry(world)?;
     let index = world.validation_fee_proposal_index();
     let indexed: Box<dyn Iterator<Item = (&(u64, [u8; 32]), &())> + '_> = match after {
         Some(after) => Box::new(index.range((Excluded(after), Unbounded))),
@@ -393,7 +410,7 @@ pub async fn handler_proposals(
                 "validation-fee proposal index does not match its exact typed proposal",
             ));
         }
-        let (record, _) = public_proposal_record(&world, registry.as_ref(), proposal_id, proposal)?;
+        let (record, _) = public_proposal_record(&view, registry.as_ref(), proposal_id, proposal)?;
         proposals.push(record);
         last_key = Some((created_height, proposal_id));
     }
@@ -412,7 +429,7 @@ pub async fn handler_proposals(
     }))
 }
 /// Return one typed validation-fee Parliament proposal.
-pub async fn handler_proposal_detail(
+pub(crate) async fn handler_proposal_detail(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     ConnectInfo(remote): ConnectInfo<std::net::SocketAddr>,
@@ -427,7 +444,8 @@ pub async fn handler_proposal_detail(
     )
     .await?;
     let proposal_id_bytes = parse_proposal_id(&proposal_id)?;
-    let world = app.state.world_view();
+    let view = app.state.view();
+    let world = view.world();
     let proposal = world
         .governance_proposals()
         .get(&proposal_id_bytes)
@@ -438,9 +456,9 @@ pub async fn handler_proposal_detail(
     ) {
         return Err(not_found("validation-fee proposal was not found"));
     }
-    let registry = current_validation_fee_registry(&world)?;
+    let registry = current_validation_fee_registry(world)?;
     let (proposal, governance_certificate) =
-        public_proposal_record(&world, registry.as_ref(), proposal_id_bytes, proposal)?;
+        public_proposal_record(&view, registry.as_ref(), proposal_id_bytes, proposal)?;
     Ok(JsonBody(ValidationFeeProposalDetailV1 {
         version: VALIDATION_FEE_PROPOSAL_API_VERSION_V1,
         proposal,
@@ -506,7 +524,7 @@ fn framed_instruction_draft(
     })
 }
 /// Build one exact native validation-fee proposal instruction for local signing.
-pub async fn handler_proposal_draft(
+pub(crate) async fn handler_proposal_draft(
     State(app): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     headers: HeaderMap,
@@ -536,20 +554,242 @@ pub async fn handler_proposal_draft(
         tx_instructions: vec![instruction],
     }))
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+    #[test]
+    fn validation_fee_projection_rejects_unrelated_current_proposal() {
+        use iroha_data_model::governance::types::{
+            GlobalDataTriggerPermissionGovernanceActionV1,
+            GlobalDataTriggerPermissionGovernanceProposalV1,
+        };
 
-fn registry_at_height(
-    current: Option<ValidationFeePolicyRegistryV1>,
-    height: u64,
-) -> Result<Option<ValidationFeePolicyRegistryV1>, Error> {
-    let Some(registry) = current else {
-        return Ok(None);
-    };
-    registry
-        .retained_at_height(height)
-        .map_err(|error| inconsistent(format!("protected historical registry is invalid: {error}")))
+        let proposal = ProposalKind::GlobalDataTriggerPermissionGovernance(
+            GlobalDataTriggerPermissionGovernanceProposalV1 {
+                authority: iroha_test_samples::ALICE_ID.clone(),
+                action: GlobalDataTriggerPermissionGovernanceActionV1::Grant,
+            },
+        );
+        assert!(matches!(
+            retained_proposal_operator(&proposal),
+            Err(Error::AppServiceUnavailable {
+                code: "validation_fee_state_inconsistent",
+                ..
+            })
+        ));
+    }
+    #[test]
+    fn compacted_proposal_uses_exact_original_authorization_and_requires_archive_custody() {
+        use iroha_core::governance::parliament::enacted_parliament_attempt_for_testing;
+        use iroha_data_model::{
+            governance::types::ValidationFeePayoutLifecycleProposal,
+            parameter::Parameter,
+            validation_fee::{
+                ValidationFeeParliamentAuthorizationV1, ValidationFeePayoutPolicyEntryV1,
+                ValidationFeePayoutPolicyRegistryV1,
+            },
+        };
+        let (mut chain, _, owner, _, _, asset) =
+            crate::routing::validation_fee_torii_ingress_tests::native_fee_fixture();
+        while chain.height() < 19 {
+            chain.commit_at((chain.height() + 1) * 1_000, Vec::new());
+        }
+        let original_binding = crate::routing::validation_fee_torii_ingress_tests::payout_binding(
+            chain.state(),
+            &owner,
+            &asset,
+        );
+        let mut registry = ValidationFeePolicyRegistryV1 {
+            history: None,
+            registered_policies: Vec::new(),
+            payout_policies: ValidationFeePayoutPolicyRegistryV1 {
+                entries: Vec::new(),
+            },
+        };
+        let mut proposals = Vec::new();
+        for revision in 1..=2 {
+            let mut binding = original_binding.clone();
+            binding.min_reward_claim_xor_minor = revision;
+            let kind =
+                ProposalKind::ValidationFeePayoutLifecycle(ValidationFeePayoutLifecycleProposal {
+                    proposal_operator: owner.clone(),
+                    payout_binding: binding.clone(),
+                });
+            let candidates = (220_u8..=243)
+                .map(|seed| {
+                    AccountId::new(
+                        iroha_crypto::KeyPair::from_seed(
+                            vec![seed; 32],
+                            iroha_crypto::Algorithm::Ed25519,
+                        )
+                        .public_key()
+                        .clone(),
+                    )
+                })
+                .collect();
+            let attempt =
+                enacted_parliament_attempt_for_testing(&kind, candidates, &chain.network_id(), 20);
+            let certificate = attempt.certificate().unwrap().clone();
+            let authorization = ValidationFeeParliamentAuthorizationV1 {
+                proposal_operator: owner.clone(),
+                proposal_fingerprint: kind.fingerprint(),
+                governance_certificate_id: GovernanceCertificateId::derive_v1(&certificate),
+                governance_certificate: certificate,
+                enacted_at_height: 20,
+            };
+            registry
+                .payout_policies
+                .entries
+                .push(ValidationFeePayoutPolicyEntryV1 {
+                    revision,
+                    proposal_id: kind.fingerprint(),
+                    lifecycle_seal: binding.lifecycle_seal().unwrap(),
+                    payout_binding: binding,
+                    parliament_authorization: authorization,
+                });
+            proposals.push((kind, attempt));
+        }
+        registry.validate().unwrap();
+        // Honiara month boundaries must be representable after the Unix epoch.
+        let now = 1_735_650_000_000;
+        chain.setup_world_at(now, |stx| {
+            for (kind, attempt) in &proposals {
+                stx.world.governance_proposals_mut().insert(
+                    kind.fingerprint(),
+                    iroha_core::state::GovernanceProposalRecord {
+                        proposer: owner.clone(),
+                        kind: kind.clone(),
+                        created_height: 1,
+                        status: iroha_core::state::GovernanceProposalStatus::Enacted,
+                    },
+                );
+                stx.world
+                    .put_parliament_attempt_for_testing(attempt.attempt().id, attempt.clone())
+                    .unwrap();
+            }
+            stx.world
+                .parameters_mut_for_testing()
+                .get_mut()
+                .set_parameter(Parameter::Custom(
+                    registry.clone().into_custom_parameter().expect(
+                        "validation-fee fixture registry fits the canonical JSON parameter",
+                    ),
+                ));
+        });
+        chain.commit_at(now, Vec::new());
+        let proposal_id = proposals[0].0.fingerprint();
+        let hot = {
+            let view = chain.state().view();
+            let proposal = view
+                .world()
+                .governance_proposals()
+                .get(&proposal_id)
+                .unwrap();
+            public_proposal_record(&view, Some(&registry), proposal_id, proposal).unwrap()
+        };
+        chain.commit_at(now + 1_000, Vec::new());
+        chain.commit_at(now + 2_000, Vec::new());
+        let view = chain.state().view();
+        let compacted = current_validation_fee_registry(view.world())
+            .unwrap()
+            .unwrap();
+        assert_eq!(compacted.payout_policies.entries.len(), 1);
+        assert!(
+            retained_registry_authorization(Some(&compacted), proposal_id)
+                .unwrap()
+                .is_none()
+        );
+        let proposal = view
+            .world()
+            .governance_proposals()
+            .get(&proposal_id)
+            .unwrap();
+        let cold = public_proposal_record(&view, Some(&compacted), proposal_id, proposal).unwrap();
+        assert_eq!(
+            cold, hot,
+            "public proposal and exact original certificate survive compaction"
+        );
+        let path = chain
+            .kura()
+            .store_root()
+            .join("native-contexts")
+            .join(format!(
+                "{:020}-{}.nrt",
+                20,
+                hex::encode(chain.committed(20).block_hash().as_ref())
+            ));
+        let original = std::fs::read(&path).unwrap();
+        let hidden = path.with_extension("policy-original");
+        std::fs::rename(&path, &hidden).unwrap();
+        let missing = public_proposal_record(&view, Some(&compacted), proposal_id, proposal);
+        std::fs::rename(&hidden, &path).unwrap();
+        assert!(matches!(missing, Err(Error::AppServiceUnavailable { .. })));
+        std::fs::write(&path, b"corrupt original registry archive").unwrap();
+        let corrupt = public_proposal_record(&view, Some(&compacted), proposal_id, proposal);
+        std::fs::write(&path, original).unwrap();
+        assert!(matches!(corrupt, Err(Error::AppServiceUnavailable { .. })));
+        assert_eq!(
+            public_proposal_record(&view, Some(&compacted), proposal_id, proposal).unwrap(),
+            hot
+        );
+    }
+
+    #[test]
+    fn catch_up_responses_are_temporary_service_unavailability() {
+        for error in [
+            inconsistent(iroha_data_model::validation_fee::RETAIL_FEE_CATCH_UP_REQUIRED),
+            quote_unavailable(iroha_data_model::validation_fee::RETAIL_FEE_CATCH_UP_REQUIRED),
+        ] {
+            assert!(matches!(
+                error,
+                Error::AppServiceUnavailable {
+                    code: "ledger_catch_up_required",
+                    ..
+                }
+            ));
+        }
+    }
+    #[test]
+    fn proposal_page_traversal_reads_only_limit_plus_one_index_rows() {
+        let rows = (0_u64..10_000)
+            .map(|created_height| {
+                let mut proposal_id = [0_u8; 32];
+                proposal_id[..8].copy_from_slice(&created_height.to_be_bytes());
+                ((created_height, proposal_id), ())
+            })
+            .collect::<Vec<_>>();
+        let visited = Cell::new(0_usize);
+        let indexed = rows
+            .iter()
+            .inspect(|_| visited.set(visited.get().saturating_add(1)))
+            .map(|(key, value)| (key, value));
+        let (keys, has_more) = bounded_validation_fee_proposal_keys(indexed, 3);
+        assert_eq!(visited.get(), 4, "one lookahead row is the exact bound");
+        assert_eq!(keys.len(), 3);
+        assert!(has_more);
+        assert_eq!(keys[0].0, 0);
+        assert_eq!(keys[2].0, 2);
+    }
+    #[test]
+    fn proposal_list_cannot_reintroduce_a_full_governance_scan() {
+        let source = include_str!("validation_fee_api.rs");
+        let start = source
+            .find("fn bounded_validation_fee_proposal_keys")
+            .expect("bounded proposal-key projection");
+        let tail = &source[start..];
+        let end = tail
+            .find("/// Return one typed validation-fee Parliament proposal.")
+            .expect("proposal-list handler terminator");
+        let implementation = &tail[..end];
+        assert!(implementation.contains("validation_fee_proposal_index()"));
+        assert!(implementation.contains("bounded_validation_fee_proposal_keys(indexed, limit)"));
+        assert!(!implementation.contains("governance_proposals().iter()"));
+        assert!(!implementation.contains(".sort"));
+    }
 }
 /// Return one bounded finality page for the current validation-fee registry.
-pub async fn handler_current_policy_proof(
+pub(crate) async fn handler_current_policy_proof(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     ConnectInfo(remote): ConnectInfo<std::net::SocketAddr>,
@@ -582,16 +822,15 @@ pub async fn handler_current_policy_proof(
         observed_ledger_tip_height,
     )
     .ok_or_else(|| bad_request("trusted checkpoint cannot begin a finality page"))?;
-    let parameter_id = ValidationFeePolicyRegistryV1::parameter_id();
-    let current_registry = match state_view.world().parameters().custom().get(&parameter_id) {
-        None => None,
-        Some(custom) => Some(
-            ValidationFeePolicyRegistryV1::from_custom_parameter(custom).ok_or_else(|| {
-                inconsistent("protected validation-fee registry parameter cannot be decoded")
-            })?,
-        ),
-    };
-    let registry = registry_at_height(current_registry, evaluated_height)?;
+    // A hot registry may have compacted since this page tip. Only the exact original
+    // certified corpus can open the historical registry commitment.
+    let registry =
+        iroha_core::query::native_receipts::fee_evidence_block_proof(&state_view, evaluated_height)
+            .map_err(|error| {
+                inconsistent(format!("original policy registry is unavailable: {error}"))
+            })?
+            .registry()
+            .cloned();
     let proof_view = state_view;
     let evaluated_timestamp_ms =
         iroha_core::sumeragi::certified_chain::committed_block(&proof_view, evaluated_height)
@@ -695,7 +934,7 @@ fn authorize_retail_account(
     Err(Error::AppForbidden{code:"retail_fee_account_mismatch",message:"authenticated account must be the wallet, its direct multisig signatory, or its registered primary-alias domain issuer".into()})
 }
 /// Evaluate actual finalized wallet counters and bind the complete ordered payment intent.
-pub async fn handler_retail_quote(
+pub(crate) async fn handler_retail_quote(
     State(app): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     headers: HeaderMap,
@@ -727,7 +966,7 @@ pub async fn handler_retail_quote(
     ))
 }
 /// Return logically settled maintenance and allowance status for an authenticated wallet.
-pub async fn handler_retail_status(
+pub(crate) async fn handler_retail_status(
     State(app): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     headers: HeaderMap,
@@ -792,7 +1031,7 @@ pub async fn handler_retail_status(
 }
 
 /// Query immutable native receipts without reconstructing fees from treasury deposits.
-pub async fn handler_retail_receipts(
+pub(crate) async fn handler_retail_receipts(
     State(app): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     headers: HeaderMap,
@@ -843,22 +1082,14 @@ pub async fn handler_retail_receipts(
         .ok_or_else(|| {
             inconsistent("native fee receipt has no immutable finalized membership proof")
         })?;
-        if let std::collections::btree_map::Entry::Vacant(e) =
-            proof_by_height.entry(receipt.recorded_at_height)
-        {
+        if !proof_by_height.contains_key(&receipt.recorded_at_height) {
             let finality =
                 iroha_core::sumeragi::finality::build_proof(&state, receipt.recorded_at_height)
                     .map_err(|e| inconsistent(format!("receipt finality unavailable: {e}")))?;
-            e.insert(finality);
+            proof_by_height.insert(receipt.recorded_at_height, finality);
         }
         let root = proof_by_height[&receipt.recorded_at_height]
-            .decode_checked(
-                state
-                    .native_execution_tip()
-                    .ok_or_else(|| inconsistent("native execution scope unavailable"))?
-                    .root_scope()
-                    .into(),
-            )
+            .decode_checked()
             .map_err(|e| inconsistent(format!("receipt finality is malformed: {e}")))?
             .execution()
             .ordinary_writes_root;
@@ -899,7 +1130,7 @@ pub async fn handler_retail_receipts(
 }
 
 /// Read one current cumulative wallet head against exactly matching finalized evidence.
-pub async fn handler_retail_statement_head(
+pub(crate) async fn handler_retail_statement_head(
     State(app): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     headers: HeaderMap,
@@ -944,14 +1175,9 @@ pub async fn handler_retail_statement_head(
     }
     let finality_proof = iroha_core::sumeragi::finality::build_proof(&state, height)
         .map_err(|e| inconsistent(format!("wallet head finality unavailable: {e}")))?;
-    let scope = state
-        .native_execution_tip()
-        .ok_or_else(|| inconsistent("native execution scope unavailable"))?
-        .root_scope()
-        .into();
     drop(state);
     let ordinary_writes_root = finality_proof
-        .decode_checked(scope)
+        .decode_checked()
         .map_err(|e| inconsistent(format!("wallet head finality is malformed: {e}")))?
         .execution()
         .ordinary_writes_root;
@@ -982,7 +1208,7 @@ pub async fn handler_retail_statement_head(
     Ok(JsonBody(response))
 }
 /// Return bounded immutable account history without requiring intervening block proofs.
-pub async fn handler_retail_statement(
+pub(crate) async fn handler_retail_statement(
     State(app): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     headers: HeaderMap,
@@ -1032,83 +1258,4 @@ pub async fn handler_retail_statement(
         return Err(Error::AppConflict { code: "retail_fee_statement_too_large", message: "private receipt page exceeds 1 MiB; request a smaller page using the same verified frontier".into() });
     }
     Ok(JsonBody(response))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cell::Cell;
-    #[test]
-    fn validation_fee_projection_rejects_unrelated_current_proposal() {
-        use iroha_data_model::governance::types::{
-            GlobalDataTriggerPermissionGovernanceActionV1,
-            GlobalDataTriggerPermissionGovernanceProposalV1,
-        };
-
-        let proposal = ProposalKind::GlobalDataTriggerPermissionGovernance(
-            GlobalDataTriggerPermissionGovernanceProposalV1 {
-                authority: iroha_test_samples::ALICE_ID.clone(),
-                action: GlobalDataTriggerPermissionGovernanceActionV1::Grant,
-            },
-        );
-        assert!(matches!(
-            retained_proposal_operator(&proposal),
-            Err(Error::AppServiceUnavailable {
-                code: "validation_fee_state_inconsistent",
-                ..
-            })
-        ));
-    }
-    #[test]
-    fn catch_up_responses_are_temporary_service_unavailability() {
-        for error in [
-            inconsistent(iroha_data_model::validation_fee::RETAIL_FEE_CATCH_UP_REQUIRED),
-            quote_unavailable(iroha_data_model::validation_fee::RETAIL_FEE_CATCH_UP_REQUIRED),
-        ] {
-            assert!(matches!(
-                error,
-                Error::AppServiceUnavailable {
-                    code: "ledger_catch_up_required",
-                    ..
-                }
-            ));
-        }
-    }
-    #[test]
-    fn proposal_page_traversal_reads_only_limit_plus_one_index_rows() {
-        let rows = (0_u64..10_000)
-            .map(|created_height| {
-                let mut proposal_id = [0_u8; 32];
-                proposal_id[..8].copy_from_slice(&created_height.to_be_bytes());
-                ((created_height, proposal_id), ())
-            })
-            .collect::<Vec<_>>();
-        let visited = Cell::new(0_usize);
-        let indexed = rows
-            .iter()
-            .inspect(|_| visited.set(visited.get().saturating_add(1)))
-            .map(|(key, value)| (key, value));
-        let (keys, has_more) = bounded_validation_fee_proposal_keys(indexed, 3);
-        assert_eq!(visited.get(), 4, "one lookahead row is the exact bound");
-        assert_eq!(keys.len(), 3);
-        assert!(has_more);
-        assert_eq!(keys[0].0, 0);
-        assert_eq!(keys[2].0, 2);
-    }
-    #[test]
-    fn proposal_list_cannot_reintroduce_a_full_governance_scan() {
-        let source = include_str!("validation_fee_api.rs");
-        let start = source
-            .find("fn bounded_validation_fee_proposal_keys")
-            .expect("bounded proposal-key projection");
-        let tail = &source[start..];
-        let end = tail
-            .find("/// Return one typed validation-fee Parliament proposal.")
-            .expect("proposal-list handler terminator");
-        let implementation = &tail[..end];
-        assert!(implementation.contains("validation_fee_proposal_index()"));
-        assert!(implementation.contains("bounded_validation_fee_proposal_keys(indexed, limit)"));
-        assert!(!implementation.contains("governance_proposals().iter()"));
-        assert!(!implementation.contains(".sort"));
-    }
 }

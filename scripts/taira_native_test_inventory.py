@@ -205,6 +205,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'attached_publication_busy_retry_retains_original_cursor_charge_and_release_sources',
     )),
     ('native publication custody', 'sumeragi/executor.rs', 'sumeragi/executor_publication_tests.rs', 'publication_tests', 'sumeragi::executor::publication_tests', (
+        'published_execution_result_binds_the_original_header_and_body_digest',
         'beacon_startup_retains_original_capacity_through_worker_channel_and_node',
         'prepared_block_moves_original_graph_and_rejects_replaced_shared_control',
         'reversible_publication_refusal_retains_original_overlay_capture_and_certified_frame',
@@ -252,7 +253,6 @@ NATIVE_CORE_TEST_OWNERS = (
         'original_worker_world_cut_retains_completed_tail_after_final_control_refusal',
         'original_worker_completed_world_cut_refuses_changed_publication_source',
         'native_lane_proof_scratch_ceiling_remains_terminal_in_both_worker_stages',
-        'published_execution_result_binds_the_original_header_and_body_digest',
         'original_worker_world_cut_physical_allocator_refusal_retains_tail_and_publication',
     )),
     ('native local empty signature preparation', 'sumeragi/executor.rs', 'sumeragi/executor_local_signature_preparation_tests.rs', 'local_signature_preparation_tests', 'sumeragi::executor::local_signature_preparation_tests', (
@@ -295,6 +295,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'cold_prepare_validation_refusals_retain_original_storage_owners',
         'validation_wrappers_keep_real_capacity_and_terminal_custody_distinct',
         'original_local_custody_invariant_halts_worker_without_fee_result_or_quarantine',
+        'cold_prepare_keeps_original_recovery_refusal_after_execution_latches_recovery',
         'native_source_publication_change_retries_without_recovery_or_quarantine',
         'immutable_result_foreign_budget_requires_recovery_with_original_diagnostic',
         'immutable_result_excessive_preimage_requires_recovery_with_original_extent',
@@ -306,7 +307,6 @@ NATIVE_CORE_TEST_OWNERS = (
         'producer_payload_errors_keep_original_release_and_terminal_classification',
         'sccp_evidence_publication_preserves_all_original_preparation_categories',
         'sccp_forgery_refusals_preserve_original_capacity_and_recovery_categories',
-        'cold_prepare_keeps_original_recovery_refusal_after_execution_latches_recovery',
         'native_initializer_invariant_keeps_original_across_validation_and_producer_recovery',
     )),
     ('native publication refusal identity', 'sumeragi/executor/publication.rs', 'sumeragi/executor/publication/tests.rs', 'tests', 'sumeragi::executor::publication::tests', (

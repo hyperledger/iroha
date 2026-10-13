@@ -211,15 +211,22 @@ impl PreparedInstallation {
         let inventory = installed
             .authenticate_producer_inventory(input.producer_inventory)
             .map_err(|_| Failure::code(INVALID))?;
-        let mut originals = CatalogOriginals::from_authenticated(
+        let originals = CatalogOriginals::from_authenticated(
             &inventory,
             input.originals_root,
             input.verifier_pack,
             input.producer_inventory,
             base,
         )?;
-        let sources = inventory
-            .qualify_wallet(&installed, &selected.genesis, &mut originals, read_config())
+        let sources = originals
+            .with_snapshot(|snapshot| {
+                inventory.qualify_wallet_builtin(
+                    &installed,
+                    &selected.genesis,
+                    snapshot,
+                    read_config(),
+                )
+            })
             .map_err(|error| {
                 Failure::code(if error.is_unavailable() {
                     ARTIFACTS_UNAVAILABLE

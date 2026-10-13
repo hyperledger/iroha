@@ -110,16 +110,19 @@ impl VerificationErrorCode {
 #[derive(Debug)]
 struct VerificationError {
     code: VerificationErrorCode,
-    message: String,
+    payload: VerificationErrorPayload,
+}
+#[derive(Debug)]
+enum VerificationErrorPayload {
+    Message(String),
     // Retain the actual unfinished finality attempt until the terminal N-API projection.
-    original: Option<FinalityReadError>,
+    Original(FinalityReadError),
 }
 impl VerificationError {
     fn new(code: VerificationErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
-            message: message.into(),
-            original: None,
+            payload: VerificationErrorPayload::Message(message.into()),
         }
     }
     fn from_finality(error: FinalityReadError) -> Self {
@@ -128,8 +131,7 @@ impl VerificationError {
             | FinalityReadError::ScratchLimit(_)
             | FinalityReadError::Allocator(_)) => Self {
                 code: VerificationErrorCode::LocalUnavailable,
-                message: String::new(),
-                original: Some(original),
+                payload: VerificationErrorPayload::Original(original),
             },
             // TODO: migrate the earlier original genesis JSON and archive reads to
             // captured typed attempts too; this repair closes the new finality owner API.
@@ -140,7 +142,7 @@ impl VerificationError {
         }
     }
     fn into_napi(self) -> napi::Error {
-        let status = if self.original.is_some() {
+        let status = if matches!(&self.payload, VerificationErrorPayload::Original(_)) {
             napi::Status::GenericFailure
         } else {
             napi::Status::InvalidArg
@@ -150,18 +152,17 @@ impl VerificationError {
 }
 impl fmt::Display for VerificationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(original) = &self.original {
-            return write!(
+        match &self.payload {
+            VerificationErrorPayload::Original(original) => write!(
                 formatter,
                 "authenticated_block_proofs_v1/local_unavailable: {original}"
-            );
+            ),
+            VerificationErrorPayload::Message(message) => write!(
+                formatter,
+                "authenticated_block_proofs_v1/{}: {message}",
+                self.code.as_str()
+            ),
         }
-        write!(
-            formatter,
-            "authenticated_block_proofs_v1/{}: {}",
-            self.code.as_str(),
-            self.message
-        )
     }
 }
 struct RawVerificationInputV1<'a> {
@@ -470,8 +471,11 @@ mod tests {
         .unwrap_err();
         let original = attempt.local_refusal().unwrap();
         let error = VerificationError::from_finality(attempt.into());
+        assert!(std::mem::size_of_val(&error) <= 128);
         assert_eq!(error.code, VerificationErrorCode::LocalUnavailable);
-        let Some(FinalityReadError::DecodeResource(retained)) = error.original.as_ref() else {
+        let VerificationErrorPayload::Original(FinalityReadError::DecodeResource(retained)) =
+            &error.payload
+        else {
             panic!("actual finality decoder owner must be retained")
         };
         assert_eq!(retained.local_refusal(), Some(original));
@@ -490,7 +494,11 @@ mod tests {
             iroha_data_model::sumeragi_finality::FinalityError("original completed failure".into())
                 .into(),
         );
-        assert!(invalid.original.is_none());
+        assert!(matches!(
+            &invalid.payload,
+            VerificationErrorPayload::Message(message)
+                if message == "current finality: original completed failure"
+        ));
         assert_eq!(invalid.code, VerificationErrorCode::FinalityRejected);
         let invalid = invalid.into_napi();
         assert_eq!(invalid.status, napi::Status::InvalidArg);

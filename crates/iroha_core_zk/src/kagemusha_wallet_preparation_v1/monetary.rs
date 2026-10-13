@@ -43,8 +43,27 @@ pub struct SendControlsV1<'a> {
 pub struct SendMapsV1 {
     /// Pending descriptor insertion against Omega's lineage-adjusted pending root.
     pub pending: KagemushaWalletIndexedInsertV1,
-    /// Fee insertion iff the authentic Request's fee is nonzero.
-    pub fee: Option<KagemushaWalletIndexedInsertV1>,
+    /// Actual insertion or authenticated unchanged fee-map witness, selected by the Request.
+    pub fee: SendFeeMapV1,
+}
+
+/// Source-owned fee-map witness for Send's fixed conditional insertion circuit.
+#[derive(Clone, Copy, Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "both variants are bounded depth32 witness DATA moved into one native preparation"
+)]
+pub enum SendFeeMapV1 {
+    /// Actual insertion when the authenticated Request charges a nonzero fee.
+    Insert(KagemushaWalletIndexedInsertV1),
+    /// Actual existing leaf and path when the authenticated Request charges zero.
+    /// Both circuit paths use this same opening; even a no-op authenticates its root.
+    Preserve {
+        /// Existing member or low leaf from the selected predecessor fee map.
+        leaf: KagemushaWalletIndexedLeafV1,
+        /// Exact depth32 opening against the selected predecessor fee root.
+        opening: KagemushaWalletIndexedOpeningV1,
+    },
 }
 
 /// Exact consumed-credit insertion for a Receive; duplicate admission fails before Advance.
@@ -79,6 +98,9 @@ pub struct MonetaryStepV1 {
     request_original: Vec<u8>,
     payment_original: Option<Vec<u8>>,
     maps: Vec<IndexedInsert<Fp>>,
+    // Reconstructed from the authenticated predecessor fee map on every preparation/replay.
+    // A no-op is fold input only: it must never add an insertion to the durable capsule.
+    send_fee_witness: Option<IndexedInsert<Fp>>,
     send_check: Option<KagemushaWalletSendCheckV1>,
     payer: Option<PayerOriginalV1>,
     payer_certificate_set_original: Option<Vec<u8>>,
@@ -180,7 +202,8 @@ impl MonetaryStepV1 {
     pub const fn request(&self) -> &KagemushaWalletRequestV1 {
         &self.request
     }
-    /// Source-bound actual depth32 witnesses, pending then conditional fee, or consumed.
+    /// Canonical actual insertions: pending and a positive fee, or consumed.
+    /// A zero-fee fold opening is transient and is never a durable map insertion.
     #[must_use]
     pub fn map_witnesses(&self) -> &[IndexedInsert<Fp>] {
         &self.maps
@@ -621,22 +644,15 @@ impl PreparationV1<'_> {
             &pending.key(),
             &authority(pending.leaf_value())?,
         ))?;
-        let fee_root = match (request.body.fee != 0, maps.fee.as_ref()) {
-            (false, None) => source.core.fee_claim_root,
-            (true, Some(insert)) => {
-                let leaf = KagemushaWalletFeeClaimLeafV1 {
-                    credit_id: pending.credit_id,
-                    fee: request.body.fee,
-                    fee_schedule_digest: request.body.fee_schedule,
-                };
-                authority(insert.verify(
-                    &source.core.fee_claim_root,
-                    &leaf.key(),
-                    &authority(leaf.leaf_value())?,
-                ))?
-            }
-            _ => return Err(Error::Authority),
-        };
+        let (fee_root, fee_witness) = send_fee_map(
+            &source.core.fee_claim_root,
+            KagemushaWalletFeeClaimLeafV1 {
+                credit_id: pending.credit_id,
+                fee: request.body.fee,
+                fee_schedule_digest: request.body.fee_schedule,
+            },
+            maps.fee,
+        )?;
         let relation = SigmaRelation::send(source.core.enabled_controls);
         let witness = StepWitness {
             relation_id: scheme.relation_id,
@@ -672,10 +688,7 @@ impl PreparationV1<'_> {
         authority(statement.validate_for_credential(&owner.credential))?;
         authority(statement.validate_successor_of(&predecessor.source_statement))?;
         authority(statement.validate_against_lineage(&predecessor.lineage.public))?;
-        let mut native_maps = vec![insertion(&maps.pending)?];
-        if let Some(fee) = maps.fee {
-            native_maps.push(insertion(&fee)?);
-        }
+        let native_maps = send_insertions(&maps.pending, request.body.fee, fee_witness)?;
         Ok(MonetaryStepV1 {
             manifest_digest: owner.manifest_digest,
             source_capsule_digest: predecessor.source_capsule_digest,
@@ -687,6 +700,7 @@ impl PreparationV1<'_> {
             request_original: request_original.to_vec(),
             payment_original: None,
             maps: native_maps,
+            send_fee_witness: Some(fee_witness),
             send_check: Some(check),
             payer: None,
             payer_certificate_set_original: None,
@@ -908,6 +922,7 @@ impl PreparationV1<'_> {
             request_original: request_original.to_vec(),
             payment_original: Some(payment_original.to_vec()),
             maps: vec![insertion(&maps.consumed)?],
+            send_fee_witness: None,
             send_check: None,
             payer: Some(payer),
             payer_certificate_set_original: Some(payer_certificate_set_original.to_vec()),
@@ -1033,11 +1048,7 @@ impl PreparationV1<'_> {
             |fee| signed_tape(fee.body.transcript(), &fee.signature),
         );
         let pending = *prepared.maps.first().ok_or(Error::Authority)?;
-        let fee_map = if prepared.request.body.fee != 0 {
-            *prepared.maps.get(1).ok_or(Error::Authority)?
-        } else {
-            unused_insert()
-        };
+        let fee_map = prepared.send_fee_witness.ok_or(Error::Authority)?;
         Ok(SendFoldFieldsV1 {
             state: native_send::SendState {
                 before: predecessor.witness,
@@ -1300,6 +1311,48 @@ fn receive_credit_route(
             leaf_siblings: fields(opening.siblings.to_vec())?,
             ..unused_insert()
         }),
+    }
+}
+
+// Only actual insertions belong to canonical recovery capsule map_openings. The
+// separately retained in-memory fee witness is still required even when fee == 0.
+pub(super) fn send_insertions(
+    pending: &KagemushaWalletIndexedInsertV1,
+    fee: u128,
+    fee_witness: IndexedInsert<Fp>,
+) -> Result<Vec<IndexedInsert<Fp>>, Error> {
+    let mut maps = vec![insertion(pending)?];
+    if fee != 0 {
+        maps.push(fee_witness);
+    }
+    Ok(maps)
+}
+
+pub(super) fn send_fee_map(
+    root: &[u8; 32],
+    fee: KagemushaWalletFeeClaimLeafV1,
+    witness: SendFeeMapV1,
+) -> Result<([u8; 32], IndexedInsert<Fp>), Error> {
+    match (fee.fee != 0, witness) {
+        (true, SendFeeMapV1::Insert(insert)) => {
+            let new_root =
+                authority(insert.verify(root, &fee.key(), &authority(fee.leaf_value())?))?;
+            Ok((new_root, insertion(&insert)?))
+        }
+        (false, SendFeeMapV1::Preserve { leaf, opening }) => {
+            if authority(opening.leaf_root(&leaf))? != *root {
+                return Err(Error::Authority);
+            }
+            // insert_if authenticates both paths even when its insert bit is zero.
+            // They must describe the same existing leaf, including after earlier fees.
+            let unchanged = KagemushaWalletIndexedInsertV1 {
+                low: leaf,
+                low_opening: opening,
+                slot_opening: opening,
+            };
+            Ok((*root, insertion(&unchanged)?))
+        }
+        _ => Err(Error::Authority),
     }
 }
 

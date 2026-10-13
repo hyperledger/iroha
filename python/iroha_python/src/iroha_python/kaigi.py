@@ -22,9 +22,8 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, Mapping, Sequence
 
-from norito.crc64 import crc64 as _crc64
-
 from iroha_native import load_crypto_extension
+from norito.crc64 import crc64 as _crc64
 
 if TYPE_CHECKING:
     from .crypto import Instruction

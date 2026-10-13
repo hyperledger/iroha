@@ -19,8 +19,8 @@ use core::fmt;
 use ff::Field;
 use iroha_pasta::{Ep, Fp, Fq};
 use iroha_plonk::{
-    DescriptorBinding, KeyError, ProverConfig, ProverError, ProverRandomness, ProvingKey,
-    VerifyError, VerifyingKey, Witness, create_proof_owned,
+    DescriptorBinding, KeyError, ProverConfig, ProverError, ProverRandomness, VerifyError,
+    VerifyingKey, Witness, create_proof_owned,
     cs::{CurveV1, InstanceModeV1, ProofSuffixV1, TranscriptV2},
     frontend::{Circuit, Error as LayoutError},
     keys::{
@@ -158,6 +158,60 @@ impl QSignatureProver {
         config: ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Self, QSignatureError> {
+        Self::from_original_with_admission_cancellable(
+            plan,
+            params,
+            descriptor,
+            installed_vk,
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Strict,
+            cancellation,
+        )
+    }
+
+    /// Admit an exact original through an explicitly selected closed built-in source.
+    /// All typed plan, source-profile and installed-key checks remain mandatory.
+    /// The member attests only its pinned relation. The installation owner must
+    /// bind this supplied plan to the complete selected built-in profile; a
+    /// same-schema foreign plan is not certified by membership. Proof-time source
+    /// reconstruction remains mandatory and rejects a different actual source.
+    /// # Errors
+    /// The ordinary importer errors, closed-member mismatch, or cancellation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_builtin_original_artifact_cancellable(
+        plan: QSignaturePlan,
+        params: PinnedParams<Ep>,
+        descriptor: &[u8],
+        installed_vk: &[u8],
+        original: &[u8],
+        config: ReadConfig,
+        member: iroha_plonk::keys::BuiltinSourceMemberV1,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Self, QSignatureError> {
+        Self::from_original_with_admission_cancellable(
+            plan,
+            params,
+            descriptor,
+            installed_vk,
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Builtin(member),
+            cancellation,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn from_original_with_admission_cancellable(
+        plan: QSignaturePlan,
+        params: PinnedParams<Ep>,
+        descriptor: &[u8],
+        installed_vk: &[u8],
+        original: &[u8],
+        config: ReadConfig,
+        admission: crate::original_admission::OriginalAdmission,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Self, QSignatureError> {
         iroha_pasta::CancellationToken::checkpoint(cancellation)
             .map_err(|_| QSignatureError::Prover(iroha_plonk::ProverError::Cancelled))?;
         if params.k() != 16 {
@@ -190,30 +244,26 @@ impl QSignatureProver {
         if binding.n() > config.maximum_rows {
             return Err(QSignatureError::Artifact(ArtifactError::Length));
         }
-        VerifyingKey::<Ep>::read(installed_vk, &binding).map_err(|error| {
+        let validated_vk = VerifyingKey::<Ep>::read(installed_vk, &binding).map_err(|error| {
             QSignatureError::Artifact(ArtifactError::Key(KeyError::VerifyingKey(error)))
         })?;
         let circuit = plan.source_circuit()?;
-        let key = ProvingKey::from_artifact_v2_cancellable(
-            original,
-            &binding,
-            &params,
-            &circuit,
-            config,
-            cancellation,
-        )
-        .map_err(QSignatureError::Artifact)?;
-        if key.vk().to_bytes() != installed_vk {
+        let key = admission
+            .admit(
+                original,
+                &binding,
+                &validated_vk,
+                &params,
+                &circuit,
+                config,
+                cancellation,
+            )
+            .map_err(QSignatureError::Artifact)?;
+        if key.verifying_key().to_bytes() != installed_vk {
             return Err(QSignatureError::UnauthorizedKey);
         }
-        let metadata = SourceBoundVerifyingKeyV2::from_proving_key(&key, cancellation)
-            .map_err(QSignatureError::Rebuild)?;
-        drop(key);
-        Ok(Self {
-            plan,
-            params,
-            key: metadata,
-        })
+
+        Ok(Self { plan, params, key })
     }
 
     /// Exact installed slot order, hard/soft policy and fixed keys.

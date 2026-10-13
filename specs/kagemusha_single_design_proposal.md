@@ -928,8 +928,20 @@ initialized heads. The holder may abandon an unused enrollment, for example
 after an E1 refusal (§2.4) or an interruption that cannot resume, only while
 Bootstrap has never been selected. Once Bootstrap is selected or commits,
 including an uncertain activation response, recover that incarnation and use
-§6.3; do not abandon funded obligations. Abandonment has two forms, chosen by the
-slot's durable state. The names below are Native's slot statuses
+§6.3; do not abandon funded obligations. Before any permit or slot has been
+accepted, Native may also cancel the authenticated retained Client. Under the
+same exclusive provider ownership used for permit admission and authorization,
+it authenticates that exact Client, definitively establishes the absence of
+Accepted, Slot and Phase originals, and durably publishes an immutable Cancelled
+record bound to the Client digest. Missing, corrupt or uncertain custody is
+Unavailable and never authorizes a fresh attempt. Every later permit admission
+and authorization rechecks Cancelled before any side effect, including after
+restart or a delayed issuer reply. Successful cancellation returns
+`LocalAbandoned`; it has no ledger instruction or slot/key effects. A different
+request identity may then start while the old Client and cancellation remain
+retained. If an Accepted original already exists, this pre-permit form refuses.
+For selected slots, abandonment has two forms, chosen by the slot's durable
+state. The names below are Native's slot statuses
 (`KagemushaWalletSlotStatusV1`). Two different Native names say Pending. The
 enrollment progress `EnrollmentProgressV1::Pending`, which Native reports for
 slot status `Empty` or `IntentOnly`, is the no-marker form below; "abandon from
@@ -990,13 +1002,10 @@ Bootstrap is selected, so it is never abandoned.
   turns a missing lookup result into absence: it stays unknown, a spent
   one-shot generation grant stays spent, no generation grant is ever issued
   for the abandoned slot, and the abandoned alias is never regenerated or
-  reused. Today Native writes the abandoned-slot record only for an expired
-  challenge or a key found without a marker, `abandon()` requires an intent
-  and always returns a frame, reconciliation runs generation recovery before
-  it looks for the abandoned-slot record, and a selected slot without an intent
-  reaches `Empty` only through a key probe, which reports `Unavailable` on API
-  26–30. The holder form is new Native work that the Native owner reviews
-  before it is implemented (§9.1).
+  reused. Native authenticates the retained pre-key originals before committing
+  this local form and checks the abandoned-slot record before generation
+  recovery. `abandon()` returns `LocalAbandoned` without ledger bytes; it does
+  not require a key-probe-derived `Empty` on API 26–30.
 - **Marker (Native `Enrollment`: the generation-zero marker is still
   current).** This includes an issuer refusal and an issued credential whose
   Bootstrap was never selected. Abandonment commits the terminal marker with
@@ -1796,38 +1805,65 @@ fallback beyond that.
 
 ### 9.1 Cutover sequencing
 
-Revision 2026-10-10 changes E1 app attestation and issuer policy, the
-wallet–issuer E5/E6 exchange, the signed client runtime and mobile Native
-packaging. It alters no validator-facing ledger wire, ISI or state format, no
-validation rule, no wallet relation or circuit, no artifact producer and no
-verifier-pack, producer-inventory or transport format. The credential, 56-byte
-evidence record, enrollment challenge and Abandonment frame keep their layouts;
-the 32-byte policy and evidence digests they carry name the new preimages. No
-ledger instruction, validation rule or state decodes a policy frame or E5/E6
-evidence. Fact bit 9 (`PLAY_INTEGRITY_SIGNAL`) stays defined in record
-validation and forbidden on Apple records; both masks stay unchanged. It is
-retired issuer output: newly generated evidence never sets bit 9, and renewals
-preserve historical enrollment evidence unchanged, including bit 9, because
-credential replacement validation lets a renewal change only its fresh evidence,
-times and issuer certificate. A credential already issued with bit 9, and every
-renewal of it, therefore stays valid. Removing bit 9 from the defined-facts mask
-would reject that historical Android evidence; removing it from the
-Apple-forbidden mask would instead permit an invalid Apple fact. Neither
-removal is part of this design, and no compatibility decoder is needed.
+The first release uses chain-only Android E1 attestation, the closed E5/E6
+exchange, the signed client runtime and bridge ABI 29. No first-device
+Google authentication or Play Integrity input remains. Fact bit 9 is reserved
+zero for every credential evidence record, including retained enrollment
+evidence and renewal fresh evidence. Native record validation and the
+credential proof relation both reject it; there is no historical-credential
+exception or compatibility decoder.
 
-The validator baseline is Iroha `ff7ec9457c`: the Taira validators run it, and
-the KAGEMUSHA wallet artifacts, verifier pack, producer inventory and artifact
-transport for that genesis are produced from it. Until the cutover, the contract
-that its code implements stays in force: bridge ABI 28; the signed v7 runtime
-with its `firstDeviceAuthentication` selection; and an issuer that requires a
-Play Integrity token and sets fact bit 9 on Android. The mobile baseline is the
-ABI 28 mobile Native that the release driver builds for the deployed apps. This
-document names no separate mobile source commit: if the release driver builds
-that Native from a commit other than `ff7ec9457c`, its signed build record names
-that commit as the mobile baseline. Among signed release objects, the cutover
-changes only the signed client runtime and the mobile Native. It neither
-changes nor re-signs the frozen verifier pack, producer inventory or artifact
-transport, and the signed runtime change is released separately from them.
+The credential, 56-byte evidence record, enrollment challenge and Abandonment
+frame retain their field layouts. The accepted evidence predicate changes the
+monetary circuit, so its proving originals and all dependent recursive keys
+must come from current source. Candidate originals may be reused only when
+complete current-source admission succeeds; changed source fingerprints must
+regenerate. The completed key set and inventory determine a fresh relation,
+scheme and signed artifact manifest. The release binds that complete carrier,
+its genesis and signed runtime, and builds validators and all mobile Native
+slices from the resulting current source.
+
+The mobile artifact carrier stores each `wallet-originals/<raw-sha256>` file as
+exactly one lossless zstd frame. The signed catalog continues to bind the actual
+decoded original; compression does not change a proof, key, relation or scheme.
+The sole proving-key original is compact: `PIPACPK1 || descriptor_digest32 ||
+LE32(vk_bytes) || canonical_vk || copy_digest32 || source_fingerprint32`. Fixed
+and permutation evaluation tables are reconstructed from the installed native
+witnessless circuit. Import checks descriptor, selectors, copy mapping and the
+complete source fingerprint, then checks every original VK commitment before
+returning admitted metadata or constructing a proving key. Metadata admission
+does not construct proving FFTs, masks or coset caches. The fingerprint is untrusted lookup data; it cannot
+grant source admission or replace commitment checks. Existing opaque admission
+seals remain nonserializable and are minted only after complete native source
+and commitment admission. A bounded private memo on each immutable pinned
+parameter owner may reuse previously computed commitments for identical public
+columns; original VK points and declared fingerprints cannot populate it.
+Every source and VK commitment is still checked, and the complete operation
+graph is admitted before granting the wallet capability.
+This representation changes original hashes and therefore requires a newly
+authenticated catalogue and scheme; it does not change the monetary circuits
+or proof verification. Dense proving-key originals have no production fallback.
+The [compact artifact goals](kagemusha_compact_artifact_goals.md) track measured
+size, adversarial checks, offline operation validation and delivery.
+The closed `iroha.kagemusha.wallet-artifact-original-transport.v1` JSON has, in
+order, `schema`, mandatory `encoding: "zstd"`, and `walletOriginals`. Each row has
+`bytes`, `sha256`, `storedBytes`, `storedSha256` in that order. Rows are nonempty,
+unique and ascending by lowercase raw SHA-256; canonical JSON ends with one LF.
+There are at most 12,288 rows and 32 MiB of JSON. Each raw original is bounded by
+1 GiB, each stored frame by 1 GiB plus 4 MiB, and the decoder window by 8 MiB.
+
+Delivery and resume use the stored extent/hash and preserve the raw-address
+filename. Native retains no-follow private ancestry and sealed file custody,
+verifies the exact stored identity, rejects extra/skippable/concatenated frames
+and trailing bytes, and checks exact decoded length/hash before returning the
+final declared byte. It also refuses changed or missing previously observed
+originals on reopening. Decoding streams in bounded memory without a decoded
+disk cache. There is no raw mobile fallback. Raw directories remain the distinct
+offline compiler and authenticated candidate input format. Repackaging verifies
+the pinned signed pack/catalog and every original, preserves those originals,
+and recomputes transport and financial metadata; the signed runtime must select
+those exact recomputed metadata bytes before publication. Source reconstruction
+and wallet installation remain mandatory after lossless decoding.
 
 Nothing in this revision is deployed piecemeal. The cutover is one coordinated
 change, and the release driver builds and releases it:
@@ -1837,8 +1873,8 @@ change, and the release driver builds and releases it:
    adapter), its enrollment `prepare_request` takes the Android chain only, and
    the runtime capacity results of §5.3 become typed. Abandonment returns an
    explicit result, `LocalAbandoned` for the §3.2 no-marker form or
-   `Abandonment(frame)` with the exact retained frame for the marker form;
-   today Abandon always returns frame bytes. Refusals carry the closed §2.4
+   `Abandonment(frame)` with the exact retained frame for the marker form.
+   Refusals carry the closed §2.4
    codes. The first-device authentication and Play Integrity token inputs leave
    every startup consumer together (step 2). The export inventory changes
    accordingly. ABI 29 artifacts refuse ABI 28 callers; there is no
@@ -1850,8 +1886,7 @@ change, and the release driver builds and releases it:
    `selection/bpng.rs`); from BPNG Core's runtime projection, together with its
    Play Integrity secret; from the Android app's first-device bootstrap and
    schema; and from the iOS runtime decode. Removing one alone breaks startup,
-   because Native refuses a BPNG runtime without the selection today, so the
-   runtime keeps the field until this step.
+   because all current consumers require the same closed runtime field roster.
 3. **E1 policy and issuer.** These land together: the Model's Android app and
    enrollment arms of the [enrollment policy](kagemusha_wallet_enrollment_policy_v1.md)
    and the regenerated `fixtures/kagemusha/wallet_enrollment_policy_v1_vectors.json`; the
@@ -1861,7 +1896,7 @@ change, and the release driver builds and releases it:
    §2.4 refusal codes, exported by Native and relayed unchanged by BPNG Core and
    the Kotlin and Swift SDKs, which also keep a withheld E6 delivery distinct
    from a terminal Refused outcome (§2.4); and an issuer that never sets fact
-   bit 9.
+   bit 9; native evidence validation and credential circuits reject that reserved bit.
    - Native core replaces the old Model policy arms, the E5/E6 carriers, the
      issuer worker configuration, the worker's Play Integrity fact requirement
      and the hardware-selector coupling in the credential and pre-key owners,
@@ -1871,15 +1906,13 @@ change, and the release driver builds and releases it:
      `google` and `huawei` profiles), the rollback-protected operator denylist,
      the revised chain checks of the enrollment policy, the exact chain-only
      evidence digest, persisted typed refusals and the §2.4 recovery states.
-     Today the worker commits its claim before verification and then treats a
-     missing result as Unknown, so an outage cannot resume verification as
-     §2.4 requires.
+     Retryable pre-decision outages resume the exact retained claim; uncertain
+     effects remain Unknown and never authorize another issuance.
    - The Kotlin SDK replaces the token-taking `prepareRequest` and the
      byte-only `abandon` with the chain-only request and the explicit
      abandonment result. Its StrongBox fallback carries only the
      hardware-choice hint into a freshly authorized slot under a new challenge
-     and never reuses the old generation grant (§2.2); today that hint
-     requires the same challenge.
+     and never reuses the old generation grant (§2.2).
 
    The issuer owner selects the reviewed policy originals (the Google RSA and
    CA1 SPKI pins, signer set, minimum version and patch floor; the Apple root and
@@ -1900,6 +1933,9 @@ approval ceremony (§10):
   when a genuine chain from a post-2019 Huawei phone without Google Mobile
   Services enrolls under it. Until then no Huawei root is pinned, and a chain
   to an unpinned root, Huawei's included, is refused with code 5.
+- Reserved evidence: bit 9 is refused for every platform, in both records of
+  initial credentials and either record of renewed credentials. The native
+  validator and actual credential circuit both exercise this rejection.
 - Validity: an expired certificate in a remotely provisioned chain is refused,
   including one that chains to the Google RSA root; an expired certificate in a
   documented factory-provisioned chain under that root is accepted.
@@ -1948,8 +1984,7 @@ approval ceremony (§10):
 - Frame cap: the maximal app and enrollment policies, encoded with the actual
   Norito encoder, fit the 1,024-byte frame cap of the enrollment policy.
 
-Before Native implements this revision, the Native owner reviews it. The
-review covers the §3.2 no-marker abandonment, which is abandonment from Native
+Native implements the §3.2 no-marker abandonment from
 progress `EnrollmentProgressV1::Pending` or from a no-marker slot whose key
 lookup is unknown (local, no ledger bytes, a holder-abandoned reason), with its
 four safeguards, including authenticated pre-E2 evidence in place of a
@@ -1957,8 +1992,10 @@ key-probe-derived `Empty`, and a reconciliation order
 that checks the abandoned-slot record before any generation recovery; the rule
 that a fresh slot does not wait for ledger acceptance of an Abandonment; and the
 reservation of every issued or potentially issued quota share until finalized
-successful Abandonment. Until the review signs off, these rules are the proposed
-design and no Native code implements them.
+successful Abandonment. The enrollment-owner and issuer-worker tests exercise
+these rules, including restart, uncertain storage, delayed generation and
+exact retained outcomes. Device qualification remains separate from these
+component tests.
 
 ## 10. Goals and execution order
 
@@ -1984,6 +2021,32 @@ receive, background lineage fold and onward payment. Integrate iPhone storage/ke
 in parallel. Stand-in payloads are useful for carrier work but cannot satisfy a
 completed-payment claim. Neither the POC nor production integration introduces
 a flag that bypasses monetary validation.
+
+### 10.1 First-release completion sequence
+
+The remaining work is executed in the following order, with independent proof,
+ledger and measurement work continuing while a platform dependency is resolved.
+This is the first release: replace defective layouts, APIs and constructions
+directly, regenerate their artifacts and consumers, and remove superseded paths.
+Do not preserve compatibility decoders, old-key fallbacks or a second monetary
+implementation. The stock-phone, hardware-key, shared-native-core, irreversible
+offline payment, exact-byte recovery and offline onward-spending requirements
+remain unchanged.
+
+| Priority | Existing goals / owner | Required completion evidence |
+| --- | --- | --- |
+| 1. iOS rollback and release | G2 / native provider and Swift storage | Trace Selected marker, journal, signature, anchor and externally available Payment bytes. Reproduce interrupted/ambiguous writes, restart, concurrency and replay. Determine which backup/restore schedules supported stock-device operations actually permit. Establish the platform persistence guarantee before claiming that a released Payment precludes a competing successor from restored state; Keychain readback alone is insufficient. Preserve any residual counterexample and identify the smallest unavailable primitive or required design decision. |
+| 2. Complete monetary lifecycle | G4/G5, NF1–NF6 / wallet, node and SDK | From one source/artifact candidate, perform enrollment → activation → funded Load → A pays B → B pays C offline → Unload → ledger payout. Cover supported selectors, Receive folding, ArchiveReceive, ArchiveStatus, fees and enabled controls; crashes, lost acknowledgements, exact retries, duplicate credits, conflicting inputs, invalid proofs, stale state and restart must preserve conservation, committed payments and once-only payout. Retain actual four-validator and physical Android/iPhone results separately from software fixtures. |
+| 3. Proof correctness and privacy | G3 / proof owners and independent reviewer | Run genuine-proof native/circuit binding mutations for every consuming operation, including Ω opening and both exposed accumulator decisions at acceptance boundaries. Complete [C12](kagemusha_recursion_soundness_v1.md) for the actual recursive setup, three-Q prefix, RP57 interfaces, exposed challenges, adaptive histories, checkpoints, retries and joint folding/publication, with explicit assumptions and independent review. Regenerate affected artifacts after a construction change. |
+| 4. Size and performance | G1/G4/G7 / native, SDK and carrier owners | Retain each genuine bounded message's exact canonical envelope and demonstrate ≤10,000 bytes across supported variants. Measure cold opening, peak memory, retained storage, durable payment completion and the separate time until received value is spendable. Evaluate the two-second p95 requirement on a declared physical-device/OS/carrier population; preserve failed, cancelled and slow trials. Stand-in proofs and host timings do not qualify phone payments. |
+| 5. One verified delivery | G6/G7 / native and managed consumer owners | Record source closure, lock/build inputs, catalog/key/native-library/SDK hashes and exact test commands. Rebuild matching consumers, run focused regressions followed by complete required suites and release checks, and update current specifications/status/public documentation. A changed source candidate requires affected evidence to be repeated; compilation or another candidate's results do not close a requirement. |
+
+The completion report names concrete defects and their regressions, exact source
+and artifact identities, network/device results, size/resource/timing measurements,
+completed cryptographic arguments and their assumptions. Every remaining item
+names its precise external dependency and smallest necessary decision. A
+component passing its tests is evidence for that component's recorded scope,
+not completion of this sequence.
 
 ## 11. Verification and present implementation truth
 

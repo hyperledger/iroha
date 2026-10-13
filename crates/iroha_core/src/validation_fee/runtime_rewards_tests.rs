@@ -1,5 +1,14 @@
 //! Native service capture, scheduled funded conversion, certified replay, and signed withdrawals.
 
+#[cfg(unix)]
+#[path = "runtime_reward_crash_tests.rs"]
+mod crash_tests;
+#[path = "runtime_policy_history_tests.rs"]
+mod policy_history_tests;
+
+#[path = "runtime_reward_history_tests.rs"]
+mod history_tests;
+
 use super::*;
 use crate::{smartcontracts::Execute as _, sumeragi::test_chain::CertifiedTestChain};
 use iroha_data_model::{
@@ -133,6 +142,7 @@ fn prepare_scheduled_reward_fixture(
         // explicit component prestate. Service, exposure, funded allocations,
         // entitlements and claims below are produced only by native execution.
         let registry = iroha_data_model::validation_fee::ValidationFeePolicyRegistryV1 {
+            history: None,
             registered_policies: Vec::new(),
             payout_policies:
                 iroha_data_model::validation_fee::ValidationFeePayoutPolicyRegistryV1 {
@@ -320,6 +330,550 @@ fn scheduled_production_conversion_automatically_funds_nominator_signed_claims()
 #[test]
 fn scheduled_funded_pool_conversion_automatically_funds_nominator_signed_claims() {
     scheduled_conversion_automatically_funds_nominator_signed_claims(false, false);
+}
+
+#[test]
+fn scheduled_conversion_final_custody_transfer_failure_rolls_back_and_retries() {
+    use iroha_data_model::{
+        ValidationFail,
+        asset::transfer_control::{
+            ASSET_TRANSFER_CONTROL_METADATA_KEY, AssetTransferControlRecord,
+            AssetTransferControlStoreV1,
+        },
+        block::execution_output::ExecutionOutputV1,
+        events::{EventBox, trigger_completed::TriggerCompletedOutcome},
+        isi::error::{AssetTransferAdmissionError, InstructionExecutionError},
+        transaction::error::TransactionRejectionReason,
+        validation_fee_rewards::ValidationFeeConversionAttempt,
+    };
+
+    let mut fixture = prepare_scheduled_reward_fixture(false, false);
+    let failed_at = CONVERSION_TIME + 2;
+    let custody = fixture.binding.treasury_account_id.clone();
+    let xor = fixture.binding.xor_asset_id.clone();
+    assert_ne!(custody, fixture.binding.pool_vault_account_id);
+    let mut original_controls = None;
+    fixture.chain.setup_world_at(failed_at, |stx| {
+        // Only the third leg debits wrapper XOR: the first debits SBD and
+        // the second debits pool XOR. Keep both earlier transfer controls intact.
+        let mut control = AssetTransferControlRecord::new(xor.clone());
+        control.blacklisted = true;
+        let mut controls = AssetTransferControlStoreV1::default();
+        controls.upsert(control);
+        original_controls = stx
+            .world
+            .accounts
+            .get_mut(&custody)
+            .unwrap()
+            .metadata_mut()
+            .insert(
+                ASSET_TRANSFER_CONTROL_METADATA_KEY.parse().unwrap(),
+                iroha_primitives::json::Json::new(controls),
+            );
+    });
+    assert!(
+        original_controls.is_none(),
+        "the fixture has no controls to overwrite"
+    );
+    let observe_monetary = |fixture: &ScheduledRewardFixture| {
+        let view = fixture.chain.state().view();
+        let key = |leaf: &str| validation_fee_reward_state_key(&fixture.binding, leaf).unwrap();
+        let state: ValidationFeeRewardsState =
+            norito::decode_from_bytes(view.world.smart_contract_state.get(&key("State")).unwrap())
+                .unwrap();
+        // Finalized service and attempt evidence progress independently of a
+        // failed callback. Every funded monetary field must remain unchanged.
+        let monetary_state = (
+            state.pending_sbd_total,
+            state.reserved_xor,
+            state.next_allocation,
+            state.next_claim,
+            state.conversion_day,
+            state.converted_today_sbd,
+            state.last_conversion_ms,
+        );
+        let pending = view
+            .world
+            .smart_contract_state
+            .get(&key(&format!("Pending/{:020}", fixture.period)))
+            .cloned();
+        let families = [
+            "Allocation/",
+            "AllocationCursor",
+            "Entitlement/",
+            "Claim/",
+            "Claimable/",
+            "HistoryBalance/",
+        ]
+        .map(key);
+        let receipts = view
+            .world
+            .smart_contract_state
+            .iter()
+            .filter(|(key, _)| {
+                families
+                    .iter()
+                    .any(|prefix| key.as_ref().starts_with(prefix.as_ref()))
+            })
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let assets = view
+            .world
+            .assets
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<BTreeMap<_, _>>();
+        (monetary_state, pending, receipts, assets)
+    };
+    let before = observe_monetary(&fixture);
+    assert_eq!(
+        (before.0.0, before.0.1, before.0.2, before.0.3),
+        (1_000, 0, 0, 0)
+    );
+    assert!(before.2.is_empty());
+    fixture.chain.take_events().unwrap();
+    fixture.chain.commit_at(failed_at, Vec::new());
+    let callbacks = fixture
+        .chain
+        .take_events()
+        .unwrap()
+        .into_iter()
+        .filter_map(|event| {
+            if let EventBox::TriggerCompleted(event) = event {
+                Some(event)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(callbacks.len(), 1, "one scheduled conversion actually ran");
+    let TriggerCompletedOutcome::Failure(_) = callbacks[0].outcome() else {
+        panic!("final funded-custody transfer must reject: {callbacks:?}");
+    };
+    {
+        // The completion's Display diagnostic is intentionally brief. The
+        // original certified output retains the exact typed execution refusal.
+        let committed = fixture.chain.committed(fixture.chain.height());
+        let scheduled = committed
+            .block()
+            .execution_outputs()
+            .iter()
+            .filter_map(|output| match output {
+                ExecutionOutputV1::Time(row)
+                    if &row.invocation.trigger.trigger_id == callbacks[0].trigger_id() =>
+                {
+                    Some(row)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(scheduled.len(), 1, "one original scheduled output");
+        let row = scheduled[0];
+        assert_eq!(row.completions.len(), 1);
+        assert_eq!(row.completions[0].outcome, *callbacks[0].outcome());
+        let TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
+            InstructionExecutionError::AssetTransferAdmission(
+                AssetTransferAdmissionError::Blacklisted(message),
+            ),
+        )) = row.result.as_ref().unwrap_err()
+        else {
+            panic!("expected final XOR custody-transfer refusal: {row:#?}");
+        };
+        assert_eq!(
+            message.to_string(),
+            format!("account {custody} on asset definition {xor}"),
+            "only the final transfer debits this wrapper's XOR"
+        );
+    }
+    assert_eq!(
+        observe_monetary(&fixture),
+        before,
+        "failed final transfer rolls back both earlier legs, pending credit and every funded receipt"
+    );
+    let failed_attempt = {
+        let view = fixture.chain.state().view();
+        let key = |leaf| validation_fee_reward_state_key(&fixture.binding, leaf).unwrap();
+        let state: ValidationFeeRewardsState =
+            norito::decode_from_bytes(view.world.smart_contract_state.get(&key("State")).unwrap())
+                .unwrap();
+        assert_eq!(state.last_attempt_height, fixture.chain.height());
+        assert_eq!(state.last_attempt_ms, Some(failed_at));
+        let attempt: ValidationFeeConversionAttempt = norito::decode_from_bytes(
+            view.world
+                .smart_contract_state
+                .get(&key(&format!("Attempt/{}", fixture.chain.height())))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(attempt.attempted_at_ms, failed_at);
+        assert_eq!(attempt.earning_period_start_ms, fixture.period);
+        assert_eq!(attempt.sbd_minor, 1_000);
+        assert_eq!(attempt.min_xor_minor, 19_800_000_000);
+        attempt
+    };
+    let retry_at = failed_at + fixture.binding.min_interval_ms;
+    fixture.chain.setup_world_at(failed_at + 1, |stx| {
+        let metadata = stx.world.accounts.get_mut(&custody).unwrap().metadata_mut();
+        if let Some(controls) = original_controls {
+            metadata.insert(
+                ASSET_TRANSFER_CONTROL_METADATA_KEY.parse().unwrap(),
+                controls,
+            );
+        } else {
+            metadata.remove(ASSET_TRANSFER_CONTROL_METADATA_KEY);
+        }
+    });
+    fixture.chain.commit_at(retry_at - 1, Vec::new());
+    assert_eq!(
+        observe_monetary(&fixture),
+        before,
+        "removing the control cannot bypass the committed attempt interval"
+    );
+    fixture.chain.take_events().unwrap();
+    fixture.chain.commit_at(retry_at, Vec::new());
+    let callbacks = fixture
+        .chain
+        .take_events()
+        .unwrap()
+        .into_iter()
+        .filter_map(|event| {
+            if let EventBox::TriggerCompleted(event) = event {
+                Some(event)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(callbacks.len(), 1);
+    assert!(
+        matches!(callbacks[0].outcome(), TriggerCompletedOutcome::Success),
+        "{callbacks:?}"
+    );
+    {
+        let view = fixture.chain.state().view();
+        let key = |leaf| validation_fee_reward_state_key(&fixture.binding, leaf).unwrap();
+        let receipt: ValidationFeeRewardAllocation = norito::decode_from_bytes(
+            view.world
+                .smart_contract_state
+                .get(&key("Allocation/0"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(receipt.sequence, 0);
+        assert_eq!(
+            receipt.earning_period_start_ms,
+            failed_attempt.earning_period_start_ms
+        );
+        assert_eq!(receipt.sbd_minor, failed_attempt.sbd_minor);
+        assert_eq!(receipt.min_xor_minor, failed_attempt.min_xor_minor);
+        assert_eq!(
+            receipt.reference_observations,
+            failed_attempt.reference_observations
+        );
+        assert_eq!(receipt.xor_minor, 20_000_000_000);
+        assert_eq!(receipt.converted_at_ms, retry_at);
+        assert!(
+            view.world
+                .smart_contract_state
+                .get(&key("AllocationCursor"))
+                .is_some()
+        );
+        assert!(
+            view.world
+                .smart_contract_state
+                .get(&key(&format!("Pending/{:020}", fixture.period)))
+                .is_none()
+        );
+        assert_eq!(
+            view.world
+                .assets
+                .get(&AssetId::new(xor.clone(), fixture.pool.reward_pool.clone()))
+                .unwrap()
+                .as_ref(),
+            &Quantity::from(20_u32)
+        );
+        assert!(view.world.assets.get(&fixture.pool.treasury_sbd).is_none());
+        assert!(
+            view.world
+                .assets
+                .get(&AssetId::new(xor.clone(), custody))
+                .is_none()
+        );
+    }
+    // The next original block automatically materializes the retry's funded page.
+    fixture.chain.commit_at(retry_at + 1_000, Vec::new());
+    for (index, (seed, expected)) in [(2, 4_u32), (3, 6_u32), (4, 10_u32)]
+        .into_iter()
+        .enumerate()
+    {
+        let claimant = account(seed);
+        let fee_claim = crate::validation_fee_rewards::fee_reward_claim_plan(
+            &fixture.chain.state().view().world,
+            fixture.chain.height() + 1,
+            &claimant,
+            LaneId::SINGLE,
+        )
+        .unwrap()
+        .expect("successful retry automatically accrues every eligible share");
+        assert_eq!(fee_claim.amount, Quantity::from(expected));
+        let claim = ClaimPublicLaneRewards {
+            lane_id: LaneId::SINGLE,
+            account: claimant.clone(),
+            claim_plan: PublicLaneRewardClaimPlanV1 {
+                network_scope: PublicLaneMonetaryScopeV1::Network(fixture.chain.network_id()),
+                valid_until_height: fixture.chain.height() + 1,
+                fee_claim,
+            },
+        };
+        let now = retry_at + (u64::try_from(index).unwrap() + 2) * 1_000;
+        let signed = fixture.chain.sign(&key_pair(seed), [claim.into()], now);
+        assert_eq!(fixture.chain.commit_at(now, vec![signed]), vec![true]);
+        let view = fixture.chain.state().view();
+        let principal = if seed == 2 { 100 } else { 0 };
+        assert_eq!(
+            view.world
+                .assets
+                .get(&AssetId::new(xor.clone(), claimant))
+                .unwrap()
+                .as_ref(),
+            &Quantity::from(principal + expected)
+        );
+    }
+    let view = fixture.chain.state().view();
+    let state_key = validation_fee_reward_state_key(&fixture.binding, "State").unwrap();
+    let state: ValidationFeeRewardsState =
+        norito::decode_from_bytes(view.world.smart_contract_state.get(&state_key).unwrap())
+            .unwrap();
+    assert_eq!(
+        (
+            state.pending_sbd_total,
+            state.reserved_xor,
+            state.next_allocation,
+            state.next_claim
+        ),
+        (0, 0, 1, 3)
+    );
+    assert!(
+        view.world
+            .assets
+            .get(&AssetId::new(xor.clone(), fixture.pool.reward_pool.clone()))
+            .is_none()
+    );
+    assert_eq!(
+        view.world
+            .public_lane_stake_reserves
+            .get(&AssetId::new(xor, fixture.validator.clone())),
+        Some(&Quantity::from(100_u32))
+    );
+    crate::state::validate_public_lane_stake_reserves_for_restore(&view.world).expect(
+        "failed conversion and exact retry preserve funded principal and reward conservation",
+    );
+}
+
+#[test]
+fn signed_nominator_claim_batch_rolls_back_and_stale_parallel_quotes_cannot_pay() {
+    let mut fixture = prepare_scheduled_reward_fixture(false, false);
+    fixture.chain.commit_at(CONVERSION_TIME + 2, Vec::new());
+    fixture.chain.commit_at(CONVERSION_TIME + 1_002, Vec::new());
+    let observe = |fixture: &ScheduledRewardFixture| {
+        let view = fixture.chain.state().view();
+        let key = validation_fee_reward_state_key(&fixture.binding, "State").unwrap();
+        let state: ValidationFeeRewardsState =
+            norito::decode_from_bytes(view.world.smart_contract_state.get(&key).unwrap()).unwrap();
+        let balances = [fixture.pool.reward_pool.clone(), account(3), account(4)].map(|owner| {
+            view.world
+                .assets
+                .get(&AssetId::new(fixture.pool.xor.clone(), owner))
+                .map_or_else(Quantity::zero, |balance| balance.as_ref().clone())
+        });
+        let plans = [3, 4].map(|seed| {
+            crate::validation_fee_rewards::fee_reward_claim_plan(
+                &view.world,
+                fixture.chain.height() + 1,
+                &account(seed),
+                LaneId::SINGLE,
+            )
+            .unwrap()
+        });
+        (state.reserved_xor, state.next_claim, balances, plans)
+    };
+    let before = observe(&fixture);
+    assert_eq!(before.0, 20_000_000_000);
+    assert_eq!(before.1, 0);
+    let first_plan = before.3[0].clone().unwrap();
+    let parallel_plan = before.3[1].clone().unwrap();
+    assert_eq!(first_plan.amount, Quantity::from(6_u32));
+    assert_eq!(parallel_plan.amount, Quantity::from(10_u32));
+    assert_eq!(first_plan.expected_claim_sequence, 0);
+    assert_eq!(
+        first_plan.expected_claim_sequence,
+        parallel_plan.expected_claim_sequence
+    );
+    let deadline = fixture.chain.height() + 32;
+    let claim = |seed, fee_claim| ClaimPublicLaneRewards {
+        lane_id: LaneId::SINGLE,
+        account: account(seed),
+        claim_plan: PublicLaneRewardClaimPlanV1 {
+            network_scope: PublicLaneMonetaryScopeV1::Network(fixture.chain.network_id()),
+            valid_until_height: deadline,
+            fee_claim,
+        },
+    };
+    let first = claim(3, first_plan.clone());
+    let parallel = claim(4, parallel_plan);
+    let mut changed = first.clone();
+    changed.claim_plan.fee_claim.amount = Quantity::from(7_u32);
+    let timestamp = CONVERSION_TIME + (fixture.chain.height() + 1) * 1_000;
+    let signed = fixture
+        .chain
+        .sign(&key_pair(3), [changed.into()], timestamp);
+    assert_eq!(
+        fixture.chain.commit_at(timestamp, vec![signed]),
+        vec![false]
+    );
+    assert_eq!(
+        observe(&fixture),
+        before,
+        "a signed overclaim changes no funded right"
+    );
+    let output = format!(
+        "{:?}",
+        fixture
+            .chain
+            .committed(fixture.chain.height())
+            .block()
+            .network_output_at(0)
+    );
+    assert!(
+        output.contains("exact current signed monetary plan"),
+        "{output}"
+    );
+
+    // The first instruction consumes the credit in its private transaction. The
+    // second reaches the actual claim path and fails because that credit is gone.
+    // The committed rejection must restore the first transfer and its receipt.
+    let timestamp = CONVERSION_TIME + (fixture.chain.height() + 1) * 1_000;
+    let signed = fixture.chain.sign(
+        &key_pair(3),
+        [first.clone().into(), first.clone().into()],
+        timestamp,
+    );
+    assert_eq!(
+        fixture.chain.commit_at(timestamp, vec![signed]),
+        vec![false]
+    );
+    let output = format!(
+        "{:?}",
+        fixture
+            .chain
+            .committed(fixture.chain.height())
+            .block()
+            .network_output_at(0)
+    );
+    assert!(
+        output.contains("no eligible reserved credit"),
+        "second claim must execute after the first: {output}"
+    );
+    assert_eq!(
+        observe(&fixture),
+        before,
+        "later instruction failure rolls back custody, receipt sequence and both entitlements"
+    );
+    fixture = replay_scheduled_reward_fixture(&fixture);
+    assert_eq!(
+        observe(&fixture),
+        before,
+        "certified rejection replay cannot publish the discarded first payment"
+    );
+
+    let timestamp = CONVERSION_TIME + (fixture.chain.height() + 1) * 1_000;
+    let signed = fixture
+        .chain
+        .sign(&key_pair(3), [first.clone().into()], timestamp);
+    assert_eq!(fixture.chain.commit_at(timestamp, vec![signed]), vec![true]);
+    let paid = observe(&fixture);
+    assert_eq!(paid.0, 14_000_000_000);
+    assert_eq!(paid.1, 1);
+    assert_eq!(
+        paid.2,
+        [
+            Quantity::from(14_u32),
+            Quantity::from(6_u32),
+            Quantity::zero()
+        ]
+    );
+    assert!(paid.3[0].is_none());
+    assert_eq!(paid.3[1].as_ref().unwrap().expected_claim_sequence, 1);
+
+    // Two independently signed nominator quotes share the global sequence. A
+    // successful first claim invalidates the other quote without losing its credit.
+    let timestamp = CONVERSION_TIME + (fixture.chain.height() + 1) * 1_000;
+    let signed = fixture
+        .chain
+        .sign(&key_pair(4), [parallel.into()], timestamp);
+    assert_eq!(
+        fixture.chain.commit_at(timestamp, vec![signed]),
+        vec![false]
+    );
+    assert_eq!(observe(&fixture), paid);
+    let output = format!(
+        "{:?}",
+        fixture
+            .chain
+            .committed(fixture.chain.height())
+            .block()
+            .network_output_at(0)
+    );
+    assert!(
+        output.contains("exact current signed monetary plan"),
+        "{output}"
+    );
+    let timestamp = CONVERSION_TIME + (fixture.chain.height() + 1) * 1_000;
+    let signed = fixture.chain.sign(&key_pair(3), [first.into()], timestamp);
+    assert_eq!(
+        fixture.chain.commit_at(timestamp, vec![signed]),
+        vec![false]
+    );
+    assert_eq!(
+        observe(&fixture),
+        paid,
+        "a newly signed replay cannot pay twice"
+    );
+    let refreshed = ClaimPublicLaneRewards {
+        lane_id: LaneId::SINGLE,
+        account: account(4),
+        claim_plan: PublicLaneRewardClaimPlanV1 {
+            network_scope: PublicLaneMonetaryScopeV1::Network(fixture.chain.network_id()),
+            valid_until_height: deadline,
+            fee_claim: paid.3[1].clone().unwrap(),
+        },
+    };
+    let timestamp = CONVERSION_TIME + (fixture.chain.height() + 1) * 1_000;
+    let signed = fixture
+        .chain
+        .sign(&key_pair(4), [refreshed.into()], timestamp);
+    assert_eq!(fixture.chain.commit_at(timestamp, vec![signed]), vec![true]);
+    let after = observe(&fixture);
+    assert_eq!(
+        after.0, 4_000_000_000,
+        "only the validator's entitlement remains reserved"
+    );
+    assert_eq!(after.1, 2);
+    assert_eq!(
+        after.2,
+        [
+            Quantity::from(4_u32),
+            Quantity::from(6_u32),
+            Quantity::from(10_u32)
+        ]
+    );
+    assert!(after.3.iter().all(Option::is_none));
+    fixture = replay_scheduled_reward_fixture(&fixture);
+    assert_eq!(observe(&fixture), after);
+    crate::state::validate_public_lane_stake_reserves_for_restore(
+        &fixture.chain.state().view().world,
+    )
+    .expect("signed retries and full certified replay preserve principal plus unpaid rewards");
 }
 
 /// Execute real scheduled funding for two validators, replay unfinished accrual,

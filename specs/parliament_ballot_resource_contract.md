@@ -38,7 +38,7 @@ the sum a complete memory certificate.
 
 ## Verification and debit boundary
 
-The current entry is one bounded `TEST_RECORD`, with trusted row and role
+The in-memory entry is one borrowed, bounded `TEST_RECORD`, with trusted row and role
 selected by the qualification caller. It is the existing test codec, not a new
 production format. The service includes profile construction, fresh statement
 and list decoding/validation, transcript preparation, full proof verification,
@@ -51,13 +51,28 @@ accommodates the existing standalone records. It does **not** prove that a
 future authenticated envelope and shared context individually fit their caps.
 Their exact layouts and framing remain subject to the selection order.
 
+The separately prepared [in-memory worker](../crates/iroha_parliament_ballot_proof/examples/memory_entry/README.md)
+implements this boundary. The supervisor retrieves a bounded regular file and
+closes it before invocation. Its immutable staging owner stays alive until the
+worker joins; the actual slice length, not a file metadata claim or spare
+capacity, supplies admission. Retrieval and that caller-owned buffer are outside
+verification. The arena-owned copy and its destruction are inside. The frozen
+original worker reads its file during the charged path; its evidence remains
+valid for that older scope and is not transferred to this changed binary.
+The earlier [122-observation campaign](../docs/validation/parliament_ballot_memory_entry/README.md)
+passed but its fatal stdout write could block inside charged work. The
+[shared-control revision](../docs/validation/parliament_ballot_fatal_control/README.md)
+removes that write and passes its own 122 observations, including direct borrowed
+oversize refusal and separate full/broken-output controls. This is finite
+boundary evidence; complete workspace and physical-cost claims remain open.
+
 Admission reads only trusted metadata and the actual outer byte length:
 
-1. Reject an outer length above the copy-in cap before verifier allocation or
-   decoding. The standalone supervisor opens a regular file nonblocking and
-   reads its metadata first; filesystem/path setup is outside the worker arena.
-2. Require at least one work unit and exactly the actual outer length in the
-   byte budget. Check both counters before mutating either one.
+1. Reject an outer length above the copy-in cap before arena allocation or
+   decoding. The supervisor caps staging independently, and the borrowed entry
+   checks the actual slice length even if file staging was bypassed.
+2. Require at least one work unit and an available byte budget no smaller than
+   the actual outer length. Check both counters before mutating either one.
 3. Debit both dimensions atomically and return a linear, single-use reservation.
 4. Copy at most the reserved bytes into the worker, then execute once. A changed
    length cannot reuse the reservation. Declared inner lengths and roster size
@@ -65,6 +80,10 @@ Admission reads only trusted metadata and the actual outer byte length:
 5. Retain the full debit after success, any early or late malformed-input
    rejection, an unused reservation, or worker/resource failure. There is no
    refund path.
+
+The diagnostic's fixed mapping and native thread setup precede worker-local
+admission; refusal reports still include that reservation. Zero charged units
+or arena allocations do not imply zero supervisor/setup cost.
 
 One unit covers either row and role and any supported roster size, conservatively
 including the comparator's larger reconstruction tree and the candidate's
@@ -84,7 +103,9 @@ boundary: only bounded input bytes are copied.
 
 The diagnostic worker reserves a 32 MiB reclaiming heap, 1 MiB of allocator
 metadata, an 8 MiB native stack, two OS-page guards and 64 KiB of control
-storage. Their exact mapping sizes and sum are emitted by the worker. No arena
+storage, plus one native shared fatal-control page. On the observed Mac these
+reservations total 43,106,304 bytes (41.109375 MiB). Their exact mapping sizes
+and sum are emitted by the worker. No arena
 allocation falls back to the system allocator. Unsupported native targets or
 mapping/stack setup failures refuse the invocation. The supplied stack must be
 the actual worker stack; a thread-builder request alone is insufficient.
@@ -102,6 +123,14 @@ the bounded native stack, but does not establish that all valid executions
 finish within the available space.
 
 An arena allocation failure uses an explicit worker resource-failure exit.
+The child stores its exact debit before charged work; exhaustion publishes a
+shared atomic marker and exits without formatting or writing. A separate
+supervisor reads the native control page after child death, checks the marker,
+debit and exit together, then publishes the result. Normal results must agree
+with the shared debit too. Missing/corrupt control or a diagnostic timeout is an
+operational error, preserving raw evidence and never inferring a refund.
+The parent may block while publishing afterward; whole-command completion is
+outside the charged verification-time claim.
 It is not caught by unwinding through `GlobalAlloc`. A signal, panic or otherwise
 unclassified worker termination is a worker error, not an inferred allocation
 failure and not an invalid-proof result. The standalone supervisor preserves

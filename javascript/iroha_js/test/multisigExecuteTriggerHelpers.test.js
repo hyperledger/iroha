@@ -168,6 +168,7 @@ test("buildMultisigExecuteTriggerInstruction enforces strict signer checks when 
 test("buildProposeMultisigExecuteTriggerInstruction wraps a single ExecuteTrigger proposal", () => {
   const spec = sampleSpec();
   const payload = buildProposeMultisigExecuteTriggerInstruction({
+    proposalNonce: "12".repeat(32),
     accountId: CONTROLLER_ID,
     trigger: "staged_mint_request_hbl",
     argPreset: "lookup",
@@ -183,6 +184,7 @@ test("buildProposeMultisigExecuteTriggerInstruction wraps a single ExecuteTrigge
       payload: {
         Propose: {
           account: CONTROLLER_ID,
+          proposal_nonce: "12".repeat(32),
           instructions: [
             {
               ExecuteTrigger: {
@@ -203,6 +205,7 @@ test("buildProposeMultisigExecuteTriggerInstruction wraps a single ExecuteTrigge
 test("buildMultisigContractCallProposeRequest builds normalized Torii payloads", () => {
   const spec = sampleSpec();
   const payload = buildMultisigContractCallProposeRequest({
+    proposalNonce: "12".repeat(32),
     multisigAccountAlias: "mintops@banka",
     signerAccountId: ALICE_ID,
     contractAlias: "apps_review::universal",
@@ -222,6 +225,7 @@ test("buildMultisigContractCallProposeRequest builds normalized Torii payloads",
 
   assert.deepEqual(payload, {
     multisig_account_alias: "mintops@banka",
+    proposal_nonce: "12".repeat(32),
     signer_account_id: ALICE_ID,
     contract_alias: "apps_review::universal",
     entrypoint: "execute",
@@ -240,6 +244,7 @@ test("buildMultisigContractCallProposeRequest builds normalized Torii payloads",
 
 test("contract-call propose builder rejects address-only targets and scalar payloads", () => {
   const request = {
+    proposalNonce: "12".repeat(32),
     multisigAccountAlias: "mintops@banka",
     signerAccountId: ALICE_ID,
     contractAlias: "apps_review::universal",
@@ -262,7 +267,8 @@ test("buildMultisigContractCallApproveRequest normalizes selector and lookup key
   const payload = buildMultisigContractCallApproveRequest({
     multisigAccountId: CONTROLLER_ID,
     signerAccountId: BOB_ID,
-    instructionsHash: "AA".repeat(32),
+    proposalId: "12".repeat(32),
+    instructionsHash: "aa".repeat(32),
     signatureB64: "AQ==",
     contract_alias: "apps_mint_request::sbp",
     entrypoint: "create_mint_request",
@@ -273,6 +279,7 @@ test("buildMultisigContractCallApproveRequest normalizes selector and lookup key
   assert.deepEqual(payload, {
     multisig_account_id: CONTROLLER_ID,
     signer_account_id: BOB_ID,
+    proposal_id: "12".repeat(32),
     instructions_hash: "aa".repeat(32),
     signature_b64: "AQ==",
     contract_alias: "apps_mint_request::sbp",
@@ -292,6 +299,7 @@ test("multisig contract-call request builders reject noncanonical signatureB64",
     assert.throws(
       () =>
         buildMultisigContractCallProposeRequest({
+    proposalNonce: "12".repeat(32),
           multisigAccountAlias: "mintops@banka",
           signerAccountId: ALICE_ID,
           contractAlias: "apps_mint_request::sbp",
@@ -308,7 +316,8 @@ test("multisig contract-call request builders reject noncanonical signatureB64",
         buildMultisigContractCallApproveRequest({
           multisigAccountId: CONTROLLER_ID,
           signerAccountId: BOB_ID,
-          instructionsHash: "AA".repeat(32),
+          proposalId: "12".repeat(32),
+    instructionsHash: "aa".repeat(32),
           signatureB64,
           feePayment: authorityFeePayment(),
         }),
@@ -329,6 +338,7 @@ test("multisig request builders reject inline private-key fields", () => {
     assert.throws(
       () =>
         buildMultisigContractCallProposeRequest({
+    proposalNonce: "12".repeat(32),
           multisigAccountId: CONTROLLER_ID,
           signerAccountId: ALICE_ID,
           contractAddress: "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw",

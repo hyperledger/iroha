@@ -290,10 +290,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
     /// terminal action, distinct from closing the native handle; a fresh enrollment may start
     /// as soon as it returns.
     /// # Errors
-    /// Unselected custody (`Phase`), lost or changed pre-key originals, committed Bootstrap,
+    /// No authenticated retained client (`Phase`), lost or changed pre-key originals, committed Bootstrap,
     /// lost custody, unavailable or uncertain storage or hardware. Nothing is abandoned then.
     pub fn abandon(&mut self) -> Result<EnrollmentAbandonmentV1, Error> {
-        let (scope, slot) = self.selected.clone().ok_or(Error::Phase)?;
+        let Some((scope, slot)) = self.selected.clone() else {
+            return self.abandon_unselected_client();
+        };
         // Authenticate the retained pre-key originals and the durable enrollment phase before
         // releasing any live selection.
         let phase = self.require_selected_prekey(&scope, &slot)?;

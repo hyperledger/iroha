@@ -865,6 +865,9 @@ where
         )?;
         self.select_intent_phase(&request_id, intent)?;
         let request_id = Some(request_id);
+        // Phase adoption may perform filesystem work; recheck the live deadline after it,
+        // before retaining a dispatch or reaching the hardware key-generation effect.
+        check(self)?;
         self.retain_generation_dispatch(slot, intent, request, request_id)?;
         let generated = self.platform.key_generate(slot, &request);
         self.finish_enrollment(slot, intent, request, generated, request_id)

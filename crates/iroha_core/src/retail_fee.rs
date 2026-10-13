@@ -14,8 +14,8 @@ use iroha_model_base::state_path::StatePath;
 use iroha_primitives::numeric::Quantity;
 use mv::storage::StorageReadOnly;
 pub(crate) use reward_history::{
-    ensure_reward_history_open, reward_history_closed_through, reward_history_is_closed,
-    validate_reward_history_frontier,
+    ensure_reward_history_open, oldest_unsettled_policy_month, reward_history_closed_through,
+    reward_history_is_closed, validate_reward_history_frontier,
 };
 
 const STATE_PREFIX: &str = "retail_fee_v1/";

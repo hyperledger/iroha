@@ -1,7 +1,5 @@
 //! Native account recovery policy and request types.
 use super::{AccountController, AccountId, rekey::AccountAlias};
-use crate::isi::InstructionBox;
-use iroha_crypto::HashOf;
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 use std::{collections::BTreeSet, num::NonZeroU64, vec::Vec};
@@ -211,9 +209,9 @@ pub struct AccountRecoveryRequest {
     pub cancellation_approvals: BTreeSet<AccountId>,
     /// Native multisig proposals invalidated atomically by finalization.
     ///
-    /// The hashes are retained on the terminal request so clients can resolve corresponding
+    /// The native occurrence identity bytes are retained on the terminal request so clients can resolve corresponding
     /// `CANCELED` or already-`EXPIRED` evidence after the alias rekeys.
-    pub invalidated_multisig_proposal_hashes: Vec<HashOf<Vec<InstructionBox>>>,
+    pub invalidated_multisig_proposal_ids: Vec<[u8; 32]>,
     /// Account that proposed the recovery request.
     pub proposed_by: AccountId,
     /// Earliest block-time timestamp (unix ms) at which finalization is permitted.
@@ -239,7 +237,7 @@ impl AccountRecoveryRequest {
             proposed_controller,
             approvals: BTreeSet::new(),
             cancellation_approvals: BTreeSet::new(),
-            invalidated_multisig_proposal_hashes: Vec::new(),
+            invalidated_multisig_proposal_ids: Vec::new(),
             proposed_by,
             execute_after_ms,
             status: AccountRecoveryStatus::Pending,
@@ -302,7 +300,6 @@ pub enum AccountRecoveryPolicyError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Level, isi::Log};
     use iroha_crypto::{Algorithm, KeyPair};
     use iroha_model_base::topology::DataSpaceId;
     use std::num::NonZeroU64;
@@ -389,11 +386,7 @@ mod tests {
             account(3),
             259_200_001,
         );
-        let invalidated_instructions = vec![InstructionBox::from(Log::new(
-            Level::INFO,
-            "invalidated by account recovery".to_owned(),
-        ))];
-        request.invalidated_multisig_proposal_hashes = vec![HashOf::new(&invalidated_instructions)];
+        request.invalidated_multisig_proposal_ids = vec![[0x51; 32]];
         let cancellation_guardian = account(4);
         request.approve(&cancellation_guardian);
         request.approve_cancellation(&cancellation_guardian);

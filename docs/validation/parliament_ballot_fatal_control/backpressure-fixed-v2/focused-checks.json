@@ -1,0 +1,18 @@
+{
+  "command": [
+    "python3.11",
+    "-m",
+    "pytest",
+    "-q",
+    "scripts/tests/parliament_ballot_fatal_output_test.py"
+  ],
+  "exit": 0,
+  "passed": 5,
+  "reported_elapsed_seconds": 0.34,
+  "test_sha256": "af5caa221184d191124d8d2da8ac335cdd4a3ca97318a42b397dbe8cdd149c21",
+  "fixture_helper_sha256": "92085b766987605de1f982609c1a8bcf5eaf2fd4dc7b95f7adc04d88f082f410",
+  "scope": "Focused test result observed through exec_command. Independent peer reran all five tests and reviewed required-source/command validation, strict types and loaded-helper guards. Fresh real observations are retained separately.",
+  "peer_review": "ownership agent: read-only review clear before the v2 run",
+  "complete_workspace_certificate": false,
+  "profile_qualified": false
+}

@@ -152,10 +152,9 @@ impl<C: PastaCurve> FoldInputDecodePlan<C> {
         params
             .require_k(source_k)
             .map_err(crate::Error::Parameters)?;
-        let dummy = params.params().g()[..1 << source_k]
-            .iter()
-            .fold(C::identity(), |sum, point| sum + point.to_curve())
-            .to_affine();
+        let dummy = params
+            .generator_prefix_sum(source_k)
+            .map_err(crate::Error::Parameters)?;
         if bool::from(dummy.is_identity()) {
             return Err(crate::Error::Encoding(
                 iroha_plonk::transcript::TranscriptError::IdentityPoint,

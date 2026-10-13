@@ -122,6 +122,15 @@ def _identifier_raw_byte_vec(payload: Union[bytes, bytearray, memoryview]) -> by
     return len(data).to_bytes(8, "little") + data
 
 
+def _identifier_network_id_payload(raw: Any) -> bytes:
+    value = _require_exact_non_empty_string(raw, "payload.network_id")
+    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+        raise ValueError("payload.network_id must be an exact 32-byte lowercase hex literal")
+    if int(value[-1], 16) % 2 == 0:
+        raise ValueError("payload.network_id must be a marked genesis hash")
+    return bytes.fromhex(value)
+
+
 def _identifier_policy_id_payload(raw: Any) -> bytes:
     value = _require_exact_non_empty_string(raw, "payload.policy_id")
     parts = value.split("#", 1)
@@ -537,11 +546,16 @@ def encode_identifier_resolution_receipt_payload(
     *,
     decode_i105: Callable[[str], bytes],
 ) -> bytes:
-    """Encode an identifier-resolution receipt payload with the shared canonical layout."""
+    """Encode the current receipt layout, including its signed network identity.
+
+    ``network_id`` is the marked genesis hash as exactly 64 lowercase hexadecimal
+    characters. It is the first Norito field, as in the shared Rust/SDK vectors.
+    """
 
     record = _require_mapping(payload, "identifier resolution payload")
     return b"".join(
         (
+            _identifier_sized_field(_identifier_network_id_payload(record.get("network_id"))),
             _identifier_sized_field(_identifier_policy_id_payload(record.get("policy_id"))),
             _identifier_sized_field(_identifier_execution_payload(record.get("execution"))),
             _identifier_sized_field(_identifier_output_opening(record.get("opening"))),

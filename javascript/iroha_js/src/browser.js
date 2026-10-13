@@ -91,9 +91,6 @@ export {
   noritoDecodeInstruction,
   inspectSubscriptionTriggerAction,
   noritoEncodeInstruction,
-  noritoEncodeMultisigContractCallApproveRequest,
-  noritoEncodeMultisigContractCallProposeRequest,
-  noritoEncodeMultisigProposeRequest,
   encodeRetailFeeQuoteRequestV1,
   retailFeePaymentIntentHash,
   encodeRetailFeeAssessmentV1,
@@ -161,3 +158,6 @@ export {
 } from "./normalizers.js";
 
 export { buildCanonicalMultisigContractCall } from "./multisigContractCall.js";
+
+export { inspectAccountViaNativeTransport } from "./nativeAccountInspection.js";
+export { requestNativeMultisigViaTransport, inspectNativeMultisigPrepareViaTransport, inspectNativeMultisigSignedViaTransport, queryNativeMultisigFinalityViaTransport, queryNativeMultisigProposalFinalityViaTransport } from "./nativeMultisigTransport.js";

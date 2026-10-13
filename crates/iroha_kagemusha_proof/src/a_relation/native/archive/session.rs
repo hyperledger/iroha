@@ -22,7 +22,7 @@ use crate::{
 use ff::PrimeField;
 use iroha_pasta::msm::MemoryBudget;
 use iroha_plonk::DescriptorBinding;
-use iroha_plonk::{ProverConfig, ProverRandomness, ProvingKey};
+use iroha_plonk::{ProverConfig, ProverRandomness};
 use iroha_plonk_recursion::{FoldConfig, create_fold, verifier::VerifierPlan};
 use std::sync::Arc;
 

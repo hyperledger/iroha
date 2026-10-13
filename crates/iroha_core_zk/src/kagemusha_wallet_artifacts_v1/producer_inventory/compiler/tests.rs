@@ -52,6 +52,23 @@ fn scope() -> SourceScopeV1 {
     SourceScopeV1::new([1, 2], Affine::GENERATOR).unwrap()
 }
 
+#[test]
+fn compiler_parameter_owners_reuse_exact_bases_and_keep_domains_separate() {
+    let mut cache = BTreeMap::<u32, PinnedParams<Ep>>::new();
+    let first = parameters(&mut cache, 6, CompilationPhaseV1::QParameters).unwrap();
+    let again = parameters(&mut cache, 6, CompilationPhaseV1::WParameters).unwrap();
+    assert!(core::ptr::eq(
+        first.params().g_lagrange().as_ptr(),
+        again.params().g_lagrange().as_ptr()
+    ));
+    let larger = parameters(&mut cache, 7, CompilationPhaseV1::WParameters).unwrap();
+    assert_eq!(first.k(), 6);
+    assert_eq!(larger.k(), 7);
+    assert_ne!(first.digest(), larger.digest());
+    assert!(parameters(&mut cache, u32::MAX, CompilationPhaseV1::QParameters).is_err());
+    assert_eq!(cache.len(), 2);
+}
+
 #[derive(Clone)]
 pub(super) struct Tiny<F: PastaField>(pub(super) F);
 impl<F: PastaField> Circuit<F> for Tiny<F> {
@@ -129,6 +146,33 @@ fn offline_publication_checks_limits_hashes_and_exact_source_after_storage() {
     let mut compiler = OfflineCompilerV1::new(scope(), &mut disk, limits(), 1).unwrap();
     assert!(compiler.key(&Tiny(Fq::ONE), &params, &key_config).is_err());
     assert_eq!(compiler.bytes, 0);
+}
+
+#[test]
+fn offline_publication_uses_compact_original_byte_limit() {
+    let params = PinnedParams::<Ep>::derive(8).unwrap();
+    let source = Tiny(Fq::ONE);
+    let key_config = config(vec![InstanceType::Bounded], false, limits());
+    let generated = keygen_pk_v2(&params, &source, &key_config).unwrap();
+    let original = generated.artifact_bytes_v2().unwrap();
+    assert_eq!(original.len(), 108 + generated.vk().to_bytes().len());
+    let mut read = limits();
+    read.maximum_bytes = original.len();
+    let mut disk = Memory::default();
+    let mut compiler = OfflineCompilerV1::new(scope(), &mut disk, read, 1 << 30).unwrap();
+    let compiled = compiler.key(&source, &params, &key_config).unwrap();
+    assert_eq!(compiled.original.proving_key, BlobV1::of(&original));
+    assert_eq!(
+        compiled.metadata.key().to_bytes(),
+        generated.vk().to_bytes()
+    );
+    drop(compiler);
+    read.maximum_bytes -= 1;
+    let mut rejected = Memory::default();
+    let mut compiler = OfflineCompilerV1::new(scope(), &mut rejected, read, 1 << 30).unwrap();
+    assert!(compiler.key(&source, &params, &key_config).is_err());
+    assert_eq!(compiler.bytes, 0);
+    assert!(compiler.blobs.is_empty());
 }
 
 struct Disk(tempfile::TempDir);
@@ -405,4 +449,30 @@ fn indexed_original_reuse<C: PastaCurve>() {
 fn indexed_original_reuse_requires_complete_source_import_on_both_curves() {
     indexed_original_reuse::<Ep>();
     indexed_original_reuse::<Eq>();
+}
+
+fn changed_source_regenerates<C: PastaCurve>() {
+    let mut disk = Memory::default();
+    let params = PinnedParams::<C>::derive(8).unwrap();
+    let cfg = config(vec![InstanceType::Bounded], false, limits());
+    let mut compiler = OfflineCompilerV1::new(scope(), &mut disk, limits(), 1 << 30).unwrap();
+    let previous = compiler
+        .key(&Tiny(C::ScalarExt::ONE), &params, &cfg)
+        .unwrap();
+    drop(compiler);
+    let count = disk.blobs.len();
+    let mut compiler = OfflineCompilerV1::new(scope(), &mut disk, limits(), 1 << 30).unwrap();
+    compiler.index_original(previous.original).unwrap();
+    let changed = compiler
+        .key(&Tiny(C::ScalarExt::from(3)), &params, &cfg)
+        .unwrap();
+    assert_ne!(changed.original, previous.original);
+    drop(compiler);
+    assert!(disk.blobs.len() > count);
+}
+
+#[test]
+fn indexed_original_reuse_regenerates_changed_source_on_both_curves() {
+    changed_source_regenerates::<Ep>();
+    changed_source_regenerates::<Eq>();
 }

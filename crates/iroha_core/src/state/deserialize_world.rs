@@ -7254,6 +7254,7 @@ mod validation_fee_registry_restore_tests {
             enacted_at_height,
         };
         let registry = ValidationFeePolicyRegistryV1 {
+            history: None,
             registered_policies: vec![
                 ValidationFeePolicyRegistryEntryV1::from_enactment(policy, authorization)
                     .expect("canonical validation-fee registry entry"),
@@ -7417,7 +7418,11 @@ mod validation_fee_registry_restore_tests {
                 .expect("valid fixture parameters");
             parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(registry.clone().into_custom_parameter()))
+                .set_parameter(Parameter::Custom(
+                    registry.clone().into_custom_parameter().expect(
+                        "validation-fee fixture registry fits the canonical JSON parameter",
+                    ),
+                ))
                 .expect("valid fixture parameters");
             parameters.commit();
         }
@@ -7536,7 +7541,11 @@ mod validation_fee_registry_restore_tests {
                 .get()
                 .custom()
                 .get(&ValidationFeePolicyRegistryV1::parameter_id()),
-            Some(&registry.into_custom_parameter()),
+            Some(
+                &registry
+                    .into_custom_parameter()
+                    .expect("validation-fee fixture registry fits the canonical JSON parameter")
+            ),
         );
         assert!(
             matches!(
@@ -9244,8 +9253,8 @@ fn parse_world(
     ivm_seed: &IvmSeed<'_, World>,
 ) -> Result<World, StateRestoreError> {
     let mut world = decode_world_fields(execution_budget, map, ivm_seed)?;
-    crate::smartcontracts::isi::multisig::validate_persisted_proposals(&world.view()).map_err(
-        |error| match error {
+    crate::smartcontracts::isi::multisig::validate_persisted_proposals(&world.view(), None)
+        .map_err(|error| match error {
             crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
                 StateRestoreError::Serialization(json::Error::InvalidField {
                     field: "world.smart_contract_state.multisig/proposal".into(),
@@ -9255,8 +9264,7 @@ fn parse_world(
             crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
                 StateRestoreError::ExecutionDeferred(reason)
             }
-        },
-    )?;
+        })?;
     validate_domain_endorsement_index(&world)?;
     validate_da_pin_persistence(&world)?;
     validator_committee::validate_persisted_progress(&world.view()).map_err(|message| {
@@ -9795,6 +9803,20 @@ fn build_state(
         Some(original) => original,
         None => native_execution_tip::empty_cell(&execution_budget)?,
     };
+    crate::smartcontracts::isi::multisig::validate_persisted_proposals(
+        &world.view(),
+        Some(&network_id),
+    )
+    .map_err(|error| match error {
+        crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
+            MergeLedgerCommitError::ExecutionStatePublication(format!(
+                "restored multisig occurrence is not bound to the selected network: {error}"
+            ))
+        }
+        crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+            MergeLedgerCommitError::ExecutionDeferred(reason)
+        }
+    })?;
     #[cfg(feature = "telemetry")]
     let telemetry_seed = telemetry.clone();
     validate_no_standalone_governance_state_for_typed_proposals_v1(&world).map_err(|error| {
@@ -11858,20 +11880,32 @@ mod decode_tests {
             "restored approved body".into(),
         ))];
         let hash = iroha_crypto::HashOf::new(&instructions);
+        let network = iroha_data_model::NetworkId::from_genesis_hash(
+            iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::prehashed([0x41; 32])),
+        );
+        let nonce =
+            iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new([0x71; 32])
+                .unwrap();
+        let proposal_id = iroha_executor_data_model::isi::multisig::MultisigProposalId::derive(
+            &network, &account, &nonce,
+        );
         let key: iroha_model_base::state_path::StatePath = format!(
-            "multisig/proposal/{}/{hash}",
+            "multisig/proposal/{}/{proposal_id}",
             iroha_crypto::HashOf::new(&account)
         )
         .parse()
         .unwrap();
         let proposal = MultisigProposalState::new(
+            network,
             account.clone(),
+            nonce,
+            proposal_id,
             hash,
+            None,
             instructions,
             1,
             10_000,
             std::collections::BTreeSet::new(),
-            None,
         );
         let mut world = World::with(
             [],
@@ -11920,7 +11954,8 @@ mod decode_tests {
                     .expect("World fields finish within their measured budget");
                 assert!(matches!(
                     crate::smartcontracts::isi::multisig::validate_persisted_proposals(
-                        &decoded.view()
+                        &decoded.view(),
+                        None
                     ),
                     Err(crate::execution_attempt::ExecutionAttemptError::Deferred(_))
                 ));

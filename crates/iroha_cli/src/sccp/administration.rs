@@ -115,6 +115,37 @@ pub(super) fn require_latest_control(applied: u64, required: u64) -> Result<()> 
     Ok(())
 }
 
+/// Resolve the target from the exact journal step held by the confirmation driver.
+fn retained_control_nonce(
+    step: &iroha_sccp_wallet::journal::SccpJournalStep,
+    network: SccpNetworkV1,
+    revision: u32,
+) -> Result<u64> {
+    let mut targets = step
+        .record()
+        .evidence
+        .iter()
+        .filter(|item| item.label == "taira.verified_control");
+    let target = targets
+        .next()
+        .ok_or_else(|| eyre!("retained control has no original target"))?;
+    ensure!(
+        targets.next().is_none(),
+        "retained control has duplicate targets"
+    );
+    let original: iroha_sccp::api::SccpControlProofBundleV1 =
+        norito::json::from_slice(&target.bytes)?;
+    ensure!(
+        original.network == network && original.revision == revision,
+        "retained control belongs to another deployment"
+    );
+    ensure!(
+        original.control_nonce != 0,
+        "retained control has a zero nonce"
+    );
+    Ok(original.control_nonce)
+}
+
 impl Run for ControlCommand {
     fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
         let args = match self {
@@ -158,19 +189,7 @@ impl Run for ControlCommand {
         use iroha_sccp_wallet::flow::SccpFlowActionV1 as Action;
         if let Some(step) = flow.latest(Action::Control)? {
             super::flows::check_flow(&flow, &step)?;
-            let evidence = step
-                .record()
-                .evidence
-                .iter()
-                .find(|item| item.label == "taira.verified_control")
-                .ok_or_else(|| eyre!("retained control has no original target"))?;
-            let original: iroha_sccp::api::SccpControlProofBundleV1 =
-                norito::json::from_slice(&evidence.bytes)?;
-            ensure!(
-                original.network == network && original.revision == revision,
-                "retained control belongs to another deployment"
-            );
-            nonce = original.control_nonce;
+            nonce = retained_control_nonce(&step, network, revision)?;
         }
         if network == SccpNetworkV1::TonMainnet {
             let (destination, wallet) = super::ton_destination(
@@ -216,13 +235,9 @@ impl Run for ControlCommand {
                         &wallet,
                     )
                 },
-                |_| {
-                    destination.progress_evidence(
-                        original.network,
-                        original.instance,
-                        Some(nonce),
-                        None,
-                    )
+                |step| {
+                    let target = retained_control_nonce(step, network, revision)?;
+                    destination.progress_evidence(&client, &original, Some(target), None)
                 },
             )?;
         } else {
@@ -260,6 +275,10 @@ impl Run for ControlCommand {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "administration/control_tests.rs"]
+mod control_tests;
 
 #[derive(Debug, PartialEq, Eq, norito::derive::JsonSerialize)]
 struct ControlStatus {

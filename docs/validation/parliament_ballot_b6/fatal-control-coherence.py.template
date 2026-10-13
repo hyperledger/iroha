@@ -1,0 +1,107 @@
+"""Freeze the new fatal-control evidence and reconcile the prior B6 inventory.
+
+Run once from the repository root after all named child artifacts are complete.
+Writes only new snapshots/receipts plus the explicitly archived aggregate index.
+Rejects unexpected prior-artifact drift. This is integrity evidence, not qualification.
+"""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+import re
+import subprocess
+
+root=Path.cwd()
+out=root/'docs/validation/parliament_ballot_fatal_control'
+b6=root/'docs/validation/parliament_ballot_b6'
+prior=b6/'pre-fatal-slot-artifact-manifest.sha256'
+index=b6/'B6_ARTIFACTS_SHA256SUMS'
+def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+def inventory(path): return {name:digest for digest,name in (line.split('  ',1) for line in path.read_text().splitlines())}
+def verify_manifest(path):
+    for name,h in inventory(path).items():
+        base=root if name.startswith(('docs/','specs/','scripts/','crates/')) else path.parent
+        assert sha(base/name)==h,(str(path),name)
+def write_json(path,value):
+    if path.exists(): raise RuntimeError('refuse overwriting '+str(path))
+    path.write_text(json.dumps(value,indent=2,sort_keys=True)+'\n')
+assert sha(prior)=='cb4db3ce4aeaf0fae1021f441d34c60f885818e4daf1cbdec274602c05342073'
+assert index.read_bytes()==prior.read_bytes()
+old=inventory(prior)
+allowed={
+ 'crates/iroha_parliament_ballot_proof/examples/memory_entry/README.md',
+ 'crates/iroha_parliament_ballot_proof/examples/memory_entry/driver.rs',
+ 'docs/validation/parliament_ballot_b6.md',
+ 'scripts/check_parliament_ballot_memory_entry.py',
+ 'scripts/prepare_parliament_ballot_memory_entry.py',
+ 'scripts/tests/parliament_ballot_memory_entry_test.py',
+ 'scripts/tests/parliament_ballot_memory_prepare_test.py',
+ 'specs/parliament_ballot_arena_sufficiency.md',
+ 'specs/parliament_ballot_b6_requirement_audit.md',
+ 'specs/parliament_ballot_implementation_goals.md',
+ 'specs/parliament_ballot_resource_contract.md',
+}
+changes={name:{'before':h,'after':sha(root/name)} for name,h in old.items() if sha(root/name)!=h}
+assert set(changes)<=allowed, changes
+live=[
+ 'scripts/check_parliament_ballot_memory_entry.py','scripts/prepare_parliament_ballot_memory_entry.py',
+ 'scripts/parliament_ballot_memory_supervisor.py','scripts/check_parliament_ballot_fatal_output.py',
+ 'scripts/tests/parliament_ballot_memory_entry_test.py','scripts/tests/parliament_ballot_memory_prepare_test.py',
+ 'scripts/tests/parliament_ballot_memory_supervisor_test.py','scripts/tests/parliament_ballot_fatal_output_test.py',
+ *['crates/iroha_parliament_ballot_proof/examples/memory_entry/'+name for name in ('driver.rs','staging.rs','fatal.rs','README.md')],
+]
+for name in live:
+    dest=out/'source'/ (name+'.template')
+    assert not dest.exists()
+    dest.parent.mkdir(parents=True,exist_ok=True)
+    dest.write_bytes((root/name).read_bytes())
+new_folders=[out,root/'docs/validation/parliament_ballot_zero_challenge',root/'docs/validation/parliament_ballot_h5_fixed_opening']
+reports=[out/'campaign/report.json',out/'backpressure-fixed-v2/report.json']
+post_changes={}
+for path in reports:
+    report=json.loads(path.read_text()); assert report['diagnostic_passed'] and not report['input_changes']
+    for name,before in report['input_sha256'].items():
+        after=sha(name)
+        if before!=after:post_changes[name]={'before':before,'after':after}
+assert not post_changes, post_changes
+for path in [root/'docs/validation/parliament_ballot_zero_challenge/SHA256SUMS',root/'docs/validation/parliament_ballot_h5_fixed_opening/SHA256SUMS',out/'backpressure-reproduction/SHA256SUMS',out/'backpressure-fixed/SHA256SUMS',out/'backpressure-fixed-v2/SHA256SUMS']:
+    verify_manifest(path)
+check=json.loads((out/'fatal-control-checks.json').read_text())
+assert check['source_changes']=={} and check['binding_ballot_available'] is False and check['qualified_attempt_latency_ms'] is None and check['no_experimental_core_torii_dependencies']
+assert [r['exit'] for r in check['commands']]==[0,0,0,1]
+review={'schema':'parliament-fatal-control-local-review-v1','observed_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+ 'source_sha256':{name:sha(root/name) for name in live},
+ 'reviewers':['root','ownership','free_predicates'],
+ 'scope':['fresh native control page and setup fd validation','admission publication before ACTIVE, no-output fatal exit','post-exit supervisor debit/state/exit agreement','timeout-race discard and durable raw failed-case evidence','actual compiled full/broken-pipe regressions','exact mapping page accounting and frozen-image separation'],
+ 'findings_resolved':['exact0600 including specialbits','ordinary-result state/debit contradictions','timeout racing a fatal result','raw supervisor evidence lost before failed-case validation','output helper now shares strict compiled-input/command validation'],
+ 'independent_implementation_review':False,'complete_workspace_certificate':False,'profile_qualified':False}
+write_json(out/'review.json',review)
+entries=sorted(p for p in out.rglob('*') if p.is_file() and p!=out/'SHA256SUMS')
+(out/'SHA256SUMS').write_text(''.join(sha(p)+'  '+str(p.relative_to(root))+'\n' for p in entries))
+manifests=[folder/'SHA256SUMS' for folder in new_folders]
+for path in manifests: verify_manifest(path)
+docs=[root/name for name in allowed if name.endswith('.md')]+[p for folder in new_folders for p in folder.rglob('*.md')]+[root/'specs/parliament_ballot_b6_h5_fixed_opening.md']
+links=[];broken=[]
+for doc in docs:
+ for link in re.findall(r'\]\(([^)]+)\)',doc.read_text()):
+    if '://' in link or link.startswith('#'):continue
+    target=(doc.parent/link.split('#')[0]).resolve()
+    links.append({'document':str(doc.relative_to(root)),'link':link})
+    if not target.exists():broken.append(links[-1])
+assert not broken,broken
+coherence={'schema':'parliament-fatal-control-coherence-v1','observed_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+ 'prior_entries':len(old),'prior_manifest_sha256':sha(prior),'updated_live_entries':changes,
+ 'frozen_new_manifests':[{'path':str(p.relative_to(root)),'sha256':sha(p),'entries':len(inventory(p))} for p in manifests],
+ 'post_campaign_input_changes':post_changes,'local_links_checked':len(links),'broken_links':broken,
+ 'current_status_roadmap_sha256':{n:sha(root/n) for n in ('status.md','roadmap.md')},
+ 'complete_workspace_certificate':False,'profile_qualified':False,
+ 'scope_note':'Prior847entries unchanged except listed current sources/docs. Old frozen binaries/artifacts remain unchanged; their live-source bindings are historical. Fresh fatal-control binaries have separate build/campaign and stronger parent-channel validation. Local math review closes only the conditional initial H5 transition and fixed-fallback membership.'}
+write_json(b6/'fatal-control-coherence.json',coherence)
+all_names=set(old)|{str(p.relative_to(root)) for folder in new_folders for p in folder.rglob('*') if p.is_file()}|set(live)|{
+ str(prior.relative_to(root)),'docs/validation/parliament_ballot_b6/fatal-control-coherence.json',
+ 'docs/validation/parliament_ballot_b6/fatal-control-coherence.py.template',
+ 'scripts/check_parliament_ballot_zero_challenge.py','scripts/tests/parliament_ballot_zero_challenge_test.py',
+ 'specs/parliament_ballot_b6_h5_fixed_opening.md'}
+index.write_text(''.join(sha(root/n)+'  '+n+'\n' for n in sorted(all_names)))
+assert all(sha(root/name)==h for name,h in inventory(index).items())
+print(json.dumps({'entries':len(all_names),'index_sha256':sha(index),'coherence_sha256':sha(b6/'fatal-control-coherence.json'),'links_checked':len(links),'prior_changed_entries':len(changes)}))

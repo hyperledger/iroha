@@ -15736,9 +15736,13 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
 
     func testProposeMultisigEncodesStructuredJsonInstructions() throws {
         let expectation = expectation(description: "propose multisig")
-        let proposalId = String(repeating: "a", count: 64)
+        let instructionsHash = String(repeating: "a", count: 64)
         let feePayment = testFeePayment()
         let resolvedAccount = "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"
+        let proposalId = try MultisigOccurrence.derive(
+            networkId: TestNetworkIds.canonical, accountId: resolvedAccount,
+            proposalNonce: String(repeating: "07", count: 32)
+        )
         let executable = CanonicalUnsignedTransactionTestSupport.instructionExecutable([Data([1])])
         let transactionPayload = try CanonicalUnsignedTransactionTestSupport.transactionPayload(
             networkId: TestNetworkIds.canonical,
@@ -15752,7 +15756,8 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         let intent = try ToriiMultisigUnsignedTransactionIntent(
             networkId: TestNetworkIds.canonical,
             resolvedMultisigAccountId: resolvedAccount,
-            instructionsHash: proposalId,
+            proposalId: proposalId,
+            instructionsHash: instructionsHash,
             executable: executable,
             metadata: [:]
         )
@@ -15787,7 +15792,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
                                            httpVersion: nil,
                                            headerFields: ["Content-Type": "application/json"])!
             let bodyData = """
-            {"ok":true,"resolved_multisig_account_id":"\(resolvedAccount)","submitted":false,"proposal_id":"\(proposalId)","instructions_hash":"\(proposalId)","creation_time_ms":123,"fee_payment":{"payer":"authority","value":{"charge_limits":[],"gas_limit":null}},"transaction_payload_b64":"\(transactionPayload.base64EncodedString())","signing_message_b64":"\(signingMessage.base64EncodedString())"}
+            {"ok":true,"resolved_multisig_account_id":"\(resolvedAccount)","submitted":false,"proposal_id":"\(proposalId)","instructions_hash":"\(instructionsHash)","creation_time_ms":123,"fee_payment":{"payer":"authority","value":{"charge_limits":[],"gas_limit":null}},"transaction_payload_b64":"\(transactionPayload.base64EncodedString())","signing_message_b64":"\(signingMessage.base64EncodedString())"}
             """.data(using: .utf8)!
             return (response, bodyData)
         }
@@ -15795,6 +15800,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         let request = ToriiMultisigProposeRequest(
             selector: ToriiMultisigAccountSelector(multisigAccountAlias: "cbdc@banka"),
             signerAccountId: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+            proposalNonce: String(repeating: "07", count: 32),
             creationTimeMs: 123,
             instructions: [
                 try ToriiMultisigProposeInstruction(object: ["kind": .string("Transfer")])
@@ -15808,7 +15814,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
                 XCTAssertTrue(response.ok)
                 XCTAssertEqual(response.resolvedMultisigAccountId, "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV")
                 XCTAssertEqual(response.proposalId, proposalId)
-                XCTAssertEqual(response.instructionsHash, proposalId)
+                XCTAssertEqual(response.instructionsHash, instructionsHash)
                 XCTAssertEqual(response.creationTimeMs, 123)
                 XCTAssertEqual(response.transactionPayloadB64, transactionPayload.base64EncodedString())
                 XCTAssertEqual(response.signingMessageB64, signingMessage.base64EncodedString())
@@ -15834,6 +15840,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         let request = ToriiMultisigProposeRequest(
             selector: ToriiMultisigAccountSelector(multisigAccountId: signer),
             signerAccountId: signer,
+            proposalNonce: String(repeating: "07", count: 32),
             validationFeeAssessment: assessment,
             instructions: [try ToriiMultisigProposeInstruction(base64: "AQID")],
             feePayment: .authority(chargeLimits: [], gasLimit: nil)
@@ -15841,6 +15848,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         let native = try ToriiMultisigProposeRequest(
             selector: ToriiMultisigAccountSelector(multisigAccountId: signer),
             signerAccountId: signer,
+            proposalNonce: String(repeating: "07", count: 32),
             validationFeeAssessment: assessment,
             noritoInstructionBoxBytes: [Data([0x01, 0x02, 0x03])],
             feePayment: .authority(chargeLimits: [], gasLimit: nil)
@@ -15868,45 +15876,10 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         XCTAssertEqual(
             Set(payload.keys),
             Set([
-                "multisig_account_id", "signer_account_id", "fee_payment",
+                "multisig_account_id", "signer_account_id", "proposal_nonce", "fee_payment",
                 "validation_fee_assessment", "instructions"
             ])
         )
-    }
-
-    func testProposeMultisigSendsWholeNoritoDtoBody() {
-        let expectation = expectation(description: "propose multisig native body")
-        let proposalId = String(repeating: "b", count: 64)
-        let txHash = String(repeating: "c", count: 64)
-        let noritoBody = Data([0x4e, 0x52, 0x54, 0x30, 0x01, 0x02, 0x03])
-        let resolvedAccount = "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"
-        StubURLProtocol.handler = { request in
-            XCTAssertEqual(request.url?.path, "/v1/multisig/propose")
-            XCTAssertEqual(request.httpMethod, "POST")
-            XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/x-norito")
-            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/json")
-            XCTAssertEqual(self.bodyData(from: request), noritoBody)
-            let response = HTTPURLResponse(url: request.url!,
-                                           statusCode: 200,
-                                           httpVersion: nil,
-                                           headerFields: ["Content-Type": "application/json"])!
-            let bodyData = """
-            {"ok":true,"resolved_multisig_account_id":"\(resolvedAccount)","submitted":true,"proposal_id":"\(proposalId)","instructions_hash":"\(proposalId)","tx_hash_hex":"\(txHash)","creation_time_ms":123,"fee_payment":{"payer":"authority","value":{"charge_limits":[],"gas_limit":null}}}
-            """.data(using: .utf8)!
-            return (response, bodyData)
-        }
-
-        makeClient().proposeMultisig(noritoBody: noritoBody) { result in
-            switch result {
-            case .success(let response):
-                XCTAssertTrue(response.ok)
-                XCTAssertEqual(response.proposalId, proposalId)
-            case .failure(let error):
-                XCTFail("unexpected error: \(error)")
-            }
-            expectation.fulfill()
-        }
-        waitForExpectations(timeout: 1)
     }
 
     func testProposeMultisigInstructionEncodesNativeInstructionStrings() throws {
@@ -15968,6 +15941,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
                 multisigAccountAlias: "cbdc@banka"
             ),
             signerAccountId: signer,
+            proposalNonce: String(repeating: "07", count: 32),
             instructions: [instruction],
             feePayment: .authority(chargeLimits: [], gasLimit: nil),
         )
@@ -15980,6 +15954,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         let emptyBatchRequest = ToriiMultisigProposeRequest(
             selector: ToriiMultisigAccountSelector(multisigAccountAlias: "cbdc@banka"),
             signerAccountId: signer,
+            proposalNonce: String(repeating: "07", count: 32),
             instructions: [],
             feePayment: .authority(chargeLimits: [], gasLimit: nil),
         )
@@ -16009,6 +15984,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         let request = ToriiMultisigProposeRequest(
             selector: ToriiMultisigAccountSelector(multisigAccountAlias: "cbdc@banka"),
             signerAccountId: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+            proposalNonce: String(repeating: "07", count: 32),
             instructions: [instruction],
             feePayment: .authority(chargeLimits: [], gasLimit: nil),
         )
@@ -16044,6 +16020,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         let request = ToriiMultisigProposeRequest(
             selector: ToriiMultisigAccountSelector(multisigAccountAlias: "cbdc@banka"),
             signerAccountId: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+            proposalNonce: String(repeating: "07", count: 32),
             instructions: [instruction],
             feePayment: .authority(chargeLimits: [], gasLimit: nil),
         )
@@ -16079,6 +16056,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         let request = ToriiMultisigProposeRequest(
             selector: ToriiMultisigAccountSelector(multisigAccountAlias: "cbdc@banka"),
             signerAccountId: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+            proposalNonce: String(repeating: "07", count: 32),
             instructions: [instruction],
             feePayment: .authority(chargeLimits: [], gasLimit: nil),
         )
@@ -16114,6 +16092,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         let request = ToriiMultisigProposeRequest(
             selector: ToriiMultisigAccountSelector(multisigAccountAlias: "cbdc@banka"),
             signerAccountId: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+            proposalNonce: String(repeating: "07", count: 32),
             instructions: [instruction],
             feePayment: .authority(chargeLimits: [], gasLimit: nil),
         )
@@ -16131,11 +16110,15 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         waitForExpectations(timeout: 1)
     }
 
-    func testProposeMultisigContractCallEncodesAliasSelector() {
+    func testProposeMultisigContractCallEncodesAliasSelector() throws {
         let expectation = expectation(description: "propose multisig contract call")
-        let proposalId = String(repeating: "a", count: 64)
+        let instructionsHash = String(repeating: "a", count: 64)
         let feePayment = testFeePayment(gasLimit: 5)
         let resolvedAccount = "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"
+        let proposalId = try MultisigOccurrence.derive(
+            networkId: TestNetworkIds.canonical, accountId: resolvedAccount,
+            proposalNonce: String(repeating: "07", count: 32)
+        )
         let executable = CanonicalUnsignedTransactionTestSupport.instructionExecutable([Data([1])])
         let transactionPayload = try! CanonicalUnsignedTransactionTestSupport.transactionPayload(
             networkId: TestNetworkIds.canonical,
@@ -16149,7 +16132,8 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         let intent = try! ToriiMultisigUnsignedTransactionIntent(
             networkId: TestNetworkIds.canonical,
             resolvedMultisigAccountId: resolvedAccount,
-            instructionsHash: proposalId,
+            proposalId: proposalId,
+            instructionsHash: instructionsHash,
             executable: executable,
             metadata: [:]
         )
@@ -16176,7 +16160,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
                                            httpVersion: nil,
                                            headerFields: ["Content-Type": "application/json"])!
             let bodyData = """
-            {"ok":true,"resolved_multisig_account_id":"\(resolvedAccount)","submitted":false,"proposal_id":"\(proposalId)","instructions_hash":"\(proposalId)","creation_time_ms":123,"fee_payment":{"payer":"authority","value":{"charge_limits":[],"gas_limit":5}},"transaction_payload_b64":"\(transactionPayload.base64EncodedString())","signing_message_b64":"\(signingMessage.base64EncodedString())"}
+            {"ok":true,"resolved_multisig_account_id":"\(resolvedAccount)","submitted":false,"proposal_id":"\(proposalId)","instructions_hash":"\(instructionsHash)","creation_time_ms":123,"fee_payment":{"payer":"authority","value":{"charge_limits":[],"gas_limit":5}},"transaction_payload_b64":"\(transactionPayload.base64EncodedString())","signing_message_b64":"\(signingMessage.base64EncodedString())"}
             """.data(using: .utf8)!
             return (response, bodyData)
         }
@@ -16184,6 +16168,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         let request = ToriiMultisigContractCallProposeRequest(
             selector: ToriiMultisigAccountSelector(multisigAccountAlias: "cbdc@banka"),
             signerAccountId: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+            proposalNonce: String(repeating: "07", count: 32),
             contractAlias: "mint::universal",
             entrypoint: "execute",
             payload: .object(["amount": .string("10")]),
@@ -16196,7 +16181,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
                 XCTAssertTrue(response.ok)
                 XCTAssertEqual(response.resolvedMultisigAccountId, "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV")
                 XCTAssertEqual(response.proposalId, proposalId)
-                XCTAssertEqual(response.instructionsHash, proposalId)
+                XCTAssertEqual(response.instructionsHash, instructionsHash)
                 XCTAssertEqual(response.creationTimeMs, 123)
                 XCTAssertEqual(response.transactionPayloadB64, transactionPayload.base64EncodedString())
                 XCTAssertEqual(response.signingMessageB64, signingMessage.base64EncodedString())
@@ -16237,6 +16222,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
                     ToriiMultisigProposeRequest(
                         selector: ToriiMultisigAccountSelector(multisigAccountId: account),
                         signerAccountId: signer,
+                        proposalNonce: String(repeating: "07", count: 32),
                         signatureB64: signatureB64,
                         instructions: [try ToriiMultisigProposeInstruction(base64: "AQID")],
                         feePayment: .authority(chargeLimits: [], gasLimit: nil),
@@ -16251,6 +16237,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
                     ToriiMultisigContractCallProposeRequest(
                         selector: ToriiMultisigAccountSelector(multisigAccountId: account),
                         signerAccountId: signer,
+                        proposalNonce: String(repeating: "07", count: 32),
                         signatureB64: signatureB64,
                         contractAlias: "mint::universal",
                         entrypoint: "create",
@@ -16268,6 +16255,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
                         signerAccountId: signer,
                         signatureB64: signatureB64,
                         proposalId: String(repeating: "b", count: 64),
+                        instructionsHash: String(repeating: "a", count: 64),
                         feePayment: testFeePayment()
                     )
                 )
@@ -16294,13 +16282,14 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
             XCTAssertEqual(json["multisig_account_id"] as? String, "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV")
             XCTAssertEqual(json["signer_account_id"] as? String, "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D")
             XCTAssertEqual(json["proposal_id"] as? String, proposalId)
+            XCTAssertEqual(json["instructions_hash"] as? String, String(repeating: "a", count: 64))
             XCTAssertEqual(json["signature_b64"] as? String, "AQ==")
             let response = HTTPURLResponse(url: request.url!,
                                            statusCode: 200,
                                            httpVersion: nil,
                                            headerFields: ["Content-Type": "application/json"])!
             let bodyData = """
-            {"ok":true,"resolved_multisig_account_id":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","submitted":true,"proposal_id":"\(proposalId)","instructions_hash":"\(proposalId)","tx_hash_hex":"\(txHash)","executed_tx_hash_hex":"\(txHash)","creation_time_ms":123,"fee_payment":{"payer":"authority","value":{"charge_limits":[],"gas_limit":null}}}
+            {"ok":true,"resolved_multisig_account_id":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","submitted":true,"proposal_id":"\(proposalId)","instructions_hash":"\(String(repeating: "a", count: 64))","tx_hash_hex":"\(txHash)","executed_tx_hash_hex":"\(txHash)","creation_time_ms":123,"fee_payment":{"payer":"authority","value":{"charge_limits":[],"gas_limit":null}}}
             """.data(using: .utf8)!
             return (response, bodyData)
         }
@@ -16310,6 +16299,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
             signerAccountId: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D",
             signatureB64: "AQ==",
             proposalId: proposalId,
+            instructionsHash: String(repeating: "a", count: 64),
             feePayment: testFeePayment()
         )
         makeClient().approveMultisigContractCall(request) { result in
@@ -16359,6 +16349,43 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
                 XCTFail("unexpected error: \(error)")
             }
             expectation.fulfill()
+        }
+        waitForExpectations(timeout: 1)
+    }
+
+    func testGetMultisigSpecBindsTheSelectedConcreteAccount() {
+        let expectation = expectation(description: "multisig spec concrete account binding")
+        expectation.expectedFulfillmentCount = 2
+        let resolvedAccount = "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"
+        let otherAccount = "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                           httpVersion: nil,
+                                           headerFields: ["Content-Type": "application/json"])!
+            let body = """
+            {"resolved_multisig_account_id":"\(resolvedAccount)","spec":{"quorum":2,"transaction_ttl_ms":60000}}
+            """.data(using: .utf8)!
+            return (response, body)
+        }
+        for selected in [resolvedAccount, otherAccount] {
+            let request = ToriiMultisigSpecRequest(
+                selector: ToriiMultisigAccountSelector(multisigAccountId: selected)
+            )
+            makeClient().getMultisigSpec(request, canonicalAuth: canonicalReadAuth) { result in
+                switch result {
+                case .success(let response):
+                    XCTAssertEqual(selected, resolvedAccount)
+                    XCTAssertEqual(response.resolvedMultisigAccountId, selected)
+                case .failure(let error):
+                    XCTAssertEqual(selected, otherAccount)
+                    guard case ToriiClientError.invalidPayload = error else {
+                        XCTFail("Expected account binding rejection, got \(error)")
+                        expectation.fulfill()
+                        return
+                    }
+                }
+                expectation.fulfill()
+            }
         }
         waitForExpectations(timeout: 1)
     }
@@ -16475,7 +16502,8 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
                 XCTFail("missing JSON body")
                 throw NSError(domain: "stub", code: -1)
             }
-            XCTAssertEqual(json["instructions_hash"] as? String, proposalId)
+            XCTAssertEqual(json["proposal_id"] as? String, proposalId)
+            XCTAssertNil(json["instructions_hash"])
             let response = HTTPURLResponse(url: request.url!,
                                            statusCode: 200,
                                            httpVersion: nil,
@@ -16488,7 +16516,7 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
 
         let request = ToriiMultisigProposalsResolveRequest(
             selector: ToriiMultisigAccountSelector(multisigAccountAlias: "cbdc@banka"),
-            instructionsHash: proposalId
+            proposalId: proposalId
         )
         makeClient().resolveMultisigProposal(request, canonicalAuth: canonicalReadAuth) { result in
             switch result {
@@ -16524,23 +16552,11 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         }
     }
 
-    func testResolveMultisigProposalRejectsMissingOrDualProposalSelectors() throws {
+    func testResolveMultisigProposalRejectsNoncanonicalOccurrence() throws {
         let selector = ToriiMultisigAccountSelector(multisigAccountAlias: "cbdc@banka")
-        let proposalId = String(repeating: "f", count: 64)
-        for request in [
-            ToriiMultisigProposalsResolveRequest(selector: selector),
-            ToriiMultisigProposalsResolveRequest(
-                selector: selector,
-                proposalId: proposalId,
-                instructionsHash: proposalId
-            )
-        ] {
-            XCTAssertThrowsError(try JSONEncoder().encode(request)) { error in
-                guard case let ToriiClientError.invalidPayload(message) = error else {
-                    return XCTFail("unexpected error: \(error)")
-                }
-                XCTAssertTrue(message.contains("exactly one"))
-            }
+        for proposalId in ["", "abc", String(repeating: "F", count: 64), " " + String(repeating: "f", count: 64)] {
+            let request = ToriiMultisigProposalsResolveRequest(selector: selector, proposalId: proposalId)
+            XCTAssertThrowsError(try JSONEncoder().encode(request))
         }
     }
 

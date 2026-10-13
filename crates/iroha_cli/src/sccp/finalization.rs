@@ -196,9 +196,9 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<
     let client = blocking(context)?;
     let original = origin::authenticate_origin(context, &client, &args.origin)?;
     let message_id = parse_word(&args.message_id)?;
-    let record = client
-        .sccp()
-        .message(&message_id)?
+    let status = client.sccp().message(&message_id)?;
+    original.verify_message(&message_id, &status)?;
+    let record = status
         .outbound()
         .map(|view| view.record.clone())
         .ok_or_else(|| eyre!("{} is not an outbound message", args.message_id))?;
@@ -285,6 +285,7 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<
             |step| {
                 destination.terminal_evidence(
                     &client,
+                    &original,
                     profiles,
                     step,
                     iroha_sccp::ton_watch::TerminalEvent::Finalized {
@@ -406,6 +407,32 @@ fn target_item(target: u64) -> iroha_sccp_wallet::journal::SccpEvidenceItemV1 {
     }
 }
 
+/// Read maintenance requirements from the exact signed step selected and locked by the driver.
+fn prerequisite_target(
+    step: &iroha_sccp_wallet::journal::SccpJournalStep,
+) -> Result<(Option<u64>, Option<u64>)> {
+    use iroha_sccp_wallet::flow::SccpFlowActionV1 as Action;
+    let mut targets = step
+        .record()
+        .evidence
+        .iter()
+        .filter(|item| item.label == "sccp.prerequisite.target");
+    let bytes = &targets
+        .next()
+        .ok_or_else(|| eyre!("original prerequisite target is absent"))?
+        .bytes;
+    ensure!(
+        targets.next().is_none(),
+        "original prerequisite target is ambiguous"
+    );
+    let target = u64::from_be_bytes(bytes.as_slice().try_into()?);
+    match step.record().action {
+        Action::Control => Ok((Some(target), None)),
+        Action::Checkpoint => Ok((None, Some(target))),
+        _ => Err(eyre!("original step is not destination maintenance")),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn evm_ready(
     context: &mut impl RunContext,
@@ -504,28 +531,11 @@ pub(super) fn ton_ready(
     wallet: &ton::TonWallet,
 ) -> Result<bool> {
     use iroha_sccp_wallet::flow::SccpFlowActionV1 as Action;
-    let pending = flow
-        .pending()?
-        .map(|step| -> Result<_> {
-            let action = step.record().action;
-            if !matches!(action, Action::Checkpoint | Action::Control) {
-                return Ok(None);
-            }
-            let bytes = &step
-                .record()
-                .evidence
-                .iter()
-                .find(|item| item.label == "sccp.prerequisite.target")
-                .ok_or_else(|| eyre!("original prerequisite target is absent"))?
-                .bytes;
-            Ok(Some((
-                action,
-                u64::from_be_bytes(bytes.as_slice().try_into()?),
-            )))
-        })
-        .transpose()?
-        .flatten();
-    if let Some((action, target)) = pending {
+    let pending = flow.pending()?.and_then(|step| {
+        let action = step.record().action;
+        matches!(action, Action::Checkpoint | Action::Control).then_some(action)
+    });
+    if let Some(action) = pending {
         flows::ton(
             context,
             &original,
@@ -534,13 +544,9 @@ pub(super) fn ton_ready(
             destination.lite(),
             Vec::new(),
             |_| Err(eyre!("recovery must not prepare another wallet message")),
-            |_| {
-                destination.progress_evidence(
-                    original.network,
-                    original.instance,
-                    (action == Action::Control).then_some(target),
-                    (action == Action::Checkpoint).then_some(target),
-                )
+            |step| {
+                let (control, checkpoint) = prerequisite_target(step)?;
+                destination.progress_evidence(&client, &original, control, checkpoint)
             },
         )?;
         return Ok(false);
@@ -577,13 +583,9 @@ pub(super) fn ton_ready(
                             wallet,
                         )
                     },
-                    |_| {
-                        destination.progress_evidence(
-                            original.network,
-                            original.instance,
-                            None,
-                            Some(target),
-                        )
+                    |step| {
+                        let (control, checkpoint) = prerequisite_target(step)?;
+                        destination.progress_evidence(&client, &original, control, checkpoint)
                     },
                 )?
             }
@@ -612,13 +614,9 @@ pub(super) fn ton_ready(
                             wallet,
                         )
                     },
-                    |_| {
-                        destination.progress_evidence(
-                            original.network,
-                            original.instance,
-                            Some(nonce),
-                            None,
-                        )
+                    |step| {
+                        let (control, checkpoint) = prerequisite_target(step)?;
+                        destination.progress_evidence(&client, &original, control, checkpoint)
                     },
                 )?
             }
@@ -648,6 +646,102 @@ mod tests {
         assert_eq!(next(30, 30, 3, 3, false).unwrap(), Next::Finalize);
         assert!(next(31, 30, 3, 3, false).is_err());
         assert_eq!(target_item(42).bytes, 42_u64.to_be_bytes());
+    }
+
+    #[test]
+    fn maintenance_reselection_reads_the_locked_step_target() {
+        use iroha_sccp_wallet::{
+            flow::{SccpFlowActionV1 as Action, SccpFlowV1, drive_step_with_rebroadcast},
+            journal::{
+                SccpFlowIdV1, SccpFlowKindV1, SccpJournalOutcomeV1, SccpJournalRoot,
+                SccpStepOutcomeKindV1,
+            },
+        };
+        let base =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/sccp-continuation");
+        std::fs::create_dir_all(&base).unwrap();
+        let dir = tempfile::Builder::new()
+            .prefix("maintenance-reselection-")
+            .tempdir_in(base)
+            .unwrap();
+        let network_id = iroha_data_model::NetworkId::from_genesis_hash(
+            iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::prehashed([7; 32])),
+        );
+        let root = SccpJournalRoot::open(&dir.path().join("journal")).unwrap();
+        for (action, id) in [(Action::Control, 1), (Action::Checkpoint, 2)] {
+            let flow = SccpFlowV1::open(
+                root.network(&network_id)
+                    .unwrap()
+                    .flow(&SccpFlowIdV1 {
+                        kind: SccpFlowKindV1::CommitteeSync,
+                        id: [id; 32],
+                    })
+                    .unwrap(),
+                *network_id.as_bytes(),
+            )
+            .unwrap();
+            let step_a = flow
+                .prepare(
+                    action,
+                    SccpNetworkV1::TonMainnet,
+                    vec![1],
+                    vec![target_item(2)],
+                )
+                .unwrap();
+            step_a.begin_submission().unwrap();
+            let stale_target = prerequisite_target(&step_a).unwrap();
+            drop(step_a);
+
+            // A different invocation completes A and prepares B before this caller selects again.
+            let step_a = flow.latest(action).unwrap().unwrap();
+            step_a
+                .complete(&SccpJournalOutcomeV1 {
+                    outcome: SccpStepOutcomeKindV1::Confirmed,
+                    transaction: vec![1; 32],
+                    evidence: vec![target_item(2)],
+                })
+                .unwrap();
+            drop(step_a);
+            let step_b = flow
+                .prepare(
+                    action,
+                    SccpNetworkV1::TonMainnet,
+                    vec![2],
+                    vec![target_item(4)],
+                )
+                .unwrap();
+            step_b.begin_submission().unwrap();
+            let original_b = step_b.record().clone();
+            drop(step_b);
+
+            // Observed progress 3 satisfies the captured target 2, but not selected B's target 4.
+            let reached = |(control, checkpoint): (Option<u64>, Option<u64>)| {
+                control.or(checkpoint).unwrap() <= 3
+            };
+            assert!(reached(stale_target));
+            let selected = flow.latest(action).unwrap().unwrap();
+            let outcome = drive_step_with_rebroadcast::<eyre::Report>(
+                &selected,
+                false,
+                |_| {
+                    Ok(
+                        reached(prerequisite_target(&selected)?).then(|| SccpJournalOutcomeV1 {
+                            outcome: SccpStepOutcomeKindV1::Confirmed,
+                            transaction: vec![2; 32],
+                            evidence: vec![target_item(3)],
+                        }),
+                    )
+                },
+                |_| panic!("step reselection must preserve the original submission"),
+            )
+            .unwrap();
+            assert!(outcome.is_none());
+            drop(selected);
+            let pending = flow.pending().unwrap().unwrap();
+            assert_eq!(pending.record(), &original_b);
+            assert!(pending.submission_recorded().unwrap());
+            assert!(pending.outcome().unwrap().is_none());
+        }
     }
 
     #[test]

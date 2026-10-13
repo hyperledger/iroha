@@ -283,6 +283,11 @@ int32_t connect_norito_validation_fee_current_policy_proof_verify_v1(
 // output with connect_norito_free. Invalid input returns -506. These codecs do
 // not replace policy finality verification or ledger assessment admission.
 // Typed request JSON -> 32 raw intent hash bytes (at most 262144 input bytes).
+/* Derive native multisig occurrence from exact network/account/nonce JSON. */
+int32_t connect_norito_multisig_proposal_id(
+    const uint8_t *input_ptr, unsigned long input_len,
+    uint8_t **out_ptr, unsigned long *out_len);
+
 int32_t connect_norito_retail_fee_intent_hash_v1(
     const uint8_t* input, unsigned long input_len,
     uint8_t** output, unsigned long* output_len);

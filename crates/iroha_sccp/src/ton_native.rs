@@ -17,6 +17,8 @@ use alloc::vec::Vec;
 #[cfg(test)]
 use alloc::{collections::BTreeSet, vec};
 use core::fmt;
+pub mod minter_state;
+pub mod wallet_state;
 pub mod watch;
 use crate::native_memory::{Buffer, Memory};
 /// TON mainnet global identifier.

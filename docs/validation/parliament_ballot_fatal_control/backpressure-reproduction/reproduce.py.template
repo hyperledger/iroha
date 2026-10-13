@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Reproduce old fatal stdout backpressure without changing either old binary.
+
+Python 3.11+, POSIX pipes and the existing explicit memory-entry build receipt.
+Writes only a new JSON report plus temporary one-byte input. It releases the
+pipe after a 0.5-second observation; it never terminates a child with a signal.
+This is a regression witness, not physical-cost qualification.
+"""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import select
+import subprocess
+import tempfile
+import time
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--build-receipt', type=Path, required=True)
+parser.add_argument('--output', type=Path, required=True)
+args = parser.parse_args()
+if args.output.exists():
+    raise SystemExit('output already exists')
+receipt = json.loads(args.build_receipt.read_text())
+guards = {str(args.build_receipt.resolve()): hashlib.sha256(args.build_receipt.read_bytes()).hexdigest()}
+rows = []
+with tempfile.TemporaryDirectory(prefix='parliament-old-fatal-backpressure-') as temporary:
+    record = Path(temporary) / 'one-byte.bin'
+    record.write_bytes(b'x')
+    for mode in ('portable', 'accel'):
+        entry = receipt['binaries'][mode]
+        binary = Path(entry['path'])
+        actual = hashlib.sha256(binary.read_bytes()).hexdigest()
+        if actual != entry['sha256']:
+            raise SystemExit('old binary identity differs')
+        guards[str(binary.resolve())] = actual
+        command = [str(binary), 'candidate', 'registration', str(record), '--heap-limit', '1']
+        start = time.monotonic()
+        control = subprocess.run(command, capture_output=True, timeout=10)
+        control_seconds = time.monotonic() - start
+        readfd, writefd = os.pipe()
+        os.set_blocking(writefd, False)
+        filled = 0
+        try:
+            while True:
+                try:
+                    filled += os.write(writefd, b'x' * 4096)
+                except BlockingIOError:
+                    break
+            os.set_blocking(writefd, True)
+            child = subprocess.Popen(command, stdout=writefd, stderr=subprocess.PIPE)
+            os.close(writefd)
+            writefd = None
+            try:
+                child.wait(timeout=0.5)
+                blocked = False
+            except subprocess.TimeoutExpired:
+                blocked = True
+            start = time.monotonic()
+            output = bytearray()
+            while True:
+                if not select.select([readfd], [], [], 10)[0]:
+                    raise RuntimeError('drain timed out')
+                chunk = os.read(readfd, 65536)
+                if not chunk:
+                    break
+                output.extend(chunk)
+            exitcode = child.wait(timeout=10)
+            stderr = child.stderr.read()
+            row = {'mode': mode, 'binary_sha256': actual, 'input_hex': '78',
+                   'heap_limit': 1, 'control_exit': control.returncode,
+                   'control_seconds': control_seconds, 'control_stderr': control.stderr.decode(),
+                   'control_report': json.loads(control.stdout), 'pipe_prefilled_bytes': filled,
+                   'still_running_after_half_second': blocked, 'exit_after_drain': exitcode,
+                   'seconds_after_drain': time.monotonic() - start,
+                   'report_after_prefill': json.loads(output[filled:]), 'stderr': stderr.decode()}
+            rows.append(row)
+        finally:
+            os.close(readfd)
+            if writefd is not None:
+                os.close(writefd)
+changes = {path: {'before': before, 'after': hashlib.sha256(Path(path).read_bytes()).hexdigest()}
+           for path, before in guards.items() if hashlib.sha256(Path(path).read_bytes()).hexdigest() != before}
+expected = {'outcome': 'resource_exhausted', 'charged_units': 1, 'charged_bytes': 1,
+            'arena_enforced': True, 'complete_workspace_certificate': False, 'profile_qualified': False}
+passed = not changes and len(rows) == 2 and all(
+    row['control_exit'] == row['exit_after_drain'] == 73
+    and row['still_running_after_half_second']
+    and row['control_report'] == row['report_after_prefill'] == expected
+    and not row['control_stderr'] and not row['stderr'] for row in rows)
+report = {'schema': 'parliament-old-fatal-backpressure-v1', 'reproduced': passed,
+          'rows': rows, 'input_sha256': guards, 'input_changes': changes,
+          'old_inputs_modified': False, 'profile_qualified': False,
+          'complete_workspace_certificate': False, 'physical_cost_calibrated': False}
+args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
+print(json.dumps({'reproduced': passed, 'input_changes': changes, 'modes': len(rows)}))
+raise SystemExit(0 if passed else 1)

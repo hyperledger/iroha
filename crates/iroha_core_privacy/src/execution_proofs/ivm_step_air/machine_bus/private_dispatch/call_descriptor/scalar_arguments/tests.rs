@@ -1397,7 +1397,7 @@ fn same_program_error_callables_bind_distinct_ordinals_to_original_fetch() {
 // Empty root result reservation8, root frame9, four ADDI4, two STORE64 six,
 // then CALL opcode2 and child frame9 precede the first argument NODE.
 fn two_word_initial_gas(post_frame: u64) -> u64 {
-    assert_eq!(ivm::call_gas::frame(64, 1), Ok(9));
+    assert_eq!(ivm::call_gas::frame(64, 1).unwrap(), 9);
     assert_eq!((ivm::call_gas::NODE, ivm::call_gas::WORD), (1, 8));
     post_frame.checked_add(8 + 9 + 4 + 6 + 2 + 9).unwrap()
 }
@@ -1430,13 +1430,16 @@ fn native_second_word_gas_failure(jals: bool, post_frame: u64) {
     let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
     let mut recorder =
         ivm::execution_step_recorder::DiagnosticStepRecorder::try_new(7, &budget).unwrap();
-    assert!(match (
-        &(vm.run_with_host_diagnostic_steps(&mut ivm::host::DefaultHost::default(), &mut recorder)),
-        &(ivm::VMError::OutOfGas)
-    ) {
-        (Err(ivm::VMError::OutOfGas), ivm::VMError::OutOfGas) => true,
-        _ => false,
-    });
+    assert!(matches!(
+        (
+            &(vm.run_with_host_diagnostic_steps(
+                &mut ivm::host::DefaultHost::default(),
+                &mut recorder
+            )),
+            &(ivm::VMError::OutOfGas)
+        ),
+        (Err(ivm::VMError::OutOfGas), ivm::VMError::OutOfGas)
+    ));
     assert_eq!(recorder.records().len(), 7);
     let before_setup = initial - 8 - 9;
     for (index, step) in recorder.records()[..6].iter().enumerate() {

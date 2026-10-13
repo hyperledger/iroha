@@ -164,7 +164,14 @@ fn actual_c_confirms_network_unload_after_process_restart() {
         exchange["c_account_digest"].as_str(),
         Some(hex::encode(kagemusha_wallet_account_digest_v1(&f.account).unwrap()).as_str())
     );
-    let device_root = exchange_path.parent().unwrap().join("wallet-c");
+    let device_root = PathBuf::from(exchange["c_custody_root"].as_str().unwrap());
+    assert!(device_root.is_absolute());
+    assert!(
+        device_root
+            .canonicalize()
+            .unwrap()
+            .starts_with(qualification_root())
+    );
     let rows = exchange["c_open_originals"].as_array().unwrap();
     assert_eq!(rows.len(), FRAME_NAMES.len());
     let frames = FRAME_NAMES.map(|name| original(&device_root, rows, name, 32768));

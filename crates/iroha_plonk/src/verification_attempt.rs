@@ -363,7 +363,8 @@ mod tests;
 /// Project a completed success/rejection without ever turning an unfinished operation into a verdict.
 ///
 /// # Errors
-/// Returns the original refusal when verification did not complete.
+/// Returns the original refusal unchanged when `attempt` is deferred. A completed rejection
+/// returns `Ok(None)`.
 pub fn completed_result<T, E>(
     attempt: Result<T, VerificationAttemptError<E>>,
 ) -> Result<Option<T>, VerificationRefusal> {
