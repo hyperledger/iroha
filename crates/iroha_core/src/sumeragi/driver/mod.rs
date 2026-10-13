@@ -505,6 +505,9 @@ impl Kernel {
                 Action::BuildControlWitness { req, context } => {
                     self.exec.build_control(req, context)
                 }
+                Action::RecoverProposalAdmission { req, body } => {
+                    self.exec.recover_proposal_admission(req, body)
+                }
                 Action::DriveApplicationControl { context } => self.exec.drive_control(context),
                 Action::ReceiveApplicationControl { from, message } => {
                     self.exec.receive_control(from, message)
@@ -1945,6 +1948,16 @@ fn run_exec<E: Executor, K: BlockStore + ?Sized>(
             }
             ExecDone::Committed(committed)
         }
+        ExecOp::RecoverProposalAdmission { body, .. } => ExecDone::ProposalAdmissionRecovered(
+            catch_unwind(AssertUnwindSafe(|| {
+                executor.recover_proposal_admission(&body)
+            }))
+            .unwrap_or_else(|_| {
+                Err(PublicationError::RecoveryRequired(failed(
+                    "recover proposal admission",
+                )))
+            }),
+        ),
         ExecOp::BuildControlWitness { context, .. } => ExecDone::ControlWitnessBuilt(
             catch_unwind(AssertUnwindSafe(|| {
                 executor.build_control_witness(&context)

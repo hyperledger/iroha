@@ -33,9 +33,18 @@ below. A listed source test is not a claim of exhaustive coverage.
   is verified for both rows/roles. A [joint mask-coordinate derivation](parliament_ballot_b6_mask_coordinate.md)
   now preserves the complete paired oracle state at an ideal-material public
   endpoint. The [hidden-assignment deletion derivation](parliament_ballot_b6_hidden_assignment_deletion.md)
-  supplies conditional adaptive oracle removal at that same boundary. Primitive
-  entry, reverse material bridge, full resources and the complete simulator
-  proof remain unproved.
+  supplies conditional adaptive oracle removal at that same boundary. A distinct
+  [direct public sampler](parliament_ballot_b6_ideal_public_sampler.md) exactly
+  realizes the post-deletion public material under explicit fresh-slot premises,
+  using one source-shaped reconstruction. Primitive entry, acceptance of this
+  new simulator and full reduction resources remain open; equality to real-root
+  `Sim+` has not been established.
+  Its separate [executable logical accounting](parliament_ballot_b6_ideal_sampler_accounting.md)
+  checks bounded schedules, reads versus programming writes and persistent
+  chronological records with 30 controls. A separate [explicit reversible log](parliament_ballot_b6_oracle_log_circuit.md)
+  supplies conditional coherent lookup/append gate and wire bounds with 21
+  controls. Full quantum and physical resources remain open; request count is
+  not inferred from external query count, and base calls remain separately charged.
 - [Standalone resource model](parliament_ballot_b6_standalone_resources.md):
   source-bound conditional requested-allocation ceilings and separated
   arithmetic/hash/loop counts, not complete work or process-memory bounds.
@@ -57,7 +66,30 @@ below. A listed source test is not a claim of exhaustive coverage.
   most 524,288 bytes around the opaque verifier. Native and verifier costs remain
   unresolved; 20 checker tests do not establish whole-call sufficiency. Subsequent
   lockfile/allocator edits are recorded as current-source drift; the earlier
-  capture is retained and the live-input check refuses.
+  capture is retained and the live-input check refuses. Separate
+  [historical-input recovery](../docs/validation/parliament_ballot_adapter_source_recovery/README.md)
+  resolves all 2,081 original identities without replacing live files; twelve
+  fault controls cover missing/changed identities and refusal paths. Recovery
+  does not transfer the earlier bounds to the current checkout.
+  The [historical frontend bound](../docs/validation/parliament_ballot_frontend_bound/README.md)
+  adds conditional dispatcher/record contributions of 146 local instructions
+  and 2,160 owned stack bytes, plus a separate fixed-count parser lemma.
+  Twenty-seven checker tests pass; typed-decoder, crypto, allocator, cleanup and
+  native costs remain unknown.
+  Separate [profile](../docs/validation/parliament_ballot_profile_bound/README.md)
+  and [typed-decoder](../docs/validation/parliament_ballot_typed_decoder_bound/README.md)
+  checks now bound those outer coordinators with 18 and 24 passing tests. They
+  retain lower constructor/hash/allocator/native terms, source/ABI premises and
+  the registration trap continuation; no complete resource certificate follows.
+  A [current-source rebuild](../docs/validation/parliament_ballot_current_candidate/README.md)
+  separately passes both worker modes, 122 observations, four output controls
+  and fresh stack diagnostics. The waker assertion correction passes 28 shared
+  and nine custody tests without runtime changes. The separate
+  [compiled correspondence check](../docs/validation/parliament_ballot_current_correspondence/README.md)
+  binds 24 code ranges and seven source deltas, then reruns the four unchanged
+  component analyzers on the new captures. Its 49 controls and 2,123 stable input
+  guards preserve the original premises and unresolved terms; complete
+  native/workspace costs remain open.
 - Standalone source checks: [relations](../crates/iroha_parliament_ballot_proof/tests/relation.rs),
   [proofs](../crates/iroha_parliament_ballot_proof/tests/proofs.rs),
   [test decoder](../crates/iroha_parliament_ballot_proof/src/test_codec.rs),
@@ -227,7 +259,7 @@ integration obligations, not new standalone work authorized by this audit.
 | Both security weakenings, approved premises and envelope-order resolution | Design owner with required independent review; open |
 | Exact Xeon and named phone evidence, physical x86 parity, battery/thermal/cancellation conditions | Hardware/qualification owners; open; Intel run explicitly deferred by owner |
 | Capacity/admission derivation | Resource and governance-policy owners; open, using complete qualified worst-case costs; no policy parameter silently chosen |
-| Current Core source-contract mismatch | SCCP and Parliament integration owners; open. The [latest actual recheck](../docs/validation/parliament_ballot_b6/adapter-deletion-source-check.json), after a concurrent queue edit, still first fails at the missing modeled `Executable::IvmProved(proved)` queue binding. Earlier start-phase failures, historical 1,115/92 totals and in-memory isolation describe their earlier source snapshots; later assertions have not passed merely because the first failure changed |
+| Current integration source-contract mismatch | SCCP and Parliament integration owners; open. Scoped queue/Kura, seven-call phase and construction guards bind original owners and order. The initial 36-test queue capture was insufficient and retains its counterexample. The [latest actual recheck](../docs/validation/parliament_ballot_construction_guard/README.md) passes the construction boundary and first refuses the untouched Torii `request_local_partial_release_v1` binding. Earlier queue/Kura/ordering/construction failures and historical 1,115/92 totals describe earlier snapshots; later assertions remain unexecuted |
 | Production implementation, retirement and launch qualification | Postselection owners; gated by unmet selection conditions and eventual owner qualification record |
 
 The three focused accounting suites pass 38 tests and six subtests on the
@@ -237,8 +269,8 @@ with exact provenance; resource/front-end guards refuse the changed live input.
 The frozen reconstruction remains separate from these later sources. On the frozen source, the
 security check intentionally returns exit 2 with qualification false; the
 resource and front-end checks return exit 1 with complete certificates false.
-The latest source-contract guard first rejects the current Core queue binding;
-earlier start-phase failures remain historical evidence. New test-only work has
+The latest source-contract guard first rejects the Torii release-function binding;
+earlier queue, Kura, start-phase and construction failures remain historical evidence. New local work has
 separate source identities and receipts; the
 B6 artifact manifest records the final retained files. No full-workspace pass,
 independent human review or owner approval is asserted.

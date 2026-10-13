@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""Build/test an already prepared in-memory entry worker with retained source guards.
+
+Requires Python 3.11+, cargo/Rust 1.93.1, a fresh prepared standalone crate,
+resolved --format-version=1 metadata, and a writable Cargo target cache. No
+environment variables are required. Root manifests and locks are read only.
+No child is killed on timeout; its PID and incomplete receipt are retained.
+Use a new output directory for every attempt, or archive the old attempt first.
+"""
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import time
+
+
+def sha(path):
+    """Identify exact retained bytes."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def changed(source):
+    """Retain missing files as drift rather than losing an incomplete receipt."""
+    output = {}
+    for path, expected in source.items():
+        actual = sha(path) if Path(path).is_file() else None
+        if actual != expected:
+            output[path] = actual
+    return output
+
+
+def run(root, out, work, target, binaries):
+    """Run both modes' release tests, strict Clippy and build, with no repinning."""
+    if (out / 'build-receipt.json').exists():
+        raise ValueError('archive the previous build attempt before another run')
+    metadata_path = out / 'dependency-metadata.json'
+    metadata = json.loads(metadata_path.read_text())
+    paths = set()
+    for package in metadata['packages']:
+        base = Path(package['manifest_path']).parent
+        paths.add(base / 'Cargo.toml')
+        if (base / 'src').exists():
+            paths.update((base / 'src').rglob('*.rs'))
+        for name in ('build.rs', '.cargo-checksum.json'):
+            if (base / name).exists():
+                paths.add(base / name)
+    paths.update(path for path in work.iterdir() if path.is_file())
+    paths.update(root / name for name in ('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml'))
+    probe = root / 'crates/iroha_parliament_ballot_proof/examples/memory_entry'
+    paths.update(probe.glob('*.rs'))
+    paths.update((root / 'crates/iroha_parliament_ballot_proof/tests/common').glob('*.rs'))
+    paths.update((root / 'crates/iroha_parliament_ballot_proof/tests/fixtures').glob('*.proof'))
+    paths.update((root / 'crates/iroha_parliament_ballot_proof/tests/fixtures').glob('*.txt'))
+    resource = root / 'crates/iroha_parliament_ballot_proof/examples/resource_contract'
+    paths.update(resource / (name + '.rs') for name in ('arena', 'budget', 'native', 'workspace'))
+    paths.update((root / 'scripts/prepare_parliament_ballot_memory_entry.py', Path(__file__).resolve()))
+    source = {str(path): sha(path) for path in sorted(paths)}
+    (out / 'build-source.json').write_text(json.dumps(source, indent=2) + '\n')
+    for path in (root / 'Cargo.lock', root / 'Cargo.toml', root / 'crates/norito/src/lib.rs'):
+        (out / (path.name + '.build.template')).write_bytes(path.read_bytes())
+    (out / 'generated-source').mkdir()
+    for path in work.iterdir():
+        if path.is_file():
+            shutil.copy2(path, out / 'generated-source' / (path.name + '.template'))
+    rustc = subprocess.run(['rustc', '-Vv'], text=True, capture_output=True, check=True).stdout
+    receipt = {
+        'schema': 'parliament-memory-entry-build-v1', 'source_stable': True,
+        'source_files': source, 'generated_dir': str(work),
+        'dependency_metadata_path': str(metadata_path), 'dependency_metadata_sha256': sha(metadata_path),
+        'rustc': rustc,
+        'source_scope': 'Resolved package Rust src/manifests/build scripts and available checksum manifests; original/derived in-memory entry worker, frozen resource files, preparer/builder and root metadata. Conservative source scope, not a complete compiler/native/header/runtime dependency proof.',
+        'commands': [], 'binaries': {}, 'complete_workspace_certificate': False, 'profile_qualified': False,
+    }
+    receipt_path = out / 'build-receipt.json'
+    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+    for mode, features in [('portable', []), ('accel', ['--features', 'accel'])]:
+        for kind in ('test', 'clippy', 'build'):
+            command = ['cargo', kind, '--release', '--locked', '--manifest-path', str(work / 'Cargo.toml'), '--target-dir', str(target)] + features
+            if kind == 'test':
+                command += ['--', '--nocapture']
+            if kind == 'clippy':
+                command += ['--all-targets', '--', '-D', 'warnings']
+            log = out / f'{mode}-{kind}.txt'
+            start = time.monotonic()
+            with log.open('w') as stream:
+                child = subprocess.Popen(command, cwd=root, stdout=stream, stderr=subprocess.STDOUT)
+                try:
+                    code = child.wait(timeout=1200)
+                except subprocess.TimeoutExpired:
+                    code = None
+            drift = changed(source)
+            row = {'command': command, 'exit': code, 'source_changes': drift,
+                   'log': str(log), 'log_sha256': sha(log), 'elapsed_seconds': time.monotonic() - start}
+            if code is None:
+                row['still_running_pid'] = child.pid
+            receipt['commands'].append(row)
+            receipt['source_stable'] = receipt['source_stable'] and not drift
+            receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+            print(json.dumps(row), flush=True)
+            if code != 0 or drift:
+                print(log.read_text()[-5000:], flush=True)
+                return 1
+        destination = binaries / ('worker-' + mode)
+        shutil.copy2(target / 'release/parliament-memory-entry', destination)
+        receipt['binaries'][mode] = {'path': str(destination), 'sha256': sha(destination)}
+        receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+        print(json.dumps({'binary_available': mode, **receipt['binaries'][mode]}), flush=True)
+    return 0
+
+
+def main():
+    """Require explicit paths so a reproduction cannot accidentally repin files."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    for name in ('root', 'out', 'work', 'target', 'binaries'):
+        parser.add_argument('--' + name, required=True, type=Path)
+    args = parser.parse_args()
+    return run(*(getattr(args, name).resolve() for name in ('root', 'out', 'work', 'target', 'binaries')))
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

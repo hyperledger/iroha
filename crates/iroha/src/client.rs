@@ -14313,6 +14313,7 @@ impl fmt::Debug for Client {
             .field("torii_request_timeout", &self.torii_request_timeout)
             .field("account", &self.account)
             .field("headers", &"<redacted>")
+            .field("has_configured_api_token", &self.has_configured_api_token)
             .field(
                 "operator_public_key",
                 &self

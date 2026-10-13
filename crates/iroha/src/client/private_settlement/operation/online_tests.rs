@@ -8,7 +8,10 @@ use crate::{
 use iroha_data_model::{
     nexus::PrivateSettlementReceiptV1, sumeragi_finality::SumeragiFinalityProof,
 };
-use std::{collections::BTreeMap, sync::atomic::AtomicBool};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::atomic::AtomicBool,
+};
 
 struct World {
     native: NativeFinalityFixture,
@@ -34,7 +37,7 @@ fn json<T: norito::json::JsonSerialize>(
         .body(norito::json::to_vec(value)?)?)
 }
 impl Transport {
-    fn respond(&self, request: TransportRequest) -> eyre::Result<Response<Vec<u8>>> {
+    fn respond(&self, request: &TransportRequest) -> eyre::Result<Response<Vec<u8>>> {
         let mut world = self.0.lock().unwrap();
         let path = request.url.path();
         if path.ends_with("/bundles") {
@@ -50,13 +53,12 @@ impl Transport {
             );
             let header = world.native.next_header();
             let height = header.height().get();
-            if let Executable::Instructions(instructions) = transaction.instructions() {
-                if let Some(finalize) = instructions[0]
+            if let Executable::Instructions(instructions) = transaction.instructions()
+                && let Some(finalize) = instructions[0]
                     .as_any()
                     .downcast_ref::<FinalizeAtomicPrivateSettlementV1>()
-                {
-                    world.receipt = Some(finalize.commit_bundle.clone().into_receipt(height));
-                }
+            {
+                world.receipt = Some(finalize.commit_bundle.clone().into_receipt(height));
             }
             let hash = transaction.hash();
             let mut builder = BlockBuilder::new(header);
@@ -69,10 +71,10 @@ impl Transport {
                     completions: Vec::new(),
                 })],
                 0,
-                Default::default(),
+                BTreeMap::default(),
                 Vec::new(),
                 AxtPolicySnapshot::default(),
-                Default::default(),
+                BTreeSet::default(),
                 &ExecutionOutputLimits {
                     max_outputs: 16,
                     max_output_bytes: 16 * 1024 * 1024,
@@ -154,10 +156,10 @@ impl Transport {
 }
 impl HttpTransport for Transport {
     fn send_blocking(&self, request: TransportRequest) -> eyre::Result<Response<Vec<u8>>> {
-        self.respond(request)
+        self.respond(&request)
     }
     fn send(&self, request: TransportRequest) -> TransportFuture<'_> {
-        Box::pin(async move { self.respond(request) })
+        Box::pin(async move { self.respond(&request) })
     }
 }
 struct Phases {

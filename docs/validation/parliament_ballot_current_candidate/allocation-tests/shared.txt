@@ -1,0 +1,48 @@
+   Compiling iroha_allocation v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_allocation)
+    Finished `release` profile [optimized] target(s) in 2.05s
+     Running unittests src/lib.rs (/private/tmp/parliament-current-candidate-20261013-v1/allocation-target/release/deps/iroha_allocation-395d8eef75405e6d)
+
+running 28 tests
+test shared::reservation_tests::exact_padded_shell_initializes_and_clones_without_allocation ... ok
+test shared::reservation_tests::actual_null_allocation_returns_the_same_move_only_charge_for_retry ... ok
+test shared::reservation_tests::erased_trait_projection_retains_exact_prepaid_control_and_vtable_without_allocation ... ok
+test shared::reservation_tests::null_allocation_returns_charge_without_forcing_a_retry_or_refund ... ok
+test shared::reservation_tests::erased_slice_projection_preserves_original_owner_and_releases_hidden_payload ... ok
+test shared::reservation_tests::original_charge_alignment_is_part_of_the_same_exact_allocation ... ok
+test shared::reservation_tests::later_shell_refusal_retains_earlier_shell_and_the_original_prepaid_charge ... ok
+test shared::reservation_tests::final_reference_frees_header_then_payload_then_charge ... ok
+test charged_shared::projection_tests::charged_projection_clones_retain_exact_original_pool_credit ... ok
+test shared::reservation_tests::initialized_payload_unwind_retains_charge_conservatively ... ok
+test shared::reservation_tests::refusal_error_describes_only_the_exact_allocator_layout ... ok
+test shared::reservation_tests::unused_shell_charge_unwind_happens_only_after_deallocation ... ok
+test shared::reservation_tests::unused_shell_frees_before_its_original_charge_without_dropping_a_payload ... ok
+test shared::reservation_tests::zero_sized_payload_and_charge_still_use_a_nonzero_original_header ... ok
+test shared::reservation_tests::partial_shell_construction_unwind_reclaims_each_original_allocation ... ok
+test shared::reservation_tests::projection_callback_unwind_retires_the_original_charge ... ok
+test shared::reservation_tests::refusal_observer_disarms_when_its_action_unwinds_before_allocation ... ok
+test shared::reservation_tests::initialized_shell_can_move_to_another_thread_without_refunding_early ... ok
+test shared::tests::public_projection_retains_concrete_charge_across_thread_transfer ... ok
+test shared::wake_tests::charged_waker_conversion_clones_callbacks_and_final_drop_allocate_nothing ... FAILED
+test shared::reservation_tests::unused_large_payload_shell_does_not_require_payload_sized_stack_storage ... ok
+test shared::reservation_tests::one_shot_refusal_does_not_affect_other_layouts_threads_or_later_allocations ... ok
+test shared::tests::erased_shared_preserves_original_pointer_and_charge_until_last_owner ... ok
+test shared::wake_tests::refused_wake_control_returns_unchanged_target_before_any_waker_exists ... ok
+test shared::wake_tests::consumed_and_borrowed_wake_panics_preserve_exact_reference_custody ... ok
+test tests::prepaid_shared_charge_rejects_wrong_size_and_alignment_before_allocation ... ok
+test tests::prepaid_shared_exact_charge_retains_refused_original_and_last_reader ... ok
+test shared::tests::concurrent_clones_retain_one_original_allocation_and_unique_mutation ... ok
+
+failures:
+
+---- shared::wake_tests::charged_waker_conversion_clones_callbacks_and_final_drop_allocate_nothing stdout ----
+
+thread 'shared::wake_tests::charged_waker_conversion_clones_callbacks_and_final_drop_allocate_nothing' (40271696) panicked at crates/iroha_allocation/src/shared_wake_tests.rs:70:5:
+assertion failed: waker.will_wake(&clone)
+
+
+failures:
+    shared::wake_tests::charged_waker_conversion_clones_callbacks_and_final_drop_allocate_nothing
+
+test result: FAILED. 27 passed; 1 failed; 0 ignored; 0 measured; 91 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p iroha_allocation --lib`

@@ -1419,7 +1419,14 @@ CURRENT_CONSENSUS_STAGES = (("current nonempty consensus and bounded work wakeup
     'sim::tests::f17_far_behind_joiner',
     'sim::tests::f19_poison_payload',
     'sim::tests::f35_local_queue_asymmetry',
-)),)
+)), ("current first-signature clock admission and original proposal recovery", (
+    'machine::tests::signing::det_ct3_proposal_signing_rechecks_original_clock_after_backend_refusal',
+    'machine::tests::signing::det_ct3_successful_proposal_signature_is_durable_before_publication',
+    'machine::tests::signing::det_ct3_restore_authenticates_stored_successful_proposal_signature',
+    'machine::tests::signing::det_ct3_unsigned_proposal_restart_recovers_original_admission_before_signing',
+    'machine::tests::signing::det_ct3_genuine_matching_pqc_reproposes_without_fresh_clock_owner',
+    'sim::world::clock_guard::tests::det_ct1_world_retained_execution_rechecks_rewind_before_first_prepare',
+)))
 
 CURRENT_BEACON_CORE_STAGES = (("current authenticated threshold pulse production and execution", (
     'smartcontracts::isi::world::isi::tests::set_parameter_rejects_consensus_epoch_that_conflicts_with_npos',
@@ -2528,7 +2535,6 @@ CORE_SHARED_BLOCK_HISTORY_STAGES = (("original canonical history and hydration r
     'snapshot::tests::snapshot_commit_evidence_refusal_retains_original_pool_and_captured_publication',
     'telemetry::tests::classified_status_tests::cold_status_history_refusal_retains_original_pool_and_unpublished_counters',
     'telemetry::tests::classified_status_tests::cold_genesis_uptime_refusal_remains_deferred_after_classified_prefix',
-    'sumeragi::lanes::executor::native_decode_tests::anchor_read_refusal_retains_original_lane_body_until_capacity_returns',
     'sumeragi::lanes::evidence::tests::anchor_history_refusal_retains_exact_source_through_lane_evidence_retry',
 )),)
 CORE_STAGES += CORE_SHARED_BLOCK_HISTORY_STAGES

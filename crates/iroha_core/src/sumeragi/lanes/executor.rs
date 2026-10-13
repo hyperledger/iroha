@@ -19,6 +19,7 @@ use iroha_sumeragi::{
     availability::{AvailableBody, PayloadBytes},
     message::Qc,
     prepare_admission::{ExecutionAdmission, PrepareAdmission, PrepareSigningRequest},
+    proposal_admission::{BuiltPayload, ProposalAdmission},
     types::{AppliedConfig, ConfigSlot, EpochId, Hash32, HeightConfig},
 };
 
@@ -92,6 +93,10 @@ pub trait LaneTransactions: Send + Sync {
 
     /// Recheck the original admission before encoding and every completed output lend.
     /// A false result withdraws this selected source; a local refusal retains it for retry.
+    ///
+    /// # Errors
+    /// Returns the original publication refusal when source access or admission cannot
+    /// complete; the caller retains the same selected source for a later retry.
     fn lease_is_current(
         &self,
         lease: &Self::Lease,
@@ -151,6 +156,9 @@ struct LanePrepareAdmission {
     height: u64,
     block_hash: Hash32,
     result: Hash32,
+    block_time_ms: u64,
+    max_clock_drift_ms: u64,
+    time_source: iroha_primitives::time::TimeSource,
 }
 
 impl PrepareAdmission for LanePrepareAdmission {
@@ -170,6 +178,17 @@ impl PrepareAdmission for LanePrepareAdmission {
         {
             return Err(iroha_sumeragi::crypto::SigningError::InvalidInput);
         }
+        if !request.certified() && !cfg!(all(test, sumeragi_core_mutation = "HC354")) {
+            let observed_ms = u64::try_from(self.time_source.now().as_millis())
+                .map_err(|_| iroha_sumeragi::crypto::SigningError::InvalidInput)?;
+            if self.block_time_ms.saturating_sub(observed_ms) > self.max_clock_drift_ms {
+                return Err(iroha_sumeragi::crypto::SigningError::ClockAhead {
+                    block_time_ms: self.block_time_ms,
+                    observed_ms,
+                    max_clock_drift_ms: self.max_clock_drift_ms,
+                });
+            }
+        }
         Ok(())
     }
 }
@@ -178,6 +197,7 @@ impl PrepareAdmission for LanePrepareAdmission {
 struct Applied {
     height: u64,
     block_hash: Hash32,
+    result: Hash32,
     state: ChainState,
 }
 
@@ -186,6 +206,7 @@ pub struct LaneExecutor<A, C, T: LaneTransactions> {
     record: SumeragiLaneRecord,
     instance: Hash32,
     config: HeightConfig,
+    crypto: SharedCrypto,
     anchors: Arc<A>,
     checks: C,
     transactions: Option<Arc<T>>,
@@ -195,6 +216,7 @@ pub struct LaneExecutor<A, C, T: LaneTransactions> {
     budget: AllocationBudget,
     time_source: iroha_primitives::time::TimeSource,
     admission: Option<LaneAdmission>,
+    proposal_recovery: Option<LaneProposalRecovery>,
     payload_build: Option<LanePayloadBuild<T::Lease>>,
 }
 
@@ -206,6 +228,13 @@ struct LaneAdmission {
     admitted: Option<super::AdmittedLane>,
 }
 
+/// Same available body and decoded batch survive admission refusal and recovery retries.
+struct LaneProposalRecovery {
+    body: AvailableBody,
+    batch: LaneBatch,
+    admission: Option<ProposalAdmission>,
+}
+
 /// The selected source, original admission and funded encoding remain one local owner.
 /// The lease grants no monetary validity: Global merge still checks expiry and duplicates.
 struct LanePayloadBuild<L> {
@@ -214,6 +243,8 @@ struct LanePayloadBuild<L> {
     max_bytes: u32,
     job: PayloadBuild<LaneBatch>,
     lease: L,
+    /// Retained charged admission belongs to this exact original batch.
+    proposal_admission: Option<ProposalAdmission>,
 }
 
 /// Retained lane startup. A local refusal returns this exact prefix/read/restoration owner.
@@ -268,11 +299,13 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
             .saturating_sub(LANE_DEDUP_WINDOW as u64)
             .saturating_add(1)
             .max(1);
+        let genesis_result = super::lane_genesis_result(&record);
         LaneRecovery {
             executor: Self {
                 anchor_wait: Duration::from_millis(config.params.e_max.into()),
                 record,
                 config,
+                crypto: Arc::clone(&crypto),
                 instance,
                 anchors,
                 checks,
@@ -280,12 +313,14 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
                 applied: Applied {
                     height: tip,
                     block_hash: genesis_hash,
+                    result: genesis_result,
                     state: ChainState::default(),
                 },
                 cache: BTreeMap::new(),
                 budget,
                 time_source,
                 admission: None,
+                proposal_recovery: None,
                 payload_build: None,
             },
             store,
@@ -301,6 +336,147 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
         self.finish_payload_with_encoder(|batch, mut writer| {
             norito::codec::encode_adaptive_into(batch, &mut writer).map(|_| ())
         })
+    }
+
+    fn finish_built_payload(&mut self) -> Result<Option<BuiltPayload>, PublicationError> {
+        let Some(payload) = self.finish_payload()? else {
+            return Ok(None);
+        };
+        let original = self
+            .payload_build
+            .as_ref()
+            .expect("original completed lane source");
+        if let Some(admission) = original.proposal_admission.as_ref() {
+            return Ok(Some(BuiltPayload {
+                payload,
+                admission: admission.clone(),
+            }));
+        }
+        let batch = original.job.source();
+        let time = self.proposal_batch_time(batch)?;
+        let admission = crate::sumeragi::proposal_admission::capture(
+            crate::sumeragi::proposal_admission::ProposalSource {
+                instance: self.instance,
+                epoch: self.config.epoch.id,
+                height: original.height,
+                view: original.view,
+                parent_hash: self.applied.block_hash,
+                parent_result: self.applied.result,
+                block_hash: None,
+            },
+            &payload,
+            time,
+            &self.time_source,
+            &self.budget,
+        )?;
+        self.payload_build
+            .as_mut()
+            .expect("original completed lane source")
+            .proposal_admission = Some(admission.clone());
+        Ok(Some(BuiltPayload { payload, admission }))
+    }
+
+    fn proposal_batch_time(&self, batch: &LaneBatch) -> Result<Duration, PublicationError> {
+        match self.anchors.applied_hash(batch.anchor_height) {
+            Some(hash) if hash == batch.anchor_hash => {}
+            None => {
+                return Err(PublicationError::Retryable(
+                    "proposal anchor unavailable".into(),
+                ));
+            }
+            Some(_) => {
+                return Err(PublicationError::RecoveryRequired(
+                    "proposal anchor changed".into(),
+                ));
+            }
+        }
+        let time = self
+            .anchors
+            .creation_time_ms(batch.anchor_height)
+            .map_err(|error| match error {
+                Attempt::Deferred(original) => PublicationError::Deferred(original.into()),
+                Attempt::Rejected(error) => PublicationError::RecoveryRequired(error.to_string()),
+            })?
+            .ok_or_else(|| PublicationError::Retryable("proposal anchor unavailable".into()))?;
+        Ok(batch.effective_time(time))
+    }
+
+    fn recover_original_proposal_admission(
+        &mut self,
+        body: &AvailableBody,
+    ) -> Result<ProposalAdmission, PublicationError> {
+        let header = body.header();
+        if !body.admitted_to(&self.budget)
+            || body.source().instance() != self.instance
+            || body.source().config() != &self.config
+            || !header.control_witness.is_empty()
+        {
+            return Err(PublicationError::RecoveryRequired(
+                "lane proposal changed original authority".into(),
+            ));
+        }
+        if header.parent_hash != self.applied.block_hash
+            || header.parent_result != self.applied.result
+            || self.applied.height.checked_add(1) != Some(header.height)
+        {
+            return Err(PublicationError::Retryable(
+                "lane proposal awaits its original parent".into(),
+            ));
+        }
+        if !self
+            .proposal_recovery
+            .as_ref()
+            .is_some_and(|original| original.body == *body)
+        {
+            self.proposal_recovery = None;
+            let batch =
+                LaneBatch::from_payload(body.payload().as_slice()).map_err(
+                    |error| match error {
+                        AdmissionAttemptError::Deferred(original) => PublicationError::Deferred(
+                            crate::execution_attempt::ExecutionDeferred::from(original).into(),
+                        ),
+                        AdmissionAttemptError::ResourceDeferred(original) => {
+                            PublicationError::Deferred(original.into())
+                        }
+                        AdmissionAttemptError::Rejected(error) => {
+                            PublicationError::RecoveryRequired(error.to_string())
+                        }
+                    },
+                )?;
+            self.proposal_recovery = Some(LaneProposalRecovery {
+                body: body.clone(),
+                batch,
+                admission: None,
+            });
+        }
+        let original = self
+            .proposal_recovery
+            .as_ref()
+            .expect("original lane recovery retained");
+        if let Some(admission) = original.admission.as_ref() {
+            return Ok(admission.clone());
+        }
+        let time = self.proposal_batch_time(&original.batch)?;
+        let admission = crate::sumeragi::proposal_admission::capture(
+            crate::sumeragi::proposal_admission::ProposalSource {
+                instance: self.instance,
+                epoch: header.epoch,
+                height: header.height,
+                view: header.origin_view,
+                parent_hash: header.parent_hash,
+                parent_result: header.parent_result,
+                block_hash: Some(body.hash(&*self.crypto)),
+            },
+            body.payload(),
+            time,
+            &self.time_source,
+            &self.budget,
+        )?;
+        self.proposal_recovery
+            .as_mut()
+            .expect("original lane recovery retained")
+            .admission = Some(admission.clone());
+        Ok(admission)
     }
 
     fn retained_payload_is_current(&self) -> Result<bool, PublicationError> {
@@ -523,7 +699,10 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
             .admission
             .take()
             .expect("original completed lane admission");
-        let result = original.admitted.expect("original admitted lane").result;
+        let admitted = original.admitted.expect("original admitted lane");
+        let block_time_ms = u64::try_from(admitted.effective_time.as_millis())
+            .expect("authenticated lane time is bounded to u64 milliseconds");
+        let result = admitted.result;
         let r = result.hash();
         let admission = ExecutionAdmission::from_owner(
             shell
@@ -533,6 +712,9 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
                     height: block.header().height,
                     block_hash: *block_hash,
                     result: r,
+                    block_time_ms,
+                    max_clock_drift_ms: self.record.params.max_clock_drift_ms(),
+                    time_source: self.time_source.clone(),
                 })
                 .project::<dyn PrepareAdmission>(|value| value),
         );
@@ -645,6 +827,7 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneRecov
                     .collect(),
             );
             self.executor.applied.block_hash = qc.block_hash;
+            self.executor.applied.result = qc.result;
             self.pending = None;
             self.next = self.next.checked_add(1).ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidData, "lane height overflow")
@@ -730,6 +913,12 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
     }
 
     fn discard(&mut self, height: u64, keep: &[Hash32]) {
+        if self.proposal_recovery.as_ref().is_some_and(|original| {
+            original.body.header().height == height
+                && !keep.contains(&original.body.hash(&*self.crypto))
+        }) {
+            self.proposal_recovery = None;
+        }
         if self.admission.as_ref().is_some_and(|original| {
             original.body.header().height == height && !keep.contains(&original.block_hash)
         }) {
@@ -800,8 +989,10 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
         self.applied = Applied {
             height: block.header().height,
             block_hash: commit_qc.block_hash,
+            result: commit_qc.result,
             state: executed.state,
         };
+        self.proposal_recovery = None;
         let height = self.applied.height;
         self.cache.retain(|_, executed| executed.height > height);
         Ok(AppliedConfig::Continuation {
@@ -815,14 +1006,14 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
         view: u64,
         max_bytes: u32,
         _exec_budget_ms: u32,
-    ) -> Result<Option<PayloadBytes>, PublicationError> {
+    ) -> Result<Option<BuiltPayload>, PublicationError> {
         if self
             .payload_build
             .as_ref()
             .is_some_and(|p| p.height == height && p.view == view && p.max_bytes == max_bytes)
             && self.retained_payload_is_current()?
         {
-            return self.finish_payload();
+            return self.finish_built_payload();
         }
         self.payload_build = None;
         let Some(transactions) = self.transactions.as_ref() else {
@@ -911,8 +1102,16 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
             max_bytes,
             job: PayloadBuild::new(batch, self.budget.clone(), max_bytes as usize),
             lease,
+            proposal_admission: None,
         });
-        self.finish_payload()
+        self.finish_built_payload()
+    }
+
+    fn recover_proposal_admission(
+        &mut self,
+        body: &AvailableBody,
+    ) -> Result<ProposalAdmission, PublicationError> {
+        self.recover_original_proposal_admission(body)
     }
 
     fn reject(&mut self, height: u64, view: u64, block_hash: &Hash32) {
@@ -1145,7 +1344,13 @@ mod tests {
             height,
             origin_view: 0,
             parent_hash: parent,
-            parent_result: Hash32::ZERO,
+            parent_result: if parent == lane.applied.block_hash {
+                lane.applied.result
+            } else {
+                lane.cache
+                    .get(&parent)
+                    .map_or(Hash32::ZERO, |original| original.result)
+            },
             payload_hash: payload_hash(&BlsCrypto::new(), payload.as_slice()),
             availability_digest: Hash32::ZERO,
             payload_len: u32::try_from(payload.as_slice().len()).unwrap(),
@@ -1269,7 +1474,7 @@ mod tests {
             );
             assert!(lane.payload_build.as_ref().unwrap().job.is_completed());
             clock.set(effective);
-            let payload = lane.build(1, 0, 1 << 20, 1_000).unwrap().unwrap();
+            let payload = lane.build(1, 0, 1 << 20, 1_000).unwrap().unwrap().payload;
             assert_eq!(
                 LaneBatch::from_payload(payload.as_slice())
                     .unwrap()
@@ -1297,12 +1502,65 @@ mod tests {
                 lane.build(1, 0, 1 << 20, 1_000)
                     .unwrap()
                     .unwrap()
+                    .payload
                     .as_slice()
                     .as_ptr(),
                 original
             );
             assert_eq!(queue.0.lock().len(), 1);
         }
+    }
+
+    #[test]
+    fn lane_first_proposal_retains_timestamp_admission_through_authoring_and_recovery() {
+        use iroha_sumeragi::{crypto::SigningError, testing::proposal_signing_request};
+
+        let global = Arc::new(Global {
+            applied: AtomicU64::new(5),
+        });
+        let (clock, time) =
+            iroha_primitives::time::TimeSource::new_mock(Duration::from_millis(5_000));
+        let queue = Arc::new(Queue(Mutex::new(vec![tx_at(24, 1_000)])));
+        let mut lane = executor_with_clock(&global, Some(queue), time);
+        let built = lane.build(1, 0, 1 << 20, 1_000).unwrap().unwrap();
+        let retry = lane.build(1, 0, 1 << 20, 1_000).unwrap().unwrap();
+        assert_eq!(
+            retry.admission, built.admission,
+            "original paid proposal admission must survive cached build retries"
+        );
+        let body = block(&lane, 1, lane.applied.block_hash, built.payload);
+        let hash = body.hash(&BlsCrypto::new());
+        let request = proposal_signing_request(&body, hash, 0, Hash32::ZERO, false);
+        clock.rewind(Duration::from_millis(1));
+        assert!(
+            matches!(
+                built.admission.check(&request),
+                Err(SigningError::ClockAhead {
+                    max_clock_drift_ms: 0,
+                    ..
+                })
+            ),
+            "lane first proposal must retain its original timestamp through authoring"
+        );
+        let restored = lane.recover_proposal_admission(&body).unwrap();
+        assert_eq!(
+            restored,
+            lane.recover_proposal_admission(&body).unwrap(),
+            "lane recovery must retain the original paid admission owner"
+        );
+        assert!(matches!(
+            restored.check(&request),
+            Err(SigningError::ClockAhead { .. })
+        ));
+        let certified = proposal_signing_request(&body, hash, 0, Hash32::ZERO, true);
+        assert_eq!(restored.check(&certified), Ok(()));
+        let different = proposal_signing_request(&body, Hash32([91; 32]), 0, Hash32::ZERO, true);
+        assert_eq!(restored.check(&different), Err(SigningError::InvalidInput));
+        clock.advance(Duration::from_millis(1));
+        assert_eq!(built.admission.check(&request), Ok(()));
+        assert_eq!(restored.check(&request), Ok(()));
+        lane.discard(1, &[]);
+        assert!(lane.proposal_recovery.is_none());
     }
 
     #[test]
@@ -1369,7 +1627,8 @@ mod tests {
         let payload = lane
             .build(1, 0, 1 << 20, 1_000)
             .unwrap()
-            .expect("same queued work wakes on retry");
+            .expect("same queued work wakes on retry")
+            .payload;
         let batch = LaneBatch::from_payload(payload.as_slice()).unwrap();
         assert_eq!(batch.transactions.len(), 1);
         assert_eq!(batch.transactions[0].hash(), original);
@@ -1429,7 +1688,7 @@ mod tests {
         );
         assert!(lane.cache.is_empty());
         assert_eq!(lane.applied.height, 0);
-        let payload = lane.build(1, 0, 1 << 20, 100).unwrap().unwrap();
+        let payload = lane.build(1, 0, 1 << 20, 100).unwrap().unwrap().payload;
         let valid = block(&lane, 1, lane.applied.block_hash, payload);
         let mut header = valid.header().clone();
         header.control_witness = control;
@@ -1460,7 +1719,7 @@ mod tests {
         let queue = Arc::new(Queue(Mutex::new(vec![first.clone()])));
         let mut lane = executor(&global, Some(Arc::clone(&queue)));
         let payload = lane.build(1, 0, 1 << 20, 100).unwrap();
-        let payload = payload.expect("selected transaction work");
+        let payload = payload.expect("selected transaction work").payload;
 
         let batch = LaneBatch::from_payload(payload.as_slice()).expect("batch");
         assert_eq!(batch.anchor_height, 5);
@@ -1571,7 +1830,9 @@ mod tests {
         assert!(payload.is_none(), "nothing fits: no empty batch");
         // Exactly the lane budget.
         let payload = lane.build(1, 0, exact, 100).unwrap();
-        let payload = payload.expect("the lane budget carries the transaction");
+        let payload = payload
+            .expect("the lane budget carries the transaction")
+            .payload;
 
         assert!(
             payload.as_slice().len() <= exact as usize,
@@ -1670,7 +1931,9 @@ mod tests {
         };
         // Exactly the limit: both transactions, and the payload is the limit to the byte.
         let payload = lane.build(1, 0, u32::try_from(both).unwrap(), 100).unwrap();
-        let payload = payload.expect("a batch of exactly the limit is proposed");
+        let payload = payload
+            .expect("a batch of exactly the limit is proposed")
+            .payload;
 
         assert_eq!(payload.as_slice().len(), both);
         assert_eq!(
@@ -1684,7 +1947,7 @@ mod tests {
         let payload = lane
             .build(1, 0, u32::try_from(both - 1).unwrap(), 100)
             .unwrap();
-        let payload = payload.expect("the first transaction still fits");
+        let payload = payload.expect("the first transaction still fits").payload;
         assert_eq!(payload.as_slice().len(), one);
         assert_eq!(
             carried(&payload),
@@ -1692,7 +1955,10 @@ mod tests {
         );
         // The batch of one transaction is itself exact at its own length and refused below it.
         let payload = lane.build(1, 0, u32::try_from(one).unwrap(), 100).unwrap();
-        assert_eq!(payload.expect("exactly one batch").as_slice().len(), one);
+        assert_eq!(
+            payload.expect("exactly one batch").payload.as_slice().len(),
+            one
+        );
         let payload = lane
             .build(1, 0, u32::try_from(one - 1).unwrap(), 100)
             .unwrap();
@@ -1717,7 +1983,9 @@ mod tests {
         global.applied.store(6, Ordering::SeqCst);
         lane.budget.set_limit_bytes(1 << 20);
         let payload = lane.build(1, 0, 1 << 20, 100).unwrap();
-        let payload = payload.expect("refusal must not manufacture an empty proposal");
+        let payload = payload
+            .expect("refusal must not manufacture an empty proposal")
+            .payload;
 
         assert!(payload.admitted_to(&lane.budget));
         let batch = LaneBatch::from_payload(payload.as_slice()).expect("retained batch");

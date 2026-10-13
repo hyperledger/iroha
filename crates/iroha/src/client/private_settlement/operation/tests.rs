@@ -24,6 +24,7 @@ use iroha_data_model::{
     },
 };
 use std::{
+    collections::{BTreeMap, BTreeSet},
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
@@ -39,9 +40,10 @@ fn prepared(
     manifest.authority_context_height = 1;
     let mut materials = (0..2)
         .map(|index| {
+            let ordinal = u8::try_from(index).expect("two-leg fixture index fits u8");
             let mut material = template.clone();
             let route = manifest.legs[index].route;
-            let (authority, _) = existing::finalization_authority_v1(route, index as u8);
+            let (authority, _) = existing::finalization_authority_v1(route, ordinal);
             let mut policy = template.audit_policy.body.clone();
             policy.dataspace_id = route.dataspace_id;
             policy.activation_height = 1;
@@ -53,18 +55,19 @@ fn prepared(
         .collect::<Vec<_>>();
     manifest.bundle_id = manifest.computed_bundle_id().unwrap();
     for (index, material) in materials.iter_mut().enumerate() {
+        let ordinal = u8::try_from(index).expect("two-leg fixture index fits u8");
         let leg = &manifest.legs[index];
         let mut delta = existing::finalization_delta_v1(&manifest, index);
         let aad = &mut material.audit_capsule.aad;
         aad.bundle_id = manifest.bundle_id;
-        aad.leg_ordinal = index as u8;
+        aad.leg_ordinal = ordinal;
         aad.route = leg.route;
         aad.authority_context_height = manifest.authority_context_height;
         aad.authority_digest = material.committee_authority.digest().unwrap();
         aad.audit_policy_digest = material.audit_policy.policy_digest;
         let statement = &mut material.statement;
         statement.bundle_id = manifest.bundle_id;
-        statement.leg_ordinal = index as u8;
+        statement.leg_ordinal = ordinal;
         statement.route = leg.route;
         statement.authority_context_height = manifest.authority_context_height;
         statement.pool_id = leg.pool_id;
@@ -82,7 +85,7 @@ fn prepared(
         delta.capsule_digest = statement.audit_capsule_digest;
         material.delta = delta;
         material.availability_body.bundle_id = manifest.bundle_id;
-        material.availability_body.leg_ordinal = index as u8;
+        material.availability_body.leg_ordinal = ordinal;
         material.availability_body.route = leg.route;
         material.availability_body.authority_context_height = manifest.authority_context_height;
         material.availability_body.authority_digest =
@@ -156,13 +159,14 @@ fn phase_certificates(
         .iter()
         .enumerate()
         .map(|(index, material)| {
+            let ordinal = u8::try_from(index).expect("fixture leg ordinal fits u8");
             let (authority, keys) =
-                existing::finalization_authority_v1(material.statement.route, index as u8);
+                existing::finalization_authority_v1(material.statement.route, ordinal);
             let body =
-                expected_phase_body_v1(manifest, index as u8, &authority, phase, digest).unwrap();
+                expected_phase_body_v1(manifest, ordinal, &authority, phase, digest).unwrap();
             aggregate_phase_votes_v1(
                 &body,
-                index as u8,
+                ordinal,
                 &authority,
                 &existing::phase_votes_v1(&authority, &keys, &body, &[0, 1, 2]),
             )
@@ -171,7 +175,10 @@ fn phase_certificates(
         .collect()
 }
 fn complete_round(journal: &mut WorkflowJournalV1, index: usize, bytes: Vec<u8>) {
-    let round_id = crate::workflow::round_identity(&journal.id(), index as u32);
+    let round_id = crate::workflow::round_identity(
+        &journal.id(),
+        u32::try_from(index).expect("fixture workflow step index fits u32"),
+    );
     journal
         .apply_round(index, RoundInputV1::Intent { round_id })
         .unwrap();
@@ -270,10 +277,10 @@ fn certified(
                 completions: Vec::new(),
             })],
             0,
-            Default::default(),
+            BTreeMap::default(),
             Vec::new(),
             AxtPolicySnapshot::default(),
-            Default::default(),
+            BTreeSet::default(),
             &ExecutionOutputLimits {
                 max_outputs: 16,
                 max_output_bytes: 16 * 1024 * 1024,
@@ -284,9 +291,9 @@ fn certified(
         .unwrap();
     let mut verifier = native.verifier();
     let proof = native.certify(block);
-    let verified = verifier.verify(&proof).unwrap();
-    let evidence = observation::evidence(verified.block(), 0).unwrap();
-    (verified, evidence)
+    let authenticated = verifier.verify(&proof).unwrap();
+    let evidence = observation::evidence(authenticated.block(), 0).unwrap();
+    (authenticated, evidence)
 }
 
 #[test]

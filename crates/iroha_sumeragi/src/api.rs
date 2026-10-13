@@ -237,7 +237,7 @@ pub enum Event {
         /// Request id of the `BuildPayload`.
         req: u64,
         /// Original funded nonempty payload, or no includable work.
-        payload: Option<PayloadBytes>,
+        payload: Option<crate::proposal_admission::BuiltPayload>,
     },
     /// Exact original-author worker completion; stale request/source completions are ignored.
     PayloadAuthored {
@@ -245,6 +245,13 @@ pub enum Event {
         req: u64,
         /// Opaque authenticated original-pool body; no raw substitute is accepted.
         body: AvailableBody,
+    },
+    /// Application reacquisition of an unsigned recorded proposal's original admission.
+    ProposalAdmissionRecovered {
+        /// Exact current recovery request; stale answers cannot replace retained custody.
+        req: u64,
+        /// Original source owner, or a local refusal retried on the bounded cadence.
+        admission: Option<crate::proposal_admission::ProposalAdmission>,
     },
     /// The original-author worker could not sign; only local telemetry is emitted.
     SigningFailed {
@@ -391,6 +398,13 @@ pub enum Action {
         header: BlockHeader,
         /// Original funded application work, retained by the move-only worker job.
         payload: PayloadBytes,
+    },
+    /// Reacquire local publication admission for an unsigned original recorded proposal.
+    RecoverProposalAdmission {
+        /// Unique recovery request, bound by Core to this exact body and current round.
+        req: u64,
+        /// Original authenticated paid body; this operation never builds replacement bytes.
+        body: AvailableBody,
     },
     /// Start or resume source-bound acquisition using mandatory original availability evidence.
     AcquirePayload {

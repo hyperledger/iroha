@@ -11,7 +11,7 @@ use std::{io, sync::Arc, time::Instant};
 
 use iroha_sumeragi::{
     api::{ExecOutcome, HaltReason, LocalFault},
-    availability::{AvailabilitySource, AvailableBody, PayloadBytes},
+    availability::{AvailabilitySource, AvailableBody},
     message::{Evidence, Qc, SyncEntry, TrafficClass},
     safety::RecordState,
     types::{AppliedConfig, Hash32, Millis, PublicKey},
@@ -507,7 +507,16 @@ pub trait Executor: Send {
         view: u64,
         max_bytes: u32,
         exec_budget_ms: u32,
-    ) -> Result<Option<PayloadBytes>, PublicationError>;
+    ) -> Result<Option<iroha_sumeragi::proposal_admission::BuiltPayload>, PublicationError>;
+    /// Recover application signing custody from this exact original available body.
+    /// The owner must bind the original admitted bytes and authenticated parent source.
+    ///
+    /// # Errors
+    /// A local refusal retains the body for retry; lost custody requires recovery.
+    fn recover_proposal_admission(
+        &mut self,
+        body: &AvailableBody,
+    ) -> Result<iroha_sumeragi::proposal_admission::ProposalAdmission, PublicationError>;
     /// The payload of `block_hash` executed `Invalid`: quarantine the transactions that make a
     /// block invalid on their own.
     fn reject(&mut self, height: u64, view: u64, block_hash: &Hash32);

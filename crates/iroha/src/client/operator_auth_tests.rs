@@ -260,10 +260,7 @@ fn assert_status_listener_and_signature(
                 .filter(|(name, _)| name.eq_ignore_ascii_case("x-api-token"))
                 .map(|(_, value)| value.as_str())
                 .collect::<Vec<_>>();
-            let allowed = match expected_token {
-                Some(token) => tokens == [token],
-                None => tokens.is_empty(),
-            };
+            let allowed = expected_token.map_or(tokens.is_empty(), |token| tokens == [token]);
             captured.lock().unwrap().push(request);
             // This models only the already-established listener credential gate; the signature
             // above is independently verified, not inferred from a successful mock response.

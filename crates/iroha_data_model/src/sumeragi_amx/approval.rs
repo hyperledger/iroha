@@ -250,6 +250,11 @@ mod tests {
 
     #[test]
     fn exact_native_debit_approval_roundtrips_and_binds_every_root_coordinate() {
+        #[derive(DeriveJsonDeserialize)]
+        struct Payload {
+            approval: AmxDebitApprovalV1,
+        }
+
         let value = approval();
         let frame = norito::encode_canonical(&value).unwrap();
         assert_eq!(
@@ -290,10 +295,6 @@ mod tests {
         let permission = value.permission().unwrap();
         assert_eq!(permission.name(), "CanPrepareAmx");
         assert!(value.matches_permission(&permission).unwrap());
-        #[derive(DeriveJsonDeserialize)]
-        struct Payload {
-            approval: AmxDebitApprovalV1,
-        }
         assert_eq!(
             permission
                 .payload()

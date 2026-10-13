@@ -77,12 +77,44 @@ A separate [hidden-assignment deletion derivation](../../specs/parliament_ballot
 now removes the patches at that same ideal-material boundary. It proves joint
 pad/query independence in the unpatched baseline and applies a full-state
 lookup comparison across adaptive requests and exhaustion. This conditional
-result does not supply the ideal-entry or reverse material bridges, complete
-reduction resources or the complete simulator proof.
+result does not supply the ideal-entry or reverse material bridges.
+The separate [direct public sampler](../../specs/parliament_ballot_b6_ideal_public_sampler.md)
+now exactly samples that post-deletion public endpoint under its explicit fresh
+replacement-slot premise. It draws frontier keys and hidden commitments and
+runs one source-shaped VOLE reconstruction, preserving actual revealed-generator
+aliases and persistent oracle history. This defines a distinct bounded simulator
+proposal; it does not identify the endpoint with real-root `Sim+`. Computational
+entry, proposal acceptance and complete reduction resources remain open.
+The separate [executable sampler accounting](../../specs/parliament_ballot_b6_ideal_sampler_accounting.md)
+now checks bounded schedules, ordinary reads, programming writes and persistent
+log payloads across sequential requests. Its 30 controls preserve a distinct
+request cap and external-query cap, chronological overwrites and componentwise
+all-opening extrema. The separate [reversible oracle-log construction](../../specs/parliament_ballot_b6_oracle_log_circuit.md)
+now prices a fixed-address coherent lookup and reversible append, including
+two base-oracle calls per lookup, clean work and persistent wires. Twenty-one
+finite circuit/provenance controls pass. Its very large illustrative gate
+count is an upper bound for that construction, not a primitive advantage or
+an impossibility result. Base-oracle and other reduction costs, actual-input
+bridges and a complete physical-memory bound remain unknown.
 The existing arguments and ledger are unchanged; local consistency review does
 not supply independent cryptographic review or qualification.
 
 ## Standalone adversarial and conformance evidence
+
+The [current-source rebuild](parliament_ballot_current_candidate/README.md)
+passes 17 release worker tests, strict Clippy and builds per mode, followed by
+122 observations and four output controls. Fresh disassembly has zero frame
+errors with 62 analyzer regressions. The allocation check exposed an overly
+strong `will_wake` test assertion; the documented correction retains pointer,
+callback and allocation checks, with 28 shared and nine custody tests passing.
+The failed attempt and previous builds remain immutable. A separate
+[compiled correspondence check](parliament_ballot_current_correspondence/README.md)
+compares 24 code ranges, loaded data and resolved symbols, then reruns the four
+unchanged adapter/frontend/profile/typed-decoder analyzers on the new captures.
+All 49 controls pass, with 2,123 stable input guards. It binds seven source
+deltas and narrowly accounts for private-symbol spelling changes; the original
+ordinary-flow, ownership and native-call premises still apply. Complete work,
+workspace, native runtime and hardware costs remain unresolved.
 
 The [fatal-control revision](parliament_ballot_fatal_control/README.md) fixes a
 resource-failure write that blocked charged verification on full stdout pipes.
@@ -115,6 +147,30 @@ allocator files. The [post-analysis check](parliament_ballot_adapter_bound/post-
 retains their exact hashes, and the [current-source refusal](parliament_ballot_adapter_bound/current-source-refusal/report.json)
 correctly reports UNKNOWN. The recorded binaries, reports and source interval
 remain unchanged; no result is transferred to those later source revisions.
+The [historical-input recovery](parliament_ballot_adapter_source_recovery/README.md)
+resolves all 2,081 original identities, recovering four changed inputs into
+separate files from exact Git revisions. Twelve [fault controls](parliament_ballot_b6/source-recovery-controls.json)
+cover refusal and first/second-pass identity changes. This preserves the earlier
+argument's inputs without rebuilding, changing live files or repinning evidence.
+The separate [historical frontend bound](parliament_ballot_frontend_bound/README.md)
+uses those identities to bound the reservation dispatcher plus outer record
+parser at 146 local issued instructions and 2,160 owned stack bytes in both
+images. Its fixed-count field parser contributes at most 299/277 local
+instructions for registration/vote, separately from the opaque typed-decoder
+cost. Twenty-seven checker tests cover identity, control-flow and count
+mutations. Typed validation, cryptography, allocation, cleanup and native costs
+remain unresolved; these component bounds do not certify the complete call.
+The [profile coordinator](parliament_ballot_profile_bound/README.md) now has a
+checked two-role loop: 834 local instructions and 1,760 own stack bytes, with
+CRT serialization, framing, hashes and frees still opaque. Eighteen tests pass.
+The [typed-decoder coordinators](parliament_ballot_typed_decoder_bound/README.md)
+add all-ordinary-path bounds of 621/592 instructions and 1,824/1,184 owned stack
+bytes, including their framed parser, for registration/vote. Twenty-four tests
+cover guard-dominated copy/split requests, malformed inputs and cleanup paths.
+The registration allocation-error trap and all lower constructor, hash, native
+and allocator costs remain unresolved. These historical component formulas
+replace their named opaque terms; they do not establish a numerical whole-call
+bound or transfer to the changed checkout.
 
 The [campaign inventory](../../crates/iroha_zkp_vole/tests/fixtures/standalone_adversarial.md)
 records deterministic malformed-input campaigns in portable and accelerated
@@ -474,7 +530,7 @@ latency remains unavailable. No experimental crate has been connected to Core.
 The complete workspace suite was not run for this standalone work; unrelated
 concurrent changes and repository signing/staging state were preserved.
 
-## Current-tree checks and concurrent failure
+## Source-contract checks and retained history
 
 The [in-memory worker](parliament_ballot_memory_entry/README.md) moves retrieval
 outside the charged interval and checks the actual borrowed length before its
@@ -488,10 +544,28 @@ native unwind, unconditional frontiers and complete resource costs remain open.
 
 The [memory-entry/frontier checks](parliament_ballot_b6/memory-driver-checks.json)
 pass 51 focused Python tests, diagnostic Rust formatting and the codec guard
-for their retained source interval. The [fresh Core source-contract check](parliament_ballot_b6/adapter-deletion-source-check.json)
-after a concurrent queue edit still first fails on `queue.rs` missing the modeled `Executable::IvmProved(proved)`
-binding. That is a later source identity than the historical start-order
-failures below; it does not establish that subsequent guard sections pass.
+for their retained source interval. The stale queue-binding and Kura wrapper
+expectations are replaced with scoped checks for signed gas, original release
+custody, unconditional owners and complete pre-quote admission structure, with
+[192 focused controls](parliament_ballot_b6/kura-claim-guard-controls.json).
+The initial queue guard's [36-test capture](parliament_ballot_b6/queue-signed-gas-controls.json)
+proved insufficient: a [retained counterexample](parliament_ballot_b6/queue-signed-gas-counterexample.json)
+hid a live zero quote behind a disabled intact helper. The replacement includes
+that regression and refuses pre-quote error recovery or shadowed success paths.
+The [current phase guard](parliament_ballot_current_candidate/source-guard-controls/README.md)
+now binds all seven same-block calls, their order, the original height and the
+single reconciliation batch. Seventy-four focused controls pass. The full
+check at that capture first refused the separate construction guard.
+The subsequent [construction guard](parliament_ballot_construction_guard/README.md)
+binds the exact conditional DA custody, original acquired owners, handoff and
+retirement order. Review found and repaired import-substitution and raw-macro
+shadowing gaps before capture. Its source comparison remains conditional on
+the surrounding crate/dependency resolver and compiler. The latest full check
+passes that boundary and first refuses the untouched Torii
+`request_local_partial_release_v1` binding; later assertions remain unexecuted.
+No Core runtime code was changed. The prior [ordering failure](parliament_ballot_b6/kura-claim-guard-source-check.json),
+queue-only [Kura failure](parliament_ballot_b6/decoder-profile-resource-source-check.json)
+and preceding source snapshots remain historical evidence.
 Availability remains false, qualified latency remains `None`, and neither Core
 nor Torii depends on the experimental ballot/backend crates.
 
@@ -500,16 +574,17 @@ pass 60 focused Python tests. Separate peer reviews found and repaired
 pointer-origin and frozen-identity gaps before the new reports were finalized.
 The ownership audit rechecks 81 source hashes and 65 excerpts. These checks
 retain all ten unconditional free frontiers per mode and the worker I/O
-frontier. The Core source-contract ordering failure remains; the production
-gate is false and qualified attempt latency is still `None`.
+frontier. Their recorded source-contract ordering failure is historical;
+the current Torii binding refusal is separate. The production gate is false
+and qualified attempt latency is still `None`.
 
 The [allocation/frontier/prover checks](parliament_ballot_b6/allocation-frontier-prover-checks.json)
 pass 120 Python tests and 182 subtests. Both allocation-trace builds separately
 pass 17 release Rust tests, strict Clippy and builds. The 132-observation,
 14-control trace campaign passes, and the activation analysis retains its
 conditional result with 39 focused tests. Diagnostic source formatting and
-the codec guard pass. The real Core source-contract check still fails on
-block-start ordering; availability is false and qualified latency is `None`.
+the codec guard pass. That capture's Core source-contract check failed on
+block-start ordering; availability was false and qualified latency was `None`.
 No complete workspace test or qualification pass is claimed.
 
 The subsequent [native/call-target checks](parliament_ballot_native_probe/final-checks.json)
@@ -558,4 +633,5 @@ fail on the actual start-phase ordering. Concurrent Core work has since
 also added `sccp::pause_lifecycle::lapse_after_enactments`; its source identity
 differs from the earlier diagnostic. The earlier in-memory isolation and
 1,115/92 broad-suite totals describe their recorded snapshots, not this later
-tree. No Core or ordering guard changes were made by the B6 work.
+tree. Those diagnostic captures made no Core or ordering-guard changes;
+the current scoped guard repairs are recorded separately above.

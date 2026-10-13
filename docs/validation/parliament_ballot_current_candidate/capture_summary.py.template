@@ -1,0 +1,156 @@
+"""Reconcile current worker observations without repinning historical captures.
+
+Run once from the repository root, after component captures are final. This
+reads retained files and current guards; it neither rebuilds nor re-executes
+workers. Historical drift is explicit. No qualification certificate is issued.
+"""
+from collections import Counter
+import datetime
+import hashlib
+import json
+from pathlib import Path
+
+ROOT = Path.cwd()
+OUT = ROOT / 'docs/validation/parliament_ballot_current_candidate'
+DEST = OUT / 'summary.json'
+
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(str(message))
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def read(path):
+    return json.loads(Path(path).read_text())
+
+
+def drift(pins):
+    changes = {}
+    for name, expected in pins.items():
+        path = ROOT / name
+        actual = sha(path) if path.is_file() else None
+        if actual != expected:
+            changes[name] = {'before': expected, 'after': actual}
+    return changes
+
+
+require(not DEST.exists(), 'summary already exists; use a new attempt')
+build = read(OUT / 'build-v2/build-receipt.json')
+require(build['source_stable'] and len(build['commands']) == 6, 'incomplete build')
+require(not drift(build['source_files']), 'current build input drift')
+for row in build['commands']:
+    require(row['exit'] == 0 and not row['source_changes'], 'failed build command')
+    require(sha(row['log']) == row['log_sha256'], 'build log changed')
+for row in build['binaries'].values():
+    require(sha(row['path']) == row['sha256'], 'binary changed')
+
+checks = {}
+for folder, passed, count in (('campaign', 'diagnostic_passed', 122),
+                              ('fatal-output', 'diagnostic_passed', 4),
+                              ('stack', 'capture_passed', None)):
+    path = OUT / folder / ('receipt.json' if folder == 'stack' else 'report.json')
+    report = read(path)
+    require(report[passed] and not report['input_changes'], 'failed diagnostic: ' + folder)
+    require(not drift(report['input_sha256']), 'current diagnostic input drift: ' + folder)
+    require(not report['profile_qualified'] and not report['complete_workspace_certificate'], 'scope changed')
+    if count is not None:
+        require(report['observations'] == count, 'observation count changed')
+        require(sha(OUT / folder / 'cases.jsonl') == report['records_sha256'], 'cases changed')
+    checks[folder] = {'path': str(path.relative_to(ROOT)), 'sha256': sha(path),
+                      'guarded_inputs': len(report['input_sha256']), 'input_changes': {}}
+stack = read(OUT / 'stack/receipt.json')
+for mode, row in stack['captures'].items():
+    require(sha(row['path']) == row['sha256'], 'stack result changed')
+    require(row['binary_sha256'] == build['binaries'][mode]['sha256'], 'stack binary differs')
+    require(row['whole_image_frame_error_count'] == 0, 'stack decoder error')
+    require(all(r['complete_stack_bound_bytes'] is None for r in row['roots']), 'stack scope changed')
+for row in stack['commands']:
+    require(row['exit'] == 0 and sha(row['log']) == row['log_sha256'], 'analyzer tests changed')
+
+rows = [json.loads(line) for line in (OUT / 'campaign/cases.jsonl').read_text().splitlines()]
+require(len(rows) == 122 and all(row['check_passed'] for row in rows), 'case failure')
+returning = [row for row in rows if 'arena_live_exit_requested_bytes' in row['worker']]
+without_arena_exit = [row for row in rows if 'arena_live_exit_requested_bytes' not in row['worker']]
+require(len(returning) == 102 and all(row['worker']['outcome'] in ('resource_exhausted', 'input_error')
+        or (row['worker']['outcome'] == 'admission_rejected' and row['case'] == 'oversized_input'
+            and row['worker']['verifier_stage'] == 'staging_size' and row['worker']['arena_enforced'] is False)
+        for row in without_arena_exit), 'unexpected missing arena-exit counters')
+observations = {
+    'outcomes': dict(Counter(row['worker']['outcome'] for row in rows)),
+    'maxima': {key: max(row['worker'].get(key, 0) or 0 for row in rows) for key in
+               ('arena_peak_requested_bytes', 'arena_peak_block_bytes', 'workspace_reserved_bytes')},
+    'returning_worker_observations': len(returning),
+    'observations_without_arena_exit_counters': dict(Counter(row['worker']['outcome'] for row in without_arena_exit)),
+    'returning_arena_live_requested_bytes': sorted({row['worker']['arena_live_exit_requested_bytes'] for row in returning}),
+    'returning_arena_live_block_bytes': sorted({row['worker']['arena_live_exit_block_bytes'] for row in returning}),
+}
+require(observations['returning_arena_live_requested_bytes'] == [0]
+        and observations['returning_arena_live_block_bytes'] == [0], 'returning arena not empty')
+
+corrected = read(OUT / 'allocation-waker-correction/receipt.json')
+require(corrected['all_requested_commands_passed'] and corrected['source_stable'], 'allocation controls failed')
+require(not drift(corrected['source_after']) and not corrected['absence_changed'], 'allocation input changed')
+require(all(not (ROOT / p).exists() for p in corrected['guarded_absent_paths']), 'absent build input appeared')
+phase = read(OUT / 'source-guard-controls/phase-controls-validated.json')
+gate = read(OUT / 'source-guard-controls/phase-source-check.json')
+require(phase['exit'] == 0 and phase['passed'] == 74 and phase['source_unchanged'], 'phase controls failed')
+require(not drift(phase['source_after']) and not drift(gate['source_after']), 'source guard drift')
+require(gate['exit'] == 1 and gate['probe_matches_cli_result'], 'source check observation changed')
+require(gate['observed_main_error'] == 'crates/iroha_core/src/state/state_block_construction.rs: start construction must consume the original acquisition', 'unexpected first error')
+require(gate['binding_ballot_available'] is False and gate['qualified_attempt_latency_ms'] is None
+        and gate['no_experimental_core_torii_dependencies'], 'production gate changed')
+
+# The earlier successful build stays tied to its original input bytes. The
+# test/comment correction's archived originals explain its two current drifts.
+early = read(OUT / 'build/build-receipt.json')
+originals = {r['source']: r for r in read(OUT / 'allocation-waker-correction/sources-before.json')}
+early_drift = drift(early['source_files'])
+require(set(early_drift) == {str(ROOT / 'crates/iroha_allocation/src/shared.rs'),
+                             str(ROOT / 'crates/iroha_allocation/src/shared_wake_tests.rs')}, 'unexpected early build drift')
+for name, change in early_drift.items():
+    require(sha(originals[name]['snapshot']) == change['before'], 'old build source not retained')
+
+# Report historical current-path differences and exact supplementary byte
+# resolutions. This does not make old helpers consume the supplement, change
+# their pins, or transfer a compiled resource lemma to current binaries.
+old = read(ROOT / 'docs/validation/parliament_ballot_adapter_bound/report.json')
+recovery = read(ROOT / 'docs/validation/parliament_ballot_adapter_source_recovery/validated/receipt.json')
+historical_drift = drift(old['input_sha256'])
+supplement = {}
+for name, change in historical_drift.items():
+    options = [recovery['resolved_inputs'][name]['resolved_path']]
+    if name in originals:
+        options.append(originals[name]['snapshot'])
+    matching = [str(Path(p)) for p in options if Path(p).is_file() and sha(p) == change['before']]
+    require(matching, 'historical changed bytes unavailable: ' + name)
+    supplement[name] = {'sha256': change['before'], 'resolved_path': matching[0]}
+
+require(not drift(build['source_files']) and not drift(gate['source_after']), 'inputs changed during summary')
+report = {
+    'schema': 'parliament-current-worker-summary-v1',
+    'observed_at_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    'build_receipt_sha256': sha(OUT / 'build-v2/build-receipt.json'),
+    'build_inputs_checked': len(build['source_files']), 'successful_build_commands': 6,
+    'binaries': build['binaries'], 'current_checks': checks, 'observations': observations,
+    'earlier_build_current_drift': early_drift,
+    'historical_adapter_current_drift': historical_drift,
+    'historical_changed_bytes_supplement': supplement,
+    'historical_compiled_bounds_transferred': False,
+    'allocation_failed_receipt_sha256': sha(OUT / 'allocation-tests/receipt.json'),
+    'allocation_corrected_receipt_sha256': sha(OUT / 'allocation-waker-correction/receipt.json'),
+    'source_control_receipt_sha256': sha(OUT / 'source-guard-controls/phase-controls-validated.json'),
+    'source_check_receipt_sha256': sha(OUT / 'source-guard-controls/phase-source-check.json'),
+    'source_check_first_error': gate['observed_main_error'], 'source_check_exit': gate['exit'],
+    'source_check_cli_read_set_independently_traced': gate['cli_read_set_independently_traced'],
+    'binding_ballot_available': False, 'qualified_attempt_latency_ms': None,
+    'complete_workspace_certificate': False, 'physical_cost_calibrated': False,
+    'profile_qualified': False, 'full_workspace_suite_run': False,
+    'executing_recipe_sha256': sha(Path(__file__)),
+}
+DEST.write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
+print(json.dumps({'summary_sha256': sha(DEST), 'checks': checks, 'observations': observations,
+                  'historical_changed_inputs': len(historical_drift)}, indent=2))

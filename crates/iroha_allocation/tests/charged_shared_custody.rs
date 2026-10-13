@@ -550,7 +550,8 @@ fn charged_waker_keeps_exact_physical_control_until_last_consumed_wake() {
     drop(original);
     let first = owner.into_waker();
     let last = first.clone();
-    assert!(first.will_wake(&last));
+    // `will_wake` permits false negatives; check original ownership directly.
+    assert_eq!(first.data(), last.data());
     first.wake_by_ref();
     first.wake();
     assert_eq!(calls.load(SeqCst), 2);

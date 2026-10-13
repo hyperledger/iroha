@@ -138,6 +138,12 @@ impl DriverHost {
                 block: Box::new(commit.block.clone()),
                 qc: Box::new(commit.qc.clone()),
             }),
+            Op::Exec(ExecOp::RecoverProposalAdmission { req, body }) => {
+                out.push(SimOp::Effect(Box::new(Action::RecoverProposalAdmission {
+                    req,
+                    body,
+                })));
+            }
             Op::Exec(ExecOp::BuildControlWitness { .. }) => self.complete_kernel(Completion::Exec(
                 ExecDone::ControlWitnessBuilt(Ok(iroha_sumeragi::types::ControlWitness::empty())),
             )),
@@ -222,6 +228,15 @@ impl Host for DriverHost {
         match event {
             Event::PayloadBuilt { payload, .. } => {
                 self.complete_kernel(Completion::Exec(ExecDone::Built(Ok(payload))))
+            }
+            Event::ProposalAdmissionRecovered { admission, .. } => {
+                self.complete_kernel(Completion::Exec(ExecDone::ProposalAdmissionRecovered(
+                    admission.ok_or_else(|| {
+                        super::super::traits::PublicationError::Retryable(
+                            "simulator proposal admission unavailable".into(),
+                        )
+                    }),
+                )))
             }
             other => {
                 if let Some(kernel) = self.kernel() {

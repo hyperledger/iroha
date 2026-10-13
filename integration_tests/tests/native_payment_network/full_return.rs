@@ -64,7 +64,7 @@ fn check_linked(
     );
     ensure!(receipt.link().original_settlement_id == *receipt.original().settlement_id());
     ensure!(receipt.link().original_transaction == receipt.original().transaction_hash());
-    ensure!(receipt.link().original_network == receipt.original().network());
+    ensure!(receipt.link().network == receipt.original().network());
     let SettlementDetails::Atomic(original_terms) = &original.details else {
         return Err(eyre!("original verified payment lost its atomic details"));
     };

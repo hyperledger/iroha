@@ -24,7 +24,7 @@ pub enum PrivateSettlementReceiptError {
     /// A malformed certificate, receipt or fee outcome was supplied.
     #[error("invalid private settlement public evidence")]
     InvalidEvidence,
-    /// PipelineGas does not yet have the authenticated fee outcome this API requires.
+    /// `PipelineGas` does not yet have the authenticated fee outcome this API requires.
     #[error("private settlement cannot authenticate PipelineGas charges")]
     UnsupportedFee,
 }

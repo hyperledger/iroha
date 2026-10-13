@@ -39,7 +39,7 @@ fn first_reservation_requires_exact_native_owner_and_closes_original_after_ordin
     let bytes = encode(&fixture.policy, MAX_RECORD_BYTES).unwrap();
     let mut publication = PublishedInitialIntent::publish(
         &fixture.operation,
-        bytes.to_vec(),
+        bytes.clone(),
         MAX_RECORD_BYTES,
         "test original changed",
     )
@@ -47,7 +47,7 @@ fn first_reservation_requires_exact_native_owner_and_closes_original_after_ordin
     assert!(
         PublishedInitialIntent::publish(
             &fixture.operation,
-            bytes.to_vec(),
+            bytes.clone(),
             MAX_RECORD_BYTES,
             "test original changed"
         )

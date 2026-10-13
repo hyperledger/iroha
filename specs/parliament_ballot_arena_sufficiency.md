@@ -184,8 +184,39 @@ instructions and at most one 524,288-byte input block in both current images.
 The input block occupies the existing heap reservation. Opaque verifier and
 native routine costs, return invariants and exceptional paths are not discharged
 by that local bound; its checker passes 20 focused tests.
-Subsequent lockfile/allocator edits are recorded separately and make current-source
-reproduction refuse. The retained bound applies to the captured source interval.
+Subsequent lockfile/allocator edits make that historical capture's live-source
+recheck refuse. Its bound applies to the captured source interval.
+Separate [historical recovery](../docs/validation/parliament_ballot_adapter_source_recovery/README.md)
+resolves all 2,081 input identities without altering live files. Using those
+identities, the [frontend bound](../docs/validation/parliament_ballot_frontend_bound/README.md)
+isolates the reservation dispatcher and record parser: 146 local issued
+instructions and 2,160 owned stack bytes, excluding opaque callees. A separate
+fixed-count field-parser lemma bounds 299/277 local instructions and 240 own
+stack bytes for registration/vote. It must not be added again while the whole
+typed decoder remains opaque. Twenty-seven checker tests pass; none of these
+component bounds closes the verifier/native or exceptional-path obligations.
+The [profile coordinator](../docs/validation/parliament_ballot_profile_bound/README.md)
+adds a conditional 834-instruction/1,760-byte local contribution with its two-role
+loop bounded. The [typed decoders](../docs/validation/parliament_ballot_typed_decoder_bound/README.md)
+add 621/592 local instructions and 1,824/1,184 owned stack bytes including their
+parser. Their 18/24 focused tests preserve opaque CRT, constructor, hash,
+allocator, cleanup and native costs and the registration trap's unknown
+continuation. Apply these as substitutions in the earlier symbolic formulas;
+do not count their parser/callee contributions twice or infer a whole-call bound.
+
+A [fresh current-source worker](../docs/validation/parliament_ballot_current_candidate/README.md)
+now passes both-mode builds/tests/Clippy, 122 observations and four output
+controls. Its fresh stack capture has zero frame-decoding errors and retains
+the unresolved native/indirect/exceptional/recursive costs. The allocation
+waker assertion correction changes tests/comments only; all 28 shared and
+nine custody tests pass. A separate
+[compiled correspondence check](../docs/validation/parliament_ballot_current_correspondence/README.md)
+compares 24 code ranges, loaded data and resolved symbols, then reruns the four
+unchanged component analyzers on the current captures. Its 49 controls and
+2,123 stable input guards bind seven source deltas and narrowly account for
+private-symbol spelling changes. The original ordinary-flow, ownership and
+native-call premises remain; these substitutions do not establish a complete
+workspace certificate.
 
 TODO: establish complete target-specific allocation correspondence and
 ordinary/exceptional path conditions; discharge the provider-target premises

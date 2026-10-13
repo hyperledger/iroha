@@ -4,7 +4,7 @@
 //! `CommitBlock` (and anything later served from the block store), `ServeBlocks`, `ServePayload`,
 //! `FetchPayload`, `ReportEvidence`, and `Halt` — takes effect only once that record is durable,
 //! in the order the core emitted them (O1). The exempt actions (`Execute`, `DiscardExecution`,
-//! `BuildPayload`, `PayloadRejected`, `LocalFault`, `StoreBody`) never wait. Records are
+//! `BuildPayload`, `RecoverProposalAdmission`, `PayloadRejected`, `LocalFault`, `StoreBody`) never wait. Records are
 //! identified by the sequence numbers of the ordered persistence queue, so "durable up to `s`"
 //! also covers every earlier `StoreBody` (§7.4 body durability).
 //!
@@ -28,6 +28,7 @@ pub fn gated(action: &Action) -> bool {
             | Action::Execute { .. }
             | Action::DiscardExecution { .. }
             | Action::BuildPayload { .. }
+            | Action::RecoverProposalAdmission { .. }
             | Action::AuthorPayload { .. }
             | Action::AcquirePayload { .. }
             | Action::ReceivePayloadChunk { .. }
@@ -246,6 +247,10 @@ mod tests {
                 view: 0,
                 max_bytes: 1,
                 exec_budget_ms: 1,
+            },
+            Action::RecoverProposalAdmission {
+                req: 2,
+                body: block(1, Hash32::ZERO, Hash32::ZERO, vec![1]),
             },
             Action::PayloadRejected {
                 height: 1,

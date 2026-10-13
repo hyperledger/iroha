@@ -1,0 +1,17 @@
+   Compiling iroha_allocation v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_allocation)
+    Finished `release` profile [optimized] target(s) in 1.47s
+     Running tests/charged_shared_custody.rs (/private/tmp/parliament-current-candidate-20261013-v1/allocation-target/release/deps/charged_shared_custody-0aaa8bce6e5b5879)
+
+running 9 tests
+test allocator_refusal_returns_original_payload_and_refunds_only_its_split ... ok
+test unwind_reclaims_actual_control_block_and_original_credit ... ok
+test primitive_allocator_failure_returns_both_original_owners_undropped ... ok
+test recursive_shared_nodes_retain_borrowed_leaf_charge_after_other_nodes_are_freed ... ok
+test reserved_shared_shell_funds_physical_control_before_consumption_and_final_release ... ok
+test exact_aligned_layout_partitions_original_credit_after_budget_shrink ... ok
+test zero_and_short_prepaid_refusals_do_not_call_the_allocator ... ok
+test charged_waker_keeps_exact_physical_control_until_last_consumed_wake ... ok
+test final_concurrent_clone_frees_payload_before_original_pool_reentrant_wake ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

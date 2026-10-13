@@ -362,6 +362,14 @@ impl H {
                         });
                     }
                     Action::BuildPayload { req, .. } => self.last_build = Some(*req),
+                    Action::RecoverProposalAdmission { req, body } if self.auto_fetch => {
+                        queue.push_back(Event::ProposalAdmissionRecovered {
+                            req: *req,
+                            admission: Some(
+                                crate::testing::built_payload(body.payload().clone()).admission,
+                            ),
+                        });
+                    }
                     Action::CommitBlock { block, commit_qc } => {
                         self.store.push((block.clone(), commit_qc.clone()));
                         if self.auto_apply {
@@ -561,13 +569,13 @@ impl H {
         all
     }
 
-    fn payload(&self, payload: &[u8]) -> Option<PayloadBytes> {
+    fn payload(&self, payload: &[u8]) -> Option<crate::proposal_admission::BuiltPayload> {
         if payload.is_empty() {
             return None;
         }
         let mut bytes = PayloadBytes::from_untrusted(payload.to_vec()).unwrap();
         bytes.admit(&self.budget).unwrap();
-        Some(bytes)
+        Some(crate::testing::built_payload(bytes))
     }
 
     /// Answer the latest `BuildPayload` with `payload`.

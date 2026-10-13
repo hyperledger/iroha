@@ -84,7 +84,7 @@ pub trait SharedWake: Send + Sync + 'static {
 }
 
 impl<T: SharedWake, Charge: Send + Sync + 'static> Shared<T, Charge> {
-    /// Transfer exactly this strong reference into the canonical Waker vtable.
+    /// Transfer exactly this strong reference into a waker retaining the original control allocation.
     pub(crate) fn into_waker(self) -> std::task::Waker {
         struct Vtable<T, Charge>(std::marker::PhantomData<(T, Charge)>);
         impl<T: SharedWake, Charge: Send + Sync + 'static> Vtable<T, Charge> {

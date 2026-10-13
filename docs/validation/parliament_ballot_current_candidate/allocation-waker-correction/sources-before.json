@@ -1,0 +1,17 @@
+[
+  {
+    "source": "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared.rs",
+    "snapshot": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/allocation-waker-correction/sources-before/crates/iroha_allocation/src/shared.rs.template",
+    "sha256": "90cb9601cf32f440d0207482565eef8a38d08d36f28ae1a3e98b5189538b682e"
+  },
+  {
+    "source": "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared_wake_tests.rs",
+    "snapshot": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/allocation-waker-correction/sources-before/crates/iroha_allocation/src/shared_wake_tests.rs.template",
+    "sha256": "8aa81e5155a614b9191fe36ebc324623c8f9e73bb7b421be9c3625e0f6c4ac43"
+  },
+  {
+    "source": "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/tests/charged_shared_custody.rs",
+    "snapshot": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/allocation-waker-correction/sources-before/crates/iroha_allocation/tests/charged_shared_custody.rs.template",
+    "sha256": "a30004822c95f8ed256433722f6a506229e5d6ab2e504eb929898f644af72c6f"
+  }
+]

@@ -827,6 +827,13 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
             )
             .unwrap();
             let mut recorded_events = Vec::new();
+            let max_clock_drift_ms = worker
+                .state
+                .view()
+                .world()
+                .parameters()
+                .sumeragi()
+                .max_clock_drift_ms();
             let (valid, mut overlay) = ValidBlock::validate_sumeragi_block(
                 proposal,
                 &topology,
@@ -877,6 +884,7 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
                 committee,
                 recorded_events,
                 due_work_max_lag_ms,
+                max_clock_drift_ms,
                 None, // This isolated handoff does not return an execution verdict.
             );
             if fault == 0 {

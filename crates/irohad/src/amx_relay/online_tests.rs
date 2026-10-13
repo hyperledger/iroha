@@ -7,6 +7,7 @@ use iroha::{
 };
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_data_model::sumeragi_finality::test_fixtures::NativeFinalityFixture;
+use iroha_service_model::soranet::{AnonymityPolicy, RolloutPhase};
 use iroha_torii_shared::{
     ErrorDetails, ErrorEnvelope, PIPELINE_TRANSACTION_STATUS_NOT_FOUND_CODE,
     PipelineTransactionStatusNotFoundV1, route_catalog, status::Status,
@@ -99,8 +100,8 @@ fn source() -> (OnlineSource, Arc<AsyncSourceTransport>) {
         transaction_status_timeout: Duration::from_secs(10),
         transaction_add_nonce: false,
         sorafs_alias_cache: AliasCache::default().into_policy(),
-        sorafs_anonymity_policy: Default::default(),
-        sorafs_rollout_phase: Default::default(),
+        sorafs_anonymity_policy: AnonymityPolicy::default(),
+        sorafs_rollout_phase: RolloutPhase::default(),
     };
     let transport = Arc::new(AsyncSourceTransport {
         proof: fixture.genesis_proof().clone(),

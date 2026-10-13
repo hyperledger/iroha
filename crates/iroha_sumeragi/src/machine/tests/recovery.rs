@@ -26,6 +26,7 @@ fn retained_record(h: &H) -> SafetyRecord {
             block_hash: lock.block_hash,
             justify: Some(tc.clone()),
         }),
+        proposal_signature: None,
         prepare: Some(RecordedVote {
             view: 2,
             block_hash: lock.block_hash,

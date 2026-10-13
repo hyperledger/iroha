@@ -853,11 +853,11 @@ certified block times, so both directions need a bound. No validity rule reads a
 
 | # | Rule |
 |---|---|
-| CT1 | **Clock ahead.** For every non-genesis block of every instance of the network (global and lanes) executed with `certified = false`, the executor MUST answer `Failed(ClockAhead)` while `t(block) > local_wall_ms + max_clock_drift_ms`. It MUST NOT answer `Invalid`. Under §4.2 that is `LocalFault(ExecutorFailed)` and a retry with backoff; meanwhile no `Valid` is recorded, so §4.3 condition 4 withholds the Prepare vote. Commit votes are not guarded directly: `try_commit` Commit-votes a PrepareQC of the current view without executing, and the bound reaches every CommitQC through that PrepareQC. |
+| CT1 | **Clock ahead.** For every non-genesis block of every instance of the network (global and lanes) executed with `certified = false`, the executor MUST answer `Failed(ClockAhead)` while `t(block) > local_wall_ms + max_clock_drift_ms`. It MUST NOT answer `Invalid`. Under §4.2 that is `LocalFault(ExecutorFailed)` and a retry with backoff; meanwhile no `Valid` is recorded, so §4.3 condition 4 withholds the Prepare vote. After successful execution, the exact-source application owner MUST resample immediately before each uncertified first Prepare signature using the original parent's or pinned lane's drift. A rewind refuses signing locally while retaining the original execution; it does not erase `Valid`. A matching verified PrepareQC and retransmission of an already persisted successful signature are exempt. Commit votes are not guarded directly: `try_commit` Commit-votes a PrepareQC of the current view without executing, and the bound reaches every CommitQC through that PrepareQC. |
 | CT2 | **Scope.** The apply and replay path of CommitQC-certified blocks never consults the clock. Genesis keeps its existing wall-clock check. |
 | CT3 | **Builder pacing.** The payload builder MUST NOT include a transaction with `creation_time_ms > local_wall_ms`. A fresh full-State proposal chooses `max(captured local_wall_ms, required time floor)` and MUST NOT publish while its original timestamp, including lane merge floors, exceeds `local_wall_ms`; it waits instead. Routing-lane batches keep their anchor/input-derived time rule. |
 | CT4 | **Bound.** `max_clock_drift_ms` is a committed chain parameter (`SumeragiParameters`), not a node-local setting, so every honest voter's guard uses the same value. Genesis validation and `validate_parameter_change` MUST enforce `max_clock_drift_ms ≤ MAX_CLOCK_DRIFT_BOUND_MS = 60 000`. |
-| CT5 | **Stale due work** (global executor). An uncertified candidate that applies time-sensitive effects MUST defer while `local_wall_ms − t(block) > sumeragi.due_work_max_lag_ms`: before returning a successful execution and again before the first Prepare signature. The native owner currently recognizes Global AMX Begin and Decision writes, including indirect execution and finalizers; a partial Yes that creates no Decision is outside this rule. Governance and SCCP classification, including `specs/sccp.md` §4.7.4 K2, remains required. Refusal is local (`Failed(StaleDueWork)` or typed signing refusal), never `Invalid`, never on certified apply or replay. `SumeragiParameters::due_work_max_lag_ms` is committed, defaults to 60 000, and MUST be at least `2·max_clock_drift_ms + 4·block_cadence_ms` with checked arithmetic. A fresh proposal can authenticate a later time without replacing its signed inputs. |
+| CT5 | **Stale due work** (global executor). An uncertified candidate that applies time-sensitive effects MUST defer while `local_wall_ms − t(block) > sumeragi.due_work_max_lag_ms`: before returning a successful execution and again before the first Prepare signature. The native owner recognizes original-parent bounded governance/SCCP due-work observations, including `specs/sccp.md` §4.7.4 K2, and Global AMX Begin and Decision writes, including indirect execution and finalizers; a partial Yes that creates no Decision is outside this rule. Complete Parliament scheduling remains owned by its authoritative producer. Refusal is local (`Failed(StaleDueWork)` or typed signing refusal), never `Invalid`, never on certified apply or replay. `SumeragiParameters::due_work_max_lag_ms` is committed, defaults to 60 000, and MUST be at least `2·max_clock_drift_ms + 4·block_cadence_ms` with checked arithmetic. A fresh proposal can authenticate a later time without replacing its signed inputs. |
 
 **Clock-drift parameter ownership.** `max_clock_drift_ms` belongs to the application State;
 it is absent from the lag-two `ChainParamsRecord`. The guard for height `h` reads the committed
@@ -950,6 +950,18 @@ Global merge still enforces monetary expiry and duplicate
 validity. A local clock regression withholds the retained output until the boundary recovers,
 without changing its canonical bytes or any validity result.
 
+**First-proposal ownership.** `BuiltPayload` carries the original paid application bytes and
+source-bound `ProposalAdmission` through control-witness construction and asynchronous RS16
+authoring. At the actual first proposal signature, the retained owner compares that original
+timestamp with the current injected wall clock; a backstep withholds publication without
+re-encoding, restamping or replacing the source. Repeated builder and original-body recovery
+requests lend the same charged admission owner. A builder whose input custody retired during
+encoding retries selection instead of publishing that retired work. An unsigned durable
+proposal reservation reacquires admission from its exact original available body, preserving
+the request identity while its worker remains pending. Successful proposal signatures are
+persisted before publication and authenticated on restore; their exact bytes may be re-sent.
+A genuinely matching PrepareQC held by Core exempts certified re-proposals (§6.10).
+
 **Verification.** Full-State CT1 and certified-flag forwarding have Core controls HC257/HC258
 (SC5 and the CT1 portion of SC17). Global CT3 input and canonical publication pacing have
 HC259/HC260 controls, including original retained output and certified lane floors (SC6).
@@ -957,6 +969,12 @@ Routing-lane CT1 and effective builder pacing have HC268/HC269 controls; future-
 retry is HC264. Native CT5 due-work refusal and its certified exemption have HC281/HC282
 controls (SC12/SC17); HC334 checks completion resampling, and HC334–HC337 cover the
 source-bound native admission through encoding, cached execution and first signing.
+HC353/HC354 cover full-State and lane CT1 after an execution-to-signing clock rewind;
+MS74 covers the simulator's corresponding retained result and original drift. HC355 covers
+fresh proposal progress at its captured timestamp; HC356 covers Global and lane proposal
+admission after worker and restart waits. MS75–MS79 cover the first-signature boundary,
+durable successful signatures, authenticated restore, certification and stable recovery requests;
+HC357/HC358 cover native recovery source identity and terminal-error propagation.
 Their current-candidate strict mutation and network qualification remain required. The machine's
 emission of `certified` is MS51, killed by `det_s51_execute_certified_flag` and
 `f33_hidden_prepareqc_due_work_block_commits_after_lag`. The deterministic simulator models CT1
@@ -1621,10 +1639,16 @@ A leader proposes only nonempty work. Eligibility still requires being `L(h, v)`
 key, `timeout_view < v`, and no proposal recorded at `(h, v)`.
 
 0. **Never regenerate.** After restart, re-send the exact recorded valid proposal and its
-   attachments once the body is available. Never build a second proposal in that view.
+   attachments once the body is available, reusing its authenticated `proposal_signature`.
+   An unsigned reservation instead requests `RecoverProposalAdmission` for that exact
+   `AvailableBody` and waits for the matching request completion; the driver owns transient
+   retries. Each first-signature attempt checks the recovered source-bound owner unless a
+   genuine matching PrepareQC exempts it. Never build a second proposal in that view.
 1. **Build.** At view 0 request work at `t_propose = t_enter + pace`. At every later view, if the
    TC has no PrepareQC, request fresh work immediately. Each request has a new `req` and a
-   `build_timeout`; only the matching outstanding answer can be used.
+   `build_timeout`; only the matching outstanding answer can be used. A nonempty
+   `BuiltPayload` carries the original paid `PayloadBytes` and `ProposalAdmission` through
+   control-witness acquisition and RS16 authoring.
 2. **No empty fallback.** An empty answer, missed build deadline or oversized payload never
    creates a block. Wait until `now + payload_retry_interval`, or until `PayloadReady{req}`
    announces new work, then request a new build. Remember readiness that arrives before its
@@ -1646,9 +1670,11 @@ key, `timeout_view < v`, and no proposal recorded at `(h, v)`.
    that template, the exact config and original funded payload. The worker completes canonical
    encoding and original signatures; Core accepts `PayloadAuthored` only for that request,
    header (apart from its computed availability digest), complete source and original pool.
-   It then stores the body and signs the round proposal behind the existing durability barrier.
-   A re-proposal keeps `Q`'s header unchanged. Store the body, persist the exact proposal record, sign and
-   broadcast it under the existing persist-before-send barrier, then accept it locally.
+   It then stores the body and persists the exact unsigned proposal reservation. Immediately
+   before a fresh first signature, `sign_proposal` checks the original application admission;
+   refusal retains the same body and owner. Persist the successful signature before broadcasting
+   or accepting the proposal locally, under the existing durability barrier. A certified
+   re-proposal keeps `Q`'s header unchanged and is exempt from the fresh proposal clock check.
 
 The leader does not wait for its own execution or parent apply to request work. A builder that
 must wait for apply supplies `PayloadReady` when work becomes includable. Retired heartbeat and
@@ -1903,6 +1929,7 @@ struct SafetyRecord {
     height: u64,                                     // round height the record describes
     parent_commit_qc: Option<Qc>,                    // CommitQC of height − 1 (None at g + 1)
     proposal: Option<(u64, Hash32, Option<TimeoutCert>)>, // (view, bh, justify) of the last proposal reserved for signing
+    proposal_signature: Option<Signature>,           // exact successful signature; None for an unsigned reservation
     prepare: Option<(u64, Hash32, Hash32)>,    // (view, bh, R) of the last Prepare reserved for signing
     prepare_signature: Option<Signature>,            // exact successful signature; None for an unsigned reservation
     timeout: Option<(u64, Option<Qc>)>,              // (view, exact PrepareQC carried) of the last timeout reserved for signing
@@ -1927,6 +1954,13 @@ must authenticate the next epoch before any retained reservation is restored or 
 bounded by the envelope and certificate limits. Nothing else is persisted by the core; the block
 bodies it relies on are written by the driver on `StoreBody`.
 Votes, pools, pacemaker level and routing stage are re-derived or re-fetched.
+
+`proposal_signature` is a mandatory current-layout field. `Some(signature)` requires the
+matching proposal reservation and verifies under the retained key over its exact instance,
+epoch, height, view, block hash and attachment digest. Restore authenticates the signature,
+not merely the envelope checksum. `None` preserves the reservation and requires original-body
+admission recovery before first signing, except for a genuine matching PrepareQC. Successful
+proposal bytes are persisted before publication and reused exactly on retry and restart.
 
 `prepare_signature` is a mandatory current-layout field. `Some(signature)` requires a
 matching `prepare` and must verify under the retained key over the exact instance, epoch,
@@ -2875,6 +2909,7 @@ pub enum AppliedConfig {
 }
 pub struct ApplicationControlContext { instance: Hash32, epoch: EpochId, height: u64, parent_hash: Hash32, parent_result: Hash32 }
 pub struct ControlWitnessContext { height: u64, view: u64, epoch: EpochId, parent_hash: Hash32, parent_result: Hash32 }
+pub struct BuiltPayload { payload: PayloadBytes, admission: ProposalAdmission }
 pub enum Event {
     Tick,
     Message {
@@ -2883,11 +2918,15 @@ pub enum Event {
     },
     PayloadBuilt {
         req: u64,
-        payload: Option<PayloadBytes>,
+        payload: Option<BuiltPayload>,
     },
     PayloadAuthored {
         req: u64,
         body: AvailableBody,
+    },
+    ProposalAdmissionRecovered {
+        req: u64,
+        admission: Option<ProposalAdmission>,
     },
     ControlWitnessBuilt {
         req: u64,
@@ -2963,6 +3002,10 @@ pub enum Action {
         header: BlockHeader,
         payload: PayloadBytes,
     },
+    RecoverProposalAdmission {
+        req: u64,
+        body: AvailableBody,
+    },
     AcquirePayload {
         source: AvailabilitySource,
         manifest: crate::message::PayloadManifest,
@@ -3018,6 +3061,8 @@ pub trait Signer: Send + Sync {
     fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError>;
     fn sign_prepare(&self, request: &PrepareSigningRequest, admission: &ExecutionAdmission)
         -> Result<Signature, SigningError>;
+    fn sign_proposal(&self, request: &ProposalSigningRequest, admission: &ProposalAdmission)
+        -> Result<Signature, SigningError>;
 } // deterministic; SigningError is owned by iroha_sumeragi, independent of the backend
 pub trait Crypto {                                  // pure; BLS in production, fake in the simulator
     fn hash_chunks(&self, chunks: &[&[u8]]) -> Hash32; // required; exact concatenation without bulk copy
@@ -3031,12 +3076,16 @@ pub trait Crypto {                                  // pure; BLS in production, 
 `Signer::sign` runs inside `handle` and MUST be local and non-blocking (an in-memory key or a
 local device with bounded latency); a remote signer would block the core and its timers. It MUST
 be deterministic (same key and preimage → same bytes; BLS signatures are): the core re-creates
-recorded proposals, Commits and timeouts after a restart by signing their recorded preimages
-again (§6.10 rule 0, §7.4). Prepare instead reuses its exact stored successful signature.
+recorded Commits and timeouts after a restart by signing their recorded preimages again.
+Proposals and Prepares reuse their exact authenticated stored successful signatures
+(§6.10 rule 0, §7.4); unsigned reservations retain their application-admission requirement.
 `sign_prepare` checks the source-bound application admission immediately before calling the
 backend, then derives the canonical Prepare preimage from the private core-owned request;
 it cannot sign an unrelated supplied preimage. Local admission and backend refusals neither
 publish nor pool a vote. An unsigned reservation retries the check after a backend refusal.
+The default `sign_proposal` likewise checks the original source and clock admission before
+the backend, deriving the canonical preimage from the private core-owned request. A delayed
+authoring completion or signing refusal cannot exempt a fresh first proposal signature.
 Signers are shared as immutable `Arc<dyn Signer>` between Core and the bounded author worker.
 Availability signatures are made outside `handle` after exact request/config validation; ordinary
 consensus signatures retain the local bounded-latency requirement above. Payload hashing uses
@@ -3516,7 +3565,7 @@ consensus metadata counts alone are not evidence of those costs or of live settl
 | O-HALT | No honest halt, except at a node where the scenario injected record corruption or a divergent executor. |
 | O-EVID | Evidence soundness: honest nodes never report evidence against honest nodes. |
 | O-FAULT | Local-fault soundness: an honest node emits `LocalFault(ExecutorFailed)` or `LocalFault(ExecutionMismatch)` only where the scenario injected executor failures or divergence; cancelled, discarded or evicted executions never surface as faults, `Failed` or `ApplyDiverged`. |
-| O-TIME | (F39 and the clock-guard tests, §4.5) At the first honest commit of a block that carries a block time `t`, `t` is at most the smallest honest wall clock plus `2·max_clock_drift_ms`. At the first genuine honest Prepare of a due-work block, `t` is at least that signer's wall clock minus `gov.due_work_max_lag_ms`; later certified re-proposals and commits may be arbitrarily late. |
+| O-TIME | (F39 and the clock-guard tests, §4.5) At the first honest commit of a block that carries a block time `t`, `t` is at most the smallest honest wall clock plus `2·max_clock_drift_ms`. At the first genuine honest Prepare of a due-work block, `t` is at least that signer's wall clock minus `sumeragi.due_work_max_lag_ms`; later certified re-proposals and commits may be arbitrarily late. |
 | O-AMX | (F31) Over every instance's committed reference chain: at most one `Begin`, one `Decision` and, per participant, one `Prepared` and one settlement per transaction (idempotence); `G` records `Commit` only at a height `≤ d` with a committed `Yes` from every participant, `Abort` before `d + 1` only on a committed `No`, and decides every transaction by `d + 1`; a participant applies a `Yes` escrow only on `G`'s `Commit` and releases it only on `G`'s `Abort` (an escrow leaves only through a settlement), and its ledger moves only by its escrows and settlements (atomicity); every transaction `G` decided at least the settle window (20 s) before the end is settled by every participant by the end. Non-blocking is O-LIVE, which exempts only the stalled instance. |
 
 ### 13.3 Fault scenarios (each over `n ∈ {1, 4, 5, 7, 22}` where meaningful)
@@ -3707,6 +3756,12 @@ Detection needs targeted adversaries: random faults alone did not kill the TC-ru
 | MS71 | first Prepare signs without consulting its original application admission | `det_ct5_cached_execution_waits_for_stage_and_checks_actual_first_signing_time`, `det_ct5_world_retained_execution_rechecks_clock_at_first_prepare` | — | Cached Valid cannot bypass first-Prepare freshness after stage delay; a retained World result must not sign after its actual wall clock advances. |
 | MS72 | restore synthesizes a successful signature from an unsigned Prepare reservation | `det_ct5_unsigned_prepare_reservation_restart_never_synthesizes_first_signature` | — | a durable unsigned reservation cannot synthesize a first Prepare without fresh source-bound execution or a genuine matching PQC. |
 | MS73 | restore accepts a checksummed fabricated successful Prepare signature | `det_ct5_successful_prepare_signature_is_exact_durable_and_authenticated_on_restart` | — | a checksummed fabricated successful signature is not restart authority. |
+| MS74 | Omit CT1 at first Prepare after retained execution | `det_ct1_world_retained_execution_rechecks_rewind_before_first_prepare` | — | A wall-clock rewind beyond the original drift refuses the first signature, retaining the exact result and original allowance. Exact certified results remain exempt. |
+| MS75 | Omit original proposal admission at a delayed first signature | `det_ct3_proposal_signing_rechecks_original_clock_after_backend_refusal` | — | A delayed first proposal signature checks the original timestamp against the current wall clock. |
+| MS76 | Publish a successful proposal signature before persistence | `det_ct3_successful_proposal_signature_is_durable_before_publication` | — | The exact successful signature becomes durable before any proposal publication. |
+| MS77 | Restore a checksummed fabricated successful proposal signature | `det_ct3_restore_authenticates_stored_successful_proposal_signature` | — | Checksums alone never authenticate a stored successful signature; a forged signature refuses restore. |
+| MS78 | Sign an unsigned proposal reservation without original admission recovery | `det_ct3_unsigned_proposal_restart_recovers_original_admission_before_signing` | — | An unsigned reservation reacquires admission from its exact original body before first signing; stored successful signatures and genuine matching certificates retain their exemptions. |
+| MS79 | Replace a live original-body recovery request on cadence ticks | `det_ct3_unsigned_proposal_restart_recovers_original_admission_before_signing` | — | The pending request identity survives cadence ticks while its worker remains live; transient retry belongs to the driver, so consistently slow recovery cannot be starved by request replacement. |
 | MS64 | Parent-only R5 recommit waits for the successor authority that applying the parent activates | `det_s64_recommit_parent_only_record_authenticates_boundary_before_resuming`, `det_s33_key_rotation_restart`: independently verify the parent CommitQC, recommit it once, then authenticate and restore the successor key's reservation; retained successor-height QCs/TCs still require their own authenticated authority before any installation | — | O-LIVE, O-CERT |
 | MS65 | Simulated execution and first-Prepare admission omit CT5 | `clock_guard_due_work_lower_bound_at_first_prepare`: a Byzantine voter backdates due-work proposals beyond the allowed lag; the first genuine honest Prepare oracle detects stale acceptance, while the baseline rejects stale proposals and permits honest leaders to progress | F39 | O-TIME |
 | MS66 | Fake driver executor omits CT1's clock-drift allowance | `clock_guard_accepts_exact_drift_allowance`: an honest block exactly one allowed drift ahead of a slow honest voter remains admissible; `clock_guard_liveness_with_f_plus_one_slow_clocks` also exercises this allowance across four- and seven-node worlds | F39 | Direct assertion, O-LIVE |
@@ -4118,6 +4173,14 @@ profile and the same strict named-test, normal-exit and complete-harness require
 | HC335 | reuse cached native Valid without checking the actual wall clock | `ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source` | cached native Valid cannot bypass a fresh local clock check. |
 | HC336 | allow a first-Prepare request to substitute the original native result | `ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source` | a certificate flag cannot substitute another result. |
 | HC337 | omit native first-signing freshness after execution | `ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source`, `sccp_ct5_prepare_signing_resamples_original_after_valid_and_binds_every_coordinate` | native first signing must recheck the actual wall clock after execution. |
+| HC353 | Omit native CT1 at first Prepare after retained execution | `ct1_native_first_prepare_rechecks_original_clock_after_execution`, `prepare_withheld_while_block_time_ahead` | A rewind beyond the committed original parent's drift refuses signing for both ordinary and paid AMX work without replacing the executed state; the inclusive boundary resumes and certification cannot substitute a source. |
+| HC354 | Omit lane CT1 at first Prepare after retained admission | `native_lane_first_prepare_rechecks_pinned_clock_after_execution` | A rewind beyond the pinned lane drift refuses signing; a later policy cannot widen that original allowance, and the same charged admission resumes at equality. |
+| HC355 | Check fresh proposal progress against its input floor instead of captured time | `fresh_proposal_progress_recheck_uses_captured_time_with_original_signed_input` | Progress admission uses the original fresh proposal timestamp and retains the same signed input, including after another clock wait. |
+| HC356 | Omit original native proposal clock admission after worker or restart waits | `native_original_proposal_rechecks_clock_after_worker_wait_and_restart`, `lane_first_proposal_retains_timestamp_admission_through_authoring_and_recovery` | Global and lane first proposal signatures recheck their original timestamps after completed worker custody and restart, retaining the source-bound original bodies. |
+| HC357 | Publish a stale proposal recovery after its original request is replaced | `proposal_recovery_replacement_rejects_stale_worker_and_retains_only_latest_body` | A completion from an earlier original body emits no recovered admission for the latest request; bounded replacement retains only the latest body. |
+| HC358 | Discard a terminal proposal recovery failure after request replacement | `proposal_recovery_terminal_original_propagates_even_after_request_replacement` | Both original typed recovery refusals and terminal worker failures propagate with their original height and stop retry, even after a different body replaces the request. |
+| HC359 | Halt consensus when completed proposal input custody retires before admission | `completed_original_payload_cannot_adopt_clear_and_readmission_during_original_build` | Withdrawal or expiry of the original Queue lease refuses publication with a retryable result; it cannot adopt a readmitted lease or halt consensus. Fresh readmitted work acquires and then reuses its own paid admission. |
+| HC360 | Retain a discarded original proposal recovery through its decode refund | `proposal_recovery_discard_retires_original_waiter_before_decode_refund` | Discard retires only the matching original pending recovery, waiter and running request before decode custody is refunded. A refund cannot redispatch the discarded body, while kept-body work remains usable and terminal original failures still propagate. |
 | HC271 | Begin delivery skips the original successful-input and namespace join after Prepare admission | `native_amx_begin_delivery_final_namespace_refusal_preserves_original_instruction` | Genuine paid Global Begin execution and native replay retain the original signed input. Replacing its archive namespace after the Prepare proof and fields are admitted must refuse delivery without releasing or replacing them; restoring the original namespace resumes the same proof and transaction pointers with exact final refund. |
 | HC272 | State publication makes actual effect-index contention irreversible before visibility | `actual_state_effect_reader_refusal_retains_original_and_retries_after_release`, `actual_state_effect_writer_refusal_retains_original_and_retries_after_release`, `signed_lifecycle_index_refusal_precedes_geometry_and_replays_final_cursor_journal` | A real last-index reader or writer must return its exact original wait before visibility. Three attempts retain the same publisher, prepared effects, staged rows and pool while releasing all sibling writers. Releasing only the blocker wakes the original wait, then that same owner publishes once; a completed retry cannot duplicate the State generation. An authenticated signed lifecycle also leaves physical geometry untouched on refusal, then persists the final cursor journal and converges through original certified-frame replay. |
 | HC273 | Lifecycle preflight discards its original manifest writer refusal | `signed_lifecycle_manifest_writer_refusal_retains_preflight_and_original_retry` | Each original manifest read preserves its error precedence and returns the actual local writer refusal before geometry. Repeated refusals release the publication fences and retain the same signed lifecycle owner; releasing that writer lets the original carrier publish once with its final durable cursor journal. |

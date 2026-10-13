@@ -1,0 +1,80 @@
+{
+  "audited_repository_read_paths": [
+    "crates/iroha_core/src/state.rs",
+    "crates/iroha_core/src/state/canonical_runtime.rs",
+    "crates/iroha_core/src/state/canonical_runtime/acquisition.rs",
+    "crates/iroha_core/src/state/da_hydration.rs",
+    "crates/iroha_core/src/state/state_block_construction.rs",
+    "pytest.ini",
+    "scripts/formal/check_sora_parliament_source_contract.py",
+    "scripts/formal/rust_text.py",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "scripts/tests/conftest.py"
+  ],
+  "command": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "docs/validation/parliament_ballot_construction_guard/construction-controls.py.template",
+    "construction_rust_item or construction_guard or shared_start_construction or start_construction_keeps_original or block_start_phase_helpers_preserve_original_order_and_custody or block_start_phase_call_order_baseline_and_mandatory_construction"
+  ],
+  "environment": {
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"
+  },
+  "exit": 0,
+  "log": "docs/validation/parliament_ballot_construction_guard/construction-controls.txt",
+  "log_sha256": "e0c049d538b1123199bf8af9c1d5413d9d36a3972b84dbddfdcef59b9bc7d561",
+  "observed_at_utc": "2026-10-13T13:45:15.516277+00:00",
+  "observed_read_count": 11,
+  "passed": 121,
+  "profile_qualified": false,
+  "pytest_arguments": [
+    "--import-mode=importlib",
+    "--import-mode=importlib",
+    "-q",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "-k",
+    "construction_rust_item or construction_guard or shared_start_construction or start_construction_keeps_original or block_start_phase_helpers_preserve_original_order_and_custody or block_start_phase_call_order_baseline_and_mandatory_construction"
+  ],
+  "pytest_version": "9.1.1",
+  "read_scope": "Repository source/data/config reads; Python bytecode caches and generated evidence outputs excluded. Installed interpreter/pytest runtime trusted.",
+  "repository_imports": {
+    "__main__": "docs/validation/parliament_ballot_construction_guard/construction-controls.py.template",
+    "scripts.formal.check_sora_parliament_source_contract": "scripts/formal/check_sora_parliament_source_contract.py",
+    "scripts.tests.check_sora_parliament_source_contract_test": "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "scripts.tests.conftest": "scripts/tests/conftest.py"
+  },
+  "runtime": {
+    "installed_runtime_trusted": true,
+    "python_executable": "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "python_executable_sha256": "1b5cb11d163e5ba34e2a05fc533c0ed89574d4425f9749a9d89405f651980e0d",
+    "python_version": "3.14.8 (main, Sep 30 2026, 17:55:09) [Clang 21.0.0 (clang-2100.3.34.2)]"
+  },
+  "schema": "parliament-construction-controls-v1",
+  "scope": "One hundred twenty-one focused Python structural controls on the current construction/ownership boundary, including the mandatory construction sentinel. Prior queue/Kura and phase-call helpers are unchanged. Exact paired cfg custody, original writer transfer, refund/notice order and unconditional module/item owners are bound; no full Rust or concurrency qualification follows.",
+  "source_after": {
+    "crates/iroha_core/src/state.rs": "a0771a785a8cd3a2606e63626b0ba542e82e2ae183826434de592dfa417a3d2c",
+    "crates/iroha_core/src/state/canonical_runtime.rs": "188c377a8d0db08d4709e825f5ccdeccadba07b59a545fbc5c75a509a93cfcbc",
+    "crates/iroha_core/src/state/canonical_runtime/acquisition.rs": "8594861a21d315407e2d607ed19ba3db5190573166e9699cb9d4f9a7a5f84407",
+    "crates/iroha_core/src/state/da_hydration.rs": "db03ce97fd474d499a7dca72706c1b601c286b2c592797915fa2caca637cfd42",
+    "crates/iroha_core/src/state/state_block_construction.rs": "f845c8ac1597009a5ff73ceb62fed57bb34d55a9c3ebff6026059b4b4b996ac0",
+    "docs/validation/parliament_ballot_construction_guard/construction-controls.py.template": "05e0cce0f1e9ab50bd063e26389af94c9cfd0aee4604bf6fe0a33520d9a13510",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/formal/check_sora_parliament_source_contract.py": "c180d0fed3c37bcc1cc85f32ffdc839e683e4dd6fc9045d79eaa5012836b05fb",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "9bde961349a97daab258b433cc5137df90b26899074ff97011717e087678fb15",
+    "scripts/tests/conftest.py": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f"
+  },
+  "source_before": {
+    "crates/iroha_core/src/state.rs": "a0771a785a8cd3a2606e63626b0ba542e82e2ae183826434de592dfa417a3d2c",
+    "crates/iroha_core/src/state/canonical_runtime.rs": "188c377a8d0db08d4709e825f5ccdeccadba07b59a545fbc5c75a509a93cfcbc",
+    "crates/iroha_core/src/state/canonical_runtime/acquisition.rs": "8594861a21d315407e2d607ed19ba3db5190573166e9699cb9d4f9a7a5f84407",
+    "crates/iroha_core/src/state/da_hydration.rs": "db03ce97fd474d499a7dca72706c1b601c286b2c592797915fa2caca637cfd42",
+    "crates/iroha_core/src/state/state_block_construction.rs": "f845c8ac1597009a5ff73ceb62fed57bb34d55a9c3ebff6026059b4b4b996ac0",
+    "docs/validation/parliament_ballot_construction_guard/construction-controls.py.template": "05e0cce0f1e9ab50bd063e26389af94c9cfd0aee4604bf6fe0a33520d9a13510",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/formal/check_sora_parliament_source_contract.py": "c180d0fed3c37bcc1cc85f32ffdc839e683e4dd6fc9045d79eaa5012836b05fb",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "9bde961349a97daab258b433cc5137df90b26899074ff97011717e087678fb15",
+    "scripts/tests/conftest.py": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f"
+  },
+  "source_unchanged": true
+}

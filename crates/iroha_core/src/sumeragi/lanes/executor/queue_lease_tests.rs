@@ -85,8 +85,10 @@ impl Fixture {
         // Queue residence and proposer pacing observe the same injected local clock.
         let queue_clock = lane_clock.clone();
         let queue_time = lane_time.clone();
-        let mut configuration = iroha_config::parameters::actual::Queue::default();
-        configuration.transaction_time_to_live = Duration::from_secs(3);
+        let configuration = iroha_config::parameters::actual::Queue {
+            transaction_time_to_live: Duration::from_secs(3),
+            ..iroha_config::parameters::actual::Queue::default()
+        };
         let queue = Arc::new(Queue::test(configuration, &queue_time));
         let signed = chain.sign(
             &key,
@@ -166,15 +168,18 @@ fn lane_original_queue_lease_survives_unrelated_admissions_without_recapture() {
             "unrelated Queue admissions must not retire the original completed lane payload",
         );
         assert_eq!(
-            retained.as_slice().as_ptr(),
-            original.as_slice().as_ptr(),
+            retained.payload.as_slice().as_ptr(),
+            original.payload.as_slice().as_ptr(),
             "unrelated Queue admissions must not replace the original completed lane payload"
         );
-        assert_eq!(retained.as_slice(), original.as_slice());
+        assert_eq!(retained.payload.as_slice(), original.payload.as_slice());
         assert_eq!(fixture.lane.budget.reserved_bytes(), funded);
         assert_eq!(fixture.queue.remove_committed_hashes([hash], None), 1);
         let retained = fixture.lane.build(1, 0, 1 << 20, 1_000).unwrap().unwrap();
-        assert_eq!(retained.as_slice().as_ptr(), original.as_slice().as_ptr());
+        assert_eq!(
+            retained.payload.as_slice().as_ptr(),
+            original.payload.as_slice().as_ptr()
+        );
     }
     fixture.queue.clear_all();
     fixture
@@ -182,10 +187,10 @@ fn lane_original_queue_lease_survives_unrelated_admissions_without_recapture() {
         .push(fixture.accepted.clone(), fixture.chain.state().view())
         .unwrap();
     let replacement = fixture.lane.build(1, 0, 1 << 20, 1_000).unwrap().unwrap();
-    assert_eq!(replacement.as_slice(), original.as_slice());
+    assert_eq!(replacement.payload.as_slice(), original.payload.as_slice());
     assert_ne!(
-        replacement.as_slice().as_ptr(),
-        original.as_slice().as_ptr()
+        replacement.payload.as_slice().as_ptr(),
+        original.payload.as_slice().as_ptr()
     );
 }
 
@@ -211,7 +216,10 @@ fn lane_original_queue_lease_survives_unrelated_admission_during_actual_encoding
     let original = result.unwrap().unwrap();
     assert_eq!(fixture.queue.queued_len(), 2);
     let retained = fixture.lane.build(1, 0, 1 << 20, 1_000).unwrap().unwrap();
-    assert_eq!(retained.as_slice().as_ptr(), original.as_slice().as_ptr());
+    assert_eq!(
+        retained.payload.as_slice().as_ptr(),
+        original.as_slice().as_ptr()
+    );
 }
 
 #[test]
@@ -308,7 +316,10 @@ fn lane_original_queue_lease_preserves_same_output_across_clock_rewind_and_retir
     assert_eq!(fixture.lane.budget.reserved_bytes(), reserved);
     fixture.lane_clock.advance(Duration::from_millis(1));
     let retried = fixture.lane.build(1, 0, 1 << 20, 1_000).unwrap().unwrap();
-    assert_eq!(original.as_slice().as_ptr(), retried.as_slice().as_ptr());
+    assert_eq!(
+        original.payload.as_slice().as_ptr(),
+        retried.payload.as_slice().as_ptr()
+    );
     let lease = &fixture.lane.payload_build.as_ref().unwrap().lease;
     assert!(
         fixture
@@ -332,10 +343,10 @@ fn lane_original_queue_lease_preserves_same_output_across_clock_rewind_and_retir
         "same-hash readmission must not revive the retained lane Queue lease"
     );
     let replacement = fixture.lane.build(1, 0, 1 << 20, 1_000).unwrap().unwrap();
-    assert_eq!(original.as_slice(), replacement.as_slice());
+    assert_eq!(original.payload.as_slice(), replacement.payload.as_slice());
     assert_ne!(
-        original.as_slice().as_ptr(),
-        replacement.as_slice().as_ptr()
+        original.payload.as_slice().as_ptr(),
+        replacement.payload.as_slice().as_ptr()
     );
 }
 
@@ -391,7 +402,7 @@ fn lane_original_queue_lease_preserves_sealed_carriers_and_retires_readmission()
         fixture.wait_for_clock();
         fixture.lane_clock.set(Duration::from_millis(5_000));
         let original = fixture.lane.build(1, 0, 1 << 20, 1_000).unwrap().unwrap();
-        let batch = LaneBatch::from_payload(original.as_slice()).unwrap();
+        let batch = LaneBatch::from_payload(original.payload.as_slice()).unwrap();
         assert_eq!(batch.transactions, vec![carrier]);
 
         fixture.queue.clear_all();
@@ -404,10 +415,10 @@ fn lane_original_queue_lease_preserves_sealed_carriers_and_retires_readmission()
             "same sealed carrier readmission must not revive its original Queue lease"
         );
         let replacement = fixture.lane.build(1, 0, 1 << 20, 1_000).unwrap().unwrap();
-        assert_eq!(replacement.as_slice(), original.as_slice());
+        assert_eq!(replacement.payload.as_slice(), original.payload.as_slice());
         assert_ne!(
-            replacement.as_slice().as_ptr(),
-            original.as_slice().as_ptr()
+            replacement.payload.as_slice().as_ptr(),
+            original.payload.as_slice().as_ptr()
         );
     }
 }

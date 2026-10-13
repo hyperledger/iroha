@@ -1,0 +1,53 @@
+"""Capture the focused queue-guard controls with exact before/after sources."""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+import subprocess
+import sys
+
+root = Path.cwd()
+folder = root / "docs/validation/parliament_ballot_b6"
+receipt = folder / "queue-signed-gas-controls.json"
+log = folder / "queue-signed-gas-controls.txt"
+if receipt.exists() or log.exists():
+    raise RuntimeError("refuse overwriting queue controls")
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+names = [
+    "scripts/formal/check_sora_parliament_source_contract.py",
+    "scripts/formal/rust_text.py",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "crates/iroha_data_model/src/transaction/executable.rs",
+    "crates/iroha_core/src/queue.rs",
+    str(Path(__file__).resolve().relative_to(root)),
+]
+before = {name: sha(root / name) for name in names}
+command = [sys.executable, "-m", "pytest", "-q",
+           "scripts/tests/check_sora_parliament_source_contract_test.py",
+           "-k", "queue_signed_proposal_gas"]
+run = subprocess.run(command, cwd=root, capture_output=True, text=True, check=False)
+log.write_text(run.stdout + run.stderr)
+after = {name: sha(root / name) for name in names}
+value = {
+    "schema": "parliament-queue-signed-gas-controls-v1",
+    "observed_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "command": command, "exit": run.returncode,
+    "log": str(log.relative_to(root)), "log_sha256": sha(log),
+    "source_before": before, "source_after": after,
+    "source_unchanged": before == after,
+    "expected_test_count": 36,
+    "expected_summary_present": "36 passed" in run.stdout,
+    "full_source_contract_passed": False,
+    "profile_qualified": False,
+    "scope": "Focused conservative structural guard tests; no Rust semantic proof, runtime change, or qualification claim.",
+}
+receipt.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+if run.returncode or before != after or not value["expected_summary_present"]:
+    raise RuntimeError("queue controls failed or source changed; raw evidence retained")
+print(json.dumps({"receipt_sha256": sha(receipt), "exit": run.returncode,
+                  "source_count": len(names), "test_count": 36}))

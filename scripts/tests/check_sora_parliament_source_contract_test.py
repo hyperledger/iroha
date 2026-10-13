@@ -95,6 +95,277 @@ def test_complete_source_contract_baseline() -> None:
     assert guard.main() == 0
 
 
+QUEUE_GAS_PATHS = (
+    "crates/iroha_data_model/src/transaction/executable.rs",
+    "crates/iroha_core/src/queue.rs",
+)
+GAS_CLASSIFIER = "pub fn requires_transaction_gas_limit("
+GAS_PARSE = "pub const fn parse_transaction_gas_limit("
+GAS_REQUIRE = "pub const fn require_transaction_gas_limit("
+GAS_SIGNED_QUOTE = "fn signed_executable_proposal_gas_cost("
+GAS_ENTRYPOINT = "pub(crate) fn compute_proposal_gas_cost("
+GAS_ADMISSION = "fn prepare_checked_for_enqueue<C: QueueAdmissionStateAccess>("
+
+
+def test_queue_signed_proposal_gas_baseline_and_entrypoint() -> None:
+    """The current signed quote owner replaces a retired telemetry-only binding."""
+    guard.require_queue_signed_proposal_gas(*(guard.read(path) for path in QUEUE_GAS_PATHS))
+    body = ast.parse(inspect.getsource(guard.main))
+    calls = [node for node in ast.walk(body) if isinstance(node, ast.Call)
+             and isinstance(node.func, ast.Name)
+             and node.func.id == "require_queue_signed_proposal_gas"]
+    assert len(calls) == 1
+    assert len(calls[0].args) == 2
+    assert isinstance(calls[0].args[0], ast.Name)
+    assert calls[0].args[0].id == "ivm_executable"
+    assert ast.literal_eval(calls[0].args[1].args[0]) == QUEUE_GAS_PATHS[1]
+
+
+@pytest.mark.parametrize("owner,declaration,original,replacement", (
+    (0, GAS_CLASSIFIER, " | Self::IvmProved(_)", ""),
+    (0, GAS_CLASSIFIER, "Self::IvmProved(_) => true", "Self::IvmProved(_) => false"),
+    (0, GAS_CLASSIFIER, "match self {", "return false; match self {"),
+    (0, GAS_CLASSIFIER, "&self) -> bool", "&mut self) -> bool"),
+    (0, GAS_CLASSIFIER, ".any(|item| matches!(item, ExecutableBatchItem::ContractCall(_)))", ".any(|_| false)"),
+    (0, GAS_PARSE, "Some(limit.get())", "Some(0)"),
+    (0, GAS_PARSE, "None => None", "None => Some(0)"),
+    (0, GAS_REQUIRE, "None => Err(TransactionGasLimitError::Missing)", "None => Ok(0)"),
+    (0, GAS_REQUIRE, "parse_transaction_gas_limit(fee_payment)", "Some(1)"),
+    (1, GAS_SIGNED_QUOTE, "if executable.requires_transaction_gas_limit()", "if false"),
+    (1, GAS_SIGNED_QUOTE, "signed.fee_payment_intent()", "other.fee_payment_intent()"),
+    (1, GAS_SIGNED_QUOTE, "signed: &iroha_data_model::transaction::SignedTransaction", "signed: &mut iroha_data_model::transaction::SignedTransaction"),
+    (1, GAS_SIGNED_QUOTE, "return iroha_data_model::transaction::require_transaction_gas_limit(",
+     "return Ok(0); iroha_data_model::transaction::require_transaction_gas_limit("),
+    (1, GAS_SIGNED_QUOTE, "Err(ProposalGasCostError::MissingSignedGasLimit.into())", "Ok(0)"),
+    (1, GAS_SIGNED_QUOTE, "let executable = signed.instructions();",
+     "let executable = signed.instructions(); if let Executable::IvmProved(proved) = executable {"
+     " return gas::meter_instructions(proved.overlay.as_ref(), zk_gas).map_err(|original|"
+     " crate::execution_attempt::ExecutionAttemptError::Deferred(original.into())); }"),
+    (1, GAS_SIGNED_QUOTE, "gas::meter_instructions(batch.as_ref(), zk_gas)", "Ok(0)"),
+    (1, GAS_SIGNED_QUOTE, "Executable::Instructions(batch) => gas::meter_instructions(batch.as_ref(), zk_gas)\n"
+     "                .map_err(|original| {\n"
+     "                    crate::execution_attempt::ExecutionAttemptError::Deferred(original.into())",
+     "Executable::Instructions(batch) => gas::meter_instructions(batch.as_ref(), zk_gas)\n"
+     "                .map_err(|_original| {\n"
+     "                    crate::execution_attempt::ExecutionAttemptError::Rejected(ProposalGasCostError::MissingSignedGasLimit)"),
+    (1, GAS_ENTRYPOINT, "Self::signed_executable_proposal_gas_cost(signed, zk_gas)", "Ok(0)"),
+    (1, GAS_ENTRYPOINT, "Self::signed_executable_proposal_gas_cost(reveal.signed_transaction(), zk_gas)", "Ok(0)"),
+    (1, GAS_ENTRYPOINT, "gas::meter_sealed_transaction_commitment(tx.encoded_len())", "0"),
+    (1, GAS_ADMISSION, "Self::compute_proposal_gas_cost(checked.as_accepted(), &zk_gas)", "Ok(0)"),
+    (1, GAS_ADMISSION, "})?;\n        let enqueued_at_ms", "}).unwrap_or(0);\n        let enqueued_at_ms"),
+    (1, GAS_ADMISSION, "Error::Deferred(original)\n                    }", "Error::Full\n                    }"),
+    (1, GAS_ADMISSION, "code: FeeRejectionCode::InvalidGasLimit", "code: FeeRejectionCode::Other"),
+    (1, GAS_ADMISSION, "            proposal_gas_cost,\n            enqueued_at_ms,", "            proposal_gas_cost: 0,\n            enqueued_at_ms,"),
+    (1, GAS_ADMISSION, "let pending_teu = proposal_gas_cost;", "let pending_teu = 0;"),
+    (1, GAS_ADMISSION, "checked: CheckedTransaction<'static>", "checked: CheckedTransaction<'_>"),
+    (1, GAS_ADMISSION, '        #[cfg(feature = "telemetry")]\n        let pending_teu', '        #[cfg(any())]\n        let pending_teu'),
+    (1, GAS_ADMISSION, "let enqueued_at_ms =", "let proposal_gas_cost = 0; let enqueued_at_ms ="),
+    (1, GAS_ADMISSION, "validate_current_admission_route(&routing_plan)", "return Ok(other_admission()); validate_current_admission_route(&routing_plan)"),
+))
+def test_queue_signed_proposal_gas_rejects_bypasses(
+    owner: int, declaration: str, original: str, replacement: str,
+) -> None:
+    """No zero quote, foreign fee owner, reveal bypass or swallowed failure passes."""
+    sources = [guard.read(path) for path in QUEUE_GAS_PATHS]
+    path = QUEUE_GAS_PATHS[owner]
+    item = guard.rust_item(sources[owner], declaration, path)
+    assert item.count(original) == 1
+    mutated = item.replace(original, replacement, 1)
+    sources[owner] = sources[owner].replace(item, mutated, 1)
+    # Neither a comment nor a quoted copy of the intact body repairs production.
+    sources[owner] += '\n/* ' + item + ' */\nconst GAS_DECOY: &str = r###"' + item + '"###;\n'
+    with pytest.raises(RuntimeError, match="signed proposal gas"):
+        guard.require_queue_signed_proposal_gas(*sources)
+
+
+@pytest.mark.parametrize("owner,declaration", (
+    (0, GAS_CLASSIFIER), (0, GAS_PARSE), (0, GAS_REQUIRE),
+    (1, GAS_SIGNED_QUOTE), (1, GAS_ENTRYPOINT), (1, GAS_ADMISSION),
+))
+def test_queue_signed_proposal_gas_rejects_disconnected_owners(owner: int, declaration: str) -> None:
+    """Live-looking text cannot substitute for an unconditional production owner."""
+    sources = [guard.read(path) for path in QUEUE_GAS_PATHS]
+    sources[owner] = sources[owner].replace(declaration, "#[cfg(any())]\n" + declaration, 1)
+    with pytest.raises(RuntimeError, match="unconditional"):
+        guard.require_queue_signed_proposal_gas(*sources)
+
+
+def test_queue_signed_proposal_gas_rejects_test_only_owner() -> None:
+    """An intact helper moved to a test module does not provide production charging."""
+    sources = [guard.read(path) for path in QUEUE_GAS_PATHS]
+    item = guard.rust_item(sources[1], GAS_SIGNED_QUOTE, QUEUE_GAS_PATHS[1])
+    sources[1] = sources[1].replace(item, "", 1)
+    sources[1] += "\n#[cfg(test)] mod decoy {\n" + item + "\n}\n"
+    with pytest.raises(RuntimeError, match="unconditional owner"):
+        guard.require_queue_signed_proposal_gas(*sources)
+
+
+def test_queue_signed_proposal_gas_allows_comments_and_spacing() -> None:
+    """Structural checks ignore incidental formatting and retired names in prose."""
+    sources = [guard.read(path) for path in QUEUE_GAS_PATHS]
+    sources[1] = sources[1].replace("return Err(Failure {", "return   /* rejection */ Err(Failure {")
+    sources[0] = sources[0].replace("match self {", "match /* current owner */ self {")
+    guard.require_queue_signed_proposal_gas(*sources)
+
+
+@pytest.mark.parametrize("insertion", (
+    "return Err(Failure { tx: Box::new(checked.as_accepted().clone()), err: Error::Full })"
+    ".or_else(|_| Ok(other_admission()));",
+    """{
+        use std::result::Result::Ok as Err;
+        use PreparedQueueAdmission as ForgedAdmission;
+        let enqueued_at_ms = self.validation_timestamp_ms(checked.as_accepted());
+        return Err(ForgedAdmission {
+            checked, hash, sccp_exempt, routing_decision, routing_plan, encoded_len,
+            proposal_gas_cost: 0, enqueued_at_ms, fee_reservation,
+            #[cfg(feature = "telemetry")] pending_teu: 0,
+        });
+    }""",
+))
+def test_queue_signed_proposal_gas_rejects_recovered_or_shadowed_error(insertion: str) -> None:
+    """An initial Err spelling does not prove that an early return rejects."""
+    sources = [guard.read(path) for path in QUEUE_GAS_PATHS]
+    item = guard.rust_item(sources[1], GAS_ADMISSION, QUEUE_GAS_PATHS[1])
+    anchor = "let zk_gas = state_access.verification_gas();"
+    assert item.count(anchor) == 1
+    sources[1] = sources[1].replace(item, item.replace(anchor, insertion + anchor, 1), 1)
+    with pytest.raises(RuntimeError, match="signed proposal gas admission prefix changed"):
+        guard.require_queue_signed_proposal_gas(*sources)
+
+
+def test_queue_signed_proposal_gas_admission_prefix_preserves_literal_spaces() -> None:
+    """Even spaces inside the reviewed pre-quote error strings remain pinned."""
+    sources = [guard.read(path) for path in QUEUE_GAS_PATHS]
+    item = guard.rust_item(sources[1], GAS_ADMISSION, QUEUE_GAS_PATHS[1])
+    literal = '"no exact lane compliance policy is configured"'
+    assert item.count(literal) == 1
+    sources[1] = sources[1].replace(item, item.replace(literal, literal.replace(" ", "  "), 1), 1)
+    with pytest.raises(RuntimeError, match="signed proposal gas admission prefix changed"):
+        guard.require_queue_signed_proposal_gas(*sources)
+
+
+@pytest.mark.parametrize("literal", (
+    '"has spaces // and /* comments */"', 'b"has spaces"', 'c"has spaces"',
+    'r###"has spaces and "quotes""###', 'br#"has spaces"#', 'cr#"has spaces"#',
+    "' '", "b' '", r"'\u{20}'", r'"escaped \" quote and \\ slash"',
+))
+def test_rust_token_digest_preserves_literals_and_ignores_code_comments(literal: str) -> None:
+    """Exact literal bytes survive masking and token framing, including escapes."""
+    source = "let value = " + literal + ";"
+    spaced = "  let /* nested /* inner */ comment */ value\n= " + literal + " ; // tail\n"
+    assert guard.rust_token_digest(source) == guard.rust_token_digest(spaced)
+    changed = literal.replace(" ", "  ") if " " in literal else literal.replace("20", "21")
+    assert changed != literal
+    assert guard.rust_token_digest(source) != guard.rust_token_digest("let value = " + changed + ";")
+
+
+@pytest.mark.parametrize("left,right", (
+    ("return Err(value);", "returnErr(value);"), ("a && b", "a & & b"),
+    ("a <= b", "a < = b"), ("a :: b", "a : : b"),
+    ("&'static str", "&'other str"), ("r#name", "r # name"),
+))
+def test_rust_token_digest_preserves_token_boundaries(left: str, right: str) -> None:
+    """Ignoring formatting must not merge identifiers or compound operators."""
+    assert guard.rust_token_digest(left) != guard.rust_token_digest(right)
+
+
+@pytest.mark.parametrize("source", ('"unfinished', 'r#"unfinished', 'b"unfinished'))
+def test_rust_token_digest_rejects_unclosed_literals(source: str) -> None:
+    with pytest.raises(RuntimeError, match="unclosed"):
+        guard.rust_token_digest(source)
+
+
+@pytest.mark.parametrize("gap", (" /* valid comment */ ", "\n    ", "\t"))
+def test_queue_signed_proposal_gas_comment_gap_and_disabled_impl_decoy(gap: str) -> None:
+    """The demonstrated live zero-quote plus disabled intact owner must refuse."""
+    sources = [guard.read(path) for path in QUEUE_GAS_PATHS]
+    item = guard.rust_item(sources[1], GAS_SIGNED_QUOTE, QUEUE_GAS_PATHS[1])
+    changed = item[:item.index("{")] + "{ Ok(0) }"
+    changed = changed.replace("signed_executable_proposal_gas_cost(", "signed_executable_proposal_gas_cost" + gap + "(", 1)
+    sources[1] = sources[1].replace(item, changed, 1)
+    sources[1] += "\n#[cfg(any())] impl Queue {\n" + item + "\n}\n"
+    with pytest.raises(RuntimeError, match="one live declaration token owner"):
+        guard.require_queue_signed_proposal_gas(*sources)
+
+
+@pytest.mark.parametrize("owner,declaration,wrapper", (
+    (1, GAS_SIGNED_QUOTE, "impl ForeignQueue {{ {item} }}"),
+    (1, GAS_SIGNED_QUOTE, "impl GasQuote for Queue {{ {item} }}"),
+    (1, GAS_SIGNED_QUOTE, "#[cfg(any())] impl Queue {{ {item} }}"),
+    (1, GAS_SIGNED_QUOTE, "mod disconnected {{ impl Queue {{ {item} }} }}"),
+    (1, GAS_SIGNED_QUOTE, "unused! {{ impl Queue {{ {item} }} }}"),
+    (1, GAS_ADMISSION, "#[cfg(any())] impl Queue {{ {item} }}"),
+    (0, GAS_CLASSIFIER, "impl ForeignExecutable {{ {item} }}"),
+    (0, GAS_CLASSIFIER, "#[cfg(any())] impl Executable {{ {item} }}"),
+    (0, GAS_PARSE, "mod disconnected {{ {item} }}"),
+))
+def test_queue_signed_proposal_gas_rejects_foreign_enclosing_owner(
+    owner: int, declaration: str, wrapper: str,
+) -> None:
+    """A sole intact method in another type, module or disabled impl is no owner."""
+    sources = [guard.read(path) for path in QUEUE_GAS_PATHS]
+    item = guard.rust_item(sources[owner], declaration, QUEUE_GAS_PATHS[owner])
+    sources[owner] = sources[owner].replace(item, "", 1) + "\n" + wrapper.format(item=item)
+    with pytest.raises(RuntimeError, match="unconditional owner"):
+        guard.require_queue_signed_proposal_gas(*sources)
+
+
+@pytest.mark.parametrize("qualifier", ("", "pub ", "async ", "unsafe ", "const ", 'extern "C" ', "default "))
+def test_queue_signed_proposal_gas_raw_identifier_cannot_hide_live_zero_quote(qualifier: str) -> None:
+    """A raw Rust name is either checked or refused, never hidden behind a decoy."""
+    sources = [guard.read(path) for path in QUEUE_GAS_PATHS]
+    item = guard.rust_item(sources[1], GAS_SIGNED_QUOTE, QUEUE_GAS_PATHS[1])
+    changed = (item[:item.index("{")] + "{ Ok(0) }").replace(
+        "fn signed_executable_proposal_gas_cost", "fn r#signed_executable_proposal_gas_cost", 1)
+    sources[1] = sources[1].replace(item, changed, 1)
+    if qualifier:
+        sources[1] += "\nimpl Queue {\n#[cfg(any())] " + qualifier + item + "\n}\n"
+    else:
+        sources[1] += "\n#[cfg(any())] impl Queue {\n" + item + "\n}\n"
+    with pytest.raises(RuntimeError, match="unconditional"):
+        guard.require_queue_signed_proposal_gas(*sources)
+
+
+@pytest.mark.parametrize("wrapper", (
+    "impl Queue {{ #![cfg(any())] const DECOY: () = (); {item} }}",
+    "mod decoy {{ #![cfg(any())] const DECOY: () = (); impl Queue {{ {item} }} }}",
+    "#![cfg(any())]\nconst DECOY: () = (); impl Queue {{ {item} }}",
+))
+def test_queue_signed_proposal_gas_rejects_inner_cfg_after_intervening_item(wrapper: str) -> None:
+    """An inner cfg can disable the entire owner despite an intervening item."""
+    sources = [guard.read(path) for path in QUEUE_GAS_PATHS]
+    item = guard.rust_item(sources[1], GAS_SIGNED_QUOTE, QUEUE_GAS_PATHS[1])
+    changed = (item[:item.index("{")] + "{ Ok(0) }").replace(
+        "fn signed_executable_proposal_gas_cost", "fn r#signed_executable_proposal_gas_cost", 1)
+    sources[1] = sources[1].replace(item, changed, 1) + "\n" + wrapper.format(item=item)
+    with pytest.raises(RuntimeError, match="inner attribute"):
+        guard.require_queue_signed_proposal_gas(*sources)
+
+
+def test_unconditional_rust_item_ignores_quoted_inner_attributes() -> None:
+    """Only actual inner attributes trigger conservative owner refusal."""
+    source = '/* #![cfg(any())] */ const DECOY: &str = "#![cfg(any())]"; impl Queue { fn quote() {} }'
+    assert guard.unconditional_rust_item(source, "fn quote(", "fixture", "impl Queue") == "fn quote() {}"
+    with pytest.raises(RuntimeError, match="inner attribute"):
+        guard.unconditional_rust_item('# /* gap */ ! [cfg(any())]\n' + source, "fn quote(", "fixture", "impl Queue")
+
+
+def test_unconditional_rust_item_accepts_tokens_and_rejects_ambiguous_owners() -> None:
+    """The narrow locator tolerates comments but checks uniqueness and brace ancestry."""
+    source = "impl /* owner */ Queue { fn /* method */ quote \n (x: u64) -> u64 { x } }"
+    assert guard.unconditional_rust_item(source, "fn quote(", "fixture", "impl Queue").endswith("{ x }")
+    assert guard.unconditional_rust_item("#[must_use] fn quote() { }", "fn quote(", "fixture") == "fn quote() { }"
+    for invalid in ("", source + source, "mod hidden { " + source + " }",
+                    "#[cfg(any())] " + source, source.replace("Queue", "Other"),
+                    source.replace("fn /* method */", "#[other_macro] fn")):
+        with pytest.raises(RuntimeError):
+            guard.unconditional_rust_item(invalid, "fn quote(", "fixture", "impl Queue")
+    with pytest.raises(RuntimeError, match="no body"):
+        guard.unconditional_rust_item("fn quote();", "fn quote(", "fixture")
+    with pytest.raises(RuntimeError, match="unclosed"):
+        guard.unconditional_rust_item("fn quote() {", "fn quote(", "fixture")
+
+
 BEACON_CORE_PATH = "crates/iroha_core/src/beacon.rs"
 STATE_TESTS_PATH = "crates/iroha_core/src/state/tests.rs"
 PULSE_FIXTURE_PATHS = (
@@ -1281,6 +1552,153 @@ SCCP_LAPSE_CALL = (
     "crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mut sb)\n"
     "            .map_err(StateBlockStartError::Storage)?;"
 )
+SCCP_DRAW_CALL = "crate::smartcontracts::isi::sccp::fast_pause::draw::at_boundary(&mut sb)?;"
+SCCP_RECONCILE_CALL = (
+    "let sccp_pauses =\n"
+    "            crate::smartcontracts::isi::sccp::governance_clock::advance_reconciliation(&mut sb)?;"
+)
+SCCP_ENACT_CALL = "sccp_pauses.enact(&mut sb)?;"
+START_WRAPPER = "fn block_with_owned_start_stages<'state, E: std::fmt::Debug, T, R>("
+START_CONSTRUCTOR = "fn block_with_owned_start_stages_with_carrier<'state, E: std::fmt::Debug, T, R>("
+
+
+def test_block_start_phase_call_order_baseline_and_mandatory_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The call boundary passes, but construction remains a separate required guard."""
+    source = guard.read(STATE_PATH)
+    guard.require_block_start_phase_call_order(source)
+    body = ast.parse(inspect.getsource(guard.require_block_start_enactment_phases))
+    calls = [node.func.id for node in ast.walk(body) if isinstance(node, ast.Call)
+             and isinstance(node.func, ast.Name)]
+    assert calls.count("require_block_start_phase_call_order") == 1
+    assert calls.count("require_block_start_construction") == 1
+    observed = []
+
+    def construction_still_required(actual: str) -> None:
+        observed.append(actual)
+        raise RuntimeError("separate construction guard reached")
+
+    monkeypatch.setattr(guard, "require_block_start_construction", construction_still_required)
+    with pytest.raises(RuntimeError, match="separate construction guard reached"):
+        guard.require_block_start_enactment_phases(source)
+    assert observed == [source]
+    observed.clear()
+    with pytest.raises(RuntimeError, match="start phases"):
+        guard.require_block_start_enactment_phases(source.replace(SCCP_ENACT_CALL, "", 1))
+    assert observed == []
+
+
+@pytest.mark.parametrize("call", (SCCP_DRAW_CALL, SCCP_RECONCILE_CALL, SCCP_ENACT_CALL))
+@pytest.mark.parametrize("mutation", ("missing", "duplicate", "foreign", "conditional", "swallowed", "late"))
+def test_block_start_phase_call_order_sccp_owners(call: str, mutation: str) -> None:
+    """Every new call keeps its original block, one use, order and typed failure."""
+    source = guard.read(STATE_PATH)
+    assert source.count(call) == 1
+    if mutation == "missing":
+        replacement = ""
+    elif mutation == "duplicate":
+        replacement = call + call
+    elif mutation == "foreign":
+        replacement = call.replace("&mut sb", "&mut other")
+    elif mutation == "conditional":
+        replacement = "if false { " + call + " }"
+    elif mutation == "swallowed":
+        replacement = call.replace("?;", ".unwrap();")
+    else:
+        replacement = ""
+    changed = source.replace(call, replacement, 1)
+    if mutation == "late":
+        anchor = "sb.start_of_block_effects_applied = true;"
+        assert changed.count(anchor) == 1
+        changed = changed.replace(anchor, anchor + call, 1)
+    changed += "\n/* intact disconnected call: " + call + " */\n"
+    with pytest.raises(RuntimeError, match="start phases"):
+        guard.require_block_start_phase_call_order(changed)
+
+
+@pytest.mark.parametrize("first,second", (
+    (SCCP_BEGIN_CALL, SCCP_DRAW_CALL), (SCCP_DRAW_CALL, SCCP_RECONCILE_CALL),
+    (SCCP_RECONCILE_CALL, ENACTMENT_CALL), (ENACTMENT_CALL, SCCP_ENACT_CALL),
+    (SCCP_ENACT_CALL, SCCP_LAPSE_CALL),
+))
+def test_block_start_phase_call_order_sccp_order(first: str, second: str) -> None:
+    source = guard.read(STATE_PATH)
+    assert source.count(first) == source.count(second) == 1
+    changed = source.replace(first, "SWAP_PHASE", 1).replace(second, first, 1).replace("SWAP_PHASE", second, 1)
+    with pytest.raises(RuntimeError, match="start phases"):
+        guard.require_block_start_phase_call_order(changed)
+
+
+@pytest.mark.parametrize("original,replacement", (
+    (SCCP_RECONCILE_CALL, SCCP_RECONCILE_CALL.replace("let sccp_pauses", "let discarded")),
+    (SCCP_ENACT_CALL, "other_pauses.enact(&mut sb)?;"),
+    (SCCP_ENACT_CALL, "drop(sccp_pauses);"),
+    (SCCP_ENACT_CALL, "let sccp_pauses = other_pauses; " + SCCP_ENACT_CALL),
+    ("let now_h = sb._curr_block.height().get();", "let now_h = other._curr_block.height().get();"),
+))
+def test_block_start_phase_call_order_batch_and_height(original: str, replacement: str) -> None:
+    source = guard.read(STATE_PATH)
+    constructor = guard.rust_item(source, START_CONSTRUCTOR, STATE_PATH)
+    assert constructor.count(original) == 1
+    changed = source.replace(constructor, constructor.replace(original, replacement, 1), 1)
+    with pytest.raises(RuntimeError, match="start phases"):
+        guard.require_block_start_phase_call_order(changed)
+
+
+@pytest.mark.parametrize("declaration", (START_WRAPPER, START_CONSTRUCTOR))
+@pytest.mark.parametrize("mutation", ("comment_gap_disabled", "raw_inner_disabled", "foreign", "trait", "module", "macro"))
+def test_block_start_phase_call_order_refuses_disconnected_owner(declaration: str, mutation: str) -> None:
+    source = guard.read(STATE_PATH)
+    item = guard.rust_item(source, declaration, STATE_PATH)
+    if mutation in ("comment_gap_disabled", "raw_inner_disabled"):
+        changed = item[:item.index("{")] + "{ Err(other_error()) }"
+        name = declaration.split("fn ", 1)[1].split("<", 1)[0]
+        changed = changed.replace("fn " + name, "fn " + ("r#" if mutation == "raw_inner_disabled" else "") + name + " /* gap */ ", 1)
+        source = source.replace(item, changed, 1)
+        wrapper = ("impl State { #![cfg(any())] const GAP: () = (); " if mutation == "raw_inner_disabled"
+                   else "#[cfg(any())] impl State { ")
+    else:
+        source = source.replace(item, "", 1)
+        wrapper = {"foreign": "impl ForeignState { ", "trait": "impl Other for State { ",
+                   "module": "mod disconnected { impl State { ", "macro": "unused! { impl State { "}[mutation]
+    source += "\n" + wrapper + item + (" } }" if mutation in ("module", "macro") else " }")
+    with pytest.raises(RuntimeError, match="(unconditional|one live declaration)"):
+        guard.require_block_start_phase_call_order(source)
+
+
+@pytest.mark.parametrize("mutation", ("early_success", "outer_condition", "closure", "recovered_error", "literal", "signature"))
+def test_block_start_phase_call_order_complete_body_refuses_bypass(mutation: str) -> None:
+    """Intact phase text cannot survive inside a disconnected or bypassed body."""
+    source = guard.read(STATE_PATH)
+    item = guard.rust_item(source, START_CONSTRUCTOR, STATE_PATH)
+    if mutation == "early_success":
+        anchor = "        // Height-trigger: open/close referenda at scheduled heights"
+        changed = item.replace(anchor, "        return Ok((sb, other_result()));\n" + anchor, 1)
+    elif mutation in ("outer_condition", "closure"):
+        anchor = "        // Height-trigger: open/close referenda at scheduled heights"
+        opening = "        if source_condition() {\n" if mutation == "outer_condition" else "        let disconnected = || {\n"
+        changed = item.replace(anchor, opening + anchor, 1)
+        closing = "\n        } else { Err(other_error()) }\n" if mutation == "outer_condition" else "\n        }; Err(other_error())\n"
+        changed = changed[:-1] + closing + "}"
+    elif mutation == "recovered_error":
+        anchor = "        // Height-trigger: open/close referenda at scheduled heights"
+        changed = item.replace(anchor, "        return Err(other_error()).or_else(|_| Ok((sb, other_result())));\n" + anchor, 1)
+    elif mutation == "literal":
+        changed = item.replace('"telemetry"', '"tele metry"', 1)
+    else:
+        changed = item.replace("after_start: impl FnOnce", "after_start: impl FnMut", 1)
+    assert changed != item
+    source = source.replace(item, changed, 1)
+    with pytest.raises(RuntimeError, match="start phases changed their reviewed complete entry bodies"):
+        guard.require_block_start_phase_call_order(source)
+
+
+def test_block_start_phase_call_order_allows_code_comments_and_spacing() -> None:
+    source = guard.read(STATE_PATH)
+    source = source.replace(SCCP_ENACT_CALL, "sccp_pauses /* same batch */ . enact( &mut sb ) ? ;", 1)
+    source = source.replace("let now_h = sb._curr_block.height().get();", "let now_h = /* same height */ sb._curr_block.height().get();", 1)
+    guard.require_block_start_phase_call_order(source)
 
 
 def test_block_start_phase_helpers_preserve_original_order_and_custody() -> None:
@@ -1376,6 +1794,224 @@ def test_shared_start_construction_retains_exact_original_owner(
         guard.require_block_start_enactment_phases(source)
 
 
+CONSTRUCTION_CFG = '#[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]'
+CONSTRUCTION_ACQUISITION_PATH = "crates/iroha_core/src/state/canonical_runtime/acquisition.rs"
+CONSTRUCTION_HYDRATION_PATH = "crates/iroha_core/src/state/da_hydration.rs"
+CONSTRUCTION_RUNTIME_PATH = "crates/iroha_core/src/state/canonical_runtime.rs"
+
+
+def test_construction_rust_item_exact_attributes_and_semicolon_routes() -> None:
+    """Only the chosen exact attribute run is removed for the owner check."""
+    source = 'impl Owner { #[cfg(any(test, feature = "bench"))] fn carry() { input() } }'
+    attributes = ('#[cfg(any(test, feature = "bench"))]',)
+    assert guard.construction_rust_item(source, "fn carry(", "toy", "impl Owner", attributes) == "fn carry() { input() }"
+    source = '#[path = "kernel.rs"] mod kernel;'
+    assert guard.construction_rust_item(source, "mod kernel;", "toy", attributes=('#[path = "kernel.rs"]',)) == 'mod kernel;'
+    source = '#[path/* literal remains exact */ = "kernel.rs"] mod /* route */ kernel ;'
+    assert guard.construction_rust_item(source, "mod kernel;", "toy", attributes=('#[path = "kernel.rs"]',)).endswith('kernel ;')
+
+
+@pytest.mark.parametrize("source", (
+    'impl Owner { #[cfg(any())] fn carry() {} }',
+    '#[cfg(any())] impl Owner { fn carry() {} }',
+    'impl Owner { #![cfg(any())] const GAP: () = (); fn carry() {} }',
+    'mod hidden { impl Owner { fn carry() {} } }',
+    'wrapper! { impl Owner { fn carry() {} } }',
+    'impl Other { fn carry() {} }',
+    'impl Trait for Owner { fn carry() {} }',
+    'impl Owner { #[cfg(any())] pub fn carry() {} }',
+    'impl Owner { async fn carry() {} }',
+    'impl Owner { fn carry /* gap */ () {} fn carry\n() {} }',
+    'impl Owner { fn r#carry() {} } #[cfg(any())] impl Owner { fn carry() {} }',
+    'impl Owner { fn carry() {',
+))
+def test_construction_rust_item_refuses_disconnected_or_ambiguous_owner(source: str) -> None:
+    """Comments, raw names, qualifier prefixes and parent scopes cannot hide an owner."""
+    with pytest.raises(RuntimeError):
+        guard.construction_rust_item(source, "fn carry(", "toy", "impl Owner")
+
+
+@pytest.mark.parametrize("source", (
+    '#[cfg(any())] #[path = "kernel.rs"] mod kernel;',
+    '#[path = "elsewhere.rs"] mod kernel;',
+    '#![cfg(any())] const GAP: () = (); #[path = "kernel.rs"] mod kernel;',
+    'mod hidden { #[path = "kernel.rs"] mod kernel; }',
+    '#[path = "kernel.rs"] mod r#kernel; #[path = "kernel.rs"] mod kernel;',
+))
+def test_construction_rust_item_refuses_disabled_or_foreign_module_route(source: str) -> None:
+    """A semicolon declaration retains its exact path and unconditional parent."""
+    with pytest.raises(RuntimeError):
+        guard.construction_rust_item(source, "mod kernel;", "toy", attributes=('#[path = "kernel.rs"]',))
+
+
+@pytest.mark.parametrize("path,anchor", (
+    (CONSTRUCTION_ACQUISITION_PATH, '            pub(in crate::state) da_rewind_releases:'),
+    (CONSTRUCTION_ACQUISITION_PATH, '                            da_rewind_releases: None,'),
+    (CONSTRUCTION_ACQUISITION_PATH, '    pub(in crate::state) fn rewind_da_indexes_to_height('),
+    (CONSTRUCTION_HYDRATION_PATH, "pub(super) struct DaRewindReleases<'state>"),
+    (CONSTRUCTION_HYDRATION_PATH, "impl<'state> DaRewindReleases<'state>"),
+    (CONSTRUCTION_HYDRATION_PATH, '    pub(super) fn rewind_da_indexes_to_height_with_releases('),
+    (CONSTRUCTION_PATH, '                da_rewind_releases,'),
+    (CONSTRUCTION_PATH, '                _da_rewind_releases: da_rewind_releases,'),
+    (CONSTRUCTION_PATH, '                state_write_lock: &self.state_write_lock,'),
+    (STATE_PATH, '    _da_rewind_releases: Option<da_hydration::DaRewindReleases'),
+    (STATE_PATH, "    state_write_lock: &'state PublicationMutex,"),
+    (STATE_PATH, '    fn block_and_revert_with_pristine_carrier_stage_inner<'),
+))
+@pytest.mark.parametrize("replacement", ('', '#[cfg(any())]', '#[cfg(test)]'))
+def test_construction_guard_requires_each_exact_paired_cfg(
+    path: str, anchor: str, replacement: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each DA declaration/init/transfer/kernel and replacement entry has the same gate."""
+    source = guard.read(path)
+    original = CONSTRUCTION_CFG + '\n' + anchor
+    assert source.count(original) == 1
+    changed = source.replace(original, replacement + '\n' + anchor, 1)
+    original_read = guard.read
+    monkeypatch.setattr(guard, "read", lambda target: changed if target == path else original_read(target))
+    with pytest.raises(RuntimeError, match='construction|owner'):
+        guard.require_block_start_construction(changed if path == STATE_PATH else original_read(STATE_PATH))
+
+
+@pytest.mark.parametrize("path,original,replacement", (
+    (CONSTRUCTION_ACQUISITION_PATH, 'da_rewind_releases: None,', 'da_rewind_releases: Some(foreign_releases),'),
+    (CONSTRUCTION_ACQUISITION_PATH, 'fields.release();', 'drop(fields);'),
+    (CONSTRUCTION_ACQUISITION_PATH, 'self.world.release_writers();\n                self.transactions.release_writers();',
+     'self.transactions.release_writers();\n                self.world.release_writers();'),
+    (CONSTRUCTION_ACQUISITION_PATH, 'self.fields.take().expect("original acquired State fields")',
+     'replacement.fields.take().expect("original acquired State fields")'),
+    (CONSTRUCTION_ACQUISITION_PATH, 'original.complete = false;', 'original.complete = true;'),
+    (CONSTRUCTION_ACQUISITION_PATH, 'std::ptr::eq(self.target, state)', 'true'),
+    (CONSTRUCTION_ACQUISITION_PATH, 'get_or_insert_with(|| da_hydration::DaRewindReleases::new(self.target))',
+     'get_or_insert_with(|| da_hydration::DaRewindReleases::new(foreign))'),
+    (CONSTRUCTION_HYDRATION_PATH, 'indexes: LaneLifecycleReleases::new(state),', 'indexes: LaneLifecycleReleases::new(foreign),'),
+    (CONSTRUCTION_HYDRATION_PATH, 'write_fence: state.state_write_lock.defer_notifications(),', 'write_fence: foreign.state_write_lock.defer_notifications(),'),
+    (CONSTRUCTION_HYDRATION_PATH, 'refunds: state.ivm_execution_budget().deferred_refund_batch(),', 'refunds: foreign.ivm_execution_budget().deferred_refund_batch(),'),
+    (CONSTRUCTION_HYDRATION_PATH, '        } = releases;\n        let _hydration_guard', '        } = foreign;\n        let _hydration_guard'),
+    (CONSTRUCTION_PATH, '        let mut finish = Some(finish);', '        return finish(foreign_block);\n        let mut finish = Some(finish);'),
+    (CONSTRUCTION_PATH, 'finish_state_block_construction(|| {', 'finish_state_block_construction(|| { drop(original.take());'),
+    (CONSTRUCTION_PATH, '.expect("original State finish continuation")', '.expect("original  State finish continuation")'),
+    (STATE_PATH, '            fields.block_hashes.release_writers();', '            drop(fields.block_hashes);'),
+))
+def test_construction_guard_refuses_custody_substitution_or_early_release(
+    path: str, original: str, replacement: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The full owned item keeps early returns and hidden aliases outside the approved source."""
+    source = guard.read(path)
+    assert source.count(original) == 1
+    changed = source.replace(original, replacement, 1) + '\n/* intact owner spelling: ' + original + ' */\n'
+    original_read = guard.read
+    monkeypatch.setattr(guard, "read", lambda target: changed if target == path else original_read(target))
+    with pytest.raises(RuntimeError, match='construction|owner'):
+        guard.require_block_start_construction(changed if path == STATE_PATH else original_read(STATE_PATH))
+
+
+@pytest.mark.parametrize("path,declaration", (
+    (STATE_PATH, 'mod state_block_construction;'),
+    (STATE_PATH, 'mod canonical_runtime;'),
+    (STATE_PATH, 'mod da_hydration;'),
+    (CONSTRUCTION_RUNTIME_PATH, 'mod acquisition;'),
+    (CONSTRUCTION_RUNTIME_PATH, 'pub(super) use acquisition::{AcquiredRuntimeBlock, AcquiredRuntimeBlockFields};'),
+))
+def test_construction_guard_requires_live_defining_module_routes(
+    path: str, declaration: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Intact source files cannot qualify an excluded module or reexport."""
+    source = guard.read(path)
+    assert source.count(declaration) == 1
+    changed = source.replace(declaration, '#[cfg(any())]\n' + declaration, 1)
+    original_read = guard.read
+    monkeypatch.setattr(guard, "read", lambda target: changed if target == path else original_read(target))
+    with pytest.raises(RuntimeError, match='construction|owner'):
+        guard.require_block_start_construction(changed if path == STATE_PATH else original_read(STATE_PATH))
+
+
+@pytest.mark.parametrize("mutation", ("disabled-impl", "disabled-method", "raw-live-decoy", "inner-attribute", "foreign-impl", "outer-return"))
+def test_construction_guard_refuses_actual_constructor_owner_decoys(
+    mutation: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An intact handoff is insufficient if its actual entry owner changed."""
+    source = guard.read(CONSTRUCTION_PATH)
+    if mutation == "disabled-impl":
+        changed = source.replace('impl State {', '#[cfg(any())]\nimpl State {', 1)
+    elif mutation == "disabled-method":
+        changed = source.replace('    pub(super) fn construct_acquired_block', '    #[cfg(any())]\n    pub(super) fn construct_acquired_block', 1)
+    elif mutation == "raw-live-decoy":
+        changed = source + '\nimpl State { pub(super) fn r#construct_acquired_block() {} }\n'
+    elif mutation == "inner-attribute":
+        changed = source.replace('impl State {', 'impl State { #![cfg(any())] const GAP: () = ();', 1)
+    elif mutation == "foreign-impl":
+        changed = source.replace('impl State {', 'impl Foreign {', 1)
+    else:
+        changed = source.replace('        let mut finish = Some(finish);', '        return Err(()).or_else(|_| Ok(foreign_block));\n        let mut finish = Some(finish);', 1)
+    original_read = guard.read
+    monkeypatch.setattr(guard, "read", lambda target: changed if target == CONSTRUCTION_PATH else original_read(target))
+    with pytest.raises(RuntimeError, match='construction|owner'):
+        guard.require_block_start_construction(original_read(STATE_PATH))
+
+
+def test_construction_guard_preserves_comments_code_spacing_and_exact_literals(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Changing code whitespace/comments preserves every literal and cfg token."""
+    original_read = guard.read
+    paths = (CONSTRUCTION_PATH, CONSTRUCTION_ACQUISITION_PATH, CONSTRUCTION_HYDRATION_PATH)
+    changed = {path: original_read(path).replace(CONSTRUCTION_CFG, CONSTRUCTION_CFG.replace('cfg(', 'cfg /* scope */ (')) for path in paths}
+    changed[CONSTRUCTION_PATH] = changed[CONSTRUCTION_PATH].replace('fn construct_acquired_block', 'fn /* owner */ construct_acquired_block').replace('Some(acquired)', 'Some( /* original */ acquired )')
+    monkeypatch.setattr(guard, 'read', lambda target: changed.get(target, original_read(target)))
+    guard.require_block_start_construction(original_read(STATE_PATH))
+
+
+@pytest.mark.parametrize("second_name", ("runtime_cells", "r#runtime_cells"))
+def test_construction_rust_item_refuses_textual_macro_shadowing(second_name: str) -> None:
+    """Normal and raw macro names share the same textual lookup binding."""
+    source = ('macro_rules! runtime_cells { () => { first() } }\n'
+              'macro_rules! ' + second_name + ' { () => { second() } }\n'
+              'runtime_cells! {}')
+    with pytest.raises(RuntimeError, match='construction'):
+        guard.construction_rust_item(source, 'macro_rules! runtime_cells', 'toy')
+
+
+def test_construction_guard_refuses_actual_raw_macro_shadow_with_reordered_retirement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A compatible later macro copy must not override the checked original release order."""
+    source = guard.read(CONSTRUCTION_ACQUISITION_PATH)
+    macro = guard.construction_rust_item(source, 'macro_rules! runtime_cells', CONSTRUCTION_ACQUISITION_PATH)
+    swapped = macro.replace('macro_rules! runtime_cells', 'macro_rules! r#runtime_cells', 1)
+    original = 'self.world.release_writers();\n                self.transactions.release_writers();'
+    replacement = 'self.transactions.release_writers();\n                self.world.release_writers();'
+    assert swapped.count(original) == 1
+    swapped = swapped.replace(original, replacement, 1)
+    assert source.count('runtime_cells! {') == 1
+    changed = source.replace('runtime_cells! {', swapped + '\n\nruntime_cells! {', 1)
+    original_read = guard.read
+    monkeypatch.setattr(guard, 'read', lambda target: changed if target == CONSTRUCTION_ACQUISITION_PATH else original_read(target))
+    with pytest.raises(RuntimeError, match='equivalent macro names'):
+        guard.require_block_start_construction(original_read(STATE_PATH))
+
+
+@pytest.mark.parametrize("path", (
+    CONSTRUCTION_PATH, CONSTRUCTION_RUNTIME_PATH,
+    CONSTRUCTION_ACQUISITION_PATH, CONSTRUCTION_HYDRATION_PATH,
+))
+@pytest.mark.parametrize("mutation", ('foreign-import', 'later-import', 'type-alias'))
+def test_construction_guard_binds_complete_defining_module_names(
+    path: str, mutation: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unchanged item bodies cannot qualify substituted surrounding name resolution."""
+    source = guard.read(path)
+    assert source.count('use super::*;') == 1
+    if mutation == 'foreign-import':
+        changed = source.replace('use super::*;', 'use crate::alternate_state::*;', 1)
+    elif mutation == 'later-import':
+        changed = source + '\nuse crate::alternate_state::State;\n'
+    else:
+        changed = source + '\ntype State = crate::alternate_state::State;\n'
+    original_read = guard.read
+    monkeypatch.setattr(guard, 'read', lambda target: changed if target == path else original_read(target))
+    with pytest.raises(RuntimeError, match='defining module tokens'):
+        guard.require_block_start_construction(original_read(STATE_PATH))
+
+
 @pytest.mark.parametrize("mutation", (
     "missing_expiry", "missing_enactment", "duplicate", "swapped",
     "wrong_height", "conditional", "late_before_flag", "late_after_execution",
@@ -1386,7 +2022,7 @@ def test_shared_start_construction_retains_exact_original_owner(
 def test_block_start_phase_calls_reject_disconnected_or_late_owners(mutation: str) -> None:
     """Valid Rust statement changes cannot disconnect helpers or defer them until after execution."""
     source = guard.read(STATE_PATH)
-    guard.require_block_start_enactment_phases(source)
+    guard.require_block_start_phase_call_order(source)
     if mutation == "missing_expiry":
         mutated = source.replace(EXPIRY_CALL, "", 1)
     elif mutation == "missing_enactment":
@@ -1427,7 +2063,7 @@ def test_block_start_phase_calls_reject_disconnected_or_late_owners(mutation: st
         mutated = source.replace(ENACTMENT_CALL, "", 1).replace(anchor, anchor + "\n        " + ENACTMENT_CALL, 1)
     assert mutated != source
     with pytest.raises(RuntimeError, match="start phases"):
-        guard.require_block_start_enactment_phases(mutated)
+        guard.require_block_start_phase_call_order(mutated)
 
 
 @pytest.mark.parametrize("original,replacement", (
@@ -1475,14 +2111,14 @@ def test_block_start_admission_and_stage_refusals_remain_typed(
 ) -> None:
     """Local history admission precedes original effects; callback errors retain their class."""
     source = guard.read(STATE_PATH)
-    guard.require_block_start_enactment_phases(source)
+    guard.require_block_start_phase_call_order(source)
     constructor = guard.section(source,
         "    fn block_with_owned_start_stages<'state, E: std::fmt::Debug, T, R>(",
         "    /// Release expired private locks inside their original block transaction.", STATE_PATH)
     assert constructor.count(original) == 1
     mutated = source.replace(constructor, constructor.replace(original, replacement, 1), 1)
     with pytest.raises(RuntimeError, match="start phases"):
-        guard.require_block_start_enactment_phases(mutated)
+        guard.require_block_start_phase_call_order(mutated)
 
 
 def test_production_checker_requires_the_extracted_start_phase_call(
@@ -3893,6 +4529,60 @@ def test_production_checker_enforces_pulse_isolation_state_and_model_pins(
 
 KURA_RETAINED_PATH = "crates/iroha_core/src/kura/publication_lease/retained.rs"
 KURA_CALLBACK_TESTS_PATH = "crates/iroha_core/src/state/publication_effect_kura_tests.rs"
+KURA_LEASE_PATH = "crates/iroha_core/src/kura/publication_lease.rs"
+KURA_RAW_CLAIM_PATH = "crates/iroha_core/src/kura/lane_geometry/raw_attempt.rs"
+
+
+def test_kura_claim_cleanup_current_owner_baseline_and_connection() -> None:
+    """The current wrapper/claim check is invoked by retained publication checking."""
+    guard.require_kura_claim_cleanup(*(guard.read(path) for path in
+        (KURA_LEASE_PATH, KURA_RAW_CLAIM_PATH, KURA_RETAINED_PATH)))
+    guard.require_publication_kura_cleanup(guard.read(PUBLICATION_PATH))
+    body = ast.parse(inspect.getsource(guard.require_publication_kura_cleanup))
+    calls = [node for node in ast.walk(body) if isinstance(node, ast.Call)
+             and isinstance(node.func, ast.Name) and node.func.id == "require_kura_claim_cleanup"]
+    assert len(calls) == 1 and len(calls[0].args) == 3
+    assert ast.literal_eval(calls[0].args[0].args[0]) == KURA_LEASE_PATH
+    assert ast.literal_eval(calls[0].args[1].args[0]) == KURA_RAW_CLAIM_PATH
+    assert calls[0].args[2].id == "retained"
+
+
+@pytest.mark.parametrize("path,declaration,wrapper", (
+    (KURA_LEASE_PATH, "impl KuraPublicationReleases", "#[cfg(any())] {item}"),
+    (KURA_LEASE_PATH, "impl KuraPublicationReleases", "mod other {{ {item} }}"),
+    (KURA_RAW_CLAIM_PATH, "impl RawGeometryReleases", "unused! {{ {item} }}"),
+    (KURA_RAW_CLAIM_PATH, "pub(in crate::kura) fn end_publication(", "impl OtherGate {{ {item} }}"),
+    (KURA_RAW_CLAIM_PATH, "fn release(&self, abandoned: bool)", "#[cfg(any())] impl RawGeometryClaim {{ {item} }}"),
+    (KURA_RETAINED_PATH, "fn release_into(", "#[cfg(any())] impl AcquiredKuraPublicationFences<'_> {{ {item} }}"),
+    (KURA_RETAINED_PATH, "pub(crate) fn retire_notices(", "impl<'kura> OtherSlot<'kura> {{ {item} }}"),
+))
+def test_kura_claim_cleanup_rejects_enclosing_owner_decoys(
+    path: str, declaration: str, wrapper: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Intact bodies cannot move into conditional, foreign, nested or macro owners."""
+    original_read = guard.read
+    source = original_read(path)
+    item = guard.rust_item(source, declaration, path)
+    changed = source.replace(item, "", 1) + "\n" + wrapper.format(item="    " + item)
+    monkeypatch.setattr(guard, "read", lambda requested: changed if requested == path else original_read(requested))
+    with pytest.raises(RuntimeError, match="unconditional"):
+        guard.require_publication_kura_cleanup(original_read(PUBLICATION_PATH))
+
+
+@pytest.mark.parametrize("gap", (" /* live method */ ", "\n", "\t"))
+def test_kura_claim_cleanup_live_noop_cannot_hide_behind_disabled_copy(
+    gap: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The queue counterexample is also rejected at the actual Kura cleanup owner."""
+    original_read = guard.read
+    source = original_read(KURA_RETAINED_PATH)
+    item = guard.rust_item(source, "fn release_into(", KURA_RETAINED_PATH)
+    changed = (item[:item.index("{")] + "{}").replace("release_into(", "release_into" + gap + "(", 1)
+    source = source.replace(item, changed, 1)
+    source += "\n#[cfg(any())] impl AcquiredKuraPublicationFences<'_> {\n    " + item + "\n}\n"
+    monkeypatch.setattr(guard, "read", lambda requested: source if requested == KURA_RETAINED_PATH else original_read(requested))
+    with pytest.raises(RuntimeError, match="one live declaration token owner"):
+        guard.require_publication_kura_cleanup(original_read(PUBLICATION_PATH))
 
 
 @pytest.mark.parametrize("path,declaration,original,replacement", (
@@ -3959,8 +4649,46 @@ KURA_CALLBACK_TESTS_PATH = "crates/iroha_core/src/state/publication_effect_kura_
      "lease.fences.release_into(&mut self.releases);", "drop(lease);"),
     (KURA_RETAINED_PATH, "    pub(crate) fn retire_notices(",
      "self.lease.is_none()", "true"),
+    (KURA_LEASE_PATH, "impl KuraPublicationReleases",
+     "kura.prune_lock.deferred_releases()", "kura.sidecar_lock.deferred_releases()"),
+    (KURA_LEASE_PATH, "impl KuraPublicationReleases",
+     "source: kura.instance_identity()", "source: other.instance_identity()"),
+    (KURA_LEASE_PATH, "impl KuraPublicationReleases",
+     "self.claims.append(std::mem::take(&mut cleanup.claims));", "drop(std::mem::take(&mut cleanup.claims));"),
+    (KURA_LEASE_PATH, "impl KuraPublicationReleases",
+     "notice.try_merge_into(batch).is_ok()", "notice.try_merge_into(other).is_ok()"),
+    (KURA_LEASE_PATH, "fn prepare_publication_fences<'kura>(",
+     "self.raw_geometry_claim.begin_publication();", ""),
+    (KURA_LEASE_PATH, "fn prepare_publication_fences<'kura>(",
+     "fences.claims = Some(&self.raw_geometry_claim);", "fences.claims = Some(&other.raw_geometry_claim);"),
+    (KURA_LEASE_PATH, "fn prepare_publication_fences<'kura>(",
+     'fences.sidecar = Some(acquire("sidecar_lock", &self.sidecar_lock)?);', ""),
+    (KURA_RETAINED_PATH, "pub(crate) fn new(kura: &'kura Kura)",
+     "KuraPublicationReleases::new(kura)", "KuraPublicationReleases::new(other)"),
     (KURA_RETAINED_PATH, "    pub(crate) fn retire_notices(",
-     "self.kura.prune_lock.deferred_releases()", "self.kura.sidecar_lock.deferred_releases()"),
+     "KuraPublicationReleases::new(self.kura)", "KuraPublicationReleases::new(other)"),
+    (KURA_RETAINED_PATH, "    fn release_into(",
+     "releases.claims.append(gate.end_publication());", "drop(gate.end_publication());"),
+    (KURA_RETAINED_PATH, "    fn release_into(",
+     "releases.claims.append(gate.end_publication());", ""),
+    (KURA_RETAINED_PATH, "    fn release_into(",
+     ".zip(&mut releases.fences)", ".zip(&mut other.fences)"),
+    (KURA_RAW_CLAIM_PATH, "impl RawGeometryReleases",
+     "self.push(signal);", "signal.released.send_replace(true);"),
+    (KURA_RAW_CLAIM_PATH, "impl RawGeometryReleases",
+     "*signal.next.lock() = self.head.take();", "drop(self.head.take());"),
+    (KURA_RAW_CLAIM_PATH, "impl RawGeometryReleases",
+     "self.head = signal.next.lock().take();", "self.head = None;"),
+    (KURA_RAW_CLAIM_PATH, "impl Drop for RawGeometryReleases",
+     "signal.released.send_replace(true);", "std::mem::forget(signal);"),
+    (KURA_RAW_CLAIM_PATH, "pub(in crate::kura) fn end_publication(",
+     "std::mem::take(&mut state.releases)", "{ drop(std::mem::take(&mut state.releases)); RawGeometryReleases::default() }"),
+    (KURA_RAW_CLAIM_PATH, "pub(in crate::kura) fn begin_publication(",
+     "state.publication = true;", "state.publication = false;"),
+    (KURA_RAW_CLAIM_PATH, "fn release(&self, abandoned: bool)",
+     "state.releases.push(Arc::clone(&self.signal));", "immediate.push(Arc::clone(&self.signal));"),
+    (KURA_RAW_CLAIM_PATH, "fn release(&self, abandoned: bool)",
+     'state.publication && !cfg!(all(test, sumeragi_core_mutation = "HC352"))', "false"),
     (KURA_CALLBACK_TESTS_PATH,
      "fn original_kura_partial_refusal_callbacks_follow_all_state_siblings()",
      "check_kura_release(true, false);", "check_kura_release(false, false);"),

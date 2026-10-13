@@ -42,7 +42,7 @@ treated as the Xeon, Pixel 6a or iPhone SE (third generation).
 
 | Goal | Completion criterion | State |
 | --- | --- | --- |
-| B6.1 — security accounting | Executable loss/resource ledger; verify imported theorem hypotheses against primary sources; justify all primitive terms at actual resources and obtain independent attack-cost review | Executable arithmetic, source-hypothesis review, generator-interface analysis and candidate request-stage and bounded-entry real-prover primitive-count reconciliation complete; a [bounded hybrid-driver proposal](parliament_ballot_b6_hybrid_driver.md) now specifies the missing sampler/interface/state contract; a separate [fixed-opening H5 derivation](parliament_ballot_b6_h5_fixed_opening.md) and [zero-fallback certificate](../docs/validation/parliament_ballot_zero_challenge/README.md) support the conditional initial transition; the [joint mask bijection](parliament_ballot_b6_mask_coordinate.md) gives an exact middle equality at an ideal-material public endpoint, and [adaptive hidden-assignment deletion](parliament_ballot_b6_hidden_assignment_deletion.md) reaches its unpatched baseline; primitive entry, reverse material bridge, full reduction resources and independent assessment remain open |
+| B6.1 — security accounting | Executable loss/resource ledger; verify imported theorem hypotheses against primary sources; justify all primitive terms at actual resources and obtain independent attack-cost review | Executable arithmetic, source-hypothesis review, generator-interface analysis and candidate request-stage and bounded-entry real-prover primitive-count reconciliation complete; a [bounded hybrid-driver proposal](parliament_ballot_b6_hybrid_driver.md) specifies the sampler/interface/state contract; the [fixed-opening H5 derivation](parliament_ballot_b6_h5_fixed_opening.md) and [zero-fallback certificate](../docs/validation/parliament_ballot_zero_challenge/README.md) support the conditional initial transition; the [joint mask bijection](parliament_ballot_b6_mask_coordinate.md) and [adaptive hidden-assignment deletion](parliament_ballot_b6_hidden_assignment_deletion.md) reach an unpatched ideal-material baseline. A distinct [direct public sampler](parliament_ballot_b6_ideal_public_sampler.md) exactly realizes that endpoint under fresh-slot premises. Primitive entry, proposal acceptance, full reduction resources and independent assessment remain open; no equality to real-root `Sim+` is claimed |
 | B6.2 — adversarial verification | Reproducible bounded parser/mutation campaigns, targeted late-invalid cases and portable/accelerated parity with retained corpus identity | 8,756 deterministic cases per mode, two bounded ASan fuzz runs, 124 retained corpus cases with replay parity, four constructive non-minimal-counter tests per mode and twelve-set upstream reference interoperability evidence with explicit publication/recovery provenance; not exhaustive or independent implementation review |
 | B6.3 — resource measurements | Source-bound cold-input and warm verification, late-invalid and malformed cases, actual proving samples/retries, bounded maximum public inputs and explicit memory scope | Local runner and Mac/attached-device evidence delivered; separate malformed campaign adds 10,168 observations across 164 selected classes per mode; complete production bounds and named-baseline conditions remain open |
 | B6.4 — exact accounting | Inventory standalone encoding/work/allocation bounds and every unresolved production envelope/authentication term | Source-pinned inventories plus [researched resource contract](parliament_ballot_resource_contract.md) implemented: atomic reservations, arena and supplied stack; 120 original worker calls pass. The separate [borrowed-input worker](../docs/validation/parliament_ballot_memory_entry/README.md) excludes file retrieval from charged work. Its [shared-control successor](../docs/validation/parliament_ballot_fatal_control/README.md) fixes fatal stdout blockage and passes 122 observations plus real output controls with its extra page counted. [Conditional arena sufficiency](parliament_ballot_arena_sufficiency.md) checks retained classes with a universal frontend bound; actual-allocator parity and selected compiled layouts support the model. A separate [instrumented verifier campaign](../docs/validation/parliament_ballot_allocation_trace/README.md) matches 132 finite allocation streams and passes 14 controls. A source-conditional catalog covers seven backend indirect sites, with remaining indirect/native/recursive paths unresolved. The separate [native endpoint observer](../docs/validation/parliament_ballot_native_probe/README.md) preserves control and coverage failures. Complete compiler/runtime correspondence, calibration and production mapping stay open; schemas stay gated |
@@ -93,8 +93,33 @@ image; native, indirect, exceptional and recursive costs remain open.
 The [adapter-only argument](../docs/validation/parliament_ballot_adapter_bound/README.md)
 now bounds its own ordinary compiled region under named premises, with 20
 checker tests; native and full-verifier work/stack remain opaque.
-Later concurrent lockfile/allocator edits cause a retained current-source refusal;
+Later concurrent lockfile/allocator edits cause a retained historical-input refusal;
 the captured adapter result is not repinned to those sources.
+The [historical recovery](../docs/validation/parliament_ballot_adapter_source_recovery/README.md)
+resolves all 2,081 original identities, including four inputs recovered separately
+from exact Git revisions. Twelve fault controls protect identity and refusal
+behavior; this recovers historical content without certifying the current source.
+The [historical frontend argument](../docs/validation/parliament_ballot_frontend_bound/README.md)
+adds a conditional 146-instruction/2,160-byte dispatcher and record-parser
+contribution, with a separate bounded field-parser loop and 27 checker tests.
+Its symbolic composition retains typed decoders, cryptography, cleanup,
+allocation and native calls as unknown costs. Separate
+[profile](../docs/validation/parliament_ballot_profile_bound/README.md) and
+[typed-decoder](../docs/validation/parliament_ballot_typed_decoder_bound/README.md)
+arguments now cover their complete outer ordinary paths, bounded role loop,
+guarded copy/split requests and partial cleanup, with 18/24 checker tests.
+Remaining terms include CRT serialization, bounded constructors/public validation,
+hashes and allocation/native/exceptional costs; the retained registration trap
+is not relabeled a return or discharged by the local instruction bound.
+The separate [current-source worker](../docs/validation/parliament_ballot_current_candidate/README.md)
+passes both-mode builds/tests/Clippy, 122 observations, four output controls and
+fresh stack diagnostics. A test/comment-only waker correction passes 28 shared
+and nine custody tests. The separate
+[compiled correspondence check](../docs/validation/parliament_ballot_current_correspondence/README.md)
+binds 24 code ranges and seven source deltas, with 49 controls and 2,123 stable
+input guards. It reruns the four unchanged component analyzers on current
+captures under their original premises. TODO: discharge the remaining lower
+callee, native and complete workspace obligations.
 The [normal-return analysis](../docs/validation/parliament_ballot_noreturn_frontiers/README.md)
 justifies conditional ordinary-flow cuts while retaining native unwind and every
 original unconditional resource obligation. Next local B6.4 work includes universal target-specific
@@ -105,9 +130,25 @@ intervals; hidden paths and a complete native-byte bound remain unresolved.
 Finite replay and resolved stack regions do not close runtime coverage or
 physical calibration.
 
-TODO: reconcile the current Core source contract with concurrent integration
-changes. Its current first failure is the missing `Executable::IvmProved(proved)`
-queue binding. The earlier B6 combined Python run retains 92 failures from its
-then-current block-start ordering mismatch; this new failure does not qualify
-other guard sections. Standalone additions do not repair or waive this check. See the B6 record for the source-bound evidence
-and remaining owner/hardware actions.
+The [direct sampler accounting](parliament_ballot_b6_ideal_sampler_accounting.md)
+now inventories bounded logical request/lifetime work and persistent programming
+records, with 30 controls. The separate [reversible log construction](parliament_ballot_b6_oracle_log_circuit.md)
+now gives explicit coherent lookup/append costs and passes 21 controls.
+TODO: compose its two base calls per lookup and explicit gate/wire vector with
+the remaining reduction/primitive resources. This conditional upper bound and
+partial payload sums do not establish the verifier's 64 MiB physical workspace.
+
+TODO: reconcile the current integration source contract with concurrent
+changes. Scoped queue/Kura checks now bind signed gas, complete pre-quote
+structure, unconditional owners and original deferred release custody. The
+initial queue guard's 36 controls were insufficient; its counterexample and
+replacement regressions are retained. The [current phase guard](../docs/validation/parliament_ballot_current_candidate/source-guard-controls/README.md)
+binds all seven same-block calls and the original returned batch with 74 controls.
+The separate [construction guard](../docs/validation/parliament_ballot_construction_guard/README.md)
+binds original acquisition, exact conditional DA custody, handoff and retirement.
+Import-substitution and raw-macro shadowing counterexamples found in review are
+now refused. The full recheck first refuses the untouched Torii
+`request_local_partial_release_v1` binding.
+Earlier queue/Kura failures and the combined run's 92 start-order failures
+retain their historical source scope; subsequent assertions remain unexecuted.
+See the B6 record for exact evidence and remaining owner/hardware actions.

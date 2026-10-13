@@ -236,6 +236,8 @@ impl Core {
             control_received: BTreeMap::new(),
             repropose: false,
             resend_recorded: None,
+            proposal_admission: None,
+            proposal_recovery: None,
             proposal_sent_at: None,
             repushed: BTreeSet::new(),
             request_pushed: BTreeSet::new(),
@@ -416,6 +418,7 @@ impl Core {
                         })
                 });
         parent_matches
+            && record.proposal_signature_verifies(&*self.crypto)
             && record.prepare_signature_verifies(&*self.crypto)
             && self.record_round_certificates_verify(record)
     }
@@ -427,7 +430,9 @@ impl Core {
         if cfg!(sumeragi_mutation = "MS57") {
             return true;
         }
-        if !record.prepare_signature_verifies(&*self.crypto) {
+        if !record.prepare_signature_verifies(&*self.crypto)
+            || !record.proposal_signature_verifies(&*self.crypto)
+        {
             return false;
         }
         let authority_matches = self.config(record.height).map_or_else(

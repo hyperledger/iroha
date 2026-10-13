@@ -1,0 +1,119 @@
+{
+  "binding_ballot_available": false,
+  "broken_links": [],
+  "checks": [
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "--",
+        "docs/validation/parliament_ballot_b6.md",
+        "scripts/parliament_ballot_frontend_bound.py",
+        "scripts/tests/parliament_ballot_frontend_bound_test.py",
+        "scripts/tests/parliament_ballot_source_recovery_test.py",
+        "specs/parliament_ballot_arena_sufficiency.md",
+        "specs/parliament_ballot_b6_ideal_public_sampler.md",
+        "specs/parliament_ballot_b6_requirement_audit.md",
+        "specs/parliament_ballot_implementation_goals.md"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_b6/public-sampler-frontend-scoped-diff.txt",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "--",
+        "status.md"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_b6/public-sampler-frontend-shared-status-diff.txt",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "complete_quantum_resource_vector": false,
+  "complete_workspace_certificate": false,
+  "current_adapter_input_changes": {
+    "/Users/mtakemiya/dev/iroha/Cargo.lock": {
+      "after": "d48624bc2e80c2821f6192b466c7afd7b6e62014e54fa9827663e44debbf0284",
+      "before": "8893895108a7150d59f4814a8bdce5c3dbfe57fdacefd82fcdf2ba793c5f14db"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/allocation/shared.rs": {
+      "after": "c19d0dfce876f26cc7b41b4e5c822c526787e03caa7fe6115cf995ccedbe4a85",
+      "before": "d7cb0dc84f70ed2947053de49b0c3d2e3e67b09b9839468204126ea4df19957c"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared.rs": {
+      "after": "90cb9601cf32f440d0207482565eef8a38d08d36f28ae1a3e98b5189538b682e",
+      "before": "8f70d96f97a6f0bd8fcea7bfd094025f6c80b74a5a812e42a8a9d02e7640c65c"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared_reservation_tests.rs": {
+      "after": "1ca65ab51447057eb323703dd4d8994363de9d5c1d8c6c53a484a03544a7a40e",
+      "before": "599e1e63f5f54592837e6b529eecb238bba8595a1afecc98e034595fb001863e"
+    }
+  },
+  "current_status_roadmap_sha256": {
+    "roadmap.md": "fcd377a9c3eb2ea03af5937ddc74a23d1c4f66874a00bc872039f24d1a7ae074",
+    "status.md": "abf0abad310b3e42d454c72d1ec19e2e581a6ad1bdc8bbac4a76bce334026bc3"
+  },
+  "frozen_new_manifests": [
+    {
+      "entries": 14,
+      "path": "docs/validation/parliament_ballot_adapter_source_recovery/SHA256SUMS",
+      "sha256": "00bbaf781ccb78064c84ad92f4ed47c7e2d6b87b3208d7831f75e79191271a4d"
+    },
+    {
+      "entries": 3,
+      "path": "docs/validation/parliament_ballot_ideal_public_sampler/SHA256SUMS",
+      "sha256": "8a34bdfada5468cfd91fb56998c18143c1d380d74a6f4ca5c2264e40046a7519"
+    },
+    {
+      "entries": 15,
+      "path": "docs/validation/parliament_ballot_frontend_bound/SHA256SUMS",
+      "sha256": "81bae3e341dbb26915dd45d9a24d763705b983d9f6826d99c8a01d152e173b84"
+    }
+  ],
+  "historical_frontend_report_sha256": "d29b4846f90fc230323076ffb570513346ad2751ef4aa9b3b886b78e55b4e91d",
+  "local_links_checked": 208,
+  "no_experimental_core_torii_dependencies": true,
+  "observed_at_utc": "2026-10-13T11:45:27.480876+00:00",
+  "pins_refreshed": false,
+  "prior_entries": 1014,
+  "prior_manifest_sha256": "3dadfe520aeed8b2e089c963f2f4261096054bb1c8e240b013ee6eba5a362a22",
+  "production_gate_source_sha256": {
+    "crates/iroha_core/Cargo.toml": "4d78cf26b0f43903acb43d14a3a0bc3134a8b5e44b1ca673cde2614eb1eacc16",
+    "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs": "efaba6b927534f7096898e8a20206b86a3926fc561984cdd53bb8d7279ab0786",
+    "crates/iroha_torii/Cargo.toml": "54d1465c3bde69fc49650df85d1014bf99ffd80fef7ac5a0f0a346d440cc52df"
+  },
+  "profile_qualified": false,
+  "qualified_attempt_latency_ms": null,
+  "resolved_frontend_guards_checked": 2085,
+  "sampler_source_excerpts_checked": 25,
+  "sampler_source_guards_checked": 22,
+  "schema": "parliament-public-sampler-frontend-coherence-v1",
+  "scope": "Conditional ideal public sampler, historical source recovery and local framing/dispatch contributions only. The prior source-contract check remains first-failed at the queue binding; its read inputs are compared, not its later assertions executed. Current source differences do not change historical pins. Local reviews do not substitute for independent qualification review.",
+  "source_check_receipt": "docs/validation/parliament_ballot_b6/adapter-deletion-source-check.json",
+  "source_check_receipt_sha256": "796e4c3283e560dbcaccc7bff7ad661e5ba9d5197af83b47f50c64845cfe3691",
+  "source_check_rerun": false,
+  "source_check_subsequent_changes": {},
+  "updated_live_entries": {
+    "docs/validation/parliament_ballot_b6.md": {
+      "after": "1147a1c2185a010993793f4556ceda18f5f8487aaf97036c8cb43bb3b0e64dfc",
+      "before": "2d144c458f916156250733ae697aec9e154eed122f1aba7516bbac95909b36cb"
+    },
+    "specs/parliament_ballot_arena_sufficiency.md": {
+      "after": "62c293887b2be04f3edee9bf2628b7dea10adad64373d0a60fc1346b2359c772",
+      "before": "8ac529813afc91076070c5e36fce83aaba9bb613b242b0b77d37a0dd62d4291d"
+    },
+    "specs/parliament_ballot_b6_requirement_audit.md": {
+      "after": "b79570b2b95066579f835f946689671a175c42eb48dad1a47dfa2d8349c87b17",
+      "before": "19917cf29455d4a76320002f0cc896b3887532845be1be6ba576091bf01760e4"
+    },
+    "specs/parliament_ballot_implementation_goals.md": {
+      "after": "8d148eac6f33a0705c59a237ad08df1cc1b3254530ab8f92eefa0eca473a7ca2",
+      "before": "c152d88ab6264bc9d2001f0316fe2209dcf1c7395e9f831e3ee0b5377cf24c76"
+    }
+  }
+}

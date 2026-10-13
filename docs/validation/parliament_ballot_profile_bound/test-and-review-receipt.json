@@ -1,0 +1,54 @@
+{
+  "applies_to_current_checkout": false,
+  "complete_workspace_certificate": false,
+  "current_source_differences": {
+    "/Users/mtakemiya/dev/iroha/Cargo.lock": {
+      "current": "d48624bc2e80c2821f6192b466c7afd7b6e62014e54fa9827663e44debbf0284",
+      "historical": "8893895108a7150d59f4814a8bdce5c3dbfe57fdacefd82fcdf2ba793c5f14db"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/allocation/shared.rs": {
+      "current": "c19d0dfce876f26cc7b41b4e5c822c526787e03caa7fe6115cf995ccedbe4a85",
+      "historical": "d7cb0dc84f70ed2947053de49b0c3d2e3e67b09b9839468204126ea4df19957c"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared.rs": {
+      "current": "90cb9601cf32f440d0207482565eef8a38d08d36f28ae1a3e98b5189538b682e",
+      "historical": "8f70d96f97a6f0bd8fcea7bfd094025f6c80b74a5a812e42a8a9d02e7640c65c"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared_reservation_tests.rs": {
+      "current": "1ca65ab51447057eb323703dd4d8994363de9d5c1d8c6c53a484a03544a7a40e",
+      "historical": "599e1e63f5f54592837e6b529eecb238bba8595a1afecc98e034595fb001863e"
+    }
+  },
+  "final_guard_changes": {},
+  "focused_tests": {
+    "command": [
+      ".venv/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "scripts/tests/parliament_ballot_profile_bound_test.py"
+    ],
+    "duration_seconds": 7.52,
+    "exit": 0,
+    "log_sha256": "c92bc154db9a70b0d15956a2896b31f323ad9ee23c613efacaecac298440db30",
+    "passed": 18,
+    "transcript_scope": "Retained final stdout chunk from the successful tool execution; preceding progress dots omitted. Not a freeze-time test rerun."
+  },
+  "helper_sha256": "6875f26ffdbebe7397bbc9327d58b90567f075bd651c51146370851d9120fe05",
+  "local_reviews": [
+    {
+      "reviewer": "/root",
+      "scope": "Actual source, full ordinary machine body, sole bounded role loop and symbolic exclusions."
+    },
+    {
+      "reviewer": "/root/ownership",
+      "scope": "Independent18-test pass; machine register preservation/loop and source sizes/ownership reviewed; no blocking findings."
+    }
+  ],
+  "observed_at_utc": "2026-10-13T11:56:15.595786+00:00",
+  "profile_qualified": false,
+  "report_sha256": "5f686d26ff0fa65cbf7bad03f46633377f91df442a716253bbb44b721e5d1e8b",
+  "resolved_guard_count": 2089,
+  "schema": "parliament-profile-bound-test-and-review-v1",
+  "tests_sha256": "d0dbacbd03b8baacc3f7800e5db39fc99cee6c4b27ad43b8e0389e56f046470a"
+}

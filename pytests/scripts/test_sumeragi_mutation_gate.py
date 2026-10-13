@@ -7787,7 +7787,10 @@ def test_native_first_prepare_mutations_bind_original_control(mutation, test, ca
     rule = gate.index_mutations(gate.CORE_MUTATIONS)[mutation]
     expected_tests = (test,)
     expected_causes = (gate.ExpectedFailure(cause,
-        "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs"),)
+        "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs",
+        worker_thread="ct5-paid-original",
+        join_source="crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs",
+        join_message="called `Result::unwrap()` on an `Err` value: Any { .. }"),)
     if mutation == "HC334":
         expected_tests += ("sumeragi::executor::clock_tests::sccp_ct5_completion_resamples_clock_and_retains_original_for_certified_retry",)
         expected_causes += (gate.ExpectedFailure(

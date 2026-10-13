@@ -809,8 +809,8 @@ produces no empty blocks and block counts have no wall-clock bound.
   cannot be configured and the ballot timings must change.
 - **Related chain parameters.** The Sumeragi parameter `max_clock_drift_ms`
   (default 1 000) is capped at `MAX_CLOCK_DRIFT_BOUND_MS` (60 000) by genesis
-  validation and by `validate_parameter_change`; the governance parameter
-  `gov.due_work_max_lag_ms` (default 60 000) MUST be at least
+  validation and by `validate_parameter_change`; the committed Sumeragi parameter
+  `sumeragi.due_work_max_lag_ms` (default 60 000) MUST be at least
   `2·max_clock_drift_ms + 4·block_cadence_ms` (§4.3). The staking floor
   (`nexus.staking.unbonding_delay_ms`, `nexus.staking.max_slash_bps`) is node
   configuration pinned by the genesis Nexus consensus-policy digest (§4.8 L1).
@@ -980,25 +980,35 @@ Prepare guards below, a Byzantine leader could choose an arbitrarily far-future
 time or include old due work at a stale time. SCCP and the governance clock anchor deadlines at
 certified block times (generation starts, fast-pause expiries, Parliament
 anchors), so both directions need a bound. The rules are application-level
-executor rules, specified normatively in `specs/sumeragi.md` §4.5; no validity
+execution, builder and signing-admission rules, specified normatively in
+`specs/sumeragi.md` §4.5; no validity
 rule depends on a clock:
 
 | # | Rule (summary) |
 |---|---|
-| CT1 | **Clock ahead.** For every non-genesis block of every Sumeragi instance of the network executed with `certified = false`, the executor answers `Failed(ClockAhead)`, never `Invalid`, while `t(block) > local_wall_ms + max_clock_drift_ms`. No `Valid` is recorded meanwhile, so the node withholds its Prepare vote. Commit votes are not guarded directly; the bound reaches every `CommitQC` through its PrepareQC. |
+| CT1 | **Clock ahead.** Every non-genesis uncertified global or lane execution defers locally as `Failed(ClockAhead)`, never `Invalid`, while `t(block) > local_wall_ms + max_clock_drift_ms`. After successful execution, the retained source-bound paid admission resamples the actual wall clock immediately before each uncertified first Prepare signing attempt, using the original parent's or pinned lane's drift. A rewind withholds the signature while preserving the existing `Valid` result and original custody. An exact matching verified PrepareQC exempts clock admission; retransmission reuses an authenticated persisted successful signature without a new signing attempt. An unsigned durable reservation grants neither exemption. Commit votes inherit the bound through their PrepareQC. |
 | CT2 | **Scope.** The apply and replay path of certified blocks never consults the clock. Genesis keeps its existing check. |
-| CT3 | **Builder pacing.** The payload builder includes no transaction with `creation_time_ms > local_wall_ms`, and does not propose while the block's canonical time would exceed `local_wall_ms`; it waits instead. |
+| CT3 | **Fresh-proposal pacing and admission.** Payload selection leaves future signed inputs in their original Queue admission. A fresh full-State proposal chooses `max(captured local_wall_ms, required time floor)`; routing-lane batches keep their anchor/input-derived time rule. The retained source-bound application owner rechecks the original body timestamp against the current wall clock immediately before each uncertified first proposal signature, including after worker, control-witness, RS16 authoring and signer waits. While `t(block) > local_wall_ms`, signing waits locally with the same canonical body and timestamp; the block is never marked `Invalid` for that clock refusal. |
 | CT4 | **Bound.** `max_clock_drift_ms ≤ MAX_CLOCK_DRIFT_BOUND_MS` at genesis and in `validate_parameter_change`. |
-| CT5 | **Stale due work.** The global executor answers `Failed(StaleDueWork)` for a block executed with `certified = false` that satisfies the keepalive validity predicate of K2 (§4.7), while `local_wall_ms − t(block) > gov.due_work_max_lag_ms`. Panel draws, seat replacement, lapse cleanup, resyncs and key-change rotations alone never trigger it. |
+| CT5 | **Stale due work.** An uncertified global candidate carrying original-parent governance/SCCP due work (including K2, §4.7.4), or authenticated Global AMX Begin/Decision writes, defers locally while `local_wall_ms − t(block) > sumeragi.due_work_max_lag_ms`. The rule is checked before successful execution is returned and resampled from the actual wall clock by the retained exact-source paid admission immediately before every first Prepare signing attempt, including stage/backend retries. Initial refusal yields `Failed(StaleDueWork)`; a later signing refusal preserves `Valid` and its original custody. Neither is deterministic invalidity. An exact matching verified PrepareQC exempts clock admission; an authenticated persisted successful Prepare signature may be retransmitted unchanged. An unsigned reservation does not exempt a new signature. Partial Yes without Decision and maintenance that creates no due work do not trigger CT5; full Parliament scheduling remains owned by its authoritative producer. |
 
 `certified` is set by the Sumeragi core on `Action::Execute` iff the node holds
 a PrepareQC for the block (a re-proposal or its own lock). A re-proposal keeps
 the certified block's original time, and nodes that discarded the execution,
 sat behind a hidden PrepareQC or restarted must execute it again: without the
 exemption, a due-work block whose PrepareQC was hidden for longer than
-`gov.due_work_max_lag_ms` could never gather Prepare votes again. The exemption
+`sumeragi.due_work_max_lag_ms` could never gather Prepare votes again. The exemption
 is sound because the PrepareQC's honest signers passed CT1 and CT5 when they
 first voted. The verdict never depends on `certified`.
+
+Proposal admission has no wire decoder. An unsigned durable proposal reservation
+does not prove that CT3 passed: restart reacquires application admission from that
+exact original available body before its first signature. A successful proposal
+signature is persisted before publication and authenticated on restore;
+retransmission reuses those exact signature bytes. A certified re-proposal is
+exempt from this fresh-proposal guard only when Core holds a genuinely matching
+PrepareQC, and retains the certified block's original body and time. These rules
+change local signing admission, not the block wire format or deterministic validity.
 
 **Properties used by SCCP** (`specs/sumeragi.md` §4.5 proves them; every honest
 wall clock is within `ε` of real time, with `2ε ≤ max_clock_drift_ms`):
@@ -1010,7 +1020,7 @@ wall clock is within `ε` of real time, with `2ε ≤ max_clock_drift_ms`):
   to an individual honest clock. Wallet and relayer margins are
   `2·max_clock_drift_ms` plus inclusion latency.
 - **Lower bound for anchors.** Every block that anchors governance work or a
-  heartbeat has `t(h) ≥ W_i − gov.due_work_max_lag_ms` for some honest first
+  heartbeat has `t(h) ≥ W_i − sumeragi.due_work_max_lag_ms` for some honest first
   Prepare voter, at the moment of that first Prepare.
 - **Commit lag.** Between the first honest Prepare and the commit, view
   changes, a hidden PrepareQC or a halt can add unbounded delay, so an anchor
@@ -1355,14 +1365,14 @@ carries it carries nothing else.
 | # | Rule |
 |---|---|
 | K1 | **At most one** `Keepalive` per block. A block with two is `Invalid` (`DuplicateKeepalive`). |
-| K2 | **Must apply due work.** A block that contains a `Keepalive` is valid only if `governance_due_applied` holds, or SCCP exists, `BEAT` (§4.2.2) holds at that block and the parent's `sccp_degraded_run < 2`. Otherwise it is `Invalid` (`KeepaliveNotDue`). The verdict is deterministic, from content, parent state and block time. It is keyed on `BEAT`, not on G2 actually running, so a block that degrades at its own height cannot make an honest heartbeat keepalive invalid. CT5 triggers on exactly this predicate. |
+| K2 | **Must apply due work.** A block that contains a `Keepalive` is valid only if `governance_due_applied` holds, or SCCP exists, `BEAT` (§4.2.2) holds at that block and the parent's `sccp_degraded_run < 2`. Otherwise it is `Invalid` (`KeepaliveNotDue`). The verdict is deterministic, from content, parent state and block time. It is keyed on `BEAT`, not on G2 actually running, so a block that degrades at its own height cannot make an honest heartbeat keepalive invalid. This predicate is included in CT5's original-parent due-work guard; CT5 also covers authenticated Global AMX Begin/Decision writes (§4.3). |
 | K3 | **Fees.** Exempt, from any Ed25519 authority, registered or not, with no fee field (§4.19). |
-| K4 | **Honest proposer.** It includes a keepalive only if its candidate block `B` will satisfy K2, which it decides without executing, because the pass depends only on the parent state, `t(B)` and the pulses `B` carries; in particular a keepalive due only because of a pulse request at slot `h` is included only if `B` carries that pulse. It includes at most one: the due one with the latest `creation_time` not above its clock plus drift. If its candidate would satisfy K2 with `local_now − t(B) > gov.due_work_max_lag_ms / 2`, it replaces any keepalive with a fresh one of its own, which satisfies CT5. It drops keepalives that are no longer due. |
+| K4 | **Honest proposer.** It includes a keepalive only if its candidate block `B` will satisfy K2, which it decides without executing, because the pass depends only on the parent state, `t(B)` and the pulses `B` carries; in particular a keepalive due only because of a pulse request at slot `h` is included only if `B` carries that pulse. It includes at most one: the due one with the latest `creation_time` not above its clock plus drift. If its candidate would satisfy K2 with `local_now − t(B) > sumeragi.due_work_max_lag_ms / 2`, it replaces any keepalive with a fresh one of its own, which satisfies CT5. It drops keepalives that are no longer due. |
 | K5 | **Admission** (Torii and P2P ingress): the exact shape; `c ≤ local_wall_ms + max_clock_drift_ms`; and `keepalive_due(tip, tip + 1, c + 1)`. The pulse leg counts a request at slot `tip + 1`; whether the block carries the pulse is the builder's decision (K4). The queue drops a pending keepalive when a newer tip makes it not due. Peers MAY deduplicate locally. |
 
 **Guarantees.** Through CT1 a keepalive cannot advance Taira time: its block
 waits until honest clocks reach `c − max_clock_drift_ms`. Through CT5 and K4,
-due work and heartbeats are anchored within `gov.due_work_max_lag_ms` of honest
+due work and heartbeats are anchored within `sumeragi.due_work_max_lag_ms` of honest
 time. Through K2 and the progress invariant, no block exists without due work,
 and an idle chain produces one block per `committee_heartbeat_ms` plus one per
 governance item; a persistent degraded run produces at most two keepalive
@@ -6195,7 +6205,7 @@ because only `iroha_crypto` produces that transcript.
   idle-chain heartbeat, enactment and fast-pause keepalives; the 31-seat result
   body; a genuine certificate fetched from `/v1/bridge/finality/{H}` is
   `NotEvidence`, and a genuine `X` with a forged `D_body` is E4; a hidden
-  PrepareQC on a due-work block for longer than `gov.due_work_max_lag_ms`, then
+  PrepareQC on a due-work block for longer than `sumeragi.due_work_max_lag_ms`, then
   a re-proposal that commits; a BSC halt with backdated resumption after the
   time leg (`g` stays liable until L5 clears, and the forged rotation is
   slashed); a Taira halt past `liable_until_lc`, then a time jump (evidence
@@ -6328,8 +6338,8 @@ resource and process failures are errors, never killed mutations.
 | SC1: `R` binds `X` (§3.6) | HC308 omits `X` from ordinary result publication; MS17 binds the vote to `R` | Current-candidate causal qualification required |
 | SC2/SC3: outgoing boundary identity and `ROTATION` (§4.2.2) | HC226 changes the outgoing generation; HC325 substitutes the successor committee root; HC309 omits a pre-heartbeat key-change rotation | Current-candidate causal qualification required |
 | SC4: dedicated consensus signing API (§3.8) | SC4, with actual single/aggregate cross-suite refusal controls | None for the registered suite fault |
-| SC5/SC6: CT1 and CT3 (§4.3) | HC257, HC259, HC260, HC264, HC268, HC269; MS52 and MS66 cover the clock allowance, MS68 removes the simulator's retained-work canonical-floor wait, MS69 removes its completed-payload clock recheck, MS70 removes the final fresh-proposal clock recheck; DM36 bounds committed drift | Run the controls under their respective owners |
-| SC12/SC17: CT5, certified exemption and first-Prepare boundary | HC258, HC281, HC282, HC334, HC337; MS51, MS65, MS67 | Run the production and simulator controls independently |
+| SC5/SC6: CT1 and CT3 (§4.3) | HC257, HC259, HC260, HC264, HC268, HC269, HC327–HC329, HC353–HC360; MS52 and MS66 cover the clock allowance, MS68 removes the simulator's retained-work canonical-floor wait, MS69 removes its completed-payload clock recheck, MS70 removes the final fresh-proposal clock recheck, MS74 removes first-Prepare rewind admission, MS75–MS79 cover delayed first proposal signing, authenticated signature persistence/recovery and stable pending recovery identity; DM36 bounds committed drift | Run the controls under their respective owners, including original Queue retirement, fresh-view proposal time, authenticated time above the immutable input floor, captured-time progress, first-signature resampling against the original drift and source-bound proposal-admission recovery, including retryable input withdrawal and matching discarded-waiter retirement |
+| SC12/SC17: CT5, certified exemption and first-Prepare boundary | HC258, HC281, HC282, HC333–HC337; MS51, MS65, MS67, MS71–MS73; DM37 bounds the committed due-work margin | Run the production and simulator controls independently, including cached execution, exact-source admission, authenticated restart of a successful Prepare signature and checked drift/cadence arithmetic |
 | SC7/SC8/SC22: heartbeat/governance due predicate and degraded run | HC278 bounds degraded heartbeat retries; HC302 preserves the original parent pause-due set; HC312 omits the heartbeat deadline; HC313 omits the pause-due leg | Current consumer controls require qualification; full cross-owner Parliament scheduling still needs its authoritative producer |
 | SC9/SC16: K1 and K2 (§4.7.4) | HC277 rejects a second carrier; HC279 and HC280 cover canonical shape and stale-carrier selection; HC314 admits without established due work | Current-candidate causal qualification required |
 | SC10/SC11/SC23: missing inputs, `BEAT`, resync | HC227 binds resync to the native parent; HC324 omits resync; HC228 preserves parent anchors through degradation; HC310 invalidates missing inputs; HC311 disables heartbeat rotation | Current-candidate causal qualification required |
@@ -6340,7 +6350,7 @@ resource and process failures are errors, never killed mutations.
 | SC24: pending evidence and anchor retention (§4.11) | HC292, HC293 | None for these registered pruning faults |
 | SC25: per-revision forgery hold (§4.10) | HC283 protects registration after forgery; HC285 protects monotone attestation; HC323 omits the forgery-floor hold | Current-candidate causal qualification required |
 
-HC276–HC307 additionally cover exact CREATE2 binding, the proposal launch gate,
+HC276–HC290, HC292–HC293 and HC295–HC307 additionally cover exact CREATE2 binding, the proposal launch gate,
 permanent quarantine and forged-mint payload binding, reconciliation reservation
 and refused-credit accounting, fast-pause seat/quorum/expiry/lift/suspension,
 signed instruction custody, bounded control enactment, original-parent due work,
@@ -6388,7 +6398,7 @@ qualification work is stated separately from external Parliament authority.
 | Consensus signing API and `DST_SIG` (§3.8) | The native allowlisted consensus BLS suite is used by signers, certificate readers and model proof verification. Old-suite and invalid-input rejection controls remain. Crypto component and current full certified-clock simulator qualification pass; the four-peer candidate exports a genuine native certificate for local EVM replay. |
 | Finality header, certified result `R` and every reader (§3.6, §4.6) | Native producer/readers bind `X` into `R` and derive scope from original genesis/chain custody. Core, private-scope and publication tests cover the boundary; the four-peer native export and local EVM replay exercise the actual certificate boundary. The 31-seat body measurement is 30,763 of 65,315 bytes (§13 item 5). |
 | `iroha_sccp::v1` reference and cross-language fixtures (§8, §11) | Native finality, committee, control and destination models and generators are implemented. SCCP CI runs independent Python drift checks, Rust/BLS fixtures, native EVM and native TON suites. Current combined-candidate qualification remains required. |
-| Certified time CT1–CT5 and `Execute.certified` (§4.3) | Original-parent bounded due observations and the actual native Prepare signing guard are implemented; certified execution does not inherit a local-clock refusal. The simulator retains the original work and completed payload through committed-parent and immutable creation-floor pacing, and rechecks the clock immediately before fresh proposal signing. The current full simulator, clock baselines and all eight causal clock controls pass. Production Core controls remain part of the pending full Core mutation gate. |
+| Certified time CT1–CT5 and `Execute.certified` (§4.3) | Original-parent bounded due observations and source-bound first-Prepare admission are implemented; only a matching held PrepareQC exempts signing from local-clock freshness. Native admission survives encoding and allocation waits, cached execution and stage delay; authenticated persisted signature bytes authorize retransmission after restart. The simulator retains original work and completed payloads, captures fresh-view proposal time above the immutable creation floor, and rechecks the clock immediately before fresh proposal signing. The merged candidate requires new simulator, native Core, mutation and real-network qualification; earlier clock results belong to the pre-merge candidate. |
 | Genesis and Kagami SCCP staking profile (§4.8 L1) | Implemented with matching epoch geometry of at least one hour, 21-day unbonding, nonzero slash policy, original G1 staking bindings and fresh durable reset identities whose nonces are consumed exactly once. Kagami places initialization after automatic NPoS bootstrap. No routes are seeded. Current profile, signing-order and reset-history regressions pass; the real four-validator SCCP candidate also starts and publishes native finality while refusing unqualified route governance. |
 | Frozen-surface golden tests and mutation entries (§11.6) | Native wire/reference fixtures and SCCP clock/Core mutation entries are registered. Current clock controls pass with a passing baseline and causal named-test kills; the full current Core mutation gate remains open. Compiler failures never count as mutation kills. |
 | Self-contained penalty records, L3 release gate and daemon L1 refusal (§4.8–§4.9) | Native forgery evidence, permanent offence ownership, closed penalty records, retained liability release checks and configuration refusal are implemented. Current node/network qualification remains open. |
@@ -6500,7 +6510,7 @@ version, since no backward compatibility is required).
 17. **Parameter tuning** needs measurement: 1 d heartbeat, 14 d validity, 7 d
     grace, 30 d progress cap, 7 d outbound TTL, the exempt cap of 32, the fast
     pause panel size, windows and 10 d hold, the self-claim fee,
-    `gov.due_work_max_lag_ms`, and TON gas limits per step.
+    `sumeragi.due_work_max_lag_ms`, and TON gas limits per step.
 18. **Wrapped test XOR on mainnets** is stranded on every Taira reset. Token
     naming and user disclosure need product sign-off.
 19. **`SCCP_EVM_DEPLOYER`.** Confirm that the keyless proxy's runtime code is

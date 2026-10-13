@@ -157,7 +157,7 @@ fn staged_sccp_snapshot_preserves_single_envelope_with_current_and_predecessor()
     let mut envelope = String::new();
     serialize_block_envelope(&block.world, &mut envelope);
     let envelope_value: json::Value = json::from_str(&envelope).unwrap();
-    assert_eq!(envelope_value.as_object().unwrap().len(), 31);
+    assert_eq!(envelope_value.as_object().unwrap().len(), 34);
     for (field, before, after) in [
         ("sccp_committee_current", 1_u64, 2_u64),
         ("sccp_liability_clock", 1_000, 2_000),
@@ -204,7 +204,7 @@ fn staged_sccp_snapshot_preserves_single_envelope_with_current_and_predecessor()
     serialize_envelope(&state.world, &mut committed_envelope);
     assert_eq!(
         committed_envelope, envelope,
-        "all 31 current/undo owners survive publication exactly"
+        "all 34 current/undo owners survive publication exactly"
     );
     let predecessor = state.world.block_and_revert();
     assert_eq!(*predecessor.sccp_committee_current.get(), 1);

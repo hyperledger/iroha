@@ -1,0 +1,51 @@
+{
+  "command": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "docs/validation/parliament_ballot_b6/kura-claim-guard-controls.py.template",
+    "queue_signed_proposal_gas or unconditional_rust_item or rust_token_digest or kura_claim_cleanup or publication_keeps_original_kura_release_custody"
+  ],
+  "exit": 0,
+  "log": "docs/validation/parliament_ballot_b6/kura-claim-guard-controls.txt",
+  "log_sha256": "2801c5ae2377dba047c7ee2dce304bf9bb5d39c945708a7360354a5af8fff5bf",
+  "observed_at_utc": "2026-10-13T12:38:22.905804+00:00",
+  "observed_read_count": 11,
+  "passed": 192,
+  "profile_qualified": false,
+  "pytest_arguments": [
+    "--import-mode=importlib",
+    "-q",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "-k",
+    "queue_signed_proposal_gas or unconditional_rust_item or rust_token_digest or kura_claim_cleanup or publication_keeps_original_kura_release_custody"
+  ],
+  "pytest_version": "9.1.1",
+  "schema": "parliament-kura-claim-guard-controls-v1",
+  "scope": "Focused Python structural controls on the repaired declaration/owner locator, signed gas and retained Kura claims. Observed guard.read inputs and executing code are pinned; no full Rust or concurrency qualification follows.",
+  "source_after": {
+    "crates/iroha_core/src/kura/lane_geometry/raw_attempt.rs": "0ceba48e80d25d14d76cdfc4f6a2574bb503faa095a5c960200632e7472248b9",
+    "crates/iroha_core/src/kura/publication_lease.rs": "83ace9f463908bfdc195f3e4c0f363a971c87286dbfc0010868c850139361d94",
+    "crates/iroha_core/src/kura/publication_lease/retained.rs": "43194a6211b9abe220651ba48f7fff0e929b3fce9fed222e0a2f885d521f7af4",
+    "crates/iroha_core/src/queue.rs": "3aaf1a4f6dd8d2354fed7c4b5a4d2bb099b7594d8d7a8cd1958b92af2572e5a2",
+    "crates/iroha_core/src/state/publication.rs": "674be2411dbaecf9f829070197a7e180e7099f1c92b6a34c0c8ab990995a7365",
+    "crates/iroha_core/src/state/publication_effect_kura_tests.rs": "0c73fb95a05c877bce9ea69d936a0ed04d45417a4e78d1abb1e5dfa778ef4e06",
+    "crates/iroha_data_model/src/transaction/executable.rs": "cef6182ba0acd6186e6ccaf8514b94f8c58e14ed96f09762b3d2a8ba61943cea",
+    "docs/validation/parliament_ballot_b6/kura-claim-guard-controls.py.template": "022fe607aaf6cd6ba9ca878f4c411c531b353d64633cd97808800ba2e92cdf5a",
+    "scripts/formal/check_sora_parliament_source_contract.py": "3ad7a9957125848d98d7a93be4d87e971795e85752a91ee92c3daefe26d3a4c3",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "2cf94054ce8522c07fe64d5e09ff0af513a65fad17674d99c1df3ce855d50e0c"
+  },
+  "source_before": {
+    "crates/iroha_core/src/kura/lane_geometry/raw_attempt.rs": "0ceba48e80d25d14d76cdfc4f6a2574bb503faa095a5c960200632e7472248b9",
+    "crates/iroha_core/src/kura/publication_lease.rs": "83ace9f463908bfdc195f3e4c0f363a971c87286dbfc0010868c850139361d94",
+    "crates/iroha_core/src/kura/publication_lease/retained.rs": "43194a6211b9abe220651ba48f7fff0e929b3fce9fed222e0a2f885d521f7af4",
+    "crates/iroha_core/src/queue.rs": "3aaf1a4f6dd8d2354fed7c4b5a4d2bb099b7594d8d7a8cd1958b92af2572e5a2",
+    "crates/iroha_core/src/state/publication.rs": "674be2411dbaecf9f829070197a7e180e7099f1c92b6a34c0c8ab990995a7365",
+    "crates/iroha_core/src/state/publication_effect_kura_tests.rs": "0c73fb95a05c877bce9ea69d936a0ed04d45417a4e78d1abb1e5dfa778ef4e06",
+    "crates/iroha_data_model/src/transaction/executable.rs": "cef6182ba0acd6186e6ccaf8514b94f8c58e14ed96f09762b3d2a8ba61943cea",
+    "docs/validation/parliament_ballot_b6/kura-claim-guard-controls.py.template": "022fe607aaf6cd6ba9ca878f4c411c531b353d64633cd97808800ba2e92cdf5a",
+    "scripts/formal/check_sora_parliament_source_contract.py": "3ad7a9957125848d98d7a93be4d87e971795e85752a91ee92c3daefe26d3a4c3",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "2cf94054ce8522c07fe64d5e09ff0af513a65fad17674d99c1df3ce855d50e0c"
+  },
+  "source_unchanged": true
+}

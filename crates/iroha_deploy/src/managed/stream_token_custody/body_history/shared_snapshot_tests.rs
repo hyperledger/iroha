@@ -404,26 +404,26 @@ fn genuine_graph_snapshot_pass_bounds_reads_and_preserves_mutation_and_decode_re
 
     // Closure records are not snapshot memoization candidates: original native metadata
     // and receipt verification must still refuse a changed oldest closed transition.
-    let closed = metadata::test_read_component(&oldest, None, "closed.nrt")
+    let closed = metadata::test_read_component(oldest, None, "closed.nrt")
         .unwrap()
         .unwrap();
-    let mut changed = closed.to_vec();
+    let mut changed = closed.clone();
     changed[0] ^= 1;
-    metadata::test_replace_component(&oldest, None, "closed.nrt", Some(&changed)).unwrap();
+    metadata::test_replace_component(oldest, None, "closed.nrt", Some(&changed)).unwrap();
     assert!(native.test_require_current(4).0.is_err());
-    metadata::test_replace_component(&oldest, None, "closed.nrt", Some(&closed)).unwrap();
+    metadata::test_replace_component(oldest, None, "closed.nrt", Some(&closed)).unwrap();
     native.test_require_current(4).0.unwrap();
 
     // The reverse direction also rereads mutable predecessor closure bytes after a
     // successful forward census; the immutable snapshot pass cannot hide this change.
     let target = Arc::clone(oldest);
-    let mut changed_closed = closed.to_vec();
+    let mut changed_closed = closed.clone();
     changed_closed[0] ^= 1;
     let (result, census) = native.test_require_current_after_forward(4, move || {
         metadata::test_replace_component(&target, None, "closed.nrt", Some(&changed_closed))?;
         Ok(())
     });
-    metadata::test_replace_component(&oldest, None, "closed.nrt", Some(&closed)).unwrap();
+    metadata::test_replace_component(oldest, None, "closed.nrt", Some(&closed)).unwrap();
     assert!(result.is_err());
     assert!(
         census.visits > 2,
@@ -469,7 +469,7 @@ fn genuine_graph_snapshot_pass_bounds_reads_and_preserves_mutation_and_decode_re
         original
     );
     assert_eq!(
-        metadata::test_read_component(&oldest, None, "closed.nrt")
+        metadata::test_read_component(oldest, None, "closed.nrt")
             .unwrap()
             .unwrap(),
         closed
@@ -633,14 +633,14 @@ fn genuine_parser_pass_bounds_prefix_rechecks_and_closes_persistent_errors() {
     assert!(!current.path().join("foreign.nrt").exists());
 
     let oldest = &history.bodies[0].directory;
-    let closed = metadata::test_read_component(&oldest, None, "closed.nrt")
+    let closed = metadata::test_read_component(oldest, None, "closed.nrt")
         .unwrap()
         .unwrap();
-    let mut changed = closed.to_vec();
+    let mut changed = closed.clone();
     changed[0] ^= 1;
     let result = EnrollmentReadPass::run(&snapshot, |pass| {
         pass.test_retain_predecessor(native)?;
-        metadata::test_replace_component(&oldest, None, "closed.nrt", Some(&changed))?;
+        metadata::test_replace_component(oldest, None, "closed.nrt", Some(&changed))?;
         Err::<(), _>(invalid("inner parser observation failed"))
     });
     assert!(result.is_err());
@@ -648,7 +648,7 @@ fn genuine_parser_pass_bounds_prefix_rechecks_and_closes_persistent_errors() {
         !matches!(result, Err(crate::managed::Error::Invalid(message))
         if message == "inner parser observation failed")
     );
-    metadata::test_replace_component(&oldest, None, "closed.nrt", Some(&closed)).unwrap();
+    metadata::test_replace_component(oldest, None, "closed.nrt", Some(&closed)).unwrap();
     native.test_require_current(4).0.unwrap();
 
     #[cfg(unix)]
@@ -670,7 +670,7 @@ fn genuine_parser_pass_bounds_prefix_rechecks_and_closes_persistent_errors() {
         native.test_require_current(4).0.unwrap();
     }
     assert_eq!(
-        metadata::test_read_component(&oldest, None, "closed.nrt")
+        metadata::test_read_component(oldest, None, "closed.nrt")
             .unwrap()
             .unwrap(),
         closed

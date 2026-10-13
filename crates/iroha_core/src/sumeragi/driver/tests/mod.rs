@@ -13,6 +13,7 @@ pub(super) mod fakes;
 mod conformance;
 mod file_stores;
 mod kernel;
+mod proposal_recovery;
 mod sched;
 mod sim_host;
 mod threaded;
@@ -37,13 +38,13 @@ pub(super) fn test_registrations() -> super::exec::ExecutionRegistrations {
     super::exec::ExecutionRegistrations::admit(&test_budget()).unwrap()
 }
 /// Admit an actual nonempty builder result under the fixture's original pool.
-pub(super) fn payload(bytes: Vec<u8>) -> Option<iroha_sumeragi::availability::PayloadBytes> {
+pub(super) fn payload(bytes: Vec<u8>) -> Option<iroha_sumeragi::proposal_admission::BuiltPayload> {
     if bytes.is_empty() {
         return None;
     }
     let mut payload = iroha_sumeragi::availability::PayloadBytes::from_untrusted(bytes).unwrap();
     payload.admit(&test_budget()).unwrap();
-    Some(payload)
+    Some(iroha_sumeragi::testing::built_payload(payload))
 }
 /// Author exact application bytes through the actual signed RS16 worker.
 pub(super) fn block(
