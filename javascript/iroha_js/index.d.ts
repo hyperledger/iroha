@@ -10216,9 +10216,14 @@ export declare class ToriiBrowserClient {
   getNodeCapabilities(options?: { signal?: AbortSignal }): Promise<ToriiBrowserNodeCapabilities>;
   getAccountCapabilities(options?: { signal?: AbortSignal }): Promise<AccountCapabilitiesV1>;
   /** Every native bond record (`GET /v1/bonds`). */
-  listBonds(options?: { signal?: AbortSignal }): Promise<BondRecordJson[]>;
+  listBonds(options?: BondRecordPageOptions): Promise<BondRecordPage>;
   /** One native bond record (`GET /v1/bonds/{bond_id}`); null when the bond is not registered. */
   getBond(bondId: string, options?: { signal?: AbortSignal }): Promise<BondRecordJson | null>;
+  /** One page of a bond's record-date entitlements (`GET /v1/bonds/{bond_id}/entitlements`); null when the bond is not registered. */
+  getBondEntitlements(
+    bondId: string,
+    options?: BondEntitlementPageOptions,
+  ): Promise<BondEntitlementPage | null>;
   getContractDeploymentState(
     request: ToriiBrowserContractDeploymentStateRequest,
     options?: ToriiBrowserContractDeploymentStateOptions,
@@ -10574,9 +10579,14 @@ export declare class ToriiClient {
     signal?: AbortSignal;
   }): Promise<IdentifierPolicyListResponse>;
   /** Every native bond record (`GET /v1/bonds`): terms, schedule, lifecycle and servicing state. */
-  listBonds(options?: { signal?: AbortSignal }): Promise<BondRecordJson[]>;
+  listBonds(options?: BondRecordPageOptions): Promise<BondRecordPage>;
   /** One native bond record (`GET /v1/bonds/{bond_id}`); null when the bond is not registered. */
   getBond(bondId: string, options?: { signal?: AbortSignal }): Promise<BondRecordJson | null>;
+  /** One page of a bond's record-date entitlements (`GET /v1/bonds/{bond_id}/entitlements`); null when the bond is not registered. */
+  getBondEntitlements(
+    bondId: string,
+    options?: BondEntitlementPageOptions,
+  ): Promise<BondEntitlementPage | null>;
   resolveIdentifier(
     options: IdentifierResolutionRequestOptions,
   ): Promise<IdentifierResolutionReceipt | null>;
@@ -13486,8 +13496,14 @@ export function repoIntentHashes(instruction: RepoInitiateInstruction): {
 
 /** Maximum scheduled cash flows of registered bond terms. */
 export const BOND_MAX_CASHFLOWS: 400;
-/** Maximum investor holders in one record-date snapshot. */
-export const BOND_MAX_SNAPSHOT_HOLDERS: 4096;
+/** Balances or escrow records one `RecordBondCashflow` step examines; recording is paged. */
+export const BOND_RECORDING_PAGE_ENTRIES: 512;
+/** Longest payment grace period a bond may register (366 days in milliseconds). */
+export const BOND_MAX_PAYMENT_GRACE_MS: 31622400000;
+/** Most records one `listBonds` page may request. */
+export const BOND_RECORD_PAGE_MAX_ITEMS: 20;
+/** Most rows one `getBondEntitlements` page may request. */
+export const BOND_ENTITLEMENT_PAGE_MAX_ITEMS: 1000;
 export const BOND_COUPON_FREQUENCIES: readonly [0, 1, 2, 4, 12];
 export const BOND_DAY_COUNTS: readonly ["ActActIcma", "Thirty360", "Act360", "Act365Fixed"];
 export const BOND_CASHFLOW_KINDS: readonly ["Coupon", "Redemption"];
@@ -13498,6 +13514,7 @@ export type BondCashflowKind = "Coupon" | "Redemption";
 export type BondLifecycle = "Active" | "Called" | "Matured" | "Defaulted";
 export type BondCashflowStatus =
   | "Scheduled"
+  | "Recording"
   | "Recorded"
   | "Funded"
   | "Closed"
@@ -13539,9 +13556,9 @@ export interface BondScheduleEntry extends BondCashflowInput {
 }
 
 export interface BondTermsInput {
-  /** Issuer: owns the bond definition and signs registration and calls. */
+  /** Issuer: owns the bond definition and signs registration, calls and paying-agent replacement. */
   issuer: string;
-  /** Paying agent: records, funds, closes, declares defaults, may push claims. */
+  /** Paying agent: funds, closes, declares defaults, may push claims. */
   payingAgent: string;
   paymentAsset: string;
   denomination: QuantityInput;
@@ -13551,7 +13568,10 @@ export interface BondTermsInput {
   issueDateMs: NumericLike;
   maturityDateMs: NumericLike;
   redemptionPriceBps: number;
+  /** Grace after a payment date before a default may be declared (at most 366 days). */
+  paymentGraceMs: NumericLike;
   call?: { firstCallDateMs: NumericLike; priceBps: number; noticeMs: NumericLike } | null;
+  /** Must be exactly the regular schedule of the terms (see `buildBondSchedule`). */
   cashflows: ReadonlyArray<BondCashflowInput>;
   identifiers: {
     isin?: string | null;
@@ -13583,6 +13603,7 @@ export interface BondTermsJson {
   issue_date_ms: number;
   maturity_date_ms: number;
   redemption_price_bps: number;
+  payment_grace_ms: number;
   call: { first_call_date_ms: number; price_bps: number; notice_ms: number } | null;
   cashflows: BondCashflowTermsJson[];
   identifiers: {
@@ -13608,19 +13629,73 @@ export interface BondRecordJson {
     cashflows: Array<{
       terms: BondCashflowTermsJson;
       status: BondCashflowStatus;
-      /** Entitled units per investor account at record time. */
-      snapshot: Record<string, string>;
+      /** Resumption point while the status is `Recording`. */
+      recording: {
+        phase: "Holders" | "Escrows";
+        after_asset: string | null;
+        after_escrow: string | null;
+      } | null;
+      /** Holders with a recorded entitlement (rows of `getBondEntitlements`). */
+      holders: number;
+      claimed_holders: number;
       entitled_units: string;
       amount_due: string;
       funded: string;
       paid: string;
-      claimed: string[];
       recorded_at_ms: number | null;
       funded_at_ms: number | null;
       closed_at_ms: number | null;
       evidence_sha256: string | null;
     }>;
   };
+}
+
+/** One holder's record-date entitlement to one cash flow (`GET /v1/bonds/{bond_id}/entitlements`). */
+export interface BondEntitlementJson {
+  /** `<index>:<holder>`; the row identity and cursor key. */
+  id: string;
+  bond: string;
+  index: number;
+  holder: string;
+  /** Units held of record (own balance plus units the holder escrowed). */
+  units: string;
+  /** Payment at the payment-asset scale. */
+  amount: string;
+  claimed: boolean;
+  claimed_at_ms: number | null;
+}
+
+export interface BondRecordPageOptions {
+  /** Records per page, 1..=20 (default 20). */
+  limit?: number;
+  /** `nextCursor` of the previous page. */
+  cursor?: string | null;
+  /** Collection filter, e.g. `state.lifecycle = "Active"`. */
+  filter?: string;
+  signal?: AbortSignal;
+}
+
+export interface BondRecordPage {
+  items: BondRecordJson[];
+  nextCursor: string | null;
+  total?: number | bigint;
+}
+
+export interface BondEntitlementPageOptions {
+  /** Only this cash flow. */
+  index?: number;
+  /** Only this holder. */
+  holder?: string;
+  /** Rows per page, 1..=1000 (default 1000). */
+  limit?: number;
+  cursor?: string | null;
+  signal?: AbortSignal;
+}
+
+export interface BondEntitlementPage {
+  items: BondEntitlementJson[];
+  nextCursor: string | null;
+  total?: number | bigint;
 }
 
 /**
@@ -13657,7 +13732,7 @@ export function buildRegisterBondInstruction(options: {
   bondId: string;
   terms: BondTermsInput;
 }): RegisterBondInstruction;
-/** `Bond::RecordCashflow` (paying agent, at or after the record date). */
+/** `Bond::RecordCashflow` (any signer, at or after the record date; repeat until Recorded). */
 export function buildRecordBondCashflowInstruction(options: {
   bondId: string;
   index: number;
@@ -13674,7 +13749,7 @@ export function buildClaimBondCashflowInstruction(options: {
   index: number;
   holder: string;
 }): { Bond: { ClaimCashflow: BondCashflowInstructionJson & { holder: string } } };
-/** `Bond::CloseCashflow` (paying agent) once every snapshot holder claimed. */
+/** `Bond::CloseCashflow` (paying agent, from the payment date); unclaimed entitlements stay claimable. */
 export function buildCloseBondCashflowInstruction(options: {
   bondId: string;
   index: number;
@@ -13684,12 +13759,17 @@ export function buildCallBondInstruction(options: {
   bondId: string;
   callDateMs: NumericLike;
 }): { Bond: { Call: { bond: string; call_date_ms: number } } };
-/** `Bond::DeclareDefault` (paying agent) after an unfunded payment date. */
+/** `Bond::DeclareDefault` (paying agent) after an unfunded payment date and its grace period. */
 export function buildDeclareBondDefaultInstruction(options: {
   bondId: string;
   index: number;
   evidenceSha256: BondDigestInput;
 }): { Bond: { DeclareDefault: BondCashflowInstructionJson & { evidence_sha256: string } } };
+/** `Bond::ReplacePayingAgent` (issuer): an existing account becomes the paying agent. */
+export function buildReplaceBondPayingAgentInstruction(options: {
+  bondId: string;
+  payingAgent: string;
+}): { Bond: { ReplacePayingAgent: { bond: string; paying_agent: string } } };
 
 /** Random canonical asset-definition id (UUIDv4 Base58 address). */
 export function generateAssetDefinitionId(): string;
@@ -13849,20 +13929,19 @@ export interface TransactionReview {
 /** Escape control, format and bidirectional characters and bound review text. */
 export function sanitizeReviewText(value: unknown, maximum?: number): string;
 
-/**
- * Decode an unsigned payload natively and describe it for a signer; fails
- * closed on a NetworkId or authority mismatch or more than 64 instructions.
- */
+/** Bond context of a transaction review: a record and any of its entitlement rows. */
 export interface BondReviewContext {
   /** Native record, for example from `ToriiClient.getBond`. */
   record: BondRecordJson;
-  /** Payment asset scale; `null` for an unconstrained asset; omit when unknown. */
-  paymentAssetScale?: number | null;
+  /** Entitlement rows of the bond, for example from `ToriiClient.getBondEntitlements`. */
+  entitlements?: ReadonlyArray<BondEntitlementJson> | null;
 }
 
 /**
+ * Decode an unsigned payload natively and describe it for a signer; fails
+ * closed on a NetworkId or authority mismatch or more than 64 instructions.
  * Bond rows are built from the payload alone; `bonds` adds each cash flow's
- * kind, dates, amounts, units and the vault or issuer counterparty.
+ * kind, dates, amounts, the holder's entitled units and exact payment, and the vault.
  */
 export function reviewTransactionPayload(
   payloadBytes: Buffer | ArrayBuffer | ArrayBufferView,

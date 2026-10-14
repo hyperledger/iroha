@@ -33,8 +33,21 @@ import {
   applyOperatorGetHeaders,
   requireOperatorSigningContext,
 } from "./operatorRequest.browser.js";
-import { ensureCanonicalAccountId, normalizeAssetDefinitionId } from "./normalizers.js";
-import { normalizeBondRecord, normalizeBondRecordList } from "./bondRecords.js";
+import {
+  ensureCanonicalAccountId,
+  normalizeAccountId,
+  normalizeAssetDefinitionId,
+} from "./normalizers.js";
+import {
+  BOND_ENTITLEMENT_PAGE_MAX_BYTES,
+  BOND_RECORD_MAX_BYTES,
+  BOND_RECORD_PAGE_MAX_BYTES,
+  bondEntitlementPageParams,
+  bondRecordPageParams,
+  normalizeBondEntitlementPage,
+  normalizeBondRecord,
+  normalizeBondRecordPage,
+} from "./bondRecords.js";
 import {
   SUMERAGI_LANES_TYPED_JSON_MAX_BYTES,
   SUMERAGI_STATUS_TYPED_JSON_MAX_BYTES,
@@ -2092,17 +2105,26 @@ export class ToriiBrowserClient {
     });
   }
 
-  /** List every native bond record (`GET /v1/bonds`) as native snake_case JSON. */
+  /**
+   * Page native bond records (`GET /v1/bonds`) as native snake_case JSON:
+   * `{ items, nextCursor, total? }`, at most 20 records and 16 MiB per page.
+   */
   async listBonds(options = {}) {
-    const opts = signalOnlyOptions(options, "listBonds options");
+    const opts = requireSupportedOptions(
+      options,
+      "listBonds options",
+      new Set(["signal", "limit", "cursor", "filter"]),
+    );
     const payload = await this._json("GET", "/v1/bonds", {
       signal: signalFrom(opts),
-      jsonParser: (text) => parseStrictLosslessIntegerJson(text, "bond list response"),
+      params: bondRecordPageParams(opts, "listBonds"),
+      maximumBodyBytes: BOND_RECORD_PAGE_MAX_BYTES,
+      jsonParser: (text) => parseStrictLosslessIntegerJson(text, "bond page response"),
     });
-    return normalizeBondRecordList(payload, "bond list response");
+    return normalizeBondRecordPage(payload, "bond page response");
   }
 
-  /** Fetch one native bond record (`GET /v1/bonds/{bond_id}`); null when it is not registered. */
+  /** Fetch one native bond record (`GET /v1/bonds/{bond_id}`, at most 2 MiB); null when it is not registered. */
   async getBond(bondId, options = {}) {
     const bond = normalizeAssetDefinitionId(bondId, "getBond.bondId");
     const opts = signalOnlyOptions(options, "getBond options");
@@ -2110,6 +2132,7 @@ export class ToriiBrowserClient {
     try {
       payload = await this._json("GET", `/v1/bonds/${encodeURIComponent(bond)}`, {
         signal: signalFrom(opts),
+        maximumBodyBytes: BOND_RECORD_MAX_BYTES,
         jsonParser: (text) => parseStrictLosslessIntegerJson(text, "bond response"),
       });
     } catch (error) {
@@ -2121,6 +2144,36 @@ export class ToriiBrowserClient {
       rejectType(`bond response describes ${record.id}, not the requested bond ${bond}`);
     }
     return record;
+  }
+
+  /**
+   * Page the record-date entitlements of one bond
+   * (`GET /v1/bonds/{bond_id}/entitlements`), in cash-flow then holder order;
+   * null when the bond is not registered. At most 1000 rows and 4 MiB per page.
+   */
+  async getBondEntitlements(bondId, options = {}) {
+    const bond = normalizeAssetDefinitionId(bondId, "getBondEntitlements.bondId");
+    const opts = requireSupportedOptions(
+      options,
+      "getBondEntitlements options",
+      new Set(["signal", "index", "holder", "limit", "cursor"]),
+    );
+    const holder = opts.holder === undefined
+      ? undefined
+      : normalizeAccountId(opts.holder, "getBondEntitlements.holder");
+    let payload;
+    try {
+      payload = await this._json("GET", `/v1/bonds/${encodeURIComponent(bond)}/entitlements`, {
+        signal: signalFrom(opts),
+        params: bondEntitlementPageParams({ ...opts, holder }, "getBondEntitlements"),
+        maximumBodyBytes: BOND_ENTITLEMENT_PAGE_MAX_BYTES,
+        jsonParser: (text) => parseStrictLosslessIntegerJson(text, "bond entitlement page response"),
+      });
+    } catch (error) {
+      if (error instanceof ToriiHttpError && error.status === 404) return null;
+      throw error;
+    }
+    return normalizeBondEntitlementPage(payload, "bond entitlement page response", bond);
   }
 
   /** Fetch one exact pipeline status by transaction hash. */

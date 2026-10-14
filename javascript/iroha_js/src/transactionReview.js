@@ -18,8 +18,7 @@ import { NetworkId } from "./networkId.js";
 import { normalizeAccountId } from "./normalizers.js";
 import { defaultNativeRuntime, resolveNativeRuntimeBinding } from "./nativeRuntime.js";
 import { noritoDecodeInstruction } from "./norito.js";
-import { bondHolderPayment } from "./bond.js";
-import { normalizeBondRecord } from "./bondRecords.js";
+import { normalizeBondEntitlement, normalizeBondRecord } from "./bondRecords.js";
 
 export const TRANSACTION_REVIEW_SCHEMA = "iroha.connect-transaction-review.v1";
 export const TRANSACTION_REVIEW_MAX_INSTRUCTIONS = 64;
@@ -78,33 +77,36 @@ function bondCashflowSummary(terms) {
 
 /**
  * Normalize the optional bond review context: native records (for example from
- * `ToriiClient.getBond`) with the payment asset's scale when known.
+ * `ToriiClient.getBond`) with any entitlement rows of that bond (from
+ * `ToriiClient.getBondEntitlements`).
  */
 function bondReviewContext(bonds) {
   const context = new Map();
   if (bonds === undefined || bonds === null) return context;
   if (!Array.isArray(bonds)) {
-    throw new TypeError("expected.bonds must be an array of { record, paymentAssetScale? }");
+    throw new TypeError("expected.bonds must be an array of { record, entitlements? }");
   }
   bonds.forEach((entry, index) => {
     const name = `expected.bonds[${index}]`;
     if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
       throw new TypeError(`${name} must be an object`);
     }
-    const unknown = Object.keys(entry).filter((key) => key !== "record" && key !== "paymentAssetScale");
+    const unknown = Object.keys(entry).filter((key) => key !== "record" && key !== "entitlements");
     if (unknown.length > 0) throw new TypeError(`${name}.${unknown[0]} is not supported`);
     const record = normalizeBondRecord(entry.record, `${name}.record`);
-    const scale = entry.paymentAssetScale;
-    if (scale !== undefined && scale !== null
-      && (!Number.isInteger(scale) || scale < 0 || scale > 28)) {
-      throw new TypeError(`${name}.paymentAssetScale must be an integer 0..=28, null or omitted`);
-    }
-    context.set(record.id, { record, paymentAssetScale: scale });
+    const rows = entry.entitlements ?? [];
+    if (!Array.isArray(rows)) throw new TypeError(`${name}.entitlements must be an array`);
+    const entitlements = rows.map((row, position) => normalizeBondEntitlement(
+      row,
+      `${name}.entitlements[${position}]`,
+      record.id,
+    ));
+    context.set(record.id, { record, entitlements });
   });
   return context;
 }
 
-/** Describe one bond-kernel instruction, enriched by its record when supplied. */
+/** Describe one bond-kernel instruction, enriched by its record and entitlements when supplied. */
 function describeBond(body, bonds) {
   const [variant] = Object.keys(body);
   const payload = body[variant] ?? {};
@@ -150,6 +152,7 @@ function describeBond(body, bonds) {
           field("issue date", reviewDate(terms.issue_date_ms)),
           field("maturity date", reviewDate(terms.maturity_date_ms)),
           field("redemption price (bps)", terms.redemption_price_bps),
+          field("payment grace", `${terms.payment_grace_ms} ms`),
           field("call", call
             ? `from ${reviewDate(call.first_call_date_ms)} at ${call.price_bps} bps, notice ${call.notice_ms} ms`
             : "none"),
@@ -166,6 +169,10 @@ function describeBond(body, bonds) {
     }
     case "RecordCashflow": {
       const fields = [...head, ...flowFields()];
+      if (cashflow?.status === "Recording") {
+        fields.push(field("progress", `${cashflow.holders} holder(s) recorded so far; repeat until Recorded`));
+      }
+      fields.push(field("books", "closed from the record date until the recording completes"));
       if (flowTerms?.kind === "Redemption") {
         fields.push(field("effect", "recording the redemption freezes every transfer of the bond"));
       }
@@ -186,13 +193,9 @@ function describeBond(body, bonds) {
         ],
       };
     case "ClaimCashflow": {
-      const units = cashflow?.snapshot?.[payload.holder];
-      let amount = "the holder's entitlement";
-      if (units !== undefined && flowTerms) {
-        amount = known.paymentAssetScale === undefined
-          ? `${bondHolderPayment({ units, amountPerUnit: flowTerms.amount_per_unit, paymentScale: null })} of ${paymentAsset} before rounding down to the payment asset scale`
-          : `${bondHolderPayment({ units, amountPerUnit: flowTerms.amount_per_unit, paymentScale: known.paymentAssetScale })} of ${paymentAsset}`;
-      }
+      const entitlement = known?.entitlements?.find((row) => String(row.index) === String(payload.index)
+        && row.holder === payload.holder);
+      const units = entitlement?.units;
       const title = flowTerms?.kind === "Redemption"
         ? "Claim bond redemption"
         : flowTerms?.kind === "Coupon" ? "Claim bond coupon" : "Claim bond cash flow";
@@ -200,12 +203,15 @@ function describeBond(body, bonds) {
         ...head,
         field("holder", payload.holder),
         field("destination", payload.holder),
-        field("units", units ?? "snapshot units"),
-        field("amount", amount),
+        field("units", units ?? "entitled units"),
+        field("amount", entitlement
+          ? `${entitlement.amount} of ${paymentAsset ?? "the payment asset"}`
+          : "the holder's entitlement"),
         ...flowFields(),
       ];
+      if (entitlement?.claimed) fields.push(field("warning", "this entitlement was already claimed"));
       if (flowTerms?.kind === "Redemption") {
-        fields.push(field("effect", `burns the holder's ${units ?? "snapshot"} units of the bond`));
+        fields.push(field("effect", `burns the holder's ${units ?? "entitled"} units of the bond`));
       }
       return { kind: "bond", title, fields };
     }
@@ -215,7 +221,9 @@ function describeBond(body, bonds) {
         title: "Close bond cash flow",
         fields: [
           ...head,
-          field("residual to", record?.terms?.issuer ?? "the issuer"),
+          field("unclaimed", cashflow
+            ? `${Number(cashflow.holders) - Number(cashflow.claimed_holders)} holder(s) stay claimable from the vault`
+            : "unclaimed entitlements stay claimable from the vault"),
           ...flowFields(),
         ],
       };
@@ -235,7 +243,22 @@ function describeBond(body, bonds) {
       return {
         kind: "bond",
         title: "Declare bond default",
-        fields: [...head, field("evidence SHA-256", payload.evidence_sha256), ...flowFields()],
+        fields: [
+          ...head,
+          field("evidence SHA-256", payload.evidence_sha256),
+          field("payment grace", record ? `${record.terms.payment_grace_ms} ms` : "per the registered terms"),
+          ...flowFields(),
+        ],
+      };
+    case "ReplacePayingAgent":
+      return {
+        kind: "bond",
+        title: "Replace bond paying agent",
+        fields: [
+          ...head,
+          field("paying agent", payload.paying_agent),
+          field("replaces", record?.terms?.paying_agent ?? "the current paying agent"),
+        ],
       };
     default:
       return { kind: "bond", title: `Bond ${sanitizeReviewText(variant ?? "instruction", 64)}`, fields: head };
@@ -376,12 +399,13 @@ function instructionFrames(executable, warnings) {
  *
  * Fails closed when the payload is not canonical, its NetworkId or authority
  * differ from the expected session values, or it has more than 64 instructions.
- * @param {ArrayBufferView | ArrayBuffer | Buffer} payloadBytes
  * Bond instructions are described from the payload alone; supplying
- * `expected.bonds` (records from `ToriiClient.getBond`, each with the payment
- * asset scale when known) adds the cash-flow kind, dates, amounts, units and
- * the vault or issuer counterparty.
- * @param {{ networkId: NetworkId, authority: string, bonds?: Array<{ record: object, paymentAssetScale?: number | null }> }} expected
+ * `expected.bonds` (records from `ToriiClient.getBond` with entitlement rows
+ * from `ToriiClient.getBondEntitlements`) adds the cash-flow kind, dates,
+ * amounts, entitled units, the holder's exact payment and the vault.
+ *
+ * @param {ArrayBufferView | ArrayBuffer | Buffer} payloadBytes
+ * @param {{ networkId: NetworkId, authority: string, bonds?: Array<{ record: object, entitlements?: object[] }> }} expected
  */
 export function reviewTransactionPayload(payloadBytes, expected) {
   const bytes = Buffer.from(

@@ -256,7 +256,7 @@ const BOND_FIXTURE = JSON.parse(
   readFileSync(new URL("./fixtures/bond-v1-codec.json", import.meta.url), "utf8"),
 );
 
-test("reviewTransactionPayload renders every bond instruction, enriched by its record", () => {
+test("reviewTransactionPayload renders every bond instruction, enriched by its record and entitlements", () => {
   const vectors = Object.fromEntries(BOND_FIXTURE.instructions.map(({ name, json }) => [name, json]));
   const agent = BOND_FIXTURE.accounts.paying_agent;
   const holder = BOND_FIXTURE.accounts.holder;
@@ -274,6 +274,7 @@ test("reviewTransactionPayload renders every bond instruction, enriched by its r
     vectors.DeclareDefault,
     buildRecordBondCashflowInstruction({ bondId: bond, index: 3 }),
     buildClaimBondCashflowInstruction({ bondId: bond, index: 3, holder }),
+    vectors.ReplacePayingAgent,
   ];
   const draft = draftFor(instructions, { authority: agent });
   const expected = { networkId: NETWORK_ID, authority: agent };
@@ -293,6 +294,7 @@ test("reviewTransactionPayload renders every bond instruction, enriched by its r
       "Declare bond default",
       "Record bond cash flow",
       "Claim bond cash flow",
+      "Replace bond paying agent",
     ],
   );
   plain.instructions.forEach((row, index) => {
@@ -310,6 +312,7 @@ test("reviewTransactionPayload renders every bond instruction, enriched by its r
   assert.equal(register["maturity date"], "2029-01-15T00:00:00.000Z");
   assert.equal(register["redemption price (bps)"], "10000");
   assert.equal(register.call, "from 2027-01-15T00:00:00.000Z at 10100 bps, notice 2592000000 ms");
+  assert.equal(register["payment grace"], "604800000 ms");
   assert.equal(register["cash flows"], "4");
   assert.equal(
     register["cash flow #0"],
@@ -325,21 +328,46 @@ test("reviewTransactionPayload renders every bond instruction, enriched by its r
   const plainClaim = fieldMap(plain.instructions[4]);
   assert.equal(plainClaim.holder, holder);
   assert.equal(plainClaim.destination, holder);
-  assert.equal(plainClaim.units, "snapshot units");
+  assert.equal(plainClaim.units, "entitled units");
+  assert.equal(plainClaim.amount, "the holder's entitlement");
   assert.equal(plainClaim["cash flow kind"], "unknown (bond record not supplied)");
   assert.equal(fieldMap(plain.instructions[2]).to, "bond vault");
   assert.equal(fieldMap(plain.instructions[6])["call date"], "2028-01-15T00:00:00.000Z");
   assert.equal(fieldMap(plain.instructions[7])["evidence SHA-256"], "ab".repeat(32));
+  assert.equal(fieldMap(plain.instructions[10])["paying agent"], BOND_FIXTURE.accounts.holder_b);
+  assert.equal(fieldMap(plain.instructions[10]).replaces, "the current paying agent");
 
   const record = structuredClone(BOND_FIXTURE.record);
   const redemption = record.state.cashflows[3];
   redemption.status = "Funded";
-  redemption.snapshot = { [holder]: "3" };
+  redemption.holders = 1;
+  const entitlements = [
+    ...BOND_FIXTURE.entitlements.map((row) => ({
+      id: `${row.id.index}:${row.id.holder}`,
+      bond: row.id.bond,
+      index: row.id.index,
+      holder: row.id.holder,
+      units: row.units,
+      amount: row.amount,
+      claimed: row.claimed_at_ms !== null,
+      claimed_at_ms: row.claimed_at_ms,
+    })),
+    {
+      id: `3:${holder}`,
+      bond,
+      index: 3,
+      holder,
+      units: "3",
+      amount: "150",
+      claimed: false,
+      claimed_at_ms: null,
+    },
+  ];
   const enriched = reviewTransactionPayload(draft.payloadBytes, {
     ...expected,
-    bonds: [{ record, paymentAssetScale: 2 }],
+    bonds: [{ record, entitlements }],
   });
-  const [, recordRow, fundedRow, fundRow, claimRow, closeRow, callRow, defaultRow, recordRedemption, claimRedemption] =
+  const [, recordRow, fundedRow, fundRow, claimRow, closeRow, callRow, defaultRow, recordRedemption, claimRedemption, replaceRow] =
     enriched.instructions.map(fieldMap);
   assert.equal(recordRow["cash flow kind"], "Coupon");
   assert.equal(recordRow["record date"], "2027-01-14T00:00:00.000Z");
@@ -354,20 +382,21 @@ test("reviewTransactionPayload renders every bond instruction, enriched by its r
   assert.equal(claimRow.units, "3");
   assert.equal(claimRow.amount, `9.75 of ${cash}`);
   assert.equal(claimRow.status, "Funded");
-  assert.equal(closeRow["residual to"], BOND_FIXTURE.accounts.issuer);
+  assert.equal(claimRow.warning, "this entitlement was already claimed");
+  assert.equal(closeRow.unclaimed, "1 holder(s) stay claimable from the vault");
   assert.equal(callRow["call price (bps)"], "10100");
   assert.equal(defaultRow["cash flow kind"], "Coupon");
+  assert.equal(defaultRow["payment grace"], "604800000 ms");
+  assert.equal(recordRow.books, "closed from the record date until the recording completes");
   assert.equal(recordRedemption["cash flow kind"], "Redemption");
   assert.equal(recordRedemption.effect, "recording the redemption freezes every transfer of the bond");
   assert.equal(enriched.instructions[9].title, "Claim bond redemption");
   assert.equal(claimRedemption.amount, `150 of ${cash}`);
   assert.equal(claimRedemption.effect, "burns the holder's 3 units of the bond");
+  assert.equal(replaceRow.replaces, agent);
 
-  const unrounded = reviewTransactionPayload(draft.payloadBytes, { ...expected, bonds: [{ record }] });
-  assert.equal(
-    fieldMap(unrounded.instructions[4]).amount,
-    `9.75 of ${cash} before rounding down to the payment asset scale`,
-  );
+  const withoutRows = reviewTransactionPayload(draft.payloadBytes, { ...expected, bonds: [{ record }] });
+  assert.equal(fieldMap(withoutRows.instructions[4]).amount, "the holder's entitlement");
   assert.throws(
     () => reviewTransactionPayload(draft.payloadBytes, { ...expected, bonds: record }),
     /expected.bonds must be an array/u,
@@ -375,9 +404,16 @@ test("reviewTransactionPayload renders every bond instruction, enriched by its r
   assert.throws(
     () => reviewTransactionPayload(draft.payloadBytes, {
       ...expected,
-      bonds: [{ record, paymentAssetScale: 29 }],
+      bonds: [{ record, paymentAssetScale: 2 }],
     }),
-    /paymentAssetScale/u,
+    /paymentAssetScale is not supported/u,
+  );
+  assert.throws(
+    () => reviewTransactionPayload(draft.payloadBytes, {
+      ...expected,
+      bonds: [{ record, entitlements: [{ ...entitlements[0], bond: cash }] }],
+    }),
+    /not the requested bond/u,
   );
   assert.throws(
     () => reviewTransactionPayload(draft.payloadBytes, { ...expected, bonds: [{ record: { id: bond } }] }),

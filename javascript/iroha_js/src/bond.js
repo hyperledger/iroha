@@ -27,11 +27,13 @@ import { defaultNativeRuntime, resolveNativeRuntimeBinding } from "./nativeRunti
 
 /** Maximum number of scheduled cash flows in registered terms. */
 export const BOND_MAX_CASHFLOWS = 400;
-/** Maximum number of investor holders captured by one record-date snapshot. */
-export const BOND_MAX_SNAPSHOT_HOLDERS = 4096;
+/** Balances or escrow records one `RecordBondCashflow` step examines (recording is paged). */
+export const BOND_RECORDING_PAGE_ENTRIES = 512;
+/** Longest payment grace period a bond may register (366 days, in milliseconds). */
+export const BOND_MAX_PAYMENT_GRACE_MS = 366 * 86_400_000;
 /** Coupon frequencies (payments per year) admitted by the regular fixed-rate rule. */
 export const BOND_COUPON_FREQUENCIES = Object.freeze([0, 1, 2, 4, 12]);
-/** Day-count labels recorded with the terms (a legal label; periods are regular). */
+/** Day-count labels recorded with the terms (a legal label; registration requires regular periods). */
 export const BOND_DAY_COUNTS = Object.freeze(["ActActIcma", "Thirty360", "Act360", "Act365Fixed"]);
 /** Cash-flow kinds of a bond schedule. */
 export const BOND_CASHFLOW_KINDS = Object.freeze(["Coupon", "Redemption"]);
@@ -276,6 +278,41 @@ const SCHEDULE_FIELDS = [
 ];
 
 /**
+ * Regular coupon payment dates (`regular_coupon_payment_dates`): step back from
+ * maturity by `12 / couponFrequency` calendar months until the issue date, which
+ * must be hit exactly. Throws Core's `bond.invalid_terms` refusals.
+ */
+function regularCouponPaymentDates(couponFrequency, issueDateMs, maturityDateMs, path) {
+  if (!BOND_COUPON_FREQUENCIES.includes(couponFrequency)) {
+    invalidTerms("coupon frequency must be 0, 1, 2, 4 or 12", path);
+  }
+  if (issueDateMs >= maturityDateMs) {
+    invalidTerms("issue date must precede maturity", path);
+  }
+  const paymentDates = [];
+  if (couponFrequency === 0) return paymentDates;
+  const step = 12 / couponFrequency;
+  for (let periods = 0; ; periods += 1) {
+    const date = monthsBefore(maturityDateMs, step * periods);
+    if (date === null) invalidTerms("schedule date out of range", path);
+    if (date <= issueDateMs) {
+      if (date !== issueDateMs) {
+        invalidTerms(
+          "the first coupon period is irregular: whole periods back from maturity must reach the issue date",
+          path,
+        );
+      }
+      break;
+    }
+    paymentDates.push(date);
+    if (paymentDates.length >= BOND_MAX_CASHFLOWS) {
+      invalidTerms("schedule exceeds the cash-flow limit", path);
+    }
+  }
+  return paymentDates.reverse();
+}
+
+/**
  * Materialise the regular schedule of a fixed-rate bullet bond.
  *
  * Coupon payment dates step back from maturity by `12 / couponFrequency`
@@ -299,35 +336,13 @@ export function buildBondSchedule(request) {
   const maturityDateMs = u64(source.maturityDateMs, `${context}.maturityDateMs`);
   const redemptionPriceBps = u32(source.redemptionPriceBps, `${context}.redemptionPriceBps`);
   const recordOffsetMs = u64(source.recordOffsetMs, `${context}.recordOffsetMs`);
-  if (!BOND_COUPON_FREQUENCIES.includes(couponFrequency)) {
-    invalidTerms("coupon frequency must be 0, 1, 2, 4 or 12", `${context}.couponFrequency`);
-  }
-  if (issueDateMs >= maturityDateMs) {
-    invalidTerms("issue date must precede maturity", `${context}.issueDateMs`);
-  }
+  const paymentDates = regularCouponPaymentDates(
+    couponFrequency,
+    issueDateMs,
+    maturityDateMs,
+    `${context}.issueDateMs`,
+  );
   const recordDate = (payment) => Math.max(Math.max(payment - recordOffsetMs, 0), issueDateMs);
-  const paymentDates = [];
-  if (couponFrequency !== 0) {
-    const step = 12 / couponFrequency;
-    for (let periods = 0; ; periods += 1) {
-      const date = monthsBefore(maturityDateMs, step * periods);
-      if (date === null) invalidTerms("schedule date out of range", context);
-      if (date <= issueDateMs) {
-        if (date !== issueDateMs) {
-          invalidTerms(
-            "the first coupon period is irregular; materialise the schedule explicitly",
-            `${context}.issueDateMs`,
-          );
-        }
-        break;
-      }
-      paymentDates.push(date);
-      if (paymentDates.length >= BOND_MAX_CASHFLOWS) {
-        invalidTerms("schedule exceeds the cash-flow limit", context);
-      }
-    }
-    paymentDates.reverse();
-  }
   const coupon = couponFrequency === 0
     ? null
     : regularCouponAmount(denomination, couponRateBps, couponFrequency);
@@ -387,6 +402,7 @@ const TERMS_FIELDS = new Set([
   "issueDateMs",
   "maturityDateMs",
   "redemptionPriceBps",
+  "paymentGraceMs",
   "call",
   "cashflows",
   "identifiers",
@@ -450,6 +466,7 @@ function normalizeTerms(value, name) {
     issue_date_ms: u64(source.issueDateMs, `${name}.issueDateMs`),
     maturity_date_ms: u64(source.maturityDateMs, `${name}.maturityDateMs`),
     redemption_price_bps: u32(source.redemptionPriceBps, `${name}.redemptionPriceBps`),
+    payment_grace_ms: u64(source.paymentGraceMs, `${name}.paymentGraceMs`),
     call,
     cashflows: source.cashflows.map((entry, index) => normalizeCashflow(entry, `${name}.cashflows[${index}]`)),
     identifiers: {
@@ -504,6 +521,9 @@ function assertValidNativeTerms(terms, name) {
   if (terms.issue_date_ms >= terms.maturity_date_ms) {
     invalidTerms("issue date must precede maturity", `${name}.issueDateMs`);
   }
+  if (terms.payment_grace_ms > BOND_MAX_PAYMENT_GRACE_MS) {
+    invalidTerms("payment grace period must not exceed 366 days", `${name}.paymentGraceMs`);
+  }
   if (terms.call !== null) {
     if (terms.call.price_bps === 0) invalidTerms("call price must be positive", `${name}.call.priceBps`);
     if (terms.call.first_call_date_ms <= terms.issue_date_ms
@@ -523,6 +543,15 @@ function assertValidSchedule(terms, name) {
   if (count === 0 || count > BOND_MAX_CASHFLOWS) {
     invalidTerms(`schedule must contain 1..=${BOND_MAX_CASHFLOWS} cash flows`, `${name}.cashflows`);
   }
+  // Coupon amounts are only right for regular periods, so the coupon payment
+  // dates must be exactly the regular dates of the terms.
+  const regularDates = regularCouponPaymentDates(
+    terms.coupon_frequency,
+    terms.issue_date_ms,
+    terms.maturity_date_ms,
+    `${name}.cashflows`,
+  );
+  let coupons = 0;
   const coupon = terms.coupon_frequency === 0
     ? null
     : regularCouponAmount(terms.denomination, terms.coupon_rate_bps, terms.coupon_frequency);
@@ -558,20 +587,27 @@ function assertValidSchedule(terms, name) {
           `${path}.amountPerUnit`,
         );
       }
+      if (coupons >= regularDates.length) {
+        invalidTerms(`the regular schedule has ${regularDates.length} coupons`, `${path}.kind`);
+      }
+      if (cashflow.payment_date_ms !== regularDates[coupons]) {
+        invalidTerms(
+          `coupon ${cashflow.index} must be paid on the regular date ${regularDates[coupons]}`,
+          `${path}.paymentDateMs`,
+        );
+      }
+      coupons += 1;
     }
-    if (previous !== null) {
-      const sameDayRedemption = previous.kind === "Coupon"
-        && cashflow.kind === "Redemption"
-        && previous.payment_date_ms === cashflow.payment_date_ms;
-      if (cashflow.payment_date_ms <= previous.payment_date_ms && !sameDayRedemption) {
-        invalidTerms("payment dates must strictly increase", `${path}.paymentDateMs`);
-      }
-      if (cashflow.record_date_ms < previous.record_date_ms) {
-        invalidTerms("record dates must not decrease", `${path}.recordDateMs`);
-      }
+    // Coupon payment dates are the strictly increasing regular dates and the
+    // redemption is paid on maturity, so only record dates need an ordering check.
+    if (previous !== null && cashflow.record_date_ms < previous.record_date_ms) {
+      invalidTerms("record dates must not decrease", `${path}.recordDateMs`);
     }
     previous = cashflow;
   });
+  if (coupons !== regularDates.length) {
+    invalidTerms(`the regular schedule has ${regularDates.length} coupons`, `${name}.cashflows`);
+  }
 }
 
 /**
@@ -682,8 +718,11 @@ function cashflowInstruction(variant, context, options, extra = {}) {
 }
 
 /**
- * Build `Bond::RecordCashflow`: the paying agent snapshots investor holdings at
- * or after the record date. Recording the redemption freezes the bond.
+ * Build `Bond::RecordCashflow`: record (or continue recording) a cash flow at
+ * or after its record date. Any account may sign: the books are closed from the
+ * record date until recording completes, so the entitlements are the holdings
+ * of record. Each step examines at most `BOND_RECORDING_PAGE_ENTRIES` entries;
+ * repeat it until the cash flow is `Recorded`. Recording the redemption freezes the bond.
  * @param {{ bondId: string, index: number }} options
  */
 export function buildRecordBondCashflowInstruction(options) {
@@ -710,9 +749,10 @@ export function buildFundBondCashflowInstruction(options) {
 }
 
 /**
- * Build `Bond::ClaimCashflow` paying one snapshot holder from the vault. The
+ * Build `Bond::ClaimCashflow` paying one entitled holder from the vault. The
  * holder signs it, or the paying agent pushes it; the destination is always
- * the holder. A redemption claim also burns the holder's units.
+ * the holder. Funded and closed cash flows are claimable; a redemption claim
+ * also burns the holder's units.
  * @param {{ bondId: string, index: number, holder: string }} options
  */
 export function buildClaimBondCashflowInstruction(options) {
@@ -722,7 +762,8 @@ export function buildClaimBondCashflowInstruction(options) {
 }
 
 /**
- * Build `Bond::CloseCashflow` (paying agent) once every snapshot holder claimed.
+ * Build `Bond::CloseCashflow` (paying agent) at or after the payment date.
+ * Unclaimed entitlements stay claimable from the vault after closing.
  * @param {{ bondId: string, index: number }} options
  */
 export function buildCloseBondCashflowInstruction(options) {
@@ -749,11 +790,29 @@ export function buildCallBondInstruction(options) {
 
 /**
  * Build `Bond::DeclareDefault` (paying agent) for an unfunded cash flow after
- * its payment date, with the SHA-256 digest of the default evidence.
+ * its payment date and grace period, with the SHA-256 digest of the default evidence.
  * @param {{ bondId: string, index: number, evidenceSha256: string|Uint8Array }} options
  */
 export function buildDeclareBondDefaultInstruction(options) {
   return cashflowInstruction("DeclareDefault", "declareBondDefault", options, {
     evidenceSha256: ["evidence_sha256", digestHex],
   });
+}
+
+/**
+ * Build `Bond::ReplacePayingAgent` (issuer): an existing account becomes the paying agent.
+ * @param {{ bondId: string, payingAgent: string }} options
+ */
+export function buildReplaceBondPayingAgentInstruction(options) {
+  const context = "replaceBondPayingAgent";
+  const source = plainObject(options, context);
+  assertExactFields(source, ["bondId", "payingAgent"], context);
+  return {
+    Bond: {
+      ReplacePayingAgent: {
+        bond: bondId(source.bondId, `${context}.bondId`),
+        paying_agent: normalizeAccountId(source.payingAgent, `${context}.payingAgent`),
+      },
+    },
+  };
 }

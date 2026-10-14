@@ -569,7 +569,8 @@ export {
   BOND_COUPON_FREQUENCIES,
   BOND_DAY_COUNTS,
   BOND_MAX_CASHFLOWS,
-  BOND_MAX_SNAPSHOT_HOLDERS,
+  BOND_MAX_PAYMENT_GRACE_MS,
+  BOND_RECORDING_PAGE_ENTRIES,
   bondHolderPayment,
   bondVaultAccountId,
   buildBondSchedule,
@@ -580,8 +581,13 @@ export {
   buildFundBondCashflowInstruction,
   buildRecordBondCashflowInstruction,
   buildRegisterBondInstruction,
+  buildReplaceBondPayingAgentInstruction,
   validateBondTerms,
 } from "./bond.js";
+export {
+  BOND_ENTITLEMENT_PAGE_MAX_ITEMS,
+  BOND_RECORD_PAGE_MAX_ITEMS,
+} from "./bondRecords.js";
 export {
   reviewTransactionPayload,
   sanitizeReviewText,

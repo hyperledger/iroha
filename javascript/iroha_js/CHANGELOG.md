@@ -4,6 +4,15 @@ All notable changes to `@iroha/iroha-js` are documented in this file.
 
 ## [Unreleased]
 
+- Bond servicing follows the revised kernel: terms require `paymentGraceMs`
+  and a regular coupon schedule (`validateBondTerms` refuses irregular coupon
+  dates or counts with Core's messages); `buildReplaceBondPayingAgentInstruction`
+  is new; `listBonds` now pages `GET /v1/bonds` (`{ items, nextCursor }`) and
+  `getBondEntitlements` pages `GET /v1/bonds/{bond_id}/entitlements`; records
+  carry entitlement totals instead of snapshots; `reviewTransactionPayload`
+  takes `expected.bonds: [{ record, entitlements }]` (the
+  `paymentAssetScale` option is removed). `BOND_MAX_SNAPSHOT_HOLDERS` is
+  replaced by `BOND_RECORDING_PAGE_ENTRIES`.
 - Added native bond servicing: `buildRegisterBondInstruction`,
   `buildRecordBondCashflowInstruction`, `buildFundBondCashflowInstruction`,
   `buildClaimBondCashflowInstruction`, `buildCloseBondCashflowInstruction`,

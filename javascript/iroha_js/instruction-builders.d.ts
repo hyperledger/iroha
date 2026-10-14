@@ -42,6 +42,7 @@ export {
   buildCloseBondCashflowInstruction,
   buildCallBondInstruction,
   buildDeclareBondDefaultInstruction,
+  buildReplaceBondPayingAgentInstruction,
   buildFinalizeSmartContractCodeUploadInstruction,
   buildForceTransferRwaInstruction,
   buildFreezeRwaInstruction,

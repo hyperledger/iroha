@@ -14,7 +14,16 @@ import { rejectError, rejectRange, rejectType } from "./validationThrow.js";
 import { timingSafeEqual } from "node:crypto";
 import { JS_TYPE_BIGINT, JS_TYPE_FUNCTION, JS_TYPE_NUMBER, JS_TYPE_OBJECT, JS_TYPE_STRING, KAIGI_MAX_PARTICIPANTS_V1 } from "./commonLiterals.js";
 import { readAccountCapabilitiesResponseV1 } from "./accountCapabilities.js";
-import { normalizeBondRecord, normalizeBondRecordList } from "./bondRecords.js";
+import {
+  BOND_ENTITLEMENT_PAGE_MAX_BYTES,
+  BOND_RECORD_MAX_BYTES,
+  BOND_RECORD_PAGE_MAX_BYTES,
+  bondEntitlementPageParams,
+  bondRecordPageParams,
+  normalizeBondEntitlementPage,
+  normalizeBondRecord,
+  normalizeBondRecordPage,
+} from "./bondRecords.js";
 import {
   resolveToriiClientConfig,
   extractConfidentialGasConfig,
@@ -2626,34 +2635,37 @@ export class ToriiClient {
   }
 
   /**
-   * List every native bond record (`GET /v1/bonds`).
+   * Page native bond records (`GET /v1/bonds`, a collection query).
    *
    * Records are the authoritative native snake_case `BondRecord` JSON: terms with
    * the materialised schedule, lifecycle, transfer freeze and per-cash-flow
-   * servicing state including record-date snapshots (`specs/finance/bond_ops.md`).
-   * @param {{signal?: AbortSignal}} [options]
-   * @returns {Promise<Array<Record<string, unknown>>>}
+   * totals (`specs/finance/bond_ops.md`). Holder entitlements are paged by
+   * {@link ToriiClient#getBondEntitlements}. At most 20 records per page; the
+   * response is capped at 16 MiB.
+   * @param {{limit?: number, cursor?: string | null, filter?: string, signal?: AbortSignal}} [options]
+   * @returns {Promise<{items: Array<Record<string, unknown>>, nextCursor: string | null, total?: number | bigint}>}
    */
   async listBonds(options = {}) {
     const { signal, rest } = ToriiClient._normalizeOptionsWithSignal(options, "listBonds");
-    assertSupportedOptionKeys(rest, new Set([]), "listBonds options");
+    assertSupportedOptionKeys(rest, new Set(["limit", "cursor", "filter"]), "listBonds options");
     const response = await this._request("GET", "/v1/bonds", {
+      params: bondRecordPageParams(rest, "listBonds"),
       headers: JSON_ACCEPT_HEADERS,
       signal,
     });
     await this._expectStatus(response, [200]);
     const payload = await this._readBoundedLosslessIntegerJson(
       response,
-      JSON_RESPONSE_MAX_BYTES,
-      "bond list response",
+      BOND_RECORD_PAGE_MAX_BYTES,
+      "bond page response",
       { signal },
     );
-    return normalizeBondRecordList(payload, "bond list response");
+    return normalizeBondRecordPage(payload, "bond page response");
   }
 
   /**
    * Fetch one native bond record (`GET /v1/bonds/{bond_id}`); null when the bond
-   * is not registered (404).
+   * is not registered (404). The response is capped at 2 MiB.
    * @param {string} bondId canonical Base58 asset-definition address of the bond
    * @param {{signal?: AbortSignal}} [options]
    * @returns {Promise<Record<string, unknown> | null>}
@@ -2672,7 +2684,7 @@ export class ToriiClient {
     await this._expectStatus(response, [200]);
     const payload = await this._readBoundedLosslessIntegerJson(
       response,
-      JSON_RESPONSE_MAX_BYTES,
+      BOND_RECORD_MAX_BYTES,
       "bond response",
       { signal },
     );
@@ -2681,6 +2693,48 @@ export class ToriiClient {
       rejectType(`bond response describes ${record.id}, not the requested bond ${bond}`);
     }
     return record;
+  }
+
+  /**
+   * Page the record-date entitlements of one bond
+   * (`GET /v1/bonds/{bond_id}/entitlements`), in cash-flow then holder order;
+   * null when the bond is not registered. `index` and `holder` select one cash
+   * flow or one holder. At most 1000 rows per page; capped at 4 MiB.
+   * @param {string} bondId canonical Base58 asset-definition address of the bond
+   * @param {{index?: number, holder?: string, limit?: number, cursor?: string | null, signal?: AbortSignal}} [options]
+   * @returns {Promise<{items: Array<Record<string, unknown>>, nextCursor: string | null, total?: number | bigint} | null>}
+   */
+  async getBondEntitlements(bondId, options = {}) {
+    const bond = normalizeAssetDefinitionId(bondId, "getBondEntitlements.bondId");
+    const { signal, rest } = ToriiClient._normalizeOptionsWithSignal(options, "getBondEntitlements");
+    assertSupportedOptionKeys(
+      rest,
+      new Set(["index", "holder", "limit", "cursor"]),
+      "getBondEntitlements options",
+    );
+    const holder = rest.holder === undefined
+      ? undefined
+      : normalizeAccountId(rest.holder, "getBondEntitlements.holder");
+    const response = await this._request(
+      "GET",
+      `/v1/bonds/${encodeURIComponent(bond)}/entitlements`,
+      {
+        params: bondEntitlementPageParams({ ...rest, holder }, "getBondEntitlements"),
+        headers: JSON_ACCEPT_HEADERS,
+        signal,
+      },
+    );
+    if (response.status === 404) {
+      return null;
+    }
+    await this._expectStatus(response, [200]);
+    const payload = await this._readBoundedLosslessIntegerJson(
+      response,
+      BOND_ENTITLEMENT_PAGE_MAX_BYTES,
+      "bond entitlement page response",
+      { signal },
+    );
+    return normalizeBondEntitlementPage(payload, "bond entitlement page response", bond);
   }
 
   /**

@@ -554,17 +554,25 @@ native snake_case fields, canonical decimal strings and lowercase hex digests.
 | Builder | Envelope | Signer |
 | --- | --- | --- |
 | `buildRegisterBondInstruction({ bondId, terms })` | `Bond.Register { bond, terms }` | issuer (owns the definition) |
-| `buildRecordBondCashflowInstruction({ bondId, index })` | `Bond.RecordCashflow { bond, index }` | paying agent |
+| `buildRecordBondCashflowInstruction({ bondId, index })` | `Bond.RecordCashflow { bond, index }` | any account, at or after the record date; repeat until `Recorded` |
 | `buildFundBondCashflowInstruction({ bondId, index, sourceAssetHoldingId })` | `Bond.FundCashflow { bond, index, source }` | paying agent or issuer |
 | `buildClaimBondCashflowInstruction({ bondId, index, holder })` | `Bond.ClaimCashflow { bond, index, holder }` | holder, or the paying agent pushing |
-| `buildCloseBondCashflowInstruction({ bondId, index })` | `Bond.CloseCashflow { bond, index }` | paying agent |
+| `buildCloseBondCashflowInstruction({ bondId, index })` | `Bond.CloseCashflow { bond, index }` | paying agent, from the payment date |
 | `buildCallBondInstruction({ bondId, callDateMs })` | `Bond.Call { bond, call_date_ms }` | issuer |
-| `buildDeclareBondDefaultInstruction({ bondId, index, evidenceSha256 })` | `Bond.DeclareDefault { bond, index, evidence_sha256 }` | paying agent |
+| `buildDeclareBondDefaultInstruction({ bondId, index, evidenceSha256 })` | `Bond.DeclareDefault { bond, index, evidence_sha256 }` | paying agent, after the payment date and grace period |
+| `buildReplaceBondPayingAgentInstruction({ bondId, payingAgent })` | `Bond.ReplacePayingAgent { bond, paying_agent }` | issuer |
+
+From a cash flow's record date until it is recorded the bond's books are
+closed: its units cannot move, so the recorded entitlements are the holdings
+of record whoever records and whenever. Recording is paged (at most
+`BOND_RECORDING_PAGE_ENTRIES` balances or escrow records per step). Units in
+escrow count for the escrow's seller; a repo's collateral for its holder.
+Closing a cash flow leaves unclaimed entitlements claimable from the vault.
 
 `terms` is camelCase: `{ issuer, payingAgent, paymentAsset, denomination,
 couponRateBps, couponFrequency, dayCount, issueDateMs, maturityDateMs,
-redemptionPriceBps, call?: { firstCallDateMs, priceBps, noticeMs } | null,
-cashflows, identifiers: { isin?, cfi?, issuerLei?, bdtVersion,
+redemptionPriceBps, paymentGraceMs, call?: { firstCallDateMs, priceBps,
+noticeMs } | null, cashflows, identifiers: { isin?, cfi?, issuerLei?, bdtVersion,
 bdtDocumentSha256? }, termsSha256 }`. Quantities are `KotodamaQuantity`,
 canonical decimal strings or bigint; dates are Unix milliseconds; digests are
 32 bytes or 64 hex digits.
@@ -578,7 +586,8 @@ record dates are `payment - recordOffsetMs`, clamped to the issue date. Amounts
 are exact decimal strings computed on bigint mantissas, never floating point;
 a non-terminating coupon (6.50 % monthly on 50) is refused.
 `validateBondTerms(terms)` applies every state-independent
-`BondTerms::validate` rule in Core's order and returns the native terms JSON;
+`BondTerms::validate` rule in Core's order (including that the coupon dates
+and count are exactly the regular schedule) and returns the native terms JSON;
 both throw `ValidationError`s whose message is Core's exact
 `bond.invalid_terms: ...` rejection. `bondHolderPayment({ units, amountPerUnit, paymentScale })`
 is Core's per-holder payment, rounded down to the payment asset scale.
@@ -601,28 +610,36 @@ const economics = {
 const terms = {
   ...economics,
   issuer, payingAgent, paymentAsset: eur, dayCount: "ActActIcma", call: null,
+  paymentGraceMs: 7 * 86_400_000,
   cashflows: buildBondSchedule({ ...economics, recordOffsetMs: 86_400_000 }),
   identifiers: { isin: "SI0031234567", bdtVersion: "bdt-1.0" },
   termsSha256, // SHA-256 of the legal terms document
 };
-// Issuer transaction: Register<AssetDefinition> (scale 0), Mint, then:
+// Issuer transaction: Register<AssetDefinition> (scale 0), Mint to the issuer, then:
 const register = buildRegisterBondInstruction({ bondId: bond, terms });
-// After the paying agent recorded and funded coupon 0, at its payment date:
+// After coupon 0 was recorded and funded, at its payment date:
 const claim = buildClaimBondCashflowInstruction({ bondId: bond, index: 0, holder });
 ```
 
 `ToriiClient.getBond(bondId)` (`GET /v1/bonds/{bond_id}`, null when not
-registered) and `ToriiClient.listBonds()` (`GET /v1/bonds`) return the native
-`BondRecord` JSON: `{ id, vault, terms, state: { lifecycle, outstanding_units,
-redeemed_units, transfers_frozen, cashflows } }`, each cash flow carrying its
-effective `terms`, `status`, record-date `snapshot`, `amount_due`, `funded`,
-`paid` and `claimed`. `ToriiBrowserClient` has the same two methods.
+registered) returns the native `BondRecord` JSON: `{ id, vault, terms, state:
+{ lifecycle, outstanding_units, redeemed_units, transfers_frozen, cashflows }
+}`, each cash flow carrying its effective `terms`, `status`, the `recording`
+cursor while it is recorded, `holders`, `claimed_holders`, `entitled_units`,
+`amount_due`, `funded` and `paid`. `listBonds({ limit, cursor, filter })`
+pages the `GET /v1/bonds` collection (`{ items, nextCursor }`, at most 20
+records). `getBondEntitlements(bondId, { index, holder, limit, cursor })`
+pages the holders of record (`GET /v1/bonds/{bond_id}/entitlements`, at most
+1000 rows): `{ id, bond, index, holder, units, amount, claimed, claimed_at_ms
+}`. `ToriiBrowserClient` has the same three methods; responses are size
+capped and shape checked.
 
 `reviewTransactionPayload` renders a `bond` row for every bond instruction.
 Registration rows list the terms and every scheduled cash flow. Pass
-`bonds: [{ record, paymentAssetScale }]` (records from `getBond`) to add the
-cash-flow kind, dates, amount per unit, units, the rounded payment, the vault
-or issuer counterparty and the freeze or burn effect of redemption steps.
+`bonds: [{ record, entitlements }]` (a record from `getBond`, rows from
+`getBondEntitlements`) to add the cash-flow kind, dates, amount per unit, the
+holder's entitled units and exact payment, the vault, the unclaimed holders a
+close leaves claimable and the freeze or burn effect of redemption steps.
 
 ### Domain leases
 

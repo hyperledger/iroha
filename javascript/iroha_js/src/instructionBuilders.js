@@ -34,6 +34,7 @@ export {
   buildFundBondCashflowInstruction,
   buildRecordBondCashflowInstruction,
   buildRegisterBondInstruction,
+  buildReplaceBondPayingAgentInstruction,
 } from "./bond.js";
 import { KOTODAMA_V1_DYNAMIC_ACCESS_MAX_KEYS, isCanonicalKotodamaDynamicAccessBaseKey, isKotodamaV1DynamicAccessBoundKind, isKotodamaV1StateMapKeyTypeName, kotodamaV1StateMapKeyTypeName } from "./kotodamaIdentifiers.js";
 import {

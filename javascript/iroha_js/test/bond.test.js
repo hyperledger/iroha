@@ -15,6 +15,7 @@ import {
   buildFundBondCashflowInstruction,
   buildRecordBondCashflowInstruction,
   buildRegisterBondInstruction,
+  buildReplaceBondPayingAgentInstruction,
   validateBondTerms,
 } from "../src/bond.js";
 import * as builders from "../src/instructionBuilders.js";
@@ -70,6 +71,7 @@ function termsInput(native) {
     issueDateMs: native.issue_date_ms,
     maturityDateMs: native.maturity_date_ms,
     redemptionPriceBps: native.redemption_price_bps,
+    paymentGraceMs: native.payment_grace_ms,
     call: native.call === null ? null : {
       firstCallDateMs: native.call.first_call_date_ms,
       priceBps: native.call.price_bps,
@@ -116,6 +118,11 @@ function build(name, payload) {
         index: payload.index,
         evidenceSha256: payload.evidence_sha256,
       });
+    case "ReplacePayingAgent":
+      return buildReplaceBondPayingAgentInstruction({
+        bondId: payload.bond,
+        payingAgent: payload.paying_agent,
+      });
     default:
       throw new Error(`unknown vector ${name}`);
   }
@@ -130,6 +137,7 @@ baseTest("bond helpers are exported from the package and the instruction-builder
     "buildCloseBondCashflowInstruction",
     "buildCallBondInstruction",
     "buildDeclareBondDefaultInstruction",
+    "buildReplaceBondPayingAgentInstruction",
   ]) {
     assert.equal(typeof builders[name], "function", name);
     assert.equal(sdk[name], builders[name], name);
@@ -139,6 +147,11 @@ baseTest("bond helpers are exported from the package and the instruction-builder
   }
   assert.deepEqual(BOND_COUPON_FREQUENCIES, [0, 1, 2, 4, 12]);
   assert.equal(BOND_MAX_CASHFLOWS, 400);
+  assert.equal(sdk.BOND_RECORDING_PAGE_ENTRIES, 512);
+  assert.equal(sdk.BOND_MAX_PAYMENT_GRACE_MS, 366 * 86_400_000);
+  assert.equal(sdk.BOND_RECORD_PAGE_MAX_ITEMS, 20);
+  assert.equal(sdk.BOND_ENTITLEMENT_PAGE_MAX_ITEMS, 1000);
+  assert.equal(sdk.BOND_MAX_SNAPSHOT_HOLDERS, undefined);
 });
 
 baseTest("buildBondSchedule reproduces every Rust fixed_rate_bullet_schedule vector", () => {
@@ -255,7 +268,7 @@ test("schedules from buildBondSchedule register under validateBondTerms", () => 
 });
 
 test("bond builders reproduce the Rust envelopes, archives and frames exactly", () => {
-  assert.equal(FIXTURE.instructions.length, 8);
+  assert.equal(FIXTURE.instructions.length, 9);
   for (const vector of FIXTURE.instructions) {
     const [variant] = Object.keys(vector.json.Bond);
     const built = build(vector.name, vector.json.Bond[variant]);
@@ -368,6 +381,19 @@ test("bond builders normalize digests and refuse malformed or out-of-contract in
     }),
     /^ValidationError: bond.invalid_terms: coupon 0 amount per unit must be 3.25$/u,
   );
+  const { paymentGraceMs: _grace, ...withoutGrace } = termsInput(register.terms);
+  assert.throws(
+    () => buildRegisterBondInstruction({ bondId: register.bond, terms: withoutGrace }),
+    /paymentGraceMs is required/u,
+  );
+  const replace = instructionVector("ReplacePayingAgent").json.Bond.ReplacePayingAgent;
+  assert.throws(
+    () => buildReplaceBondPayingAgentInstruction({ bondId: replace.bond, payingAgent: "nobody" }),
+  );
+  assert.throws(
+    () => buildReplaceBondPayingAgentInstruction({ bondId: replace.bond }),
+    /payingAgent is required/u,
+  );
 });
 
 test("bondVaultAccountId matches the native vault derivation", () => {
@@ -386,35 +412,81 @@ function jsonResponse(status, body) {
   });
 }
 
+/** Torii entitlement rows of the fixture record, as `/v1/bonds/{bond_id}/entitlements` serves them. */
+const ENTITLEMENT_ROWS = FIXTURE.entitlements.map((row) => ({
+  id: `${row.id.index}:${row.id.holder}`,
+  bond: row.id.bond,
+  index: row.id.index,
+  holder: row.id.holder,
+  units: row.units,
+  amount: row.amount,
+  claimed: row.claimed_at_ms !== null,
+  claimed_at_ms: row.claimed_at_ms,
+}));
+
 for (const [label, Client] of [["ToriiClient", ToriiClient], ["ToriiBrowserClient", ToriiBrowserClient]]) {
-  test(`${label}.listBonds and getBond return native bond records`, async () => {
+  test(`${label}.listBonds, getBond and getBondEntitlements return native bond data`, async () => {
     const record = FIXTURE.record;
     const requests = [];
     const client = new Client("https://torii.example", {
       fetchImpl: async (input, init) => {
-        const path = new URL(input).pathname;
-        requests.push([init?.method ?? "GET", path]);
-        if (path === "/v1/bonds") return jsonResponse(200, [record]);
-        if (path === `/v1/bonds/${record.id}`) return jsonResponse(200, record);
-        if (path === `/v1/bonds/${FIXTURE.payment_asset}`) return jsonResponse(404, null);
+        const url = new URL(input);
+        requests.push([init?.method ?? "GET", url.pathname, Object.fromEntries(url.searchParams)]);
+        if (url.pathname === "/v1/bonds") {
+          return jsonResponse(200, { items: [record], next_cursor: null });
+        }
+        if (url.pathname === `/v1/bonds/${record.id}`) return jsonResponse(200, record);
+        if (url.pathname === `/v1/bonds/${record.id}/entitlements`) {
+          return jsonResponse(200, { items: ENTITLEMENT_ROWS.slice(0, 2), next_cursor: ENTITLEMENT_ROWS[1].id });
+        }
+        if (url.pathname.startsWith(`/v1/bonds/${FIXTURE.payment_asset}`)) return jsonResponse(404, null);
         return jsonResponse(200, { ...record, id: FIXTURE.payment_asset });
       },
     });
     // Records are parsed losslessly (null-prototype objects); compare their JSON.
     const plain = (value) => JSON.parse(JSON.stringify(value));
-    assert.deepEqual(plain(await client.listBonds()), [record]);
+    assert.deepEqual(plain(await client.listBonds({ filter: 'state.lifecycle = "Active"' })), {
+      items: [record],
+      nextCursor: null,
+    });
     assert.deepEqual(plain(await client.getBond(record.id)), record);
     assert.equal(await client.getBond(FIXTURE.payment_asset), null);
-    assert.deepEqual(requests.slice(0, 3), [
-      ["GET", "/v1/bonds"],
-      ["GET", `/v1/bonds/${record.id}`],
-      ["GET", `/v1/bonds/${FIXTURE.payment_asset}`],
+    const page = await client.getBondEntitlements(record.id, {
+      index: 0,
+      holder: FIXTURE.accounts.holder,
+      limit: 2,
+      cursor: "0:start",
+    });
+    assert.deepEqual(plain(page), {
+      items: ENTITLEMENT_ROWS.slice(0, 2),
+      nextCursor: ENTITLEMENT_ROWS[1].id,
+    });
+    assert.equal(await client.getBondEntitlements(FIXTURE.payment_asset), null);
+    assert.deepEqual(requests.slice(0, 5).map(([method, path, params]) => [method, path, params]), [
+      ["GET", "/v1/bonds", { limit: "20", filter: 'state.lifecycle = "Active"' }],
+      ["GET", `/v1/bonds/${record.id}`, {}],
+      ["GET", `/v1/bonds/${FIXTURE.payment_asset}`, {}],
+      [
+        "GET",
+        `/v1/bonds/${record.id}/entitlements`,
+        {
+          limit: "2",
+          cursor: "0:start",
+          filter: `index = 0 and holder = "${FIXTURE.accounts.holder}"`,
+        },
+      ],
+      ["GET", `/v1/bonds/${FIXTURE.payment_asset}/entitlements`, { limit: "1000" }],
     ]);
     await assert.rejects(() => client.getBond("si_bond#bondpoc.universal"));
     await assert.rejects(() => client.listBonds({ extra: true }));
+    await assert.rejects(() => client.listBonds({ limit: 21 }), /limit must be an integer in 1..=20/u);
+    await assert.rejects(
+      () => client.getBondEntitlements(record.id, { index: 65_536 }),
+      /index must be an integer in 0..=65535/u,
+    );
   });
 
-  test(`${label} refuses responses that are not the requested bond record`, async () => {
+  test(`${label} refuses responses that are not the requested bond data`, async () => {
     const record = FIXTURE.record;
     const respond = (body) => new Client("https://torii.example", {
       fetchImpl: async () => jsonResponse(200, body),
@@ -423,10 +495,24 @@ for (const [label, Client] of [["ToriiClient", ToriiClient], ["ToriiBrowserClien
       () => respond({ ...record, id: FIXTURE.payment_asset }).getBond(record.id),
       /not the requested bond/u,
     );
-    await assert.rejects(() => respond({ total: 1, items: [] }).listBonds(), /array of bond records/u);
+    await assert.rejects(() => respond([record]).listBonds(), /missing field|must be an object/u);
     await assert.rejects(
       () => respond({ ...record, state: { ...record.state, lifecycle: "Paused" } }).getBond(record.id),
       /lifecycle/u,
+    );
+    await assert.rejects(
+      () => respond({
+        items: [{ ...ENTITLEMENT_ROWS[0], bond: FIXTURE.payment_asset }],
+        next_cursor: null,
+      }).getBondEntitlements(record.id),
+      /not the requested bond/u,
+    );
+    await assert.rejects(
+      () => respond({
+        items: [{ ...ENTITLEMENT_ROWS[0], claimed: true, claimed_at_ms: null }],
+        next_cursor: null,
+      }).getBondEntitlements(record.id),
+      /claimed_at_ms/u,
     );
   });
 }
