@@ -145,12 +145,14 @@ path; closed records with empty custody remain audit history and no longer
 retain the definition. Repo agreements already retain their cash and
 collateral definitions (see `specs/finance/repo_ops.md`).
 
-Registered bonds add two constraints (see `specs/finance/bond_ops.md`): a bond
-and its payment-asset definition are retained permanently, and once a bond's
-redemption is recorded every movement of its units, including `SettleAtomic`
-movements and escrow legs, is rejected with `bond.transfers_frozen`. An
-active escrow holding bond units for a counterparty other than the issuer
-blocks the bond's next record date.
+Registered bonds add three constraints (see `specs/finance/bond_ops.md`): a
+bond and its payment-asset definition are retained permanently; while a bond's
+books are closed (from a record date until that cash flow is recorded) its
+units cannot move, `SettleAtomic` movements and escrow legs included
+(`bond.books_closed`); and once its redemption is recorded every movement is
+rejected with `bond.transfers_frozen`, except an escrow returning custody to
+its seller. Units in escrow custody count for the escrow's seller at a record
+date.
 
 ## Receipt and query boundary
 

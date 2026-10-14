@@ -1,6 +1,6 @@
 ---
 title: Native Bond-Servicing Kernel
-summary: Normative contract for registered bond records, record-date snapshots, vault-funded coupon and redemption servicing, calls, defaults and the transfer freeze.
+summary: Normative contract for registered bond records, record-date entitlements under closed books, vault-funded coupon and redemption servicing, calls, defaults, the transfer freeze and the attribution of holdings of record.
 ---
 
 # Native Bond-Servicing Kernel
@@ -9,21 +9,34 @@ A bond is an ordinary fungible asset definition with scale 0 whose unit is the
 legal denomination. Issuance, primary subscription (`SettleAtomic` with
 conditional-escrow legs, `OpenConditionalEscrow` tranches) and repo stay the
 existing native flows. The kernel adds one typed, authoritative
-`BondRecord` per bond and seven native instructions that perform every
-legally material cash-flow operation. There is no mutable metadata escape
-hatch for terms and no legacy or compatibility path.
+`BondRecord` per bond, one `BondEntitlement` per holder and recorded cash
+flow, and eight native instructions that perform every legally material
+cash-flow operation. There is no mutable metadata escape hatch for terms and
+no legacy or compatibility path.
+
+Design goals that shape every rule below:
+
+- **The record date is authoritative.** Entitlements are the holdings of
+  record at the record date, whoever records them and whenever.
+- **Nobody can veto servicing.** No holder, counterparty or third party can
+  block recording, funding, claiming or closing of a cash flow.
+- **Bounded work, unbounded holders.** Every instruction does bounded work;
+  the number of holders is not limited.
+- **Funded money is never trapped.** Every amount in a vault belongs to one
+  identified unclaimed entitlement and stays claimable.
 
 Source owners:
 
 | Concern | Location |
 | --- | --- |
-| Terms, record, validation, schedule builder, vault derivation | `crates/iroha_data_model/src/bond.rs` |
+| Terms, record, entitlement, validation, schedule builder, vault derivation | `crates/iroha_data_model/src/bond.rs` |
 | Instructions and `BondInstructionBox` (`iroha.bond`) | `crates/iroha_data_model/src/isi/bond.rs` |
 | Events and `DataEventFilter::Bond` | `crates/iroha_data_model/src/events/data/bond.rs` |
 | Queries `FindBondById`, `FindBonds` | `crates/iroha_data_model/src/query/domain_queries.rs` |
-| Execution, freeze, retention, query execution | `crates/iroha_core/src/smartcontracts/isi/bond.rs` |
-| Verified vault movements and redemption burn | `crates/iroha_core/src/smartcontracts/isi/asset.rs` |
-| Torii routes `GET /v1/bonds`, `GET /v1/bonds/{bond_id}` | `crates/iroha_torii/src/lib.rs` |
+| Execution, book closing, freeze, attribution, retention, rekey, queries | `crates/iroha_core/src/smartcontracts/isi/bond.rs` |
+| Verified vault movements, redemption burn, custody gate | `crates/iroha_core/src/smartcontracts/isi/asset.rs` |
+| Entitlement range iteration | `crates/iroha_core/src/state/range_bounds.rs` |
+| Torii routes `GET /v1/bonds`, `GET /v1/bonds/{bond_id}`, `GET /v1/bonds/{bond_id}/entitlements` | `crates/iroha_torii/src/lib.rs`, `crates/iroha_torii/src/routing/collection_sources.rs` |
 | JS codec envelope and vault rendering | `crates/iroha_js_codec/src/bond_instructions.rs` |
 | JS SDK builders, schedule, validation, Torii reads, review | `javascript/iroha_js/src/bond.js`, `bondRecords.js`, `transactionReview.js` |
 
@@ -31,77 +44,96 @@ Source owners:
 
 `BondId` is the bond's `AssetDefinitionId`.
 
-`BondTerms` (immutable once registered):
+`BondTerms`:
 
 | Field | Meaning |
 | --- | --- |
-| `issuer` | Must own the bond definition and sign registration and calls. |
-| `paying_agent` | Records, funds, closes, declares defaults and may push claims. |
+| `issuer` | Owns the bond definition; signs registration, calls and paying-agent replacement. |
+| `paying_agent` | Funds, closes, declares defaults and may push claims. |
 | `payment_asset` | Asset definition of every payment (for example a EUR e-money token). |
 | `denomination` | Payment-asset amount per bond unit (positive). |
 | `coupon_rate_bps` | Annual rate; `0` exactly when `coupon_frequency == 0`. |
 | `coupon_frequency` | `0`, `1`, `2`, `4` or `12` payments per year. |
-| `day_count` | `ActActIcma`, `Thirty360`, `Act360`, `Act365Fixed`: a legal label only, see §1.2. |
+| `day_count` | `ActActIcma`, `Thirty360`, `Act360`, `Act365Fixed`: a legal label, see §1.2. |
 | `issue_date_ms`, `maturity_date_ms` | Unix milliseconds, `issue < maturity`. |
 | `redemption_price_bps` | Positive; `10_000` is par. |
+| `payment_grace_ms` | Grace after a payment date before a default may be declared; at most 366 days. |
 | `call` | Optional `BondCallTerms { first_call_date_ms, price_bps, notice_ms }`. |
 | `cashflows` | Fully materialised schedule of 1..=400 `BondCashflowTerms`. |
-| `identifiers` | `BondIdentifiers { isin <= 12, cfi <= 6, issuer_lei <= 20, bdt_version 1..=32, bdt_document_sha256 }`; every label is printable ASCII. |
+| `identifiers` | `BondIdentifiers { isin <= 12, cfi <= 6, issuer_lei <= 20, bdt_version 1..=32, bdt_document_sha256 }`; every label is non-empty printable ASCII. |
 | `terms_sha256` | SHA-256 of the legal terms document. |
+
+Terms never change after registration except the two account references
+`issuer` and `paying_agent`, which follow an account rekey (§5) and
+`ReplaceBondPayingAgent` (§3.8).
 
 `BondCashflowTerms { index, kind: Coupon | Redemption, record_date_ms,
 payment_date_ms, amount_per_unit }`. `amount_per_unit` is an exact decimal and
 may carry more decimals than the payment asset.
 
-`BondRecord { id, vault, terms, state }` where `state` is
+`BondRecord { id, vault, terms, state }` with
 `BondState { lifecycle: Active | Called | Matured | Defaulted,
-outstanding_units, redeemed_units, transfers_frozen, cashflows }` and every
-effective cash flow is a `BondCashflowState { terms, status, snapshot,
-entitled_units, amount_due, funded, paid, claimed, recorded_at_ms,
-funded_at_ms, closed_at_ms, evidence_sha256 }` with status
-`Scheduled | Recorded | Funded | Closed | Defaulted | Cancelled`.
+outstanding_units, redeemed_units, transfers_frozen, cashflows }`. Every
+effective cash flow is a `BondCashflowState { terms, status, recording,
+holders, claimed_holders, entitled_units, amount_due, funded, paid,
+recorded_at_ms, funded_at_ms, closed_at_ms, evidence_sha256 }` with status
+`Scheduled | Recording | Recorded | Funded | Closed | Defaulted | Cancelled`.
+`recording` is a `BondRecordingCursor { phase: Holders | Escrows,
+after_asset, after_escrow }`, present exactly while the status is
+`Recording`. A record holds totals only; its size is bounded by its schedule.
+
+`BondEntitlement { id: BondEntitlementId { bond, index, holder }, units,
+amount, claimed_at_ms }` is one holder's entitlement to one cash flow:
+`units` held of record and `amount = holder_payment(units)`. Keys order by
+bond, then cash flow, then holder.
 
 ### 1.1 Registration validation
 
 `BondTerms::validate` (shared by SDKs and Core, integer/decimal arithmetic
-only) rejects with `bond.invalid_terms`:
+only) rejects with `bond.invalid_terms`, in this order:
 
-- identifier bounds above; zero denomination, redemption price or call price;
+- identifier bounds; zero denomination or redemption price;
 - a frequency outside `{0, 1, 2, 4, 12}`, or a zero rate with a positive
   frequency (and vice versa);
-- `issue >= maturity`; a first call date outside `(issue, maturity)`;
+- `issue >= maturity`; a payment grace above 366 days;
+- a zero call price, a first call date outside `(issue, maturity)`, or an
+  inexact call price;
 - an empty schedule or one with more than 400 entries;
-- indices that are not `0..n` in order;
-- a record date after its payment date; a record date before issue or a
-  payment date after maturity;
-- payment dates that do not strictly increase, except that the redemption may
-  share the maturity payment date with the final coupon (bullet bonds);
-  record dates that decrease;
+- terms without a regular schedule: coupon payment dates step back from
+  maturity by `12 / frequency` calendar months (end-of-month clamping) and
+  must land exactly on the issue date ("the first coupon period is
+  irregular");
+- indices that are not `0..n` in order; a record date after its payment date;
+  a record date before issue or a payment date after maturity;
 - anything other than exactly one `Redemption`, last, paid on maturity with
   `amount_per_unit == denomination × redemption_price_bps / 10_000` exactly;
-- coupons on a zero-coupon bond, or a coupon whose `amount_per_unit` is not
-  exactly `denomination × coupon_rate_bps / (10_000 × coupon_frequency)`; a
-  non-terminating quotient (for example 6.50 % monthly on 50) is rejected, so
-  such schedules must use another denomination.
+- coupons on a zero-coupon bond; a coupon whose `amount_per_unit` is not
+  exactly `denomination × coupon_rate_bps / (10_000 × coupon_frequency)` (a
+  non-terminating quotient, for example 6.50 % monthly on 50, is rejected);
+  a coupon not paid on its regular date; a coupon count other than the
+  regular count;
+- record dates that decrease.
+
+Record dates are free inside each period. Coupon payment dates are therefore
+exactly the regular dates, which strictly increase; the final coupon and the
+redemption share the maturity payment date.
 
 ### 1.2 Schedule builder
 
-`fixed_rate_bullet_schedule(BondScheduleRequest)` materialises a regular
-fixed-rate bullet schedule: coupon payment dates step back from maturity by
-`12 / frequency` calendar months (end-of-month clamping) and must land exactly
-on the issue date, otherwise it refuses with "the first coupon period is
-irregular". Record dates are `payment - record_offset_ms`, clamped to the
-issue date. Because periods are regular, the day-count label does not change
-any amount in the first release.
+`fixed_rate_bullet_schedule(BondScheduleRequest)` materialises the regular
+schedule with `regular_coupon_payment_dates` (the same function validation
+uses). Record dates are `payment - record_offset_ms`, clamped to the issue
+date. Because registration admits only regular periods, the day-count label
+does not change any amount in the first release.
 
 ### 1.3 Arithmetic
 
 - Holder payment: `floor(units × amount_per_unit)` at the payment asset's
   scale (`RoundingMode::TowardZero`); an unconstrained payment asset receives
   the exact product.
-- `amount_due` is the sum of the rounded holder payments, so funded money
-  always covers every claim exactly and the per-cash-flow residual
-  `funded - paid` is zero once all holders claimed (see §8).
+- `amount_due` is the sum of the holders' rounded payments, so funding covers
+  every claim exactly and a fully claimed cash flow leaves nothing in the
+  vault.
 
 ### 1.4 Vault
 
@@ -112,42 +144,59 @@ created on first funding. It is stored in `BondRecord::vault`.
 
 ## 2. Storage
 
-World table `bonds: AssetDefinitionId -> BondRecord`
-(`world.bonds`, a canonical authority-registry table) is persisted in World
-snapshots (`WorldData::bonds`), restored by `deserialize_world`, staged and
-applied with every `WorldTransaction`, and readable through
-`WorldReadOnly::bonds()`.
+| Table | Role | Content |
+| --- | --- | --- |
+| `world.bonds: AssetDefinitionId -> BondRecord` | canonical | One record per registered bond. |
+| `world.bond_entitlements: BondEntitlementId -> BondEntitlement` | canonical | Record-date entitlements; claimed rows stay as history. |
+| `world.bond_vaults: AccountId -> AssetDefinitionId` | derived from `world.bonds` | Vault index, rebuilt by `World::rebuild_bond_vault_index`. |
+
+Canonical tables are persisted in World snapshots, restored by
+`deserialize_world` (which rebuilds the vault index), staged and applied with
+every `WorldTransaction`, and readable through `WorldReadOnly`.
+`WorldReadOnly::bond_entitlements_of_bond_iter(bond, after, before)` walks
+one bond's entitlements as a key range. Entitlement keys use one canonical
+JSON spelling in snapshots.
 
 ## 3. Instructions
 
-All seven instructions travel only inside `BondInstructionBox`
-(wire id `iroha.bond`, tags 0..=6 in the order below); leaf types have no wire
+All eight instructions travel only inside `BondInstructionBox`
+(wire id `iroha.bond`, tags 0..=7 in the order below); leaf types have no wire
 identifiers. Core performs every authority check; the Initial executor admits
 the box (§7). Block time is the committed block timestamp. Rejections are
 `InvariantViolation` messages prefixed with the stable code from
 `BondError::code()` (`bond.unauthorized`, `bond.invalid_state`,
-`bond.too_early`, `bond.encumbered`, ...).
+`bond.too_early`, `bond.books_closed`, `bond.not_entitled`, ...).
 
 1. **`RegisterBond { bond, terms }`** (`Register`). The signer is
    `terms.issuer`; the terms validate; the bond is not registered; the payment
-   asset differs from the bond; both definitions exist and use
-   `AssetBalancePolicy::Global`; the issuer owns the bond definition, whose
-   numeric spec has scale 0; issuer and paying-agent accounts exist; the
-   definition's minted total is positive. The record starts `Active`, every
-   cash flow `Scheduled`, `outstanding_units = total_quantity`. The intended
-   use is one issuer transaction: `Register<AssetDefinition>`, `Mint`,
-   `RegisterBond` (and any allotment escrows).
-2. **`RecordBondCashflow { bond, index }`** (`RecordCashflow`). Signer: paying
-   agent. Lifecycle `Active` or `Called`; the cash flow is `Scheduled`; block
-   time `>= record_date_ms`; every lower index is not `Scheduled`. Rejected
-   with `bond.encumbered` while an active repo agreement uses the bond in either
-   leg, or an active native escrow (marketplace, lock or conditional) holds
-   bond units with a counterparty other than the issuer. The snapshot
-   aggregates every non-zero global balance of the bond excluding the issuer,
-   the vault and native escrow custody accounts; more than 4096 holders is
-   `bond.snapshot_too_large`. Sets `entitled_units`, `amount_due`,
-   `recorded_at_ms`, status `Recorded`; recording the `Redemption` sets
-   `transfers_frozen`.
+   asset differs from the bond and is not itself a registered bond, and the
+   bond is not the payment asset of a registered bond; both definitions exist
+   and use `AssetBalancePolicy::Global`; the issuer owns the bond definition,
+   whose numeric spec has scale 0; issuer and paying-agent accounts exist; the
+   minted total is positive and **held entirely by the issuer**. The record
+   starts `Active`, every cash flow `Scheduled`,
+   `outstanding_units = total_quantity`; the vault is indexed. The intended
+   use is one issuer transaction: `Register<AssetDefinition>`, `Mint` to the
+   issuer, `RegisterBond`, then allotments.
+2. **`RecordBondCashflow { bond, index }`** (`RecordCashflow`). Any signer.
+   Lifecycle `Active` or `Called`. Starting requires status `Scheduled`, block
+   time `>= record_date_ms` and no lower index `Scheduled` or `Recording`; it
+   sets status `Recording` with a fresh cursor. A `Recording` cash flow
+   continues from its cursor. Each step examines at most
+   `BOND_RECORDING_PAGE_ENTRIES` (512) entries:
+   - *Holders phase*: the bond's balances in asset-identifier order. Every
+     non-zero balance credits its account's entitlement, except the issuer,
+     any bond vault, game custody and AMX custody (§4.3).
+   - *Escrows phase*: escrow records in identifier order. For each native
+     escrow of this bond whose custody account received an entitlement in the
+     holders phase, that entitlement is removed and its units credited to the
+     escrow's seller (dropped when the seller is the issuer).
+
+   Totals (`holders`, `entitled_units`, `amount_due`) are kept exact on every
+   credit. When both phases finish the status becomes `Recorded`,
+   `recorded_at_ms` is set, the cursor cleared and `CashflowRecorded` emitted;
+   recording the `Redemption` sets `transfers_frozen`. Repeat the instruction
+   until the cash flow is `Recorded`.
 3. **`FundBondCashflow { bond, index, source }`** (`FundCashflow`). Signer:
    paying agent or issuer; lifecycle `Active` or `Called`; `source` is the
    signer's global balance of the payment asset; status `Recorded`. Moves
@@ -155,79 +204,158 @@ the box (§7). Block time is the committed block timestamp. Rejections are
    `Funded`. Funding before the payment date is allowed.
 4. **`ClaimBondCashflow { bond, index, holder }`** (`ClaimCashflow`). Signer:
    the holder or the paying agent; the destination is always the holder.
-   Status `Funded`; block time `>= payment_date_ms`; the holder is in the
-   snapshot and has not claimed. A coupon pays the holder payment from the
-   vault. A redemption first burns exactly the holder's snapshot units (the
-   only supply change a registered bond admits; the holder still holds them
-   because transfers froze at recording) and then pays; `outstanding_units`
-   decreases and `redeemed_units` increases by those units. Marks the holder
-   claimed and adds the payment to `paid`. Any failure (for example missing
-   units) rejects the whole instruction.
+   Status `Funded` or `Closed`, any lifecycle; block time `>= payment_date_ms`;
+   the holder has an unclaimed entitlement. A coupon pays the entitlement's
+   `amount` from the vault. A redemption first burns exactly the
+   entitlement's `units` from the holder's own balance (the only supply change
+   a registered bond admits) and then pays; `outstanding_units` decreases and
+   `redeemed_units` increases by those units. The entitlement gets
+   `claimed_at_ms`, `claimed_holders` and `paid` grow. Any failure rejects the
+   whole instruction; the entitlement stays claimable.
 5. **`CloseBondCashflow { bond, index }`** (`CloseCashflow`). Signer: paying
-   agent; status `Funded`; every snapshot holder claimed. Returns
-   `funded - paid` from the vault to the issuer, sets `Closed`. The lifecycle
-   becomes `Matured` when every effective cash flow is `Closed` or
-   `Cancelled` (an unpaid coupon keeps the bond servicing).
+   agent; status `Funded`; block time `>= payment_date_ms`. Sets `Closed`
+   whether or not every holder claimed; unclaimed entitlements stay claimable
+   from the vault (`CashflowClosed` reports `unclaimed_holders` and
+   `unclaimed_amount`). The lifecycle becomes `Matured` when every effective
+   cash flow is `Closed` or `Cancelled`.
 6. **`CallBond { bond, call_date_ms }`** (`Call`). Signer: issuer; lifecycle
    `Active`; call terms exist; `call_date >= first_call_date_ms`;
    `call_date >= block time + notice_ms`; `call_date < maturity`; the date is
-   the payment date of a `Scheduled` coupon. Every later effective cash flow
-   becomes `Cancelled` and one `Redemption` is appended with the next index,
-   that coupon's record date, payment date `call_date` and
-   `amount_per_unit = denomination × call.price_bps / 10_000`. The coupon on
-   the call date stays. Lifecycle `Called`. Registered terms are unchanged.
+   the payment date of a `Scheduled` coupon and every later cash flow is
+   `Scheduled`. Every later effective cash flow becomes `Cancelled` and one
+   `Redemption` is appended with the next index, that coupon's record date,
+   payment date `call_date` and `amount_per_unit = denomination ×
+   call.price_bps / 10_000`. The coupon on the call date stays. Lifecycle
+   `Called`. The registered schedule is unchanged.
 7. **`DeclareBondDefault { bond, index, evidence_sha256 }`**
    (`DeclareDefault`). Signer: paying agent; lifecycle `Active` or `Called`;
-   the cash flow is `Scheduled` or `Recorded`; block time
-   `> payment_date_ms`. The cash flow becomes `Defaulted` with the evidence
-   digest and the lifecycle `Defaulted`. Afterwards recording, funding, calls
-   and further defaults are rejected; claims and closing of cash flows funded
-   before the default continue, so vault money is never trapped.
+   the cash flow is `Scheduled` or `Recorded` (a `Recording` cash flow must be
+   completed first); block time `> payment_date_ms + payment_grace_ms`. The
+   cash flow becomes `Defaulted` with the evidence digest and the lifecycle
+   `Defaulted`. Afterwards recording, funding, calls and further defaults are
+   rejected; claims and closing of cash flows funded before the default
+   continue. Entitlements recorded before the default remain as the record of
+   who was owed.
+8. **`ReplaceBondPayingAgent { bond, paying_agent }`**
+   (`ReplacePayingAgent`). Signer: issuer; any lifecycle; the new agent is an
+   existing account, not a bond vault and not the current agent. Emits
+   `PayingAgentReplaced`.
 
 ## 4. Movement and supply controls
 
-- **Transfer freeze.** `PreparedNumericTransferPlan::prepare` is the single
-  preparation step of every numeric movement (user transfers and batches,
-  `SettleAtomic` movements and escrow legs, conditional-escrow and other
-  native escrow funding/release, repo initiation and settlement, protocol
-  movements). It calls `ensure_bond_units_movable`, which rejects any
-  movement of a bond whose `transfers_frozen` is set with
-  `bond.transfers_frozen`. The redemption burn is a supply change, not a
-  movement.
+### 4.1 Book closing and the redemption freeze
+
+`PreparedNumericTransferPlan::prepare` is the single preparation step of every
+numeric movement (user transfers and batches, `SettleAtomic` movements and
+escrow legs, native escrow funding and release, repo legs, protocol
+movements). It calls `ensure_bond_units_movable` for registered bonds:
+
+- While any cash flow of the bond is `Recording`, every movement is refused
+  (`bond.books_closed`): the cursor walks the balances.
+- **Books closed.** While the bond is `Active` or `Called` and the record date
+  of its first `Scheduled` cash flow has passed, movements are refused
+  (`bond.books_closed`) until that cash flow is recorded. Cash flows are
+  recorded in order and record dates never decrease, so the final coupon and
+  the redemption that share a record date keep the books closed until both
+  are recorded.
+- **Frozen.** Once the redemption is recorded (`transfers_frozen`), movements
+  are refused permanently (`bond.transfers_frozen`).
+- In both restricted states a native escrow may still return custody to its
+  seller (source policy `NativeEscrowCustody`, destination the seller of an
+  escrow of this bond whose custody is the source): the seller is already the
+  holder of record of those units, so the return changes no entitlement and
+  lets the seller redeem.
+
+Books are open on a `Matured` or `Defaulted` bond unless it is frozen. Mint
+and burn are locked (§4.4), unregistering a holder is refused (§5) and a
+rekey cannot move units during a recording (§5), so between the record date
+and the completed recording nothing changes the balances being recorded.
+
+### 4.2 Holders of record
+
+| Units held by | Holder of record |
+| --- | --- |
+| An ordinary account (including a repo counterparty or custodian holding collateral) | That account |
+| Native asset-escrow custody (marketplace, lock, conditional; `SettleAtomic` escrow legs) | The escrow's seller until the escrow releases |
+| The issuer, directly or as escrow seller | Nobody: treasury units receive nothing |
+| A bond vault, game custody, AMX custody | Nobody (they cannot receive registered bond units, §4.3) |
+
+Repo collateral is held by its title holder, which receives coupons and the
+redemption; manufactured payments are a matter between the repo parties. An
+unreleased allotment escrow opened by the issuer leaves the investor without
+an entitlement for that record date, as for any unsettled trade.
+
+### 4.3 Attributed custody only
+
+Registered bond units may rest only in accounts and native asset-escrow
+custody. `NumericAssetMovementAuthorization::ensure_admits_bond_units`, applied
+by both authorization choke points (`PreparedNumericAssetMovement` and
+`PreparedNumericAssetMovementBatch::aggregate`), admits a registered bond's
+units only for plain transaction movements and the purposes
+`native-escrow-funding`, `native-escrow-retained`, `repo-bilateral` and
+`settlement-bilateral`; every other purpose (game seats, VPN leases, AMX,
+SCCP and FX escrows, privacy pools, staking and governance bonds, ...) is
+refused with `bond.custody_unsupported`. Registration requires the issuer to
+hold the whole supply, so no unit can sit in such custody beforehand. Units
+sent to a protocol account by a plain transfer are a donation: the holders
+phase excludes game, AMX and vault custody, and any other recipient simply
+holds an entitlement nobody claims.
+
+### 4.4 Supply lock and vault custody
+
 - **Supply lock.** `Mint` and `Burn` (including retail reserve mint/burn and
-  the central checked burn) of a registered bond's units are rejected with
+  the central checked burn) of a registered bond are rejected with
   `bond.supply_locked`; only the redemption-claim burn
   (`NumericAssetBurnSourcePolicy::BondRedemption`) changes the supply.
-- **Vault custody.** Direct debits of a vault balance (transfers, burns,
-  other protocol sources) and credits to a vault (transfers, mints) outside
-  `FundBondCashflow` are rejected with `bond.vault_custody`. Funding uses the
-  embedded `BondFunding` purpose with the `BondVaultFunding` source policy
-  (destination must be a registered vault); payments and residuals use the
-  retained `BondVault` purpose with the `BondVaultCustody` source policy.
-  `execute_verified_bond_movement` and `execute_verified_bond_redemption_burn`
-  re-check each capability against the stored record (signer, exact source
-  and destination, status, snapshot membership, unclaimed holder, amount
-  bounds) before any balance changes.
+- **Redemption burn.** The burn checks the exact unclaimed entitlement, refuses
+  privacy reserve, escrow, SoraFS, KAGEMUSHA and SCCP sources, and ignores the
+  bond definition's confidential (transparent) and issuer usage policies: the
+  definition owner cannot trap a funded redemption by tightening them.
+- **Vault custody.** Direct debits of a vault (transfers, burns, other
+  protocol sources) and credits to a vault (transfers, mints) outside
+  `FundBondCashflow` are rejected with `bond.vault_custody`; the checks use
+  the `bond_vaults` index. Funding uses the embedded `BondFunding` purpose with
+  the `BondVaultFunding` source policy; payments use the retained `BondVault`
+  purpose with the `BondVaultCustody` source policy and the
+  `BondVaultRelease` control policy. The payment asset's transparency and
+  usage policies bind the funding party and the paid holder but never the
+  key-less vault, and the vault has no outbound transfer controls, so the
+  payment-asset issuer cannot block every payment by binding the vault. A
+  holder the payment asset refuses keeps an unclaimed entitlement.
+- `execute_verified_bond_movement` and `execute_verified_bond_redemption_burn`
+  re-check each capability against the stored record and entitlement
+  (signer, exact source and destination, status, unclaimed entitlement,
+  exact amount or units) before any balance changes.
 
-## 5. Retention
+## 5. Retention and rekey
 
-Bond records are permanent. `Unregister<AssetDefinition>` and
-`Unregister<Domain>` refuse to retire a bond definition or a payment-asset
-definition of any bond (`bond.retained`). `Unregister<Account>` and the
-multisig account rekey refuse the vault, issuer and paying agent of any bond
-and every holder with an unclaimed entitlement in a `Recorded` or `Funded`
-cash flow.
+- `Unregister<AssetDefinition>` and `Unregister<Domain>` refuse to retire a
+  bond definition or the payment-asset definition of any bond
+  (`bond.retained`); records are permanent.
+- `Unregister<Account>` refuses every bond vault, the issuer and paying agent
+  of a bond that is `Active` or `Called` or has a `Recording`, `Recorded` or
+  `Funded` cash flow, and every account holding units of a registered bond
+  (removing the balance would destroy units outside the supply lock and break
+  `outstanding_units`). Unclaimed entitlements of an account without units
+  survive its unregistration and pay out once the same account exists again.
+- A rekey (`ReplaceAccountController`, multisig rekey) is refused for a vault
+  and for an account that holds units of, or has an entitlement in, a cash
+  flow that is `Recording`. Otherwise the issuer and paying-agent references
+  of every record and every unclaimed entitlement move to the new account;
+  claimed entitlements stay as history under the old identifier.
 
 ## 6. Events, queries and Torii
 
 `DataEvent::Bond(BondEvent)` (data-event tag 25) carries
 `Registered { bond, issuer, paying_agent, outstanding_units, cashflows }`,
-`CashflowRecorded { bond, index, kind, holders, entitled_units, amount_due }`,
+`CashflowRecorded { bond, index, kind, holders, entitled_units, amount_due }`
+(on completion),
 `CashflowFunded { bond, index, amount }`,
 `CashflowClaimed { bond, index, holder, units, amount }`,
-`CashflowClosed { bond, index, residual }`,
-`Called { bond, call_date_ms, redemption_index }` and
-`Defaulted { bond, index, evidence_sha256 }`.
+`CashflowClosed { bond, index, unclaimed_holders, unclaimed_amount }`,
+`Called { bond, call_date_ms, redemption_index }`,
+`Defaulted { bond, index, evidence_sha256 }` and
+`PayingAgentReplaced { bond, previous, paying_agent }`.
 `DataEventFilter::Bond(Option<BondId>)` (filter tag 27) selects all bond
 events or one bond's; data triggers index the bond family and subject, and a
 bond-scoped trigger filter belongs to the owner of the bond definition.
@@ -235,122 +363,188 @@ bond-scoped trigger filter belongs to the owner of the bond definition.
 Queries: singular `FindBondById { bond } -> BondRecord`
 (`SingularQueryOutputBox::BondRecord`, `FindError::Bond` when absent) and
 iterable `FindBonds -> BondRecord` (`QueryItemKind::BondRecord`, wire tag 31,
-wire id `iroha.query.v1::iterable::bond::BondRecord`). Both require the
-ledger-wide read root in the native executor because records carry every
-investor's record-date holdings. The JSON query envelope accepts
-`{"type": "FindBondById", "payload": {"bond": "<asset definition address>"}}`
-and the iterable `FindBonds`.
+wire id `iroha.query.v1::iterable::bond::BondRecord`). The JSON query envelope
+accepts `{"type": "FindBondById", "payload": {"bond": "<asset definition
+address>"}}` and the iterable `FindBonds`.
 
-Torii serves the records without a signed query on public application routes
-`GET /v1/bonds` (array of records) and `GET /v1/bonds/{bond_id}` (one record,
-404 when absent) as Norito JSON, documented in the OpenAPI contract.
+Torii serves bond data on public application routes as Norito JSON:
+
+| Route | Content |
+| --- | --- |
+| `GET /v1/bonds` | Collection query (`filter`, `sort`, `select`, `limit`, `cursor`, `include_total`) over complete `BondRecord` rows, in bond identifier order. |
+| `GET /v1/bonds/{bond_id}` | One record; 404 when not registered. |
+| `GET /v1/bonds/{bond_id}/entitlements` | Collection query over the bond's entitlement rows `{id: "<index>:<holder>", bond, index, holder, units, amount, claimed, claimed_at_ms}` in cash-flow then holder order; 404 when not registered. |
+
+The collection fields are listed in `specs/torii/collection_queries.md`; the
+OpenAPI contract types the pages (`BondRecordPage`, `BondEntitlementPage`).
+
+Read access: record-date holdings are market data of the same kind as current
+holders, which `GET /v1/assets/{definition_id}/holders` already serves
+publicly, so the Torii routes are public. The signed typed queries keep the
+native ledger-wide read root (`NativeQueryAccess::AllLedger`) for consistency
+with the repo-agreement and escrow typed queries, whose records are likewise
+published by public Torii routes; the root governs the signed query surface,
+not confidentiality.
 
 ## 7. Initial executor, time and FASTPQ
 
 The fail-safe Initial executor admits `BondInstructionBox`; Core keeps every
 authority check above. Bond instructions are time-sensitive (record, payment,
-call-notice and default gates use block time), so they follow the NTS health
-admission rule for time-sensitive transactions.
+grace, call-notice and default gates use block time), so they follow the NTS
+health admission rule for time-sensitive transactions.
 
 Under the bootstrap FASTPQ source profile a transaction (one logical entry)
 may produce at most sixteen original transfer deltas. Each coupon claim and
 each redemption claim is one payment delta (the redemption burn is a supply
-quantity change, not a transfer delta); funding and a non-zero residual are
-one delta each. A paying agent therefore packs at most sixteen claims per
-transaction, fewer when the transaction also pays a fee movement; a
-seventeen-claim transaction is refused atomically with
-"FASTPQ source intrinsic limit exceeded". Certified Initial-executor tests
-pin both bounds.
+quantity change, not a transfer delta); funding is one delta. A paying agent
+therefore packs at most sixteen claims per transaction; a seventeen-claim
+transaction is refused atomically with "FASTPQ source intrinsic limit
+exceeded". A paid Nexus fee is charged outside that entry budget: with a
+base fee enabled, sixteen claims and the fee still fit. Certified
+Initial-executor tests pin both bounds, with and without a fee.
 
 ## 8. Deviations from the design contract
 
+Relative to `BOND_KERNEL_SPEC.md`:
+
 1. `BondRecord` carries `id` and the derived `vault`; each
    `BondCashflowState` embeds its effective `terms` instead of only `index`,
-   so a call-appended redemption is self-describing while registered terms
-   stay immutable.
-2. A call does not rewrite cash flows in place: later effective cash flows
-   get the added status `Cancelled` and the call redemption is appended with
-   the next index. Indices therefore never change meaning.
-3. The final coupon and the redemption may share the maturity payment date;
-   all other payment dates strictly increase and record dates must not
-   decrease. The contract's strict increase would forbid every bullet bond.
-4. `Matured` is reached when every effective cash flow is closed or
-   cancelled, not on closing the redemption alone, so an unpaid coupon can
-   still be declared in default.
-5. After `Defaulted`, claims and closing of cash flows that were already
-   funded stay allowed; blocking them would trap holders' money in the vault.
-6. The encumbrance check covers every active native escrow kind holding bond
-   units for a counterparty other than the issuer and both repo legs, not
-   only conditional escrows and repo collateral.
-7. A registered bond's supply is locked (no `Mint`/`Burn`), and vault
-   balances are protocol custody. The contract defines
-   `outstanding_units` as the minted total minus redemptions; without the
-   lock the definition owner could dilute holders or burn their units.
-8. Registration additionally requires global balance policies, a distinct
-   payment asset, existing issuer and paying-agent accounts and a positive
-   minted supply.
-9. Because `amount_due` is the sum of rounded-down holder payments, the
-   close residual is zero by construction; `CloseBondCashflow` still returns
-   any `funded - paid` remainder to the issuer.
-10. Queries are ledger-wide reads in the native executor (as repo
-    agreements and escrows); the JS-facing read is the public Torii route.
+   so a call-appended redemption is self-describing.
+2. Snapshots are not stored in the record: per-holder `BondEntitlement` rows
+   live in `world.bond_entitlements` and the record keeps `holders`,
+   `claimed_holders` and totals instead of `snapshot` and `claimed`. A
+   `Recording` status and cursor make recording paged.
+3. **No 4096-holder limit.** The contract's fixed snapshot bound let a holder
+   (or a wide distribution) make every cash flow unrecordable. Recording is
+   paged instead (§3.2).
+4. **Record date enforced by closed books.** The contract snapshot reflected
+   the block in which the paying agent recorded. Movements are refused from
+   the record date until recording completes (§4.1), so recording at any later
+   time yields the holdings of record.
+5. **Recording is permissionless.** Under closed books the result does not
+   depend on the signer or timing, and an open recording keeps movements
+   blocked, so any account may record instead of only the paying agent.
+6. **No encumbrance veto.** The contract refused recording while repo
+   collateral or an allotment escrow encumbered units; anyone could block
+   servicing that way. Escrowed units count for the escrow seller, repo
+   collateral for its title holder and issuer allotments for nobody (§4.2).
+7. **Attributed custody only.** Registered bond units can enter only accounts
+   and native asset-escrow custody (§4.3), and registration requires the
+   issuer to hold the whole supply.
+8. **Regular schedules enforced.** The contract checked coupon amounts only;
+   registration also requires the coupon dates and count to be the regular
+   schedule of the stated frequency (§1.1). The contract's strict increase of
+   all payment dates is replaced by this rule plus the shared maturity date of
+   the final coupon and the redemption, which a strict increase would forbid
+   for every bullet bond.
+9. **Closing does not wait for every holder.** `CloseBondCashflow` closes a
+   funded cash flow at or after its payment date; unclaimed entitlements stay
+   claimable from the vault (claims accept `Funded` and `Closed`). There is no
+   residual: `amount_due` is the sum of rounded payments, so nothing remains
+   once every holder claimed, and `CashflowClosed` reports the unclaimed
+   amount instead of a residual.
+10. `Matured` is reached when every effective cash flow is closed or
+    cancelled, not on closing the redemption alone, so an unpaid coupon can
+    still be declared in default. Claims continue after maturity.
+11. **Default needs the grace period.** `BondTerms::payment_grace_ms` (new,
+    at most 366 days) delays `DeclareBondDefault` until
+    `payment_date + grace`; `DeclareBondDefault` accepts only `Scheduled` and
+    `Recorded` cash flows of an `Active` or `Called` bond (the contract said
+    "not Funded/Closed").
+12. After `Defaulted`, claims and closing of cash flows that were already
+    funded stay allowed; blocking them would trap holders' money.
+13. `CallBond` additionally requires lifecycle `Active`, a call date before
+    maturity and every later cash flow `Scheduled`. A call does not rewrite
+    cash flows in place: later ones get the added status `Cancelled` and the
+    call redemption is appended with the next index.
+14. A registered bond's supply is locked (no `Mint`/`Burn`) and vault balances
+    are protocol custody exempt from the payment asset's policies on the
+    vault; the redemption burn ignores the bond's confidential and usage
+    policies (§4.4).
+15. Registration additionally requires global balance policies, a payment
+    asset distinct from the bond and from every registered bond, a bond that
+    is no bond's payment asset, existing issuer and paying-agent accounts, a
+    positive minted supply and the whole supply with the issuer.
+16. A new eighth instruction `ReplaceBondPayingAgent`; issuer and paying-agent
+    references follow account rekeys instead of blocking them.
+17. Identifiers must be non-empty printable ASCII in addition to the length
+    bounds.
+18. Quantities use `Quantity` (non-negative `Numeric`) where the contract says
+    `Numeric`.
+19. Events carry more than the contract lists: `kind` and `holders` on
+    `CashflowRecorded`, `redemption_index` on `Called`, the `Registered`
+    payload, the unclaimed figures on `CashflowClosed`, and the new
+    `PayingAgentReplaced`.
+20. Account retention: vaults, the issuer and paying agent of a bond still
+    servicing or with an open cash flow, and every unit holder are retained
+    against unregistration; rekeys migrate references (§5).
+21. The vault derivation is network independent (the bond identifier alone).
+22. Queries are ledger-wide reads in the native executor, while Torii serves
+    records and entitlements publicly through collection routes (§6).
 
 ## 9. Known limits
 
-- Issuer-retained (treasury) units are excluded from snapshots and are never
-  paid or burned; there is no treasury-cancellation instruction yet, so
+- Issuer-retained (treasury) units are excluded from entitlements and are
+  never paid or burned; there is no treasury-cancellation instruction yet, so
   `outstanding_units` keeps them after maturity.
-- A record keeps every recorded snapshot; each claim loads and stores the
-  whole record, so servicing cost grows with holders × recorded cash flows.
-  TODO: move entitlements into a per-holder table if bonds approach the
-  4096-holder bound.
-- Vault predicates scan the bond table on each movement.
-- An escrow of bond units whose beneficiary is the issuer stays frozen with
-  the bond after the redemption is recorded; a defaulted bond whose
-  redemption was recorded stays frozen.
+- The escrows phase of a recording walks every escrow record of the ledger
+  (bounded per step). TODO: index escrows by asset definition.
+- A rekey probes every recorded cash flow of every bond for the old account's
+  entitlements. TODO: index entitlements by holder.
+- Units a seller still has in escrow custody when the redemption is recorded
+  must return to the seller (cancel, refund or expiry) before the seller can
+  redeem them; an escrow whose payment was marked sent can only be refunded
+  through its dispute path. A repo whose collateral matures with the bond
+  cannot return the collateral after the redemption is recorded.
+- Funds of entitlements nobody can claim (a donated balance held by a
+  protocol account, a holder that never claims) stay in the vault; there is no
+  prescription sweep yet.
 - The definition owner can still change the bond definition's confidential
-  policy or transfer its ownership; neither changes the record, but a
-  shielded-only policy would block redemption burns.
+  policy or transfer its ownership; neither changes the record or the
+  redemption burn, but a shielded-only policy blocks ordinary transfers.
 
 ## 10. JavaScript SDK
 
 Owners: `crates/iroha_js_codec/src/bond_instructions.rs` (strict JSON
 envelope, vault rendering), `crates/iroha_js_host/src/settlement_lifecycle.rs`
 (N-API `bondVaultAccountId`), `javascript/iroha_js/src/bond.js` (builders,
-schedule, validation, payments), `src/bondRecords.js` (Torii record checks),
-`src/transactionReview.js` (review rows).
+schedule, validation, payments), `src/bondRecords.js` (Torii record,
+entitlement and page checks), `src/transactionReview.js` (review rows).
 
 ### 10.1 Envelope
 
 Bond instructions use one closed JSON envelope that mirrors
 `BondInstructionBox`: `{"Bond": {<Variant>: <payload>}}` with exactly one of
 `Register`, `RecordCashflow`, `FundCashflow`, `ClaimCashflow`,
-`CloseCashflow`, `Call`, `DeclareDefault`. Each payload must equal the
-canonical model JSON of its leaf type: snake_case fields, canonical quantity
-strings (`"50"`, `"3.25"`, never `"50.0"`), JSON numbers for `u16`/`u32`/`u64`
-fields, lowercase 64-digit hex for `[u8; 32]` digests and explicit `null` for
-absent optional terms. Unknown, missing, renamed or extra fields, two
-variants, leaf envelopes (`{"RegisterBond": ...}`) and generic base64
-instruction literals are refused. Instruction archives and public frames
-decode back to the same envelope, so `noritoDecodeInstructionBoxArchive`,
-`noritoDecodeInstruction` and the transaction review render every bond field.
-The codec admits shape only; terms validation and every state check remain in
-Core.
+`CloseCashflow`, `Call`, `DeclareDefault`, `ReplacePayingAgent`. Each payload
+must equal the canonical model JSON of its leaf type: snake_case fields,
+canonical quantity strings (`"50"`, `"3.25"`, never `"50.0"`), JSON numbers
+for `u16`/`u32`/`u64` fields, lowercase 64-digit hex for `[u8; 32]` digests
+and explicit `null` for absent optional terms. Unknown, missing, renamed or
+extra fields, two variants, leaf envelopes (`{"RegisterBond": ...}`) and
+generic base64 instruction literals are refused. Instruction archives and
+public frames decode back to the same envelope, so
+`noritoDecodeInstructionBoxArchive`, `noritoDecodeInstruction` and the
+transaction review render every bond field. The codec admits shape only;
+terms validation and every state check remain in Core.
 
 ### 10.2 Builders and helpers
 
 Builders take camelCase options and return the envelope:
 `buildRegisterBondInstruction({ bondId, terms })`,
-`buildRecordBondCashflowInstruction({ bondId, index })`,
+`buildRecordBondCashflowInstruction({ bondId, index })` (any signer; repeat
+until `Recorded`),
 `buildFundBondCashflowInstruction({ bondId, index, sourceAssetHoldingId })`
 (global, unscoped bucket only),
 `buildClaimBondCashflowInstruction({ bondId, index, holder })`,
 `buildCloseBondCashflowInstruction({ bondId, index })`,
-`buildCallBondInstruction({ bondId, callDateMs })` and
-`buildDeclareBondDefaultInstruction({ bondId, index, evidenceSha256 })`.
+`buildCallBondInstruction({ bondId, callDateMs })`,
+`buildDeclareBondDefaultInstruction({ bondId, index, evidenceSha256 })` and
+`buildReplaceBondPayingAgentInstruction({ bondId, payingAgent })`.
 Quantities are `KotodamaQuantity`, canonical decimal strings or bigint
 (JavaScript numbers are refused); integers are safe JavaScript integers,
-bigint or decimal strings; digests are 32 bytes or 64 hex digits.
+bigint or decimal strings; digests are 32 bytes or 64 hex digits. Terms take
+the required `paymentGraceMs`.
 
 - `buildBondSchedule({ denomination, couponRateBps, couponFrequency,
   issueDateMs, maturityDateMs, redemptionPriceBps, recordOffsetMs })` ports
@@ -358,48 +552,62 @@ bigint or decimal strings; digests are 32 bytes or 64 hex digits.
   exact decimal arithmetic on bigint mantissas. It returns
   `[{ index, kind, recordDateMs, paymentDateMs, amountPerUnit }]` and refuses
   exactly what Core refuses, in the same order and with the same
-  `bond.invalid_terms: ...` messages (frequency, issue/maturity order,
-  irregular first period, the 400 cash-flow bound, non-terminating or
-  over-scale amounts).
+  `bond.invalid_terms: ...` messages.
 - `validateBondTerms(terms)` normalizes builder terms to canonical native
-  JSON and applies every `BondTerms::validate` rule (§1.1) in Core's order
-  with Core's messages. `buildRegisterBondInstruction` calls it and also
-  refuses a payment asset equal to the bond.
+  JSON and applies every `BondTerms::validate` rule (§1.1), including the
+  regular-schedule rule, in Core's order with Core's messages.
+  `buildRegisterBondInstruction` calls it and also refuses a payment asset
+  equal to the bond.
 - `bondHolderPayment({ units, amountPerUnit, paymentScale })` is
-  `holder_payment` (§1.3): `floor(units × amountPerUnit)` at `paymentScale`,
-  the exact product when `paymentScale` is `null`.
+  `holder_payment` (§1.3).
 - `bondVaultAccountId(bondId, networkPrefix)` calls the native
   `bond_vault_account_id` derivation (§1.4) and renders the I105 literal for
   the given prefix; the derivation itself is network independent.
+- Constants: `BOND_MAX_CASHFLOWS`, `BOND_RECORDING_PAGE_ENTRIES`,
+  `BOND_MAX_PAYMENT_GRACE_MS`, `BOND_RECORD_PAGE_MAX_ITEMS`,
+  `BOND_ENTITLEMENT_PAGE_MAX_ITEMS`.
 
 `javascript/iroha_js/test/fixtures/bond-v1-codec.json` is generated from the
 data model by `bond_instruction_tests.rs` (rerun the ignored
 `regenerate_bond_js_fixture` test to accept a change; a checked test requires
 equality with a fresh generation). It pins every envelope with its archive and
 frame bytes, vault accounts, schedule outputs and refusals, a verdict for each
-validation rule, rounded holder payments and a serviced `BondRecord`. The JS
-tests replay all of them.
+validation rule, rounded holder payments, and a serviced `BondRecord` with its
+entitlements. The JS tests replay all of them.
 
 ### 10.3 Torii reads and review
 
-`ToriiClient` and `ToriiBrowserClient` expose `listBonds()`
-(`GET /v1/bonds`) and `getBond(bondId)` (`GET /v1/bonds/{bond_id}`, `null` on
-404). Responses are parsed with lossless integers, checked to be bond records
-(lifecycle and status enums, snapshot and claimed shapes, contiguous cash-flow
-indices; `getBond` also requires the requested id) and returned as native
-snake_case JSON (prototype-free objects, as the lossless parser builds them).
+`ToriiClient` and `ToriiBrowserClient` expose:
+
+- `listBonds({ limit?, cursor?, filter?, signal? })` (`GET /v1/bonds`):
+  `{ items, nextCursor, total? }`, at most 20 records per page, the response
+  capped at 16 MiB;
+- `getBond(bondId)` (`GET /v1/bonds/{bond_id}`, `null` on 404, capped at
+  2 MiB);
+- `getBondEntitlements(bondId, { index?, holder?, limit?, cursor?, signal? })`
+  (`GET /v1/bonds/{bond_id}/entitlements`, `null` on 404): one page of
+  entitlement rows, at most 1000 per page, capped at 4 MiB; `index` and
+  `holder` become an exact collection filter.
+
+Responses are parsed with lossless integers, checked (lifecycle and status
+enums, cash-flow totals, the recording cursor exactly while `Recording`,
+contiguous indices, entitlement identity `<index>:<holder>` and claim flags,
+the requested bond) and returned as native snake_case JSON (prototype-free
+objects, as the lossless parser builds them).
 
 `reviewTransactionPayload` renders a `kind: "bond"` row for every variant.
-The cash-flow kind, dates, amount per unit and holder units are not carried
-by `RecordCashflow`, `FundCashflow`, `ClaimCashflow`, `CloseCashflow` or
-`DeclareDefault`, so the review accepts
-`expected.bonds: [{ record, paymentAssetScale? }]` (records from
-`getBond`). With a record the rows add the cash-flow kind, record and payment
-dates, amount per unit, status, the funding amount due and the vault, the
-holder's snapshot units and payment (rounded when the scale is supplied), the
-issuer as residual recipient, the call price, and the freeze (recording) or
-burn (claiming) effect of the redemption. Without it the rows show only the
-instruction's own fields.
+The cash-flow kind, dates, amount per unit, entitled units and payment are not
+carried by `RecordCashflow`, `FundCashflow`, `ClaimCashflow`,
+`CloseCashflow` or `DeclareDefault`, so the review accepts
+`expected.bonds: [{ record, entitlements? }]` (a record from `getBond` and rows
+from `getBondEntitlements`). With them the rows add the cash-flow kind, record
+and payment dates, amount per unit, status, the funding amount due and the
+vault, the holder's entitled units and exact payment (and a warning for an
+already claimed entitlement), the unclaimed holders a close leaves claimable,
+the payment grace of a default, the call price, the replaced paying agent,
+the book closing and recording progress of a record step, and the freeze
+(recording) or burn (claiming) effect of the redemption. Without them the rows
+show only the instruction's own fields.
 
 ### 10.4 Choices relative to the design contract
 
@@ -408,8 +616,8 @@ instruction's own fields.
   the native snake_case fields.
 - `bondVaultAccountId` takes an explicit network prefix because an I105
   literal is network specific; the derivation is not.
-- The transaction review needs bond records to show cash-flow kinds, dates
-  and amounts (`expected.bonds`); the payload alone does not contain them.
+- `listBonds` and `getBondEntitlements` are page reads of the Torii
+  collection routes rather than whole-table reads.
 - `validateBondTerms` and `bondHolderPayment` are additional pure helpers so
   applications can refuse invalid terms and show exact payments before
-  submission; `ToriiBrowserClient` gains the same two reads as `ToriiClient`.
+  submission; `ToriiBrowserClient` gains the same reads as `ToriiClient`.

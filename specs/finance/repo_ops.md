@@ -116,10 +116,12 @@ asset definitions: `Unregister<AssetDefinition>` and domain unregistration are
 rejected while an agreement references them, so an issuer cannot destroy
 pledged collateral or repayment balances by retiring the definition.
 
-A repo whose cash or collateral leg is a registered bond blocks recording of
-that bond's cash flows while it is active, and a bond whose redemption is
-recorded can no longer be pledged or returned through a repo (see
-`specs/finance/bond_ops.md`).
+A registered bond pledged in a repo stays with its title holder (the
+counterparty or custodian), who is the holder of record for its coupons and
+redemption; manufactured payments between the parties are outside the bond
+kernel. Repo legs of a registered bond cannot move while its books are closed
+(from a record date until that cash flow is recorded) or after its redemption
+is recorded (see `specs/finance/bond_ops.md`).
 
 Revoking a proposal permission after a successful open does not strand the
 agreement: consent has already been materialized as immutable agreement state.
