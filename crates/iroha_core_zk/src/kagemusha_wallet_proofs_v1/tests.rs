@@ -793,6 +793,7 @@ fn cancelled_verification_never_reports_acceptance_or_invalidity() {
     let token = iroha_pasta::CancellationToken::new();
     token.cancel();
     let budget = MemoryBudget::DEFAULT;
+    let work = KagemushaWalletVerificationCountsV1::current_thread();
     assert_eq!(
         verifier.verify_package_proofs_cancellable(&payment.send, None, budget, Some(&token)),
         Err(Error::Cancelled)
@@ -824,6 +825,14 @@ fn cancelled_verification_never_reports_acceptance_or_invalidity() {
     assert_eq!(
         verifier.verify_package_proofs(&payment.send, None, budget),
         Err(Error::Authority)
+    );
+    // Only the direct lineage call started; refusals before it ran no proof work.
+    assert_eq!(
+        KagemushaWalletVerificationCountsV1::current_thread().since(work),
+        KagemushaWalletVerificationCountsV1 {
+            verify_lineage: 1,
+            proofs: iroha_plonk::VerificationCounts::default(),
+        }
     );
 }
 

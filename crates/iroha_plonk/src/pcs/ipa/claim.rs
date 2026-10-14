@@ -64,9 +64,11 @@ impl<C: PastaCurve> GeneratorClaim<C> {
         budget: MemoryBudget,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<(), IpaError> {
+        crate::verification_counters::record_decide();
         iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         params.require_k(self.k)?;
         let s = fold_scalars(&self.challenges, C::ScalarExt::ONE);
+        crate::verification_counters::record_generator_msm(s.len());
         let expected = super::commit::msm_complete_cancellable::<C>(
             &s,
             &params.params().g()[..s.len()],

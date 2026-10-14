@@ -61,6 +61,9 @@
 //!   shapes in both modes, pinned parameters, the descriptor-bound
 //!   `transcript_repr`, degenerate-challenge rejection and static opening
 //!   groups.
+//! - [`verification_counters`]: always-on, in-memory, observation-only
+//!   per-thread counts of full verifications, decides and their `<s(u), g>`
+//!   MSMs. No verifier reads them.
 //!
 //! The unit-only `captured_goldens` suite freshly proves native circuits and
 //! compares descriptors, keys and proof bytes with the corpus captured before
@@ -136,6 +139,7 @@ pub mod prover;
 mod test_circuits;
 pub mod transcript;
 pub mod verification_attempt;
+pub mod verification_counters;
 pub mod verifier;
 
 pub use check::{CheckFailure, CheckMode, CheckReport};
@@ -159,6 +163,7 @@ pub use prover::{
     create_proof_owned_with_workspace, prove_circuit,
 };
 pub use transcript::{Transcript, TranscriptError, TranscriptRead, TranscriptWrite};
+pub use verification_counters::VerificationCounts;
 pub use verifier::{
     BatchItem, VerifyError, accumulate_generator, accumulate_succinct, batch_verify, verify_full,
     verify_full_from_bytes, verify_full_from_bytes_v2,

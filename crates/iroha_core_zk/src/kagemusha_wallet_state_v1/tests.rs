@@ -703,6 +703,7 @@ pub(super) struct TestProofs {
 }
 
 mod folding_preemption_tests;
+mod verification_baseline_tests;
 
 #[path = "lifecycle/delivery_tests.rs"]
 mod bound_delivery;

@@ -162,6 +162,7 @@ impl<C: PastaCurve> PendingOpening<C> {
         params.require_k(self.k)?;
         let s = fold_scalars(&self.challenges, C::ScalarExt::ONE);
         let g = &params.params().g()[..s.len()];
+        crate::verification_counters::record_generator_msm(g.len());
         Ok(super::commit::msm_complete_cancellable::<C>(
             &s,
             g,
@@ -322,6 +323,7 @@ pub(crate) fn folded_generator_of<C: PastaCurve>(
     budget: MemoryBudget,
 ) -> C {
     let s = fold_scalars(challenges, C::ScalarExt::ONE);
+    crate::verification_counters::record_generator_msm(s.len());
     msm_complete::<C>(&s, &params.params().g()[..s.len()], budget)
 }
 

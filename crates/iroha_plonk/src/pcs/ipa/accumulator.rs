@@ -321,6 +321,7 @@ impl<C: PastaCurve> PendingAccumulator<C> {
         params: &PinnedParams<C>,
         budget: MemoryBudget,
     ) -> Result<(), AccumulatorError> {
+        crate::verification_counters::record_decide();
         params.require_k(self.k)?;
         let expected = verifier::folded_generator_of(params, &self.challenges, budget);
         if expected.to_affine() == self.g {
@@ -412,6 +413,7 @@ pub fn batch_decide<C: PastaCurve>(
     params: &PinnedParams<C>,
     budget: MemoryBudget,
 ) -> Result<(), AccumulatorError> {
+    crate::verification_counters::record_batch();
     let digests: Vec<[u8; 64]> = accumulators
         .iter()
         .map(|accumulator| batch_item_digest(BATCH_KIND_ACCUMULATOR, &accumulator.to_bytes()))
@@ -454,6 +456,7 @@ fn decide_weighted<C: PastaCurve>(
     }
     scalars.extend(combined.iter().map(|value| -*value));
     bases.extend_from_slice(&g[..combined.len()]);
+    crate::verification_counters::record_generator_msm(combined.len());
     if bool::from(msm_complete::<C>(&scalars, &bases, budget).is_identity()) {
         Ok(())
     } else {

@@ -853,6 +853,7 @@ where
     C::ScalarExt: PoseidonField,
     C::Base: PoseidonField,
 {
+    crate::verification_counters::record_verify_full();
     iroha_pasta::CancellationToken::checkpoint(cancellation)?;
     let read = read_proof(
         params,
@@ -1130,6 +1131,7 @@ where
     C::ScalarExt: PoseidonField,
     C::Base: PoseidonField,
 {
+    crate::verification_counters::record_batch();
     let item_error = |index: usize, error: VerifyError| VerifyError::BatchItem {
         index,
         error: Box::new(error),
@@ -1215,6 +1217,7 @@ where
         msm.push(*weight, *claim.g());
         add_folded(&mut combined, claim.challenges(), -*weight);
     }
+    crate::verification_counters::record_generator_msm(generators.len());
     for (scalar, base) in combined.iter().zip(generators) {
         msm.push(*scalar, *base);
     }

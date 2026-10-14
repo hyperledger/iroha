@@ -27,6 +27,8 @@ use iroha_plonk_recursion::{ACCUMULATOR_BYTES, AccumulatorT, K};
 mod cancellation;
 pub(crate) mod randomness;
 pub(crate) use cancellation::NativeProofError;
+pub mod verification_counts;
+pub use verification_counts::KagemushaWalletVerificationCountsV1;
 
 /// Native artifact/proof admission failure. No failure selects or modifies wallet state.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -658,6 +660,7 @@ impl ArtifactSet {
         budget: MemoryBudget,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<(), Error> {
+        verification_counts::record_lineage();
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         authority(self.allowlist.check_lineage(lineage))?;
         if lineage.public.scheme_id != self.scheme.scheme_id()

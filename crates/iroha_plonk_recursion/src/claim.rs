@@ -226,6 +226,7 @@ impl<C: PastaCurve> FoldInput<C> {
         budget: MemoryBudget,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<(), Error> {
+        iroha_plonk::verification_counters::record_decide();
         iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         let source = &self.challenges[K - self.source_k as usize..];
         if expected_generator(params, source, budget, cancellation)? == self.g {
@@ -306,6 +307,7 @@ fn expected_generator<C: PastaCurve>(
         .g()
         .get(..coefficients.len())
         .ok_or(Error::SourceK)?;
+    iroha_plonk::verification_counters::record_generator_msm(generators.len());
     Ok(msm_complete_cancellable::<C>(
         &coefficients,
         generators,
@@ -323,4 +325,52 @@ pub fn message(bytes: &[u8], offset: usize) -> Result<[u8; 32], Error> {
         .ok_or(Error::Encoding(
             iroha_plonk::transcript::TranscriptError::ProofTruncated,
         ))
+}
+
+#[cfg(test)]
+mod counter_tests {
+    use group::Curve;
+    use iroha_pasta::{Ep, Fq};
+    use iroha_plonk::{VerificationCounts, pcs::ipa::commit::msm_complete};
+
+    use super::*;
+
+    #[test]
+    fn decides_and_corrections_count_one_source_generator_msm_each() {
+        let params = PinnedParams::<Ep>::derive(4).expect("params");
+        let source = [Fq::from(3), Fq::from(5), Fq::from(7), Fq::from(11)];
+        let g = msm_complete::<Ep>(
+            &fold_scalars(&source, Fq::ONE),
+            &params.params().g()[..16],
+            MemoryBudget::DEFAULT,
+        )
+        .to_affine();
+        let honest = FoldInput::<Ep>::from_opening(g, &source).expect("claim");
+        let wrong = FoldInput::<Ep>::from_opening(params.params().g()[1], &source).expect("claim");
+        let start = VerificationCounts::current_thread();
+        assert_eq!(honest.decide(&params, MemoryBudget::DEFAULT), Ok(()));
+        assert_eq!(
+            VerificationCounts::current_thread().since(start),
+            VerificationCounts {
+                decides: 1,
+                generator_msms: 1,
+                generator_msm_bases: 16,
+                ..VerificationCounts::default()
+            }
+        );
+        assert_eq!(
+            wrong.decide(&params, MemoryBudget::DEFAULT),
+            Err(Error::Undecidable)
+        );
+        assert!(wrong.corrected(&params, MemoryBudget::DEFAULT).is_ok());
+        assert_eq!(
+            VerificationCounts::current_thread().since(start),
+            VerificationCounts {
+                decides: 2,
+                generator_msms: 3,
+                generator_msm_bases: 48,
+                ..VerificationCounts::default()
+            }
+        );
+    }
 }
