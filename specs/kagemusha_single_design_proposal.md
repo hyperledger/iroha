@@ -1813,14 +1813,11 @@ connect the canonical owner, remove obsolete exports/layouts/fixtures and run
 the affected checks in the same change. Keep no compatibility shim, second
 production engine or decoder fallback. Do not delete by filename prefix: the
 ordinary modules contain useful shared capabilities as well as retired protocol.
-This draft does not establish that live issued state is absent; the review
-found no evidence of a funded deployment outside testnets. Old-format value
-under a TestnetExperiment release is testnet value; a testnet reset is its
-cutover. Before an old release is removed from a network, establish whether
-funded old-format value exists there. If it does, that release's verifier
-stays until its holders have unloaded or paid it into the new scheme by their
-own choice; nobody is required to go online for the cutover. Keep no decoder
-fallback beyond that.
+This first release ships one current implementation and authenticated artifact
+format. Retired testnet releases do not justify retaining an old verifier,
+decoder, key fallback or monetary engine. Regenerate disposable testnet state
+from the current signed genesis and catalog when its protocol inputs change;
+historical test artifacts remain evidence only.
 
 ### 9.1 Cutover sequencing
 

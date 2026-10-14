@@ -173,6 +173,35 @@ CONFIDENTIAL_PROVER_JNI_EXPORTS = tuple(
     )
 )
 
+# Wallet consumers share PrivacyNativeBridge's fail-closed library admission.
+# A matching ABI number and wallet exports alone cannot admit a library missing
+# a privacy endpoint used by the Kotlin loader or its subsequent operations.
+PRIVACY_BRIDGE_JNI_EXPORTS = tuple(
+    "Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_" + method
+    for method in (
+        "nativeSubmitProofIntentProjectionV1",
+        "nativeBridgeAbiVersion",
+        "nativeConfidentialDerivationContractRevisionV3",
+        "nativeDefaultConfidentialDiversifierV3",
+        "nativeDeriveConfidentialDiversifierV3",
+        "nativeDeriveConfidentialOwnerTagV3",
+        "nativeDeriveConfidentialAssetTagV3",
+        "nativeDeriveConfidentialNetworkTagV3",
+        "nativeDeriveConfidentialNoteCommitmentV3",
+        "nativeDeriveConfidentialNullifierV3",
+        "nativeDeriveConfidentialMerklePathV3",
+        "nativeVerifyConfidentialMerklePathV3",
+        "nativeCompiledProfileCatalog",
+        "nativeValidateCompiledProfileCatalog",
+        "nativeValidateExact12CapabilityManifestForNetworkV1",
+        "nativeInspectExact12CapabilityManifest",
+        "nativeRequireExact12CapabilityTupleForNetworkV1",
+        "nativeValidateExact12SubmitProofConstructionForNetworkV1",
+        "nativeExact12FixtureBundle",
+        "nativeValidateExact12FixtureBundle",
+    )
+)
+
 REQUIRED_SYMBOLS: Mapping[str, tuple[str, ...]] = {
     "c-jni": (
         *CONFIDENTIAL_PROVER_C_EXPORTS,
@@ -180,6 +209,7 @@ REQUIRED_SYMBOLS: Mapping[str, tuple[str, ...]] = {
         *CONFIDENTIAL_PROVER_JNI_EXPORTS,
         *KAGEMUSHA_WALLET_JNI_EXPORTS,
         *KAGEMUSHA_LOAD_ORIGINAL_JNI_EXPORTS,
+        *PRIVACY_BRIDGE_JNI_EXPORTS,
         "connect_norito_bridge_abi_version",
         "connect_norito_domain_id_validate_v1",
         "connect_norito_free",

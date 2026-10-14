@@ -229,7 +229,8 @@ def test_current_fee_jni_requires_the_kotlin_sdk_owner() -> None:
 
 def test_current_host_jni_rejects_each_missing_shipping_endpoint() -> None:
     required = MODULE.REQUIRED_SYMBOLS["c-jni"]
-    for missing in (*MODULE.CONFIDENTIAL_PROVER_JNI_EXPORTS, *MODULE.KAGEMUSHA_WALLET_JNI_EXPORTS):
+    for missing in (*MODULE.CONFIDENTIAL_PROVER_JNI_EXPORTS, *MODULE.KAGEMUSHA_WALLET_JNI_EXPORTS,
+                    *MODULE.PRIVACY_BRIDGE_JNI_EXPORTS):
         assert required.count(missing) == 1
         library = types.SimpleNamespace(**{
             symbol: object() for symbol in required if symbol != missing
@@ -241,6 +242,28 @@ def test_current_host_jni_rejects_each_missing_shipping_endpoint() -> None:
                 assert str(error) == "native C ABI artifact is missing required symbols: " + missing
             else:
                 raise AssertionError("native probe accepted missing JNI endpoint: " + missing)
+
+
+def test_privacy_jni_inventory_matches_kotlin_loader_and_native_declarations() -> None:
+    """Prevent ABI-compatible libraries from disabling the shared wallet loader."""
+    prefix = "Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_"
+    kotlin = (REPO_ROOT / "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyNativeBridge.kt").read_text()
+    methods = re.findall(r"external\s+fun\s+(\w+)\s*\(", kotlin)
+    assert len(methods) == len(set(methods))
+    declared = {prefix + method for method in methods}
+    native = "\n".join(path.read_text() for path in
+                       (REPO_ROOT / "crates/connect_norito_bridge/src/platform_jni").rglob("*.rs"))
+    exported = set(re.findall(r'pub\s+(?:unsafe\s+)?extern\s+"system"\s+fn\s+('
+                             + prefix + r'\w+)\s*\(', native))
+    derivation = (REPO_ROOT / "crates/connect_norito_bridge/src/confidential_note_ffi.rs").read_text()
+    for invocation in re.findall(r'(?:revision|default|one_input|two_input|four_input|merkle_path)_export!\((.*?)\);',
+                                 derivation, re.DOTALL):
+        exported.update(re.findall(prefix + r'\w+', invocation))
+    assert declared == exported == set(MODULE.PRIVACY_BRIDGE_JNI_EXPORTS)
+    assert declared <= set(MODULE.REQUIRED_SYMBOLS["c-jni"])
+    mobile = (REPO_ROOT / "scripts/check_mobile_sdk_artifacts.sh").read_text()
+    inventory = mobile.split("REQUIRED_PRIVACY_JNI_SYMBOLS=(", 1)[1].split("\n)", 1)[0]
+    assert tuple(re.findall(prefix + r'\w+', inventory)) == MODULE.PRIVACY_BRIDGE_JNI_EXPORTS
 
 
 def test_native_c_probe_rejects_an_artifact_without_request_bound_settlement_verification() -> None:
@@ -744,6 +767,8 @@ def test_required_current_jni_exports_include_windows_hosts() -> None:
     for relative in ("kagemusha_wallet_ffi/installed.rs",):
         source = (bridge / relative).read_text()
         gates.append(re.search(r'#\[cfg\((.*?)\)\]\s*mod jni;', source, re.DOTALL))
+    derivation = (bridge / "confidential_note_ffi.rs").read_text()
+    gates.append(re.search(r'#\[cfg\((.*?)\)\]\s*mod jni_exports\s*\{', derivation, re.DOTALL))
     for declaration in gates:
         assert declaration is not None
         assert 'windows' in declaration.group(1)
@@ -754,9 +779,13 @@ def test_required_current_jni_exports_include_windows_hosts() -> None:
     sources += "\n" + (bridge / "kagemusha_wallet_load_original/jni.rs").read_text()
     for relative in ("kagemusha_wallet_ffi/installed/jni.rs",):
         sources += "\n" + (bridge / relative).read_text()
+    macro_symbols = set()
+    for invocation in re.findall(r'(?:revision|default|one_input|two_input|four_input|merkle_path)_export!\((.*?)\);',
+                                 derivation, re.DOTALL):
+        macro_symbols.update(re.findall(r'Java_\w+', invocation))
     for symbol in MODULE.REQUIRED_SYMBOLS["c-jni"]:
         if symbol.startswith("Java_"):
-            assert re.search(r'pub\s+(?:unsafe\s+)?extern\s+"system"\s+fn\s+' + re.escape(symbol) + r'\b', sources), symbol
+            assert symbol in macro_symbols or re.search(r'pub\s+(?:unsafe\s+)?extern\s+"system"\s+fn\s+' + re.escape(symbol) + r'\b', sources), symbol
 
 
 def test_required_prover_jni_module_is_portable_and_retired_startup_is_absent() -> None:

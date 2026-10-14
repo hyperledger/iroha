@@ -146,6 +146,9 @@ while IFS= read -r symbol; do
 done < <(bash -c 'source "$1"; printf "%s\n" "${REQUIRED_PROTOCOL_C_SYMBOLS[@]}"' gate "$symbol_gate_dir/gate.sh")
 [[ "${#required_fixture_symbols[@]}" -gt 0 ]] || fail "required protocol symbols could not be read"
 required_jni_fixture_symbols=("${wallet_jni_symbols[@]}" "${load_original_jni_symbols[@]}")
+while IFS= read -r symbol; do
+  required_jni_fixture_symbols+=("$symbol")
+done < <(bash -c 'source "$1"; printf "%s\n" "${REQUIRED_PRIVACY_JNI_SYMBOLS[@]}"' gate "$symbol_gate_dir/gate.sh")
 retired_offline_prefix="$(bash -c 'source "$1"; printf "%s" "$RETIRED_KAGEMUSHA_C_PREFIX"' gate "$symbol_gate_dir/gate.sh")"
 [[ "$retired_offline_prefix" == connect_norito_*_ ]] || fail "retired offline prefix could not be read"
 

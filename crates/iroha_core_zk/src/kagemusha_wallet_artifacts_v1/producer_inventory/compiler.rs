@@ -210,6 +210,9 @@ pub struct OfflineCompilerV1<'a> {
     candidates: BTreeMap<[u8; 32], OriginalV1>,
     pallas_parameters: BTreeMap<u32, PinnedParams<Ep>>,
     vesta_parameters: BTreeMap<u32, PinnedParams<Eq>>,
+    // Only the full-catalogue engineering test retains sparse authenticated rows.
+    #[cfg(test)]
+    mask_rows: Option<full_catalog::ImportedRows>,
 }
 
 // Transparent generators and their private computed-commitment cache belong to
@@ -284,7 +287,40 @@ impl<'a> OfflineCompilerV1<'a> {
             candidates: BTreeMap::new(),
             pallas_parameters: BTreeMap::new(),
             vesta_parameters: BTreeMap::new(),
+            #[cfg(test)]
+            mask_rows: None,
         })
+    }
+
+    fn import_original<C: PastaCurve, S: Circuit<C::ScalarExt>>(
+        &mut self,
+        record: OriginalV1,
+        original: &[u8],
+        binding: &DescriptorBinding,
+        params: &PinnedParams<C>,
+        circuit: &S,
+    ) -> Result<iroha_plonk::keys::SourceBoundVerifyingKeyV2<C>, CompilationErrorV1> {
+        #[cfg(test)]
+        if let Some(rows) = &mut self.mask_rows {
+            if !rows.contains(record) {
+                return source(
+                    rows.import(record, original, binding, params, circuit, self.config),
+                    CompilationPhaseV1::StrictOriginalImport,
+                );
+            }
+        }
+        // Repeated closure imports still check the exact circuit and every VK
+        // commitment. A captured row set never substitutes for native admission.
+        let _ = record;
+        Ok(
+            iroha_plonk::keys::SourceBoundVerifyingKeyV2::from_artifact_v2(
+                original,
+                binding,
+                params,
+                circuit,
+                self.config,
+            )?,
+        )
     }
 
     fn publish(&mut self, bytes: &[u8], cap: usize) -> Result<BlobV1, CompilationErrorV1> {
@@ -350,13 +386,7 @@ impl<'a> OfflineCompilerV1<'a> {
         )?);
         let original = read(self.sink, record.proving_key, self.config.maximum_bytes)?;
         let imported = source(
-            iroha_plonk::keys::SourceBoundVerifyingKeyV2::from_artifact_v2(
-                &original,
-                metadata.binding(),
-                params,
-                circuit,
-                self.config,
-            ),
+            self.import_original(record, &original, metadata.binding(), params, circuit),
             CompilationPhaseV1::StrictOriginalImport,
         )?;
         source(
@@ -388,12 +418,12 @@ impl<'a> OfflineCompilerV1<'a> {
         }
         let original = read(self.sink, record.proving_key, self.config.maximum_bytes)?;
         let imported = source(
-            iroha_plonk::keys::SourceBoundVerifyingKeyV2::from_artifact_v2(
+            self.import_original(
+                record,
                 &original,
                 expected.metadata.binding(),
                 params,
                 circuit,
-                self.config,
             ),
             CompilationPhaseV1::StrictOriginalImport,
         )?;

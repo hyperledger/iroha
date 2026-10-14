@@ -1,6 +1,6 @@
 //! Produce the complete current wallet artifact graph using genuine native sources.
 //!
-//! This offline tool constructs and signs packaging originals. It performs no ledger
+//! This offline tool constructs and signs packaging, session and time originals. It performs no ledger
 //! registration, release admission, installation, wallet opening or financial operation.
 //! The deployment owner independently authenticates the selected genesis, source build,
 //! public role keys and final output before admitting any of these packaging bytes.
@@ -45,6 +45,13 @@ mod inspect;
 
 #[path = "kagemusha_wallet_artifacts/builtin.rs"]
 mod builtin;
+
+#[path = "kagemusha_wallet_artifacts/application.rs"]
+mod application;
+#[path = "kagemusha_wallet_artifacts/session.rs"]
+mod session;
+#[path = "kagemusha_wallet_artifacts/time_anchor.rs"]
+mod time_anchor;
 
 #[derive(JsonDeserialize)]
 #[norito(deny_unknown_fields)]
@@ -652,11 +659,18 @@ fn main() {
     let result = match args.as_slice() {
         [help] if help == "--help" => {
             println!(
-                "kagemusha_wallet_artifacts --request ABSOLUTE_IMMUTABLE_PUBLIC_JSON [--reuse-candidates ABSOLUTE_IMMUTABLE_PUBLIC_JSON]\nConstructs native wallet originals and signs protocol certificates/manifest using the selected private recovery role keys. Explicit candidate JSON selects originals_directory and bounded descriptor/verifying_key/proving_key triples, each with bytes and sha256. These are untrusted cache hints, not signed installation inputs. Selected originals are indexed, then imported only for matching current sources with complete source and commitment checks; changed fingerprints compile fresh. Finality uses direct BLS verification and needs no proof artifacts. No network actions.\nRead-only source compatibility: --inspect-sources ABSOLUTE_RAW_CARRIER SCHEME_HEX MANIFEST_HEX or --inspect-encoded-sources ABSOLUTE_ENCODED_CARRIER SCHEME_HEX MANIFEST_HEX. Checks every real source using the selected representation and prints phase timings; does not admit genesis/finality or a wallet. Encoded inspection verifies the signed raw closure and both encoded/raw identities without a decoded disk cache.\nCompiled source profiles: --export-builtin-profile ABSOLUTE_IMMUTABLE_PUBLIC_JSON independently authenticates genesis and strictly qualifies every source before exporting one native registry entry; --inspect-builtin-profile uses the same closed request to check the exact compiled graph. Neither command signs artifacts or registers runtime authority.\nLossless mobile carrier: --encode-carrier ABSOLUTE_RAW_CARRIER SCHEME_HEX MANIFEST_HEX ABSOLUTE_EXISTING_PRIVATE_OUTPUT. Checks the signed selection and all raw/stored identities; recomputes transport and financial metadata for independent runtime selection."
+                "Direct time response: --issue-time-anchor ABSOLUTE_IMMUTABLE_PRIVATE_JSON. Signs the selected live wallet nonce with the delegated TimeAnchor key and current issuer UTC; Native still enforces same-boot response age and the subsequent Refresh."
+            );
+            println!(
+                "kagemusha_wallet_artifacts --request ABSOLUTE_IMMUTABLE_PUBLIC_JSON [--reuse-candidates ABSOLUTE_IMMUTABLE_PUBLIC_JSON]\nOffline application/session preparation: --prepare-application ABSOLUTE_IMMUTABLE_PUBLIC_JSON, --finish-application ABSOLUTE_IMMUTABLE_PUBLIC_JSON, --issue-session ABSOLUTE_IMMUTABLE_PRIVATE_JSON. Preparation authenticates the pinned genesis/signed pack and emits unsigned runtime/release DATA and exact domain-separated signing bytes. Assembly verifies an independently produced Ed25519 signature. Issuance uses separate private session issuer/device keys; current short-lived JWT/DPoP originals remain owner-only. None of these commands admit hardware, register a token, or perform monetary operations.\nConstructs native wallet originals and signs protocol certificates/manifest using the selected private recovery role keys. Explicit candidate JSON selects originals_directory and bounded descriptor/verifying_key/proving_key triples, each with bytes and sha256. These are untrusted cache hints, not signed installation inputs. Selected originals are indexed, then imported only for matching current sources with complete source and commitment checks; changed fingerprints compile fresh. Finality uses direct BLS verification and needs no proof artifacts. No network actions.\nRead-only source compatibility: --inspect-sources ABSOLUTE_RAW_CARRIER SCHEME_HEX MANIFEST_HEX or --inspect-encoded-sources ABSOLUTE_ENCODED_CARRIER SCHEME_HEX MANIFEST_HEX. Checks every real source using the selected representation and prints phase timings; does not admit genesis/finality or a wallet. Encoded inspection verifies the signed raw closure and both encoded/raw identities without a decoded disk cache.\nCompiled source profiles: --export-builtin-profile ABSOLUTE_IMMUTABLE_PUBLIC_JSON independently authenticates genesis and strictly qualifies every source before exporting one native registry entry; --inspect-builtin-profile uses the same closed request to check the exact compiled graph. Neither command signs artifacts or registers runtime authority.\nLossless mobile carrier: --encode-carrier ABSOLUTE_RAW_CARRIER SCHEME_HEX MANIFEST_HEX ABSOLUTE_EXISTING_PRIVATE_OUTPUT. Checks the signed selection and all raw/stored identities; recomputes transport and financial metadata for independent runtime selection."
             );
             Ok(())
         }
         [flag, path] if flag == "--request" => run(path, None),
+        [flag, path] if flag == "--prepare-application" => application::prepare(path),
+        [flag, path] if flag == "--finish-application" => application::finish(path),
+        [flag, path] if flag == "--issue-session" => session::run(path),
+        [flag, path] if flag == "--issue-time-anchor" => time_anchor::run(path),
         [flag, path] if flag == "--export-builtin-profile" => builtin::run(path, true),
         [flag, path] if flag == "--inspect-builtin-profile" => builtin::run(path, false),
         [flag, path, reuse_flag, reuse_path]

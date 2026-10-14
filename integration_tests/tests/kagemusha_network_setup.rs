@@ -190,6 +190,7 @@ fn export(network: &Network, root: &Path) -> Result<()> {
     let capture = norito::json!({
         "version": 1, "scope": "Source-only actual four-validator canonical genesis; no Load receipt or catalog grant.",
         "chain_id": (chain.clone()), "signed_genesis_wire_hex": (hex::encode(&provisioned.signed_wire)),
+        "genesis_public_key": (provisioned.public_key.to_string()),
         "history_anchor": {
             "network_hex": (hex::encode(initial.network_id.as_bytes())),
             "instance_hex": (hex::encode(verifier.instance().0)),
@@ -349,6 +350,7 @@ fn export(network: &Network, root: &Path) -> Result<()> {
     }
     let setup = norito::json!({
         "schema": "iroha.kagemusha.executed-ledger-setup.v1", "chain_id": chain,
+        "genesis_public_key": (provisioned.public_key.to_string()),
         "network_hex": (hex::encode(network.network_id().as_bytes())),
         "instance_hex": (hex::encode(verifier.instance().0)),
         "registration_height": 1, "certified_height": 2,

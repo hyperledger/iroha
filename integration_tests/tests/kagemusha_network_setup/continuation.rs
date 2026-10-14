@@ -273,11 +273,11 @@ fn prefix(network: &Network, through: u64) -> Result<Vec<SumeragiFinalityProof>>
     Ok(reference)
 }
 
-fn inclusion(
+fn committed_transaction(
     block: &VerifiedSumeragiBlock,
     network: &Network,
     signed: &SignedTransaction,
-) -> Result<()> {
+) -> Result<CommittedTransaction> {
     let body = block.block();
     let index = body
         .network_entrypoints()
@@ -317,6 +317,15 @@ fn inclusion(
         output,
     };
     block.verify_committed_transaction(&network.network_id(), &committed)?;
+    Ok(committed)
+}
+
+fn inclusion(
+    block: &VerifiedSumeragiBlock,
+    network: &Network,
+    signed: &SignedTransaction,
+) -> Result<()> {
+    committed_transaction(block, network, signed)?;
     Ok(())
 }
 
@@ -353,6 +362,12 @@ fn submit(
     let transaction = signed(network, seed, instructions)?;
     publish(root, name, &norito::encode_canonical(&transaction)?)?;
     File::open(root)?.sync_all()?; // Retain exact signed retry authority before dispatch.
+    let height = submit_retained(network, seed, &transaction)?;
+    Ok((transaction, height))
+}
+
+// This path never quotes, rebuilds or signs. The caller has retained its exact original.
+fn submit_retained(network: &Network, seed: u8, transaction: &SignedTransaction) -> Result<u64> {
     let client = running_peer(network)?.client_for(&account(seed), key(seed).private_key().clone());
     let hash = client.submit_transaction_and_wait(&transaction)?;
     ensure!(
@@ -375,10 +390,7 @@ fn submit(
             found = Some(block.height());
         }
     }
-    Ok((
-        transaction,
-        found.ok_or_else(|| eyre!("successful transaction not in certified history"))?,
-    ))
+    found.ok_or_else(|| eyre!("successful transaction not in certified history"))
 }
 
 fn balances(network: &Network, expected: [u128; 4]) -> Result<Vec<norito::json::Value>> {
@@ -444,6 +456,27 @@ fn abort_requested(root: &Path, setup_sha: &str) -> Result<bool> {
     }
 }
 
+fn require_live_campaign(
+    network: &Network,
+    root: &Path,
+    setup_sha: &str,
+    deadline: Instant,
+) -> Result<()> {
+    ensure!(
+        !abort_requested(root, setup_sha)?,
+        "controller aborted campaign; preserve partial outputs and shut down owned peers"
+    );
+    ensure!(
+        Instant::now() < deadline,
+        "campaign deadline reached; retain exact partial state, no automatic restart"
+    );
+    ensure!(
+        network.peers().iter().all(NetworkPeer::is_running),
+        "live network owner lost a peer"
+    );
+    Ok(())
+}
+
 fn wait_command(
     network: &Network,
     root: &Path,
@@ -454,18 +487,7 @@ fn wait_command(
 ) -> Result<norito::json::Value> {
     let path = root.join(format!("{phase}-command.json"));
     loop {
-        ensure!(
-            !abort_requested(root, setup_sha)?,
-            "controller aborted campaign; preserve partial outputs and shut down owned peers"
-        );
-        ensure!(
-            Instant::now() < deadline,
-            "campaign deadline reached; retain exact partial state, no automatic restart"
-        );
-        ensure!(
-            network.peers().iter().all(NetworkPeer::is_running),
-            "live network owner lost a peer"
-        );
+        require_live_campaign(network, root, setup_sha, deadline)?;
         match fs::symlink_metadata(&path) {
             Ok(metadata) => {
                 ensure!(metadata.file_type().is_file(), "command must be regular");
@@ -485,6 +507,14 @@ fn wait_command(
                         && value["previous_sha256"].as_str() == Some(previous_sha),
                     "foreign command chain"
                 );
+                match phase {
+                    "issuer" => issuer::require_command(&value)?,
+                    "funding" | "activation-retained" => {
+                        activation::require_command(&value, phase)?
+                    }
+                    "settlement" => settlement::require_command(&value)?,
+                    _ => (),
+                }
                 publish(root, &format!("{phase}-accepted.json"), &bytes)?;
                 return Ok(value);
             }
@@ -496,8 +526,14 @@ fn wait_command(
     }
 }
 
+#[path = "continuation/activation.rs"]
+mod activation;
 #[path = "continuation/funding.rs"]
 mod funding;
+#[path = "continuation/issuer.rs"]
+mod issuer;
+#[path = "continuation/registration.rs"]
+mod registration;
 #[path = "continuation/settlement.rs"]
 mod settlement;
 
@@ -529,12 +565,30 @@ fn execute_four_validator_monetary_continuation() -> Result<()> {
         let command = wait_command(
             &network,
             &root,
-            "funding",
+            "registration",
             &setup_sha,
             &hash(&ready),
             deadline,
         )?;
-        let funded = funding::run(&network, &root, &command, &setup_sha)?;
+        let registered = registration::run(&network, &root, &command, &setup_sha)?;
+        let command = wait_command(
+            &network,
+            &root,
+            "issuer",
+            &setup_sha,
+            &hash(&registered.summary),
+            deadline,
+        )?;
+        let issuer = issuer::run(&network, &rt, &root, &command, &setup_sha, &registered)?;
+        let command = wait_command(
+            &network,
+            &root,
+            "funding",
+            &setup_sha,
+            &hash(&issuer.summary),
+            deadline,
+        )?;
+        let funded = funding::run(&network, &root, &command, &setup_sha, &registered, deadline)?;
         let command = wait_command(
             &network,
             &root,
@@ -567,7 +621,7 @@ fn execute_four_validator_monetary_continuation() -> Result<()> {
         let before = network.native_genesis_provisioning_bundle()?.signed_wire;
         let height = committed_height(&network)?;
         rt.block_on(async { network.shutdown().await });
-        rt.block_on(network.start_all())?;
+        issuer.restart_all(&network, &rt, &registered)?;
         wait_for_committed(&network, height, network.sync_timeout(), &[])?;
         ensure!(
             network.native_genesis_provisioning_bundle()?.signed_wire == before,
@@ -624,7 +678,7 @@ fn execute_four_validator_monetary_continuation() -> Result<()> {
             &root,
             "completed.json",
             &norito::json::to_vec(
-                &norito::json!({"schema":"iroha.kagemusha.real-network-monetary-result.v1", "setup_sha256":setup_sha, "funding_sha256":(hash(&funded)), "settlement_sha256":(hash(&settled)), "confirmation_sha256":(hash(&confirmation)), "restarted_height":height, "post_restart_exact_transaction_retry_returned_original":true, "post_restart_instruction_retry_height":retry_height, "post_restart_instruction_retry_hash_hex":(hex::encode(retry.hash().as_ref())), "post_restart_instruction_retry_original_sha256":(hash(&norito::encode_canonical(&retry)?)), "balances_after_restart":snapshots, "adversarial_qualified":(settlement["adversarial_qualified"].clone()), "scope":"Real four-validator execution, same-node-store restart and post-restart exact transport/fresh-instruction replay without another payout; genuine-proof/native-consumer evidence selected separately, software platform fixture, no physical device or live bank qualification."}),
+                &norito::json!({"schema":"iroha.kagemusha.real-network-monetary-result.v1", "setup_sha256":setup_sha, "funding_sha256":(hash(&funded)), "issuer_ready_sha256":(hash(&issuer.summary)), "settlement_sha256":(hash(&settled)), "confirmation_sha256":(hash(&confirmation)), "restarted_height":height, "post_restart_exact_transaction_retry_returned_original":true, "post_restart_instruction_retry_height":retry_height, "post_restart_instruction_retry_hash_hex":(hex::encode(retry.hash().as_ref())), "post_restart_instruction_retry_original_sha256":(hash(&norito::encode_canonical(&retry)?)), "balances_after_restart":snapshots, "adversarial_qualified":(settlement["adversarial_qualified"].clone()), "scope":"Real four-validator execution, same-node-store restart and post-restart exact transport/fresh-instruction replay without another payout; genuine-proof/native-consumer and physical-device evidence selected separately. Optional software adversarial coverage is reported explicitly; this network result alone does not qualify physical devices or a live bank."}),
             )?,
         )?;
         Ok(())

@@ -30,11 +30,11 @@ class RuntimeTrustTests(unittest.TestCase):
                     with self.assertRaises(RuntimeError):runner.validate_profile_environment(profile,env)
     def test_only_exact_explicit_authorities_are_accepted(self):
         for profile in runner.AUTHENTICATED_CARGO_PROFILES:
-            for authority in ["bpng-taira-v7", "cbsi-release-v1"]:
+            for authority in ["bpng-taira-v7", "cbsi-release-v1", "application-release-v1"]:
                 env=self.environment(profile);env[runner.WALLET_RUNTIME_AUTHORITY_INPUT]=authority
                 runner.validate_profile_environment(profile,env)
                 self.assertEqual(runner.wallet_runtime_authority(authority),authority)
-            for authority in ["", "bpng", "cbsi", "bpng-taira-v6", "BPNG-TAIRA-V7", "bpng-taira-v7\n", " cbsi-release-v1"]:
+            for authority in ["", "bpng", "cbsi", "bpng-taira-v6", "BPNG-TAIRA-V7", "bpng-taira-v7\n", "application", "ApplicationReleaseV1", "APPLICATION-RELEASE-V1", "application-release-v1\n", " application-release-v1", " cbsi-release-v1"]:
                 env=self.environment(profile);env[runner.WALLET_RUNTIME_AUTHORITY_INPUT]=authority
                 with self.assertRaises(RuntimeError):runner.validate_profile_environment(profile,env)
     def test_apple_builder_rejects_retired_authority_before_building(self):
@@ -50,7 +50,18 @@ class RuntimeTrustTests(unittest.TestCase):
             check=False,
         )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("must be bpng-taira-v7 or cbsi-release-v1", result.stderr)
+        self.assertIn("must be bpng-taira-v7, cbsi-release-v1, or application-release-v1", result.stderr)
+    def test_apple_builder_accepts_application_authority_before_rejecting_bad_public_root(self):
+        builder = Path(__file__).parents[1] / "build_norito_xcframework.sh"
+        result = subprocess.run(
+            ["/bin/bash", str(builder)],
+            env={runner.WALLET_RUNTIME_AUTHORITY_INPUT: "application-release-v1",
+                 runner.WALLET_RUNTIME_TRUST_INPUT: "0" * 64},
+            capture_output=True, text=True, check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must be one nonzero lowercase 32-byte public key", result.stderr)
+
     def test_partial_pair_and_absent_pair_refuse_authenticated_corridors(self):
         for profile in runner.AUTHENTICATED_CARGO_PROFILES:
             for absent in [(runner.WALLET_RUNTIME_AUTHORITY_INPUT,), (runner.WALLET_RUNTIME_TRUST_INPUT,), (runner.WALLET_RUNTIME_AUTHORITY_INPUT,runner.WALLET_RUNTIME_TRUST_INPUT)]:

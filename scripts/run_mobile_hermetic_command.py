@@ -51,13 +51,13 @@ ANDROID_CARGO_ENVIRONMENT = SERIALIZED_CARGO_ENVIRONMENT | {
 }
 WALLET_RUNTIME_TRUST_INPUT = "MOBILE_SDK_WALLET_RUNTIME_TRUST_ED25519_HEX"
 WALLET_RUNTIME_AUTHORITY_INPUT = "MOBILE_SDK_WALLET_RUNTIME_AUTHORITY"
-WALLET_RUNTIME_AUTHORITIES = frozenset({"bpng-taira-v7", "cbsi-release-v1"})
+WALLET_RUNTIME_AUTHORITIES = frozenset({"bpng-taira-v7", "cbsi-release-v1", "application-release-v1"})
 
 
 def wallet_runtime_authority(value: str) -> str:
     """Validate the immutable application parser selected by the genuine build owner."""
     if value not in WALLET_RUNTIME_AUTHORITIES:
-        raise RuntimeError("native wallet runtime authority must be bpng-taira-v7 or cbsi-release-v1")
+        raise RuntimeError("native wallet runtime authority must be bpng-taira-v7, cbsi-release-v1, or application-release-v1")
     return value
 
 

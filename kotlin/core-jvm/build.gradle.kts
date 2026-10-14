@@ -65,6 +65,10 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 tasks.test {
+    // Explorer display decoding is pinned to independent current Rust instruction frames.
+    inputs.file(rootProject.layout.projectDirectory.dir("..").file(
+        "crates/iroha_data_model/tests/fixtures/instruction_box_generated_identity_frames.json",
+    ))
     // Complete Kotlin-produced IssueLoad frames are independently compared by the Rust
     // canonical registry test. Track both the external frozen identity and emitted output.
     inputs.file(rootProject.layout.projectDirectory.dir("..").file(

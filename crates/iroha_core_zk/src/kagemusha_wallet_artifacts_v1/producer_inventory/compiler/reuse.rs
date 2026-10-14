@@ -115,13 +115,8 @@ impl OfflineCompilerV1<'_> {
         let expected =
             VerifyingKey::<C>::read(&vk, fingerprint.binding()).map_err(|_| Error::Inventory)?;
         let bytes = read(self.sink, original.proving_key, self.config.maximum_bytes)?;
-        let imported = iroha_plonk::keys::SourceBoundVerifyingKeyV2::from_artifact_v2(
-            &bytes,
-            fingerprint.binding(),
-            params,
-            circuit,
-            self.config,
-        )?;
+        let imported =
+            self.import_original(original, &bytes, fingerprint.binding(), params, circuit)?;
         if imported.verifying_key().to_bytes() != expected.to_bytes() {
             return Err(CompilationErrorV1::Closure);
         }

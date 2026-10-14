@@ -57,6 +57,23 @@ class KagemushaWalletAndroidBackupRulesV1Test {
         assertEquals("26", sdk.getAttributeNS(ANDROID, "minSdkVersion"))
     }
 
+    @Test fun `the instrumentation manifest independently disables custody backups`() {
+        assertBackupAttributes(document(File("src/androidTest/AndroidManifest.xml")))
+    }
+
+    @Test fun `the actual instrumentation APK keeps custody policy and its own selected namespace`() {
+        val path = assertNotNull(System.getProperty("iroha.kagemushaWalletAndroid.testManifest"), "test manifest path")
+        val applicationId = assertNotNull(System.getProperty("iroha.kagemushaWalletAndroid.testApplicationId"), "test application ID")
+        val manifest = document(File(path))
+        assertBackupAttributes(manifest)
+        assertEquals(applicationId, manifest.getAttribute("package"))
+        val instrumentation = children(manifest).single { it.tagName == "instrumentation" }
+        assertEquals(applicationId, instrumentation.getAttributeNS(ANDROID, "targetPackage"))
+        assertEquals("androidx.test.runner.AndroidJUnitRunner", instrumentation.getAttributeNS(ANDROID, "name"))
+        val sdk = children(manifest).single { it.tagName == "uses-sdk" }
+        assertEquals("26", sdk.getAttributeNS(ANDROID, "minSdkVersion"))
+    }
+
     @Test fun `the shipped rules exclude every domain and pass the runtime validator`() {
         val dataExtraction = TestRulesV1.dataExtraction()
         assertEquals(listOf("cloud-backup", "device-transfer"), dataExtraction.children.map { it.name })

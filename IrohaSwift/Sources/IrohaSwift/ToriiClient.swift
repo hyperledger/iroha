@@ -3798,16 +3798,32 @@ public struct ToriiExplorerAccountQr: Decodable, Sendable {
 
 /// Instruction payload wrapper returned by `/v1/explorer/instructions`.
 public struct ToriiExplorerInstructionBox: Decodable, Sendable, Equatable {
-    public let encoded: String?
-    public let framedSha256: String?
-    public let scale: String?
-    public let json: ToriiJSONValue
+    public let wireId: String
+    public let framedSha256: String
+    /// Standard Base64 of the complete canonical InstructionBox frame.
+    public let instruction: String
+    let framedPayload: Data
 
     private enum CodingKeys: String, CodingKey {
-        case encoded
+        case wireId = "wire_id"
         case framedSha256 = "framed_sha256"
-        case scale
-        case json
+        case instruction
+    }
+
+    public init(from decoder: Decoder) throws {
+        try requireExactJSONFields(from: decoder,
+            required: ["wire_id", "framed_sha256", "instruction"], debugName: "explorer instruction box")
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        wireId = try container.decode(String.self, forKey: .wireId)
+        framedSha256 = try container.decode(String.self, forKey: .framedSha256)
+        instruction = try container.decode(String.self, forKey: .instruction)
+        guard let frame = Data(base64Encoded: instruction), frame.base64EncodedString() == instruction,
+              framedSha256.utf8.count == 64,
+              framedSha256.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
+              Data(SHA256.hash(data: frame)).hexEncodedString() == framedSha256 else {
+            throw ToriiClientError.invalidPayload("explorer instruction frame or SHA-256 is invalid")
+        }
+        framedPayload = try ToriiExplorerInstructionCodec.instructionPayload(frame, wireID: wireId)
     }
 }
 
@@ -3821,6 +3837,8 @@ public struct ToriiExplorerInstructionItem: Decodable, Sendable, Equatable {
     public let transactionStatus: String
     public let block: UInt64
     public let index: UInt32
+
+    private let decodedTransferDetails: ToriiExplorerTransferDetails?
 
     private enum CodingKeys: String, CodingKey {
         case authority
@@ -3852,6 +3870,9 @@ public struct ToriiExplorerInstructionItem: Decodable, Sendable, Equatable {
         transactionStatus = try container.decode(String.self, forKey: .transactionStatus)
         block = try container.decode(UInt64.self, forKey: .block)
         index = try container.decode(UInt32.self, forKey: .index)
+        decodedTransferDetails = try ToriiExplorerInstructionCodec.transferDetails(
+            box: box, authority: authority, kind: kind
+        )
     }
 }
 
@@ -4319,17 +4340,7 @@ public extension ToriiExplorerInstructionItem {
     /// Extract transfer details from the instruction payload when possible.
     /// Supports Transfer, Mint, and Burn instruction kinds.
     func transferDetails() -> ToriiExplorerTransferDetails? {
-        let normalizedKind = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        switch normalizedKind {
-        case "transfer":
-            return ToriiExplorerTransferDetails.parse(from: box.json)
-        case "mint", "burn":
-            return ToriiExplorerTransferDetails.parseMintBurn(from: box.json,
-                                                              kind: normalizedKind,
-                                                              authority: authority)
-        default:
-            return nil
-        }
+        decodedTransferDetails
     }
 }
 
@@ -4520,187 +4531,6 @@ public extension ToriiPage where Item == ToriiExplorerInstructionItem {
             records.append(ToriiExplorerTransferRecord(instruction: item, details: details))
         }
         return records
-    }
-}
-
-extension ToriiExplorerTransferDetails {
-    fileprivate static func parse(from json: ToriiJSONValue) -> ToriiExplorerTransferDetails? {
-        guard let payload = payloadObject(from: json) else {
-            return nil
-        }
-        guard let variantRaw = stringValue(payload["variant"]) else {
-            return nil
-        }
-        let variant = variantRaw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard let value = payload["value"] else {
-            return nil
-        }
-        switch variant {
-        case "asset":
-            return parseAssetTransfer(value)
-        case "assetbatch":
-            return parseAssetBatchTransfer(value)
-        default:
-            return nil
-        }
-    }
-
-    /// Parse Mint/Burn payloads. These have `destination` (an asset id) and `object` (amount).
-    fileprivate static func parseMintBurn(from json: ToriiJSONValue,
-                                          kind: String,
-                                          authority: String) -> ToriiExplorerTransferDetails? {
-        guard let payload = payloadObject(from: json) else {
-            return nil
-        }
-        guard let variantRaw = stringValue(payload["variant"]) else {
-            return nil
-        }
-        let variant = variantRaw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard variant == "asset" else {
-            return nil
-        }
-        guard let value = payload["value"], case let .object(map) = value else {
-            return nil
-        }
-        guard let destination = stringValue(map["destination"]),
-              let amount = quantityValue(map["object"]) else {
-            return nil
-        }
-        let parsedAsset = parseAssetId(destination)
-        let actor = parsedAsset.account ?? authority
-        let normalizedKind = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let sender = normalizedKind == "burn" ? actor : authority
-        let receiver = normalizedKind == "mint" ? actor : authority
-        let details = ToriiExplorerTransferAsset(destinationAccountId: receiver,
-                                                 amount: amount,
-                                                 senderAccountId: sender,
-                                                 assetDefinitionId: parsedAsset.definition)
-        return .asset(details)
-    }
-
-    fileprivate static func payloadObject(from json: ToriiJSONValue) -> [String: ToriiJSONValue]? {
-        guard case let .object(root) = json else {
-            return nil
-        }
-        if let payload = root["payload"], case let .object(map) = payload {
-            return map
-        }
-        if root["variant"] != nil, root["value"] != nil {
-            return root
-        }
-        return nil
-    }
-
-    fileprivate static func parseAssetTransfer(_ value: ToriiJSONValue) -> ToriiExplorerTransferDetails? {
-        guard case let .object(map) = value else {
-            return nil
-        }
-        guard let source = stringValue(map["source"]),
-              let destination = stringValue(map["destination"]),
-              let amount = quantityValue(map["object"]) else {
-            return nil
-        }
-        let sourceFields = decodeToriiAssetIdFields(source)
-        let destinationFields = decodeToriiAssetIdFields(destination)
-        let sender = sourceFields.accountId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let details = ToriiExplorerTransferAsset(destinationAccountId: destinationFields.accountId ?? destination,
-                                                 amount: amount,
-                                                 senderAccountId: sender?.isEmpty == false ? sender : nil,
-                                                 assetDefinitionId: sourceFields.assetDefinitionId ?? destinationFields.assetDefinitionId)
-        return .asset(details)
-    }
-
-    fileprivate static func parseAssetBatchTransfer(_ value: ToriiJSONValue) -> ToriiExplorerTransferDetails? {
-        guard case let .object(map) = value else {
-            return nil
-        }
-        guard case let .array(entriesValue) = map["entries"] else {
-            return nil
-        }
-        var entries: [ToriiExplorerTransferBatchEntry] = []
-        entries.reserveCapacity(entriesValue.count)
-        for entry in entriesValue {
-            guard case let .object(entryMap) = entry else {
-                return nil
-            }
-            guard let sender = stringValue(entryMap["from"]),
-                  let receiver = stringValue(entryMap["to"]),
-                  let rawAssetDefinition = stringValue(entryMap["asset_definition"]),
-                  let amount = quantityValue(entryMap["amount"]) else {
-                return nil
-            }
-            let assetDefinition = canonicalPublicAssetDefinitionLiteral(rawAssetDefinition) ?? rawAssetDefinition
-            entries.append(ToriiExplorerTransferBatchEntry(senderAccountId: sender,
-                                                           receiverAccountId: receiver,
-                                                           assetDefinitionId: assetDefinition,
-                                                           amount: amount))
-        }
-        guard !entries.isEmpty else {
-            return nil
-        }
-        return .assetBatch(entries)
-    }
-
-    fileprivate static func stringValue(_ value: ToriiJSONValue?) -> String? {
-        guard let value else { return nil }
-        switch value {
-        case .string(let string):
-            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        case .number(let number):
-            guard number.isFinite else { return nil }
-            return String(number)
-        case .integer(let integer):
-            return integer
-        default:
-            return nil
-        }
-    }
-
-    fileprivate static func quantityValue(_ value: ToriiJSONValue?) -> String? {
-        guard case let .string(string)? = value else {
-            return nil
-        }
-        return try? KotodamaNumericV1Codec.decodeQuantityJSON(string).canonicalString
-    }
-
-    fileprivate static func parseAssetId(_ value: String) -> (definition: String?, account: String?) {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return (nil, nil)
-        }
-        if let parsed = CanonicalNorito.parsePublicAssetIdLiteral(trimmed) {
-            return (parsed.assetDefinitionId, parsed.accountId)
-        }
-        if let canonical = canonicalPublicAssetDefinitionLiteral(trimmed) {
-            return (canonical, nil)
-        }
-        if let canonicalAccount = try? normalizeToriiAccountIdQueryValue(trimmed, field: "asset_id.account_id") {
-            return (nil, canonicalAccount)
-        }
-        return (nil, nil)
-    }
-
-    fileprivate struct DecodedToriiAssetIdFields {
-        let assetDefinitionId: String?
-        let accountId: String?
-    }
-
-    fileprivate static func decodeToriiAssetIdFields(_ literal: String) -> DecodedToriiAssetIdFields {
-        let trimmed = literal.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let parsed = CanonicalNorito.parsePublicAssetIdLiteral(trimmed) {
-            return DecodedToriiAssetIdFields(
-                assetDefinitionId: parsed.assetDefinitionId,
-                accountId: parsed.accountId
-            )
-        }
-        if let canonical = canonicalPublicAssetDefinitionLiteral(trimmed) {
-            return DecodedToriiAssetIdFields(assetDefinitionId: canonical, accountId: nil)
-        }
-        if let canonicalAccount = try? normalizeToriiAccountIdQueryValue(trimmed, field: "asset_id.account_id") {
-            return DecodedToriiAssetIdFields(assetDefinitionId: nil, accountId: canonicalAccount)
-        }
-        return DecodedToriiAssetIdFields(assetDefinitionId: nil, accountId: nil)
     }
 }
 

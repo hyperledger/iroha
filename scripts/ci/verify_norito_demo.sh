@@ -97,6 +97,7 @@ run_xcodebuild \
   -derivedDataPath "$DERIVED_DATA" \
   -skip-testing:NoritoDemoXcodeTests/NativePrivacyPhysicalDeviceTests \
   -skip-testing:NoritoDemoXcodeTests/KagemushaStoragePhysicalDeviceTests \
+  -skip-testing:NoritoDemoXcodeTests/KagemushaEnrollmentPhysicalDeviceTests \
   test
 
 echo "NoritoDemoXcode build + test finished successfully."

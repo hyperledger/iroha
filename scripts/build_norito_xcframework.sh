@@ -5,8 +5,8 @@ PATH=/usr/bin:/bin
 export PATH
 # One independently selected public signer root is embedded in every Native slice.
 WALLET_RUNTIME_AUTHORITY="${MOBILE_SDK_WALLET_RUNTIME_AUTHORITY:-}"
-case "$WALLET_RUNTIME_AUTHORITY" in bpng-taira-v7|cbsi-release-v1) ;; *)
-  echo "[-] MOBILE_SDK_WALLET_RUNTIME_AUTHORITY must be bpng-taira-v7 or cbsi-release-v1" >&2
+case "$WALLET_RUNTIME_AUTHORITY" in bpng-taira-v7|cbsi-release-v1|application-release-v1) ;; *)
+  echo "[-] MOBILE_SDK_WALLET_RUNTIME_AUTHORITY must be bpng-taira-v7, cbsi-release-v1, or application-release-v1" >&2
   exit 1
   ;;
 esac

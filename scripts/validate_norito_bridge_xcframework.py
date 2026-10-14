@@ -331,7 +331,7 @@ def _validate_build_environment(root: Path, environment: object) -> None:
             f"(missing={sorted(EXPECTED_BUILD_ENVIRONMENT_FIELDS - actual)}, "
             f"unexpected={sorted(actual - EXPECTED_BUILD_ENVIRONMENT_FIELDS)})"
         )
-    if not isinstance(environment["wallet_runtime_authority"], str) or environment["wallet_runtime_authority"] not in {"bpng-taira-v7", "cbsi-release-v1"}:
+    if not isinstance(environment["wallet_runtime_authority"], str) or environment["wallet_runtime_authority"] not in {"bpng-taira-v7", "cbsi-release-v1", "application-release-v1"}:
         raise ValidationError("artifact Native runtime authority is not exact")
     public_root = environment["wallet_runtime_trust_ed25519_hex"]
     if not isinstance(public_root, str) or SHA256.fullmatch(public_root) is None or public_root == "0" * 64:
