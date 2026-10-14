@@ -268,4 +268,5 @@ pub(crate) fn buffer_refusal_for_test(original: ChargedBufferError) -> Transacti
 }
 
 #[cfg(test)]
+#[path = "capture_deferral/tests.rs"]
 mod tests;

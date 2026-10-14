@@ -20,8 +20,8 @@ pub(crate) use reward_history::{
     reward_history_is_closed, validate_reward_history_frontier,
 };
 
-/// Canonical retail-state fixtures for component integration tests.
-#[cfg(feature = "iroha-core-tests")]
+/// Canonical retail-state fixtures for unit and component integration tests.
+#[cfg(any(test, feature = "iroha-core-tests"))]
 pub mod test_support {
     use super::*;
 

@@ -22,6 +22,46 @@ gate = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = gate
 SPEC.loader.exec_module(gate)
 
+RUST_INDEX_SPEC = importlib.util.spec_from_file_location(
+    "sumeragi_mutation_rust_index", ROOT / "scripts" / "zk_rust_lexical_index.py"
+)
+assert RUST_INDEX_SPEC is not None and RUST_INDEX_SPEC.loader is not None
+rust_index = importlib.util.module_from_spec(RUST_INDEX_SPEC)
+RUST_INDEX_SPEC.loader.exec_module(rust_index)
+
+
+def named_rust_function(source: str, name: str) -> str:
+    """Select one complete function without borrowing neighboring controls."""
+    matches = [item for item in rust_index.functions(source) if item.name == name]
+    assert len(matches) == 1, f"expected one Rust function {name}, found {len(matches)}"
+    function = matches[0]
+    return source[function.header_start:function.end]
+
+
+def test_named_rust_function_keeps_nested_blocks_but_excludes_neighboring_controls():
+    source = '''
+#[test]
+fn original() {
+    let message = r#"a brace } and fn original() { inside a string"#;
+    // A comment with } does not end the control.
+    if ready() { reader.verify(&proof); }
+}
+fn unrelated_helper() { budget.set_limit_bytes(0); }
+#[test]
+fn later_control() { drop(blocker); AllocationBudget::new(1); }
+'''
+    body = named_rust_function(source, "original")
+    assert "reader.verify(&proof)" in body
+    assert "set_limit_bytes" not in body
+    assert "AllocationBudget::new" not in body
+    assert "drop(blocker)" not in body
+
+
+@pytest.mark.parametrize("source", ["fn other() {}", "fn original() {} fn original() {}"])
+def test_named_rust_function_rejects_missing_or_ambiguous_controls(source):
+    with pytest.raises(AssertionError, match="expected one Rust function original"):
+        named_rust_function(source, "original")
+
 
 def selected_cargo_results(monkeypatch, code, output, names=("tests::named",), seconds=1.0):
     """Supply a completed executable inventory and a separate runtime response."""
@@ -3976,7 +4016,7 @@ def test_funded_offender_graph_mutation_uses_original_lane_pool_and_exact_contro
     assert 'all(test, sumeragi_core_mutation = "HC180")' in owner
     assert "AllocationBudget::new(budget.limit_bytes())" in owner
     controls = (source / "sumeragi/evidence_history/lane/tests.rs").read_text()
-    body = controls.split("fn " + name + "(", 1)[1]
+    body = named_rust_function(controls, name)
     for obligation in ["reader.poll().unwrap()", ".try_reserve_bytes(", "reader.verify(&proof)",
                        "occupied original offender pool must refuse", "let error = result.expect_err(",
                        "EvidencePreparationError::Admission(actual)", "actual == expected",

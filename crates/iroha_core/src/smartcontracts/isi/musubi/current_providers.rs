@@ -62,8 +62,8 @@ pub(crate) struct CurrentProviderValidation {
     provider_step: u8,
     completions: [usize; MUSUBI_MAX_LOCATION_PROVIDERS_V1],
     providers: CurrentLocationProviders,
-    binding: super::replication_binding::ReplicationBindingValidation,
-    attestations: super::attestation_records::ProviderAttestationValidation,
+    binding: super::replication_binding::ReplicationBindingValidation<LookupCursor>,
+    attestations: super::attestation_records::ProviderAttestationValidation<LookupCursor>,
     unavailable: bool,
 }
 impl CurrentProviderValidation {

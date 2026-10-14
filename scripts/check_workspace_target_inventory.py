@@ -20,6 +20,8 @@ from typing import Any
 EXPECTED_DEFAULT_BINS = frozenset(
     {
         ("iroha_cli", "iroha"),
+        # Explicit operator provisioning; serving startup opens an existing journal only.
+        ("iroha_core", "kagemusha_enrollment_journal_init"),
         ("iroha_kagami", "kagami"),
         ("iroha_monitor", "iroha_monitor"),
         ("iroha_python_rs", "iroha_privacy_wallet_worker"),

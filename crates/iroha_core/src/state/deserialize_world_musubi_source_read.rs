@@ -12,8 +12,12 @@ use std::convert::Infallible;
 mod source_traits;
 pub(crate) use source_traits::{
     MusubiSourceReadOnly,
-    access::{KeyWorkCursor, LookupCursor, MusubiRead, ReadFailure, next_if_row, try_next_if_row},
+    access::{MusubiEvidenceRead, ReadFailure, next_if_row, try_next_if_row},
 };
+
+#[path = "deserialize_world_musubi_source_full_read.rs"]
+mod full_read;
+pub(crate) use full_read::{KeyWorkCursor, LookupCursor, MusubiRead};
 
 /// An original source acquisition refusal, separate from semantic validity.
 #[derive(Debug, Clone, PartialEq, Eq)]

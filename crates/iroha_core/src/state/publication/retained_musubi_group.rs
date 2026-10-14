@@ -267,7 +267,6 @@ macro_rules! define_original_musubi_group {
         pub(crate) struct OriginalMusubiRows<'read> {
             data:&'read MusubiGroupReadData,
             work:&'read mut usize,
-            budget:&'read iroha_allocation::AllocationBudget,
             scope: &'read OwnedAllocationScope,
             limit:usize,
         }
@@ -284,8 +283,6 @@ macro_rules! define_original_musubi_group {
                     }
                 }),+])
             }
-            /// The original execution pool only, never new credit or a capture certificate.
-            pub(in crate::state) fn allocation_budget(&self) -> &iroha_allocation::AllocationBudget { self.budget }
             /// Existing admitted scope; cloning it preserves the same original refund owner.
             pub(in crate::state) fn scope(&self) -> &OwnedAllocationScope { self.scope }
             $(
@@ -459,7 +456,7 @@ macro_rules! define_original_musubi_group {
                 let revision=data.revision.as_ref().ok_or(RetainedMusubiGroupReadError::NotFrozen)?;
                 let current=&**revision.current();
                 let predecessor=revision.get_before_block();
-                let result=callback(OriginalMusubiRows {data,work:&mut plan.work,budget:plan.scope.allocation_budget(),scope:&plan.scope,limit},OriginalMusubiRevision {current,predecessor});
+                let result=callback(OriginalMusubiRows {data,work:&mut plan.work,scope:&plan.scope,limit},OriginalMusubiRevision {current,predecessor});
                 // Detached immutable rows stay valid if the shared State advances,
                 // but a result computed across that change cannot name the original
                 // State cut. Drop that exact result on refusal; retained work/readers

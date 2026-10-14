@@ -186,7 +186,7 @@ fn allocator_observer_detects_backing_growth_and_recovers_after_unwind() {
 mod source_traits;
 use source_traits::{
     MusubiSourceReadOnly,
-    access::{LookupCursor, MusubiRead, ReadFailure},
+    access::{MusubiEvidenceRead, ReadFailure},
 };
 #[path = "../src/smartcontracts/isi/musubi/attestation_records.rs"]
 mod attestation_records;
@@ -194,7 +194,6 @@ mod attestation_records;
 mod replication_binding;
 use iroha_core::state::{World, WorldReadOnly};
 use iroha_data_model::musubi::*;
-use mv::storage::StorageReadOnly as _;
 
 fn provider_helper_sources() -> (MusubiArchiveRecordV1, MusubiArchiveLocationV1) {
     use iroha_data_model::sorafs::{capacity::ProviderId, pin_registry::*};
