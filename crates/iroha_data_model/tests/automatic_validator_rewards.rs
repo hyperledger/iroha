@@ -872,7 +872,7 @@ fn seeded_every_cohort_boundary_partition_preserves_independent_entitlements() {
             let mut stakes = BTreeMap::new();
             let mut weights = BTreeMap::new();
             for (recipient, identity) in identities.iter().enumerate() {
-                if recipient > 0 && next_sample(&mut seed) % 3 == 0 {
+                if recipient > 0 && next_sample(&mut seed).is_multiple_of(3) {
                     continue;
                 }
                 // The first recipient changes monotonically, guaranteeing
@@ -1087,7 +1087,10 @@ fn canonical_page_bytes_and_validator_count_enforce_exact_admission_boundaries()
             .enumerate()
             .all(|(rank, amount)| *amount == base + u128::from((rank as u128) < remainder))
     );
-    validators.insert(account(40_000 + MAX_REWARD_VALIDATORS as u32), 1);
+    validators.insert(
+        account(40_000 + u32::try_from(MAX_REWARD_VALIDATORS).unwrap()),
+        1,
+    );
     assert_eq!(
         allocate(0, &validators).unwrap_err(),
         "monthly reward validator bound exceeded"

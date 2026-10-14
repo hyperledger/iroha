@@ -1,5 +1,5 @@
 //! End-to-end regressions for global implicit account receive admission.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     governance::manifest::LaneManifestRegistry,
     kura::Kura,

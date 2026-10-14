@@ -155,7 +155,7 @@ pub(super) fn fixture() -> (Box<State>, SignedBlock) {
 }
 
 #[path = "direct_commit_musubi_scratch_tests.rs"]
-mod direct_commit_musubi_scratch_tests;
+pub(in crate::state) mod direct_commit_musubi_scratch_tests;
 #[path = "direct_commit_refusal_tests.rs"]
 mod direct_commit_refusal_tests;
 #[path = "state_acquisition_drop_tests.rs"]

@@ -37,7 +37,7 @@ pub fn mqpoly_small_is_invertible(logn: u32, f: &[i8], tmp: &mut [u16]) -> bool 
     let n = 1usize << logn;
     mqpoly_small_to_int(logn, f, tmp);
     mqpoly_int_to_NTT(logn, tmp);
-    let mut r = 0xFFFFFFFF;
+    let mut r = 0xFFFF_FFFF;
     for i in 0..n {
         r &= (tmp[i] as u32).wrapping_sub(Q);
     }
@@ -61,7 +61,7 @@ pub fn mqpoly_div_small(logn: u32, f: &[i8], g: &[i8], h: &mut [u16], tmp: &mut 
 }
 const Q: u32 = 12289;
 // -1/q mod 2^32
-const Q1I: u32 = 4143984639;
+const Q1I: u32 = 4_143_984_639;
 // 2^64 mod q
 const R2: u32 = 5664;
 // Addition modulo q (internal representation).

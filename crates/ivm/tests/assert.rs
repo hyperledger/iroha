@@ -1,6 +1,6 @@
-use ivm::{IVM, VMError, encoding, instruction, zk::MAX_CYCLES};
-mod common;
+use crate::common;
 use common::assemble_zk;
+use ivm::{IVM, VMError, encoding, instruction, zk::MAX_CYCLES};
 const HALT_WORD: u32 = encoding::wide::encode_halt();
 fn encode_words(words: &[u32]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(words.len() * 4);

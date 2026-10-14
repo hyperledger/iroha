@@ -120,7 +120,7 @@ impl AdminProver {
     #[allow(clippy::too_many_arguments)]
     fn admit_original_artifact_cancellable<C: Circuit<Fp>>(
         circuit: &C,
-        params: PinnedParams<Eq>,
+        params: &PinnedParams<Eq>,
         descriptor: &[u8],
         installed_vk: &[u8],
         original: &[u8],
@@ -129,7 +129,7 @@ impl AdminProver {
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<SourceBoundVerifyingKeyV2<Eq>, AdminSigmaError> {
         let (binding, validated_vk) = Self::original_metadata(
-            &params,
+            params,
             descriptor,
             installed_vk,
             original,
@@ -141,7 +141,7 @@ impl AdminProver {
                 original,
                 &binding,
                 &validated_vk,
-                &params,
+                params,
                 circuit,
                 config,
                 cancellation,
@@ -347,13 +347,14 @@ macro_rules! admin_prover {
 
             /// Admit this fixed operation's native source and original commitments,
             /// retaining only descriptor/VK metadata and opaque source authority.
-            /// Authentication and source selection requirements match full import;
-            /// no proving FFTs, masks or caches are constructed during admission.
+            /// Authentication and source selection requirements match full import.
+            /// Parameters are borrowed; no proving FFTs, masks or caches are constructed
+            /// during admission.
             /// # Errors
             /// The same profile, source, commitment or installed-key mismatch as
             /// full import, or cancellation without a partial source capability.
             pub fn admit_original_artifact_cancellable(
-                params: PinnedParams<Eq>,
+                params: &PinnedParams<Eq>,
                 descriptor: &[u8],
                 installed_vk: &[u8],
                 original: &[u8],
@@ -381,7 +382,7 @@ macro_rules! admin_prover {
             /// The ordinary importer errors, closed-member mismatch, or cancellation.
             #[allow(clippy::too_many_arguments)]
             pub fn admit_builtin_original_artifact_cancellable(
-                params: PinnedParams<Eq>,
+                params: &PinnedParams<Eq>,
                 descriptor: &[u8],
                 installed_vk: &[u8],
                 original: &[u8],
@@ -402,7 +403,7 @@ macro_rules! admin_prover {
 
             #[allow(clippy::too_many_arguments)]
             fn admit_original_with_admission_cancellable(
-                params: PinnedParams<Eq>,
+                params: &PinnedParams<Eq>,
                 descriptor: &[u8],
                 installed_vk: &[u8],
                 original: &[u8],

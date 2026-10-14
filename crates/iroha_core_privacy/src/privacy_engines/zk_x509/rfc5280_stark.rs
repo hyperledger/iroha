@@ -10712,10 +10712,10 @@ mod tests {
         const SAMPLE_POINTS: u64 = 9;
         let mut maximum_degrees = vec![0_usize; ZK_X509_RFC5280_STARK_CONSTRAINT_COUNT_V1];
         for seed in [3_u64, 5, 11] {
-            let mut samples = vec![
-                Vec::with_capacity(SAMPLE_POINTS as usize);
-                ZK_X509_RFC5280_STARK_CONSTRAINT_COUNT_V1
-            ];
+            let sample_points = usize::try_from(SAMPLE_POINTS).expect("sample count fits usize");
+            let mut samples = (0..ZK_X509_RFC5280_STARK_CONSTRAINT_COUNT_V1)
+                .map(|_| Vec::with_capacity(sample_points))
+                .collect::<Vec<_>>();
             for point in 0..SAMPLE_POINTS {
                 let current =
                     core::array::from_fn(|column| affine_value_v1(seed, 1, column, point));

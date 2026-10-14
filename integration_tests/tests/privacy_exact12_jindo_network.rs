@@ -1,5 +1,5 @@
 #![cfg(feature = "privacy-release-evidence")]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //! Four-peer lifecycle and restart coverage proving that an active Jindo
 //! protocol remains unavailable without registered Exact12 evidence.
 use super::privacy_exact12_network_support::{privacy_capabilities, wait_for_transaction_on_peers};

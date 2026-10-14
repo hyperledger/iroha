@@ -24,11 +24,11 @@ fn reference<C: PastaCurve>(owner: &PinnedParams<C>, values: &[C::ScalarExt]) ->
 
 fn arithmetic<C: PastaCurve>() {
     let owner = PinnedParams::<C>::derive(12).unwrap();
-    let mut values: Vec<_> = (0..4096)
+    let mut values: Vec<_> = (0_u64..4096)
         .map(|row| match row % 7 {
             0 => C::ScalarExt::ZERO,
             1 => -C::ScalarExt::ONE,
-            _ => C::ScalarExt::from(row as u64 + 1),
+            _ => C::ScalarExt::from(row + 1),
         })
         .collect();
     for length in [0, 1, 8, 513, 1024, 1025, 2057, 4096] {

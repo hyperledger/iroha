@@ -341,7 +341,7 @@ fn validator_generations_and_epoch_authorizations_roundtrip() {
 fn rng_evidence_record(rng: &mut DeterministicRng, evidence: Evidence) -> EvidenceRecord {
     EvidenceRecord {
         attribution: fixture_attribution(&evidence),
-        evidence: RecordedEvidenceV1::Native(evidence.clone()),
+        evidence: RecordedEvidenceV1::Native(evidence),
         recorded_at_height: rng.next_u64(),
         recorded_at_view: rng.next_u64(),
         recorded_at_ms: rng.next_u64(),
@@ -661,7 +661,7 @@ fn penalty_lifecycle_rejects_retired_binary_tag_json_tag_missing_and_defaulted_d
         r#"{"status":"applied","details":{}}"#,
         r#"{"status":"applied","details":null}"#,
         r#"{"status":"applied","details":{"height":45,"cancelled":true}}"#,
-        r#"{}"#,
+        r"{}",
     ] {
         assert!(
             norito::json::from_str::<EvidencePenaltyStatus>(json).is_err(),

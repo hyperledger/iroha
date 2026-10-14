@@ -1,7 +1,7 @@
 //! Consensus surface must remain stable across mixed hardware configurations.
-use ivm::{ExecutionSummary, IVM, encoding, instruction, runtime};
-mod common;
+use crate::common;
 use common::assemble_with_mode;
+use ivm::{ExecutionSummary, IVM, encoding, instruction, runtime};
 #[derive(Debug, PartialEq, Eq)]
 struct RunOutcome {
     register_value: u64,

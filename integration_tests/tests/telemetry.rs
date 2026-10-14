@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Telemetry and metrics surface integration tests.
 use eyre::ensure;
 use iroha_core::sumeragi::consensus::NPOS_TAG;

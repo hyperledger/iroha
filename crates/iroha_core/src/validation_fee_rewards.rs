@@ -1356,7 +1356,7 @@ pub(crate) fn process_finalized_service(
                     .get(&(owner_lane, account.clone()))
                     .cloned()
                     .unwrap_or_default();
-                let original = beneficiary::root(&stx, &binding, &account)?;
+                let original = beneficiary::root(&stx, &binding, account)?;
                 exposure::record_service(&mut stx, &binding, period, &original, stakes)?;
                 let count = snapshot.service_blocks.entry(original).or_default();
                 *count = count

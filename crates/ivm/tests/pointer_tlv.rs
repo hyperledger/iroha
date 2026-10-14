@@ -1,6 +1,6 @@
+use crate::common;
 use iroha_crypto::{Hash, PublicKey};
 use ivm::{Memory, PointerType};
-mod common;
 fn valid_account_id_literal() -> Vec<u8> {
     let public_key: PublicKey =
         "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03"

@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! SSE smoke test: verify that `/v1/events/sse` streams trigger and data events.
 use eyre::Result;
 use integration_tests::sandbox;

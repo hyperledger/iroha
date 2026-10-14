@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Assert SSE filtering by `proof_envelope_hash` works and JSON contains the field.
 #![cfg(feature = "app_api")]
 #![allow(clippy::items_after_statements)]

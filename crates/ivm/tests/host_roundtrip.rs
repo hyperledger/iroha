@@ -1,10 +1,10 @@
 //! CoreHost roundtrip harness for IVM syscalls.
+use crate::common;
 use ivm::host::IVMHost;
 use ivm::{
     CoreHost, EmbeddedContractInterfaceV1, EmbeddedEntrypointDescriptor, EmbeddedStateDescriptor,
     EmbeddedStateType, IVM, Memory, PointerType, ProgramMetadata, state_value, syscalls,
 };
-mod common;
 fn make_tlv(pty: PointerType, payload: &[u8]) -> Vec<u8> {
     let payload = common::payload_for_type(pty, payload);
     let mut v = Vec::with_capacity(7 + payload.len() + 32);

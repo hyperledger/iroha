@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cloned_instead_of_copied,

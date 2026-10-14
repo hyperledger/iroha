@@ -1,5 +1,5 @@
 //! Pipeline cache policy acceptance tests
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //!
 //! Covers:
 //! - Insert/hit/eviction behavior under bounded capacity

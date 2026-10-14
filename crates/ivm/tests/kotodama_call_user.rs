@@ -1,7 +1,7 @@
 //! Tests for user-defined function calls in Kotodama.
+use crate::common;
 use ivm::IVM;
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 #[test]
 fn user_defined_call_returns_42() {
     // Repeated parameter types make the call named-only in V1.

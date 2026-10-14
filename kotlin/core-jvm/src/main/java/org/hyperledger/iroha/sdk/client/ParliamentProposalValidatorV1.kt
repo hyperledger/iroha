@@ -24,10 +24,10 @@ internal object ParliamentProposalValidatorV1 {
         "register_route", "activate_revision", "switch_revision", "deactivate_outbound",
         "retire_revision", "remove_staged", "release_stranded", "set_taira_paused",
         "set_destination_paused", "initialize_light_client", "install_trusted_checkpoint",
-        "freeze_light_client", "set_parameters", "clear_bridge_key_fault",
-        "activate_light_client_profile",
+        "freeze_light_client", "set_parameters", "activate_light_client_profile",
+        "attest_deployment_progress", "quarantine_revision", "open_reconciliation",
+        "set_fast_pause_suspended",
     )
-    private val BLS_VALIDATOR_ID = Regex("ea0130[0-9A-F]{96}")
     private val KEBAB = Regex("[a-z0-9]+(?:-[a-z0-9]+)*")
     private val ALPHANUMERIC_PRERELEASE = Regex("(?=.*[A-Za-z-])[A-Za-z0-9-]+")
 
@@ -136,6 +136,7 @@ internal object ParliamentProposalValidatorV1 {
      * Checks the closed `SccpGovernanceProposalV1` envelope (specs/sccp.md §4.14.3): subjects,
      * revisions and action tags. Action payloads must be objects; Torii performs the
      * state-independent payload checks against the live network and core the state-dependent ones.
+     * TODO: share typed action-body and exact subject-set validation through the native bridge.
      */
     private fun sccpRoute(value: Map<String, Any?>) {
         exact(value, setOf("proposal"), "SccpRouteGovernance")
@@ -175,13 +176,9 @@ internal object ParliamentProposalValidatorV1 {
     private fun sccpGovernanceSubject(value: Map<String, Any?>, label: String) {
         exact(value, setOf("subject", "key"), label)
         when (text(value["subject"], "$label.subject")) {
-            "route", "route_control", "light_client" ->
+            "route", "route_control", "light_client", "forgery_hold", "fast_hold", "fast_pause_control" ->
                 sccpExternalNetwork(objectValue(value["key"], "$label.key"), "$label.key")
             "parameters" -> require(value["key"] == null) { "$label.key must be null" }
-            "bridge_key_fault" ->
-                require(BLS_VALIDATOR_ID.matches(string(value["key"], "$label.key"))) {
-                    "$label.key must be a canonical BLS validator id"
-                }
             else -> throw IllegalArgumentException("$label.subject is unknown")
         }
     }

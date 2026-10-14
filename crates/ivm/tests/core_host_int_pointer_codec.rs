@@ -1,6 +1,6 @@
 //! Canonical full-width Int conversion through the single V1 pointer codec.
+use crate::common;
 use ivm::{CoreHost, IVM, PointerType, encoding, syscalls};
-mod common;
 fn make_tlv(pty: PointerType, payload: &[u8]) -> Vec<u8> {
     let mut v = Vec::with_capacity(7 + payload.len() + 32);
     v.extend_from_slice(&(pty as u16).to_be_bytes());

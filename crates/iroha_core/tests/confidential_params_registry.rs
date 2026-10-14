@@ -1,5 +1,4 @@
 #![doc = "Confidential parameter registry flow tests covering publish and lifecycle operations."]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "zk-tests")]
 use iroha_core::{
     kura::Kura,

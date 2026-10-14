@@ -1,5 +1,5 @@
 //! Regression test for reading blocks from large sparse files without loading the entire file into memory.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_config::kura::FsyncMode;
 use iroha_core::kura::BlockStore;
 use std::{

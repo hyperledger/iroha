@@ -1,5 +1,6 @@
 //! Borrowed state/path operands retain real schema, lifetime, metering and quantity checks.
 
+use crate::common;
 use iroha_crypto::Hash;
 use iroha_model_base::{name::Name, state_path::StatePath};
 use iroha_primitives::numeric_abi::QuantityValueV1;
@@ -12,7 +13,6 @@ use ivm::{
 };
 use ivm_abi::state_value::StateValueKindV1;
 use kotodama_lang::compiler::Compiler;
-mod common;
 
 fn compile(source: &str) -> Vec<u8> {
     Compiler::new()

@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Torii handler test for zk vote tally convenience endpoint.
 #![cfg(feature = "app_api")]
 use axum::{extract::State, response::IntoResponse};

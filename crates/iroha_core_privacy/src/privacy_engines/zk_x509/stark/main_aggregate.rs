@@ -3528,8 +3528,9 @@ impl aggregate::AggregateOpenedRowEvaluatorV1 for P256OpenedRowEvaluatorV1<'_> {
             .validate()
             .map_err(|_| AggregateStarkErrorV1::ConstraintOpening)?;
         let aggregate_layout = &self.material.registration.layout;
+        let registered_segments = &aggregate_layout.registered_segments;
         if lane >= SECURITY_LANES
-            || self.alphas.len() != aggregate_layout.registered_segments.len()
+            || self.alphas.len() != registered_segments.len()
             || self.mixes.len() != aggregate_layout.trace_groups.len()
         {
             return Err(AggregateStarkErrorV1::ConstraintOpening);

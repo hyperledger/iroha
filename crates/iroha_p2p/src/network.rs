@@ -1252,9 +1252,11 @@ impl<T: Pload + message::ClassifyTopic> DeferredPeerFrameQueue<T> {
         let is_safety = matches!(topic, message::Topic::ConsensusSafety);
         let route = message::ClassifyTopic::subscriber_route(&frame.payload);
         let is_progress = is_reliable_progress_route(topic, route);
-        let count_capacity = is_progress
-            .then(|| self.progress_count_capacity(&peer_id, topic, route))
-            .unwrap_or(self.max_per_peer);
+        let count_capacity = if is_progress {
+            self.progress_count_capacity(&peer_id, topic, route)
+        } else {
+            self.max_per_peer
+        };
         if !is_safety && wire_bytes > self.ordinary_max_bytes_total {
             return DeferredEnqueueOutcome {
                 expired,
@@ -4138,7 +4140,7 @@ pub struct NetworkReplyFlushAckTestFixture {
 #[cfg(any(test, feature = "test-fixtures"))]
 impl NetworkReplyFlushAckTestFixture {
     /// Create one pending completion and its sole test controller.
-    #[must_use]
+    #[must_use = "retain both the controller and acknowledgement to observe writer completion"]
     pub fn new() -> (Self, NetworkReplyFlushAck) {
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let route_owner = Arc::new(());
@@ -4201,7 +4203,7 @@ impl NetworkReplyFlushAckTestFixture {
     /// Independent calls deliberately mint distinct synthetic actor budgets, so
     /// tests cannot mistake equal visible ticket fields for the same opaque
     /// admission authority.
-    #[must_use]
+    #[must_use = "retain both the controller and acknowledgement to observe writer completion"]
     pub fn for_reply<T>(post: &Post<T>, route: &NetworkReplyRoute) -> (Self, NetworkReplyFlushAck)
     where
         T: Pload + message::ClassifyTopic,
@@ -4209,7 +4211,7 @@ impl NetworkReplyFlushAckTestFixture {
         Self::for_reply_at_attempt(post, route, 0)
     }
     /// Create a pending completion bound to one adaptive timeout generation.
-    #[must_use]
+    #[must_use = "retain both the controller and acknowledgement to observe writer completion"]
     pub fn for_reply_at_attempt<T>(
         post: &Post<T>,
         route: &NetworkReplyRoute,
@@ -5094,6 +5096,10 @@ fn progress_ticket_request_digest<T: Pload>(message: &NetworkMessage<T>) -> Hash
         }
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "backpressure must return the original admitted message and its byte lease without allocating"
+)]
 fn defer_high_priority_network_message<T: Pload + Sync>(
     sender: net_channel::Sender<AdmittedNetworkMessage<T>>,
     message: AdmittedNetworkMessage<T>,
@@ -5755,13 +5761,12 @@ impl SubscriberFilter {
             } => *expected == class && *expected_route == route,
             Self::All => true,
             Self::Topics(topics) => {
-                matches!(route, message::SubscriberRoute::General)
-                    && topics.iter().any(|t| *t == topic)
+                matches!(route, message::SubscriberRoute::General) && topics.contains(&topic)
             }
             Self::TopicsForRoute {
                 topics,
                 route: expected,
-            } => *expected == route && topics.iter().any(|t| *t == topic),
+            } => *expected == route && topics.contains(&topic),
         }
     }
     fn overlaps_reliable(&self, other: &Self) -> bool {
@@ -7443,10 +7448,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             service_message_sender.clone(),
             idle_timeout,
             preauth_timeout,
-            network_id.clone(),
-            consensus_caps.clone(),
+            network_id,
+            consensus_caps,
             confidential_caps.clone(),
-            crypto_caps.clone(),
+            crypto_caps,
             p2p_post_queue_cap.get(),
             outbound_frame_queue_limits,
             outbound_post_byte_budgets.clone(),
@@ -7853,6 +7858,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
         };
         Some(AdmittedNetworkMessage::new(message, byte_lease))
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "refusal returns the original message and admission ticket; boxing would allocate while capacity is unavailable"
+    )]
     fn submit_progress_message_to_source(
         &self,
         message: NetworkMessage<T>,
@@ -8005,6 +8014,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
     /// shutdown, or [`NetworkActorAdmissionError::Rejected`] for a permanent
     /// admission violation.
     #[allow(clippy::needless_pass_by_value)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "the recoverable API returns the exact original post and ticket without allocating on refusal"
+    )]
     pub fn post_recoverable(
         &self,
         mut msg: Post<T>,
@@ -8136,6 +8149,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
     /// error, but also is not admission: callers must rely on requester
     /// retransmission or rebuild the exact reply for a newer same-source route.
     #[allow(clippy::needless_pass_by_value)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "the recoverable API returns the exact original post and ticket without allocating on refusal"
+    )]
     pub fn post_reply_recoverable(
         &self,
         msg: Post<T>,
@@ -8174,6 +8191,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
     /// Returns the same recoverable admission errors as
     /// [`Self::post_reply_recoverable`].
     #[allow(clippy::needless_pass_by_value)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "the recoverable API returns the exact original post and ticket without allocating on refusal"
+    )]
     pub fn post_reply_recoverable_with_flush_ack(
         &self,
         msg: Post<T>,
@@ -8192,6 +8213,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
     /// Returns the same recoverable admission errors as
     /// [`Self::post_reply_recoverable`].
     #[allow(clippy::needless_pass_by_value)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "the recoverable API returns the exact original post and ticket without allocating on refusal"
+    )]
     pub fn post_reply_recoverable_with_flush_ack_at_attempt(
         &self,
         msg: Post<T>,
@@ -8208,6 +8233,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
         )
     }
     #[allow(clippy::needless_pass_by_value)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "the recoverable API returns the exact original post and ticket without allocating on refusal"
+    )]
     fn post_reply_recoverable_with_flush_ack_inner(
         &self,
         mut msg: Post<T>,
@@ -9213,10 +9242,12 @@ mod accept_stream_tests {
     }
     #[test]
     fn shipped_quic_datagram_policy_is_disabled_and_rejects_enablement() {
-        assert!(
-            !iroha_config::parameters::defaults::network::QUIC_DATAGRAMS_ENABLED,
-            "the shipping configuration must not advertise a Quinn DATAGRAM receive queue"
-        );
+        const {
+            assert!(
+                !iroha_config::parameters::defaults::network::QUIC_DATAGRAMS_ENABLED,
+                "the shipping configuration must not advertise a Quinn DATAGRAM receive queue"
+            );
+        }
         assert!(!validate_shipping_quic_datagram_policy(false).unwrap());
         let error = validate_shipping_quic_datagram_policy(true)
             .expect_err("explicit DATAGRAM enablement must fail before binding sockets");
@@ -10524,10 +10555,7 @@ mod accept_stream_tests {
         );
         network.peer_message(oversized).await;
         let after_oversized = cap_violations();
-        assert!(
-            after_oversized >= before_oversized + 1,
-            "{oversized_diagnostic}"
-        );
+        assert!(after_oversized > before_oversized, "{oversized_diagnostic}");
         assert!(
             !network.retry_backoff.contains_key(peer.id()),
             "a synthetic/inbound identity must not create outbound retry state"
@@ -10698,7 +10726,7 @@ mod accept_stream_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn peer_message_over_cap_increments_violation_counter() {
         use crate::network::cap_violations_consensus;
-        let _guard = cap_violation_test_guard();
+        let _guard = cap_violation_test_guard().await;
         assert_peer_message_cap(
             DummyConsensus,
             128,
@@ -10712,7 +10740,7 @@ mod accept_stream_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn peer_message_consensus_payload_uses_block_sync_cap() {
         use crate::network::cap_violations_consensus;
-        let _guard = cap_violation_test_guard();
+        let _guard = cap_violation_test_guard().await;
         assert_peer_message_cap(
             DummyConsensusPayload,
             512,
@@ -10726,7 +10754,7 @@ mod accept_stream_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn peer_message_consensus_chunk_uses_block_sync_cap() {
         use crate::network::cap_violations_block_sync;
-        let _guard = cap_violation_test_guard();
+        let _guard = cap_violation_test_guard().await;
         assert_peer_message_cap(
             DummyConsensusChunk,
             512,
@@ -10753,11 +10781,11 @@ mod accept_stream_tests {
             "global overflow counter should reflect at least this test's increments"
         );
         assert!(
-            super::post_overflow_consensus_high_count() >= base_hi_cons + 1,
+            super::post_overflow_consensus_high_count() > base_hi_cons,
             "high-priority consensus overflow counter should reflect this test's increment"
         );
         assert!(
-            super::post_overflow_consensus_low_count() >= base_lo_cons + 1,
+            super::post_overflow_consensus_low_count() > base_lo_cons,
             "low-priority consensus overflow counter should reflect this test's increment"
         );
     }
@@ -11424,10 +11452,10 @@ where
     // Generate a self-signed certificate for the TLS server.
     let rcgen::CertifiedKey { cert, signing_key } =
         rcgen::generate_simple_self_signed(["iroha-tls".to_owned()])
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("rcgen: {e}")))?;
+            .map_err(|e| std::io::Error::other(format!("rcgen: {e}")))?;
     let cert_der = cert.der().clone();
     let transport_binding = crate::transport::certificate_fingerprint(cert_der.as_ref());
-    let cert_chain = vec![rustls::pki_types::CertificateDer::from(cert_der).into_owned()];
+    let cert_chain = vec![cert_der.into_owned()];
     let priv_key = rustls::pki_types::PrivateKeyDer::from(
         rustls::pki_types::PrivatePkcs8KeyDer::from(signing_key.serialize_der()),
     )
@@ -11436,9 +11464,7 @@ where
         rustls::ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
             .with_no_client_auth()
             .with_single_cert(cert_chain, priv_key)
-            .map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::Other, format!("tls config: {e}"))
-            })?;
+            .map_err(|e| std::io::Error::other(format!("tls config: {e}")))?;
     server_cfg.alpn_protocols = vec![crate::transport::P2P_ALPN.to_vec()];
     let acceptor = tokio_rustls::TlsAcceptor::from(std::sync::Arc::new(server_cfg));
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -11499,10 +11525,7 @@ where
             let soranet_transport_key_pair = Arc::clone(&soranet_transport_key_pair);
             let soranet_transport_certificate = Arc::clone(&soranet_transport_certificate);
             let public_address = public_address.clone();
-            let network_id = network_id.clone();
-            let consensus_caps = consensus_caps.clone();
             let confidential_caps = confidential_caps.clone();
-            let crypto_caps = crypto_caps.clone();
             let acceptor = acceptor.clone();
             let idle_timeout = idle_timeout;
             let post_capacity = post_capacity;
@@ -11593,7 +11616,7 @@ where
                             network_id,
                             consensus_caps,
                             confidential_caps.clone(),
-                            crypto_caps.clone(),
+                            crypto_caps,
                             soranet_policy,
                             local_scion_supported,
                             post_capacity,
@@ -12099,6 +12122,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
         }
         drained
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "refused dispatch preserves the original admitted owner, byte lease and pending writer acknowledgements without allocating"
+    )]
     fn dispatch_reliable_actor_message(
         &mut self,
         admitted: AdmittedNetworkMessage<T>,
@@ -12110,6 +12137,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
     /// The generic hook is monomorphized to an empty closure in production.
     /// Tests use it to publish a writer flush deterministically after the
     /// optimistic poll and before any terminal close-and-poll fence.
+    #[expect(
+        clippy::result_large_err,
+        reason = "refused dispatch preserves the original admitted owner, byte lease and pending writer acknowledgements without allocating"
+    )]
     fn dispatch_reliable_actor_message_inner<AfterInitialFlushPoll>(
         &mut self,
         admitted: AdmittedNetworkMessage<T>,
@@ -12118,16 +12149,16 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
     where
         AfterInitialFlushPoll: FnOnce(),
     {
-        let (
+        let NetworkDispatchParts {
             message,
-            actor_lease,
+            byte_lease: actor_lease,
             mut remaining_broadcast_targets,
             mut pending_flush_acks,
             progress_authority,
             reply_writer_timeout_attempt,
             mut reply_writer_deadline,
             reply_flush_ack,
-        ) = admitted.into_dispatch_parts();
+        } = admitted.into_dispatch_parts();
         if let Some(attempt) = reply_writer_timeout_attempt {
             debug_assert!(matches!(
                 progress_authority.as_ref(),
@@ -12397,14 +12428,16 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             Ok(())
         } else {
             Err(AdmittedNetworkMessage::retain_after_dispatch_attempt(
-                message,
-                actor_lease,
-                remaining_broadcast_targets,
-                pending_flush_acks,
-                progress_authority,
-                reply_writer_timeout_attempt,
-                reply_writer_deadline,
-                reply_flush_ack,
+                NetworkDispatchParts {
+                    message,
+                    byte_lease: actor_lease,
+                    remaining_broadcast_targets,
+                    pending_flush_acks,
+                    progress_authority,
+                    reply_writer_timeout_attempt,
+                    reply_writer_deadline,
+                    reply_flush_ack,
+                },
             ))
         }
     }
@@ -12725,21 +12758,14 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
                         ) {
                             break;
                         }
-                        network_message = match self.network_message_high_receiver.try_recv() {
-                            Ok(message) => Some(message),
-                            Err(
-                                tokio::sync::mpsc::error::TryRecvError::Empty
-                                | tokio::sync::mpsc::error::TryRecvError::Disconnected,
-                            ) => None,
-                        };
+                        network_message = self.network_message_high_receiver.try_recv().ok();
                     }
                     let len = self.network_message_high_receiver.len();
                     update_network_queue_depth_high(len);
-                    if len > 100 {
-                        if let Some(supp) = self.sampler_high_queue_warn.should_log(tokio::time::Duration::from_secs(1)) {
+                    if len > 100
+                        && let Some(supp) = self.sampler_high_queue_warn.should_log(tokio::time::Duration::from_secs(1)) {
                             iroha_logger::warn!(size=len, drained, drain_limit, suppressed=supp, "High-priority messages are piling up in the queue");
                         }
-                    }
                 }
                 // High-priority inbound peer messages (consensus/control)
                 Some(peer_message) = self.peer_message_high_receiver.recv() => {
@@ -12763,11 +12789,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
                     };
                     let len = self.network_message_low_receiver.len();
                     update_network_queue_depth_low(len);
-                    if len > 100 {
-                        if let Some(supp) = self.sampler_low_queue_warn.should_log(tokio::time::Duration::from_secs(1)) {
+                    if len > 100
+                        && let Some(supp) = self.sampler_low_queue_warn.should_log(tokio::time::Duration::from_secs(1)) {
                             iroha_logger::warn!(size=len, suppressed=supp, "Low-priority messages are piling up in the queue");
                         }
-                    }
                     let (network_message, _actor_lease) = network_message.into_parts();
                     match network_message {
                         NetworkMessage::Post(post) => self.post_low(post),
@@ -14418,6 +14443,11 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
         self.connecting_peers.insert(conn_id, peer.clone());
         self.outbound_connections.insert(conn_id);
         let service_message_sender = self.service_message_sender.clone();
+        // The enabled transport retains its endpoint; the disabled handle is unit.
+        #[cfg(feature = "quic")]
+        let quic_dialer = self.quic_dialer.clone();
+        #[cfg(not(feature = "quic"))]
+        let quic_dialer = self.quic_dialer;
         let task = connecting::<WireMessage<T>, E>(
             // NOTE: we intentionally use peer's address and our public key, it's used during handshake
             peer.address().clone(),
@@ -14429,10 +14459,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             self.idle_timeout,
             self.dial_timeout,
             authentication_deadline,
-            self.network_id.clone(),
-            self.consensus_caps.clone(),
+            self.network_id,
+            self.consensus_caps,
             self.confidential_caps.clone(),
-            self.crypto_caps.clone(),
+            self.crypto_caps,
             soranet_policy,
             self.post_queue_cap,
             self.outbound_frame_queue_limits,
@@ -14451,7 +14481,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             self.proxy_tls_pinned_cert_der.clone(),
             self.proxy_policy.clone(),
             Arc::clone(&self.outbound_dial_policy),
-            self.quic_dialer.clone(),
+            quic_dialer,
             self.quic_datagrams_enabled,
             self.quic_datagram_max_payload_bytes,
         );
@@ -14492,10 +14522,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             return false;
         }
         let delivery_peer = route.tenure.delivery_peer.clone();
-        if !self
+        if self
             .peers
             .get(&delivery_peer)
-            .is_some_and(|current| current.conn_id == connection_id)
+            .is_none_or(|current| current.conn_id != connection_id)
         {
             return false;
         }
@@ -15013,21 +15043,21 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
         // If termination happened before handshake, the `peer` is None.
         // In that case use the pending `connecting_peers` map to find which peer failed.
         if let Some(peer) = peer {
-            if let Some(ref_peer) = self.peers.get(peer.id()) {
-                if ref_peer.conn_id == conn_id {
-                    iroha_logger::debug!(conn_id, peer=%peer, "Peer terminated");
-                    self.peer_reputations.record_disconnected(peer.id());
-                    self.deferred_send_queue
-                        .release_retired_tenure_binding(peer.id(), conn_id);
-                    self.peers.remove(peer.id());
-                    self.last_active.remove(peer.id());
-                    Self::remove_online_peer(
-                        &self.online_peers_sender,
-                        &self.online_peer_capabilities_sender,
-                        peer.id(),
-                    );
-                    self.clear_low_buckets(peer.id());
-                }
+            if let Some(ref_peer) = self.peers.get(peer.id())
+                && ref_peer.conn_id == conn_id
+            {
+                iroha_logger::debug!(conn_id, peer=%peer, "Peer terminated");
+                self.peer_reputations.record_disconnected(peer.id());
+                self.deferred_send_queue
+                    .release_retired_tenure_binding(peer.id(), conn_id);
+                self.peers.remove(peer.id());
+                self.last_active.remove(peer.id());
+                Self::remove_online_peer(
+                    &self.online_peers_sender,
+                    &self.online_peer_capabilities_sender,
+                    peer.id(),
+                );
+                self.clear_low_buckets(peer.id());
             }
             // A current configured identity remains eligible even when the
             // terminated tenure was inbound. Arbitrary inbound identities are
@@ -15394,10 +15424,9 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
         let size_bytes = msg.payload_bytes;
         let peer_id = msg.peer.id().clone();
         let replaced_connection = msg.connection_id().is_some_and(|connection_id| {
-            !self
-                .peers
+            self.peers
                 .get(&peer_id)
-                .is_some_and(|peer| peer.conn_id == connection_id)
+                .is_none_or(|peer| peer.conn_id != connection_id)
         });
         if replaced_connection && !is_reliable_progress_route(topic, route) {
             let connection_id = msg
@@ -15542,22 +15571,22 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             || matches!(&target, RelayTarget::Direct(id) if id == &self.self_id);
         // Forward first (only borrows `payload`) so we can move it into the local-delivery
         // message without cloning when hub-mode relay is enabled.
-        if matches!(self.relay_role, RelayRole::Hub) {
-            if let Some(next_ttl) = ttl.checked_sub(1) {
-                match &target {
-                    RelayTarget::Broadcast => {
-                        self.forward_broadcast(&incoming_peer, &msg.payload, next_ttl, topic);
-                    }
-                    RelayTarget::Direct(target_id) => {
-                        if target_id != &self.self_id {
-                            self.forward_direct(
-                                &incoming_peer,
-                                &msg.payload,
-                                target_id,
-                                next_ttl,
-                                topic,
-                            );
-                        }
+        if matches!(self.relay_role, RelayRole::Hub)
+            && let Some(next_ttl) = ttl.checked_sub(1)
+        {
+            match &target {
+                RelayTarget::Broadcast => {
+                    self.forward_broadcast(&incoming_peer, &msg.payload, next_ttl, topic);
+                }
+                RelayTarget::Direct(target_id) => {
+                    if target_id != &self.self_id {
+                        self.forward_direct(
+                            &incoming_peer,
+                            &msg.payload,
+                            target_id,
+                            next_ttl,
+                            topic,
+                        );
                     }
                 }
             }
@@ -15759,7 +15788,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             };
             let Some(delivery) = delivery else {
                 let drops = inc_subscriber_queue_full_for(topic);
-                if drops == 1 || drops % 1024 == 0 {
+                if drops == 1 || drops.is_multiple_of(1024) {
                     iroha_logger::warn!(
                         peer = %logging_peer,
                         topic = ?topic,
@@ -15826,7 +15855,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
                 Ok(()) => next.push(subscriber),
                 Err(TrySendError::Full(_)) => {
                     let drops = inc_subscriber_queue_full_for(topic);
-                    if drops == 1 || drops % 1024 == 0 {
+                    if drops == 1 || drops.is_multiple_of(1024) {
                         iroha_logger::warn!(
                             peer = %logging_peer,
                             topic = ?topic,
@@ -15851,7 +15880,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
         };
         if matched_count == 0 {
             let misses = inc_subscriber_unrouted_for(topic);
-            if misses == 1 || misses % 1024 == 0 {
+            if misses == 1 || misses.is_multiple_of(1024) {
                 iroha_logger::warn!(
                     peer = %logging_peer,
                     topic = ?topic,
@@ -16002,11 +16031,10 @@ fn topology_tick_interval(configured: Duration) -> Duration {
     configured
 }
 #[cfg(test)]
-fn cap_violation_test_guard() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("cap violation test lock poisoned")
+async fn cap_violation_test_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    // Keep the counter isolated across awaits without blocking an executor thread.
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    LOCK.lock().await
 }
 fn apply_connect_startup_delay(
     when: tokio::time::Instant,
@@ -16547,10 +16575,7 @@ impl PeerReputationBook {
     }
     fn set_trusted(&mut self, trusted: &HashSet<PeerId>) {
         for id in trusted {
-            self.inner
-                .entry(id.clone())
-                .or_insert_with(PeerReputation::default)
-                .trusted = true;
+            self.inner.entry(id.clone()).or_default().trusted = true;
         }
         // Clear trust flag for peers not present in the new set.
         for (peer_id, rep) in &mut self.inner {
@@ -16563,10 +16588,7 @@ impl PeerReputationBook {
             .retain(|_, reputation| reputation.trusted || reputation.score != 0);
     }
     fn record_connected(&mut self, peer: &PeerId) {
-        let rep = self
-            .inner
-            .entry(peer.clone())
-            .or_insert_with(PeerReputation::default);
+        let rep = self.inner.entry(peer.clone()).or_default();
         rep.score = rep.score.saturating_add(1);
     }
     fn record_disconnected(&mut self, peer: &PeerId) {
@@ -16581,7 +16603,7 @@ impl PeerReputationBook {
     fn is_trusted(&self, peer: &PeerId) -> bool {
         self.inner
             .get(peer)
-            .map_or(false, |rep| rep.trusted || rep.score > 0)
+            .is_some_and(|rep| rep.trusted || rep.score > 0)
     }
     fn score(&self, peer: &PeerId) -> i32 {
         self.inner.get(peer).map_or(0, |rep| rep.score)

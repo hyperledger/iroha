@@ -1,11 +1,11 @@
 //! Regressions for durable `StateMap<Name, int>` runtime behavior.
+use crate::common;
 use iroha_crypto::PublicKey;
 use iroha_data_model::prelude::AccountId;
 use ivm::mock_wsv::{MockWorldStateView, WsvHost};
 use ivm::{CoreHost, IVM};
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
 use std::str::FromStr;
-mod common;
 fn run_program(src: &str) -> IVM {
     let code = KotodamaCompiler::new()
         .compile_source(src)
@@ -127,7 +127,7 @@ fn mixed_aggregate_unwrap_or_remains_eager_on_the_present_arm() {
     let (vm, wsv) = run_program_with_wsv(src, MockWorldStateView::new());
     assert_eq!(common::decode_i64_return_word(&vm, 0), 7);
     let fallback_calls = wsv
-        .sc_get(&encoded_int_state_path("FallbackCalls", 1))
+        .sc_get(encoded_int_state_path("FallbackCalls", 1))
         .expect("eager fallback must persist its observable state mutation");
     assert_eq!(common::decode_int_state_value(&fallback_calls), 1);
 }
@@ -139,7 +139,7 @@ fn mixed_aggregate_unwrap_or_evaluates_fallback_once_on_the_absent_arm() {
     let (vm, wsv) = run_program_with_wsv(src, MockWorldStateView::new());
     assert_eq!(common::decode_i64_return_word(&vm, 0), 11);
     let fallback_calls = wsv
-        .sc_get(&encoded_int_state_path("FallbackCalls", 1))
+        .sc_get(encoded_int_state_path("FallbackCalls", 1))
         .expect("selected fallback must persist its observable state mutation");
     assert_eq!(common::decode_int_state_value(&fallback_calls), 1);
 }

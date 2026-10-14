@@ -1,6 +1,6 @@
 //! Iroha client CLI implementation executed by the thin `iroha` binary.
 #![deny(deprecated)]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::release_identity::CompiledBuildMetadata;
 use iroha_model_base::domain::DomainId;
 
@@ -4759,16 +4759,16 @@ mod multisig {
                 &iroha_test_samples::ALICE_ID,
                 &proposal_nonce,
             );
-            let proposal = MultisigProposalValue::new(
+            let proposal = MultisigProposalValue {
                 network_id,
                 proposal_nonce,
                 proposal_id,
-                None,
-                Vec::new(),
+                transaction_ttl_ms: None,
+                instructions: Vec::new(),
                 proposed_at_ms,
-                proposed_at_ms + 60_000,
-                BTreeSet::new(),
-            );
+                expires_at_ms: proposed_at_ms + 60_000,
+                approvals: BTreeSet::new(),
+            };
             let instructions_hash = hex::encode(HashOf::new(&proposal.instructions).as_ref());
             iroha::client::MultisigProposalEntry {
                 proposal_id: proposal_id.to_string(),

@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Lanes on real peers (`specs/sumeragi_lanes.md`): four validators run the global chain and a
 //! fixed lane over P2P. A transaction routed to the lane is carried by a certified lane block,
 //! merged by the global chain and committed on every peer, before and after the whole cluster

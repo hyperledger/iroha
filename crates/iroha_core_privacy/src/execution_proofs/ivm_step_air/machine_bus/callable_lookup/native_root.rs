@@ -20,7 +20,7 @@ impl SelectedCallable {
             || !callable.arguments.nodes.is_empty()
             || !matches!(
                 callable.results.nodes.as_slice(),
-                [CallTypeNodeV1::Unit] | [CallTypeNodeV1::Leaf(EntrypointValueKindV1::Bool)]
+                [CallTypeNodeV1::Unit | CallTypeNodeV1::Leaf(EntrypointValueKindV1::Bool)]
             )
         {
             return None;

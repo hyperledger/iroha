@@ -617,18 +617,18 @@ fn multisig_contract_trigger_later_approval_reads_persisted_contract_route() {
         catalog,
     );
     install_router_lane_catalog(&mut state, lane_catalog);
-    let proposal_state = MultisigProposalState::new(
-        super::super::queue_test_network_id(),
-        multisig_id.clone().clone(),
-        test_nonce(&instructions_hash),
-        test_id(&multisig_id.clone(), &instructions_hash),
+    let proposal_state = MultisigProposalState {
+        network_id: super::super::queue_test_network_id(),
+        multisig_account_id: multisig_id.clone().clone(),
+        proposal_nonce: test_nonce(&instructions_hash),
+        proposal_id: test_id(&multisig_id.clone(), &instructions_hash),
         instructions_hash,
-        None,
-        proposed,
-        1,
-        10_000,
-        BTreeSet::new(),
-    );
+        transaction_ttl_ms: None,
+        instructions: proposed,
+        proposed_at_ms: 1,
+        expires_at_ms: 10_000,
+        approvals: BTreeSet::new(),
+    };
     state.world.smart_contract_state_mut_for_testing().insert(
         multisig_proposal_state_key(&multisig_id, &test_id(&multisig_id, &instructions_hash)),
         norito::to_bytes(&proposal_state).expect("proposal state should encode"),
@@ -1025,18 +1025,18 @@ fn multisig_approve_routes_by_persisted_proposal_when_scope_is_missing() {
     );
     let mut state = state_with_account_scope_entries(&[], catalog);
     install_router_lane_catalog(&mut state, lane_catalog);
-    let proposal_state = MultisigProposalState::new(
-        super::super::queue_test_network_id(),
-        multisig_id.clone().clone(),
-        test_nonce(&instructions_hash),
-        test_id(&multisig_id.clone(), &instructions_hash),
+    let proposal_state = MultisigProposalState {
+        network_id: super::super::queue_test_network_id(),
+        multisig_account_id: multisig_id.clone().clone(),
+        proposal_nonce: test_nonce(&instructions_hash),
+        proposal_id: test_id(&multisig_id.clone(), &instructions_hash),
         instructions_hash,
-        None,
-        proposed,
-        1,
-        10_000,
-        BTreeSet::new(),
-    );
+        transaction_ttl_ms: None,
+        instructions: proposed,
+        proposed_at_ms: 1,
+        expires_at_ms: 10_000,
+        approvals: BTreeSet::new(),
+    };
     state.world.smart_contract_state_mut_for_testing().insert(
         multisig_proposal_state_key(&multisig_id, &test_id(&multisig_id, &instructions_hash)),
         norito::to_bytes(&proposal_state).expect("proposal state should encode"),
@@ -1275,18 +1275,18 @@ fn multisig_approve_ignores_unrelated_persisted_proposal_hash() {
     let mut state =
         state_with_account_scope_entries(&[(multisig_id.clone(), scope_entry)], catalog);
     install_router_lane_catalog(&mut state, lane_catalog);
-    let stale_state = MultisigProposalState::new(
-        super::super::queue_test_network_id(),
-        multisig_id.clone().clone(),
-        test_nonce(&stale_hash),
-        test_id(&multisig_id.clone(), &stale_hash),
-        stale_hash,
-        None,
-        stale_proposed,
-        1,
-        10_000,
-        BTreeSet::new(),
-    );
+    let stale_state = MultisigProposalState {
+        network_id: super::super::queue_test_network_id(),
+        multisig_account_id: multisig_id.clone().clone(),
+        proposal_nonce: test_nonce(&stale_hash),
+        proposal_id: test_id(&multisig_id.clone(), &stale_hash),
+        instructions_hash: stale_hash,
+        transaction_ttl_ms: None,
+        instructions: stale_proposed,
+        proposed_at_ms: 1,
+        expires_at_ms: 10_000,
+        approvals: BTreeSet::new(),
+    };
     state.world.smart_contract_state_mut_for_testing().insert(
         multisig_proposal_state_key(&multisig_id, &test_id(&multisig_id, &stale_hash)),
         norito::to_bytes(&stale_state).expect("stale proposal state should encode"),
@@ -1343,18 +1343,18 @@ fn multisig_approve_plan_prefers_visible_proposal_over_multiscope_account() {
     let mut state =
         state_with_account_scope_entries(&[(multisig_id.clone(), scope_entry)], catalog);
     install_router_lane_catalog(&mut state, lane_catalog);
-    let proposal_state = MultisigProposalState::new(
-        super::super::queue_test_network_id(),
-        multisig_id.clone().clone(),
-        test_nonce(&instructions_hash),
-        test_id(&multisig_id.clone(), &instructions_hash),
+    let proposal_state = MultisigProposalState {
+        network_id: super::super::queue_test_network_id(),
+        multisig_account_id: multisig_id.clone().clone(),
+        proposal_nonce: test_nonce(&instructions_hash),
+        proposal_id: test_id(&multisig_id.clone(), &instructions_hash),
         instructions_hash,
-        None,
-        proposed,
-        1,
-        10_000,
-        BTreeSet::new(),
-    );
+        transaction_ttl_ms: None,
+        instructions: proposed,
+        proposed_at_ms: 1,
+        expires_at_ms: 10_000,
+        approvals: BTreeSet::new(),
+    };
     state.world.smart_contract_state_mut_for_testing().insert(
         multisig_proposal_state_key(&multisig_id, &test_id(&multisig_id, &instructions_hash)),
         norito::to_bytes(&proposal_state).expect("proposal state should encode"),

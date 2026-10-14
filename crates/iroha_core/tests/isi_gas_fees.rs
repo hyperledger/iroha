@@ -1,5 +1,5 @@
 //! Integration-style test: non-VM (native ISI) transaction gas metering and fee transfer.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(clippy::similar_names)]
 use iroha_config::parameters::actual::{GasLiquidity, GasVolatility};
 use iroha_core::{

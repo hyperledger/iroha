@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Tests for notifications emitted after trigger execution.
 use eyre::Result;
 use futures_util::StreamExt;

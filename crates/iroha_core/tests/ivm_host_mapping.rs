@@ -1,5 +1,5 @@
 //! Host mapping parity tests: ensure SCALLs bridge to native ISIs with identical effects.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(
     clippy::cast_possible_truncation,
     clippy::redundant_closure_for_method_calls,

@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests for receive-path implicit account creation and domain SNS helpers.
 use eyre::Result;
 use integration_tests::sandbox;

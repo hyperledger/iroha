@@ -1,5 +1,5 @@
 //! Gas cost golden tests for IVM opcodes and syscalls.
-mod common;
+use crate::common;
 use instruction::wide;
 use ivm::{
     IVM, VMError, cost_of as cost_of_opt,

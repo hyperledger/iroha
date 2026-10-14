@@ -1,5 +1,5 @@
 //! Scaffold tests for ZK asset registration and authenticated commitment-tree state.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![cfg(feature = "zk-tests")]
 #[path = "common/zk_components.rs"]
 mod zk_components;

@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Torii Space Directory manifest endpoint tests.
 #![cfg(feature = "app_api")]
 use axum::{Router, http::Request, response::IntoResponse as _, routing::post};

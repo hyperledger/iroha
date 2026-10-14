@@ -11,6 +11,9 @@ use iroha_allocation::{AllocationBudget, ChargedBuffer};
 
 #[path = "retained_rows/key_work.rs"]
 mod key_work;
+#[path = "retained_rows/lookup.rs"]
+mod lookup;
+pub(super) use lookup::compare as compare_source_keys;
 #[path = "retained_rows/predecessor.rs"]
 mod predecessor;
 pub(super) use predecessor::PredecessorReadProgress;

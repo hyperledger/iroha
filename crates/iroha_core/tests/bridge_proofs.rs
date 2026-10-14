@@ -1,5 +1,5 @@
 //! Bridge-proof admission and retention tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     executor::Executor,
     kura::Kura,

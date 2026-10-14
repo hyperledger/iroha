@@ -11,7 +11,6 @@
     clippy::map_unwrap_or,
     clippy::missing_panics_doc,
     clippy::needless_return,
-    clippy::pedantic,
     clippy::redundant_closure_for_method_calls,
     clippy::redundant_pub_crate,
     clippy::similar_names,

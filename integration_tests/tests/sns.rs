@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! SNS registrar integration coverage.
 use eyre::{Result, WrapErr, eyre};
 use integration_tests::sandbox::{self, start_network_async_or_skip};

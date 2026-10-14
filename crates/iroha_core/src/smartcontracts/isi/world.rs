@@ -21830,9 +21830,28 @@ pub mod isi {
             const FIRST_MONTH: u64 = 1_793_451_600_000;
             const WALLET_MINOR: u64 = 10_000;
             let (mut chain, binding) = signed_payout_lifecycle_registry_fixture();
+            // Reward maintenance uses the authenticated parent's calendar month. Keep
+            // the signed prefix in the registry's actual billing era before installing
+            // its component prestate; a January 1970 parent has a pre-epoch UTC month.
             while chain.height() < PARLIAMENT_DUE_CERTIFICATE_HEIGHT - 1 {
-                chain.commit_at((chain.height() + 1) * 1_000, Vec::new());
+                chain.commit_at(FIRST_MONTH + (chain.height() + 1) * 1_000, Vec::new());
             }
+            assert_eq!(
+                crate::validation_fee_rewards::earning_month(
+                    u64::try_from(
+                        chain
+                            .committed(chain.height())
+                            .block()
+                            .header()
+                            .creation_time()
+                            .as_millis()
+                    )
+                    .unwrap()
+                )
+                .unwrap(),
+                FIRST_MONTH,
+                "the certified parent supplies the original billing month"
+            );
             let mut live = policy_registry(&[], std::slice::from_ref(&binding));
             let mut candidate = ValidationFeePolicyV1 {
                 schema_version: VALIDATION_FEE_POLICY_SCHEMA_VERSION,

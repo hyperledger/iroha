@@ -1,7 +1,7 @@
 //! Kotodama control-flow codegen coverage for `break`/`continue`.
+use crate::common;
 use ivm::{CoreHost, IVM};
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 #[test]
 fn break_exits_bounded_for_loop() {
     let src = r#"

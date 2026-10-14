@@ -1,5 +1,5 @@
 //! Validates that aggregate asset totals stay aligned with per-account balances.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use core::num::NonZeroU64;
 use iroha_core::{
     kura::Kura,

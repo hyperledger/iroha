@@ -6,8 +6,6 @@
 // Nested `if` blocks remain intentional for readability/instrumentation; Clippy's
 // `collapsible_if` lint would force let-chains that obscure the control flow.
 #![allow(clippy::collapsible_if)]
-#![allow(clippy::all)]
-#![allow(clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![allow(
     clippy::cast_lossless,
     clippy::cloned_instead_of_copied,

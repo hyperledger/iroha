@@ -1,5 +1,5 @@
 //! Grouped Torii ZK endpoint integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[path = "../zk_attachments_filters_integration.rs"]
 mod zk_attachments_filters_integration;
 #[path = "../zk_attachments_integration.rs"]

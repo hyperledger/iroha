@@ -1,6 +1,6 @@
-use ivm::{IVM, Memory, ProgramMetadata, encoding, instruction};
-mod common;
+use crate::common;
 use common::{MODE_VECTOR, assemble, assemble_with_mode};
+use ivm::{IVM, Memory, ProgramMetadata, encoding, instruction};
 const HALT_WORD: u32 = encoding::wide::encode_halt();
 const VECTOR_BASE: usize = 32;
 fn words(words: &[u32]) -> Vec<u8> {
@@ -381,8 +381,8 @@ fn funded_auto_vector_destinations_preserve_all_operations_and_final_owner_charg
         }
     }
     ivm::vrot32_auto_into(&left, 13, output.as_mut_slice());
-    for i in 0..lanes {
-        assert_eq!(output.as_slice()[i], left[i].rotate_left(13));
+    for (i, value) in left.iter().enumerate() {
+        assert_eq!(output.as_slice()[i], value.rotate_left(13));
     }
     ivm::vadd64_auto_into(&left, &right, output.as_mut_slice());
     for i in (0..lanes).step_by(2) {

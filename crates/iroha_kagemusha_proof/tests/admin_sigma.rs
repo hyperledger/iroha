@@ -380,7 +380,7 @@ fn installed_admin_sigma_originals_prove_bootstrap_and_reject_rehashed_value() {
     .unwrap();
     let original = key.artifact_bytes_v2().unwrap();
     let metadata = BootstrapProver::admit_original_artifact_cancellable(
-        params.clone(),
+        &params,
         key.binding().encoded(),
         key.vk().to_bytes(),
         &original,
@@ -434,7 +434,7 @@ fn installed_admin_sigma_originals_prove_load_and_reject_rehashed_value() {
     .unwrap();
     let original = key.artifact_bytes_v2().unwrap();
     let metadata = LoadProver::admit_original_artifact_cancellable(
-        params.clone(),
+        &params,
         key.binding().encoded(),
         key.vk().to_bytes(),
         &original,
@@ -536,12 +536,7 @@ fn installed_admin_sigma_originals_reject_cross_operation_profile_and_original_m
         macro_rules! admit {
             ($owner:ty) => {
                 <$owner>::admit_original_artifact_cancellable(
-                    args.0.clone(),
-                    args.1,
-                    args.2,
-                    args.3,
-                    args.4,
-                    None,
+                    &args.0, args.1, args.2, args.3, args.4, None,
                 )
             };
         }
@@ -644,12 +639,7 @@ fn installed_admin_sigma_originals_reject_cross_operation_profile_and_original_m
     ));
     let import = |descriptor: &[u8], vk: &[u8]| {
         let metadata = BootstrapProver::admit_original_artifact_cancellable(
-            params.clone(),
-            descriptor,
-            vk,
-            &original,
-            config,
-            None,
+            &params, descriptor, vk, &original, config, None,
         );
         let full = BootstrapProver::from_original_artifact(
             params.clone(),
@@ -690,7 +680,7 @@ fn installed_admin_sigma_originals_reject_cross_operation_profile_and_original_m
     ));
     assert!(matches!(
         BootstrapProver::admit_original_artifact_cancellable(
-            common::vesta_params(11),
+            &common::vesta_params(11),
             key.binding().encoded(),
             key.vk().to_bytes(),
             &original,

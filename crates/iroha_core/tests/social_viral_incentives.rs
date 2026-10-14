@@ -1,7 +1,7 @@
 //! Viral incentive component flows (SOC-2): rewards, escrows, caps, and controls.
 //! The explicit finite protocol pool is fixture custody, not an authenticated
 //! Network input, retained finality source, or block publication capability.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_config::parameters::{actual::ViralIncentives, defaults};
 use iroha_core::{
     kura::Kura,

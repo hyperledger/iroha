@@ -1581,7 +1581,9 @@ impl Kura {
                 "Kura emergency Fast mode skipped the full disk-usage inventory and suspended its local Kura capacity cap until a Strict restart"
             );
         }
-        kura.validate_fastpq_artifact_inventory_on_startup()?;
+        kura.validate_fastpq_artifact_inventory_on_startup(
+            &mut kura.sidecar_lock.defer_notifications(),
+        )?;
         info!(
             mode = ?config.init_mode,
             block_count,
@@ -6661,10 +6663,23 @@ impl Kura {
                 self.active_blocks_dir.lock().clone(),
             ));
         }
+        // Retain both original physical sources through the complete startup read,
+        // including block-store release and every acquired-prefix error.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC360")))]
+        let (mut prune_releases, mut canonical_releases) = (
+            self.prune_lock.defer_notifications(),
+            self.canonical_chain_lock.defer_notifications(),
+        );
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC360")))]
+        let _prune_guard = prune_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC360"))]
         let _prune_guard = self.prune_lock.lock();
         #[cfg(all(test, unix))]
         tests::original_snapshot_release_tests::fence_boundary(1);
         self.ensure_prune_recovery_not_required()?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC360")))]
+        let _canonical_chain_guard = canonical_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC360"))]
         let _canonical_chain_guard = self.canonical_chain_lock.lock();
         #[cfg(all(test, unix))]
         tests::original_snapshot_release_tests::fence_boundary(2);
@@ -6708,10 +6723,23 @@ impl Kura {
                 self.active_blocks_dir.lock().clone(),
             ));
         }
+        // Retain both original physical sources through the complete startup read,
+        // including block-store release and every acquired-prefix error.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC360")))]
+        let (mut prune_releases, mut canonical_releases) = (
+            self.prune_lock.defer_notifications(),
+            self.canonical_chain_lock.defer_notifications(),
+        );
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC360")))]
+        let _prune_guard = prune_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC360"))]
         let _prune_guard = self.prune_lock.lock();
         #[cfg(all(test, unix))]
         tests::original_snapshot_release_tests::fence_boundary(1);
         self.ensure_prune_recovery_not_required()?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC360")))]
+        let _canonical_chain_guard = canonical_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC360"))]
         let _canonical_chain_guard = self.canonical_chain_lock.lock();
         #[cfg(all(test, unix))]
         tests::original_snapshot_release_tests::fence_boundary(2);

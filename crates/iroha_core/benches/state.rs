@@ -1,5 +1,5 @@
 //! Benchmarks for production WSV state commit and derived-index paths.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[cfg(feature = "bench")]
 use core::num::NonZeroU64;
 #[cfg(feature = "bench")]

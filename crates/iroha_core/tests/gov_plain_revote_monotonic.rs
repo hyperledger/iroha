@@ -1,5 +1,5 @@
 //! Immutable plain casts and explicit authority-bound conviction updates.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     kura::Kura,
     query::store::LiveQueryStore,

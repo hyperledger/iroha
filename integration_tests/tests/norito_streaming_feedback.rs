@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Loopback integration test covering FeedbackHint/ReceiverReport flow and parity decisions.
 use eyre::{Result as EyreResult, eyre};
 use iroha_core::streaming::StreamingHandle;

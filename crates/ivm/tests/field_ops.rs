@@ -1,6 +1,6 @@
-use ivm::{IVM, encoding, field, instruction};
-mod common;
+use crate::common;
 use common::assemble_zk;
+use ivm::{IVM, encoding, field, instruction};
 const HALT: [u8; 4] = encoding::wide::encode_halt().to_le_bytes();
 const GOLDILOCKS_MODULUS: u128 = 0xffff_ffff_0000_0001;
 

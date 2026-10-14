@@ -55,18 +55,18 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
             );
             let key =
                 multisig_proposal_state_key(&multisig, &test_id(&network_id, &multisig, &hash));
-            let original = MultisigProposalState::new(
+            let original = MultisigProposalState {
                 network_id,
-                multisig.clone(),
-                test_nonce(&hash),
-                test_id(&network_id, &multisig.clone(), &hash),
-                hash,
-                None,
-                instructions.clone(),
-                1_000,
-                60_000,
-                BTreeSet::new(),
-            );
+                multisig_account_id: multisig.clone(),
+                proposal_nonce: test_nonce(&hash),
+                proposal_id: test_id(&network_id, &multisig.clone(), &hash),
+                instructions_hash: hash,
+                transaction_ttl_ms: None,
+                instructions: instructions.clone(),
+                proposed_at_ms: 1_000,
+                expires_at_ms: 60_000,
+                approvals: BTreeSet::new(),
+            };
             let bytes = norito::to_bytes(&original).unwrap();
             {
                 let mut setup = block.transaction_for_callback_testing();
@@ -174,7 +174,7 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                         else {
                             panic!("expected an unfinished local attempt")
                         };
-                        assert_reason_only_deferral(&actual, expected.reason());
+                        assert_original_allocation_refusal(&actual, 0);
                     };
                 });
                 let opaque: InstructionBox = approval.clone().into();
@@ -188,7 +188,7 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                         else {
                             panic!("expected an unfinished local attempt")
                         };
-                        assert_reason_only_deferral(&actual, expected.reason());
+                        assert_instruction_decode_deferral(&actual, expected.reason());
                     };
                 });
                 let projected = limited(|| {
@@ -203,16 +203,13 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                     else {
                         panic!("expected an unfinished local attempt")
                     };
-                    assert_reason_only_deferral(&actual, expected.reason());
+                    assert_instruction_decode_deferral(&actual, expected.reason());
                 };
                 // The native approval entry point retains the same read refusal in
                 // its model-owned error bridge, before recording an approval outcome.
                 limited(|| execute_approve(&mut tx, authority, &approval))
                     .expect_err("an unfinished native read must stop approval");
-                assert_reason_only_deferral(
-                    &tx.borrow_execution_deferral().unwrap(),
-                    expected.reason(),
-                );
+                assert_original_allocation_refusal(&tx.borrow_execution_deferral().unwrap(), 0);
                 assert!(
                     expected.allocation_refusal().is_none(),
                     "a Norito ceiling has no invented pool notification"
@@ -309,18 +306,18 @@ fn live_multisig_proposal_missing_malformed_and_rebound_state_are_not_deferrals(
             ValidationFail::QueryFailed(QueryExecutionFail::Conversion(_))
         ))
     ));
-    let original = MultisigProposalState::new(
+    let original = MultisigProposalState {
         network_id,
-        authority.clone(),
-        test_nonce(&hash),
-        test_id(&network_id, &authority.clone(), &hash),
-        hash,
-        None,
+        multisig_account_id: authority.clone(),
+        proposal_nonce: test_nonce(&hash),
+        proposal_id: test_id(&network_id, &authority.clone(), &hash),
+        instructions_hash: hash,
+        transaction_ttl_ms: None,
         instructions,
-        1_000,
-        60_000,
-        BTreeSet::new(),
-    );
+        proposed_at_ms: 1_000,
+        expires_at_ms: 60_000,
+        approvals: BTreeSet::new(),
+    };
     for mutation in 0..6 {
         let mut altered = original.clone();
         match mutation {
@@ -420,30 +417,30 @@ fn terminal_decode_retry(expired: bool) {
             }];
             let hash = HashOf::new(&instructions);
             let expiry = if expired { 1_500 } else { 60_000 };
-            let proposal = MultisigProposalState::new(
+            let proposal = MultisigProposalState {
                 network_id,
-                account.clone(),
-                test_nonce(&hash),
-                test_id(&network_id, &account.clone(), &hash),
-                hash,
-                None,
+                multisig_account_id: account.clone(),
+                proposal_nonce: test_nonce(&hash),
+                proposal_id: test_id(&network_id, &account.clone(), &hash),
+                instructions_hash: hash,
+                transaction_ttl_ms: None,
                 instructions,
-                1_000,
-                expiry,
-                BTreeSet::new(),
-            );
-            let leaf = MultisigProposalState::new(
+                proposed_at_ms: 1_000,
+                expires_at_ms: expiry,
+                approvals: BTreeSet::new(),
+            };
+            let leaf = MultisigProposalState {
                 network_id,
-                account.clone(),
-                test_nonce(&leaf_hash),
-                test_id(&network_id, &account.clone(), &leaf_hash),
-                leaf_hash,
-                None,
-                leaf_instructions,
-                1_000,
-                expiry,
-                BTreeSet::new(),
-            );
+                multisig_account_id: account.clone(),
+                proposal_nonce: test_nonce(&leaf_hash),
+                proposal_id: test_id(&network_id, &account.clone(), &leaf_hash),
+                instructions_hash: leaf_hash,
+                transaction_ttl_ms: None,
+                instructions: leaf_instructions,
+                proposed_at_ms: 1_000,
+                expires_at_ms: expiry,
+                approvals: BTreeSet::new(),
+            };
             {
                 let mut tx = block.transaction_for_callback_testing();
                 tx.world.accounts.insert(
@@ -517,7 +514,7 @@ fn terminal_decode_retry(expired: bool) {
                         let ExecutionAttemptError::Deferred(actual) = child else {
                             panic!("expected an unfinished local attempt");
                         };
-                        assert_reason_only_deferral(&actual, expected.reason());
+                        assert_instruction_decode_deferral(&actual, expected.reason());
                     });
                     norito::with_decode_limits_scope(limits, || {
                         prune_expired(
@@ -535,7 +532,7 @@ fn terminal_decode_retry(expired: bool) {
                     let actual = tx
                         .borrow_execution_deferral()
                         .expect("expired traversal retains its original refusal");
-                    assert_reason_only_deferral(&actual, expected.reason());
+                    assert_instruction_decode_deferral(&actual, expected.reason());
                 }
                 assert_eq!(
                     tx.world
@@ -604,7 +601,12 @@ fn terminal_decode_retry(expired: bool) {
                     let ExecutionAttemptError::Deferred(actual) = error else {
                         panic!("expected an unfinished local attempt")
                     };
-                    assert_reason_only_deferral(&actual, expected.reason());
+                    assert_original_depth_refusal(&actual, depth);
+                    let original = actual.decode_refusal().unwrap().clone();
+                    let transferred = ExecutionDeferred::try_from_vm_error(actual.into_vm_error())
+                        .expect("the original terminal refusal crosses the host boundary");
+                    assert_eq!(transferred.decode_refusal(), Some(&original));
+                    assert_original_depth_refusal(&transferred, depth);
                 };
                 assert!(tx.require_storage_admission().is_ok());
                 assert!(tx.is_execution_deferred());
@@ -745,15 +747,52 @@ fn outstanding_occurrence_invalidation_preserves_original_decode_refusal() {
     });
 }
 
-/// Assert every field of the historical reason-only decoder outcome without
-/// imposing equality or cloning on carriers that can own native verifier errors.
-fn assert_reason_only_deferral(
+/// Direct custom-instruction parsing reports its local reason without a canonical owner.
+fn assert_instruction_decode_deferral(
     actual: &ExecutionDeferred,
     expected: ivm::error::ExecutionDeferral,
 ) {
     assert_eq!(actual.reason(), expected);
     assert_eq!(actual.phase(), None);
     assert!(actual.allocation_refusal().is_none());
+    assert!(actual.allocator_refusal().is_none());
     assert!(actual.decode_refusal().is_none());
     assert!(actual.verification_refusal().is_none());
+}
+
+/// Canonical retained-row reads preserve their original scope without inventing a pool wake.
+fn original_decode_refusal(actual: &ExecutionDeferred) -> &norito::core::DecodeLocalRefusal {
+    assert_eq!(
+        actual.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    assert_eq!(actual.phase(), None);
+    assert!(actual.allocation_refusal().is_none());
+    assert!(actual.allocator_refusal().is_none());
+    assert!(actual.verification_refusal().is_none());
+    let original = actual
+        .decode_refusal()
+        .expect("canonical decode retains its original cause");
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
+    );
+    assert_eq!(original.allocation_bytes(), None);
+    original
+}
+
+fn assert_original_allocation_refusal(actual: &ExecutionDeferred, expected_limit: u64) {
+    assert!(matches!(
+        original_decode_refusal(actual).resource_error(),
+        norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit }
+            if limit == expected_limit && attempted > limit
+    ));
+}
+
+fn assert_original_depth_refusal(actual: &ExecutionDeferred, expected_limit: usize) {
+    assert!(matches!(
+        original_decode_refusal(actual).resource_error(),
+        norito::core::DecodeResourceError::NestingDepthExceeded { depth, limit, .. }
+            if limit == expected_limit && depth > limit
+    ));
 }

@@ -53,7 +53,7 @@ impl From<crate::VerificationAttemptError<String>> for StarkProofProductionError
 
 /// Goldilocks prime modulus p = 2^64 - 2^32 + 1
 const MOD_P: u128 = (1u128 << 64) - (1u128 << 32) + 1;
-const MOD_P_U64: u64 = MOD_P as u64;
+const MOD_P_U64: u64 = 0xffff_ffff_0000_0001;
 const GOLDILOCKS_GENERATOR: u64 = 7;
 /// Sole first-release native STARK/FRI profile identifier.
 pub const STARK_FRI_PROFILE_ID_V1: &str = "stark/fri/poseidon-x7-goldilocks-6x64-v1";
@@ -301,18 +301,29 @@ impl Fq {
     fn one() -> Self {
         Self(1)
     }
+    /// Extract the low word of an already canonical arithmetic result.
+    /// Every caller first establishes `value < MOD_P < 2^64`: addition subtracts
+    /// at most one modulus, subtraction borrows one modulus, and reduction uses
+    /// the modulus remainder. Fixed byte positions preserve that exact value
+    /// without adding a value-dependent conversion branch to field arithmetic.
+    fn from_reduced(value: u128) -> Self {
+        let bytes = value.to_le_bytes();
+        Self(u64::from_le_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ]))
+    }
     fn add(self, rhs: Self) -> Self {
         let mut x = (self.0 as u128) + (rhs.0 as u128);
         if x >= MOD_P {
             x -= MOD_P;
         }
-        Self(x as u64)
+        Self::from_reduced(x)
     }
     fn sub(self, rhs: Self) -> Self {
         let a = self.0 as u128;
         let b = rhs.0 as u128;
         let x = if a >= b { a - b } else { (a + MOD_P) - b };
-        Self(x as u64)
+        Self::from_reduced(x)
     }
     fn mul(self, rhs: Self) -> Self {
         let x = (self.0 as u128) * (rhs.0 as u128);
@@ -335,18 +346,18 @@ impl Fq {
             return None;
         }
         // Fermat's little theorem: a^(p-2) mod p
-        Some(self.pow((MOD_P - 2) as u128))
+        Some(self.pow(MOD_P - 2))
     }
     fn to_le_bytes(self) -> [u8; 8] {
         self.0.to_le_bytes()
     }
     fn reduce(v: u128) -> Self {
-        Self((v % MOD_P) as u64)
+        Self::from_reduced(v % MOD_P)
     }
 }
 fn two_inv() -> Fq {
     // (p + 1) / 2 for the odd Goldilocks prime.
-    Fq(((MOD_P + 1) / 2) as u64)
+    Fq(MOD_P_U64.div_ceil(2))
 }
 /// Canonical coefficient representation of one Goldilocks quartic-extension element.
 ///

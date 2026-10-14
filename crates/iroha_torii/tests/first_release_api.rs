@@ -1,5 +1,5 @@
 //! Integration coverage for the single, first-release Torii API surface.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![cfg(feature = "app_api")]
 use axum::http::Request;
 use http::{

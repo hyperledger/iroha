@@ -38,7 +38,7 @@ fn same_metadata<C: PastaCurve>(
 fn parity<C: PastaCurve>(compress: bool) {
     let f = Fixture::<C>::with_compression(compress);
     let member = profile(entries(vec![f.entry()])).member(ROLE).unwrap();
-    let original = f.admit(&member).unwrap();
+    let original = f.admit(member).unwrap();
     let probe = CommitmentProbe::start();
     let admitted = typed(&f, member, f.generated.binding(), f.generated.vk()).unwrap();
     same_metadata(&admitted, &original);
@@ -67,7 +67,7 @@ fn parity<C: PastaCurve>(compress: bool) {
     );
     assert_eq!(probe.calls(), 0);
     drop(probe);
-    let prove = |key: &ProvingKey<C>| {
+    let make_proof = |key: &ProvingKey<C>| {
         let witness = Witness::from_circuit(key, &f.source, &[]).unwrap();
         let bytes = create_proof_owned(
             &f.params,
@@ -88,7 +88,7 @@ fn parity<C: PastaCurve>(compress: bool) {
         .unwrap();
         bytes
     };
-    assert_eq!(prove(&rebuilt), prove(&f.generated));
+    assert_eq!(make_proof(&rebuilt), make_proof(&f.generated));
     let changed = Source {
         fixed: C::ScalarExt::from(8),
         value: Value::unknown(),

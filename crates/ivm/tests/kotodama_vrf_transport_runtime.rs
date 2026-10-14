@@ -1,4 +1,5 @@
 //! Runtime coverage for Kotodama VRF request transport normalization.
+use crate::common;
 use blstrs::{G1Projective, G2Projective, Scalar};
 use group::{Curve, Group};
 use iroha_crypto::Hash;
@@ -11,7 +12,6 @@ use ivm::{
     vrf::{VrfVerifyBatchRequest, VrfVerifyRequest},
 };
 use std::collections::BTreeMap;
-mod common;
 fn tlv(pointer_type: PointerType, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(7 + payload.len() + Hash::LENGTH);
     out.extend_from_slice(&(pointer_type as u16).to_be_bytes());

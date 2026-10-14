@@ -90,10 +90,12 @@ impl WalletSourcesErrorV1 {
             Self::Original(Error::Unavailable)
                 | Self::Sigma(SigmaQualificationErrorV1::Original(Error::Unavailable))
                 | Self::Q(QQualificationErrorV1::Original(Error::Unavailable))
-                | Self::Operation(OperationQualificationErrorV1::Original(Error::Unavailable))
-                | Self::Operation(OperationQualificationErrorV1::Bootstrap(
-                    BootstrapQualificationErrorV1::Original(Error::Unavailable)
-                ))
+                | Self::Operation(
+                    OperationQualificationErrorV1::Original(Error::Unavailable)
+                        | OperationQualificationErrorV1::Bootstrap(
+                            BootstrapQualificationErrorV1::Original(Error::Unavailable)
+                        )
+                )
                 | Self::Omega(OmegaQualificationErrorV1::Original(Error::Unavailable))
         )
     }

@@ -1,5 +1,5 @@
 //! Plain ballot must fail when referendum is missing or closed.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     kura::Kura,
     query::store::LiveQueryStore,

@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Tests for sorting and pagination queries
 use eyre::{Result, WrapErr as _};
 use integration_tests::sandbox;

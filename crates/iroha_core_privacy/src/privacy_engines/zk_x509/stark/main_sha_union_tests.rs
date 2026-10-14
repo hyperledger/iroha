@@ -260,7 +260,7 @@ fn actual_stripe_inverse_plan_is_canonical_and_bounded() {
         table.inverses.capacity() * core::mem::size_of::<F>() + core::mem::size_of_val(&table),
         ShaUnionEndpointDenominatorsV1::payload_charge_v1()
     );
-    for row in [0, 1, 137, 480287, 521951, NATIVE_ROWS_V1 - 1] {
+    for row in [0, 1, 137, 480_287, 521_951, NATIVE_ROWS_V1 - 1] {
         let x = stripe.shift.mul(stripe.root.pow(row as u128));
         for endpoint in 0..5 {
             assert_eq!(

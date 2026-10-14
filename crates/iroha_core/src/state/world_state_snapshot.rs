@@ -590,6 +590,11 @@ impl State {
 
     /// Borrow wrapper execution originals and, for a cancellation, its exact target original
     /// from the same certified cut. All originals remain untrusted publication data.
+    ///
+    /// # Errors
+    /// Returns an error for a changed or uncertified cut, missing or mismatched
+    /// originals, duplicate wrapper/target keys, exceeded allocation or record
+    /// bounds, noncanonical terminal bytes, or rejection by `consume`.
     pub fn with_native_multisig_execution_snapshot_v1<T>(
         &self,
         tip: &CommittedBlock,

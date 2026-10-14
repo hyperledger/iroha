@@ -1049,6 +1049,108 @@ async fn history_response_bytes_keep_query_custody_after_body_and_path_retire() 
     }
 }
 
+#[tokio::test]
+async fn history_error_responses_release_query_admission_before_body_read() {
+    let (state, ..) = seeded();
+    let cache_budget = iroha_allocation::AllocationBudget::new(1 << 20);
+    let mut cache = read::SccpHistoryNodeCache::new();
+    let unsupported = ExtractAccept(HeaderValue::from_static("application/xml"));
+    let unsupported_response = format(Some(&unsupported)).unwrap_err();
+    for (height, size, accept, expected) in [
+        (
+            10,
+            Some("not-a-number"),
+            json_accept(),
+            parse_number::<u64>(Some("not-a-number"), 0).unwrap_err(),
+        ),
+        (
+            99,
+            None,
+            json_accept(),
+            history_read_error(read::SccpHistoryReadError::MissingCommitment),
+        ),
+        (10, Some("3"), unsupported, unsupported_response),
+    ] {
+        let (semaphore, owner) = history_owner();
+        let response = history_response(
+            &state.view(),
+            height,
+            &HistoryQuery {
+                size: size.map(str::to_owned),
+            },
+            Some(&accept),
+            &HeaderMap::new(),
+            (&mut cache, &cache_budget),
+            &owner,
+        );
+        assert_eq!(response.status(), expected.status());
+        assert_eq!(response.headers(), expected.headers());
+        assert_eq!(owner.cold_frames().reserved_bytes(), 0);
+        drop(owner);
+        assert_eq!(
+            semaphore.available_permits(),
+            1,
+            "compact error bytes retain no funded history graph or query lease"
+        );
+        assert_eq!(body(response).await, body(expected).await);
+    }
+}
+
+#[tokio::test]
+async fn history_not_modified_releases_query_admission_and_preserves_validators() {
+    let (state, ..) = seeded();
+    let cache_budget = iroha_allocation::AllocationBudget::new(1 << 20);
+    let mut cache = read::SccpHistoryNodeCache::new();
+    let query = HistoryQuery {
+        size: Some("3".into()),
+    };
+    for accept in [norito_accept(), json_accept()] {
+        let (first_query, first_owner) = history_owner();
+        let first = history_response(
+            &state.view(),
+            10,
+            &query,
+            Some(&accept),
+            &HeaderMap::new(),
+            (&mut cache, &cache_budget),
+            &first_owner,
+        );
+        assert_eq!(first.status(), StatusCode::OK);
+        let etag = first.headers()[header::ETAG].clone();
+        let cache_control = first.headers()[header::CACHE_CONTROL].clone();
+        let vary = first.headers()[header::VARY].clone();
+        drop(first_owner);
+        assert_eq!(first_query.available_permits(), 0);
+        assert!(!body(first).await.is_empty());
+        assert_eq!(first_query.available_permits(), 1);
+
+        let mut conditional = HeaderMap::new();
+        conditional.insert(header::IF_NONE_MATCH, etag.clone());
+        let (conditional_query, owner) = history_owner();
+        let response = history_response(
+            &state.view(),
+            10,
+            &query,
+            Some(&accept),
+            &conditional,
+            (&mut cache, &cache_budget),
+            &owner,
+        );
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(response.headers()[header::ETAG], etag);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], cache_control);
+        assert_eq!(response.headers()[header::VARY], vary);
+        assert_eq!(owner.cold_frames().reserved_bytes(), 0);
+        drop(owner);
+        assert_eq!(
+            conditional_query.available_permits(),
+            1,
+            "an empty 304 retains neither encoded bytes nor the original query admission"
+        );
+        assert!(body(response).await.is_empty());
+    }
+}
+
 #[test]
 fn history_query_refuses_retired_or_unknown_fields() {
     assert!(norito::json::from_str::<HistoryQuery>(r#"{"size":"3","attestation":"own"}"#).is_err());

@@ -1,5 +1,5 @@
 //! Privacy-tag enforcement tests for ZK execution.
-mod common;
+use crate::common;
 use iroha_crypto::Hash;
 use iroha_primitives::numeric::{Numeric, Quantity};
 use ivm::{
@@ -558,14 +558,14 @@ fn output_sanitization_restores_registers_when_prepare_or_quote_fails() {
         vm.load_program(&raw_zk_program(&[scall(syscalls::SYSCALL_CURRENT_TIME_MS)]))
             .expect("load restoration fixture");
         vm.set_host(host);
-        vm.set_register(10, 0xC0FF_EE);
+        vm.set_register(10, 0x00C0_FFEE);
         vm.registers.set_tag(10, true);
         assert!(matches!(
             (vm.run(), expected),
             (Err(VMError::DecodeError), VMError::DecodeError)
                 | (Err(VMError::OutOfGas), VMError::OutOfGas)
         ));
-        assert_eq!(vm.register(10), 0xC0FF_EE);
+        assert_eq!(vm.register(10), 0x00C0_FFEE);
         assert!(vm.registers.tag(10));
     }
     assert_restored(PrepareFailureHost, VMError::DecodeError);

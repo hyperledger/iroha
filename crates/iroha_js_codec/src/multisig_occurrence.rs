@@ -82,6 +82,6 @@ mod tests {
         for nonce in ["00".repeat(32), "AB".repeat(32), "01".repeat(31)] {
             assert!(derive_multisig_proposal_id_json(&input(&nonce)).is_err());
         }
-        assert!(derive_multisig_proposal_id_json(&a.replace("{", "{\"extra\":true,")).is_err());
+        assert!(derive_multisig_proposal_id_json(&a.replace('{', "{\"extra\":true,")).is_err());
     }
 }

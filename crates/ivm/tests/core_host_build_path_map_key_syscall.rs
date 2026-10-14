@@ -1,6 +1,6 @@
 //! Regression coverage for an unassigned pre-release decimal-i64 map-key number.
+use crate::common;
 use ivm::{CoreHost, IVM, VMError, encoding, syscalls};
-mod common;
 #[test]
 fn decimal_i64_map_key_helper_is_not_part_of_abi_v1() {
     let unassigned = 0x54;

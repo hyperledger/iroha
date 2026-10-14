@@ -1,5 +1,5 @@
 //! Tests for `ZK_ROOTS_GET` respecting request max and configured cap.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![cfg(feature = "zk-tests")]
 use iroha_config::parameters::{actual as cfg, defaults};
 use iroha_core::{

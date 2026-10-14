@@ -103,6 +103,10 @@ pub struct TimedOvnSessionPublicV1 {
 impl TimedOvnSessionPublicV1 {
     /// Reconstruct the exact cryptographic timed-OVN session after checking
     /// the complete public TLE key and transcript binding.
+    ///
+    /// # Errors
+    /// Returns an error when the key session, network, transcript or public key
+    /// differs, the key encoding is invalid, or session construction refuses its bindings.
     pub fn rebuild(
         &self,
         tle_key_session: &ValidatedTleKeySessionV1,
@@ -212,6 +216,10 @@ impl TimedOvnReleaseIdentityPublicV1 {
     NoritoDeserialize,
     JsonSerialize,
     JsonDeserialize,
+)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "the public fields explicitly distinguish protocol commitments from their underlying rosters and decisions"
 )]
 pub struct TimedOvnProspectiveRootsV1 {
     /// Root of the complete canonical registration roster.
@@ -509,6 +517,10 @@ impl TimedOvnRegistrationClosedStateV1 {
     ///
     /// Snapshot restoration uses [`Self::validate`] to replay every proof; this
     /// bounded live path validates canonical cached public material only.
+    ///
+    /// # Errors
+    /// Returns an error for invalid session/key bindings, malformed or noncanonical
+    /// committed registration records, or invalid dropout participant hashes.
     pub fn validate_committed_cache(
         &self,
         tle_key_session: &ValidatedTleKeySessionV1,
@@ -613,7 +625,7 @@ impl TimedOvnSurvivorsFrozenStateV1 {
             &prepared.session,
             &prepared.roster,
             &self.survivor_participant_hashes,
-        ) != self.dropout_root
+        )? != self.dropout_root
         {
             return Err(TimedOvnEvidenceError::ReplayMismatch);
         }
@@ -669,7 +681,7 @@ impl TimedOvnSurvivorsFrozenStateV1 {
             &prepared.session,
             &prepared.roster,
             &self.survivor_participant_hashes,
-        ) != self.dropout_root
+        )? != self.dropout_root
         {
             return Err(TimedOvnEvidenceError::ReplayMismatch);
         }
@@ -1294,7 +1306,7 @@ impl TimedOvnEvidenceStateV1 {
             &self.aggregate.aggregate_commitments,
         )?;
         let dropout_root =
-            dropout_decisions_root(&session, &roster, &self.survivor_participant_hashes);
+            dropout_decisions_root(&session, &roster, &self.survivor_participant_hashes)?;
         let expected = TimedOvnAggregateTranscriptV1::from_committed_aggregate(
             &common,
             &self.ballot_records,
@@ -1553,6 +1565,10 @@ impl TimedOvnLifecycleStateV1 {
     ///
     /// Returns [`TimedOvnEvidenceError`] if the TLE key/transcript binding is
     /// invalid or the release height is not strictly after the opening height.
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "this constructor transfers the complete session into its owned archive or lifecycle state"
+    )]
     pub fn open_registration(
         session: TimedOvnSessionPublicV1,
         registration_opened_at_finalized_height: u64,
@@ -1730,7 +1746,7 @@ impl TimedOvnLifecycleStateV1 {
         let no_recovery_root =
             no_recovery_root(&crypto_session, roster.roster_root(), &survivor_corpus_root);
         let dropout_root =
-            dropout_decisions_root(&crypto_session, &roster, &survivor_participant_hashes);
+            dropout_decisions_root(&crypto_session, &roster, &survivor_participant_hashes)?;
         let session = registration.registration.session;
         let release_identity = TimedOvnReleaseIdentityPublicV1 {
             tle_key_session_id: session.tle_key_session_id,
@@ -2316,6 +2332,10 @@ impl PreparedTimedOvnAttemptV1 {
     ///
     /// Returns [`TimedOvnEvidenceError`] for malformed/cross-session records,
     /// noncanonical survivors, or an invalid future release identity.
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "this constructor transfers the complete session into its owned archive or lifecycle state"
+    )]
     pub fn from_records(
         session_record: TimedOvnSessionPublicV1,
         registration_records: &[Vec<u8>],
@@ -2387,7 +2407,7 @@ impl PreparedTimedOvnAttemptV1 {
             })
             .collect::<Result<Vec<_>, TimedOvnError>>()?;
         let aggregate = aggregate_timed_ovn_ballots_v1(&self.survivors, &ballots)?;
-        let dropout_root = dropout_decisions_root(&self.session, &self.roster, &self.survivor_ids);
+        let dropout_root = dropout_decisions_root(&self.session, &self.roster, &self.survivor_ids)?;
         let aggregate_transcript = TimedOvnAggregateTranscriptV1::replay(
             &self.session,
             &self.survivors,
@@ -2561,7 +2581,7 @@ pub fn derive_timed_ovn_roots_v1(
     let survivor_corpus_root = roster.prospective_survivor_root(survivor_ids)?;
     Ok(TimedOvnProspectiveRootsV1 {
         registration_roster_root: *roster.roster_root(),
-        dropout_root: dropout_decisions_root(&session, &roster, survivor_ids),
+        dropout_root: dropout_decisions_root(&session, &roster, survivor_ids)?,
         survivor_corpus_root,
         no_recovery_root: no_recovery_root(&session, roster.roster_root(), &survivor_corpus_root),
     })
@@ -2839,13 +2859,15 @@ fn dropout_decisions_root<Provenance>(
     session: &TimedOvnSessionV1,
     roster: &TimedOvnRosterV1<Provenance>,
     survivor_ids: &[[u8; 32]],
-) -> [u8; 32] {
+) -> Result<[u8; 32], TimedOvnEvidenceError> {
+    let count = u32::try_from(roster.registrations().len())
+        .map_err(|_| TimedOvnEvidenceError::InvalidEvidenceSize)?;
     let mut hasher = Sha256::new();
     hasher.update(DROPOUT_DECISIONS_DOMAIN_V1);
     hasher.update(TIMED_OVN_EVIDENCE_VERSION_V1.to_be_bytes());
     hasher.update(session.digest());
     hasher.update(roster.roster_root());
-    hasher.update((roster.registrations().len() as u32).to_be_bytes());
+    hasher.update(count.to_be_bytes());
     let mut survivor_cursor = 0_usize;
     for registration in roster.registrations() {
         let survives = survivor_ids.get(survivor_cursor) == Some(registration.participant_hash());
@@ -2856,7 +2878,7 @@ fn dropout_decisions_root<Provenance>(
         }
     }
     debug_assert_eq!(survivor_cursor, survivor_ids.len());
-    hasher.finalize().into()
+    Ok(hasher.finalize().into())
 }
 
 fn opening_transcript_root(
@@ -3173,8 +3195,10 @@ mod tests {
                 Some(participant_ids.to_vec()),
                 Some(wrong_target),
             ),
-            Err(TimedOvnCastingArchiveValidationErrorV1::SessionBindingMismatch)
-                | Err(TimedOvnCastingArchiveValidationErrorV1::TimedOvn(_))
+            Err(
+                TimedOvnCastingArchiveValidationErrorV1::SessionBindingMismatch
+                    | TimedOvnCastingArchiveValidationErrorV1::TimedOvn(_)
+            )
         ));
         let mut forged_recovery = release_record;
         forged_recovery.no_recovery_root = binding(23);

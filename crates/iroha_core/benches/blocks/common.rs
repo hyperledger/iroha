@@ -4,7 +4,7 @@
 //! fixed four-validator committee, proposals assembled by the leader's payload builder,
 //! execution, application and publication by the node's `StateExecutor`, durable Kura frames
 //! and a BLS-certified `CommitQC`. Fixture setup never publishes a block outside that path.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     state::{StateReadOnly as _, World, WorldReadOnly as _},
     sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},

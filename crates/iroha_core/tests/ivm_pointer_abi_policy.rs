@@ -1,5 +1,5 @@
 //! Node `CoreHost` pointer‑ABI policy tests: verify ABI‑keyed type acceptance.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::smartcontracts::ivm::host::CoreHost;
 use iroha_data_model::prelude::*;
 use iroha_model_base::domain::DomainId;

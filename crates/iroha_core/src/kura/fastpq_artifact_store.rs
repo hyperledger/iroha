@@ -343,9 +343,17 @@ impl Kura {
 
     /// Validate existing retained FASTPQ bytes against the immutable configured policy.
     /// This bounded owner scan runs at initialization/re-audit, never at metric scrape.
-    pub(super) fn validate_fastpq_artifact_inventory_on_startup(&self) -> Result<()> {
+    pub(super) fn validate_fastpq_artifact_inventory_on_startup(
+        &self,
+        sidecar_releases: &mut crate::publication_lock::DeferredPublicationFence<'_, ()>,
+    ) -> Result<()> {
         let directory = self.store_root.join(DIRECTORY);
         Self::validate_fastpq_artifact_limits(self.fastpq_artifact_policy, &directory)?;
+        // The reconciliation caller retains this source through its outer physical
+        // guards and final family publication or invalidation.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC361")))]
+        let _sidecar_guard = sidecar_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC361"))]
         let _sidecar_guard = self.sidecar_lock.lock();
         #[cfg(all(test, unix, not(target_os = "espidf")))]
         super::original_inventory_release_tests::fence_boundary(self, 3);
@@ -1059,8 +1067,10 @@ mod tests {
                 .is_err(),
             "a later successful receipt cannot erase an earlier accounting fault"
         );
-        kura.validate_fastpq_artifact_inventory_on_startup()
-            .unwrap();
+        kura.validate_fastpq_artifact_inventory_on_startup(
+            &mut kura.sidecar_lock.defer_notifications(),
+        )
+        .unwrap();
         let observed = observe_actual_physical_fixture(&kura);
         assert_eq!(
             kura.resource_inventory
@@ -1143,8 +1153,10 @@ mod tests {
                 _ => unreachable!(),
             }
             assert!(
-                kura.validate_fastpq_artifact_inventory_on_startup()
-                    .is_err(),
+                kura.validate_fastpq_artifact_inventory_on_startup(
+                    &mut kura.sidecar_lock.defer_notifications()
+                )
+                .is_err(),
                 "{invalid}"
             );
             let inventory_before = std::fs::read_dir(&namespace)

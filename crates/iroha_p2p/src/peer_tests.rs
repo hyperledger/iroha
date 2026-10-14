@@ -479,7 +479,7 @@ mod tests {
                 outbound_write,
                 TEST_SORANET_TRANSPORT_BINDING,
             ),
-            network_id.clone(),
+            network_id,
             soranet.clone(),
         );
         let inbound = ConnectedFrom {
@@ -533,7 +533,7 @@ mod tests {
             expected_inbound_id,
             Arc::new(outbound_keys),
             Connection::from_split(201, outbound_read, outbound_write),
-            network_id.clone(),
+            network_id,
             Arc::clone(&config),
         );
         let inbound = ConnectedFrom {
@@ -1216,7 +1216,7 @@ mod tests {
     async fn handshake_rejects_confidential_assume_valid_mismatch() {
         let features = Some(confidential_feature_digest(Some(0xAA)));
         let err = confidential_handshake_error(
-            confidential_zk_caps_with_flags(true, "halo2-ipa-pallas", features.clone()),
+            confidential_zk_caps_with_flags(true, "halo2-ipa-pallas", features),
             confidential_zk_caps_with_flags(false, "halo2-ipa-pallas", features),
         )
         .await;
@@ -1229,7 +1229,7 @@ mod tests {
     async fn handshake_rejects_confidential_enabled_mismatch() {
         let features = Some(confidential_feature_digest(Some(0xAA)));
         let err = confidential_handshake_error(
-            confidential_zk_caps_full(false, false, "halo2-ipa-pallas", features.clone()),
+            confidential_zk_caps_full(false, false, "halo2-ipa-pallas", features),
             confidential_zk_caps_full(true, false, "halo2-ipa-pallas", features),
         )
         .await;
@@ -1242,7 +1242,7 @@ mod tests {
     async fn handshake_rejects_confidential_verifier_backend_mismatch() {
         let features = Some(confidential_feature_digest(Some(0xAA)));
         let err = confidential_handshake_error(
-            confidential_zk_caps_with_flags(false, "halo2-ipa-pallas-alt", features.clone()),
+            confidential_zk_caps_with_flags(false, "halo2-ipa-pallas-alt", features),
             confidential_zk_caps_with_flags(false, "halo2-ipa-pallas", features),
         )
         .await;

@@ -2417,7 +2417,9 @@ mod tests {
         values.extend((GOLDILOCKS_MODULUS_V1 - 256)..GOLDILOCKS_MODULUS_V1);
         let mut random = 0x8341_affe_624e_0321_u64;
         for _ in 0..4096 {
-            random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+            random = random
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
             values.push(random % GOLDILOCKS_MODULUS_V1);
         }
         for value in values {

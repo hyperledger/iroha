@@ -247,8 +247,51 @@ impl StrictQualifiedSourceProfileV1 {
 
 fn rust_blob(bytes: &[u8]) -> String {
     let blob = BlobV1::of(bytes);
+    let decimal = blob.bytes.to_string();
+    let mut literal = String::with_capacity(decimal.len() + decimal.len() / 3);
+    for (index, digit) in decimal.chars().enumerate() {
+        if decimal.len() > 5 && index != 0 && (decimal.len() - index).is_multiple_of(3) {
+            literal.push('_');
+        }
+        literal.push(digit);
+    }
     format!(
-        "BuiltinBlob {{ bytes: {}, sha256: {:?} }}",
-        blob.bytes, blob.sha256
+        "BuiltinBlob {{ bytes: {literal}, sha256: {:?} }}",
+        blob.sha256
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_blob_lengths_are_readable_and_preserve_original_values_and_hashes() {
+        for (length, literal) in [
+            (0, "0"),
+            (1, "1"),
+            (999, "999"),
+            (1000, "1000"),
+            (9999, "9999"),
+            (10_000, "10000"),
+            (99_999, "99999"),
+            (100_000, "100_000"),
+            (244_977, "244_977"),
+            (1_000_000, "1_000_000"),
+        ] {
+            let bytes = vec![0x5a; length];
+            let original = BlobV1::of(&bytes);
+            assert_eq!(
+                rust_blob(&bytes),
+                format!(
+                    "BuiltinBlob {{ bytes: {literal}, sha256: {:?} }}",
+                    original.sha256
+                )
+            );
+            assert_eq!(
+                literal.replace('_', "").parse::<u64>().unwrap(),
+                original.bytes
+            );
+        }
+    }
 }

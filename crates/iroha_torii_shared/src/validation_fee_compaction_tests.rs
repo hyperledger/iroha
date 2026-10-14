@@ -26,7 +26,7 @@ use iroha_model_base::{
     topology::{DataSpaceId, LaneId},
 };
 
-fn authorized(proposal: ProposalKind, height: u64) -> ValidationFeeParliamentAuthorizationV1 {
+fn authorized(proposal: &ProposalKind, height: u64) -> ValidationFeeParliamentAuthorizationV1 {
     let mut authorization = parliament_authorization(proposal.fingerprint(), height);
     authorization.governance_certificate.effect_preimage_hash = proposal.effect_preimage_hash_v1();
     authorization.governance_certificate_id =
@@ -89,7 +89,7 @@ fn registry(network_id: NetworkId) -> ValidationFeePolicyRegistryV1 {
     };
     let pricing = |policy: ValidationFeePolicyV1, height| {
         let authorization = authorized(
-            ProposalKind::ValidationFeePolicy(ValidationFeePolicyProposal {
+            &ProposalKind::ValidationFeePolicy(ValidationFeePolicyProposal {
                 proposal_operator: fixture_account(3),
                 policy: policy.clone(),
             }),
@@ -106,7 +106,7 @@ fn registry(network_id: NetworkId) -> ValidationFeePolicyRegistryV1 {
     second.effective_from_ms += 30 * 86_400_000;
     let second = pricing(second, 1_025);
     let authorization = authorized(
-        ProposalKind::ValidationFeePayoutLifecycle(ValidationFeePayoutLifecycleProposal {
+        &ProposalKind::ValidationFeePayoutLifecycle(ValidationFeePayoutLifecycleProposal {
             proposal_operator: fixture_account(3),
             payout_binding: binding.clone(),
         }),

@@ -1,5 +1,5 @@
 //! Ensure overlay construction with different `pipeline.workers` settings yields
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //! identical outcomes (events and final state), preserving determinism.
 use crate::synthetic_state_snapshots as snapshots;
 use iroha_core::{

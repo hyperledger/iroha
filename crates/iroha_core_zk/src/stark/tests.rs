@@ -53,6 +53,68 @@ fn attach_valid_auxiliary_composition_values(envelope: &mut StarkVerifyEnvelopeV
     envelope.proof.comp_values = Some(comp_values);
 }
 #[test]
+fn fq_canonical_arithmetic_matches_wide_boundary_pair_oracle() {
+    let radix = 1_u64 << 32;
+    let samples = [
+        0,
+        1,
+        2,
+        radix - 1,
+        radix,
+        radix + 1,
+        MOD_P_U64 / 2,
+        MOD_P_U64 - 2,
+        MOD_P_U64 - 1,
+        MOD_P_U64,
+        MOD_P_U64 + 1,
+        u64::MAX,
+    ];
+    let residue = |value: u128| {
+        u64::try_from(value % MOD_P).expect("wide reference remainder fits the field word")
+    };
+    for left in samples {
+        for right in samples {
+            let a = u128::from(left) % MOD_P;
+            let b = u128::from(right) % MOD_P;
+            let first = Fq::new(left);
+            let second = Fq::new(right);
+            for (actual, expected, operation) in [
+                (first.add(second), residue(a + b), "add"),
+                (first.sub(second), residue(a + MOD_P - b), "sub"),
+                (first.mul(second), residue(a * b), "mul"),
+            ] {
+                assert_eq!(actual.0, expected, "{operation}({left}, {right})");
+                assert!(actual.0 < MOD_P_U64, "canonical {operation} result");
+            }
+        }
+    }
+    for input in [
+        0,
+        MOD_P - 1,
+        MOD_P,
+        MOD_P + 1,
+        u128::from(u64::MAX),
+        u128::from(u64::MAX) + 1,
+        MOD_P * MOD_P - 1,
+        u128::MAX,
+    ] {
+        assert_eq!(Fq::reduce(input).0, residue(input), "reduce({input})");
+    }
+}
+
+#[test]
+fn fq_modulus_words_and_inverse_of_two_are_exact() {
+    assert_eq!(u128::from(MOD_P_U64), MOD_P);
+    let half = two_inv();
+    assert_eq!(u128::from(half.0) * 2, MOD_P + 1);
+    assert!(half.0 < MOD_P_U64);
+    assert_eq!(half.add(half), Fq::one());
+    assert_eq!(half.mul(Fq::new(2)), Fq::one());
+    assert_eq!(Fq::new(2).inv(), Some(half));
+    assert_eq!(Fq::zero().inv(), None);
+}
+
+#[test]
 fn fq_addition_wraps_correctly() {
     let a = Fq::from_canonical_u64(MOD_P_U64 - 1).unwrap();
     let b = Fq::one();

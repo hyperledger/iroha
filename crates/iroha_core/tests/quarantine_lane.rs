@@ -1,5 +1,5 @@
 //! Quarantine lane: classification + explicit overflow rejection test.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(clippy::items_after_statements)]
 // no nonzero macro used in this file
 use iroha_core::sumeragi::test_chain::{CertifiedTestChain, Signers, TestChainConfig};

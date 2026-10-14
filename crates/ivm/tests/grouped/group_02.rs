@@ -1,5 +1,7 @@
 //! Grouped IVM integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
+#[path = "../common.rs"]
+mod common;
 #[path = "../control_flows.rs"]
 mod control_flows;
 #[path = "../core_host_build_path_map_key_syscall.rs"]

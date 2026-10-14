@@ -1,5 +1,7 @@
 //! Grouped IVM integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
+#[path = "../common.rs"]
+mod common;
 #[path = "../shifts_prop.rs"]
 mod shifts_prop;
 #[path = "../simd_tail_misalignment.rs"]

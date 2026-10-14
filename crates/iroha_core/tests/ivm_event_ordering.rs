@@ -1,5 +1,5 @@
 //! Ensure structured Data events emitted as a result of VM syscalls (OUTPUT → ISIs)
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //! preserve syscall order within a single transaction overlay.
 #![allow(clippy::cast_possible_truncation, clippy::items_after_statements)]
 use iroha_core::{

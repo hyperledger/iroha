@@ -435,6 +435,26 @@ ready-store ownership until finished. Historical openings after retirement keep 
 recovery progress across subsequent lifecycle checks. This owner cleanup does not delete
 certified frames.
 
+The registry map only selects or publishes a per-key owner. Directory establishment,
+prefix authentication, RS16 restoration and native synchronization run outside that shared
+map. A busy same-key recovery returns WouldBlock and retains its exact original opening;
+ready disjoint lanes remain available. In-flight opening Arcs pin runtime retirement until
+the caller returns, while a historical join records its interest under the map before
+attempting recovery. An idle runtime-only refusal can then be cancelled by reconciliation.
+A caller that retained the opening before Ready publication joins that same completed
+store, without creating a new native lock or source graph. Original-pool notifications
+follow both the map and per-key recovery guards.
+
+Direct evidence ancestry reads likewise retain the original instance directory and every
+ancestor across all frame reads and local refusals. Each frame opens through those retained
+descriptors; a late namespace refusal keeps the exact completed funded body and CommitQC for
+same-owner retry, and completed evidence rejoins the directory before attribution. This is
+original namespace custody, not a deletion lock or an authenticated history-release permit.
+TODO: physical retirement still requires authenticated complete-State restoration and an
+existing native-history owner that durably releases the full transitive replay/evidence
+interval. Startup currently replays genesis through the tip, so every referenced retired
+lane frame remains required and is not deleted by registry cleanup.
+
 ## 5. Routing and the queue
 
 ### 5.1 Routing function

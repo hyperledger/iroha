@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Telemetry-enabled tests for the sumeragi evidence list endpoint.
 #![cfg(feature = "telemetry")]
 use super::sumeragi_evidence::{make_phase_vote_attribution, make_phase_vote_evidence};

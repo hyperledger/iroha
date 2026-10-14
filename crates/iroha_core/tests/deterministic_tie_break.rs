@@ -1,5 +1,5 @@
 //! Deterministic proposal-order execution test.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(clippy::items_after_statements)]
 //! Independent account metadata events expose execution order. Ordinary network transactions
 //! follow proposal position, and block results retain those positions after execution.

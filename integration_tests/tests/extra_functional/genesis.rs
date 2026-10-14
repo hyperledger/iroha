@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests covering multi-peer genesis submissions.
 use integration_tests::sandbox;
 use iroha_model_base::domain::DomainId;

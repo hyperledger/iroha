@@ -12811,6 +12811,51 @@ mod tests {
                 ),
             ],
         );
+        // Derive fixture nonces from the same owner-qualified instruction bodies
+        // carried by the proposals, so a second stale settlement layout cannot diverge.
+        let multisig_dvp = vec![InstructionBox::from(DvpIsi::new(
+            iroha_data_model::isi::SettlementId::new(
+                alice_id.clone(),
+                "multisig_dvp_plan".parse().expect("settlement reference"),
+            ),
+            SettlementLeg::new(
+                delivery_definition.clone(),
+                1_u32,
+                alice_id.clone(),
+                bob_id.clone(),
+            ),
+            SettlementLeg::new(
+                payment_definition.clone(),
+                1_u32,
+                bob_id.clone(),
+                alice_id.clone(),
+            ),
+            SettlementPlan::default(),
+        ))];
+        let multisig_mixed = vec![
+            InstructionBox::from(DvpIsi::new(
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "multisig_mixed_plan".parse().expect("settlement reference"),
+                ),
+                SettlementLeg::new(
+                    delivery_definition.clone(),
+                    1_u32,
+                    alice_id.clone(),
+                    bob_id.clone(),
+                ),
+                SettlementLeg::new(
+                    delivery_definition.clone(),
+                    1_u32,
+                    bob_id.clone(),
+                    alice_id.clone(),
+                ),
+                SettlementPlan::default(),
+            )),
+            InstructionBox::from(Register::domain(Domain::new(
+                DomainId::try_new("merchant", "payment").expect("domain id"),
+            ))),
+        ];
         let instructions = [
             (
                 "DVP",
@@ -12860,41 +12905,8 @@ mod tests {
                 "multisig-wrapped DVP",
                 InstructionBox::from(MultisigPropose::new(
                     alice_id.clone(),
-                    test_nonce(&HashOf::new(&vec![InstructionBox::from(DvpIsi::new(
-                        "multisig_dvp_plan".parse().expect("settlement id"),
-                        SettlementLeg::new(
-                            delivery_definition.clone(),
-                            1_u32,
-                            alice_id.clone(),
-                            bob_id.clone(),
-                        ),
-                        SettlementLeg::new(
-                            payment_definition.clone(),
-                            1_u32,
-                            bob_id.clone(),
-                            alice_id.clone(),
-                        ),
-                        SettlementPlan::default(),
-                    ))])),
-                    vec![InstructionBox::from(DvpIsi::new(
-                        iroha_data_model::isi::SettlementId::new(
-                            alice_id.clone(),
-                            "multisig_dvp_plan".parse().expect("settlement reference"),
-                        ),
-                        SettlementLeg::new(
-                            delivery_definition.clone(),
-                            1_u32,
-                            alice_id.clone(),
-                            bob_id.clone(),
-                        ),
-                        SettlementLeg::new(
-                            payment_definition.clone(),
-                            1_u32,
-                            bob_id.clone(),
-                            alice_id.clone(),
-                        ),
-                        SettlementPlan::default(),
-                    ))],
+                    test_nonce(&HashOf::new(&multisig_dvp)),
+                    multisig_dvp,
                     None,
                 )),
             ),
@@ -12902,51 +12914,8 @@ mod tests {
                 "multisig mixed private settlement and write",
                 InstructionBox::from(MultisigPropose::new(
                     alice_id.clone(),
-                    test_nonce(&HashOf::new(&vec![
-                        InstructionBox::from(DvpIsi::new(
-                            "multisig_mixed_plan".parse().expect("settlement id"),
-                            SettlementLeg::new(
-                                delivery_definition.clone(),
-                                1_u32,
-                                alice_id.clone(),
-                                bob_id.clone(),
-                            ),
-                            SettlementLeg::new(
-                                delivery_definition.clone(),
-                                1_u32,
-                                bob_id.clone(),
-                                alice_id.clone(),
-                            ),
-                            SettlementPlan::default(),
-                        )),
-                        InstructionBox::from(Register::domain(Domain::new(
-                            DomainId::try_new("merchant", "payment").expect("domain id"),
-                        ))),
-                    ])),
-                    vec![
-                        InstructionBox::from(DvpIsi::new(
-                            iroha_data_model::isi::SettlementId::new(
-                                alice_id.clone(),
-                                "multisig_mixed_plan".parse().expect("settlement reference"),
-                            ),
-                            SettlementLeg::new(
-                                delivery_definition.clone(),
-                                1_u32,
-                                alice_id.clone(),
-                                bob_id.clone(),
-                            ),
-                            SettlementLeg::new(
-                                delivery_definition.clone(),
-                                1_u32,
-                                bob_id.clone(),
-                                alice_id.clone(),
-                            ),
-                            SettlementPlan::default(),
-                        )),
-                        InstructionBox::from(Register::domain(Domain::new(
-                            DomainId::try_new("merchant", "payment").expect("domain id"),
-                        ))),
-                    ],
+                    test_nonce(&HashOf::new(&multisig_mixed)),
+                    multisig_mixed,
                     None,
                 )),
             ),
@@ -16911,18 +16880,18 @@ mod tests {
 
         let mut persisted_state = blank_state();
         install_router_nexus(&mut persisted_state, &router);
-        let persisted_proposal = MultisigProposalState::new(
-            super::super::queue_test_network_id(),
-            multisig_id.clone(),
-            test_nonce(&proposal_hash),
-            test_id(&multisig_id.clone(), &proposal_hash),
-            proposal_hash,
-            None,
-            proposed,
-            1,
-            10_000,
-            BTreeSet::new(),
-        );
+        let persisted_proposal = MultisigProposalState {
+            network_id: super::super::queue_test_network_id(),
+            multisig_account_id: multisig_id.clone(),
+            proposal_nonce: test_nonce(&proposal_hash),
+            proposal_id: test_id(&multisig_id.clone(), &proposal_hash),
+            instructions_hash: proposal_hash,
+            transaction_ttl_ms: None,
+            instructions: proposed,
+            proposed_at_ms: 1,
+            expires_at_ms: 10_000,
+            approvals: BTreeSet::new(),
+        };
         persisted_state
             .world
             .smart_contract_state_mut_for_testing()
@@ -16946,18 +16915,18 @@ mod tests {
         let (outer_multisig_id, _) = gen_account_in("wonderland");
         let outer_proposed = vec![approval.clone()];
         let outer_proposal_hash = HashOf::new(&outer_proposed);
-        let outer_proposal = MultisigProposalState::new(
-            super::super::queue_test_network_id(),
-            outer_multisig_id.clone(),
-            test_nonce(&outer_proposal_hash),
-            test_id(&outer_multisig_id.clone(), &outer_proposal_hash),
-            outer_proposal_hash,
-            None,
-            outer_proposed,
-            1,
-            10_000,
-            BTreeSet::new(),
-        );
+        let outer_proposal = MultisigProposalState {
+            network_id: super::super::queue_test_network_id(),
+            multisig_account_id: outer_multisig_id.clone(),
+            proposal_nonce: test_nonce(&outer_proposal_hash),
+            proposal_id: test_id(&outer_multisig_id.clone(), &outer_proposal_hash),
+            instructions_hash: outer_proposal_hash,
+            transaction_ttl_ms: None,
+            instructions: outer_proposed,
+            proposed_at_ms: 1,
+            expires_at_ms: 10_000,
+            approvals: BTreeSet::new(),
+        };
         persisted_state
             .world
             .smart_contract_state_mut_for_testing()
@@ -17004,18 +16973,18 @@ mod tests {
         let (payload_multisig_id, _) = gen_account_in("wonderland");
         let payload_proposed = vec![approval.clone(), fund.clone()];
         let payload_proposal_hash = HashOf::new(&payload_proposed);
-        let payload_proposal = MultisigProposalState::new(
-            super::super::queue_test_network_id(),
-            payload_multisig_id.clone(),
-            test_nonce(&payload_proposal_hash),
-            test_id(&payload_multisig_id.clone(), &payload_proposal_hash),
-            payload_proposal_hash,
-            None,
-            payload_proposed,
-            1,
-            10_000,
-            BTreeSet::new(),
-        );
+        let payload_proposal = MultisigProposalState {
+            network_id: super::super::queue_test_network_id(),
+            multisig_account_id: payload_multisig_id.clone(),
+            proposal_nonce: test_nonce(&payload_proposal_hash),
+            proposal_id: test_id(&payload_multisig_id.clone(), &payload_proposal_hash),
+            instructions_hash: payload_proposal_hash,
+            transaction_ttl_ms: None,
+            instructions: payload_proposed,
+            proposed_at_ms: 1,
+            expires_at_ms: 10_000,
+            approvals: BTreeSet::new(),
+        };
         persisted_state
             .world
             .smart_contract_state_mut_for_testing()
@@ -17069,18 +17038,18 @@ mod tests {
                     &ordered_outer_id,
                     &test_id(&ordered_outer_id, &ordered_outer_hash),
                 ),
-                encoded_multisig_proposal_state(&MultisigProposalState::new(
-                    super::super::queue_test_network_id(),
-                    ordered_outer_id.clone(),
-                    test_nonce(&ordered_outer_hash),
-                    test_id(&ordered_outer_id.clone(), &ordered_outer_hash),
-                    ordered_outer_hash,
-                    None,
-                    ordered_outer_instructions,
-                    1,
-                    10_000,
-                    BTreeSet::new(),
-                )),
+                encoded_multisig_proposal_state(&MultisigProposalState {
+                    network_id: super::super::queue_test_network_id(),
+                    multisig_account_id: ordered_outer_id.clone(),
+                    proposal_nonce: test_nonce(&ordered_outer_hash),
+                    proposal_id: test_id(&ordered_outer_id.clone(), &ordered_outer_hash),
+                    instructions_hash: ordered_outer_hash,
+                    transaction_ttl_ms: None,
+                    instructions: ordered_outer_instructions,
+                    proposed_at_ms: 1,
+                    expires_at_ms: 10_000,
+                    approvals: BTreeSet::new(),
+                }),
             );
         let ordered_local_tx = sample_transaction(
             &authority,
@@ -17124,18 +17093,18 @@ mod tests {
                     &reversed_outer_id,
                     &test_id(&reversed_outer_id, &reversed_outer_hash),
                 ),
-                encoded_multisig_proposal_state(&MultisigProposalState::new(
-                    super::super::queue_test_network_id(),
-                    reversed_outer_id.clone(),
-                    test_nonce(&reversed_outer_hash),
-                    test_id(&reversed_outer_id.clone(), &reversed_outer_hash),
-                    reversed_outer_hash,
-                    None,
-                    reversed_outer_instructions,
-                    1,
-                    10_000,
-                    BTreeSet::new(),
-                )),
+                encoded_multisig_proposal_state(&MultisigProposalState {
+                    network_id: super::super::queue_test_network_id(),
+                    multisig_account_id: reversed_outer_id.clone(),
+                    proposal_nonce: test_nonce(&reversed_outer_hash),
+                    proposal_id: test_id(&reversed_outer_id.clone(), &reversed_outer_hash),
+                    instructions_hash: reversed_outer_hash,
+                    transaction_ttl_ms: None,
+                    instructions: reversed_outer_instructions,
+                    proposed_at_ms: 1,
+                    expires_at_ms: 10_000,
+                    approvals: BTreeSet::new(),
+                }),
             );
         let reversed_local_tx = sample_transaction(
             &authority,
@@ -17220,18 +17189,18 @@ mod tests {
             hash,
         ));
         let signed = sample_transaction(&authority, keypair.private_key(), vec![approval.clone()]);
-        let original = MultisigProposalState::new(
-            super::super::queue_test_network_id(),
-            account.clone(),
-            test_nonce(&hash),
-            test_id(&account.clone(), &hash),
-            hash,
-            None,
+        let original = MultisigProposalState {
+            network_id: super::super::queue_test_network_id(),
+            multisig_account_id: account.clone(),
+            proposal_nonce: test_nonce(&hash),
+            proposal_id: test_id(&account.clone(), &hash),
+            instructions_hash: hash,
+            transaction_ttl_ms: None,
             instructions,
-            1,
-            10_000,
-            BTreeSet::new(),
-        );
+            proposed_at_ms: 1,
+            expires_at_ms: 10_000,
+            approvals: BTreeSet::new(),
+        };
         let key = multisig_proposal_state_key(&account, &test_id(&account, &hash));
         let bytes = encoded_multisig_proposal_state(&original);
         let mut state = blank_state();
@@ -17421,18 +17390,18 @@ mod tests {
             test_id(&multisig_id.clone(), &instructions_hash),
             instructions_hash,
         ));
-        let proposal = MultisigProposalState::new(
-            super::super::queue_test_network_id(),
-            multisig_id.clone(),
-            test_nonce(&instructions_hash),
-            test_id(&multisig_id.clone(), &instructions_hash),
+        let proposal = MultisigProposalState {
+            network_id: super::super::queue_test_network_id(),
+            multisig_account_id: multisig_id.clone(),
+            proposal_nonce: test_nonce(&instructions_hash),
+            proposal_id: test_id(&multisig_id.clone(), &instructions_hash),
             instructions_hash,
-            None,
-            vec![approval.clone()],
-            1,
-            10_000,
-            BTreeSet::new(),
-        );
+            transaction_ttl_ms: None,
+            instructions: vec![approval.clone()],
+            proposed_at_ms: 1,
+            expires_at_ms: 10_000,
+            approvals: BTreeSet::new(),
+        };
         let mut state = blank_state();
         state.world.smart_contract_state_mut_for_testing().insert(
             multisig_proposal_state_key(&multisig_id, &test_id(&multisig_id, &instructions_hash)),
@@ -17462,18 +17431,18 @@ mod tests {
             test_id(&cyclic_account.clone(), &cyclic_hash),
             cyclic_hash,
         ));
-        let cyclic_proposal = MultisigProposalState::new(
-            super::super::queue_test_network_id(),
-            cyclic_account.clone(),
-            test_nonce(&cyclic_hash),
-            test_id(&cyclic_account.clone(), &cyclic_hash),
-            cyclic_hash,
-            None,
-            vec![cyclic_approval.clone()],
-            1,
-            10_000,
-            BTreeSet::new(),
-        );
+        let cyclic_proposal = MultisigProposalState {
+            network_id: super::super::queue_test_network_id(),
+            multisig_account_id: cyclic_account.clone(),
+            proposal_nonce: test_nonce(&cyclic_hash),
+            proposal_id: test_id(&cyclic_account.clone(), &cyclic_hash),
+            instructions_hash: cyclic_hash,
+            transaction_ttl_ms: None,
+            instructions: vec![cyclic_approval.clone()],
+            proposed_at_ms: 1,
+            expires_at_ms: 10_000,
+            approvals: BTreeSet::new(),
+        };
         let mut state = blank_state();
         state.world.smart_contract_state_mut_for_testing().insert(
             multisig_proposal_state_key(&cyclic_account, &test_id(&cyclic_account, &cyclic_hash)),
@@ -17589,18 +17558,18 @@ mod tests {
         let leaf_hash = HashOf::new(&Vec::<InstructionBox>::new());
         state.world.smart_contract_state_mut_for_testing().insert(
             multisig_proposal_state_key(&leaf_account, &test_id(&leaf_account, &leaf_hash)),
-            encoded_multisig_proposal_state(&MultisigProposalState::new(
-                super::super::queue_test_network_id(),
-                leaf_account.clone(),
-                test_nonce(&leaf_hash),
-                test_id(&leaf_account.clone(), &leaf_hash),
-                leaf_hash,
-                None,
-                Vec::new(),
-                1,
-                10_000,
-                BTreeSet::new(),
-            )),
+            encoded_multisig_proposal_state(&MultisigProposalState {
+                network_id: super::super::queue_test_network_id(),
+                multisig_account_id: leaf_account.clone(),
+                proposal_nonce: test_nonce(&leaf_hash),
+                proposal_id: test_id(&leaf_account.clone(), &leaf_hash),
+                instructions_hash: leaf_hash,
+                transaction_ttl_ms: None,
+                instructions: Vec::new(),
+                proposed_at_ms: 1,
+                expires_at_ms: 10_000,
+                approvals: BTreeSet::new(),
+            }),
         );
         let (parent_account, _) = gen_account_in("wonderland");
         let repeated_approval = InstructionBox::from(MultisigApprove::new(
@@ -17612,18 +17581,18 @@ mod tests {
         let parent_hash = HashOf::new(&parent_instructions);
         state.world.smart_contract_state_mut_for_testing().insert(
             multisig_proposal_state_key(&parent_account, &test_id(&parent_account, &parent_hash)),
-            encoded_multisig_proposal_state(&MultisigProposalState::new(
-                super::super::queue_test_network_id(),
-                parent_account.clone(),
-                test_nonce(&parent_hash),
-                test_id(&parent_account.clone(), &parent_hash),
-                parent_hash,
-                None,
-                parent_instructions,
-                1,
-                10_000,
-                BTreeSet::new(),
-            )),
+            encoded_multisig_proposal_state(&MultisigProposalState {
+                network_id: super::super::queue_test_network_id(),
+                multisig_account_id: parent_account.clone(),
+                proposal_nonce: test_nonce(&parent_hash),
+                proposal_id: test_id(&parent_account.clone(), &parent_hash),
+                instructions_hash: parent_hash,
+                transaction_ttl_ms: None,
+                instructions: parent_instructions,
+                proposed_at_ms: 1,
+                expires_at_ms: 10_000,
+                approvals: BTreeSet::new(),
+            }),
         );
         let parent_approval = InstructionBox::from(MultisigApprove::new(
             parent_account.clone(),
@@ -17666,18 +17635,18 @@ mod tests {
             let hash = HashOf::new(&instructions);
             state.world.smart_contract_state_mut_for_testing().insert(
                 multisig_proposal_state_key(&account, &test_id(&account, &hash)),
-                encoded_multisig_proposal_state(&MultisigProposalState::new(
-                    super::super::queue_test_network_id(),
-                    account.clone(),
-                    test_nonce(&hash),
-                    test_id(&account.clone(), &hash),
-                    hash,
-                    None,
+                encoded_multisig_proposal_state(&MultisigProposalState {
+                    network_id: super::super::queue_test_network_id(),
+                    multisig_account_id: account.clone(),
+                    proposal_nonce: test_nonce(&hash),
+                    proposal_id: test_id(&account.clone(), &hash),
+                    instructions_hash: hash,
+                    transaction_ttl_ms: None,
                     instructions,
-                    1,
-                    10_000,
-                    BTreeSet::new(),
-                )),
+                    proposed_at_ms: 1,
+                    expires_at_ms: 10_000,
+                    approvals: BTreeSet::new(),
+                }),
             );
             child = Some((account, hash));
         }
@@ -17707,18 +17676,18 @@ mod tests {
         let hash = HashOf::new(&instructions);
         state.world.smart_contract_state_mut_for_testing().insert(
             multisig_proposal_state_key(&outer_account, &test_id(&outer_account, &hash)),
-            encoded_multisig_proposal_state(&MultisigProposalState::new(
-                super::super::queue_test_network_id(),
-                outer_account.clone(),
-                test_nonce(&hash),
-                test_id(&outer_account.clone(), &hash),
-                hash,
-                None,
+            encoded_multisig_proposal_state(&MultisigProposalState {
+                network_id: super::super::queue_test_network_id(),
+                multisig_account_id: outer_account.clone(),
+                proposal_nonce: test_nonce(&hash),
+                proposal_id: test_id(&outer_account.clone(), &hash),
+                instructions_hash: hash,
+                transaction_ttl_ms: None,
                 instructions,
-                1,
-                10_000,
-                BTreeSet::new(),
-            )),
+                proposed_at_ms: 1,
+                expires_at_ms: 10_000,
+                approvals: BTreeSet::new(),
+            }),
         );
         let approval = InstructionBox::from(MultisigApprove::new(
             outer_account.clone(),

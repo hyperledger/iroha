@@ -1,6 +1,6 @@
 use ivm::{IVM, encoding, instruction};
 
-mod common;
+use crate::common;
 use common::assemble;
 
 const HALT_WORD: u32 = encoding::wide::encode_halt();

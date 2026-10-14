@@ -34,6 +34,8 @@ use mv::storage::StorageReadOnly;
 mod catalog;
 #[path = "table_capture/frozen.rs"]
 pub(in crate::state) mod frozen;
+#[path = "table_capture/frozen_musubi.rs"]
+pub(in crate::state) mod frozen_musubi;
 use super::transaction_membership::{
     CapturedMembershipCompanion, MembershipCaptureError, MembershipWorkLimits,
     capture_membership_group_once,

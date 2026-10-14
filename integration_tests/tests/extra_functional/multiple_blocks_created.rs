@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Stress block production with randomized mint bursts.
 use eyre::{Result, eyre};
 use integration_tests::{sandbox, sync::get_status_with_retry_async};

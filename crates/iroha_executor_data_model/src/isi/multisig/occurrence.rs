@@ -180,7 +180,7 @@ mod tests {
         assert_eq!(id.to_string().len(), 64);
         assert_eq!(id.to_string().parse::<MultisigProposalId>().unwrap(), id);
         for value in [
-            "".into(),
+            String::new(),
             "0".repeat(64),
             "A".repeat(64),
             "a".repeat(63),

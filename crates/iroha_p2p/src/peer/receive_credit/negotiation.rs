@@ -101,7 +101,7 @@ fn authority(
     let _flags = ncore::DecodeFlagsGuard::enter(ncore::default_encode_flags());
     ncore::to_bytes(&(
         DOMAIN.to_vec(),
-        network.clone(),
+        *network,
         sender.clone(),
         receiver.clone(),
         session,

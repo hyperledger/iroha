@@ -34,7 +34,8 @@ def test_all_five_native_targets_run_real_owners_and_installed_release_smoke():
     assert "persist-credentials: false" in workflow
     assert 'test "$WORKFLOW_SHA" = "$source_sha"' in workflow
     commands = " ".join(workflow.split())
-    assert "cargo test --locked --release -p iroha_fs -p iroha_wallet -p iroha_deploy --lib -- --test-threads=1" in commands
+    assert "cargo test --locked --release -p iroha_fs -p iroha_wallet -p iroha_deploy -p iroha_contract_deploy --lib -- --test-threads=1" in commands
+    assert "cargo test --locked --release -p musubi --lib -- --test-threads=1" in commands
     assert "cargo test --locked --release -p mochi-core -p mochi-ui --features mochi-ui/gui --lib --bins" in commands
     assert "cargo run --locked --release -p xtask --features dev-tools --bin xtask -- mochi-bundle --profile release" in commands
     assert "--matrix target/devex-native/matrix.json --smoke" in commands

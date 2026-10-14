@@ -1,4 +1,5 @@
 //! End-to-end coverage for one-shot public entrypoint argument decoding.
+use crate::common;
 use iroha_crypto::Hash;
 use iroha_model_base::name::Name;
 use iroha_primitives::json::Json;
@@ -8,7 +9,6 @@ use ivm::{
     pointer_abi::PointerType,
 };
 use std::{collections::BTreeMap, fs};
-mod common;
 fn tlv(pointer_type: PointerType, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(7 + payload.len() + Hash::LENGTH);
     out.extend_from_slice(&(pointer_type as u16).to_be_bytes());

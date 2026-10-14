@@ -1783,8 +1783,9 @@ pub fn holder_finalize_blind_issuance_v1(
     response: BootleLanternBlindIssuanceResponseV1,
 ) -> Result<BootleLanternCredentialV1, BootleLanternIssuanceErrorV1> {
     require_active_policy_v1(policy)?;
+    let authoritative_policy_record_digest = policy.record_digest;
     if response.request_digest != state.request_digest
-        || response.policy_record_digest != policy.record_digest
+        || response.policy_record_digest != authoritative_policy_record_digest
         || response.scope_digest
             != state
                 .scope

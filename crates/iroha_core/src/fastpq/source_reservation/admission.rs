@@ -1,8 +1,9 @@
 //! Checked ordinary/native/mandatory source ledgers prepared from one frozen policy.
 //!
 //! State freezes the authenticated profile before block-start work. Its execution
-//! producer retains ordinary E; the original SNS Time sweep owns the native pool
-//! and the retained governance sweep owns the mandatory pool. Caller-supplied
+//! producer retains ordinary E; the original SNS Time and retail idle sweeps
+//! share the finite native pool. The retained governance
+//! sweep owns the mandatory pool. Caller-supplied
 //! hashes alone never grant invocation authority.
 
 use iroha_crypto::Hash;
@@ -126,6 +127,9 @@ pub(crate) struct SourceQuotaTransaction<'a> {
     // Set only after the original SNS sweep permit and live quote are authenticated.
     // Merely authorizing a purpose does not retain an unapplied E entry.
     native_purpose: Option<Hash>,
+    // Set only while consuming the original retail batch; prior siblings grant no authority.
+    retail_batch: bool,
+    retail_receipt: Option<Hash>,
     allow_governance_purposes: bool,
     failed: bool,
     failure: Option<SourceQuotaFailure>,
@@ -139,6 +143,8 @@ impl SourceQuotaTransaction<'_> {
             native: None,
             mandatory: None,
             native_purpose: None,
+            retail_batch: false,
+            retail_receipt: None,
             allow_governance_purposes: false,
             failed: true,
             failure: Some(SourceQuotaFailure::Invariant(error)),
@@ -182,7 +188,7 @@ impl SourceQuotaTransaction<'_> {
         if self.failed {
             return Err("FASTPQ source transaction was poisoned".into());
         }
-        let journal = if protocol_purpose && self.native_purpose == Some(hash) {
+        let journal = if protocol_purpose && self.is_native_purpose(hash) {
             &self.native
         } else if protocol_purpose {
             if !self.allow_governance_purposes {
@@ -228,7 +234,11 @@ impl SourceQuotaTransaction<'_> {
     /// E is opened only by a nonempty transcript inside the same disposable transaction.
     pub(crate) fn authorize_native_purpose(&mut self, hash: Hash) -> Result<(), String> {
         let result: Result<(), String> = (|| {
-            if self.failed || self.native_purpose.is_some() || self.allow_governance_purposes {
+            if self.failed
+                || self.native_purpose.is_some()
+                || self.retail_batch
+                || self.allow_governance_purposes
+            {
                 return Err("native source purpose is repeated or has a foreign owner".into());
             }
             for journal in [&self.ordinary, &self.mandatory] {
@@ -266,11 +276,106 @@ impl SourceQuotaTransaction<'_> {
     /// never selects a quota pool or grants an invocation.
     pub(crate) fn is_native_purpose(&self, hash: Hash) -> bool {
         self.native_purpose == Some(hash)
+            || (self.retail_batch
+                && (self.retail_receipt == Some(hash)
+                    || self
+                        .native
+                        .as_ref()
+                        .is_some_and(|journal| journal.has_staged_entry(hash))))
+    }
+
+    /// State consumes the original retail permit before opening this mechanical scope.
+    /// No independent authority list or source entry is allocated here.
+    pub(crate) fn begin_retail_batch(&mut self) -> Result<(), String> {
+        if self.failed
+            || self.native_purpose.is_some()
+            || self.retail_batch
+            || self.allow_governance_purposes
+        {
+            let error = "retail source batch has a foreign or repeated owner".to_owned();
+            self.fail_preparation(error.clone());
+            return Err(error);
+        }
+        self.retail_batch = true;
+        Ok(())
+    }
+
+    /// Admit only the next exact receipt moved from the original permit into State.
+    /// Previously staged identities stay owned by this journal; discarded siblings do not.
+    pub(crate) fn authorize_retail_receipt(&mut self, hash: Hash) -> Result<(), String> {
+        let result = (|| {
+            if self.failed
+                || !self.retail_batch
+                || self.retail_receipt.is_some_and(|prior| {
+                    !self
+                        .native
+                        .as_ref()
+                        .is_some_and(|journal| journal.has_staged_entry(prior))
+                })
+            {
+                return Err("retail source receipt lacks its original applied prefix".to_owned());
+            }
+            for journal in [&self.ordinary, &self.native, &self.mandatory] {
+                if journal
+                    .as_ref()
+                    .ok_or("source journal is unavailable")?
+                    .existing_entry(hash)
+                    .map_err(|error| error.to_string())?
+                    .is_some()
+                {
+                    return Err("retail source receipt already has an owner".to_owned());
+                }
+            }
+            self.retail_receipt = Some(hash);
+            Ok(())
+        })();
+        if let Err(error) = &result {
+            self.fail_preparation(error.clone());
+        }
+        result
+    }
+
+    /// Retain only this original native journal transaction, without new quota backing.
+    pub(crate) fn retain_native_identity(
+        &self,
+    ) -> Result<super::SourceTransactionIdentity, String> {
+        if self.failed {
+            return Err("FASTPQ source transaction was poisoned".into());
+        }
+        Ok(self
+            .native
+            .as_ref()
+            .ok_or("native source journal is unavailable")?
+            .retain_identity())
+    }
+    /// Reject equal public contents from any foreign or discarded physical transaction.
+    pub(crate) fn matches_native_identity(
+        &self,
+        identity: &super::SourceTransactionIdentity,
+    ) -> bool {
+        !self.failed
+            && self
+                .native
+                .as_ref()
+                .is_some_and(|journal| journal.matches_identity(identity))
+    }
+
+    /// Exact native usage including this still-disposable journal's entries.
+    pub(crate) fn native_entries_in_use(&self) -> Result<u64, String> {
+        if self.failed {
+            return Err("FASTPQ source transaction was poisoned".into());
+        }
+        Ok(self
+            .native
+            .as_ref()
+            .ok_or("native source journal is unavailable")?
+            .usage()
+            .executed_entries)
     }
 
     /// Allow the private block-start governance sweep's retained-purpose entries.
     pub(crate) fn authorize_governance_purposes(&mut self) {
-        if self.native_purpose.is_some() {
+        if self.native_purpose.is_some() || self.retail_batch {
             self.fail_preparation("native source cannot authorize retained governance work".into());
             return;
         }
@@ -291,7 +396,7 @@ impl SourceQuotaTransaction<'_> {
             return Err("FASTPQ source transaction was poisoned".into());
         }
         let result = (|| {
-            let native = protocol_purpose && self.native_purpose == Some(hash);
+            let native = protocol_purpose && self.is_native_purpose(hash);
             if cfg!(all(test, sumeragi_core_mutation = "HC34")) && native {
                 return Ok(());
             }
@@ -556,6 +661,8 @@ impl PreparedSourceQuota {
             native: Some(native),
             mandatory: Some(mandatory),
             native_purpose: None,
+            retail_batch: false,
+            retail_receipt: None,
             allow_governance_purposes: false,
             failed: false,
             failure: None,
@@ -758,7 +865,7 @@ impl PreparedSourceQuota {
         self.mandatory.usage()
     }
 
-    #[cfg(test)]
+    /// Exact retained usage of the shared original native journal.
     pub(crate) fn native_usage(&self) -> SourceUsage {
         self.native.usage()
     }

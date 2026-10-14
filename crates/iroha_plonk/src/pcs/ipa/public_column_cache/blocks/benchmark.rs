@@ -15,6 +15,7 @@ type Scalar = <Ep as PastaCurve>::ScalarExt;
 type Point = <Ep as PastaCurve>::AffineExt;
 type Fixture = (u32, Vec<[u8; 32]>, Vec<Vec<[u8; 32]>>);
 type Columns = (Vec<Point>, Vec<Vec<Scalar>>);
+type BlockCommitmentResult = Result<([u8; 32], Ep, bool), MsmError>;
 
 fn read_case(directory: &std::path::Path, slots: usize) -> Columns {
     let path = directory.join(format!("load-signature-{slots}.norito"));
@@ -188,7 +189,7 @@ fn bounded_wave_column(
         // The existing kernels retain their ordinary plan, shared 64 MiB
         // admission, cancellation and allocation-free contention fallback.
         // Indexed collection joins every worker and preserves row-offset order.
-        let completed: Vec<Result<([u8; 32], Ep, bool), MsmError>> = work
+        let completed: Vec<BlockCommitmentResult> = work
             .into_par_iter()
             .map(|(offset, digest, block, cached)| {
                 CancellationToken::checkpoint(cancellation)?;
@@ -211,10 +212,8 @@ fn bounded_wave_column(
         for result in completed {
             let (digest, point, computed) = result?;
             CancellationToken::checkpoint(cancellation)?;
-            if computed {
-                if let Ok(mut cache) = owner.public_columns.lock() {
-                    cache.blocks.insert(digest, point);
-                }
+            if computed && let Ok(mut cache) = owner.public_columns.lock() {
+                cache.blocks.insert(digest, point);
             }
             sum += point;
         }

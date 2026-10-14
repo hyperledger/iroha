@@ -1,6 +1,6 @@
-use ivm::{IVM, VMError};
-mod common;
+use crate::common;
 use common::assemble;
+use ivm::{IVM, VMError};
 #[test]
 fn test_program_too_large() {
     let mut vm = IVM::new(u64::MAX);

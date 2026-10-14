@@ -1,5 +1,5 @@
 //! Governance instruction validation tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(clippy::items_after_statements)]
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STD};
 use iroha_core::{kura::Kura, query::store::LiveQueryStore, smartcontracts::Execute, state::State};

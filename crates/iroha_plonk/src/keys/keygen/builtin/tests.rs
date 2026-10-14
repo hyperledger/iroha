@@ -144,7 +144,7 @@ impl<C: PastaCurve> Fixture<C> {
     }
     fn admit(
         &self,
-        member: &BuiltinSourceMemberV1,
+        member: BuiltinSourceMemberV1,
     ) -> Result<SourceBoundVerifyingKeyV2<C>, BuiltinSourceErrorV1> {
         member.admit_originals_cancellable(
             self.generated.binding().encoded(),
@@ -175,7 +175,7 @@ fn parity<C: PastaCurve>() {
     let f = Fixture::<C>::new();
     let member = profile(entries(vec![f.entry()])).member(ROLE).unwrap();
     let probe = CommitmentProbe::start();
-    let admitted = f.admit(&member).unwrap();
+    let admitted = f.admit(member).unwrap();
     assert_eq!(
         probe.calls(),
         0,
@@ -198,7 +198,7 @@ fn parity<C: PastaCurve>() {
     );
     assert_eq!(probe.calls(), 0);
     drop(probe);
-    let prove = |key: &ProvingKey<C>| {
+    let make_proof = |key: &ProvingKey<C>| {
         let witness = Witness::from_circuit(key, &f.source, &[]).unwrap();
         let proof = create_proof_owned(
             &f.params,
@@ -219,7 +219,7 @@ fn parity<C: PastaCurve>() {
         .unwrap();
         proof
     };
-    assert_eq!(prove(&f.generated), prove(&rebuilt));
+    assert_eq!(make_proof(&f.generated), make_proof(&rebuilt));
     let changed = Source {
         fixed: C::ScalarExt::from(8),
         value: Value::unknown(),
@@ -403,14 +403,14 @@ fn mutations<C: PastaCurve>() {
     let mut overflow = f.entry();
     overflow.k = u8::MAX;
     assert_eq!(
-        f.admit(&profile(entries(vec![overflow])).member(ROLE).unwrap())
+        f.admit(profile(entries(vec![overflow])).member(ROLE).unwrap())
             .err(),
         Some(BuiltinSourceErrorV1::Artifact(artifact::Error::Length))
     );
     let mut oversized = f.entry();
     oversized.descriptor.bytes = u64::MAX;
     assert_eq!(
-        f.admit(&profile(entries(vec![oversized])).member(ROLE).unwrap())
+        f.admit(profile(entries(vec![oversized])).member(ROLE).unwrap())
             .err(),
         Some(BuiltinSourceErrorV1::Original)
     );
@@ -423,7 +423,7 @@ fn mutations<C: PastaCurve>() {
             _ => entry.params_digest[0] ^= 1,
         }
         assert!(
-            f.admit(&profile(entries(vec![entry])).member(ROLE).unwrap())
+            f.admit(profile(entries(vec![entry])).member(ROLE).unwrap())
                 .is_err()
         );
     }

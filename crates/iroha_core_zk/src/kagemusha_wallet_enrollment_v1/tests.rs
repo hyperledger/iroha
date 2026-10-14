@@ -61,10 +61,10 @@ fn fixture() -> Fixture {
                 spki_sha256: *Hash::new(b"component root key").as_ref(),
                 revocation_source: KagemushaWalletRevocationSourceV1::GoogleAttestationStatus,
             }],
-            patch_floor_yyyymm: 202608,
+            patch_floor_yyyymm: 202_608,
         },
         regulatory_policy: KagemushaWalletRegulatoryPolicyV1::default(),
-        challenge_lifetime_ms: 120000,
+        challenge_lifetime_ms: 120_000,
         attestation_lease_lifetime_ms: 0,
     };
     let challenge = KagemushaWalletEnrollmentChallengeV1 {
@@ -376,9 +376,9 @@ fn issuer_result(f: &Fixture, request: &RequestV1) -> ResultV1 {
         digest: evidence.digest(&request.body, kind).unwrap(),
         time_ms: 1000,
         facts: KAGEMUSHA_WALLET_ANDROID_REQUIRED_FACTS_V1,
-        os_patch_level: 202608,
-        vendor_patch_level: 202608,
-        boot_patch_level: 202608,
+        os_patch_level: 202_608,
+        vendor_patch_level: 202_608,
+        boot_patch_level: 202_608,
     };
     let body = KagemushaWalletCredentialBodyV1 {
         version: 1,
@@ -950,7 +950,7 @@ fn prekey_elapsed_expiry_after_durable_intent_cannot_reach_hardware_generation()
     let message = begin(&f, &mut owner);
     // Owner authorization, grant check, begin check, pre-intent check, actual key dispatch.
     d.platform.with(|state| {
-        state.monotonic_script = [Ok(1000), Ok(1000), Ok(1000), Ok(1000), Ok(120000)].into()
+        state.monotonic_script = [Ok(1000), Ok(1000), Ok(1000), Ok(1000), Ok(120_000)].into()
     });
     assert!(owner.authorize(&sign(&f, &message)).is_err());
     d.platform.with(|state| assert_eq!(state.generate_calls, 0));
@@ -2674,7 +2674,7 @@ fn enrollment_e6_requires_issuance_and_evidence_inside_original_permit_dates() {
     let mut current = enrolled(&f, &d);
     let requested = RequestV1::decode(&request(&f, &mut current)).unwrap();
     let valid = issuer_result(&f, &requested);
-    for (issued, evidence) in [(999, 1000), (121000, 1000), (2000, 999), (2000, 121000)] {
+    for (issued, evidence) in [(999, 1000), (121_000, 1000), (2000, 999), (2000, 121_000)] {
         let mut altered = valid.clone();
         let mut body = KagemushaWalletCredentialV1::decode_canonical(
             &valid.credential,
@@ -3409,7 +3409,7 @@ fn prekey_definitive_absence_rechecks_deadline_after_intent_phase_selection() {
     // Time expires during the phase's filesystem work, before the hardware dispatch.
     d.platform.with(|state| {
         state.monotonic_script = std::iter::repeat_n(Ok(1000), 5)
-            .chain([Ok(120000)])
+            .chain([Ok(120_000)])
             .collect();
     });
     let result = owner.authorize(&sign(&f, &message));

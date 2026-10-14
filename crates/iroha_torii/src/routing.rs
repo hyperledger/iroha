@@ -56,16 +56,16 @@ fn occurrence_fixture_value(
             .public_key()
             .clone(),
     );
-    iroha_executor_data_model::isi::multisig::MultisigProposalValue::new(
-        occurrence_fixture_network(),
-        occurrence_fixture_nonce(hash),
-        occurrence_fixture_id(&account, hash),
-        None,
+    iroha_executor_data_model::isi::multisig::MultisigProposalValue {
+        network_id: occurrence_fixture_network(),
+        proposal_nonce: occurrence_fixture_nonce(hash),
+        proposal_id: occurrence_fixture_id(&account, hash),
+        transaction_ttl_ms: None,
         instructions,
-        proposed,
-        expires,
+        proposed_at_ms: proposed,
+        expires_at_ms: expires,
         approvals,
-    )
+    }
 }
 #[cfg(test)]
 fn occurrence_fixture_state(
@@ -76,18 +76,18 @@ fn occurrence_fixture_state(
     expires: u64,
     approvals: BTreeSet<AccountId>,
 ) -> iroha_executor_data_model::isi::multisig::MultisigProposalState {
-    iroha_executor_data_model::isi::multisig::MultisigProposalState::new(
-        occurrence_fixture_network(),
-        account.clone(),
-        occurrence_fixture_nonce(hash),
-        occurrence_fixture_id(&account, hash),
-        hash,
-        None,
+    iroha_executor_data_model::isi::multisig::MultisigProposalState {
+        network_id: occurrence_fixture_network(),
+        multisig_account_id: account.clone(),
+        proposal_nonce: occurrence_fixture_nonce(hash),
+        proposal_id: occurrence_fixture_id(&account, hash),
+        instructions_hash: hash,
+        transaction_ttl_ms: None,
         instructions,
-        proposed,
-        expires,
+        proposed_at_ms: proposed,
+        expires_at_ms: expires,
         approvals,
-    )
+    }
 }
 #[cfg(test)]
 fn occurrence_fixture_terminal(
@@ -17642,16 +17642,16 @@ struct MultisigProposalRecord {
 fn proposal_value_from_state(
     proposal_state: iroha_executor_data_model::isi::multisig::MultisigProposalState,
 ) -> iroha_executor_data_model::isi::multisig::MultisigProposalValue {
-    iroha_executor_data_model::isi::multisig::MultisigProposalValue::new(
-        proposal_state.network_id,
-        proposal_state.proposal_nonce,
-        proposal_state.proposal_id,
-        proposal_state.transaction_ttl_ms,
-        proposal_state.instructions,
-        proposal_state.proposed_at_ms,
-        proposal_state.expires_at_ms,
-        proposal_state.approvals,
-    )
+    iroha_executor_data_model::isi::multisig::MultisigProposalValue {
+network_id: proposal_state.network_id,
+proposal_nonce: proposal_state.proposal_nonce,
+proposal_id: proposal_state.proposal_id,
+transaction_ttl_ms: proposal_state.transaction_ttl_ms,
+instructions: proposal_state.instructions,
+proposed_at_ms: proposal_state.proposed_at_ms,
+expires_at_ms: proposal_state.expires_at_ms,
+approvals: proposal_state.approvals,
+}
 }
 fn validate_multisig_active_proposal_binding(
     multisig_account_id: &iroha_data_model::account::AccountId,
@@ -24189,11 +24189,9 @@ pub async fn handle_post_contract_call_multisig_propose(
     );
     let (proposal_instructions, proposal_hash) = build_multisig_contract_call_instructions(
         &multisig_account_id,
-        &contract_address,
-        contract_alias.as_ref(),
+        (&contract_address, contract_alias.as_ref()),
         &entrypoint,
-        normalized_payload.as_ref(),
-        arguments.as_deref(),
+        (normalized_payload.as_ref(), arguments.as_deref()),
         &manifest,
         &code_hash,
         attempt_created_at_ms,

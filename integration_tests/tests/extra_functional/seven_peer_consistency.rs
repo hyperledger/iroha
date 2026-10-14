@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Verify that all peers in a seven-peer network maintain consistent asset balances with DA enabled.
 use eyre::{Result, WrapErr, eyre};
 use integration_tests::{sandbox, sync::get_status_with_retry_or_storage};

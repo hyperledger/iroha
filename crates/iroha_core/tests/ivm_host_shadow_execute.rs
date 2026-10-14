@@ -1,5 +1,5 @@
 //! CoreHost shadow-execute parity tests (IVM syscalls vs native Execute).
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     kura::Kura,
     query::store::LiveQueryStore,

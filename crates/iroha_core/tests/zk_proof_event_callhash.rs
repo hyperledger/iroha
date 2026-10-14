@@ -1,5 +1,5 @@
 //! Verify that `ProofEvent::{Verified,Rejected}` carry the transaction `call_hash`.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![cfg(feature = "zk-tests")]
 use iroha_core::{
     block::{BlockBuilder, ValidBlock},

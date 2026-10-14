@@ -1,6 +1,5 @@
 //! Cross-module gateway policy tests.
 
-#![allow(clippy::restriction)]
 use super::{
     policy::{GatewayPolicy, GatewayPolicyConfig, PolicyDecision, PolicyViolation, RequestContext},
     rate_limit::{ClientFingerprint, GatewayRateLimitConfig, GatewayRateLimiter},

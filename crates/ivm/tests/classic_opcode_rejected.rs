@@ -1,7 +1,7 @@
 //! Admission and runtime rejection of retired or unassigned instruction words.
-use ivm::{IVM, VMError, encoding};
-mod common;
+use crate::common;
 use common::assemble;
+use ivm::{IVM, VMError, encoding};
 #[test]
 fn classic_opcode_is_rejected() {
     // Classic RISC-V ADD encoding (rd=x0, rs1=x0, rs2=x0, funct3=0, funct7=0, opcode=0x33).

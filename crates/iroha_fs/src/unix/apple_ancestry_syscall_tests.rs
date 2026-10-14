@@ -102,7 +102,7 @@ fn apple_kernel_search_only_ancestry_keeps_selected_directory_and_originals_usab
 fn apple_kernel_revoked_search_and_readless_selected_directory_are_rejected() {
     let fixture = fixture();
     let directory = Directory::open_exact(&fixture.leaf).unwrap();
-    fs::set_permissions(&fixture.search, fs::Permissions::from_mode(0)).unwrap();
+    fs::set_permissions(&fixture.search, fs::Permissions::from_mode(0o0)).unwrap();
     assert!(directory.revalidate().is_err());
     assert!(Directory::open_exact(&fixture.leaf).is_err());
     fs::set_permissions(&fixture.search, fs::Permissions::from_mode(0o100)).unwrap();

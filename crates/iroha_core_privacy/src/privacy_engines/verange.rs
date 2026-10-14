@@ -789,8 +789,9 @@ where
                 verify(statement, &proof).map_err(|_| VeRangeError::ProverSelfCheckFailed)?;
                 return Ok(proof);
             }
-            Err(VeRangeError::P256(P256EngineError::IdentityPoint))
-            | Err(VeRangeError::P256(P256EngineError::ZeroScalar)) => continue,
+            Err(VeRangeError::P256(
+                P256EngineError::IdentityPoint | P256EngineError::ZeroScalar,
+            )) => continue,
             Err(error) => return Err(error),
         }
     }

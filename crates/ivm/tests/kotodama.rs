@@ -1,4 +1,5 @@
 //! Tests for Kotodama parsing, semantics, and compilation.
+use crate::common;
 use ivm::{ProgramMetadata, encoding, instruction, syscalls};
 use kotodama_lang::{
     ast as kd_ast,
@@ -9,7 +10,6 @@ use kotodama_lang::{
     semantic::{Type, analyze},
 };
 use std::convert::TryInto;
-mod common;
 fn parse_meta_offset(code: &[u8]) -> Result<(ProgramMetadata, usize), ivm::VMError> {
     ProgramMetadata::parse(code).map(|parsed| (parsed.metadata, parsed.code_offset))
 }

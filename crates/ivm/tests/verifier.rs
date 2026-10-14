@@ -1,7 +1,7 @@
 //! Retained diagnostic trace and execution behavior controls.
-use ivm::{IVM, encoding, instruction, zk::check_diagnostic_trace};
-mod common;
+use crate::common;
 use common::assemble_zk;
+use ivm::{IVM, encoding, instruction, zk::check_diagnostic_trace};
 #[test]
 fn test_diagnostic_trace_check_passes() {
     // Program: ASSERT x1==0; HALT

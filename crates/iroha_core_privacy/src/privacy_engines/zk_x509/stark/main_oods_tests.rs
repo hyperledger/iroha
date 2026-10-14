@@ -48,6 +48,13 @@ fn public_affine_oods_preserves_current_next_and_der_boundaries() {
     let rows = ZK_X509_DER_STARK_TRACE_SIZE_V1;
     let root = goldilocks_primitive_root_v1(ZK_X509_MAX_NATIVE_TRACE_LOG2_V1).unwrap();
     let actual = log19_public_at_point_v1(&schedule, point).unwrap();
+    // Both independently checked openings travel together as one heap owner;
+    // returning the pair must not materialize another large stack array.
+    assert_eq!(
+        core::mem::size_of_val(&actual),
+        core::mem::size_of::<usize>()
+    );
+    assert_eq!(actual.len(), 2);
     for (shift, actual) in actual.iter().enumerate() {
         let x = point.mul_base(root.pow(shift as u128));
         let scale = x

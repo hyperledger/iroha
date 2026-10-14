@@ -1,5 +1,5 @@
 //! Host-level negative tests for typed TLV decoding via `CoreHost`.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::smartcontracts::ivm::host::CoreHost;
 use iroha_data_model::isi::smart_contract_code::RegisterSmartContractBytes;
 use iroha_data_model::prelude::*;

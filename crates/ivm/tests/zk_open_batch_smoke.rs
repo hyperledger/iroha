@@ -54,7 +54,7 @@ fn zk_open_batch_mixed_validity_ok_and_bad() {
     corrupted_t[0] = corrupted_t[0].wrapping_add(1);
     bad_public.t = corrupted_t;
     let env_bad = h2::OpenVerifyEnvelope {
-        params: env_ok.params.clone(),
+        params: env_ok.params,
         public: bad_public,
         proof: env_ok.proof.clone(),
         transcript_label: env_ok.transcript_label.clone(),

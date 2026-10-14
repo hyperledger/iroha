@@ -248,6 +248,9 @@ pub enum PublicationDeferral {
     /// Exact allocation or decoder refusal from the original execution pool.
     #[error(transparent)]
     Execution(#[from] crate::execution_attempt::ExecutionDeferred),
+    /// Exact original frozen State source, canonical encoding or local policy refusal.
+    #[error(transparent)]
+    StateCapture(crate::state::StateCaptureDeferral),
     /// Exact World storage or execution-root decoder refusal before validation effects.
     #[error(transparent)]
     StateStorage(crate::state::StateStorageAdmissionError),
@@ -277,6 +280,13 @@ pub enum PublicationDeferral {
     ReputationArchiveBusy(iroha_allocation::release::ReleaseWait),
 }
 impl PublicationDeferral {
+    /// Borrow the exact capture owner without granting work or a second retry owner.
+    pub fn state_capture(&self) -> Option<&crate::state::StateCaptureDeferral> {
+        match self {
+            Self::StateCapture(original) => Some(original),
+            _ => None,
+        }
+    }
     /// Borrow the original execution refusal; lock contention has no VM allocation category.
     pub fn execution(&self) -> Option<&crate::execution_attempt::ExecutionDeferred> {
         match self {
@@ -288,6 +298,7 @@ impl PublicationDeferral {
     pub fn allocation_refusal(&self) -> Option<&iroha_allocation::AllocationRefusal> {
         match self {
             Self::Execution(original) => original.allocation_refusal(),
+            Self::StateCapture(original) => original.allocation_refusal(),
             Self::StateStorage(
                 crate::state::StateStorageAdmissionError::World(
                     mv::storage::AdmittedStorageError::Allocation(original),
@@ -324,6 +335,7 @@ impl PublicationDeferral {
                 }
                 _ => None,
             },
+            Self::StateCapture(original) => original.release_wait(),
             Self::StateStorage(original) => original.release_wait(),
             Self::EvidencePreparation(original) => original.release_wait(),
             Self::BlockHashAdmission(original) => original.release_wait(),

@@ -1,5 +1,5 @@
 //! Admission-time rejection when on-chain manifest `abi_hash` mismatches node policy.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::smartcontracts::Execute; // bring trait for `.execute()` on ISIs
 use iroha_core::{
     governance::manifest::LaneManifestRegistry, prelude::World,

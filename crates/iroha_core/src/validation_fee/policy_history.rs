@@ -121,7 +121,10 @@ fn compact(stx: &mut StateTransaction<'_, '_>) -> Attempt<bool> {
     stx.world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(next));
+        .set_parameter(Parameter::Custom(next))
+        .map_err(|error| {
+            crate::execution_attempt::norito_decode_attempt_error(error, |error| error.to_string())
+        })?;
     Ok(true)
 }
 
@@ -288,6 +291,78 @@ mod tests {
         assert!(
             compact(&mut stx).unwrap(),
             "restoring exact original custody permits retry"
+        );
+    }
+
+    #[test]
+    fn compaction_process_preserves_original_decoder_refusal_and_atomic_retry() {
+        let chain = archived_revision_fixture();
+        let height = chain.height();
+        let original_state = crate::snapshot::canonical_state_snapshot_hash(chain.state()).unwrap();
+        let registry = validated_policy_registry_in_world(&chain.state().view().world)
+            .unwrap()
+            .unwrap();
+        let proposal = chain.proposal(Some(NOW + 2), Vec::new());
+        let state = std::sync::Arc::clone(chain.state());
+        let mut block = state.block(proposal.header());
+        let parameters = block.world.parameters.get().clone();
+        let fragments = block.committed_fragment_count();
+        let original = norito::core::DecodeBudgetContext::new(norito::DecodeLimits::new(
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            0,
+            usize::MAX,
+        ));
+        let refused = original.with(|| process(&mut block));
+        let Err(ExecutionOutputAttemptError::Deferred(refused)) = refused else {
+            panic!("compaction must preserve the original local registry decoder refusal");
+        };
+        assert_eq!(refused.reason(), ExecutionDeferral::ActiveMemoryCapacity);
+        let observed = refused
+            .decode_refusal()
+            .expect("original registry decoder cause")
+            .clone();
+        assert_eq!(
+            observed.kind(),
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
+        );
+        assert!(matches!(
+            observed.resource_error(),
+            norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 }
+                if attempted > 0
+        ));
+        assert!(refused.allocation_refusal().is_none());
+        assert!(refused.verification_refusal().is_none());
+        assert!(refused.phase().is_none());
+        let returned =
+            crate::execution_attempt::ExecutionDeferred::try_from_vm_error(refused.into_vm_error())
+                .expect("consuming VM roundtrip retains the original registry decoder cause");
+        assert_eq!(returned.decode_refusal(), Some(&observed));
+        assert_eq!(original.consumed_allocated_bytes(), 0);
+        assert!(!norito::core::decode_limits_active());
+        assert_eq!(*block.world.parameters.get(), parameters);
+        assert_eq!(block.committed_fragment_count(), fragments);
+
+        // The actual certified source and the fixture's existing execution budget
+        // remain unchanged. Retrying after the refused attempt publishes one suffix.
+        process(&mut block).unwrap();
+        let next = validated_policy_registry_in_world(&block.world)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            next.payout_policies.entries,
+            registry.payout_policies.entries[1..]
+        );
+        assert_eq!(next.registered_policies, registry.registered_policies);
+        assert_eq!(next.history.as_ref().unwrap().archived_at_height, height);
+        next.validate_history_source(height, &registry).unwrap();
+        assert_eq!(block.committed_fragment_count(), fragments + 1);
+        drop(block);
+        assert_eq!(
+            crate::snapshot::canonical_state_snapshot_hash(chain.state()).unwrap(),
+            original_state,
+            "dropping the enclosing unpublished block must also roll back its successful compaction"
         );
     }
 

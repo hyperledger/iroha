@@ -1,5 +1,7 @@
 //! Grouped IVM integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
+#[path = "../common.rs"]
+mod common;
 #[path = "../poseidon_bridge.rs"]
 mod poseidon_bridge;
 #[path = "../poseidon_cuda_parity.rs"]

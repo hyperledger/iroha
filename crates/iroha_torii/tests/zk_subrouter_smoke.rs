@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Smoke test that ZK endpoints (verify, attachments) are exposed via the merged sub-router.
 #![cfg(feature = "app_api")]
 use axum::http::Request;

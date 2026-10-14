@@ -1,5 +1,5 @@
 //! Regression coverage for the transaction queue expiration and drain paths.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //!
 //! These tests focus on making sure the queue rejects expired payloads and that the
 //! ready/pending drain helpers stay panic-free under concurrent pressure.

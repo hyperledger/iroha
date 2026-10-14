@@ -1,5 +1,4 @@
 #![doc = "End-to-end vendor bridge gating path for ZK verification"]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "zk-tests")]
 //! An injected verification latch cannot authorize an unadmitted native proof relation.
 //!

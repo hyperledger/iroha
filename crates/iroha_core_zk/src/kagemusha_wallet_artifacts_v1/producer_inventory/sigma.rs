@@ -167,7 +167,7 @@ fn import_with_admission(
         ($owner:ty) => {
             match member {
                 Some(member) => <$owner>::admit_builtin_original_artifact_cancellable(
-                    k12.clone(),
+                    k12,
                     &original.descriptor,
                     &original.verifying_key,
                     &original.proving_key,
@@ -176,7 +176,7 @@ fn import_with_admission(
                     None,
                 )?,
                 None => <$owner>::admit_original_artifact_cancellable(
-                    k12.clone(),
+                    k12,
                     &original.descriptor,
                     &original.verifying_key,
                     &original.proving_key,

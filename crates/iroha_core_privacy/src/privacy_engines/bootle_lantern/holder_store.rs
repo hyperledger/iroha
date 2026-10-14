@@ -1316,9 +1316,11 @@ impl BootleLanternFileHolderStoreV1 {
                 self.cleanup_superseded_object_v1(predecessor_envelope_digest, &state.manifest);
                 Ok(())
             }
-            Err(error @ BootleLanternHolderStoreErrorV1::DurabilityUncertain)
-            | Err(error @ BootleLanternHolderStoreErrorV1::ProviderDrift)
-            | Err(error @ BootleLanternHolderStoreErrorV1::RollbackDetected) => {
+            Err(
+                error @ (BootleLanternHolderStoreErrorV1::DurabilityUncertain
+                | BootleLanternHolderStoreErrorV1::ProviderDrift
+                | BootleLanternHolderStoreErrorV1::RollbackDetected),
+            ) => {
                 state.poisoned = true;
                 Err(error)
             }

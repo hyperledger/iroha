@@ -316,6 +316,7 @@ impl AtomicPrivateSettlementProvisionalLegInputV1 {
             .digest()
             .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
         let aad = &self.prepared.audit_capsule.aad;
+        let audit_plaintext_commitment = statement.audit_plaintext_commitment;
         if self.prepared.delta.proof_digest
             != private_settlement_proof_digest_v1(&self.prepared.proof)
             || capsule_digest != statement.audit_capsule_digest
@@ -345,7 +346,7 @@ impl AtomicPrivateSettlementProvisionalLegInputV1 {
             || aad.authority_context_height != statement.authority_context_height
             || aad.audit_policy_digest != statement.audit_policy_digest
             || aad.audit_key_epoch != statement.audit_key_epoch
-            || aad.plaintext_commitment != statement.audit_plaintext_commitment
+            || aad.plaintext_commitment != audit_plaintext_commitment
             || self.retention_until_height < statement.expiry_height
         {
             return Err(AtomicPrivateSettlementWalletErrorV1::PublicBinding);
@@ -954,12 +955,13 @@ fn validate_public_artifacts(
     let audit_input_commitment =
         atomic_private_settlement_audit_input_commitment_v1(&audit_plaintext.inputs)
             .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
+    let authoritative_audit_policy_digest = policy.policy_digest;
     if statement.network_id != manifest.network_id
         || statement.bundle_id != manifest.bundle_id
         || statement.route != leg.route
         || statement.pool_id != leg.pool_id
         || statement.asset_binding_commitment != leg.asset_binding_commitment
-        || statement.audit_policy_digest != policy.policy_digest
+        || statement.audit_policy_digest != authoritative_audit_policy_digest
         || statement.audit_policy_digest != leg.audit_policy_digest
         || statement.audit_key_epoch != policy.body.key_epoch
         || statement.audit_plaintext_commitment != audit_plaintext_commitment

@@ -155,7 +155,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         }
         if !matches!(
             completion,
-            Some(Completion::Complete(_)) | Some(Completion::Archived)
+            Some(Completion::Complete(_) | Completion::Archived)
         ) {
             return Err(Error::WitnessLost("Receive projection incomplete"));
         }

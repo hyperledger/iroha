@@ -137,9 +137,9 @@ const fn irsh(x: i64, n: u32) -> i64 {
     x >> (n & 31)
 }
 // Convenient constant for a 63-bit mask.
-const M63: u64 = 0x7FFFFFFFFFFFFFFF;
+const M63: u64 = 0x7FFF_FFFF_FFFF_FFFF;
 // Convenient constant for a 52-bit mask.
-const M52: u64 = 0x000FFFFFFFFFFFFF;
+const M52: u64 = 0x000F_FFFF_FFFF_FFFF;
 impl FLR {
     // IMPLEMENTATION NOTES
     // ====================
@@ -263,7 +263,7 @@ impl FLR {
         // As in double(), we add 63 to the exponent, unless the value
         // was zero.
         let x = self.0;
-        let d = ((x & 0x7FF0000000000000) + 0x7FF0000000000000) as i64;
+        let d = ((x & 0x7FF0_0000_0000_0000) + 0x7FF0_0000_0000_0000) as i64;
         let d = ((d >> 11) as u64) & (63u64 << 52);
         Self(x.wrapping_add(d))
     }
@@ -309,7 +309,7 @@ impl FLR {
         // z <- low e+1 bits of m (in top positions)
         let z = ulsh(m, 63 - e);
         // y has bit 61 set if xxx != 0.
-        let y = ((z & 0x3FFFFFFFFFFFFFFF) + 0x3FFFFFFFFFFFFFFF) >> 1;
+        let y = ((z & 0x3FFF_FFFF_FFFF_FFFF) + 0x3FFF_FFFF_FFFF_FFFF) >> 1;
         let lo = (z | y) >> 61;
         let cc = (0xC8 >> (lo as u32)) & 1;
         // Do the shift + rounding.
@@ -455,22 +455,22 @@ impl FLR {
         //
         // Result will fit on 106 bits. We get it over three variables
         // z0:z1:zu, in base 2^25 (zu is 64-bit and can use up to 56 bits).
-        let (x0, x1) = ((xu as u32) & 0x01FFFFFF, (xu >> 25) as u32);
-        let (y0, y1) = ((yu as u32) & 0x01FFFFFF, (yu >> 25) as u32);
+        let (x0, x1) = ((xu as u32) & 0x01FF_FFFF, (xu >> 25) as u32);
+        let (y0, y1) = ((yu as u32) & 0x01FF_FFFF, (yu >> 25) as u32);
         let w = (x0 as u64) * (y0 as u64);
-        let (z0, z1) = ((w as u32) & 0x01FFFFFF, (w >> 25) as u32);
+        let (z0, z1) = ((w as u32) & 0x01FF_FFFF, (w >> 25) as u32);
         let w = (x1 as u64) * (y0 as u64);
-        let (z1, h) = (z1 + ((w as u32) & 0x01FFFFFF), (w >> 25) as u32);
+        let (z1, h) = (z1 + ((w as u32) & 0x01FF_FFFF), (w >> 25) as u32);
         let w = (x0 as u64) * (y1 as u64);
-        let (z1, h) = (z1 + ((w as u32) & 0x01FFFFFF), h + ((w >> 25) as u32));
+        let (z1, h) = (z1 + ((w as u32) & 0x01FF_FFFF), h + ((w >> 25) as u32));
         let w = (x1 as u64) * (y1 as u64);
         let zu = w + ((h + (z1 >> 25)) as u64);
-        let z1 = z1 & 0x01FFFFFF;
+        let z1 = z1 & 0x01FF_FFFF;
         // We have 2^104 <= z < 2^106. We first scale it down to the
         // [2^54, 2^56-1] range with the lowest bit being sticky. This means
         // keeping zu and simply dropping z0 and z1, except that if z0 and
         // z1 are not both zero, then the lowest bit of zu must be set to 1.
-        let zu = zu | ((((z0 | z1) + 0x01FFFFFF) >> 25) as u64);
+        let zu = zu | ((((z0 | z1) + 0x01FF_FFFF) >> 25) as u64);
         // We normalize the value to [2^54, 2^55-1] by right-shifting it
         // by 1 bit if its top bit is 1. We must take care to maintain the
         // stickiness of the least significant bit, and also remember whether
@@ -644,18 +644,18 @@ impl FLR {
         y
     }
     pub(crate) const EXPM_COEFFS: [u64; 13] = [
-        0x00000004741183A3,
-        0x00000036548CFC06,
-        0x0000024FDCBF140A,
-        0x0000171D939DE045,
-        0x0000D00CF58F6F84,
-        0x000680681CF796E3,
-        0x002D82D8305B0FEA,
-        0x011111110E066FD0,
-        0x0555555555070F00,
-        0x155555555581FF00,
-        0x400000000002B400,
-        0x7FFFFFFFFFFF4800,
-        0x8000000000000000,
+        0x0000_0004_7411_83A3,
+        0x0000_0036_548C_FC06,
+        0x0000_024F_DCBF_140A,
+        0x0000_171D_939D_E045,
+        0x0000_D00C_F58F_6F84,
+        0x0006_8068_1CF7_96E3,
+        0x002D_82D8_305B_0FEA,
+        0x0111_1111_0E06_6FD0,
+        0x0555_5555_5507_0F00,
+        0x1555_5555_5581_FF00,
+        0x4000_0000_0002_B400,
+        0x7FFF_FFFF_FFFF_4800,
+        0x8000_0000_0000_0000,
     ];
 }

@@ -226,11 +226,11 @@ fn fused_handle<C: PastaCurve>() {
     let owner = PinnedParams::<C>::derive(11).unwrap();
     let independent = PinnedParams::<C>::derive(11).unwrap();
     let other_domain = PinnedParams::<C>::derive(12).unwrap();
-    let values: Vec<_> = (0..1025)
+    let values: Vec<_> = (0_u64..1025)
         .map(|row| match row % 3 {
             0 => C::ScalarExt::ZERO,
             1 => -C::ScalarExt::ONE,
-            _ => C::ScalarExt::from(row as u64),
+            _ => C::ScalarExt::from(row),
         })
         .collect();
     for length in [0, 1, 16, 256, 1024, 1025] {

@@ -8,7 +8,9 @@
 
 use super::*;
 use crate::execution_attempt::ExecutionAttemptError;
+#[cfg(test)]
 use crate::state::deserialize::musubi_source_read::MusubiSourceReadOnly;
+use crate::state::deserialize::musubi_source_read::{MusubiRead, ReadFailure};
 use iroha_allocation::AllocationBudget;
 use iroha_data_model::musubi::source_work::{
     SourceGeometry, SourceGeometryError, SourceGeometryLimits, SourceShape,
@@ -27,6 +29,24 @@ pub(in crate::state) struct SourceWorkLimits {
     pub model_operations: u64,
     /// Maximum signature verifications across all repeated provider edges.
     pub signature_checks: u64,
+}
+
+impl SourceWorkLimits {
+    /// Project only explicitly configured input-work authority, never memory or output.
+    pub(in crate::state) const fn from_capture_policy(
+        policy: iroha_config::parameters::actual::StateCapture,
+    ) -> Self {
+        Self {
+            geometry: SourceGeometryLimits {
+                elements: policy.source_elements,
+                variable_bytes: policy.source_variable_bytes,
+            },
+            table_pass_rows: policy.source_table_pass_rows,
+            lookup_index_entries: policy.source_lookup_index_entries,
+            model_operations: policy.source_model_operations,
+            signature_checks: policy.source_signature_checks,
+        }
+    }
 }
 
 /// Public-work dimension with no resource-release event or consensus meaning.
@@ -120,28 +140,31 @@ impl Plan {
             occurrences: [0; OPERATION_COUNT],
         }
     }
+    #[cfg(test)]
     fn with_nfc_scratch<T>(
         &self,
         budget: &AllocationBudget,
         operation: impl FnOnce() -> Result<T, SourceValidationError>,
     ) -> Result<T, SourceValidationError> {
-        // One peak spans all sequential Name checks and remains live alongside
-        // directory/package scratch. ICU owns and frees each internal buffer
-        // before returning; no normalization storage is retained in the token.
-        let _scratch = if self.nfc_scratch_bytes == 0 {
-            None
-        } else {
-            Some(
-                budget
-                    .try_reserve_bytes(self.nfc_scratch_bytes)
-                    .map_err(|refusal| {
-                        SourceValidationError::Attempt(ExecutionAttemptError::Deferred(
-                            refusal.into(),
-                        ))
-                    })?,
-            )
-        };
+        let _scratch = self.nfc_scratch(budget)?;
         operation()
+    }
+
+    fn nfc_scratch(
+        &self,
+        budget: &AllocationBudget,
+    ) -> Result<Option<iroha_allocation::AllocationReservation>, SourceValidationError> {
+        // One peak spans all sequential Name checks, beside the original
+        // directory/package scratch. It does not grant source/read authority.
+        if self.nfc_scratch_bytes == 0 {
+            return Ok(None);
+        }
+        budget
+            .try_reserve_bytes(self.nfc_scratch_bytes)
+            .map(Some)
+            .map_err(|refusal| {
+                SourceValidationError::Attempt(ExecutionAttemptError::Deferred(refusal.into()))
+            })
     }
 
     fn add(&mut self, dimension: WorkDimension, count: usize) -> Result<(), WorkRefusal> {
@@ -183,26 +206,33 @@ impl Plan {
 }
 
 /// Admit complete source geometry and every audited repeated operation first.
-fn admit_passes(world: &impl MusubiSourceReadOnly, plan: &mut Plan) -> Result<(), WorkRefusal> {
-    let archives = world.source_musubi_archives();
-    let availability = world.source_musubi_archive_availability();
-    let attestations = world.source_musubi_provider_bundle_attestations();
-    let locations = world.source_musubi_archive_locations();
-    let resolver = world.source_musubi_resolver_index();
-    let packages = world.source_musubi_packages();
-    let releases = world.source_musubi_releases();
-    let directory = world.source_musubi_public_directory();
+fn admit_passes<W: MusubiRead>(
+    world: &W,
+    plan: &mut Plan,
+) -> Result<(), ReadFailure<W::Error, WorkRefusal>> {
     // Source predicates only reach these additional fixed-key indexes through
     // locations. Their retained population bounds point-lookup depth without
     // pretending unrelated payloads were visited or creating a new authority.
-    if !locations.is_empty() {
+    if world
+        .musubi_archive_locations_len()
+        .map_err(ReadFailure::Source)?
+        != 0
+    {
         for count in [
-            world.source_musubi_locations_by_pin().len(),
-            world.source_musubi_locations_by_provider().len(),
-            world.source_musubi_locations_by_replication_order().len(),
-            world.source_pin_manifests().len(),
-            world.source_replication_orders().len(),
-            world.source_provider_owners().len(),
+            world
+                .musubi_locations_by_pin_len()
+                .map_err(ReadFailure::Source)?,
+            world
+                .musubi_locations_by_provider_len()
+                .map_err(ReadFailure::Source)?,
+            world
+                .musubi_locations_by_replication_order_len()
+                .map_err(ReadFailure::Source)?,
+            world.pin_manifests_len().map_err(ReadFailure::Source)?,
+            world
+                .replication_orders_len()
+                .map_err(ReadFailure::Source)?,
+            world.provider_owners_len().map_err(ReadFailure::Source)?,
         ] {
             plan.add(WorkDimension::LookupIndexEntries, count)?;
         }
@@ -211,188 +241,172 @@ fn admit_passes(world: &impl MusubiSourceReadOnly, plan: &mut Plan) -> Result<()
     // Shape admission plus the second location/evidence pass. Availability is
     // fixed-size, so its row allowance conservatively covers no shape traversal.
     for count in [
-        archives.len(),
-        availability.len(),
-        attestations.len(),
-        locations.len(),
-        resolver.len(),
-        packages.len(),
-        releases.len(),
-        directory.len(),
-        locations.len(),
+        world.musubi_archives_len().map_err(ReadFailure::Source)?,
+        world
+            .musubi_archive_availability_len()
+            .map_err(ReadFailure::Source)?,
+        world
+            .musubi_provider_bundle_attestations_len()
+            .map_err(ReadFailure::Source)?,
+        world
+            .musubi_archive_locations_len()
+            .map_err(ReadFailure::Source)?,
+        world
+            .musubi_resolver_index_len()
+            .map_err(ReadFailure::Source)?,
+        world.musubi_packages_len().map_err(ReadFailure::Source)?,
+        world.musubi_releases_len().map_err(ReadFailure::Source)?,
+        world
+            .musubi_public_directory_len()
+            .map_err(ReadFailure::Source)?,
+        world
+            .musubi_archive_locations_len()
+            .map_err(ReadFailure::Source)?,
     ] {
         plan.add(WorkDimension::TablePassRows, count)?;
     }
     // Live: attestations, locations, archives + merged locations, availability,
     // resolver revisions, directory-reference construction + merge, resolver merge.
     for count in [
-        attestations.len(),
-        locations.len(),
-        archives.len(),
-        locations.len(),
-        availability.len(),
-        resolver.len(),
-        directory.len(),
-        directory.len(),
-        resolver.len(),
+        world
+            .musubi_provider_bundle_attestations_len()
+            .map_err(ReadFailure::Source)?,
+        world
+            .musubi_archive_locations_len()
+            .map_err(ReadFailure::Source)?,
+        world.musubi_archives_len().map_err(ReadFailure::Source)?,
+        world
+            .musubi_archive_locations_len()
+            .map_err(ReadFailure::Source)?,
+        world
+            .musubi_archive_availability_len()
+            .map_err(ReadFailure::Source)?,
+        world
+            .musubi_resolver_index_len()
+            .map_err(ReadFailure::Source)?,
+        world
+            .musubi_public_directory_len()
+            .map_err(ReadFailure::Source)?,
+        world
+            .musubi_public_directory_len()
+            .map_err(ReadFailure::Source)?,
+        world
+            .musubi_resolver_index_len()
+            .map_err(ReadFailure::Source)?,
     ] {
         plan.add(WorkDimension::TablePassRows, count)?;
     }
     // Universal: package validation + initialization, resolver, release completeness,
     // directory, then complete package accumulator check.
     for count in [
-        packages.len(),
-        packages.len(),
-        resolver.len(),
-        releases.len(),
-        directory.len(),
-        packages.len(),
+        world.musubi_packages_len().map_err(ReadFailure::Source)?,
+        world.musubi_packages_len().map_err(ReadFailure::Source)?,
+        world
+            .musubi_resolver_index_len()
+            .map_err(ReadFailure::Source)?,
+        world.musubi_releases_len().map_err(ReadFailure::Source)?,
+        world
+            .musubi_public_directory_len()
+            .map_err(ReadFailure::Source)?,
+        world.musubi_packages_len().map_err(ReadFailure::Source)?,
     ] {
         plan.add(WorkDimension::TablePassRows, count)?;
     }
     for (operation, count) in [
-        (Operation::ArchiveValidation, archives.len()),
-        (Operation::LocationValidation, locations.len()),
-        (Operation::ProviderSetDigest, locations.len()),
-        (Operation::AttestationRecordValidation, attestations.len()),
-        (Operation::AttestationValidation, attestations.len()),
-        (Operation::AttestationDigest, attestations.len()),
-        (Operation::AvailabilityValidation, availability.len()),
-        (Operation::PackageValidation, packages.len()),
-        (Operation::ResolverValidation, resolver.len()),
-        (Operation::ReleaseValidation, resolver.len()),
-        (Operation::DirectoryValidation, directory.len()),
-        (Operation::NamespaceScratchPlan, packages.len()),
-        (Operation::NamespaceScratchPlan, directory.len()),
+        (
+            Operation::ArchiveValidation,
+            world.musubi_archives_len().map_err(ReadFailure::Source)?,
+        ),
+        (
+            Operation::LocationValidation,
+            world
+                .musubi_archive_locations_len()
+                .map_err(ReadFailure::Source)?,
+        ),
+        (
+            Operation::ProviderSetDigest,
+            world
+                .musubi_archive_locations_len()
+                .map_err(ReadFailure::Source)?,
+        ),
+        (
+            Operation::AttestationRecordValidation,
+            world
+                .musubi_provider_bundle_attestations_len()
+                .map_err(ReadFailure::Source)?,
+        ),
+        (
+            Operation::AttestationValidation,
+            world
+                .musubi_provider_bundle_attestations_len()
+                .map_err(ReadFailure::Source)?,
+        ),
+        (
+            Operation::AttestationDigest,
+            world
+                .musubi_provider_bundle_attestations_len()
+                .map_err(ReadFailure::Source)?,
+        ),
+        (
+            Operation::AvailabilityValidation,
+            world
+                .musubi_archive_availability_len()
+                .map_err(ReadFailure::Source)?,
+        ),
+        (
+            Operation::PackageValidation,
+            world.musubi_packages_len().map_err(ReadFailure::Source)?,
+        ),
+        (
+            Operation::ResolverValidation,
+            world
+                .musubi_resolver_index_len()
+                .map_err(ReadFailure::Source)?,
+        ),
+        (
+            Operation::ReleaseValidation,
+            world
+                .musubi_resolver_index_len()
+                .map_err(ReadFailure::Source)?,
+        ),
+        (
+            Operation::DirectoryValidation,
+            world
+                .musubi_public_directory_len()
+                .map_err(ReadFailure::Source)?,
+        ),
+        (
+            Operation::NamespaceScratchPlan,
+            world.musubi_packages_len().map_err(ReadFailure::Source)?,
+        ),
+        (
+            Operation::NamespaceScratchPlan,
+            world
+                .musubi_public_directory_len()
+                .map_err(ReadFailure::Source)?,
+        ),
     ] {
         plan.operation(operation, count)?;
     }
     Ok(())
 }
 
-fn admit_source_shapes(
-    world: &impl MusubiSourceReadOnly,
-    plan: &mut Plan,
-) -> Result<(), WorkRefusal> {
-    let archives = world.source_musubi_archives();
-    let attestations = world.source_musubi_provider_bundle_attestations();
-    let locations = world.source_musubi_archive_locations();
-    let resolver = world.source_musubi_resolver_index();
-    let packages = world.source_musubi_packages();
-    let releases = world.source_musubi_releases();
-    let directory = world.source_musubi_public_directory();
-    // Full payloads and variable keys are independent inputs, even when semantic
-    // validation will reject a duplicated identity or an orphan row later.
-    for (_, row) in archives.iter() {
-        plan.shape(SourceShape::Archive(row))?;
-    }
-    for (_, row) in attestations.iter() {
-        plan.shape(SourceShape::Attestation(row))?;
-    }
-    for (_, row) in locations.iter() {
-        plan.shape(SourceShape::Location(row))?;
-    }
-    for (key, row) in packages.iter() {
-        plan.shape(SourceShape::PackageId(key))?;
-        plan.shape(SourceShape::Package(row))?;
-        plan.nfc_scratch_bytes = plan
-            .nfc_scratch_bytes
-            .max(row.claimed_namespace.validation_scratch_bytes());
-    }
-    for (key, row) in releases.iter() {
-        plan.shape(SourceShape::ReleaseId(key))?;
-        plan.shape(SourceShape::Release(row))?;
-    }
-    for (key, row) in resolver.iter() {
-        plan.shape(SourceShape::ReleaseId(key))?;
-        plan.shape(SourceShape::Resolver(row))?;
-    }
-    for (key, row) in directory.iter() {
-        plan.shape(SourceShape::Selector(key))?;
-        plan.shape(SourceShape::Directory(row))?;
-        plan.nfc_scratch_bytes = plan
-            .nfc_scratch_bytes
-            .max(row.selector.namespace.validation_scratch_bytes());
-    }
-    Ok(())
-}
+#[path = "deserialize_world_musubi_source_work/admission.rs"]
+mod admission;
+pub(in crate::state) use admission::{Admission, AdmissionProgress};
 
-fn admit_current_evidence(
-    world: &impl MusubiSourceReadOnly,
-    plan: &mut Plan,
-) -> Result<(), WorkRefusal> {
-    let locations = world.source_musubi_archive_locations();
-    let attestations = world.source_musubi_provider_bundle_attestations();
-    for (_, location) in locations.iter() {
-        if location.state == MusubiArchiveLocationStateV1::Retired {
-            continue;
-        }
-        // current providers directly validates archive/location; binding and
-        // attestation helpers each validate that archive once again.
-        for operation in [
-            Operation::ArchiveValidation,
-            Operation::LocationValidation,
-            Operation::ArchiveValidation,
-            Operation::OrderBindingValidation,
-            Operation::ArchiveValidation,
-            Operation::LocationValidation,
-            Operation::ProviderSetDigest,
-        ] {
-            plan.operation(operation, 1)?;
-        }
-        if let Some(row) = world
-            .source_musubi_locations_by_replication_order()
-            .get(&location.replication_order)
-        {
-            plan.shape(SourceShape::OrderBinding(row))?;
-        }
-        if let Some(row) = world.source_pin_manifests().get(&location.pin_manifest) {
-            plan.shape(SourceShape::Pin(row))?;
-        }
-        if let Some(row) = world
-            .source_replication_orders()
-            .get(&location.replication_order)
-        {
-            plan.shape(SourceShape::Order(row))?;
-        }
-        // The complete provider shape was admitted above. Its repeated traversals
-        // belong to the named operation graph; signature calls are never deduplicated.
-        for provider in &location.providers {
-            if let Some(owner) = world.source_provider_owners().get(provider) {
-                plan.shape(SourceShape::Account(owner))?;
-            }
-            let key = MusubiProviderBundleAttestationKeyV1 {
-                archive_id: location.archive_id,
-                replication_order: location.replication_order,
-                provider_id: *provider,
-            };
-            if let Some(record) = attestations.get(&key) {
-                for operation in [
-                    Operation::AttestationRecordValidation,
-                    Operation::AttestationValidation,
-                    Operation::AttestationDigest,
-                    Operation::AttestationValidation,
-                    Operation::SigningHash,
-                    Operation::AttestationDigest,
-                ] {
-                    plan.operation(operation, 1)?;
-                }
-                plan.add(
-                    WorkDimension::SignatureChecks,
-                    record.attestation.approvals.len(),
-                )?;
-            }
-        }
-    }
-    Ok(())
-}
-
+#[cfg(test)]
 fn admit(world: &impl MusubiSourceReadOnly, limits: SourceWorkLimits) -> Result<Plan, WorkRefusal> {
-    let mut plan = Plan::new(limits);
-    admit_passes(world, &mut plan)?;
-    admit_source_shapes(world, &mut plan)?;
-    admit_current_evidence(world, &mut plan)?;
-    Ok(plan)
+    try_admit(world, limits).map_err(ReadFailure::into_predicate)
+}
+
+fn try_admit<W: MusubiRead>(
+    world: &W,
+    limits: SourceWorkLimits,
+) -> Result<Plan, ReadFailure<W::Error, WorkRefusal>> {
+    let mut admission = Admission::new(limits);
+    admission.advance(world)?;
+    Ok(admission.into_plan())
 }
 
 #[path = "deserialize_world_musubi_source_observation.rs"]
@@ -408,21 +422,34 @@ pub(in crate::state) fn validate<'cut, W: observation::MusubiObservationCut>(
     execution_budget: &'cut AllocationBudget,
     limits: SourceWorkLimits,
 ) -> Result<observation::ValidatedMusubiSource<'cut, W>, SourceValidationError> {
-    let plan = admit(world, limits).map_err(SourceValidationError::Work)?;
-    plan.with_nfc_scratch(execution_budget, || {
-        validate_musubi_live_projection_cut(world, execution_budget)
-            .map_err(SourceValidationError::Attempt)?;
-        musubi_universal::validate_musubi_universal_projection_cut(
-            world,
-            ProjectionCut::Capture,
-            execution_budget,
-        )
-        .map_err(SourceValidationError::Attempt)?;
-        Ok(observation::ValidatedMusubiSource::new_validated(
-            world,
-            execution_budget,
-        ))
-    })
+    validate_read(world, execution_budget, limits, ProjectionCut::Capture)
+        .map_err(ReadFailure::into_predicate)?;
+    Ok(observation::ValidatedMusubiSource::new_validated(
+        world,
+        execution_budget,
+    ))
+}
+
+/// Validate one same-owner original cut without erasing a physical read refusal.
+/// This scoped call retains no success token across a changed source. Its caller
+/// owns cumulative native work and any successful preceding cut; unfinished
+/// semantic scratch still requires retained publication integration.
+pub(in crate::state) fn validate_read<W: MusubiRead>(
+    world: &W,
+    execution_budget: &AllocationBudget,
+    limits: SourceWorkLimits,
+    cut: ProjectionCut,
+) -> Result<(), ReadFailure<W::Error, SourceValidationError>> {
+    let plan = try_admit(world, limits)
+        .map_err(|error| error.map_predicate(SourceValidationError::Work))?;
+    let _scratch = plan
+        .nfc_scratch(execution_budget)
+        .map_err(ReadFailure::Predicate)?;
+    super::musubi_live::try_validate_musubi_live_projection_cut(world, execution_budget)
+        .map_err(|error| error.map_predicate(SourceValidationError::Attempt))?;
+    musubi_universal::try_validate_musubi_universal_projection_cut(world, cut, execution_budget)
+        .map_err(|error| error.map_predicate(SourceValidationError::Attempt))?;
+    Ok(())
 }
 
 #[cfg(test)]

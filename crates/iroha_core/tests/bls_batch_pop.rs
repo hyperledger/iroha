@@ -1,5 +1,5 @@
 //! Integration checks for BLS batching + `PoP` gating on transaction admission.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[path = "common/native_validation.rs"]
 mod native_validation;
 use core::time::Duration;

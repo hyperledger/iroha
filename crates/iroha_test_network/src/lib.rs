@@ -1,5 +1,5 @@
 //! Puppeteer for `irohad`, to create test networks
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 mod config;
 mod dedicated_read;
 #[cfg(unix)]

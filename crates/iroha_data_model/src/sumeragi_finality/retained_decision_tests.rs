@@ -29,11 +29,17 @@ fn decision_window_preserves_lagging_witness_across_pruning() {
         vec![4, 5, 6, 7, 8]
     );
     assert_eq!(
-        verifier.verify_retained_decision(&proofs[3]).unwrap_err(),
+        verifier
+            .verify_retained_decision(&proofs[3])
+            .map_err(invalid_read_error)
+            .unwrap_err(),
         FinalityError("authenticated parent is missing".into())
     );
     assert_eq!(
-        verifier.verify_retained_decision(&proofs[2]).unwrap_err(),
+        verifier
+            .verify_retained_decision(&proofs[2])
+            .map_err(invalid_read_error)
+            .unwrap_err(),
         FinalityError("decision is outside authenticated prefix".into())
     );
 
@@ -51,7 +57,10 @@ fn decision_window_preserves_lagging_witness_across_pruning() {
     .unwrap();
     assert_eq!(compact.decisions.len(), 3);
     assert_eq!(
-        compact.verify_retained_decision(&proofs[4]).unwrap_err(),
+        compact
+            .verify_retained_decision(&proofs[4])
+            .map_err(invalid_read_error)
+            .unwrap_err(),
         FinalityError("decision is outside authenticated prefix".into())
     );
 

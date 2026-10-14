@@ -3,7 +3,7 @@
 //! These tests provide basic coverage that the CLI binary starts up, renders help text, and reports
 //! the current version string. They help catch regression where the clap command tree fails to
 //! build or the binary cannot launch in automated environments.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[path = "cli_smoke/consensus_status.rs"]
 mod consensus_status;
 #[path = "cli_smoke/incentives_dispute.rs"]

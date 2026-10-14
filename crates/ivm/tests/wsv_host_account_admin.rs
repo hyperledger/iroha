@@ -1,4 +1,6 @@
 //! WSV host account administration syscall tests.
+use crate::common;
+use common::assemble_syscalls;
 use iroha_crypto::{Hash, PublicKey};
 use iroha_primitives::json::Json;
 use ivm::{
@@ -7,8 +9,6 @@ use ivm::{
     syscalls,
 };
 use norito::to_bytes;
-mod common;
-use common::assemble_syscalls;
 fn make_tlv(type_id: PointerType, payload: &[u8]) -> Vec<u8> {
     let payload = common::payload_for_type(type_id, payload);
     let mut out = Vec::with_capacity(7 + payload.len() + 32);

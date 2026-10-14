@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! End-to-end coverage for the canonical threshold escrow Kotodama sample.
 use eyre::{Result, WrapErr, eyre};
 use integration_tests::sandbox;

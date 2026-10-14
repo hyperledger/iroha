@@ -619,7 +619,7 @@ fn native_authority_provider_carries_identifier_originals_and_refuses_cross_prog
 #[test]
 fn native_authority_provider_carries_retail_originals_and_refuses_empty_rows() {
     let client = configured();
-    let (request, original) = account_fixture();
+    let (request, original, scope) = account_fixture();
     let mut request = request.clone();
     request.selector = NativeAuthorityOriginalsSelectorV1::RetailPolicy {
         asset: iroha_data_model::asset::AssetDefinitionId::derive_from_components(
@@ -648,7 +648,11 @@ fn native_authority_provider_carries_retail_originals_and_refuses_empty_rows() {
         client
             .clone()
             .with_test_http_transport(transport)
-            .read_native_authority_originals_wire(request.selector.clone(), request.challenge)
+            .read_native_authority_originals_wire(
+                request.selector.clone(),
+                request.challenge,
+                *scope,
+            )
     });
     let result = result.unwrap();
     assert_eq!(snapshots.len(), 1);
@@ -666,7 +670,11 @@ fn native_authority_provider_carries_retail_originals_and_refuses_empty_rows() {
         client
             .clone()
             .with_test_http_transport(transport)
-            .read_native_authority_originals_wire(request.selector.clone(), request.challenge)
+            .read_native_authority_originals_wire(
+                request.selector.clone(),
+                request.challenge,
+                *scope,
+            )
     });
     assert!(result.is_err());
     assert_eq!(snapshots.len(), 1);

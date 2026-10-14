@@ -1,11 +1,11 @@
 //! Verify durable map path hashing and pointer Norito encoding helpers align with CoreHost.
+use crate::common;
 use iroha_crypto::Hash as IrohaHash;
 use iroha_data_model::prelude::*;
 use iroha_model_base::name::Name;
 use ivm::{CoreHost, PointerType, pointer_abi::validate_tlv_bytes};
 use ivm_abi::state_value::StateValueKindV1;
 use norito::to_bytes;
-mod common;
 fn encode_pointer_tlv(ty: PointerType, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(2 + 1 + 4 + payload.len() + IrohaHash::LENGTH);
     out.extend_from_slice(&(ty as u16).to_be_bytes());

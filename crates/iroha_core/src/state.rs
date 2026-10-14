@@ -12687,7 +12687,10 @@ pub struct StateBlock<'state> {
 }
 
 mod publication;
+pub use publication::StateCaptureDeferral;
 pub(crate) use publication::StatePublicationOutcome;
+#[cfg(test)]
+pub(crate) use publication::capture_deferral::buffer_refusal_for_test as capture_buffer_refusal_for_test;
 
 mod history_reader_releases;
 pub(crate) use history_reader_releases::StateViewReleases;
@@ -27487,6 +27490,7 @@ impl State {
             ivm_cache_max_decoded_ops:
                 iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_DECODED_OPS,
             ivm_cache_max_bytes: iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_BYTES,
+            state_capture: iroha_config::parameters::actual::StateCapture::default(),
             ivm_execution_max_bytes: execution_budget.limit_bytes(),
             ivm_prover_threads: iroha_config::parameters::defaults::pipeline::IVM_PROVER_THREADS,
             overlay_max_instructions:

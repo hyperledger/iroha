@@ -3,7 +3,9 @@
 use super::super::decode_tests::seeded_musubi_publication_snapshot;
 use super::*;
 use iroha_allocation::AllocationRefusal;
-use iroha_data_model::musubi::{MusubiArtifactGovernanceStateV1, MusubiStorageAvailabilityV1};
+use iroha_data_model::musubi::{
+    MusubiArtifactGovernanceStateV1, MusubiStorageAvailabilityV1, MusubiVersionV1,
+};
 use std::{
     alloc::Layout,
     future::Future,
@@ -11,9 +13,11 @@ use std::{
 };
 
 fn scratch_bytes(world: &World) -> usize {
-    Layout::array::<PackageRevision<'_>>(world.musubi_packages.view().len())
-        .unwrap()
-        .size()
+    Layout::array::<PackageRevision<&MusubiPackageIdV1, &MusubiVersionV1>>(
+        world.musubi_packages.view().len(),
+    )
+    .unwrap()
+    .size()
 }
 
 fn complete_projection_budget(world: &World) -> AllocationBudget {
@@ -190,7 +194,10 @@ fn accumulator_borrows_latest_selectable_version_and_counts_every_revision() {
     for (index, release) in versions.iter().enumerate() {
         row.index_revision = [7, 3, 11, 20][index];
         row.selection.yank.yanked = index == 3;
-        accumulator.observe(release, &row);
+        let newer = accumulator
+            .latest
+            .is_none_or(|version| version < &release.version);
+        accumulator.observe(&release.version, &row, newer);
     }
     assert_eq!(accumulator.maximum, Some(20));
     assert!(std::ptr::eq(

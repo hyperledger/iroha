@@ -24,7 +24,7 @@ zeroize = { workspace = true }
 # Native stack/mapping APIs are used only by the standalone resource worker.
 libc = "0.2.177"
 # Machine-readable resource observations use the workspace JSON codec.
-norito = { workspace = true, features = ["json"] }
+norito = { workspace = true, default-features = false, features = ["json"] }
 # Independent SHA-3 implementation the digests and the in-crate Keccak rounds are
 # cross-checked against. All hashing of the library itself uses the backend's
 # erasing sponge.

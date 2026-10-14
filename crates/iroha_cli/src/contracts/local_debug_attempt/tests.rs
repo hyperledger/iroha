@@ -296,7 +296,12 @@ fn borrowed_trap_rendering_uses_exact_original_error_and_success_has_no_trap() {
         calls: 0,
     };
     let error = run(&mut vm, &mut host).unwrap().unwrap_err();
-    assert_eq!(error, original);
+    assert!(matches!(&error, VMError::UnknownSyscall(0x7fff)));
+    assert_eq!(host.calls, 1);
+    assert!(
+        host.error.is_none(),
+        "the host transferred its original error"
+    );
     let diagnostic =
         super::super::map_local_vm_diagnostic(vm.last_diagnostic().unwrap(), &error, &source_hash);
     assert_eq!(diagnostic.message, error.to_string());

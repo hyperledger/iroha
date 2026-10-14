@@ -2038,7 +2038,8 @@ impl AggregateProofLayoutV1 {
                 || registration.base_start != 0
                 || registration.aux_start != 0
                 || group.is_none_or(|group| {
-                    group.native_trace_log2 != expected.trace_log2
+                    let native_trace_log2 = group.native_trace_log2;
+                    native_trace_log2 != expected.trace_log2
                         || group.base_width != expected.base_width
                         || group.aux_width != expected.aux_width
                         || group.column_chunks != registration.column_chunks

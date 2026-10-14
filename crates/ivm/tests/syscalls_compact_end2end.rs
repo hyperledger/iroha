@@ -1,6 +1,6 @@
-use ivm::{IVM, syscalls};
-mod common;
+use crate::common;
 use common::assemble_syscalls;
+use ivm::{IVM, syscalls};
 #[test]
 fn compact_proof_decodes_and_verifies() {
     use iroha_crypto::{Hash, HashOf, MerkleProof, MerkleTree};
@@ -104,7 +104,7 @@ fn compact_proof_dir_flip_fails() {
         .expect("syscall emitted a canonical compact proof");
     assert_eq!(
         full.compute_partial_root_sha256(&leaf, usize::from(cp.depth())),
-        Some(partial_root.clone())
+        Some(partial_root)
     );
     // Flip the lowest direction/index bit and ensure it cannot reconstruct the
     // syscall's partial root.

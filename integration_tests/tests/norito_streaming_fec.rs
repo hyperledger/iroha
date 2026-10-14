@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Parity/recovery scenarios for the Norito Streaming integration harness.
 use crate::streaming::{self, baseline_test_vector_with_frames, bundled_test_vector_with_frames};
 use norito::streaming::chunk::{chunk_commitments, chunk_leaf_hash};

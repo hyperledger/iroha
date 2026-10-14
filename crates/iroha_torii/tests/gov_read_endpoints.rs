@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Torii handler tests for governance read endpoints: proposal/referendum/locks/tally.
 #![allow(unexpected_cfgs, clippy::similar_names, clippy::too_many_lines)]
 use axum::{extract::Path as AxPath, response::IntoResponse};

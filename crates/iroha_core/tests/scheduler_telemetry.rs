@@ -1,5 +1,5 @@
 //! Scheduler telemetry smoke tests (telemetry feature only).
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //! Checks canonical execution and explicit lane telemetry projections.
 #![allow(unused_imports)]
 use iroha_config::parameters::actual::{

@@ -5600,6 +5600,62 @@ impl DaRotation {
         self.max_hits_per_window.get()
     }
 }
+/// Node-local scheduling and input-work policy for original State capture.
+///
+/// Zero refuses the corresponding work. These ceilings never determine transaction
+/// validity, protocol gas or allocation credit. Every pending capture pins its
+/// policy beside the original source; completed work and charged scratch survive
+/// local exhaustion. Native work is granted by scheduled attempts, not inferred
+/// from output lengths or already consumed work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StateCapture {
+    /// Maximum visited containers, variants and nested entries across original source shapes.
+    pub source_elements: u64,
+    /// Maximum visited variable text, key and signature input bytes; no allocation credit.
+    pub source_variable_bytes: u64,
+    /// Maximum row visits across the explicitly enumerated semantic passes.
+    pub source_table_pass_rows: u64,
+    /// Maximum original fixed-key evidence index population admitted for semantic lookup.
+    pub source_lookup_index_entries: u64,
+    /// Maximum explicitly planned model-validation and hash invocations.
+    pub source_model_operations: u64,
+    /// Maximum signature verifications, counting repeated provider edges.
+    pub source_signature_checks: u64,
+    /// Additional native resolve/comparison work granted per scheduled capture attempt.
+    pub native_work_per_attempt: usize,
+    /// Maximum selected tables in each canonical builder; each semantic builder selects one table.
+    pub table_count: usize,
+    /// Maximum canonical rows per table, matching the ordered-tree row geometry by default.
+    pub table_rows: u64,
+    /// Maximum emitted payload bytes per key or value; the encoder also enforces its key bound.
+    pub table_payload_bytes: usize,
+    /// Maximum retained ordered framing per table, matching the canonical ordered-tree bound by default.
+    pub table_ordered_bytes: usize,
+    /// Maximum aggregate canonical value bytes across both encoding passes per table.
+    pub table_streamed_value_bytes: u64,
+    /// Maximum canonical rows across the three captured semantic tables.
+    pub total_table_rows: u64,
+    /// Additional canonical encoding work per scheduled attempt, independent of native source work.
+    pub encoding_work_per_attempt: usize,
+}
+impl_default!(StateCapture => {
+    Self {
+        source_elements: defaults::pipeline::state_capture::SOURCE_ELEMENTS,
+        source_variable_bytes: defaults::pipeline::state_capture::SOURCE_VARIABLE_BYTES,
+        source_table_pass_rows: defaults::pipeline::state_capture::SOURCE_TABLE_PASS_ROWS,
+        source_lookup_index_entries: defaults::pipeline::state_capture::SOURCE_LOOKUP_INDEX_ENTRIES,
+        source_model_operations: defaults::pipeline::state_capture::SOURCE_MODEL_OPERATIONS,
+        source_signature_checks: defaults::pipeline::state_capture::SOURCE_SIGNATURE_CHECKS,
+        native_work_per_attempt: defaults::pipeline::state_capture::NATIVE_WORK_PER_ATTEMPT,
+        table_count: defaults::pipeline::state_capture::TABLE_COUNT,
+        table_rows: defaults::pipeline::state_capture::TABLE_ROWS,
+        table_payload_bytes: defaults::pipeline::state_capture::TABLE_PAYLOAD_BYTES,
+        table_ordered_bytes: defaults::pipeline::state_capture::TABLE_ORDERED_BYTES,
+        table_streamed_value_bytes: defaults::pipeline::state_capture::TABLE_STREAMED_VALUE_BYTES,
+        total_table_rows: defaults::pipeline::state_capture::TOTAL_TABLE_ROWS,
+        encoding_work_per_attempt: defaults::pipeline::state_capture::ENCODING_WORK_PER_ATTEMPT,
+    }
+});
 /// Pipeline settings controlling execution behavior.
 #[derive(Debug, Clone)]
 #[allow(clippy::struct_excessive_bools)]
@@ -5642,6 +5698,8 @@ pub struct Pipeline {
     pub ivm_cache_max_bytes: usize,
     /// Finite active IVM allocation budget, distinct from idle retention (zero denies allocation).
     pub ivm_execution_max_bytes: usize,
+    /// Original State capture work policy, independent of allocation and committed validity.
+    pub state_capture: StateCapture,
     /// Rayon worker cap for prover/trace verification (0 = physical cores).
     pub ivm_prover_threads: usize,
     /// Maximum instructions allowed per overlay (0 = unlimited).
@@ -5699,6 +5757,7 @@ impl_default!(Pipeline => {
             ivm_cache_max_decoded_ops: defaults::pipeline::IVM_CACHE_MAX_DECODED_OPS,
             ivm_cache_max_bytes: defaults::pipeline::IVM_CACHE_MAX_BYTES,
             ivm_execution_max_bytes: defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+            state_capture: StateCapture::default(),
             ivm_prover_threads: defaults::pipeline::IVM_PROVER_THREADS,
             overlay_max_instructions: defaults::pipeline::OVERLAY_MAX_INSTRUCTIONS,
             overlay_max_bytes: defaults::pipeline::OVERLAY_MAX_BYTES,

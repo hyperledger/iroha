@@ -473,6 +473,7 @@ fn history_read_error(failure: read::SccpHistoryReadError) -> Response {
 
 /// Encode directly from a borrowed funded graph; every returned byte retains the actual
 /// admitted query owner, including a slice extracted after the HTTP body has been dropped.
+/// Compact errors and empty conditional responses retain no funded source or query lease.
 fn respond_funded<T>(
     owner: &crate::history_producer::HistoryProducerOwner,
     accept: Option<&ExtractAccept>,
@@ -486,7 +487,7 @@ where
     use crate::utils::ResponseFormat;
     let selected = match format(accept) {
         Ok(value) => value,
-        Err(response) => return owner.response(response),
+        Err(response) => return response,
     };
     let (content_type, bytes) = match selected {
         ResponseFormat::Norito => {
@@ -524,7 +525,7 @@ where
         .is_some_and(|etag| crate::utils::if_none_match_matches(headers, etag))
     {
         drop(bytes);
-        owner.response(StatusCode::NOT_MODIFIED.into_response())
+        StatusCode::NOT_MODIFIED.into_response()
     } else {
         let mut response = match crate::response_memory_custody::json(bytes, owner) {
             Ok(response) => response,
@@ -561,7 +562,7 @@ pub fn history_response(
         .transpose()
     {
         Ok(size) => size,
-        Err(response) => return owner.response(response),
+        Err(response) => return response,
     };
     let result = owner.scope(|| {
         read::history_path_view(
@@ -575,7 +576,7 @@ pub fn history_response(
     });
     match result {
         Ok(path) => respond_funded(owner, accept, headers, path.view(), size.is_some()),
-        Err(failure) => owner.response(history_read_error(failure)),
+        Err(failure) => history_read_error(failure),
     }
 }
 

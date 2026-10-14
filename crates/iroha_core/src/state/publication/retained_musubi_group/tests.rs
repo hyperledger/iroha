@@ -25,7 +25,11 @@ use std::alloc::Layout;
     clippy::large_types_passed_by_value,
     reason = "the retained pending block takes ownership of the supplied header"
 )]
-fn pending(state: &State, header: BlockHeader, replacement: bool) -> Box<StateBlock<'_>> {
+pub(in crate::state) fn pending(
+    state: &State,
+    header: BlockHeader,
+    replacement: bool,
+) -> Box<StateBlock<'_>> {
     let mut block = Box::new(staged_block(state, header, replacement, true));
     let budget = state.ivm_execution_budget();
     let occupied = budget
@@ -40,7 +44,7 @@ fn pending(state: &State, header: BlockHeader, replacement: bool) -> Box<StateBl
     drop(occupied);
     block
 }
-fn start(block: &mut StateBlock<'_>, budget: &AllocationBudget) {
+pub(in crate::state) fn start(block: &mut StateBlock<'_>, budget: &AllocationBudget) {
     block
         .start_original_musubi_group_read(budget.try_owned_refund_scope().unwrap())
         .unwrap_or_else(|(_, cause)| panic!("original group scope: {cause:?}"));
@@ -1636,3 +1640,9 @@ fn original_musubi_group_retained_predecessor_descriptors_use_exact_pair_and_sco
         ));
     }
 }
+
+#[path = "lookup_tests.rs"]
+mod lookup_tests;
+
+#[path = "semantic_tests.rs"]
+mod semantic_tests;

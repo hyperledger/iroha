@@ -1,6 +1,6 @@
 //! Production election key admission rejects unsupported semantic and retired fixture roles.
 //! The remaining real-ballot positive is specified in `governance_privacy_qualification.md`.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![cfg(feature = "zk-tests")]
 
 #[path = "common/governance_closed_registry.rs"]

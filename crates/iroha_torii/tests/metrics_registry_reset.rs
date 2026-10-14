@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Smoke test for the shared metrics registry wiring used by Torii test suites.
 use std::sync::Arc;
 #[path = "fixtures.rs"]

@@ -1,6 +1,6 @@
-use ivm::{IVM, VMError, encoding};
-mod common;
+use crate::common;
 use common::assemble;
+use ivm::{IVM, VMError, encoding};
 const HALT: [u8; 4] = encoding::wide::encode_halt().to_le_bytes();
 #[test]
 fn test_compressed_ebreak() {

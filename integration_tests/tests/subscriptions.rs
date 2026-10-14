@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Subscription trigger integration tests.
 use eyre::{Result, WrapErr, eyre};
 use integration_tests::sandbox;

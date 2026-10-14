@@ -151,7 +151,7 @@ impl Binding {
         ) -> Result<[u8; 32], Error> {
             let bytes = ncore::to_bytes(&(
                 b"iroha:p2p:receive-credit-binding:v1|".to_vec(),
-                network.clone(),
+                *network,
                 sender.clone(),
                 receiver.clone(),
                 session,

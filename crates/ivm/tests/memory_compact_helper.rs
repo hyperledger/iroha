@@ -1,5 +1,5 @@
+use crate::common;
 use ivm::IVM;
-mod common;
 #[test]
 fn memory_compact_helper_matches_syscall() {
     use iroha_crypto::{CompactMerkleProof, Hash, HashOf, MerkleTree};

@@ -281,6 +281,10 @@ impl<E: Enc, T: Pload + ClassifyTopic> CreditStream<E, T> {
     /// A blocked post is returned intact. Invalid encoding also returns its
     /// actual owner; the caller must preserve/report failure, never retry with
     /// a synthesized ownership token or drop an accepted upstream occurrence.
+    #[expect(
+        clippy::result_large_err,
+        reason = "capacity refusal returns the original retained post without a new allocation or loss of upstream custody"
+    )]
     pub(in crate::peer) fn enqueue(
         &mut self,
         post: RetainedPost<T>,

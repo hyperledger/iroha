@@ -106,8 +106,9 @@ impl MainGroupedDeepQuotientV1 {
         values: [E; 2],
         scales: [E; 2],
     ) -> Result<(), ZkX509StarkErrorV1> {
+        let point_powers = &powers.powers[0];
         if self.points != powers.points
-            || self.coefficients[0].len() != powers.powers[0].len()
+            || self.coefficients[0].len() != point_powers.len()
             || values
                 .iter()
                 .chain(&scales)

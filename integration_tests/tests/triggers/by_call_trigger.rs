@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Tests for executing triggers directly
 use crate::triggers::get_asset_value;
 use eyre::{Result, WrapErr};

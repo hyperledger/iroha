@@ -459,7 +459,7 @@ mod tests {
                 )
                 .unwrap();
             }
-            periods.sort();
+            periods.sort_unstable();
             for period in periods.iter().step_by(2) {
                 write(stx, pending_key(&binding, *period).unwrap(), &1_u64).unwrap();
             }

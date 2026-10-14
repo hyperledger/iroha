@@ -855,20 +855,18 @@ where
     if aggregate != parameters.g * randomness {
         return Err(AnonymousPgcError::InvalidPaymentWitness);
     }
-    for _ in 0..MAX_PROVER_RESTARTS {
-        let mask = random_nonzero_scalar(rng)?;
-        let announcement = CompressedPointV1::from_projective(parameters.g * mask)?;
-        let mut transcript = payment_transcript(BALANCE_SUITE_V1, statement)?;
-        transcript.append_point(b"announcement", &announcement)?;
-        let challenge = transcript
-            .challenge_nonzero_scalar(b"challenge", 0)?
-            .to_scalar()?;
-        return Ok(PgcBalanceConservationProofV1 {
-            announcement,
-            randomness_response: CanonicalScalarV1::from_scalar(mask + challenge * randomness),
-        });
-    }
-    Err(AnonymousPgcError::ProverRestartExhausted)
+    // Scalar and challenge rejection sampling already enforce their fixed bounds.
+    let mask = random_nonzero_scalar(rng)?;
+    let announcement = CompressedPointV1::from_projective(parameters.g * mask)?;
+    let mut transcript = payment_transcript(BALANCE_SUITE_V1, statement)?;
+    transcript.append_point(b"announcement", &announcement)?;
+    let challenge = transcript
+        .challenge_nonzero_scalar(b"challenge", 0)?
+        .to_scalar()?;
+    Ok(PgcBalanceConservationProofV1 {
+        announcement,
+        randomness_response: CanonicalScalarV1::from_scalar(mask + challenge * randomness),
+    })
 }
 fn verify_balance_conservation(
     statement: &AnonymousPgcPaymentStatementV1<'_>,

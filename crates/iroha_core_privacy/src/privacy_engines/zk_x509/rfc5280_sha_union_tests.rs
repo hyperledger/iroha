@@ -120,8 +120,8 @@ fn all_sixteen_native_bridge_columns_are_constant_and_air_rejects_coordinated_dr
             for row in [
                 0,
                 1,
-                480287,
-                521951,
+                480_287,
+                521_951,
                 ZK_X509_RFC5280_STARK_TRACE_SIZE_V1 - 2,
                 ZK_X509_RFC5280_STARK_TRACE_SIZE_V1 - 1,
             ] {

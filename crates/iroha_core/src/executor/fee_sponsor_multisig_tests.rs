@@ -174,7 +174,7 @@ fn propose_payload(
     let hash = HashOf::try_new(&body).unwrap();
     let mut items = vec![MultisigPropose::new(target.clone(), nonce(), body, None).into()];
     if approve {
-        items.push(MultisigApprove::new(target.clone(), occurrence(f, &target), hash).into());
+        items.push(MultisigApprove::new(target.clone(), occurrence(f, target), hash).into());
     }
     let mut payload = f.payload.clone();
     payload.instructions = Executable::Instructions(items.into());
@@ -565,16 +565,16 @@ fn enrolled_multisig_standalone_settlement_requires_exact_successful_tx_and_bloc
             target,
             proposal_id,
             hash,
-            MultisigProposalValue::new(
-                tx.network_id,
-                nonce(),
+            MultisigProposalValue {
+                network_id: tx.network_id,
+                proposal_nonce: nonce(),
                 proposal_id,
-                None,
-                body,
-                100,
-                1_100,
-                BTreeSet::from([f.beneficiary.clone()]),
-            ),
+                transaction_ttl_ms: None,
+                instructions: body,
+                proposed_at_ms: 100,
+                expires_at_ms: 1_100,
+                approvals: BTreeSet::from([f.beneficiary.clone()]),
+            },
             MultisigProposalTerminalStatus::Finalized,
             500,
         );

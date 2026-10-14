@@ -1,5 +1,5 @@
 //! Criterion benchmark driver for validating blocks.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 mod validate_blocks;
 use criterion::Criterion;
 use validate_blocks::StateValidateBlocks;

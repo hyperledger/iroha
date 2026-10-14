@@ -45,10 +45,7 @@ impl<C: PastaCurve> PinnedParams<C> {
     /// A selected embedded representation's failure propagates without a retry.
     pub fn for_domain(k: u32) -> Result<Self, ParamsTrustError> {
         let curve = super::super::curve_v1::<C>().ok_or(ParamsTrustError::UnknownCurve)?;
-        match bytes(curve, k) {
-            Some(bytes) => decode_selected(k, bytes),
-            None => Self::derive(k),
-        }
+        bytes(curve, k).map_or_else(|| Self::derive(k), |bytes| decode_selected(k, bytes))
     }
 }
 

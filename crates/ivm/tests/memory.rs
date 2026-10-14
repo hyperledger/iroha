@@ -1,6 +1,6 @@
-use ivm::{IVM, Memory, Perm, VMError, encoding, instruction};
-mod common;
+use crate::common;
 use common::assemble;
+use ivm::{IVM, Memory, Perm, VMError, encoding, instruction};
 fn push_word(code: &mut Vec<u8>, word: u32) {
     code.extend_from_slice(&word.to_le_bytes());
 }

@@ -1,7 +1,7 @@
 //! Exact frame assertions for extracted public protocol owners.
 
 /// Verify one declared owner frame, reconstruction, and strict malformed-frame rejection.
-pub(crate) fn assert_owner_frame_v1<T>(value: &T, nominal: &str)
+pub(super) fn assert_owner_frame_v1<T>(value: &T, nominal: &str)
 where
     T: norito::NoritoSerialize + for<'de> norito::NoritoDeserialize<'de> + PartialEq,
 {

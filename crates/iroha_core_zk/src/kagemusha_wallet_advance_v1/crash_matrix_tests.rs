@@ -282,11 +282,13 @@ fn record(
 /// retryable error, never an invalid-input verdict for a valid request.
 fn assert_admissible(outcome: &Result<OutcomeV1, KagemushaWalletProviderErrorV1>, label: &str) {
     match outcome {
-        Ok(KagemushaWalletAdvanceOutcomeV1::NotPerformed(
-            KagemushaWalletNotPerformedV1::Invalid { .. },
-        ))
-        | Ok(KagemushaWalletAdvanceOutcomeV1::Archived(_))
-        | Ok(KagemushaWalletAdvanceOutcomeV1::DeliveryDataLoss { .. }) => {
+        Ok(
+            KagemushaWalletAdvanceOutcomeV1::NotPerformed(KagemushaWalletNotPerformedV1::Invalid {
+                ..
+            })
+            | KagemushaWalletAdvanceOutcomeV1::Archived(_)
+            | KagemushaWalletAdvanceOutcomeV1::DeliveryDataLoss { .. },
+        ) => {
             panic!("{label}: inadmissible outcome")
         }
         Err(

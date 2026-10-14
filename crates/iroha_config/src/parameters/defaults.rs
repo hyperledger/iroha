@@ -3914,6 +3914,47 @@ pub mod pipeline {
     pub const IVM_CACHE_MAX_BYTES: usize = 64 * 1024 * 1024; // 64 MiB
     /// Finite requested allocation credits for active IVM execution (zero denies allocation).
     pub const IVM_EXECUTION_MAX_BYTES: usize = 1024 * 1024 * 1024; // 1 GiB
+    /// Independent local State capture admission, never consensus or allocation limits.
+    ///
+    /// Defaults select finite service envelopes: sixteen million nested source
+    /// elements, 256 MiB of visited variable input, eight million planned row
+    /// visits, four million evidence-index entries and model/hash calls, and
+    /// 65,536 signature checks. Each attempt grants 65,536 structural
+    /// resolve/comparison units and 64 Mi canonical-encoding work units. The
+    /// encoding quantum covers three bounded value rows plus canonical setup;
+    /// smaller configured quanta retain the same cursors across retries. These are operator scheduling
+    /// choices, not protocol maxima or memory-derived grants; an exhausted
+    /// capture retains its original source and progress for local recovery.
+    pub mod state_capture {
+        /// Maximum visited containers, variants and nested entries across original source shapes. Zero refuses this work.
+        pub const SOURCE_ELEMENTS: u64 = 16 * 1024 * 1024;
+        /// Maximum visited variable text, key and signature input bytes; no allocation credit. Zero refuses this work.
+        pub const SOURCE_VARIABLE_BYTES: u64 = 256 * 1024 * 1024;
+        /// Maximum row visits across the explicitly enumerated semantic passes. Zero refuses this work.
+        pub const SOURCE_TABLE_PASS_ROWS: u64 = 8 * 1024 * 1024;
+        /// Maximum original fixed-key evidence index population admitted for semantic lookup. Zero refuses this work.
+        pub const SOURCE_LOOKUP_INDEX_ENTRIES: u64 = 4 * 1024 * 1024;
+        /// Maximum explicitly planned model-validation and hash invocations. Zero refuses this work.
+        pub const SOURCE_MODEL_OPERATIONS: u64 = 4 * 1024 * 1024;
+        /// Maximum signature verifications, counting repeated provider edges. Zero refuses this work.
+        pub const SOURCE_SIGNATURE_CHECKS: u64 = 65_536;
+        /// Additional native resolve/comparison work granted per scheduled capture attempt. Zero refuses this work.
+        pub const NATIVE_WORK_PER_ATTEMPT: usize = 65_536;
+        /// Maximum selected tables in each canonical builder; each semantic builder selects one table. Zero refuses this work.
+        pub const TABLE_COUNT: usize = 1;
+        /// Maximum canonical rows per table, matching the ordered-tree row geometry by default. Zero refuses this work.
+        pub const TABLE_ROWS: u64 = 65_536;
+        /// Maximum emitted payload bytes per key or value; the encoder also enforces its key bound. Zero refuses this work.
+        pub const TABLE_PAYLOAD_BYTES: usize = 1024 * 1024;
+        /// Maximum retained ordered framing per table, matching the canonical ordered-tree bound by default. Zero refuses this work.
+        pub const TABLE_ORDERED_BYTES: usize = 64 * 1024 * 1024;
+        /// Maximum aggregate canonical value bytes across both encoding passes per table. Zero refuses this work.
+        pub const TABLE_STREAMED_VALUE_BYTES: u64 = 256 * 1024 * 1024;
+        /// Maximum canonical rows across the three captured semantic tables. Zero refuses this work.
+        pub const TOTAL_TABLE_ROWS: u64 = 3 * 65_536;
+        /// Additional canonical encoding work per scheduled attempt, independent of native source work. Zero refuses this work.
+        pub const ENCODING_WORK_PER_ATTEMPT: usize = 64 * 1024 * 1024;
+    }
     /// Rayon worker cap for prover/trace verification (0 = number of physical cores).
     pub const IVM_PROVER_THREADS: usize = 0;
     /// Ed25519-specific batch size (0 disables batching).

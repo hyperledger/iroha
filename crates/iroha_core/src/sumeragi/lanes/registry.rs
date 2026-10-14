@@ -60,8 +60,32 @@ pub trait LaneStoreAuthorities: Send + Sync {
 // An unfinished historical recovery has no returned Arc yet; this inline bit records
 // its joining reader. Ready readers retain actual Arcs and original pending work instead.
 enum StoreSlot {
-    Opening(LaneStoreOpen, bool),
+    Opening(Arc<StoreOpening>, bool),
     Ready(Arc<FileLaneBlockStore>),
+}
+
+// A caller clones this original owner while holding the map, then uses only a
+// nonblocking per-key guard. The completed owner also stays here until pre-publication
+// joiners finish, so an old Opening Arc can never interpret completion as a fresh open.
+enum OpeningProgress {
+    Pending(Option<LaneStoreOpen>),
+    Ready(Arc<FileLaneBlockStore>),
+}
+struct StoreOpening {
+    instance: Hash32,
+    schedule: Arc<dyn AvailabilitySchedule>,
+    progress: Mutex<OpeningProgress>,
+}
+impl StoreOpening {
+    // Keep the large empty recovery representation out of map/authority caller frames.
+    #[inline(never)]
+    fn new(instance: Hash32, schedule: Arc<dyn AvailabilitySchedule>) -> Arc<Self> {
+        Arc::new(Self {
+            instance,
+            schedule,
+            progress: Mutex::new(OpeningProgress::Pending(None)),
+        })
+    }
 }
 
 /// The exclusive lane block store owners of one node.
@@ -176,7 +200,9 @@ impl LaneStores {
                 return Ok(Arc::clone(store));
             }
             if stores.contains_key(&key) {
-                return Self::resume_store_opening(&mut stores, key, runtime_owner);
+                let opening = Self::resume_store_opening(&mut stores, key, runtime_owner);
+                drop(stores);
+                return self.complete_store_opening(key, opening);
             }
             // Native authority acquisition may synchronously notify original State readers.
             // Release the registry before entering that owner, including on partial refusal.
@@ -208,65 +234,115 @@ impl LaneStores {
                 return Ok(Arc::clone(store));
             }
             if stores.contains_key(&key) {
-                return Self::resume_store_opening(&mut stores, key, runtime_owner);
+                let opening = Self::resume_store_opening(&mut stores, key, runtime_owner);
+                drop(stores);
+                return self.complete_store_opening(key, opening);
             }
-            self.open_store_with_authority(&mut stores, key, instance, authority, runtime_owner)
+            let opening = Self::open_store_with_authority(
+                &mut stores,
+                key,
+                instance,
+                authority,
+                runtime_owner,
+            );
+            drop(stores);
+            self.complete_store_opening(key, opening)
         })
     }
 
-    // Only this post-authority stage constructs the large opening owner. The reacquired
-    // registry lock and original finite pool enclose its construction and completion.
+    // Publish one retained authority owner under the short map guard. Native directory
+    // creation/enumeration and complete recovery happen only after that guard is dropped.
     fn open_store_with_authority(
-        &self,
         stores: &mut BTreeMap<(LaneId, [u8; 32]), StoreSlot>,
         key: (LaneId, [u8; 32]),
         instance: Hash32,
         authority: LaneStoreAuthority,
         runtime_owner: bool,
-    ) -> Result<Arc<FileLaneBlockStore>, Attempt<io::Error>> {
-        let opening = FileLaneBlockStore::begin_open(
-            &self.root,
-            &instance,
-            Arc::clone(&self.crypto),
-            self.budget.clone(),
-            authority.schedule,
-        )?;
-        Self::complete_store_opening(stores, key, opening, !runtime_owner)
+    ) -> Arc<StoreOpening> {
+        let opening = StoreOpening::new(instance, authority.schedule);
+        stores.insert(
+            key,
+            StoreSlot::Opening(Arc::clone(&opening), !runtime_owner),
+        );
+        opening
     }
 
-    // The caller observed this key under the same exclusive map guard and returned any
-    // Ready owner already. Removal therefore transfers this exact retained Opening once.
+    // The map serializes historical interest; no busy per-key owner can prevent a
+    // joining historical reader from retaining the same original opening.
     fn resume_store_opening(
         stores: &mut BTreeMap<(LaneId, [u8; 32]), StoreSlot>,
         key: (LaneId, [u8; 32]),
         runtime_owner: bool,
-    ) -> Result<Arc<FileLaneBlockStore>, Attempt<io::Error>> {
-        let (opening, historical) = match stores.remove(&key) {
-            Some(StoreSlot::Opening(opening, historical)) => (opening, historical),
-            Some(StoreSlot::Ready(..)) => unreachable!("ready owner returned while lock held"),
-            None => unreachable!("opening observed while the same map lock is held"),
+    ) -> Arc<StoreOpening> {
+        let Some(StoreSlot::Opening(opening, historical)) = stores.get_mut(&key) else {
+            unreachable!("ready owner returned while the same map lock is held")
         };
-        let historical =
-            historical || (!runtime_owner && !cfg!(all(test, sumeragi_core_mutation = "HC124")));
-        Self::complete_store_opening(stores, key, opening, historical)
+        *historical |= !runtime_owner && !cfg!(all(test, sumeragi_core_mutation = "HC124"));
+        Arc::clone(opening)
     }
 
-    // A refused completion returns its unchanged original owner to the same key. Only
-    // a fully recovered store publishes Ready; unfinished historical interest is preserved.
     fn complete_store_opening(
-        stores: &mut BTreeMap<(LaneId, [u8; 32]), StoreSlot>,
+        &self,
         key: (LaneId, [u8; 32]),
-        opening: LaneStoreOpen,
-        historical: bool,
+        opening: Arc<StoreOpening>,
     ) -> Result<Arc<FileLaneBlockStore>, Attempt<io::Error>> {
-        match opening.complete() {
-            Ok(store) => {
-                let store = Arc::new(store);
-                stores.insert(key, StoreSlot::Ready(Arc::clone(&store)));
-                Ok(store)
-            }
+        let mut progress = opening.progress.try_lock().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::WouldBlock, "original lane recovery is busy")
+        })?;
+        // A caller may have cloned Opening just before another caller published Ready.
+        // Its exact completed Arc remains in this owner until that joining call retires.
+        if let OpeningProgress::Ready(store) = &*progress {
+            return Ok(Arc::clone(store));
+        }
+        let OpeningProgress::Pending(original) = &mut *progress else {
+            unreachable!("completed original returned above")
+        };
+        let store = {
+            #[cfg(all(test, sumeragi_core_mutation = "HC364"))]
+            let _registry = self.stores.lock();
+            self.progress_store_opening(&opening, original)?
+        };
+        *progress = OpeningProgress::Ready(Arc::clone(&store));
+        let mut stores = self.stores.lock();
+        // An active Opening Arc prevents retirement; only this per-key guard can finish it.
+        if !matches!(stores.get(&key), Some(StoreSlot::Opening(retained, _))
+            if Arc::ptr_eq(retained, &opening))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "original lane recovery owner is no longer registered",
+            )
+            .into());
+        }
+        stores.insert(key, StoreSlot::Ready(Arc::clone(&store)));
+        Ok(store)
+    }
+
+    // Keep all large LaneStoreOpen values in one separate recovery frame. The map and
+    // joining callers carry only Arcs; original errors return the same owner to this slot.
+    #[inline(never)]
+    fn progress_store_opening(
+        &self,
+        opening: &StoreOpening,
+        original: &mut Option<LaneStoreOpen>,
+    ) -> Result<Arc<FileLaneBlockStore>, Attempt<io::Error>> {
+        if original.is_none() {
+            *original = Some(FileLaneBlockStore::begin_open(
+                &self.root,
+                &opening.instance,
+                Arc::clone(&self.crypto),
+                self.budget.clone(),
+                Arc::clone(&opening.schedule),
+            )?);
+        }
+        match original
+            .take()
+            .expect("original opening retained above")
+            .complete()
+        {
+            Ok(store) => Ok(Arc::new(store)),
             Err((opening, error)) => {
-                stores.insert(key, StoreSlot::Opening(opening, historical));
+                *original = Some(opening);
                 Err(error)
             }
         }
@@ -275,6 +351,8 @@ impl LaneStores {
     /// Release a cancelled runtime-only opening, or an idle Ready owner with no reader Arcs
     /// or original pending work. A historical join independently retains unfinished recovery;
     /// ready read, publication and batch owners retain their exact allocations and native lock.
+    /// An in-flight opening Arc also pins its exact exclusive owner until the call returns;
+    /// a later reconciliation can cancel an idle runtime-only refusal.
     /// Certified frames remain on disk for independently authenticated replay.
     pub fn release(&self, lane: LaneId, incarnation: &[u8; 32]) {
         self.with_original_refunds(|| {
@@ -288,7 +366,8 @@ impl LaneStores {
             }
             if matches!(
                 stores.get(&(lane, *incarnation)),
-                Some(StoreSlot::Opening(_, true))
+                Some(StoreSlot::Opening(opening, historical))
+                    if *historical || Arc::strong_count(opening) > 1
             ) {
                 return;
             }
@@ -313,7 +392,9 @@ impl LaneStores {
                     return true;
                 }
                 match slot {
-                    StoreSlot::Opening(_, historical) => *historical,
+                    StoreSlot::Opening(opening, historical) => {
+                        *historical || Arc::strong_count(opening) > 1
+                    }
                     StoreSlot::Ready(store) => {
                         Arc::strong_count(store) > 1
                             || store.retains_pending_work()

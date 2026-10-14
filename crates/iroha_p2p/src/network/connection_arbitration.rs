@@ -176,10 +176,10 @@ impl Arbitration {
     /// Wake from physical reader completion, independent of final consumers.
     pub(super) fn poll_released(&mut self, cx: &mut Context<'_>) -> Poll<ConnectionId> {
         for (&id, entry) in &mut self.entries {
-            if let Some(released) = &mut entry.released {
-                if Pin::new(released).poll(cx).is_ready() {
-                    return Poll::Ready(id);
-                }
+            if let Some(released) = &mut entry.released
+                && Pin::new(released).poll(cx).is_ready()
+            {
+                return Poll::Ready(id);
             }
         }
         Poll::Pending

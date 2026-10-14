@@ -137,12 +137,12 @@ fn generated_families() -> Vec<Value> {
         MusubiPackagePageV1 {
             items: Vec::new(),
             next_cursor: None,
-            snapshot: snapshot.clone(),
+            snapshot,
         },
         MusubiPackagePageV1 {
             items: vec![package],
             next_cursor: None,
-            snapshot: snapshot.clone(),
+            snapshot,
         },
     ];
     for page in &packages {
@@ -153,7 +153,7 @@ fn generated_families() -> Vec<Value> {
         MusubiReleasePageV1 {
             items: Vec::new(),
             next_cursor: None,
-            snapshot: snapshot.clone(),
+            snapshot,
         },
         MusubiReleasePageV1 {
             items: vec![release.home_release],

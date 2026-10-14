@@ -1436,6 +1436,7 @@ mod tests {
                     iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_DECODED_OPS,
                 ivm_cache_max_bytes:
                     iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_BYTES,
+                state_capture: iroha_config::parameters::actual::StateCapture::default(),
                 ivm_execution_max_bytes:
                     iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
                 ivm_prover_threads:

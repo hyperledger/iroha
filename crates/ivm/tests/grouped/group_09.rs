@@ -1,5 +1,7 @@
 //! Grouped IVM integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
+#[path = "../common.rs"]
+mod common;
 #[path = "../vm_aes_wide.rs"]
 mod vm_aes_wide;
 #[path = "../vrf_verify_batch_syscall.rs"]

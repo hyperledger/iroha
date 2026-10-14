@@ -1,5 +1,5 @@
 //! Grouped Iroha Core integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[path = "../gov_zk_referendum_window_guard.rs"]
 mod gov_zk_referendum_window_guard;
 #[path = "../implicit_account_receive.rs"]

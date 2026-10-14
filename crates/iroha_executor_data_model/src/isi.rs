@@ -521,7 +521,6 @@ pub mod multisig {
         Decode,
         Encode,
         IntoSchema,
-        Constructor,
         norito::NoritoSchema,
     )]
     #[norito_schema(name = "iroha_executor_data_model::isi::multisig::MultisigProposalState")]
@@ -726,7 +725,6 @@ pub mod multisig {
         Decode,
         Encode,
         IntoSchema,
-        Constructor,
         norito::JsonDeserialize,
         norito::NoritoSchema,
     )]
@@ -1010,16 +1008,16 @@ pub mod multisig {
 
         #[test]
         fn multisig_proposal_rejects_every_duplicate_field_including_null() {
-            let expected = MultisigProposalValue::new(
-                fixture_network(),
-                fixture_nonce(),
-                fixture_id(&fixture_account(3)),
-                None,
-                vec![sample_instruction_box()],
-                1,
-                2,
-                BTreeSet::from([fixture_account(4)]),
-            );
+            let expected = MultisigProposalValue {
+                network_id: fixture_network(),
+                proposal_nonce: fixture_nonce(),
+                proposal_id: fixture_id(&fixture_account(3)),
+                transaction_ttl_ms: None,
+                instructions: vec![sample_instruction_box()],
+                proposed_at_ms: 1,
+                expires_at_ms: 2,
+                approvals: BTreeSet::from([fixture_account(4)]),
+            };
             let source = json::to_json(&expected).unwrap();
             for (name, value) in [
                 ("instructions", "[]"),
@@ -1044,16 +1042,16 @@ pub mod multisig {
             assert_eq!(json::to_json(&decoded).unwrap(), source);
             assert!(matches!(json::from_str::<MultisigSpec>("{}"),
                 Err(json::Error::MissingField { field }) if field == "signatories"));
-            let expected = MultisigProposalValue::new(
-                fixture_network(),
-                fixture_nonce(),
-                fixture_id(&fixture_account(3)),
-                None,
-                vec![sample_instruction_box()],
-                1,
-                2,
-                BTreeSet::from([fixture_account(4)]),
-            );
+            let expected = MultisigProposalValue {
+                network_id: fixture_network(),
+                proposal_nonce: fixture_nonce(),
+                proposal_id: fixture_id(&fixture_account(3)),
+                transaction_ttl_ms: None,
+                instructions: vec![sample_instruction_box()],
+                proposed_at_ms: 1,
+                expires_at_ms: 2,
+                approvals: BTreeSet::from([fixture_account(4)]),
+            };
             let source = json::to_json(&expected).unwrap();
             assert!(source.contains(",\"transaction_ttl_ms\":null"));
             let omitted = source.replace(",\"transaction_ttl_ms\":null", "");
@@ -1181,16 +1179,16 @@ pub mod multisig {
 
         #[test]
         fn multisig_proposal_metadata_keeps_original_resource_fields_and_same_context_retry() {
-            let expected = MultisigProposalValue::new(
-                fixture_network(),
-                fixture_nonce(),
-                fixture_id(&fixture_account(3)),
-                None,
-                vec![sample_instruction_box()],
-                1,
-                2,
-                BTreeSet::from([fixture_account(4)]),
-            );
+            let expected = MultisigProposalValue {
+                network_id: fixture_network(),
+                proposal_nonce: fixture_nonce(),
+                proposal_id: fixture_id(&fixture_account(3)),
+                transaction_ttl_ms: None,
+                instructions: vec![sample_instruction_box()],
+                proposed_at_ms: 1,
+                expires_at_ms: 2,
+                approvals: BTreeSet::from([fixture_account(4)]),
+            };
             let payload = Json::try_new(expected.clone()).unwrap();
             assert_metadata_refusal_and_retry(&payload, &expected, |value| {
                 MultisigProposalValue::try_from(value)
@@ -1206,16 +1204,16 @@ pub mod multisig {
                 spec
             );
 
-            let proposal = MultisigProposalValue::new(
-                fixture_network(),
-                fixture_nonce(),
-                fixture_id(&fixture_account(3)),
-                None,
-                vec![sample_instruction_box()],
-                1,
-                2,
-                BTreeSet::from([fixture_account(4)]),
-            );
+            let proposal = MultisigProposalValue {
+                network_id: fixture_network(),
+                proposal_nonce: fixture_nonce(),
+                proposal_id: fixture_id(&fixture_account(3)),
+                transaction_ttl_ms: None,
+                instructions: vec![sample_instruction_box()],
+                proposed_at_ms: 1,
+                expires_at_ms: 2,
+                approvals: BTreeSet::from([fixture_account(4)]),
+            };
             let encoded_proposal =
                 Json::try_new(proposal.clone()).expect("bounded multisig proposal JSON");
             assert_eq!(
@@ -1413,16 +1411,16 @@ pub mod multisig {
             let multisig_account = fixture_account(12);
             let instructions = vec![sample_instruction_box()];
             let instructions_hash = HashOf::new(&instructions);
-            let proposal = MultisigProposalValue::new(
-                fixture_network(),
-                fixture_nonce(),
-                fixture_id(&fixture_account(3)),
-                None,
+            let proposal = MultisigProposalValue {
+                network_id: fixture_network(),
+                proposal_nonce: fixture_nonce(),
+                proposal_id: fixture_id(&fixture_account(3)),
+                transaction_ttl_ms: None,
                 instructions,
-                1_700_000_000_000,
-                1_700_000_060_000,
-                BTreeSet::from([multisig_account.clone()]),
-            );
+                proposed_at_ms: 1_700_000_000_000,
+                expires_at_ms: 1_700_000_060_000,
+                approvals: BTreeSet::from([multisig_account.clone()]),
+            };
             let terminal = MultisigProposalTerminalState::new(
                 multisig_account.clone(),
                 fixture_id(&multisig_account.clone()),
@@ -1449,16 +1447,16 @@ pub mod multisig {
                 multisig_account.clone(),
                 fixture_id(&multisig_account.clone()),
                 instructions_hash,
-                MultisigProposalValue::new(
-                    fixture_network(),
-                    fixture_nonce(),
-                    fixture_id(&fixture_account(3)),
-                    None,
+                MultisigProposalValue {
+                    network_id: fixture_network(),
+                    proposal_nonce: fixture_nonce(),
+                    proposal_id: fixture_id(&fixture_account(3)),
+                    transaction_ttl_ms: None,
                     instructions,
-                    1_700_000_000_000,
-                    1_700_000_060_000,
-                    BTreeSet::new(),
-                ),
+                    proposed_at_ms: 1_700_000_000_000,
+                    expires_at_ms: 1_700_000_060_000,
+                    approvals: BTreeSet::new(),
+                },
                 MultisigProposalTerminalStatus::Finalized,
                 1_700_000_010_000,
             );

@@ -246,7 +246,9 @@ pub struct FastpqSourcePolicyV1 {
 }
 
 impl FastpqSourcePolicyV1 {
-    /// Supported bounded SNS auto-renew sweep in the first-release source policy.
+    /// Shared bounded native pool for SNS auto-renewal and retail idle settlement.
+    /// Retail selects at most half, alternating the odd slot by block height;
+    /// unused capacity remains available to the later SNS sweep.
     pub const NATIVE_MAINTENANCE_INVOCATIONS: u32 = 64;
     /// Supported bootstrap Network count, including generated four-validator
     /// genesis with its optional executor and committee-key transaction groups.

@@ -117,6 +117,11 @@ impl Kura {
             #[cfg(test)]
             capacity_release_tests::fence_boundary(2);
             let pending = if complete {
+                // Completed recovery authenticates the original durable boundary even
+                // when capacity is unlimited or its accounting snapshot is cached.
+                // Do this before geometry/sidecar custody takes later-order locks.
+                #[cfg(not(all(test, sumeragi_core_mutation = "HC362")))]
+                self.exact_durable_blocks_count()?;
                 self.pending_canonical_capacity_bytes_under_prune_and_canonical_guards()?
             } else {
                 0

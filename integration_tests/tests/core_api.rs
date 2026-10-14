@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Grouped integration harness for core API, ledger, and application-surface tests.
 #[path = "address_canonicalisation.rs"]
 mod address_canonicalisation;

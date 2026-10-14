@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Assert that SSE event JSON for Proof events includes `call_hash`.
 #![cfg(feature = "app_api")]
 #![allow(clippy::items_after_statements)]

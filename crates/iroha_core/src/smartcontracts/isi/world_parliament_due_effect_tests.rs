@@ -245,12 +245,12 @@ fn parliament_musubi_action_authorization_enacts_at_the_exact_due_height() {
 
 #[test]
 fn parliament_validation_fee_policy_enacts_at_the_exact_due_height() {
-    assert_live_pricing_capacity_waits_for_certified_settlement();
     use iroha_data_model::validation_fee::{
         VALIDATION_FEE_DS_SCALE, VALIDATION_FEE_POLICY_SCHEMA_VERSION,
         VALIDATION_FEE_TREASURY_PAYOUT_EXEMPTION_CLASS, ValidationFeeChargingMode,
         ValidationFeePolicyV1,
     };
+    assert_live_pricing_capacity_waits_for_certified_settlement();
     let ds_asset_id = AssetDefinitionId::derive_from_components(
         DomainId::try_new("fees", "paynet").unwrap(),
         "fee_token".parse().unwrap(),

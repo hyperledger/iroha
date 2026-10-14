@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Torii Nexus dataspaces account summary endpoint tests.
 #![cfg(feature = "app_api")]
 use axum::{body::Body, http::Request};

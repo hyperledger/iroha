@@ -335,7 +335,7 @@ fn original_snapshot_unwind_notifies_after_each_acquired_prefix() {
         for stage in 1..=3 {
             let (directory, kura, _) = fast_fixture(0);
             let before = snapshot_regular_test_tree(directory.path());
-            let fence = if stage == 1 { 0 } else { 1 };
+            let fence = usize::from(stage != 1);
             observe_original_release(&kura, fence, || {
                 UNWIND_AFTER_FENCE.with(|fault| fault.set(Some(stage)));
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

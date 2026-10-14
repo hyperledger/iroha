@@ -83,7 +83,7 @@ impl<F: PastaField> Circuit<F> for NeverSynthesize {
         panic!("invalid original reached configuration")
     }
 
-    fn synthesize(&self, _: Self::Config, _: impl Layouter<F>) -> Result<(), LayoutError> {
+    fn synthesize(&self, (): Self::Config, _: impl Layouter<F>) -> Result<(), LayoutError> {
         panic!("invalid original reached synthesis")
     }
 }

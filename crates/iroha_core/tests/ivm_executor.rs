@@ -1,5 +1,5 @@
 //! Unit tests for executing single instructions via the IVM executor.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     executor::Executor,
     kura::Kura,

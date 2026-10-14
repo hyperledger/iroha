@@ -89,9 +89,7 @@ fn process_crashes_preserve_funding_entitlements_claims_and_checkpoints() {
             assert_eq!(
                 status.code(),
                 Some(expected),
-                "{transition:?}/{boundary:?}/{mode} failed\nstdout:\n{}\nstderr:\n{}",
-                stdout,
-                stderr,
+                "{transition:?}/{boundary:?}/{mode} failed\nstdout:\n{stdout}\nstderr:\n{stderr}",
             );
             if mode == "recover" {
                 assert!(stdout.contains("test result: ok. 1 passed; 0 failed;"));
@@ -245,7 +243,7 @@ fn crash(root: &Path, transition: Transition, boundary: Boundary) {
         .proposal(Some(next_time(&fixture)), transactions);
     let mut pending = fixture
         .chain
-        .begin_proposal(proposal, Default::default())
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
         .unwrap();
     pending
         .prepare_publication_for_inspection(crate::sumeragi::test_chain::Signers::Quorum)

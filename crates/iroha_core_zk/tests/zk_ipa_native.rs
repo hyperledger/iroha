@@ -1,5 +1,4 @@
 #![doc = "First-release rejection test for the removed generic IPA verifier route."]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "zk-tests")]
 //! The first release exposes protocol-specific Halo2 routes only.
 use iroha_core_zk::verify_backend;

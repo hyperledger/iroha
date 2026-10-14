@@ -1,5 +1,5 @@
 #![cfg(feature = "privacy-release-evidence")]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //! Release-only ZK-X509 four-peer production-action gate.
 //!
 //! Synthetic source-pin/readiness tests live beside the compiled profile. This

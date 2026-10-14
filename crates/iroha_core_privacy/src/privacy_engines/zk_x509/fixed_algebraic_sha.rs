@@ -260,6 +260,13 @@ enum NonzeroSeriesV1 {
         step: F,
     },
 }
+/// Detect an affine value sequence from its two successive field differences.
+fn same_successive_value_step_v1(first: F, second: F, third: F) -> bool {
+    let first_step = second.sub(first);
+    let next_step = third.sub(second);
+    first_step == next_step
+}
+
 impl NonzeroSeriesV1 {
     const fn empty_v1() -> Self {
         Self::Empty
@@ -377,7 +384,7 @@ impl NonzeroSeriesV1 {
             Self::Two(first, second) => {
                 if second.row == first.row + 1
                     && point.row == second.row + 1
-                    && second.value.sub(first.value) == point.value.sub(second.value)
+                    && same_successive_value_step_v1(first.value, second.value, point.value)
                 {
                     *self = Self::Affine {
                         first,
@@ -385,7 +392,7 @@ impl NonzeroSeriesV1 {
                         step: second.value.sub(first.value),
                     };
                 } else if second.row - first.row == point.row - second.row
-                    && second.value.sub(first.value) == point.value.sub(second.value)
+                    && same_successive_value_step_v1(first.value, second.value, point.value)
                 {
                     *self = Self::Repeated {
                         first,
@@ -3419,6 +3426,66 @@ mod tests {
                 ] {
                     assert!(child.evaluate_query_indices_v1(query).is_err());
                 }
+            }
+        }
+    }
+    #[test]
+    fn nonzero_series_distinguishes_affine_repeated_and_irregular_three_points() {
+        for (rows, values, kind) in [
+            ([10, 11, 12], [3, 8, 13], 0),
+            ([10, 20, 30], [3, 8, 13], 1),
+            ([10, 11, 12], [3, 8, 8], 2),
+            ([10, 20, 31], [3, 8, 13], 2),
+        ] {
+            let domain = ZkX509FixedAlgebraicDomainV1::new_v1(6, 7, F(GOLDILOCKS_GENERATOR_V1))
+                .expect("test domain");
+            let mut builder =
+                ZkX509FixedAlgebraicScheduleBuilderV1::new_v1(domain, 1).expect("test builder");
+            let mut atom_count = 0;
+            let mut series = NonzeroSeriesV1::empty_v1();
+            for (row, value) in rows.into_iter().zip(values) {
+                series
+                    .observe_v1(
+                        0,
+                        NonzeroPointV1 {
+                            row,
+                            value: F(value),
+                        },
+                        &mut builder,
+                        &mut atom_count,
+                    )
+                    .unwrap();
+            }
+            match (&series, kind) {
+                (NonzeroSeriesV1::Affine { first, last, step }, 0) => {
+                    assert_eq!((first.row, first.value), (10, F(3)));
+                    assert_eq!((last.row, last.value, *step), (12, F(13), F(5)));
+                    assert_eq!(atom_count, 0);
+                }
+                (
+                    NonzeroSeriesV1::Repeated {
+                        first,
+                        last_row,
+                        last_value,
+                        count,
+                        stride,
+                        step,
+                    },
+                    1,
+                ) => {
+                    assert_eq!((first.row, first.value), (10, F(3)));
+                    assert_eq!(
+                        (*last_row, *last_value, *count, *stride, *step),
+                        (30, F(13), 3, 10, F(5))
+                    );
+                    assert_eq!(atom_count, 0);
+                }
+                (NonzeroSeriesV1::Two(first, second), 2) => {
+                    assert_eq!((first.row, first.value), (rows[1], F(values[1])));
+                    assert_eq!((second.row, second.value), (rows[2], F(values[2])));
+                    assert_eq!(atom_count, 1);
+                }
+                _ => panic!("three-point series chose the wrong representation: case {kind}"),
             }
         }
     }

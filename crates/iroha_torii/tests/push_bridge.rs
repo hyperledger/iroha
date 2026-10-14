@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Push bridge endpoints (FCM/APNS) – feature/config gating and happy-path smoke.
 #![cfg(all(feature = "app_api", feature = "push"))]
 use axum::{

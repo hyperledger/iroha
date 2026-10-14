@@ -76,7 +76,7 @@ mod tests {
             .to_affine()
     }
 
-    fn parity<C: PastaCurve>(params: PinnedParams<C>, prefixes: &[u32]) {
+    fn parity<C: PastaCurve>(params: &PinnedParams<C>, prefixes: &[u32]) {
         let bytes = params.params().to_bytes();
         let digest = params.digest();
         let independent = PinnedParams::<C>::from_bytes(&bytes).unwrap();
@@ -84,13 +84,13 @@ mod tests {
             &params.generator_prefix_sums,
             &independent.generator_prefix_sums
         ));
-        let clone = params.clone();
+        let clone = PinnedParams::clone(params);
         assert!(Arc::ptr_eq(
             &params.generator_prefix_sums,
             &clone.generator_prefix_sums
         ));
         for &k in prefixes {
-            let expected = serial(&params, k);
+            let expected = serial(params, k);
             let actual = params.generator_prefix_sum(k).unwrap();
             assert_eq!(actual, expected);
             assert_eq!(actual.to_bytes(), expected.to_bytes());
@@ -105,7 +105,7 @@ mod tests {
             );
         }
         assert_eq!(
-            params, independent,
+            params, &independent,
             "runtime memo is not parameter identity"
         );
         assert_eq!(params.params().to_bytes(), bytes);
@@ -119,14 +119,14 @@ mod tests {
         // These domains have native pinned representations, so independent
         // decode above also checks that memo population does not alter bytes.
         let prefixes: Vec<_> = (0..=6).collect();
-        parity(PinnedParams::<Ep>::derive(6).unwrap(), &prefixes);
-        parity(PinnedParams::<Eq>::derive(6).unwrap(), &prefixes);
+        parity(&PinnedParams::<Ep>::derive(6).unwrap(), &prefixes);
+        parity(&PinnedParams::<Eq>::derive(6).unwrap(), &prefixes);
     }
 
     #[test]
     fn wallet_prefixes_match_original_serial_sum_and_encoding_on_both_curves() {
-        parity(PinnedParams::<Ep>::for_domain(16).unwrap(), &[12, 14, 16]);
-        parity(PinnedParams::<Eq>::for_domain(16).unwrap(), &[12, 14, 16]);
+        parity(&PinnedParams::<Ep>::for_domain(16).unwrap(), &[12, 14, 16]);
+        parity(&PinnedParams::<Eq>::for_domain(16).unwrap(), &[12, 14, 16]);
     }
 
     fn bounds<C: PastaCurve>() {

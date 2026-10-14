@@ -1,9 +1,9 @@
+use crate::common;
 use iroha_crypto::{Hash, PublicKey};
 use iroha_model_base::topology::DataSpaceId;
 use iroha_primitives::numeric::Quantity;
 use ivm::{CoreHost, IVM, Memory, PointerType, encoding, instruction::wide, syscalls};
 use norito::to_bytes;
-mod common;
 const SAMPLE_NFT_ID: &[u8] = b"rose$wonderland.universal";
 const ALT_NFT_ID: &[u8] = b"lily$wonderland.universal";
 fn account_id_literal(public_key: &str) -> Vec<u8> {

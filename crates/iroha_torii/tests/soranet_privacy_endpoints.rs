@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration coverage for Torii `SoraNet` privacy ingestion endpoints.
 #![cfg(feature = "telemetry")]
 use axum::{

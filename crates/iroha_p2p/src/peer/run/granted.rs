@@ -207,9 +207,8 @@ pub(super) async fn run<T: Pload + ClassifyTopic, E: Enc, P: Entrypoint<E>>(
                 Err(error) => { iroha_logger::warn!(?error, "Mandatory receive-credit geometry deadline expired"); HANDSHAKE_FAILURES.fetch_add(1, Ordering::Relaxed); return; }
             }
         };
-        if let Some(completion) = inbound_auth_completion {
-            if !completion.complete() { iroha_logger::warn!("Inbound credit authentication ownership expired"); return; }
-        }
+        if let Some(completion) = inbound_auth_completion
+            && !completion.complete() { iroha_logger::warn!("Inbound credit authentication ownership expired"); return; }
         let post_source=match outbound_post_byte_budgets.semantic().and_then(|pool|pool.bind(peer_id.id())) {
             Ok(source)=>source,Err(error)=>{iroha_logger::error!(?error,"missing admitted semantic post source");return;}
         };
@@ -333,15 +332,19 @@ mod tests {
     async fn semantic_post_poll_skips_ungranted_bulk_and_preserves_fifo_and_eventual_service() {
         let (senders, mut receivers) = handles::class_channels(2);
         for value in Fixture::all() {
-            senders.classes[value.admission_class().index()]
-                .try_send(post(value))
-                .ok()
-                .expect("bounded fixture post");
+            assert!(
+                senders.classes[value.admission_class().index()]
+                    .try_send(post(value))
+                    .is_ok(),
+                "bounded fixture post"
+            );
         }
-        senders.classes[Class::Payload.index()]
-            .try_send(post(Fixture::Payload(19)))
-            .ok()
-            .expect("second bounded fixture post");
+        assert!(
+            senders.classes[Class::Payload.index()]
+                .try_send(post(Fixture::Payload(19)))
+                .is_ok(),
+            "second bounded fixture post"
+        );
         let mut eligible = [true; Class::COUNT];
         eligible[Class::Payload.index()] = false;
         let mut cursor = Class::Payload.index();

@@ -26,18 +26,20 @@ fn share(key: &StakeKey, bonded: Quantity) -> PublicLaneStakeShare {
         staker: key.2.clone(),
         bonded,
         pending_unbonds: BTreeMap::new(),
-        metadata: Default::default(),
+        metadata: iroha_model_base::metadata::Metadata::default(),
     }
 }
 
 #[test]
 fn maximum_service_capture_visits_only_exact_current_and_undo_prefixes() {
     let started = Instant::now();
-    let validators: Vec<_> = (0..VALIDATORS_PER_LANE as u32).map(account).collect();
-    let stakers: Vec<_> = (10_000..10_000 + MAX_REWARD_RECIPIENTS as u32)
+    let validators: Vec<_> = (0..u32::try_from(VALIDATORS_PER_LANE).unwrap())
         .map(account)
         .collect();
-    let late: Vec<_> = (20_000..20_256).map(account).collect();
+    let stakers: Vec<_> = (10_000..10_000 + u32::try_from(MAX_REWARD_RECIPIENTS).unwrap())
+        .map(account)
+        .collect();
+    let new_stakers: Vec<_> = (20_000..20_256).map(account).collect();
     let lane = LaneId::new(512);
     let selected = BTreeMap::from([(
         lane,
@@ -59,7 +61,7 @@ fn maximum_service_capture_visits_only_exact_current_and_undo_prefixes() {
             };
             (0..count).map(move |staker_index| {
                 let key = (
-                    LaneId::new(lane_index as u32),
+                    LaneId::new(u32::try_from(lane_index).unwrap()),
                     validators[validator_index].clone(),
                     stakers[staker_index].clone(),
                 );
@@ -105,7 +107,7 @@ fn maximum_service_capture_visits_only_exact_current_and_undo_prefixes() {
                 continue;
             }
             block.remove((
-                LaneId::new(lane_index as u32),
+                LaneId::new(u32::try_from(lane_index).unwrap()),
                 validator.clone(),
                 stakers[0].clone(),
             ));
@@ -117,12 +119,12 @@ fn maximum_service_capture_visits_only_exact_current_and_undo_prefixes() {
         }
         let changed = (lane, validator.clone(), stakers[16].clone());
         block.insert(changed.clone(), share(&changed, Quantity::zero()));
-        for staker in &late {
+        for staker in &new_stakers {
             let key = (lane, validator.clone(), staker.clone());
             block.insert(key.clone(), share(&key, Quantity::from(9_000_000u32)));
             block.remove(key);
         }
-        for staker in &late[..16] {
+        for staker in &new_stakers[..16] {
             let key = (lane, validator.clone(), staker.clone());
             block.insert(key.clone(), share(&key, Quantity::one()));
         }
@@ -225,7 +227,7 @@ fn capture_accepts_full_recipient_cohort_replacement() {
     let lane = LaneId::new(0);
     let selected = BTreeMap::from([(lane, BTreeSet::from([validator.clone()]))]);
     let stakers: Vec<_> = (0..2 * MAX_REWARD_RECIPIENTS)
-        .map(|index| account(index as u32 + 100))
+        .map(|index| account(u32::try_from(index).unwrap() + 100))
         .collect();
     let storage: Storage<_, _> = stakers[..MAX_REWARD_RECIPIENTS]
         .iter()
@@ -278,7 +280,11 @@ fn malformed_parent_identity_and_excess_recipient_count_are_rejected() {
     assert!(capture_stakes(&storage.block(), &selected, |_| {}).is_err());
     let storage: Storage<_, _> = (0..=MAX_REWARD_RECIPIENTS)
         .map(|index| {
-            let key = (lane, validator.clone(), account(index as u32 + 100));
+            let key = (
+                lane,
+                validator.clone(),
+                account(u32::try_from(index).unwrap() + 100),
+            );
             (key.clone(), share(&key, Quantity::one()))
         })
         .collect();
@@ -307,7 +313,11 @@ fn malformed_parent_identity_and_excess_recipient_count_are_rejected() {
     // malformed block churn cannot force capture to collect an unbounded key set.
     let mut block = storage.block();
     for index in 0..=MAX_REWARD_RECIPIENTS {
-        block.remove((lane, validator.clone(), account(index as u32 + 100)));
+        block.remove((
+            lane,
+            validator.clone(),
+            account(u32::try_from(index).unwrap() + 100),
+        ));
     }
     visits = 0;
     assert!(capture_stakes(&block, &selected, |_| visits += 1).is_err());
@@ -346,7 +356,9 @@ fn maximum_retained_universe_range_seek_has_bounded_work() {
     // the memory or serialization cost of 33m full production stake records.
     let total = LANES * VALIDATORS_PER_LANE * MAX_REWARD_RECIPIENTS;
     let build_started = Instant::now();
-    let storage: Storage<_, _> = (0..total as u32).map(|key| (IndexKey(key), ())).collect();
+    let storage: Storage<_, _> = (0..u32::try_from(total).unwrap())
+        .map(|key| (IndexKey(key), ()))
+        .collect();
     let block = storage.block();
     assert_eq!(block.len(), 33_554_432);
     let build_elapsed = build_started.elapsed();
@@ -355,7 +367,7 @@ fn maximum_retained_universe_range_seek_has_bounded_work() {
     let mut visited = 0;
     // Include both end leaves and many distinct interior paths at full depth.
     for prefix in (0..31).map(|index| index * (LANES * VALIDATORS_PER_LANE - 1) / 30) {
-        let start = prefix as u32 * 256;
+        let start = u32::try_from(prefix).unwrap() * 256;
         let mut expected = start;
         for (key, ()) in block.range(IndexKey(start)..IndexKey(start + 256)) {
             assert_eq!(key.0, expected);

@@ -47,18 +47,18 @@ fn multisig_global_balance_route_does_not_inherit_account_scope() {
     ));
     state.world.smart_contract_state_mut_for_testing().insert(
         multisig_proposal_state_key(&multisig, &proposal_id),
-        encoded_multisig_proposal_state(&MultisigProposalState::new(
-            super::super::queue_test_network_id(),
-            multisig.clone(),
-            test_nonce(&hash),
+        encoded_multisig_proposal_state(&MultisigProposalState {
+            network_id: super::super::queue_test_network_id(),
+            multisig_account_id: multisig.clone(),
+            proposal_nonce: test_nonce(&hash),
             proposal_id,
-            hash,
-            None,
-            instructions.clone(),
-            1,
-            10_000,
-            BTreeSet::new(),
-        )),
+            instructions_hash: hash,
+            transaction_ttl_ms: None,
+            instructions: instructions.clone(),
+            proposed_at_ms: 1,
+            expires_at_ms: 10_000,
+            approvals: BTreeSet::new(),
+        }),
     );
     let approve = InstructionBox::from(MultisigApprove::new(multisig, proposal_id, hash));
     let router = ConfigLaneRouter::new(default_routing_policy(), spaces, lanes);

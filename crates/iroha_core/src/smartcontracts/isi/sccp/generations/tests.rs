@@ -692,3 +692,60 @@ fn destination_clearance_visits_only_bounded_pending_index_after_cleared_history
         assert!(stx.world.sccp_destination_pending_generations.is_empty());
     }
 }
+
+#[test]
+fn current_generation_planning_rejects_before_start_and_after_recorded_end() {
+    use crate::smartcontracts::isi::sccp::test_support::{
+        generation_fixture_data, install_generation,
+    };
+    let state = blank_state();
+    let peers = peers(1, 4);
+    let heartbeat = 1_000 + SccpParametersV1::taira_default().committee_heartbeat_ms;
+    let mut block = state.block(at(2, heartbeat));
+    let mut stx = block.transaction();
+    seed(&mut stx, &peers);
+    let source = inputs(2, &peers, None);
+    plan(&stx, &at(2, heartbeat), Some(&source))
+        .unwrap()
+        .publish(&mut stx)
+        .unwrap();
+    let current =
+        generation_fixture_data(store::committee_generations::get(&*stx.world, &2).unwrap());
+    assert_eq!(
+        (current.start_height, current.start_timestamp_ms),
+        (3, heartbeat)
+    );
+    assert!(current.end.is_none());
+    for candidate in [at(2, heartbeat), at(3, heartbeat - 1)] {
+        let source = inputs(candidate.height().get(), &peers, None);
+        assert!(matches!(
+            plan(&stx, &candidate, Some(&source)),
+            Err(GenerationError::Degraded(Degraded::InvalidGeneration))
+        ));
+        assert_eq!(*store::committee_current::get(&*stx.world), 2);
+        assert_eq!(store::committee_generations::len(&*stx.world), 2);
+        assert_eq!(
+            generation_fixture_data(store::committee_generations::get(&*stx.world, &2).unwrap()),
+            current
+        );
+    }
+    let mut ended = current;
+    ended.end = Some(SccpGenerationEndV1 {
+        end_height: 3,
+        end_timestamp_ms: heartbeat,
+        next_committee_root: ended.committee_root,
+        successor_validity_ms: ended.validity_ms,
+    });
+    install_generation(&mut stx, 2, ended.clone()).unwrap();
+    let source = inputs(4, &peers, None);
+    assert!(matches!(
+        plan(&stx, &at(4, heartbeat + 1), Some(&source)),
+        Err(GenerationError::Degraded(Degraded::InvalidGeneration))
+    ));
+    assert_eq!(*store::committee_current::get(&*stx.world), 2);
+    assert_eq!(store::committee_generations::len(&*stx.world), 2);
+    assert_eq!(
+        generation_fixture_data(store::committee_generations::get(&*stx.world, &2).unwrap()),
+        ended
+    );
+}

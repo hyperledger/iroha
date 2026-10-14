@@ -778,3 +778,137 @@ fn retained_native_quota_preserves_dropped_and_empty_children_but_detects_equal_
     quota.reconcile(&entries, &transcripts).unwrap();
     assert!(!quota.matches_retained(&seal, quota.profile, quota.output));
 }
+
+#[test]
+fn retail_native_batch_owns_only_its_exact_applied_receipt_prefix() {
+    let mut quota = prepared(1);
+    let hashes: Vec<_> = (0_u32..3)
+        .map(|index| Hash::new(index.to_le_bytes()))
+        .collect();
+    {
+        let mut attempt = quota.transaction().unwrap();
+        attempt.begin_retail_batch().unwrap();
+        for hash in &hashes {
+            assert!(!attempt.is_native_purpose(*hash));
+            attempt.authorize_retail_receipt(*hash).unwrap();
+            assert!(attempt.is_native_purpose(*hash));
+            assert!(
+                attempt
+                    .require_existing_quantity_capture_entry(*hash, true)
+                    .is_err()
+            );
+            attempt
+                .replace_entry(*hash, true, &[transcript(*hash)])
+                .unwrap();
+            attempt
+                .require_existing_quantity_capture_entry(*hash, true)
+                .unwrap();
+        }
+        assert_eq!(attempt.native_entries_in_use().unwrap(), 3);
+        assert!(hashes.iter().all(|hash| attempt.is_native_purpose(*hash)));
+        assert!(!attempt.is_native_purpose(Hash::new(b"foreign receipt TESTDATA")));
+    }
+    assert_eq!(quota.native_usage(), SourceUsage::ZERO);
+    {
+        let mut retry = quota.transaction().unwrap();
+        retry.begin_retail_batch().unwrap();
+        for hash in &hashes {
+            retry.authorize_retail_receipt(*hash).unwrap();
+            retry
+                .replace_entry(*hash, true, &[transcript(*hash)])
+                .unwrap();
+        }
+        retry.commit();
+    }
+    assert_eq!(quota.native_usage().executed_entries, 3);
+    assert_eq!(quota.ordinary_usage(), SourceUsage::ZERO);
+    assert_eq!(quota.mandatory_usage(), SourceUsage::ZERO);
+    let mut sibling = quota.transaction().unwrap();
+    sibling.begin_retail_batch().unwrap();
+    assert!(!sibling.is_native_purpose(hashes[0]));
+    assert!(sibling.authorize_retail_receipt(hashes[0]).is_err());
+    assert!(!sibling.allows_apply());
+}
+
+#[test]
+fn retail_native_quota_rejects_foreign_identity_and_mixed_authorities() {
+    let mut quota = prepared(1);
+    let original = {
+        let attempt = quota.transaction().unwrap();
+        let identity = attempt.retain_native_identity().unwrap();
+        assert!(attempt.matches_native_identity(&identity));
+        identity
+    };
+    let hash = Hash::new(b"retail quota authority TESTDATA");
+    {
+        let mut sibling = quota.transaction().unwrap();
+        assert!(!sibling.matches_native_identity(&original));
+        assert!(sibling.authorize_retail_receipt(hash).is_err());
+    }
+    for native_first in [false, true] {
+        let mut attempt = quota.transaction().unwrap();
+        if native_first {
+            attempt.authorize_native_purpose(hash).unwrap();
+            assert!(attempt.begin_retail_batch().is_err());
+        } else {
+            attempt.begin_retail_batch().unwrap();
+            assert!(attempt.authorize_native_purpose(hash).is_err());
+        }
+        assert!(!attempt.allows_apply());
+    }
+    {
+        let mut attempt = quota.transaction().unwrap();
+        attempt.begin_retail_batch().unwrap();
+        attempt.authorize_governance_purposes();
+        assert!(!attempt.allows_apply());
+    }
+    assert_eq!(quota.native_usage(), SourceUsage::ZERO);
+    assert_eq!(quota.ordinary_usage(), SourceUsage::ZERO);
+    assert_eq!(quota.mandatory_usage(), SourceUsage::ZERO);
+}
+
+#[test]
+fn retail_and_sns_share_exact_original_native_capacity_without_lending() {
+    let mut quota = prepared(1);
+    {
+        let mut retail = quota.transaction().unwrap();
+        retail.begin_retail_batch().unwrap();
+        for index in 0_u32..32 {
+            let hash = Hash::new(index.to_le_bytes());
+            retail.authorize_retail_receipt(hash).unwrap();
+            retail
+                .replace_entry(hash, true, &[transcript(hash)])
+                .unwrap();
+        }
+        retail.commit();
+    }
+    for index in 32_u32..64 {
+        let hash = Hash::new(index.to_le_bytes());
+        let mut sns = quota.transaction().unwrap();
+        sns.authorize_native_purpose(hash).unwrap();
+        sns.replace_entry(hash, true, &[transcript(hash)]).unwrap();
+        sns.commit();
+    }
+    let full = quota.native_usage();
+    assert_eq!(
+        (full.executed_entries, full.transcripts, full.deltas),
+        (64, 64, 64)
+    );
+    {
+        let mut overflow = quota.transaction().unwrap();
+        overflow.begin_retail_batch().unwrap();
+        let hash = Hash::new(b"65th native purpose TESTDATA");
+        overflow.authorize_retail_receipt(hash).unwrap();
+        assert_eq!(
+            overflow
+                .replace_entry(hash, true, &[transcript(hash)])
+                .unwrap_err(),
+            SOURCE_INTRINSIC_REJECTION
+        );
+        assert_eq!(overflow.intrinsic_rejected(), Ok(true));
+        assert!(!overflow.allows_apply());
+    }
+    assert_eq!(quota.native_usage(), full);
+    assert_eq!(quota.ordinary_usage(), SourceUsage::ZERO);
+    assert_eq!(quota.mandatory_usage(), SourceUsage::ZERO);
+}

@@ -48,18 +48,18 @@ fn with_fixture(test: impl FnOnce(&mut StateTransaction<'_, '_>, &MultisigAccoun
 fn proposal(tx: &StateTransaction<'_, '_>, account: &AccountId) -> MultisigProposalState {
     let instructions = vec![Log::new(Level::INFO, "exact proposed body".into()).into()];
     let nonce = MultisigProposalNonce::new([7; 32]).unwrap();
-    MultisigProposalState::new(
-        tx.network_id,
-        account.clone(),
-        nonce,
-        MultisigProposalId::derive(&tx.network_id, account, &nonce),
-        HashOf::new(&instructions),
-        None,
+    MultisigProposalState {
+        network_id: tx.network_id,
+        multisig_account_id: account.clone(),
+        proposal_nonce: nonce,
+        proposal_id: MultisigProposalId::derive(&tx.network_id, account, &nonce),
+        instructions_hash: HashOf::new(&instructions),
+        transaction_ttl_ms: None,
         instructions,
-        100,
-        1_000,
-        BTreeSet::new(),
-    )
+        proposed_at_ms: 100,
+        expires_at_ms: 1_000,
+        approvals: BTreeSet::new(),
+    }
 }
 fn terminal(proposal: &MultisigProposalState) -> MultisigProposalTerminalState {
     MultisigProposalTerminalState::new(

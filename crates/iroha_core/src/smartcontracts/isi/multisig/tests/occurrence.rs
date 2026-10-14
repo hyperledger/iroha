@@ -203,18 +203,18 @@ fn multisig_occurrence_expired_and_canceled_history_never_reopens_or_blocks_new_
                 // Retain a valid earlier original, as a restart would, before current block time.
                 store_multisig_proposal_state(
                     tx,
-                    &MultisigProposalState::new(
-                        tx.network_id,
-                        account.clone(),
-                        nonce,
-                        id,
-                        hash,
-                        NonZeroU64::new(500),
-                        instructions.clone(),
-                        0,
-                        500,
-                        BTreeSet::from([first.clone()]),
-                    ),
+                    &MultisigProposalState {
+                        network_id: tx.network_id,
+                        multisig_account_id: account.clone(),
+                        proposal_nonce: nonce,
+                        proposal_id: id,
+                        instructions_hash: hash,
+                        transaction_ttl_ms: NonZeroU64::new(500),
+                        instructions: instructions.clone(),
+                        proposed_at_ms: 0,
+                        expires_at_ms: 500,
+                        approvals: BTreeSet::from([first.clone()]),
+                    },
                 )
                 .unwrap();
                 prune_expired(tx, account, &id, account).unwrap();

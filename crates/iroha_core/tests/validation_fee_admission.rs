@@ -1,5 +1,5 @@
 //! Integration coverage for validator admission of Parliament-enacted validation-fee policy.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_config::parameters::actual::ParliamentTimedOvn;
 use iroha_core::{
     governance::parliament::{
@@ -1537,8 +1537,9 @@ fn concurrent_reviewed_retail_payments_and_replay_do_not_double_spend_inclusion(
         let mut transaction = setup.transaction();
         // Seed the allowance together with its required unsettled-month index;
         // raw wallet bytes are not a complete canonical retail state.
-        iroha_core::retail_fee::write_account(&mut transaction.world, &record).unwrap();
-        iroha_core::retail_fee::validate_reward_history_frontier(&transaction.world).unwrap();
+        iroha_core::retail_fee::test_support::seed_account(&mut transaction.world, &record)
+            .unwrap();
+        iroha_core::retail_fee::test_support::validate_frontier(&transaction.world).unwrap();
         transaction.apply();
         setup.commit_world_overlay_for_testing().unwrap();
     }
@@ -1595,7 +1596,7 @@ fn concurrent_reviewed_retail_payments_and_replay_do_not_double_spend_inclusion(
     );
     block.commit_world_overlay_for_testing().unwrap();
     let view = state.view();
-    iroha_core::retail_fee::validate_reward_history_frontier(view.world())
+    iroha_core::retail_fee::test_support::validate_frontier(view.world())
         .expect("payment and rejected replay preserve the exact unsettled-month frontier");
     assert_eq!(
         iroha_core::retail_fee::account_state(view.world(), &user)

@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests for proof queries.
 //! The mixed native PIPA-R/STARK network scenario requires the `zk-stark` feature and daemon.
 #[cfg(feature = "zk-stark")]

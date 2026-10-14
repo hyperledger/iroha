@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests for ZK proof events over the Torii event stream.
 use assert_matches::assert_matches;
 use eyre::{Result, eyre};

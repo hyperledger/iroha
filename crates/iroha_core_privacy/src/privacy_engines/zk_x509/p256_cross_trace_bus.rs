@@ -528,8 +528,7 @@ fn validate_regular_fixed_v1(
                 !matches!(event.active, F::ZERO | F::ONE)
                     || (event.active == F::ZERO
                         && (event.endpoint != F::ZERO || event.address != F::ZERO))
-                    || (event.active == F::ONE
-                        && !matches!(event.endpoint, F(1) | F(2) | F(3) | F(4) | F(5)))
+                    || (event.active == F::ONE && !matches!(event.endpoint, F(1..=5)))
             })
         {
             return Err(P256CrossTraceBusErrorV1::Topology);

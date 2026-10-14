@@ -200,6 +200,19 @@ fn occurrence_usage(
 }
 
 impl EntryBundleReservationTransaction<'_> {
+    /// Retain the existing ledger allocation and this exact checked physical generation.
+    pub(crate) fn retain_identity(&self) -> super::SourceTransactionIdentity {
+        self.inner.retain_identity()
+    }
+    /// Require the exact original journal allocation, context and checked generation.
+    pub(crate) fn matches_identity(&self, identity: &super::SourceTransactionIdentity) -> bool {
+        self.inner.matches_identity(identity)
+    }
+    /// Only identities first staged by this original physical journal, never older siblings.
+    pub(crate) fn has_staged_entry(&self, hash: Hash) -> bool {
+        self.bindings.created.contains(&hash)
+    }
+
     /// Retain E=1 for this identity, including transcript-free/rejected entries.
     /// Reopening it in a fee or later physical fragment reuses the same owner.
     /// State must choose the identity from its owned complete execution archive.
@@ -309,7 +322,6 @@ impl EntryBundleReservationTransaction<'_> {
         self.inner.owner_usage(&owner.inner)
     }
 
-    #[cfg(test)]
     /// Exact block usage including this physical fragment's pending replacements.
     pub(crate) fn usage(&self) -> SourceUsage {
         self.inner.usage()

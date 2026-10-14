@@ -1281,6 +1281,96 @@ CORE_MUTATIONS = [
       causes=tuple(ExpectedFailure('original queued sidecar notice must follow outer fences and finalized queues',
           'crates/iroha_core/src/kura/queued_sidecar_release_tests.rs') for _ in range(8))),
 
+    m("HC360", "Emergency Fast startup reads: notify original physical waiters beneath sibling storage fences",
+      ['kura::tests::original_snapshot_release_tests::original_snapshot_boundary_empty_notifies_after_storage_fences', 'kura::tests::original_snapshot_release_tests::original_snapshot_boundary_native_hash_notifies_after_storage_fences', 'kura::tests::original_snapshot_release_tests::original_snapshot_mapping_empty_notifies_after_storage_fences', 'kura::tests::original_snapshot_release_tests::original_snapshot_mapping_native_bytes_notifies_after_storage_fences', 'kura::tests::original_snapshot_release_tests::original_snapshot_mapping_height_refusal_retains_exact_journals', 'kura::tests::original_snapshot_release_tests::original_snapshot_corrupt_journal_refusal_retains_exact_error_and_bytes', 'kura::tests::original_snapshot_release_tests::original_snapshot_partial_refusals_preserve_storage_and_mode_errors', 'kura::tests::original_snapshot_release_tests::original_snapshot_unwind_notifies_after_each_acquired_prefix'],
+      causes=tuple(ExpectedFailure('original snapshot boundary notice must wait for all storage fences',
+          'crates/iroha_core/src/kura/tests/snapshot_release_tests.rs') for _ in range(8))),
+
+    m("HC361", "Physical inventory reconciliation: wake original callbacks before outer fences and final family accounting",
+      ['kura::original_inventory_release_tests::original_inventory_absent_artifacts_publish_before_source_notice', 'kura::original_inventory_release_tests::original_inventory_retained_artifacts_publish_exact_counts_before_notice', 'kura::original_inventory_release_tests::original_inventory_artifact_refusal_invalidates_every_family_before_notice', 'kura::original_inventory_release_tests::original_inventory_tree_refusal_invalidates_every_family_before_notice', 'kura::original_inventory_release_tests::original_inventory_busy_owner_refusal_invalidates_before_prefix_notice', 'kura::original_inventory_release_tests::original_inventory_acquired_prefix_refusal_invalidates_before_notice', 'kura::original_inventory_release_tests::original_inventory_unwind_notifies_after_each_acquired_prefix'],
+      causes=tuple(ExpectedFailure('original inventory notice must follow all fences and final family accounting',
+          'crates/iroha_core/src/kura/inventory_release_tests.rs') for _ in range(7))),
+
+    m("HC362", "Completed recovery: substitute optional or cached capacity accounting for durable journal authentication",
+      ['kura::capacity_release_tests::original_capacity_recovery_canonical_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_cached_boundary_cannot_mask_corrupt_journals', 'kura::capacity_release_tests::original_capacity_recovery_poisoned_boundary_cannot_publish_accounting'],
+      causes=tuple(ExpectedFailure("original capacity recovery notice must follow all fences and final accounting",
+          "crates/iroha_core/src/kura/capacity_release_tests.rs") for _ in range(3))),
+
+    m("HC363", "Native lane evidence: recapture an instance namespace or skip its original late custody join",
+      ['sumeragi::evidence_history::lane::tests::lane_proof_original_namespace_survives_funded_refusal_and_identical_replacement', 'sumeragi::evidence_history::lane::tests::completed_lane_proof_rejoins_original_namespace_before_attribution', 'sumeragi::lanes::evidence::frame::tests::funded_lane_frame_late_namespace_refusal_retains_completed_original_body'],
+      causes=(ExpectedFailure("original native lane namespace must remain retained",
+          "crates/iroha_core/src/sumeragi/evidence_history/lane/tests.rs"),
+          ExpectedFailure("original native lane namespace must remain retained",
+          "crates/iroha_core/src/sumeragi/evidence_history/lane/tests.rs"),
+          ExpectedFailure("original native lane namespace must remain retained",
+          "crates/iroha_core/src/sumeragi/lanes/evidence/frame/tests.rs"))),
+
+    m("HC366", "SNS native maintenance: publish failed renewal witness outside its child owner",
+      ['sns::native_maintenance_tests::original_sns_late_fee_refusal_drops_witness_before_retry_metadata'],
+      causes=(ExpectedFailure('original SNS late refusal must drop its prepared witness before retry metadata', "crates/iroha_core/src/sns/native_maintenance_tests.rs"),)),
+
+    m("HC367", "SNS native maintenance: select total native E after retail has retained its share",
+      ['retail_fee_tests::original_time_sns_sweep_uses_only_capacity_left_by_exact_retail_prefix'],
+      causes=(ExpectedFailure('native capacity deferral must preserve the exact unselected renewal', "crates/iroha_core/src/retail_fee_tests.rs"),)),
+
+    m("HC368", "Frozen semantic capture: repeat completed selector work after a later grant refusal",
+      ['state::authority_registry::leaf::paired::retained_semantic::tests::ordinal_encoder_admits_count_before_backing_and_retains_refused_planning_work'],
+      causes=(ExpectedFailure('completed selector must survive insufficient cumulative grants',
+          "crates/iroha_core/src/state/authority_registry/leaf/paired/retained_semantic_tests.rs"),)),
+
+    m("HC369", "Retained semantic capture: repeat completed sort geometry after a later grant refusal",
+      ['state::authority_registry::leaf::paired::retained_semantic::tests::retained_sort_geometry_survives_exact_cumulative_work_refusal'],
+      causes=(ExpectedFailure('completed sort geometry must survive insufficient cumulative grants',
+          "crates/iroha_core/src/state/authority_registry/leaf/paired/retained_semantic_tests.rs"),)),
+
+    m("HC370", "Original Musubi lookup: forget paid comparison while its native row reborrow refuses",
+      ["state::publication::retained_rows::lookup::tests::retained_lookup_keeps_paid_geometry_and_comparison_across_native_refusal"],
+      causes=(ExpectedFailure("original comparison admission must survive native reborrow refusal",
+          "crates/iroha_core/src/state/publication/retained_rows/lookup/tests.rs"),)),
+
+    m("HC371", "Original Musubi scheduling: retry native reads before retained minimum demand is covered",
+      ["state::publication::retained_musubi_group::retry_tests::retry_demand_waits_without_granting_charging_or_forgetting_the_original_field"],
+      causes=(ExpectedFailure("retained retry demand must wait for independently granted work",
+          "crates/iroha_core/src/state/publication/retained_musubi_group.rs"),)),
+
+    m("HC372", "Original State capture grants: reconstruct cumulative allowance from consumed work",
+      ["state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::retained_musubi_group_tests::semantic_tests::configured_work_grants_accumulate_independently_of_consumed_source_work"],
+      causes=(ExpectedFailure("configured grants must accumulate from prior authority, never consumed work",
+          "crates/iroha_core/src/state/publication/retained_musubi_group/semantic_tests.rs"),)),
+
+    m("HC373", "Original publication: stop source grants after retained semantic completion",
+      ["state::publication::retained_musubi_group::semantic::production_tests::real_publication_grants_native_work_after_semantics_complete"],
+      causes=(ExpectedFailure("completed semantics must still receive independent native grants for materialization",
+          "crates/iroha_core/src/state/publication/retained_musubi_group/production_tests.rs"),)),
+
+    m("HC374", "Original publication: discard canonical nodes while retiring original source readers",
+      ["state::publication::retained_musubi_group::semantic::production_tests::real_publication_retires_sources_but_retains_canonical_nodes_after_late_refusal"],
+      causes=(ExpectedFailure("canonical nodes must survive original source-reader retirement",
+          "crates/iroha_core/src/state/publication/retained_musubi_group/production_tests.rs"),)),
+
+    m("HC375", "Original publication: reread paid source rows while encoding demand remains unmet",
+      ["state::publication::retained_musubi_group::semantic::production_tests::real_publication_encoding_wait_does_not_repeat_paid_source_reborrows"],
+      causes=(ExpectedFailure("unmet encoding demand must wait without repeating paid original source reborrows",
+          "crates/iroha_core/src/state/publication/retained_musubi_group/production_tests.rs"),)),
+
+    m("HC376", "Original publication: reopen retired source descriptors after an outside-reader refusal",
+      ["state::publication::retained_musubi_group::semantic::production_tests::real_publication_reader_retirement_refusal_resumes_without_reopening_source"],
+      causes=(ExpectedFailure("reader retirement must resume directly after source descriptors retire",
+          "crates/iroha_core/src/state/publication/retained_musubi_group/production_tests.rs"),)),
+
+    m("HC365", "Retail idle maintenance: omit original native receipt-purpose admission",
+      ['retail_fee_tests::original_idle_sweep_admits_exact_native_receipts_before_carrier_execution', 'retail_fee_tests::original_idle_sweep_keeps_bounded_month_prefix_and_fair_native_share', 'retail_fee_tests::original_one_entry_native_policy_alternates_retail_and_sns_admission'],
+      causes=(
+          ExpectedFailure('original idle sweep must admit its own receipt purpose', "crates/iroha_core/src/retail_fee_tests.rs"),
+          ExpectedFailure('original native pool must admit a fair exact retail prefix', "crates/iroha_core/src/retail_fee_tests.rs"),
+          ExpectedFailure('one finite native slot alternates by height', "crates/iroha_core/src/retail_fee_tests.rs"),
+      )),
+
+    m("HC364", "Lane recovery: hold the shared registry through original native recovery",
+      ['sumeragi::lanes::registry::tests::isolation_tests::original_lane_recovery_allows_ready_disjoint_owner_during_native_sync', 'sumeragi::lanes::registry::tests::isolation_tests::original_lane_recovery_retains_in_flight_historical_join_through_retirement', 'sumeragi::lanes::registry::tests::isolation_tests::original_lane_recovery_runtime_refusal_cancels_only_after_active_owner_returns'],
+      causes=tuple(ExpectedFailure("original lane recovery must release the shared registry before native I/O",
+          "crates/iroha_core/src/sumeragi/lanes/registry/isolation_tests.rs") for _ in range(3))),
+
     m("HC354", "Geometry recovery: notify original physical waiters under sibling fences",
       ['kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_preflight_success_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_preflight_refusal_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_replay_success_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_replay_refusal_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_startup_success_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_startup_refusal_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_recovery_partial_refusals_keep_exact_errors_and_release_sources', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_recovery_unwind_notifies_after_every_acquired_fence'],
       causes=tuple(ExpectedFailure("original geometry recovery notice must wait for every physical fence",

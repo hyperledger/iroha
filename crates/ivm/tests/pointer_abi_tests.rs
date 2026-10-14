@@ -1,7 +1,7 @@
 //! Pointer-ABI TLV guard regressions.
+use crate::common;
 use iroha_crypto::Hash;
 use ivm::{CoreHost, IVM, PointerType, encoding, syscalls};
-mod common;
 fn tlv(pty: PointerType, payload: &[u8]) -> Vec<u8> {
     let payload = common::payload_for_type(pty, payload);
     let mut v = Vec::with_capacity(7 + payload.len() + Hash::LENGTH);

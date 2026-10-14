@@ -1,5 +1,5 @@
 //! Tests that the model item collector ignores filesystem symlinks.
-mod support;
+use crate::support;
 use std::fs;
 use tempfile::tempdir;
 #[test]

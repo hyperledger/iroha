@@ -1,6 +1,6 @@
-use ivm::{IVM, encoding, instruction};
-mod common;
+use crate::common;
 use common::assemble;
+use ivm::{IVM, encoding, instruction};
 const HALT_WORD: u32 = encoding::wide::encode_halt();
 fn assemble_words(words: &[u32]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(words.len() * 4);

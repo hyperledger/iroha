@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Native pending-owner TEU accounting through certified execution.
 //!
 //! Configured legacy lane-router selection and guard-drop cleanup are retired.

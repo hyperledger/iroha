@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Tests that state changes made by failing triggers are reverted.
 use eyre::Result;
 use integration_tests::sandbox;

@@ -1,5 +1,4 @@
 #![doc = "Pre-proof ballot admission and rejection of development-only retained keys."]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "zk-tests")]
 //! Pre-proof ballot admission and rejection of development-only retained keys.
 #[path = "zk_testkit.rs"]

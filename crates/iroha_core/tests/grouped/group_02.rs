@@ -1,5 +1,5 @@
 //! Grouped Iroha Core integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[path = "../gov_min_duration.rs"]
 mod gov_min_duration;
 #[path = "../gov_plain_ballot.rs"]

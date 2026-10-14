@@ -6,7 +6,9 @@ use iroha_data_model::{
 };
 use norito::json;
 
-pub(crate) fn from_json(value: &json::Value) -> Option<CodecResult<InstructionBox>> {
+/// Decode an exact native Log envelope; other instruction kinds return `None`.
+/// Malformed Log fields or noncanonical typed values return a codec error.
+pub fn from_json(value: &json::Value) -> Option<CodecResult<InstructionBox>> {
     let payload = value.as_object()?.get("Log")?;
     Some((|| {
         exact_json_object_fields(value, &["Log"], "log instruction")?;
@@ -25,7 +27,9 @@ pub(crate) fn from_json(value: &json::Value) -> Option<CodecResult<InstructionBo
     })())
 }
 
-pub(crate) fn to_json(instruction: &InstructionBox) -> Option<CodecResult<json::Value>> {
+/// Encode a native Log envelope; other instruction kinds return `None`.
+/// Returns a codec error if the typed Log cannot be encoded as Norito JSON.
+pub fn to_json(instruction: &InstructionBox) -> Option<CodecResult<json::Value>> {
     instruction.as_any().downcast_ref::<Log>().map(|log| {
         Ok(crate::instruction_envelope(
             "Log",

@@ -1009,8 +1009,14 @@ fn prepare_ivm_private_note_transition_v1(
     let accumulator = snapshot.accumulator_state().ok_or_else(|| {
         ivm_private_note_state_error(PrivacyIvmPrivateNoteStateFailureCodeV1::MissingNoteFrontier)
     })?;
-    if accumulator.namespace() != snapshot.namespace()
-        || accumulator.epoch() != snapshot.current_epoch()
+    if accumulator.namespace() != snapshot.namespace() {
+        return Err(ivm_private_note_state_error(
+            PrivacyIvmPrivateNoteStateFailureCodeV1::FrontierMismatch,
+        ));
+    }
+    let accumulator_epoch = accumulator.epoch();
+    let mutation_head_epoch = snapshot.current_epoch();
+    if accumulator_epoch != mutation_head_epoch
         || accumulator.root() != snapshot.current_root()
         || accumulator.tree_size() != snapshot.output_count()
     {
@@ -1149,8 +1155,14 @@ fn prepare_pq_masp_transition_v1(
     let accumulator = snapshot
         .accumulator_state()
         .ok_or_else(|| pq_masp_state_error(PrivacyPqMaspStateFailureCodeV1::MissingNoteFrontier))?;
-    if accumulator.namespace() != snapshot.namespace()
-        || accumulator.epoch() != snapshot.current_epoch()
+    if accumulator.namespace() != snapshot.namespace() {
+        return Err(pq_masp_state_error(
+            PrivacyPqMaspStateFailureCodeV1::FrontierMismatch,
+        ));
+    }
+    let accumulator_epoch = accumulator.epoch();
+    let mutation_head_epoch = snapshot.current_epoch();
+    if accumulator_epoch != mutation_head_epoch
         || accumulator.root() != snapshot.current_root()
         || accumulator.tree_size() != snapshot.output_count()
     {
@@ -1303,8 +1315,14 @@ fn verify_fcmp_plus_plus_action_v1(
     let accumulator = snapshot
         .fcmp_accumulator_state()
         .ok_or_else(|| fcmp_state_error(PrivacyFcmpStateFailureCodeV1::MissingCurveFrontier))?;
-    if accumulator.namespace() != snapshot.namespace()
-        || accumulator.epoch() != snapshot.current_epoch()
+    if accumulator.namespace() != snapshot.namespace() {
+        return Err(fcmp_state_error(
+            PrivacyFcmpStateFailureCodeV1::FrontierMismatch,
+        ));
+    }
+    let accumulator_epoch = accumulator.epoch();
+    let mutation_head_epoch = snapshot.current_epoch();
+    if accumulator_epoch != mutation_head_epoch
         || accumulator.root().history_commitment() != snapshot.current_root()
         || accumulator.tree_size() != snapshot.output_count()
     {

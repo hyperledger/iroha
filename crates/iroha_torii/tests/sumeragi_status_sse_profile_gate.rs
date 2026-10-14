@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Profile gate test for `/v1/sumeragi/status/sse`.
 #![cfg(feature = "telemetry")]
 use axum::http::Request;

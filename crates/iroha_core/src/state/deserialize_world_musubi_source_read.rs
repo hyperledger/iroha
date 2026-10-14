@@ -10,7 +10,10 @@ use std::convert::Infallible;
 
 #[path = "deserialize_world_musubi_source_traits.rs"]
 mod source_traits;
-pub(crate) use source_traits::MusubiSourceReadOnly;
+pub(crate) use source_traits::{
+    MusubiSourceReadOnly,
+    access::{KeyWorkCursor, LookupCursor, MusubiRead, ReadFailure, next_if_row, try_next_if_row},
+};
 
 /// An original source acquisition refusal, separate from semantic validity.
 #[derive(Debug, Clone, PartialEq, Eq)]

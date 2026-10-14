@@ -324,6 +324,10 @@ mod zk_policy;
 /// Identities of every canonical table that the exact table catalog reads.
 #[cfg(test)]
 pub(in crate::state) use complete::table_capture::catalog_table_ids;
+// The sole original publisher retains this reference-free semantic child.
+pub(in crate::state) use complete::table_capture::frozen_musubi::{
+    FrozenMusubiError, OriginalMusubiMaterializers,
+};
 /// Classified fields of the concrete State owner.
 pub(crate) const STATE_FIELDS: &[Field] = state::STATE_FIELDS;
 /// Classified fields of the concrete heap-owned World data owner.

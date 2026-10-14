@@ -1,10 +1,10 @@
 //! Crypto opcode and helper regression tests.
+use crate::common;
+use common::assemble;
 use ivm::{
     AccelerationConfig, ByteMerkleTree, IVM, SimdChoice, acceleration_runtime_status, encoding,
     instruction, poseidon2, poseidon6, vector_supported,
 };
-mod common;
-use common::assemble;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 const HALT_WORD: u32 = encoding::wide::encode_halt();
 fn words(words: &[u32]) -> Vec<u8> {

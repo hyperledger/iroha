@@ -1797,18 +1797,18 @@ fn execute_propose(
         .ok_or_else(|| {
             ValidationFail::NotPermitted("multisig proposal deadline overflow".into())
         })?;
-    let state = MultisigProposalState::new(
-        state_transaction.network_id,
-        account,
-        instruction.proposal_nonce,
+    let state = MultisigProposalState {
+        network_id: state_transaction.network_id,
+        multisig_account_id: account,
+        proposal_nonce: instruction.proposal_nonce,
         proposal_id,
-        HashOf::new(&instruction.instructions),
-        instruction.transaction_ttl_ms,
-        instruction.instructions.clone(),
+        instructions_hash: HashOf::new(&instruction.instructions),
+        transaction_ttl_ms: instruction.transaction_ttl_ms,
+        instructions: instruction.instructions.clone(),
         proposed_at_ms,
         expires_at_ms,
-        BTreeSet::from([authority.clone()]),
-    );
+        approvals: BTreeSet::from([authority.clone()]),
+    };
     store_multisig_proposal_state(state_transaction, &state)
 }
 fn execute_approve(
@@ -2552,7 +2552,7 @@ fn store_multisig_proposal_state(
         let previous = decode_proposal_state_at_key(&key, previous)
             .map_err(|error| retain_multisig_read_attempt(state_transaction, error))?;
         let mut original = previous.clone();
-        original.approvals = proposal_state.approvals.clone();
+        original.approvals.clone_from(&proposal_state.approvals);
         if original != *proposal_state || !previous.approvals.is_subset(&proposal_state.approvals) {
             return Err(invalid_proposal_binding());
         }
@@ -2874,16 +2874,16 @@ fn proposal_instruction_attempt(
     }
 }
 fn proposal_state_value(proposal_state: &MultisigProposalState) -> MultisigProposalValue {
-    MultisigProposalValue::new(
-        proposal_state.network_id,
-        proposal_state.proposal_nonce,
-        proposal_state.proposal_id,
-        proposal_state.transaction_ttl_ms,
-        proposal_state.instructions.clone(),
-        proposal_state.proposed_at_ms,
-        proposal_state.expires_at_ms,
-        proposal_state.approvals.clone(),
-    )
+    MultisigProposalValue {
+        network_id: proposal_state.network_id,
+        proposal_nonce: proposal_state.proposal_nonce,
+        proposal_id: proposal_state.proposal_id,
+        transaction_ttl_ms: proposal_state.transaction_ttl_ms,
+        instructions: proposal_state.instructions.clone(),
+        proposed_at_ms: proposal_state.proposed_at_ms,
+        expires_at_ms: proposal_state.expires_at_ms,
+        approvals: proposal_state.approvals.clone(),
+    }
 }
 
 fn maybe_store_terminal_proposal_state(
@@ -2991,16 +2991,16 @@ fn proposal_value(
     proposal_id: &MultisigProposalId,
 ) -> Result<MultisigProposalValue, ValidationFail> {
     let proposal_state = proposal_state(state_transaction, multisig_account, proposal_id)?;
-    Ok(MultisigProposalValue::new(
-        proposal_state.network_id,
-        proposal_state.proposal_nonce,
-        proposal_state.proposal_id,
-        proposal_state.transaction_ttl_ms,
-        proposal_state.instructions,
-        proposal_state.proposed_at_ms,
-        proposal_state.expires_at_ms,
-        proposal_state.approvals,
-    ))
+    Ok(MultisigProposalValue {
+        network_id: proposal_state.network_id,
+        proposal_nonce: proposal_state.proposal_nonce,
+        proposal_id: proposal_state.proposal_id,
+        transaction_ttl_ms: proposal_state.transaction_ttl_ms,
+        instructions: proposal_state.instructions,
+        proposed_at_ms: proposal_state.proposed_at_ms,
+        expires_at_ms: proposal_state.expires_at_ms,
+        approvals: proposal_state.approvals,
+    })
 }
 fn now_ms(state_transaction: &StateTransaction<'_, '_>) -> u64 {
     state_transaction
@@ -6651,16 +6651,16 @@ seiyaku TriggerDispatch { permission Admin;
             old_account.clone(),
             test_id(&network_id, &old_account.clone(), &instructions_hash),
             instructions_hash,
-            MultisigProposalValue::new(
+            MultisigProposalValue {
                 network_id,
-                test_nonce(&HashOf::new(&instructions)),
-                test_id(&network_id, &old_account, &HashOf::new(&instructions)),
-                None,
+                proposal_nonce: test_nonce(&HashOf::new(&instructions)),
+                proposal_id: test_id(&network_id, &old_account, &HashOf::new(&instructions)),
+                transaction_ttl_ms: None,
                 instructions,
-                1,
-                u64::MAX,
-                BTreeSet::from([old_account.clone()]),
-            ),
+                proposed_at_ms: 1,
+                expires_at_ms: u64::MAX,
+                approvals: BTreeSet::from([old_account.clone()]),
+            },
             MultisigProposalTerminalStatus::Finalized,
             2,
         );
@@ -7627,18 +7627,18 @@ seiyaku TriggerDispatch { permission Admin;
         );
         store_multisig_proposal_state(
             &mut tx,
-            &MultisigProposalState::new(
+            &MultisigProposalState {
                 network_id,
-                multisig_id.clone(),
-                test_nonce(&cycle_hash),
-                test_id(&network_id, &multisig_id.clone(), &cycle_hash),
-                cycle_hash,
-                None,
-                vec![cycle_instruction.into()],
-                0,
-                0,
-                BTreeSet::new(),
-            ),
+                multisig_account_id: multisig_id.clone(),
+                proposal_nonce: test_nonce(&cycle_hash),
+                proposal_id: test_id(&network_id, &multisig_id.clone(), &cycle_hash),
+                instructions_hash: cycle_hash,
+                transaction_ttl_ms: None,
+                instructions: vec![cycle_instruction.into()],
+                proposed_at_ms: 0,
+                expires_at_ms: 0,
+                approvals: BTreeSet::new(),
+            },
         )
         .expect("store cyclic proposal state");
         let cycle_error = prune_expired(
@@ -7674,18 +7674,18 @@ seiyaku TriggerDispatch { permission Admin;
             let hash = HashOf::new(&instructions);
             store_multisig_proposal_state(
                 &mut tx,
-                &MultisigProposalState::new(
+                &MultisigProposalState {
                     network_id,
-                    multisig_id.clone(),
-                    test_nonce(&hash),
-                    test_id(&network_id, &multisig_id.clone(), &hash),
-                    hash,
-                    None,
+                    multisig_account_id: multisig_id.clone(),
+                    proposal_nonce: test_nonce(&hash),
+                    proposal_id: test_id(&network_id, &multisig_id.clone(), &hash),
+                    instructions_hash: hash,
+                    transaction_ttl_ms: None,
                     instructions,
-                    0,
-                    0,
-                    BTreeSet::new(),
-                ),
+                    proposed_at_ms: 0,
+                    expires_at_ms: 0,
+                    approvals: BTreeSet::new(),
+                },
             )
             .expect("store exact deep proposal state");
             child = Some(hash);
@@ -7788,18 +7788,18 @@ seiyaku TriggerDispatch { permission Admin;
         seeded_value.approvals = signatories.keys().cloned().collect();
         store_multisig_proposal_state(
             &mut tx,
-            &MultisigProposalState::new(
+            &MultisigProposalState {
                 network_id,
-                multisig_id.clone(),
-                test_nonce(&instructions_hash),
-                test_id(&network_id, &multisig_id.clone(), &instructions_hash),
+                multisig_account_id: multisig_id.clone(),
+                proposal_nonce: test_nonce(&instructions_hash),
+                proposal_id: test_id(&network_id, &multisig_id.clone(), &instructions_hash),
                 instructions_hash,
-                None,
-                seeded_value.instructions,
-                seeded_value.proposed_at_ms,
-                seeded_value.expires_at_ms,
-                seeded_value.approvals,
-            ),
+                transaction_ttl_ms: None,
+                instructions: seeded_value.instructions,
+                proposed_at_ms: seeded_value.proposed_at_ms,
+                expires_at_ms: seeded_value.expires_at_ms,
+                approvals: seeded_value.approvals,
+            },
         )
         .expect("seed approvals");
         let approver = signatories
