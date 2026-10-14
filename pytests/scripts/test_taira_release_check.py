@@ -30,8 +30,8 @@ EXPECTED_BEACON_NETWORK_TEST = (
     'production_beacon_bootstrap::four_peer_fresh_custody_bootstrap_reaches_mandatory_pulse'
 )
 PLATFORM_REGRESSION_COUNT = 1 if sys.platform == "linux" else 0
-EXPECTED_BASIC_REGRESSION_COUNT = 2117 + PLATFORM_REGRESSION_COUNT
-EXPECTED_REGRESSION_COUNT = 2150 + PLATFORM_REGRESSION_COUNT
+EXPECTED_BASIC_REGRESSION_COUNT = 2135 + PLATFORM_REGRESSION_COUNT
+EXPECTED_REGRESSION_COUNT = 2168 + PLATFORM_REGRESSION_COUNT
 
 REWARD_ACCOUNTING_SOURCE_TESTS = {
     'smartcontracts/isi/multisig.rs': ('smartcontracts::isi::multisig::tests::', (

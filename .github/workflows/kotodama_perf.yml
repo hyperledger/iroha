@@ -193,7 +193,7 @@ jobs:
         run: |
           cargo bench --locked --jobs 1 -p ivm --bench bench_kotodama -- --save-baseline base
           cargo bench --locked --jobs 1 -p iroha_core --bench kotodama_runtime_cache -- --save-baseline base
-          cargo bench --locked --jobs 1 -p iroha_core --bench queries -- typed_core_query_ --save-baseline base
+          cargo bench --locked --jobs 1 -p iroha_core --features bench,iroha-core-tests --bench queries -- typed_core_query_ --save-baseline base
 
       # Criterion writes a `new` sample even while saving the named `base`.
       # Delete those current slots so a benchmark omitted by the candidate
@@ -216,7 +216,7 @@ jobs:
         run: |
           cargo bench --locked --jobs 1 -p ivm --bench bench_kotodama -- --save-baseline candidate
           cargo bench --locked --jobs 1 -p iroha_core --bench kotodama_runtime_cache -- --save-baseline candidate
-          cargo bench --locked --jobs 1 -p iroha_core --bench queries -- typed_core_query_ --save-baseline candidate
+          cargo bench --locked --jobs 1 -p iroha_core --features bench,iroha-core-tests --bench queries -- typed_core_query_ --save-baseline candidate
 
       - name: Enforce five-percent ceiling
         working-directory: candidate

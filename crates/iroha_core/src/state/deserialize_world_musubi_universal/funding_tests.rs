@@ -21,19 +21,60 @@ fn scratch_bytes(world: &World) -> usize {
 }
 
 fn complete_projection_budget(world: &World) -> AllocationBudget {
-    let probe = AllocationBudget::new(
-        iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+    // The retained current roots and rollback writers must share their original pool.
+    let budget = world.sccp_committee_generations.allocation_budget().clone();
+    let baseline = budget.reserved_bytes();
+    assert!(
+        baseline > 0,
+        "the live World retains its prepaid current roots"
     );
-    let original = world.try_block_and_revert(&probe).unwrap();
-    let original_controls = probe.reserved_bytes();
-    assert!(original_controls >= std::mem::size_of::<crate::state::WorldBlockFields<'_>>());
+    let original = world.try_block_and_revert(&budget).unwrap();
+    let original_controls = budget.reserved_bytes();
+    assert!(
+        original_controls >= baseline + std::mem::size_of::<crate::state::WorldBlockFields<'_>>()
+    );
     drop(original);
-    assert_eq!(probe.reserved_bytes(), 0);
-    AllocationBudget::new(original_controls + scratch_bytes(world))
+    assert_eq!(budget.reserved_bytes(), baseline);
+    let complete = original_controls + scratch_bytes(world);
+    assert!(
+        complete <= budget.limit_bytes(),
+        "fixture never raises the original ceiling"
+    );
+    budget.set_limit_bytes(complete);
+    budget
+}
+
+fn retire_original_world(world: World, budget: &AllocationBudget) {
+    let (generations, _) =
+        crate::state::world_acquisition::original_world_funded_cell_bytes(&world);
+    let retirement_pin = crossbeam_epoch::pin();
+    drop(world);
+    retirement_pin.flush();
+    assert_eq!(
+        budget.reserved_bytes(),
+        generations,
+        "every funded current/undo generation remains charged while epoch-pinned",
+    );
+    drop(retirement_pin);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while budget.reserved_bytes() != 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "original World generations did not retire",
+        );
+        crossbeam_epoch::pin().flush();
+        std::thread::yield_now();
+    }
+    assert_eq!(budget.reserved_bytes(), 0);
 }
 
 #[test]
 fn universal_scratch_retains_exact_backing_until_the_complete_check_returns() {
+    if crate::unit_test_support::run_in_isolated_harness(
+        "state::deserialize::musubi_universal::funding_tests::universal_scratch_retains_exact_backing_until_the_complete_check_returns",
+    ) {
+        return;
+    }
     let empty = AllocationBudget::new(0);
     let empty_world = World::default();
     validate_musubi_universal_projection_cut(&empty_world.view(), ProjectionCut::Current, &empty)
@@ -54,23 +95,31 @@ fn universal_scratch_retains_exact_backing_until_the_complete_check_returns() {
     let (world, _, _, _) = seeded_musubi_publication_snapshot();
     let before = json::to_json(&world).unwrap();
     let budget = complete_projection_budget(&world);
+    let baseline = budget.reserved_bytes();
     validate_musubi_universal_projection_cuts(&world, &budget).unwrap();
     assert_eq!(budget.peak_reserved_bytes(), budget.limit_bytes());
-    assert_eq!(budget.reserved_bytes(), 0);
+    assert_eq!(budget.reserved_bytes(), baseline);
     assert_eq!(json::to_json(&world).unwrap(), before);
+    retire_original_world(world, &budget);
 }
 
 #[test]
 fn universal_capacity_refusal_keeps_only_the_original_release_owner() {
+    if crate::unit_test_support::run_in_isolated_harness(
+        "state::deserialize::musubi_universal::funding_tests::universal_capacity_refusal_keeps_only_the_original_release_owner",
+    ) {
+        return;
+    }
     let (world, _, _, _) = seeded_musubi_publication_snapshot();
     let bytes = scratch_bytes(&world);
     let budget = complete_projection_budget(&world);
+    let baseline = budget.reserved_bytes();
     let complete_limit = budget.limit_bytes();
     budget.set_limit_bytes(
         complete_limit + iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
     );
     let mut registration = crate::unit_test_support::release_registration(&budget);
-    let held = budget.try_reserve_bytes(complete_limit).unwrap();
+    let held = budget.try_reserve_bytes(complete_limit - baseline).unwrap();
     let ExecutionAttemptError::Deferred(reason) =
         validate_musubi_universal_projection_cut(&world.view(), ProjectionCut::Current, &budget)
             .unwrap_err()
@@ -103,7 +152,8 @@ fn universal_capacity_refusal_keeps_only_the_original_release_owner() {
     drop(registration);
     budget.set_limit_bytes(complete_limit);
     validate_musubi_universal_projection_cuts(&world, &budget).unwrap();
-    assert_eq!(budget.reserved_bytes(), 0);
+    assert_eq!(budget.reserved_bytes(), baseline);
+    retire_original_world(world, &budget);
 }
 
 #[test]

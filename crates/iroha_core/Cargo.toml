@@ -298,7 +298,7 @@ required-features = ["bench"]
 [[bench]]
 name = "queries"
 harness = false
-required-features = ["bench"]
+required-features = ["bench", "iroha-core-tests"]
 
 [[bench]]
 name = "queries_client"

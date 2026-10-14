@@ -1,5 +1,4 @@
 //! Closed native/SCCP audit DATA display; transport decoding grants no authority.
-#![allow(clippy::redundant_pub_crate, clippy::needless_pass_by_value)]
 use super::commands::{EvidenceCountArgs, EvidenceKindArg, EvidenceListArgs};
 use crate::{CliOutputFormat, RunContext};
 use eyre::Result;

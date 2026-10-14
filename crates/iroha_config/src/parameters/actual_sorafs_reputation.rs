@@ -1,4 +1,4 @@
-//! Validated non-secret policy for SoraFS reputation and reserve transparency runtimes.
+//! Validated non-secret policy for `SoraFS` reputation and reserve transparency runtimes.
 use iroha_config_base::util::Bytes;
 use std::{path::PathBuf, time::Duration};
 /// Public binding for the reputation finalized-archive retention authority.
@@ -11,7 +11,7 @@ pub struct SorafsReputationFinalizedArchiveRetentionAuthority {
     /// Exact non-zero digest of the authority's public policy.
     pub policy_digest: [u8; 32],
 }
-/// Non-secret production policy for the committed SoraFS reputation runtime.
+/// Non-secret production policy for the committed `SoraFS` reputation runtime.
 #[derive(Debug, Clone)]
 pub struct SorafsReputationRuntime {
     /// Private directory containing canonical projector/publication checkpoints.

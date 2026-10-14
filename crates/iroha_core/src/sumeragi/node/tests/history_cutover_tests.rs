@@ -334,9 +334,13 @@ fn a_store_never_replays_under_another_genesis() {
 
     // A node configured for the new genesis and restarted with no supplied genesis: its empty
     // State cannot be anchored to the old store.
+    let constructor_world = initial_world();
     let mut foreign = State::try_new_with_chain_and_network_id_with_default_telemetry(
-        crate::state::AllocationBudget::new(defaults::pipeline::IVM_EXECUTION_MAX_BYTES),
-        initial_world(),
+        constructor_world
+            .sccp_committee_generations
+            .allocation_budget()
+            .clone(),
+        constructor_world,
         Arc::clone(&disk.kura),
         LiveQueryStore::start_test(),
         new.chain_id.clone(),

@@ -6562,8 +6562,10 @@ impl WorldBlock<'_> {
             sccp_anchor_open,
             sccp_pause_panel,
         );
+        storage!(sccp_forgery_offences);
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC378")))]
+        storage!(sccp_destination_pending_generations);
         storage!(
-            sccp_forgery_offences,
             sccp_block_leaves,
             sccp_block_commitments,
             sccp_history_leaves,
@@ -6583,6 +6585,10 @@ impl WorldBlock<'_> {
             sccp_reconciliations,
             sccp_reconciliation_proven,
             sccp_pending_refund_amount,
+        );
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC379")))]
+        storage!(sccp_reconciliation_due);
+        storage!(
             sccp_light_clients,
             sccp_light_client_sets,
             sccp_light_client_checkpoints,
@@ -27346,6 +27352,9 @@ impl State {
         network_id: iroha_data_model::NetworkId,
         #[cfg(feature = "telemetry")] telemetry: StateTelemetry,
     ) -> core::result::Result<Self, MergeLedgerCommitError> {
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC377")))]
+        world_acquisition::validate_world_original_pools(&world, &execution_budget)
+            .map_err(StateStorageAdmissionError::World)?;
         crate::sumeragi::lanes::custody::admit_world_state(&mut world, &execution_budget)
             .map_err(MergeLedgerCommitError::NativeLaneCustodyAdmission)?;
         crate::sumeragi::amx::admit_world_state(&mut world, &execution_budget)

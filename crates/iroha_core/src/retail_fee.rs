@@ -36,6 +36,28 @@ pub mod test_support {
         write_account(world, record)
     }
 
+    /// Seed a retail component window from its original same-epoch authority and parameters.
+    ///
+    /// This changes only disposable World fixture state. It does not authenticate skipped
+    /// history, advance the State tip, or invent a successor committee. The signed genesis
+    /// epoch must already cover every requested height.
+    ///
+    /// # Errors
+    /// Returns the original schedule validation or execution-pool admission refusal without
+    /// changing the retained schedule. Changed chain parameters require actual lag-two history.
+    pub fn seed_same_epoch_schedule(
+        transaction: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), crate::sumeragi::schedule::ScheduleError> {
+        use crate::state::StateReadOnly as _;
+        let retained = crate::sumeragi::schedule::test_support::retain_same_epoch_component_window(
+            &transaction.world,
+            transaction.block_height(),
+            &transaction.execution_budget(),
+        )?;
+        *transaction.world.consensus_schedule.get_mut() = retained;
+        Ok(())
+    }
+
     /// Check the exact frontier after a component fixture or transaction attempt.
     ///
     /// # Errors

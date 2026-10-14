@@ -3436,15 +3436,17 @@ impl MaybeTelemetry {
             "derive telemetry fixture peer key",
         );
         let local_peer_id = PeerId::new(local_peer_keypair.public_key().clone());
-        let world = World::default();
+        let execution_budget = iroha_core::state::AllocationBudget::new(
+            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+        );
+        let world = World::try_with_execution_budget([], [], [], &execution_budget)
+            .expect("telemetry fixture World retains the original execution pool");
         let mut world_block = world.block();
         let peers = world_block.peers_mut_for_testing().get_mut();
         let _ = peers.push(local_peer_id.clone());
         world_block.commit();
         let mut state = State::try_new(
-            iroha_core::state::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            execution_budget,
             world,
             kura.clone(),
             query,

@@ -1678,18 +1678,6 @@ impl OriginalMusubiCapture<'_, '_> {
         Ok(())
     }
 
-    /// Borrow only fully validated original images; no reader may escape this callback.
-    #[cfg(test)]
-    pub(in crate::state) fn with_validated_original_musubi_rows<R>(
-        &mut self,
-        limit: usize,
-        callback: impl for<'read> FnOnce(OriginalMusubiRows<'read>, OriginalMusubiRevision<'read>) -> R,
-    ) -> Result<R, RetainedMusubiGroupReadError> {
-        self.with_validated_original_musubi_materializers(limit, |rows, revision, _| {
-            callback(rows, revision)
-        })
-    }
-
     /// Use the three retained table builders beside their exact original validated rows.
     /// Original control allocation includes this slot; builders own their separately
     /// charged buffers. No source, allocation scope or table root is detached.

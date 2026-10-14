@@ -51,6 +51,14 @@ fn package_roots(entries: &BTreeMap<String, Entry>) -> BTreeSet<String> {
         .collect()
 }
 
+// Classify known formats without normalizing the exact path used by the census.
+// A dotfile with no extension and any unknown extension remain unknown formats.
+fn has_extension(name: &str, extension: &str) -> bool {
+    Path::new(name)
+        .extension()
+        .is_some_and(|value| value.eq_ignore_ascii_case(extension))
+}
+
 fn selected(name: &str, packages: &BTreeSet<String>) -> bool {
     if name == SWIFT_OUTPUT_LINK
         || EXTERNAL_INPUTS.contains(&name)
@@ -67,9 +75,10 @@ fn selected(name: &str, packages: &BTreeSet<String>) -> bool {
     if name == OPTIONAL_DOCS || CLIENT_ROOTS.iter().any(|prefix| name.starts_with(prefix)) {
         return false;
     }
-    // Only Markdown prose in documentation owners is omitted. Unknown formats,
-    // scripts, configuration, fixtures, tests and assets remain inputs by default.
-    !(name.ends_with(".md")
+    // Only Markdown prose (including mixed-case extensions) in documentation owners
+    // is omitted. Unknown formats, scripts, configuration, fixtures, tests and assets
+    // remain inputs by default.
+    !(has_extension(name, "md")
         && (!name.contains('/') || name.starts_with("docs/") || name.starts_with("specs/")))
 }
 
@@ -194,7 +203,7 @@ fn restore_references(
 ) -> Result<(), String> {
     let mut pending: Vec<_> = entries
         .keys()
-        .filter(|name| name.ends_with(".rs"))
+        .filter(|name| has_extension(name, "rs"))
         .cloned()
         .collect();
     let mut visited = BTreeSet::new();
@@ -269,7 +278,7 @@ fn restore_references(
                         continue;
                     }
                 };
-                if candidate.ends_with(".rs") {
+                if has_extension(&candidate, "rs") {
                     pending.push(candidate.clone());
                 }
                 entries.insert(candidate, entry);

@@ -1,16 +1,4 @@
 //! Renders a sample Petal frame to PNG for visual inspection.
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    clippy::many_single_char_names,
-    clippy::similar_names,
-    clippy::manual_is_multiple_of,
-    clippy::option_if_let_else,
-    clippy::suboptimal_flops,
-    clippy::too_many_lines,
-    clippy::type_complexity
-)]
 use iroha_petal::png;
 use iroha_petal::render::{RenderOptions, render};
 use iroha_petal::stream::StreamEncoder;

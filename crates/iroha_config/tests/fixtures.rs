@@ -1,4 +1,3 @@
-#![allow(clippy::assertions_on_constants)]
 //! Test fixtures exercising `iroha_config` parameter loading and validation.
 use assertables::assert_contains;
 use error_stack::{Report, ResultExt};

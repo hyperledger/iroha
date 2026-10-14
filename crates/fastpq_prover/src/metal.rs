@@ -1,38 +1,4 @@
 #![cfg(all(feature = "fastpq-gpu", target_os = "macos"))]
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_lossless,
-    clippy::clone_on_copy,
-    clippy::collapsible_if,
-    clippy::derivable_impls,
-    clippy::elidable_lifetime_names,
-    clippy::float_cmp,
-    clippy::items_after_statements,
-    clippy::manual_div_ceil,
-    clippy::manual_inspect,
-    clippy::manual_is_multiple_of,
-    clippy::manual_range_contains,
-    clippy::manual_slice_size_calculation,
-    clippy::map_unwrap_or,
-    clippy::missing_errors_doc,
-    clippy::needless_collect,
-    clippy::needless_pass_by_value,
-    clippy::needless_return,
-    clippy::option_if_let_else,
-    clippy::or_fun_call,
-    clippy::redundant_closure,
-    clippy::redundant_closure_for_method_calls,
-    clippy::redundant_pub_crate,
-    clippy::return_self_not_must_use,
-    clippy::single_match_else,
-    clippy::suboptimal_flops,
-    clippy::too_many_arguments,
-    clippy::too_many_lines,
-    clippy::trivially_copy_pass_by_ref,
-    clippy::uninlined_format_args,
-    clippy::unnecessary_lazy_evaluations,
-    clippy::useless_conversion
-)]
 //! Metal GPU bindings for FASTPQ.
 #[path = "metal_digest384.rs"]
 pub(crate) mod digest384;

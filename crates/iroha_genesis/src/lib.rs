@@ -5,20 +5,6 @@
 //! Normalization preserves authored source boundaries and refuses inputs above
 //! the fixed FASTPQ bootstrap budget; draft generators partition physical routes explicitly.
 #![allow(unexpected_cfgs)]
-#![allow(
-    clippy::let_and_return,
-    clippy::collapsible_if,
-    clippy::doc_markdown,
-    clippy::missing_errors_doc,
-    clippy::cast_lossless,
-    clippy::cast_possible_truncation,
-    clippy::too_many_lines,
-    clippy::double_must_use,
-    clippy::field_reassign_with_default,
-    clippy::manual_contains,
-    clippy::items_after_statements,
-    clippy::clone_on_copy
-)]
 use iroha_model_base::chain::ChainId;
 use iroha_model_base::domain::DomainId;
 use iroha_model_base::metadata::Metadata;

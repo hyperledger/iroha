@@ -4,11 +4,6 @@
 //!
 //! With a camera name each frame is first "filmed" by the camera simulator, so a
 //! screen-recorded (H.264) stream can be tested as if a phone were pointed at it.
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss
-)]
 use iroha_petal::image::{Luma, Rgb};
 use iroha_petal::session::{ScanLimits, ScanSession};
 use iroha_petal::sim::{CaptureConfig, capture, fit_to_frame};

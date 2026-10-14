@@ -5818,7 +5818,6 @@ mod parameter {
         }
     }
 }
-#[allow(clippy::large_enum_variant)]
 mod trigger {
     use super::*;
     use clap::ValueEnum;

@@ -29,11 +29,14 @@ fn policy_startup_state(
         .expect("authenticate configured Kura baseline before State geometry");
     // Use the production constructor: the generic testing constructor publishes default
     // geometry, whose incarnation is different from this governed configured baseline.
+    let execution_budget = iroha_core::state::AllocationBudget::new(
+        iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+    );
+    let world = World::try_with_execution_budget([], [], [], &execution_budget)
+        .expect("startup fixture World retains the original execution pool");
     let state = State::try_new_with_chain_and_network_id(
-        iroha_core::state::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
-        World::new(),
+        execution_budget,
+        world,
         kura,
         LiveQueryStore::start_test(),
         config.common.chain.clone(),

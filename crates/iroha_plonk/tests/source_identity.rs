@@ -174,6 +174,9 @@ fn unrelated_client_owners_and_prose_do_not_invalidate_native_inputs() {
         "docs/operator-guide.md",
         "specs/wallet-policy.md",
         "README.md",
+        "docs/operator-reference.MD",
+        "specs/client-policy.Md",
+        "OVERVIEW.mD",
     ] {
         workspace.write(path, b"first unrelated edit\n");
         assert_eq!(workspace.digest(), expected, "new unrelated input {path}");
@@ -212,6 +215,10 @@ fn unknown_assets_scripts_tests_and_machine_readable_specs_remain_inputs() {
         "docs/native-schema.toml",
         "configs/native.toml",
         "crates/proof/README.md",
+        "docs/unknown.MDX",
+        "specs/native-profile.RSX",
+        "docs/.md",
+        "specs/without-extension",
     ] {
         let before = workspace.digest();
         workspace.write(path, b"first\n");
@@ -232,6 +239,7 @@ fn nested_native_packages_override_client_owner_and_bind_ignored_sources() {
         "python/client/native",
         "vendor/native_math",
         "crates/outer/nested",
+        "docs/native_math",
     ] {
         let before = workspace.digest();
         workspace.write(
@@ -245,6 +253,8 @@ fn nested_native_packages_override_client_owner_and_bind_ignored_sources() {
             "src/ignored_constants.bin",
             "build_support/ignored_recipe.rs",
             "README.md",
+            "REFERENCE.MD",
+            "OVERVIEW.mD",
         ] {
             let before = workspace.digest();
             let path = format!("{owner}/{leaf}");
@@ -332,6 +342,65 @@ fn restored_external_rust_sources_restore_their_relative_inputs_recursively() {
     for name in ["helper.rs", "other.rs", "sibling.dat", "last.dat"] {
         assert!(watched.contains(&workspace.0.join("python/client").join(name)));
     }
+}
+
+#[test]
+fn mixed_case_rust_references_restore_recursive_native_inputs() {
+    // Exercise both the initial native-source census and the recursive worklist.
+    for (source, helper, nested) in [
+        ("source.RS", "helper.rs", "nested.rs"),
+        ("source.rs", "helper.RS", "nested.rS"),
+    ] {
+        let workspace = Workspace::new();
+        workspace.write(
+            &format!("crates/proof/src/{source}"),
+            format!("include!(\"../../../python/client/{helper}\");\n").as_bytes(),
+        );
+        workspace.write(
+            &format!("python/client/{helper}"),
+            format!("#[path = \"{nested}\"] mod nested;\n").as_bytes(),
+        );
+        workspace.write(
+            &format!("python/client/{nested}"),
+            b"const INPUT: &str = include_str!(\"../../docs/ignored_profile.Md\");\n",
+        );
+        workspace.write(".gitignore", b"/target/\n/output/\n/docs/ignored_*\n");
+        workspace.write("docs/ignored_profile.Md", b"first");
+        let before = workspace.digest();
+        workspace.write("docs/ignored_profile.Md", b"second");
+        assert_ne!(
+            workspace.digest(),
+            before,
+            "native references must survive extension case: {source}/{helper}/{nested}"
+        );
+        let watched = snapshot(&workspace.0).unwrap().watched_paths;
+        for name in [
+            format!("crates/proof/src/{source}"),
+            format!("python/client/{helper}"),
+            format!("python/client/{nested}"),
+            "docs/ignored_profile.Md".to_owned(),
+        ] {
+            assert!(watched.contains(&workspace.0.join(&name)), "missing {name}");
+        }
+    }
+}
+
+#[test]
+fn native_path_identity_preserves_extension_case() {
+    let workspace = Workspace::new();
+    let original = "native-extra/identity.RS";
+    let renamed = "native-extra/identity.rS";
+    workspace.write(original, b"pub const INPUT: u64 = 1;\n");
+    let before = snapshot(&workspace.0).unwrap();
+    assert!(before.watched_paths.contains(&workspace.0.join(original)));
+    fs::rename(workspace.0.join(original), workspace.0.join(renamed)).unwrap();
+    let after = snapshot(&workspace.0).unwrap();
+    assert_ne!(
+        before.digest, after.digest,
+        "path identity is case-sensitive"
+    );
+    assert!(after.watched_paths.contains(&workspace.0.join(renamed)));
+    assert!(!after.watched_paths.contains(&workspace.0.join(original)));
 }
 
 #[cfg(unix)]

@@ -422,10 +422,11 @@ fn original_source_admission_retains_exact_row_prefix_and_refuses_policy_replace
             .complete
     );
     block.retire_original_musubi_group_read().unwrap();
-    assert!(
-        block
-            .original_musubi_source_admission_progress(OriginalMusubiImage::Current)
-            .is_none()
+    // Reader retirement preserves the charged semantic control beside any
+    // canonical nodes; only the source descriptors and their borrows retire.
+    assert_eq!(
+        block.original_musubi_source_admission_progress(OriginalMusubiImage::Current),
+        Some(complete)
     );
     assert!(matches!(
         block.try_publish(),
@@ -636,11 +637,14 @@ fn original_universal_cursor_retains_ordinal_scratch_and_completed_rows_on_work_
         state.ivm_execution_budget().reserved_bytes(),
         complete_credit
     );
+    let complete = block
+        .original_musubi_universal_progress(OriginalMusubiImage::Current)
+        .unwrap();
     block.retire_original_musubi_group_read().unwrap();
-    assert!(
-        block
-            .original_musubi_universal_progress(OriginalMusubiImage::Current)
-            .is_none()
+    assert_eq!(
+        block.original_musubi_universal_progress(OriginalMusubiImage::Current),
+        Some(complete),
+        "retiring source descriptors preserves the original completed semantic control"
     );
     assert!(state.ivm_execution_budget().reserved_bytes() < complete_credit);
     assert!(matches!(
@@ -817,7 +821,27 @@ fn configured_original_admission_keeps_the_block_policy_and_cannot_borrow_memory
 #[test]
 fn original_live_model_prefix_and_directory_scratch_survive_exact_native_refusal() {
     let (state, proposal) = fixture();
-    let mut block = pending(&state, proposal.header(), false);
+    let mut block = Box::new(
+        crate::state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::staged_attested_block(
+            &state,
+            proposal.header(),
+        ),
+    );
+    // This control resolves and validates a real signed attestation row. Stage
+    // it before the same whole-World refusal detaches the original writers.
+    assert_eq!(block.world.musubi_provider_bundle_attestations.len(), 1);
+    assert_eq!(block.world.musubi_archive_locations.len(), 1);
+    let budget = state.ivm_execution_budget();
+    let occupied = budget
+        .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+        .unwrap();
+    assert!(matches!(
+        block.try_publish(),
+        StatePublicationOutcome::Deferred(
+            storage_transactions::TransactionsBlockError::ExecutionDeferred(_)
+        )
+    ));
+    drop(occupied);
     prepare(&mut block);
     block
         .start_configured_original_musubi_source_admission()

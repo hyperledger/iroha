@@ -51,6 +51,7 @@ use std::{num::NonZeroU64, sync::Arc};
 const TEST_VALIDATION_FEE_ASSET_SCALE: u8 = VALIDATION_FEE_DS_SCALE;
 const TEST_POLICY_ENACTMENT_HEIGHT: u64 = 7_202;
 const TEST_POLICY_EFFECTIVE_HEIGHT: u64 = TEST_POLICY_ENACTMENT_HEIGHT + 1;
+const TEST_POLICY_LAST_SCHEDULED_HEIGHT: u64 = TEST_POLICY_EFFECTIVE_HEIGHT + 1;
 const TEST_PARLIAMENT_POLICY_VERSION: u64 = 1;
 fn quantity(value: &str) -> Quantity {
     value
@@ -374,6 +375,9 @@ fn test_state() -> (
     // The native payout fixture requires the network currency in the actual signed genesis.
     // The fee token keeps its independent scale; this component prestate qualifies no election.
     let npos = iroha_data_model::parameter::system::SumeragiNposParameters {
+        // The World-only post-enactment fixture must remain inside this signed epoch.
+        // Parliament's original enactment delay stays intact; no election is synthesized.
+        epoch_length_blocks: NonZeroU64::new(TEST_POLICY_LAST_SCHEDULED_HEIGHT).unwrap(),
         xor_asset_definition_id: xor_asset_definition_id(),
         ..Default::default()
     };
@@ -981,6 +985,10 @@ fn install_canonical_post_enactment_validation_fee_state(
     ));
     let mut state_transaction = block
         .transaction_for_fastpq_testing(Hash::new(b"validation_fee_admission_original_callback"));
+    // World-only fixture publication does not advance the consensus schedule. Retain
+    // the same signed epoch and original lag-two parameters for the tested heights.
+    iroha_core::retail_fee::test_support::seed_same_epoch_schedule(&mut state_transaction)
+        .expect("same authenticated epoch covers the post-enactment component window");
 
     let register_permission: iroha_data_model::permission::Permission =
         iroha_executor_data_model::permission::smart_contract::CanManageSmartContractCode.into();
@@ -1250,6 +1258,90 @@ fn asset_balance(world: &impl WorldReadOnly, asset_id: &AssetId) -> Quantity {
         .get(asset_id)
         .map_or_else(Quantity::zero, |value| value.clone().into_inner())
 }
+#[test]
+fn admission_fixture_retains_original_same_epoch_schedule_without_finalizing_history() {
+    let (state, user, key, recipient, treasury, asset) = test_state();
+    let (original, finalized_hash) = {
+        let view = state.view();
+        (
+            view.world().consensus_schedule().clone(),
+            view.latest_block_hash(),
+        )
+    };
+    let original_config = original.ready(1).expect("original signed genesis slot");
+    assert_eq!(
+        original_config.epoch.authorization.last_height,
+        TEST_POLICY_LAST_SCHEDULED_HEIGHT
+    );
+    let policy = validation_fee_policy(&state, asset.clone(), treasury);
+    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, policy.clone());
+    {
+        let view = state.view();
+        let schedule = view.world().consensus_schedule();
+        assert_eq!(
+            view.height(),
+            1,
+            "component prestate is not finalized history"
+        );
+        assert_eq!(view.latest_block_hash(), finalized_hash);
+        assert_eq!(schedule.tip(), Some(TEST_POLICY_ENACTMENT_HEIGHT));
+        assert_eq!(schedule.entries().len(), 3);
+        for height in TEST_POLICY_ENACTMENT_HEIGHT..=TEST_POLICY_LAST_SCHEDULED_HEIGHT {
+            let slot = schedule
+                .ready(height)
+                .expect("exact authenticated component slot");
+            assert_eq!(slot.epoch, original_config.epoch);
+            assert_eq!(slot.params, original_config.params);
+            slot.height_config()
+                .expect("original epoch authenticates this exact height");
+        }
+        assert!(
+            schedule
+                .get(TEST_POLICY_LAST_SCHEDULED_HEIGHT + 1)
+                .is_none()
+        );
+    }
+    {
+        let mut block = state.block(block_header(
+            &state,
+            TEST_POLICY_EFFECTIVE_HEIGHT,
+            1_793_451_601_000,
+        ));
+        let mut transaction = block.transaction();
+        let previous = transaction.world.consensus_schedule().clone();
+        let error =
+            iroha_core::retail_fee::test_support::seed_same_epoch_schedule(&mut transaction)
+                .expect_err("a third slot outside the original epoch cannot be invented");
+        assert!(
+            matches!(error, iroha_core::sumeragi::schedule::ScheduleError::Epoch(ref reason)
+                if reason == "ready slot changes its authorized epoch"),
+            "{error:?}"
+        );
+        assert_eq!(transaction.world.consensus_schedule(), &previous);
+    }
+    let transaction = signed_transfer(&state, &user, &key, &recipient, &asset, &policy, true);
+    let error = validate_in_block(&state, TEST_POLICY_LAST_SCHEDULED_HEIGHT, transaction);
+    assert!(
+        error.contains(&format!(
+            "authenticated block parameters are missing at height {}",
+            TEST_POLICY_LAST_SCHEDULED_HEIGHT + 1
+        )),
+        "unsupported final-policy successor still refuses: {error}"
+    );
+    let view = state.view();
+    assert_eq!(view.height(), 1);
+    assert_eq!(view.latest_block_hash(), finalized_hash);
+    assert_eq!(
+        asset_balance(view.world(), &AssetId::new(asset, user.clone())),
+        Quantity::from(100_u64)
+    );
+    assert!(
+        iroha_core::retail_fee::receipts(view.world(), &user, None, 10)
+            .unwrap()
+            .is_empty()
+    );
+}
+
 #[test]
 fn validation_fee_registry_cannot_be_installed_through_generic_parameter_path() {
     let (state, user, _, _, treasury, fee_asset) = test_state();

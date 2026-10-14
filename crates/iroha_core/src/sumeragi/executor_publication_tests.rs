@@ -440,7 +440,9 @@ fn payload_decode_refusal_retains_available_owner_without_negative_cache() {
 
 #[test]
 fn original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry() {
-    with_worker_from(
+    // Queue admission and proposal construction observe the same original local clock.
+    let (_, time) = iroha_primitives::time::TimeSource::new_mock(Duration::from_millis(2_001));
+    with_worker_from_clock(
         || {
             use iroha_data_model::parameter::{
                 Parameter,
@@ -458,13 +460,12 @@ fn original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry()
             CertifiedTestChain::start(config).expect("actual four-validator NPoS genesis")
         },
         ConsensusMode::Npos,
-        |chain, worker, _blocks, events| {
+        time.clone(),
+        move |chain, worker, _blocks, events| {
             use crate::state::EvidencePreparationError;
             use std::task::Context;
             let transaction = chain.tick(2_000);
             let original_hash = transaction.hash_as_entrypoint();
-            let (_, time) =
-                iroha_primitives::time::TimeSource::new_mock(Duration::from_millis(2_001));
             let queue = Arc::new(Queue::test(
                 iroha_config::parameters::actual::Queue::default(),
                 &time,
@@ -3670,7 +3671,9 @@ fn native_context_archive_preparation_refuses_foreign_pool_without_reexecuting()
 
 #[test]
 fn original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_retry() {
-    with_worker_from(
+    // Queue admission and proposal construction observe the same original local clock.
+    let (_, time) = iroha_primitives::time::TimeSource::new_mock(Duration::from_millis(2_001));
+    with_worker_from_clock(
         || {
             let mut config = TestChainConfig::new(World::new(), 1_000);
             config
@@ -3685,11 +3688,10 @@ fn original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_r
             CertifiedTestChain::start(config).expect("original signed lane policy")
         },
         ConsensusMode::Permissioned,
-        |chain, worker, _blocks, events| {
+        time.clone(),
+        move |chain, worker, _blocks, events| {
             let transaction = chain.tick(2_000);
             let hash = transaction.hash_as_entrypoint();
-            let (_, time) =
-                iroha_primitives::time::TimeSource::new_mock(Duration::from_millis(2_001));
             let queue = Arc::new(Queue::test(
                 iroha_config::parameters::actual::Queue::default(),
                 &time,
@@ -4082,7 +4084,9 @@ fn global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve() {
         BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES as usize
     );
     let (send_clock, receive_clock) = std::sync::mpsc::channel();
-    with_worker_from(
+    // Queue admission and proposal construction observe the same original local clock.
+    let (_, time) = iroha_primitives::time::TimeSource::new_mock(Duration::from_millis(2_001));
+    with_worker_from_clock(
         move || {
             let mut world = World::new();
             let mut limits = PrivacyConsensusLimitsV1::taira_default();
@@ -4121,10 +4125,9 @@ fn global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve() {
             CertifiedTestChain::from_prepared(prepared).expect("actual signed genesis")
         },
         ConsensusMode::Permissioned,
+        time.clone(),
         move |chain, worker, _blocks, _events| {
             let clock = receive_clock.recv().expect("fixture clock key");
-            let (_, time) =
-                iroha_primitives::time::TimeSource::new_mock(Duration::from_millis(2_001));
             let accept = |message_len: usize| {
                 crate::tx::AcceptedTransaction::accept_with_time_source(
                     chain.sign(

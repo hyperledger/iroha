@@ -1085,7 +1085,7 @@ pub enum ComputeGovernanceError {
         /// Price family being updated.
         family: Name,
         /// Observed delta in basis points.
-        delta_bps: u16,
+        delta_bps: u128,
         /// Maximum permitted delta in basis points.
         max_bps: u16,
     },
@@ -1095,7 +1095,7 @@ pub enum ComputeGovernanceError {
         /// Price family being updated.
         family: Name,
         /// Observed delta in basis points.
-        delta_bps: u16,
+        delta_bps: u128,
         /// Maximum permitted delta in basis points.
         max_bps: u16,
     },
@@ -1108,8 +1108,8 @@ pub enum ComputeGovernanceError {
     /// Sponsor caps exceeded for a request.
     #[error("sponsor cap exceeded: attempted {requested} cu (limit {limit})")]
     SponsorCapExceeded {
-        /// Requested compute units.
-        requested: u64,
+        /// Exact requested compute units, including accumulated daily usage on a daily refusal.
+        requested: u128,
         /// Allowed compute units.
         limit: u64,
     },
@@ -1140,29 +1140,48 @@ pub fn validate_price_update(
         let delta_bounds = bounds
             .get(class)
             .ok_or_else(|| ComputeGovernanceError::MissingRiskBounds { class: *class })?;
-        if current.unit_label != updated.unit_label {
-            return Err(ComputeGovernanceError::UnitLabelChanged {
-                family: family.clone(),
-                from: current.unit_label.clone(),
-                to: updated.unit_label.clone(),
-            });
-        }
-        let cycles_delta = delta_bps(current.cycles_per_unit, updated.cycles_per_unit);
-        if cycles_delta > delta_bounds.max_cycles_delta_bps.get() {
-            return Err(ComputeGovernanceError::CyclesDeltaExceeded {
-                family: family.clone(),
-                delta_bps: cycles_delta,
-                max_bps: delta_bounds.max_cycles_delta_bps.get(),
-            });
-        }
-        let egress_delta = delta_bps(current.egress_bytes_per_unit, updated.egress_bytes_per_unit);
-        if egress_delta > delta_bounds.max_egress_delta_bps.get() {
-            return Err(ComputeGovernanceError::EgressDeltaExceeded {
-                family: family.clone(),
-                delta_bps: egress_delta,
-                max_bps: delta_bounds.max_egress_delta_bps.get(),
-            });
-        }
+        validate_price_family_update(family, current, updated, delta_bounds)?;
+    }
+    Ok(())
+}
+/// Validate one price family against its original baseline and risk-class bounds.
+///
+/// The caller resolves the baseline and risk-class bounds before this check. Deltas
+/// retain their full integer basis-point value, including values larger than the
+/// configured `u16` bound domain; they are never truncated or saturated to that domain.
+///
+/// # Errors
+/// Returns [`ComputeGovernanceError::UnitLabelChanged`] before any numeric refusal,
+/// then [`ComputeGovernanceError::CyclesDeltaExceeded`] before
+/// [`ComputeGovernanceError::EgressDeltaExceeded`] if both bounds are exceeded.
+pub fn validate_price_family_update(
+    family: &Name,
+    current: &ComputePriceWeights,
+    updated: &ComputePriceWeights,
+    bounds: &ComputePriceDeltaBounds,
+) -> Result<(), ComputeGovernanceError> {
+    if current.unit_label != updated.unit_label {
+        return Err(ComputeGovernanceError::UnitLabelChanged {
+            family: family.clone(),
+            from: current.unit_label.clone(),
+            to: updated.unit_label.clone(),
+        });
+    }
+    let cycles_delta = delta_bps(current.cycles_per_unit, updated.cycles_per_unit);
+    if cycles_delta > u128::from(bounds.max_cycles_delta_bps.get()) {
+        return Err(ComputeGovernanceError::CyclesDeltaExceeded {
+            family: family.clone(),
+            delta_bps: cycles_delta,
+            max_bps: bounds.max_cycles_delta_bps.get(),
+        });
+    }
+    let egress_delta = delta_bps(current.egress_bytes_per_unit, updated.egress_bytes_per_unit);
+    if egress_delta > u128::from(bounds.max_egress_delta_bps.get()) {
+        return Err(ComputeGovernanceError::EgressDeltaExceeded {
+            family: family.clone(),
+            delta_bps: egress_delta,
+            max_bps: bounds.max_egress_delta_bps.get(),
+        });
     }
     Ok(())
 }
@@ -1178,12 +1197,17 @@ pub fn enforce_sponsor_policy(
 ) -> Result<(), ComputeGovernanceError> {
     if requested_cu > policy.max_cu_per_call.get() {
         return Err(ComputeGovernanceError::SponsorCapExceeded {
-            requested: requested_cu,
+            requested: u128::from(requested_cu),
             limit: policy.max_cu_per_call.get(),
         });
     }
-    let running_total = consumed_today.saturating_add(requested_cu);
-    if running_total > policy.max_daily_cu.get() {
+    // The sum of two u64 values is below 2^65; widen before adding so even
+    // a maximum configured daily cap cannot turn overflow into acceptance.
+    #[cfg(not(all(test, sumeragi_model_mutation = "DM42")))]
+    let running_total = u128::from(consumed_today) + u128::from(requested_cu);
+    #[cfg(all(test, sumeragi_model_mutation = "DM42"))]
+    let running_total = u128::from(consumed_today.saturating_add(requested_cu));
+    if running_total > u128::from(policy.max_daily_cu.get()) {
         return Err(ComputeGovernanceError::SponsorCapExceeded {
             requested: running_total,
             limit: policy.max_daily_cu.get(),
@@ -1387,18 +1411,22 @@ fn scale_bps(value: u64, bps: u32) -> u64 {
         .saturating_add(9_999)
         .saturating_div(10_000)
 }
-fn delta_bps(current: NonZeroU64, updated: NonZeroU64) -> u16 {
-    let current = current.get();
-    let updated = updated.get();
-    if current == 0 {
-        return 0;
+fn delta_bps(current: NonZeroU64, updated: NonZeroU64) -> u128 {
+    let current = u128::from(current.get());
+    let delta = u128::from(updated.get()).abs_diff(current);
+    // A difference between two u64 values times 10,000 is below 2^78,
+    // so the complete numerator fits u128 before the original floor division.
+    let numerator = delta * 10_000;
+    #[cfg(all(test, sumeragi_model_mutation = "DM43"))]
+    let numerator = numerator.min(u128::from(u64::MAX));
+    #[cfg(all(test, sumeragi_model_mutation = "DM41"))]
+    {
+        (numerator / current).min(u128::from(u16::MAX))
     }
-    let delta = updated.abs_diff(current);
-    let bps = delta
-        .saturating_mul(10_000)
-        .saturating_div(current)
-        .min(u64::from(u16::MAX));
-    u16::try_from(bps).unwrap_or(u16::MAX)
+    #[cfg(not(all(test, sumeragi_model_mutation = "DM41")))]
+    {
+        numerator / current
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -1735,6 +1763,153 @@ mod tests {
             enforce_sponsor_policy(&policy, 8, 15),
             Err(ComputeGovernanceError::SponsorCapExceeded { .. })
         ));
+    }
+
+    #[test]
+    fn price_delta_bounds_keep_full_width_before_comparison() {
+        let family: Name = "default".parse().unwrap();
+        let cases: [(u64, u64, u16, Option<u128>); 12] = [
+            (1, 4_097, u16::MAX, Some(40_960_000)),
+            (1, 4_097, 1_500, Some(40_960_000)),
+            (
+                1,
+                u64::MAX,
+                u16::MAX,
+                Some((u128::from(u64::MAX) - 1) * 10_000),
+            ),
+            (u64::MAX / 2, u64::MAX, 1_500, Some(10_000)),
+            (u64::MAX, 1, 9_998, Some(9_999)),
+            (u64::MAX, 1, 9_999, None),
+            (u64::MAX - 1, u64::MAX, 1, None),
+            (10_000, 11_500, 1_500, None),
+            (10_000, 11_501, 1_500, Some(1_501)),
+            (10_000, 75_535, u16::MAX, None),
+            (10_000, 75_536, u16::MAX, Some(65_536)),
+            (u64::MAX, u64::MAX, 1, None),
+        ];
+        for component in ["cycles", "egress"] {
+            for &(original, proposed, maximum, rejected_delta) in &cases {
+                let current = ComputePriceWeights {
+                    cycles_per_unit: NonZeroU64::new(original).unwrap(),
+                    egress_bytes_per_unit: NonZeroU64::new(original).unwrap(),
+                    unit_label: "cu".to_owned(),
+                };
+                let mut updated = current.clone();
+                match component {
+                    "cycles" => updated.cycles_per_unit = NonZeroU64::new(proposed).unwrap(),
+                    "egress" => updated.egress_bytes_per_unit = NonZeroU64::new(proposed).unwrap(),
+                    _ => unreachable!("fixed components"),
+                }
+                let bounds = ComputePriceDeltaBounds {
+                    max_cycles_delta_bps: NonZeroU16::new(maximum).unwrap(),
+                    max_egress_delta_bps: NonZeroU16::new(maximum).unwrap(),
+                };
+                let expected = rejected_delta.map_or(Ok(()), |delta_bps| {
+                    Err(match component {
+                        "cycles" => ComputeGovernanceError::CyclesDeltaExceeded {
+                            family: family.clone(),
+                            delta_bps,
+                            max_bps: maximum,
+                        },
+                        "egress" => ComputeGovernanceError::EgressDeltaExceeded {
+                            family: family.clone(),
+                            delta_bps,
+                            max_bps: maximum,
+                        },
+                        _ => unreachable!("fixed components"),
+                    })
+                });
+                assert_eq!(
+                    validate_price_family_update(&family, &current, &updated, &bounds),
+                    expected,
+                    "price updates must compare full-width deltas before applying bounds\n{component} {original} -> {proposed}",
+                );
+                let baseline = BTreeMap::from([(family.clone(), current)]);
+                let proposed = BTreeMap::from([(family.clone(), updated)]);
+                let classes = BTreeMap::from([(family.clone(), ComputePriceRiskClass::Balanced)]);
+                let all_bounds = BTreeMap::from([(ComputePriceRiskClass::Balanced, bounds)]);
+                assert_eq!(
+                    validate_price_update(&baseline, &proposed, &classes, &all_bounds),
+                    expected,
+                    "the map validator must use the same full-width {component} rule",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn sponsor_caps_keep_exact_daily_total_and_per_call_precedence() {
+        let cases = [
+            (u64::MAX, u64::MAX, 0, u64::MAX, None),
+            (u64::MAX, u64::MAX, 1, u64::MAX - 1, None),
+            (
+                u64::MAX,
+                u64::MAX,
+                1,
+                u64::MAX,
+                Some((u128::from(u64::MAX) + 1, u64::MAX)),
+            ),
+            (
+                u64::MAX,
+                u64::MAX,
+                u64::MAX,
+                u64::MAX,
+                Some((2 * u128::from(u64::MAX), u64::MAX)),
+            ),
+            (2, u64::MAX, 3, u64::MAX, Some((3, 2))),
+            (10, 20, 8, 12, None),
+            (10, 20, 8, 13, Some((21, 20))),
+        ];
+        for (per_call, daily, requested, consumed, refused) in cases {
+            let policy = ComputeSponsorPolicy {
+                max_cu_per_call: NonZeroU64::new(per_call).unwrap(),
+                max_daily_cu: NonZeroU64::new(daily).unwrap(),
+            };
+            let expected = refused.map_or(Ok(()), |(requested, limit)| {
+                Err(ComputeGovernanceError::SponsorCapExceeded { requested, limit })
+            });
+            assert_eq!(
+                enforce_sponsor_policy(&policy, requested, consumed),
+                expected,
+                "the full daily sum must retain per-call refusal precedence"
+            );
+        }
+    }
+    #[test]
+    fn price_delta_wide_numerator_rejects_extreme_reduction() {
+        let family: Name = "default".parse().unwrap();
+        let current = ComputePriceWeights {
+            cycles_per_unit: NonZeroU64::MAX,
+            egress_bytes_per_unit: NonZeroU64::MAX,
+            unit_label: "cu".to_owned(),
+        };
+        let bounds = ComputePriceDeltaBounds {
+            max_cycles_delta_bps: NonZeroU16::new(1_500).unwrap(),
+            max_egress_delta_bps: NonZeroU16::new(1_500).unwrap(),
+        };
+        for component in ["cycles", "egress"] {
+            let mut updated = current.clone();
+            let expected = if component == "cycles" {
+                updated.cycles_per_unit = NonZeroU64::new(1).unwrap();
+                ComputeGovernanceError::CyclesDeltaExceeded {
+                    family: family.clone(),
+                    delta_bps: 9_999,
+                    max_bps: 1_500,
+                }
+            } else {
+                updated.egress_bytes_per_unit = NonZeroU64::new(1).unwrap();
+                ComputeGovernanceError::EgressDeltaExceeded {
+                    family: family.clone(),
+                    delta_bps: 9_999,
+                    max_bps: 1_500,
+                }
+            };
+            assert_eq!(
+                validate_price_family_update(&family, &current, &updated, &bounds),
+                Err(expected),
+                "price percentage must widen the numerator before multiplication",
+            );
+        }
     }
 }
 

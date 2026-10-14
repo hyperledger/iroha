@@ -5,12 +5,6 @@
 //! result every conforming decoder must reach.
 //!
 //! `cargo run --release -p iroha_petal --example gen_captures -- <output path>`
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    clippy::too_many_lines
-)]
 use std::fmt::Write as _;
 use std::io::Write as _;
 

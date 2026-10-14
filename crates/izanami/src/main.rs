@@ -1,18 +1,3 @@
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cloned_instead_of_copied,
-    clippy::clone_on_copy,
-    clippy::collapsible_if,
-    clippy::implicit_clone,
-    clippy::large_enum_variant,
-    clippy::manual_let_else,
-    clippy::map_unwrap_or,
-    clippy::match_wildcard_for_single_variants,
-    clippy::redundant_pub_crate,
-    clippy::too_many_lines,
-    clippy::unnecessary_wraps,
-    clippy::vec_init_then_push
-)]
 //! Izanami chaosnet tool for orchestrating fault-injection scenarios on local Iroha clusters.
 mod chaos;
 mod config;

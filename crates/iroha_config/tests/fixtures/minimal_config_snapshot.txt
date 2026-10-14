@@ -825,6 +825,7 @@ Root {
                 wsv_snapshots_bps: 2000,
                 sorafs_bps: 4500,
             },
+            configured_component_caps: None,
         },
         staking: NexusStaking {
             public_validator_mode: StakeElected,
@@ -1168,6 +1169,22 @@ Root {
         ivm_cache_max_decoded_ops: 8000000,
         ivm_cache_max_bytes: 67108864,
         ivm_execution_max_bytes: 1073741824,
+        state_capture: StateCapture {
+            source_elements: 16777216,
+            source_variable_bytes: 268435456,
+            source_table_pass_rows: 8388608,
+            source_lookup_index_entries: 4194304,
+            source_model_operations: 4194304,
+            source_signature_checks: 65536,
+            native_work_per_attempt: 65536,
+            table_count: 1,
+            table_rows: 65536,
+            table_payload_bytes: 1048576,
+            table_ordered_bytes: 67108864,
+            table_streamed_value_bytes: 268435456,
+            total_table_rows: 196608,
+            encoding_work_per_attempt: 67108864,
+        },
         ivm_prover_threads: 0,
         overlay_max_instructions: 0,
         overlay_max_bytes: 0,
@@ -1357,6 +1374,112 @@ Root {
     },
     oracle: Oracle {
         history_depth: 2048,
+        economics: OracleEconomics {
+            reward_asset: AssetDefinitionId {
+                aid_bytes: [
+                    59,
+                    45,
+                    238,
+                    246,
+                    130,
+                    60,
+                    72,
+                    205,
+                    167,
+                    236,
+                    51,
+                    224,
+                    2,
+                    182,
+                    29,
+                    55,
+                ],
+            },
+            reward_pool: sorauﾛ1NﾜnXﾚ1ﾑVLHｦｶｼYcﾀｲｻyZpmヱDUN4bﾒRﾜ9ｲFh9ﾏｾoKX91U9,
+            reward_amount: Quantity(
+                Numeric {
+                    mantissa: 1,
+                    scale: 0,
+                },
+            ),
+            slash_asset: AssetDefinitionId {
+                aid_bytes: [
+                    59,
+                    45,
+                    238,
+                    246,
+                    130,
+                    60,
+                    72,
+                    205,
+                    167,
+                    236,
+                    51,
+                    224,
+                    2,
+                    182,
+                    29,
+                    55,
+                ],
+            },
+            slash_receiver: sorauﾛ1Prqsi3ｴﾅK8ﾔQKﾜrﾍBｳhｹQ7Xﾀﾁﾑﾆ8ﾋ8qﾆﾌｽｷwKk8UDBESD,
+            slash_outlier_amount: Quantity(
+                Numeric {
+                    mantissa: 1,
+                    scale: 0,
+                },
+            ),
+            slash_error_amount: Quantity(
+                Numeric {
+                    mantissa: 1,
+                    scale: 0,
+                },
+            ),
+            slash_no_show_amount: Quantity(
+                Numeric {
+                    mantissa: 1,
+                    scale: 0,
+                },
+            ),
+            dispute_bond_asset: AssetDefinitionId {
+                aid_bytes: [
+                    59,
+                    45,
+                    238,
+                    246,
+                    130,
+                    60,
+                    72,
+                    205,
+                    167,
+                    236,
+                    51,
+                    224,
+                    2,
+                    182,
+                    29,
+                    55,
+                ],
+            },
+            dispute_bond_amount: Quantity(
+                Numeric {
+                    mantissa: 2,
+                    scale: 0,
+                },
+            ),
+            dispute_reward_amount: Quantity(
+                Numeric {
+                    mantissa: 1,
+                    scale: 0,
+                },
+            ),
+            frivolous_slash_amount: Quantity(
+                Numeric {
+                    mantissa: 1,
+                    scale: 0,
+                },
+            ),
+        },
         governance: OracleGovernance {
             intake_sla_blocks: 12,
             rules_sla_blocks: 24,

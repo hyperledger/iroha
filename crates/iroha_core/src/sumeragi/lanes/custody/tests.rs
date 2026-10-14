@@ -657,6 +657,11 @@ fn original_signer_world_handoff_admits_both_generations_before_replacing_either
 
 #[test]
 fn original_signer_state_constructor_refuses_before_cloning_unfunded_world() {
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::lanes::custody::tests::original_signer_state_constructor_refuses_before_cloning_unfunded_world",
+    ) {
+        return;
+    }
     let mut world = World::default();
     world.sumeragi_lanes = mv::cell::Cell::new({
         let mut lanes = SumeragiLaneState::default();
@@ -665,7 +670,12 @@ fn original_signer_state_constructor_refuses_before_cloning_unfunded_world() {
     });
     let source = world.sumeragi_lanes.view().custody[0].signers.clone();
     let pointer = source.as_slice().as_ptr();
-    let pool = AllocationBudget::new(0);
+    // Initial prepaid roots already own this pool. Remove only free capacity
+    // before admission so the original lane cause wins after pool preflight.
+    let pool = world.sccp_committee_generations.allocation_budget().clone();
+    let generations = original_world_generation_bytes(&world);
+    pool.set_limit_bytes(0);
+    let retirement_pin = crossbeam_epoch::pin();
     let result = crate::state::State::try_new_with_chain_and_network_id_with_default_telemetry(
         pool.clone(),
         world,
@@ -680,6 +690,14 @@ fn original_signer_state_constructor_refuses_before_cloning_unfunded_world() {
         result,
         Err(crate::state::MergeLedgerCommitError::NativeLaneCustodyAdmission(_))
     ));
+    retirement_pin.flush();
+    assert_eq!(
+        pool.reserved_bytes(),
+        generations,
+        "consuming refusal retains exactly the original World generations while pinned"
+    );
+    drop(retirement_pin);
+    collect_constructor_world_generations(&pool);
     assert_eq!(pool.reserved_bytes(), 0);
     assert_eq!(source.as_slice().as_ptr(), pointer);
 }
@@ -708,6 +726,11 @@ fn sample_state_admission_refuses_unfunded_source() {
 
 #[test]
 fn original_sample_state_constructor_refuses_with_typed_sample_cause() {
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::lanes::custody::tests::original_sample_state_constructor_refuses_with_typed_sample_cause",
+    ) {
+        return;
+    }
     use iroha_data_model::sumeragi_lanes::{LaneSamplesAdmissionError, SumeragiLaneSample};
     let mut world = World::default();
     world.sumeragi_lanes = mv::cell::Cell::new(SumeragiLaneState {
@@ -723,7 +746,12 @@ fn original_sample_state_constructor_refuses_with_typed_sample_cause() {
     });
     let source = world.sumeragi_lanes.view().samples.clone();
     let pointer = source.as_ptr();
-    let pool = AllocationBudget::new(0);
+    // Initial prepaid roots already own this pool. Remove only free capacity
+    // before admission so the original lane cause wins after pool preflight.
+    let pool = world.sccp_committee_generations.allocation_budget().clone();
+    let generations = original_world_generation_bytes(&world);
+    pool.set_limit_bytes(0);
+    let retirement_pin = crossbeam_epoch::pin();
     let result = crate::state::State::try_new_with_chain_and_network_id_with_default_telemetry(
         pool.clone(),
         world,
@@ -742,6 +770,14 @@ fn original_sample_state_constructor_refuses_with_typed_sample_cause() {
             )
         )
     ));
+    retirement_pin.flush();
+    assert_eq!(
+        pool.reserved_bytes(),
+        generations,
+        "consuming refusal retains exactly the original World generations while pinned"
+    );
+    drop(retirement_pin);
+    collect_constructor_world_generations(&pool);
     assert_eq!(pool.reserved_bytes(), 0);
     assert_eq!(
         source.as_ptr(),
@@ -1204,4 +1240,32 @@ fn original_signer_creation_refusal_preserves_exact_stake_cut_and_last_owner_cha
     assert_eq!(pool.reserved_bytes(), demand);
     drop(retained);
     assert_eq!(pool.reserved_bytes(), 0);
+}
+
+fn original_world_generation_bytes(world: &World) -> usize {
+    fn pair<V: mv::Value>(_: &mv::cell::Cell<V, iroha_allocation::AllocationCharge>) -> usize {
+        mv::cell::Cell::<V, iroha_allocation::AllocationCharge>::allocation_layouts()
+            .into_iter()
+            .map(|layout| layout.size())
+            .sum()
+    }
+    pair(&world.sumeragi_amx_participant)
+        + pair(&world.musubi_replication_shortfall_releases)
+        + pair(&world.sccp_committee_current)
+        + pair(&world.sccp_liability_clock)
+        + pair(&world.sccp_degraded_run)
+        + pair(&world.sccp_anchor_open)
+        + pair(&world.sccp_forgery_max_generation)
+}
+
+fn collect_constructor_world_generations(pool: &AllocationBudget) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while pool.reserved_bytes() != 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "consumed original World generations did not retire"
+        );
+        crossbeam_epoch::pin().flush();
+        std::thread::yield_now();
+    }
 }
