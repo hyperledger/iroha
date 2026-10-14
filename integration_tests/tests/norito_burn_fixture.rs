@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! JS Norito fixture parity with Rust canonical encoding.
 use iroha_data_model::prelude::{
     AccountId, AssetDefinitionId, AssetId, Burn, InstructionBox, Mint, Quantity, TriggerId,

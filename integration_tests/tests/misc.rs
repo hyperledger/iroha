@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Miscellaneous integration coverage for status endpoints and helpers.
 use eyre::Result;
 use integration_tests::sandbox;

@@ -67,7 +67,19 @@ below. A listed source test is not a claim of exhaustive coverage.
 - [Full-cap content observations](../docs/validation/parliament_ballot_content_resources/README.md):
   four exact bounded-content cases include validation, controlled writes, returns
   and cleanup. They do not establish a family maximum or extend the ledger's
-  supported inputs automatically.
+  supported inputs automatically. The separate [ContentFamily ledger extension](../docs/validation/parliament_ballot_content_lifetime/README.md)
+  adds their exact accounting with an explicit cap on all typed requests; valid-only
+  theorem T cannot bound arbitrary invalid invocations.
+- [Finite sequence composition](../docs/validation/parliament_ballot_sequence_composition/README.md):
+  concrete static relocation into shared persistent state and clean workspace, with
+  distinct retained interfaces and true reverse-call inverses. Adaptive selection,
+  preparation and a complete joint-state theorem remain open.
+- [Legal request domains](../docs/validation/parliament_ballot_family_domains/README.md) and
+  [component-family arithmetic](../docs/validation/parliament_ballot_component_families/README.md):
+  source-defined REG lengths and VOTE sizes, component bounds and explicit upstream
+  error/witness/application obligations. A full experiment resource certificate is
+  still absent. New frozen-source replay results do not qualify the changed current
+  Cargo manifest or native candidate.
 - [Standalone resource model](parliament_ballot_b6_standalone_resources.md):
   source-bound conditional requested-allocation ceilings and separated
   arithmetic/hash/loop counts, not complete work or process-memory bounds.

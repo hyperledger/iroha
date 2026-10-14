@@ -592,20 +592,25 @@ mod tests {
                 BlsCrypto::for_query_committee(&members, &mut query_admission)
             })
         });
-        let Err(QueryCommitteeError::Resource(original)) = result else {
-            panic!("query committee must retain the enclosing allocation refusal");
+        let Err(QueryCommitteeError::Resource(refused)) = result else {
+            panic!("committee admission must retain its original local refusal");
         };
         assert_eq!(
-            original.reason(),
+            refused.reason(),
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
-        assert!(matches!(
-            original
-                .decode_refusal()
-                .expect("original enclosing decode refusal")
-                .resource_error(),
-            norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
-        ));
+        let original = refused
+            .decode_refusal()
+            .expect("original inherited decoder refusal");
+        assert_eq!(
+            original.resource_error(),
+            norito::core::DecodeResourceError::TotalAllocationExceeded {
+                limit: u64::try_from(demand - 1).unwrap(),
+                attempted: u64::try_from(demand).unwrap(),
+            }
+        );
+        assert!(refused.allocation_refusal().is_none());
+        assert!(refused.verification_refusal().is_none());
         assert_eq!(outer.consumed_allocated_bytes(), 0);
         assert!(!norito::core::decode_limits_active());
         outer.with(|| query_admission(demand - 1)).unwrap();

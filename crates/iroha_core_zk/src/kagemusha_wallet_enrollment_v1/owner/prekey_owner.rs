@@ -157,8 +157,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         )?;
         Ok(true)
     }
-    fn require_pending_uncancelled(&self) -> Result<(), Error> {
-        let (dispatch, digest) = match &self.pending {
+    fn require_pending_uncancelled(&mut self) -> Result<(), Error> {
+        let pending = self.pending.clone();
+        let (dispatch, digest) = match &pending {
             Some(
                 Pending::Dispatch {
                     dispatch,
@@ -173,7 +174,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
             ) => (dispatch, client_digest),
             None => return Err(Error::Phase),
         };
-        if self.client_cancelled(dispatch, digest)? {
+        if self.client_cancelled(dispatch, digest)? || self.client_expired(dispatch, digest)? {
             return Err(Error::Phase);
         }
         Ok(())
@@ -187,6 +188,10 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         else {
             return Err(Error::Phase);
         };
+        if self.client_expired(&dispatch, &client_digest)? {
+            self.request = None;
+            return Ok(EnrollmentAbandonmentV1::LocalAbandoned);
+        }
         if dispatch.previous_permit.is_some()
             || dispatch.purpose != KagemushaEnrollmentPermitPurposeV1::Fresh
         {
@@ -282,8 +287,13 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         let slot = self.provider.prekey_read(&id, PreKeyRecordV1::Slot)?;
         let phase = self.provider.prekey_read(&id, PreKeyRecordV1::Phase)?;
         let cancelled = self.provider.prekey_read(&id, PreKeyRecordV1::Cancelled)?;
+        let expired = self.provider.prekey_read(&id, PreKeyRecordV1::Expired)?;
         if existing.is_none()
-            && (accepted.is_some() || slot.is_some() || phase.is_some() || cancelled.is_some())
+            && (accepted.is_some()
+                || slot.is_some()
+                || phase.is_some()
+                || cancelled.is_some()
+                || expired.is_some())
         {
             return Err(Error::Original("selected pre-key client lost"));
         }
@@ -330,6 +340,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
             dispatch.purpose = KagemushaEnrollmentPermitPurposeV1::Resume;
         }
         dispatch.validate().map_err(Error::Original)?;
+        // A terminal marker remains terminal across new dispatch nonces. `begin` exposes
+        // recovery DATA only; permit/account admission below rechecks it before any effect.
+        self.client_expired(&dispatch, &client_digest)?;
         if let (Some(original), Some(slot)) = (&dispatch.previous_permit, slot) {
             let selected = self.decode_slot(&dispatch, original, &slot)?;
             let permit = KagemushaEnrollmentPermitV1::decode_canonical(
@@ -496,6 +509,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
             Error::Provider(KagemushaWalletProviderErrorV1::UnavailableCustodyData { object })
         };
         let read = |record| self.provider.prekey_read(&scope.request_id, record);
+        if read(PreKeyRecordV1::Expired)?.is_some() {
+            return Err(lost("expired pre-key selection"));
+        }
         let client = read(PreKeyRecordV1::Client)?.ok_or(lost("selected pre-key client"))?;
         let accepted = read(PreKeyRecordV1::Accepted)?.ok_or(lost("selected pre-key permit"))?;
         let selected = read(PreKeyRecordV1::Slot)?.ok_or(lost("selected pre-key slot"))?;

@@ -1,5 +1,5 @@
 //! Admission-time guard: reject IVM programs that invoke unknown syscalls under ABI v1.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     governance::manifest::LaneManifestRegistry, kura::Kura, prelude::World,
     query::store::LiveQueryStore, smartcontracts::ivm::cache::IvmCache, state::State,

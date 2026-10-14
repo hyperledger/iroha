@@ -46,6 +46,12 @@ pub(super) struct PredecessorIndex {
     complete: bool,
 }
 impl PredecessorIndex {
+    /// Observe the original charged backing without exposing or copying its rows.
+    #[cfg(test)]
+    pub(super) fn rows_pointer_for_test(&self) -> Option<*const PredecessorPosition> {
+        self.rows.as_ref().map(|rows| rows.as_slice().as_ptr())
+    }
+
     pub(super) fn observe(&self) -> PredecessorReadProgress {
         PredecessorReadProgress {
             current_consumed: self.current_next,

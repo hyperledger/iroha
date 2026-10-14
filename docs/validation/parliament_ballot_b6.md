@@ -138,7 +138,26 @@ composes known event costs and disjoint retained storage for its supported trace
 It refuses unsupported families and keeps preparation, adaptive control, primitive
 and complete-resource terms unknown. Separate [content resource observations](parliament_ballot_content_resources/README.md)
 price both rows at list counts 3 and 1000 using the full trial cap; these are exact
-cases, not proved maxima or physical-workspace measurements.
+cases, not proved maxima or physical-workspace measurements. The separate
+[ContentFamily ledger extension](parliament_ballot_content_lifetime/README.md)
+now includes those four cases in combined event accounting. It explicitly caps
+all typed requests, including invalid ones; the theorem's valid-request-only T
+does not imply that additional bound. Actual validity and occupancy stay unknown.
+
+The [finite sequence binder](parliament_ballot_sequence_composition/README.md)
+emits the existing component streams with one shared log/counter, distinct retained
+interfaces and shared clean workspace. Its 75 controls and one full-cap metadata
+reconciliation cover a sequence chosen in advance; adaptive selection, preparation
+and the complete experiment theorem remain open. The [legal-domain audit](parliament_ballot_family_domains/README.md)
+identifies upstream constructor, raw-decoder, witness and application paths that
+still need their own counts and costs. [Component-family arithmetic](parliament_ballot_component_families/README.md)
+derives REG P1 and VOTE P0/P1/R1 bounds, including the interior REG X-gate maximum;
+component maxima alone do not establish the full experiment bound.
+
+These new mathematical checks replay authenticated historical sources. The current
+ballot Cargo manifest differs; the frozen ledger correctly refuses it. No prior
+evidence is repinned, and these results do not qualify the changed native candidate.
+Production remains gated.
 
 ## Standalone adversarial and conformance evidence
 

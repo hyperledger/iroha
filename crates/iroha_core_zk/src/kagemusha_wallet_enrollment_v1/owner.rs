@@ -6,6 +6,7 @@ use crate::kagemusha_wallet_advance_v1::*;
 use iroha_crypto::{Algorithm, Signature};
 use iroha_data_model::{account::AccountId, kagemusha::*};
 mod apple_collection;
+mod expired_prekey;
 mod prekey_owner;
 use sha2::{Digest as _, Sha256};
 
@@ -319,6 +320,13 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
             return Err(Error::Original("selected abandonment"));
         }
         Ok(EnrollmentAbandonmentV1::Abandonment(bytes))
+    }
+
+    /// Permanently release an Accepted E1 attempt under an issuer-authenticated expiry proof.
+    /// This path is valid only before Slot/E2 selection; ordinary `abandon` remains refusal-safe
+    /// for every Accepted attempt.
+    pub fn abandon_expired(&mut self, proof: &[u8]) -> Result<EnrollmentAbandonmentV1, Error> {
+        self.abandon_expired_accepted(proof)
     }
     /// Permanently abandon this unused enrollment and frame its exact retained marker receipt
     /// for an ordinary account-signed ledger transaction. The local no-marker form has no

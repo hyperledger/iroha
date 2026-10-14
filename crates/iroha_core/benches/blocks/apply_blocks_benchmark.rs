@@ -1,5 +1,5 @@
 //! Criterion benchmark driver for applying blocks.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 mod apply_blocks;
 use apply_blocks::common::{generate_ids, generated_asset_definition_name};
 use apply_blocks::{CertifiedBlocks, StateApplyBlocks};

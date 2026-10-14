@@ -33,7 +33,7 @@ pub(crate) fn check_ortho_norm(logn: u32, f: &[i8], g: &[i8], tmp: &mut [FXR]) -
     for i in 0..n {
         sn += fx[i].sqr() + gx[i].sqr();
     }
-    sn < FXR::from_u64_scaled32(72251709809335)
+    sn < FXR::from_u64_scaled32(72_251_709_809_335)
 }
 const Q: u32 = 12289;
 // At recursion depth d, with:
@@ -134,7 +134,7 @@ fn solve_NTRU_deepest(logn: u32, f: &[i8], g: &[i8], tmp: &mut [u32]) -> bool {
     zint_rebuild_CRT(fgp, slen, 1, 2, false, t1);
     let (fp, gp) = fgp.split_at_mut(slen);
     // Apply the binary GCD to get (F, G).
-    if zint_bezout(Gp, Fp, fp, gp, t1) != 0xFFFFFFFF {
+    if zint_bezout(Gp, Fp, fp, gp, t1) != 0xFFFF_FFFF {
         // Resultants are not coprime to each other; we reject that case
         // (note: we also reject the case where the GCD is exactly q = 12289,
         // even though that case could be handled.

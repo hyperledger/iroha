@@ -517,6 +517,14 @@ impl Undo {
     }
 }
 
+/// Non-cloneable identity of one original quota transaction, including aborted generations.
+/// Public block coordinates and equal journal contents cannot reconstruct this token.
+pub(crate) struct SourceTransactionIdentity {
+    ledger: Arc<()>,
+    context: ReservationContext,
+    generation: u64,
+}
+
 /// Exclusive physical scope with O(changes) undo storage, without block-map snapshots.
 /// State must pair accounting commit/rollback with its WSV and source side effects.
 pub(crate) struct ReservationTransaction<'a> {
@@ -538,6 +546,19 @@ pub(crate) struct ReservationCheckpoint {
 }
 
 impl ReservationTransaction<'_> {
+    fn retain_identity(&self) -> SourceTransactionIdentity {
+        SourceTransactionIdentity {
+            ledger: Arc::clone(&self.ledger.identity),
+            context: self.ledger.context,
+            generation: self.generation,
+        }
+    }
+    fn matches_identity(&self, identity: &SourceTransactionIdentity) -> bool {
+        Arc::ptr_eq(&self.ledger.identity, &identity.ledger)
+            && self.ledger.context == identity.context
+            && self.generation == identity.generation
+    }
+
     fn validate_binding(&self, binding: &OwnerBinding) -> Result<(), ReservationError> {
         if !Arc::ptr_eq(&binding.ledger, &self.ledger.identity) {
             return Err(ReservationError::Invariant(
@@ -723,7 +744,6 @@ impl ReservationTransaction<'_> {
         Ok(self.validate_owner(owner)?.usage)
     }
 
-    #[cfg(test)]
     /// Exact block usage visible inside this physical scope.
     pub(crate) fn usage(&self) -> SourceUsage {
         self.ledger.usage

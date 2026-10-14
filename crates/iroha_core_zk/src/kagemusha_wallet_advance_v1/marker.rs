@@ -424,7 +424,7 @@ impl KagemushaWalletMarkerRecordV1 {
             return Err(invalid("marker.anchor_kind"));
         }
         match (previous.phase, self.phase) {
-            (Phase::Selected, Phase::Released) | (Phase::Released, Phase::Released) => {
+            (Phase::Selected | Phase::Released, Phase::Released) => {
                 let generation = previous
                     .marker
                     .generation

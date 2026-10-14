@@ -1,11 +1,11 @@
 //! WsvHost: INPUT_PUBLISH_TLV rejects invalid pointer-ABI envelopes.
+use crate::common;
 use iroha_crypto::PublicKey;
 use ivm::{
     IVM, VMError,
     mock_wsv::{AccountId, MockWorldStateView, WsvHost},
     syscalls,
 };
-mod common;
 fn make_tlv(type_id: u16, payload: &[u8]) -> Vec<u8> {
     let mut v = Vec::with_capacity(7 + payload.len() + 32);
     v.extend_from_slice(&type_id.to_be_bytes());

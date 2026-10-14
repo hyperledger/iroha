@@ -1,4 +1,5 @@
 //! Consensus-owned Bokolo monthly accounting, native collection and fee assessments.
+mod native_maintenance;
 mod reward_history;
 use crate::execution_attempt::{
     ExecutionAttemptError, json_decode_attempt_error, norito_decode_attempt_error,
@@ -13,11 +14,38 @@ use iroha_data_model::{
 use iroha_model_base::state_path::StatePath;
 use iroha_primitives::numeric::Quantity;
 use mv::storage::StorageReadOnly;
-pub use reward_history::validate_reward_history_frontier;
+pub(crate) use native_maintenance::RetailNativeMaintenancePermit;
 pub(crate) use reward_history::{
     ensure_reward_history_open, oldest_unsettled_policy_month, reward_history_closed_through,
-    reward_history_is_closed,
+    reward_history_is_closed, validate_reward_history_frontier,
 };
+
+/// Canonical retail-state fixtures for component integration tests.
+#[cfg(any(test, feature = "iroha-core-tests"))]
+pub mod test_support {
+    use super::*;
+
+    /// Seed the wallet and its exact unsettled-month frontier together.
+    ///
+    /// # Errors
+    /// Returns the original canonical write error, including local resource refusal.
+    pub fn seed_account(
+        world: &mut WorldTransaction<'_, '_>,
+        record: &RetailFeeAccountStateV1,
+    ) -> Result<(), InstructionExecutionError> {
+        write_account(world, record)
+    }
+
+    /// Check the exact frontier after a component fixture or transaction attempt.
+    ///
+    /// # Errors
+    /// Returns the original decode refusal or frontier-invariant rejection.
+    pub fn validate_frontier(
+        world: &impl WorldReadOnly,
+    ) -> Result<(), ExecutionAttemptError<String>> {
+        validate_reward_history_frontier(world)
+    }
+}
 
 const STATE_PREFIX: &str = "retail_fee_v1/";
 /// Canonical marker preserves the complete reviewed assessment inside deferred instructions.
@@ -1302,17 +1330,7 @@ pub(crate) fn settle_idle_account(
     policy: &ValidationFeePolicyV1,
     record: RetailFeeAccountStateV1,
 ) -> Result<(), FeeReadError> {
-    let mut through = stx.block_unix_timestamp_ms();
-    if record.closed_at_ms.is_none() {
-        let mut boundary = record.billing_month_start_ms;
-        for _ in 0..RETAIL_FEE_MAX_CATCH_UP_MONTHS {
-            if boundary >= through {
-                break;
-            }
-            boundary = honiara_month_bounds(boundary)?.1;
-        }
-        through = through.min(boundary);
-    }
+    let through = idle_settlement_boundary(&record, stx.block_unix_timestamp_ms())?;
     settle_balance_until(
         &mut stx.world,
         &AssetId::new(policy.ds_asset_id.clone(), record.account_id),
@@ -1323,8 +1341,56 @@ pub(crate) fn settle_idle_account(
         Ok(()) => ExecutionAttemptError::Rejected(error.to_string()),
     })
 }
+fn idle_settlement_boundary(record: &RetailFeeAccountStateV1, now_ms: u64) -> Result<u64, String> {
+    let mut through = now_ms;
+    if record.closed_at_ms.is_none() {
+        let mut boundary = record.billing_month_start_ms;
+        for _ in 0..RETAIL_FEE_MAX_CATCH_UP_MONTHS {
+            if boundary >= through {
+                break;
+            }
+            boundary = honiara_month_bounds(boundary)?.1;
+        }
+        through = through.min(boundary);
+    }
+    Ok(through)
+}
+
+/// Select an exact month-boundary prefix without changing balances or receipts.
+/// Zero collections still retain their original fee-evidence accounting below.
+fn admitted_idle_boundary(
+    stx: &StateTransaction<'_, '_>,
+    policy: &ValidationFeePolicyV1,
+    record: &RetailFeeAccountStateV1,
+    available_entries: u64,
+) -> Result<(u64, u64, bool), FeeReadError> {
+    let through = idle_settlement_boundary(record, stx.block_unix_timestamp_ms())?;
+    let id = AssetId::new(policy.ds_asset_id.clone(), record.account_id.clone());
+    let (_, receipts) = project(
+        &stx.world,
+        record.clone(),
+        through,
+        funds_available(&stx.world, &id, record.balance_minor),
+    )?;
+    let mut used = 0;
+    let mut admitted_through = record.last_accrual_ms;
+    for receipt in receipts {
+        if receipt.collected_minor > 0 {
+            if used == available_entries {
+                return Ok((admitted_through, used, false));
+            }
+            used += 1;
+        }
+        admitted_through = receipt.effective_at_ms;
+    }
+    Ok((through, used, true))
+}
+
 /// Materialize at most 128 idle wallets and twelve months each per finalized block.
-/// The durable cursor guarantees progress without scanning the complete account table.
+/// The durable cursor advances only through actually examined/settled wallets. Paid
+/// receipts share the frozen native source pool with SNS: half is available to retail,
+/// and the odd slot alternates by height. A capacity-limited wallet advances only to
+/// its admitted exact month boundary and keeps every remaining debit for a later sweep.
 ///
 /// # Errors
 /// Original local execution and storage refusals return to the block owner before the
@@ -1334,6 +1400,7 @@ pub(crate) fn process_idle_accounts(
     block: &mut crate::state::StateBlock<'_>,
 ) -> Result<(), ExecutionAttemptError<crate::state::StateStorageAdmissionError>> {
     let mut stx = block.consensus_effects_transaction()?;
+    let witness = crate::exec_witness::begin_exec_witness_overlay();
     let cursor_key: StatePath = "retail_fee_control_v1/sweep_cursor"
         .parse()
         .expect("retail cursor key");
@@ -1378,6 +1445,8 @@ pub(crate) fn process_idle_accounts(
         let Some(policy) = registry.head().map(|entry| entry.policy.clone()) else {
             return Ok(());
         };
+        let mut available_entries = stx.retail_maintenance_entry_allowance()?;
+        let mut last_processed = None;
         for key in &keys {
             let bytes = stx
                 .world
@@ -1392,18 +1461,46 @@ pub(crate) fn process_idle_accounts(
                         })
                     })?;
             if stx.world.account(&record.account_id).is_ok() || record.closed_at_ms.is_some() {
-                settle_idle_account(&mut stx, &policy, record)?;
+                let (through, entries, complete) =
+                    admitted_idle_boundary(&stx, &policy, &record, available_entries)?;
+                if !complete && through == record.last_accrual_ms {
+                    break;
+                }
+                if complete {
+                    settle_idle_account(&mut stx, &policy, record)?;
+                } else {
+                    settle_balance_until(
+                        &mut stx.world,
+                        &AssetId::new(policy.ds_asset_id.clone(), record.account_id),
+                        through,
+                    )
+                    .map_err(|error| match stx.ensure_execution_ready() {
+                        Err(original) => ExecutionAttemptError::Deferred(original),
+                        Ok(()) => ExecutionAttemptError::Rejected(error.to_string()),
+                    })?;
+                }
+                available_entries -= entries;
+                last_processed = Some(key);
+                if !complete {
+                    break;
+                }
+            } else {
+                last_processed = Some(key);
             }
         }
+        if !stx.world.retail_fee_pending_transcripts.is_empty() {
+            let permit = RetailNativeMaintenancePermit::issue(&mut stx)?;
+            stx.flush_retail_native_transfer_transcripts(permit)?;
+        }
         finalize(&mut stx).map_err(|e| e.to_string())?;
-        if let Some(last) = keys.last() {
+        if let Some(last) = last_processed {
             stx.world.smart_contract_state.insert(
                 cursor_key.clone(),
                 norito::to_bytes(last).map_err(|error| {
                     norito_decode_attempt_error(error, |error| error.to_string())
                 })?,
             );
-        } else {
+        } else if keys.is_empty() {
             stx.world.smart_contract_state.remove(cursor_key.clone());
         }
         Ok(())
@@ -1422,7 +1519,9 @@ pub(crate) fn process_idle_accounts(
             // their cursor. This child journal excludes earlier applied siblings;
             // an empty sweep must not manufacture a committed fragment.
             if stx.world.smart_contract_state.touched_entries().len() != 0 {
-                stx.apply();
+                if let Err(error) = stx.apply_retail_maintenance(witness) {
+                    iroha_logger::warn!(%error, "retail fee idle settlement State publication refused");
+                }
             }
         }
         Err(error) => {

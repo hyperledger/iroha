@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Tests covering Torii transaction history pagination and filters.
 use eyre::{Result, WrapErr, bail, ensure, eyre};
 use futures_util::{StreamExt, TryStreamExt, stream};

@@ -1080,3 +1080,54 @@ pub(crate) fn install_policy_registry_fixture(
         ))
         .expect("valid fixture parameters");
 }
+
+/// Original signed root with an explicitly smaller native pool for retail admission controls.
+/// The later block remains a component projection; no limit or publication grant is enlarged.
+pub(crate) fn with_retail_native_capacity_block(
+    height: u64,
+    timestamp_ms: u64,
+    native_entries: u32,
+    test: impl FnOnce(&mut crate::state::StateBlock<'_>, &AccountId, &[u8], Hash),
+) {
+    with_retail_native_capacity_state(native_entries, |state, deployer, code, code_hash| {
+        let mut block = state.block(BlockHeader::new(
+            std::num::NonZeroU64::new(height).unwrap(),
+            state.view().latest_block_hash(),
+            None,
+            timestamp_ms,
+            0,
+        ));
+        test(&mut block, deployer, code, code_hash);
+    });
+}
+
+/// Reuse the actual signed root for original Time-owner integration controls.
+pub(crate) fn with_retail_native_capacity_state(
+    native_entries: u32,
+    test: impl FnOnce(&crate::state::State, &AccountId, &[u8], Hash),
+) {
+    let deployer = AccountId::new(key_pair(55).public_key().clone());
+    let mut config = crate::sumeragi::test_chain::TestChainConfig::new(
+        validation_fee_payout_world(&deployer),
+        1_000,
+    );
+    let mut source = iroha_data_model::parameter::FastpqSourcePolicyV1::bootstrap();
+    assert!(native_entries <= source.max_native_maintenance_invocations);
+    source.max_native_maintenance_invocations = native_entries;
+    source
+        .validate(iroha_data_model::parameter::ExecutionOutputPolicyV1::bootstrap())
+        .unwrap();
+    config
+        .genesis_parameters
+        .push(iroha_data_model::parameter::Parameter::Block(
+            iroha_data_model::parameter::BlockParameter::FastpqSource(source),
+        ));
+    let (chain, deployer, code, code_hash) =
+        signed_original_fixtures::signed_fee_registry_root_fixture_with_config(config);
+    let state = chain.state();
+    assert_eq!(
+        state.view().world().parameters().block().fastpq_source(),
+        source
+    );
+    test(state, &deployer, &code, code_hash);
+}

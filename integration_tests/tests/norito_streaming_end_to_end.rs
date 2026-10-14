@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! End-to-end Norito Streaming harness covering manifest + chunk delivery.
 use crate::streaming::{
     self, StreamingTestVector, baseline_test_vector, make_peer, manifest_announce_for_viewer,

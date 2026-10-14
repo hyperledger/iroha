@@ -149,3 +149,6 @@ impl<W: WorldReadOnly> MusubiSourceReadOnly for W {
         WorldReadOnly::musubi_resolver_index_revision(self)
     }
 }
+
+#[path = "deserialize_world_musubi_source_access.rs"]
+pub mod access;

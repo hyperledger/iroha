@@ -1,6 +1,6 @@
 //! VRF syscall verification and exact-network binding tests.
+use crate::common;
 use ivm::{IVM, Memory, PointerType};
-mod common;
 // Helpers: BLS Hash-to-curve mirroring host logic
 use blstrs::{G1Affine, G1Projective, G2Affine, G2Projective, Scalar};
 use common::assemble_syscalls;

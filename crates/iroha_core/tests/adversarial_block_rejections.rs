@@ -1,5 +1,5 @@
 //! Adversarial block validation regressions for forged/invalid transactions.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[path = "common/native_validation.rs"]
 mod native_validation;
 use iroha_core::{

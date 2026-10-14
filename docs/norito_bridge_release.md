@@ -59,7 +59,7 @@ that workflow for local release verification.
 - Access to the Hyperledger Iroha release signing keys for tagging Swift artifacts.
 
 Authenticated native builds also require `MOBILE_SDK_WALLET_RUNTIME_AUTHORITY`
-to select `bpng-taira-v7` or `cbsi-release-v1`, together with
+to select `bpng-taira-v7`, `cbsi-release-v1` or `application-release-v1`, together with
 `MOBILE_SDK_WALLET_RUNTIME_TRUST_ED25519_HEX` containing the independently
 selected, nonzero lowercase 32-byte public signer key. The same pair is embedded
 in every slice and bound into its build evidence; retired authority identifiers
@@ -435,11 +435,16 @@ before the existing atomic no-replace package publication. Source/copy mutation
 or later restoration cannot replace the original validated payload.
 
 For each Android ELF slice, `scripts/check_mobile_sdk_artifacts.sh` requires the
-current C inventory and all five `KagemushaWalletNativeV1` JNI methods:
-`revision`, `open`, `close`, `activity`, and `call`. Retired and unknown JNI
-exports are rejected. `scripts/check_mobile_sdk_artifacts_test.sh` covers each
-missing wallet method and large forbidden-symbol inventories; Apple slices
-require only the C wallet API.
+current C and wallet JNI inventories, including installation, enrollment,
+review, recovery and retained-Load validation. It also requires all 20 current
+`PrivacyNativeBridge` JNI endpoints: wallet consumers share that class's
+fail-closed native admission. A matching ABI number and wallet symbols do not
+admit a library missing a privacy endpoint. Host C/JNI artifact inspection in
+`scripts/check_native_sdk_artifact.py` enforces the same privacy inventory;
+source-contract tests compare it with both Kotlin declarations and Rust exports.
+Retired and unknown wallet JNI exports are rejected. Missing-endpoint controls
+and large forbidden-symbol inventories exercise the artifact gates. Apple
+slices require the C wallet API.
 
 The mobile workflow explicitly runs `:core-jvm:test` before publication and
 creates per-module runtime CycloneDX reports for `core-jvm`, `client-android`,

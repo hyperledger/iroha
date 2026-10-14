@@ -1,11 +1,11 @@
 //! Verify Kotodama lowering of `StateMap<int, int>` into durable host state.
+use crate::common;
 use iroha_crypto::PublicKey;
 use ivm::{
     CoreHost, IVM,
     mock_wsv::{AccountId, MockWorldStateView, WsvHost},
 };
 use kotodama_lang::{compiler::Compiler as KotodamaCompiler, ir, parser, semantic};
-mod common;
 fn encoded_state_path(name: &str, key: i64) -> String {
     let key = common::encode_int_state_value(key);
     format!("{name}/{}", hex::encode(key))
@@ -124,12 +124,12 @@ fn kotodama_foreach_reads_durable_state_map_entries() {
         .expect("compile durable loop");
     let mut wsv = MockWorldStateView::new();
     wsv.sc_set(
-        &encoded_state_path("M", 0),
+        encoded_state_path("M", 0),
         common::encode_int_state_value(5),
     )
     .expect("write state index 0");
     wsv.sc_set(
-        &encoded_state_path("M", 1),
+        encoded_state_path("M", 1),
         common::encode_int_state_value(9),
     )
     .expect("write state index 1");

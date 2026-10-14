@@ -792,23 +792,21 @@ where
     if zero_plaintext_statement != parameters.g * aggregate_randomness {
         return Err(AnonymousPgcError::InvalidBootstrapWitness);
     }
-    for _ in 0..MAX_PROVER_RESTARTS {
-        let mask = random_nonzero_scalar(rng)?;
-        let announcement = CompressedPointV1::from_projective(parameters.g * mask)?;
-        let mut transcript = bootstrap_transcript(AGGREGATE_SUPPLY_SUITE_V1, statement)?;
-        transcript.append_message(b"proof_role", b"aggregate-exact-supply")?;
-        transcript.append_point(b"announcement", &announcement)?;
-        let challenge = transcript
-            .challenge_nonzero_scalar(b"challenge", 0)?
-            .to_scalar()?;
-        return Ok(PgcBootstrapAggregateSupplyProofV1 {
-            announcement,
-            randomness_response: CanonicalScalarV1::from_scalar(
-                mask + challenge * aggregate_randomness,
-            ),
-        });
-    }
-    Err(AnonymousPgcError::ProverRestartExhausted)
+    // Scalar and challenge rejection sampling already enforce their fixed bounds.
+    let mask = random_nonzero_scalar(rng)?;
+    let announcement = CompressedPointV1::from_projective(parameters.g * mask)?;
+    let mut transcript = bootstrap_transcript(AGGREGATE_SUPPLY_SUITE_V1, statement)?;
+    transcript.append_message(b"proof_role", b"aggregate-exact-supply")?;
+    transcript.append_point(b"announcement", &announcement)?;
+    let challenge = transcript
+        .challenge_nonzero_scalar(b"challenge", 0)?
+        .to_scalar()?;
+    Ok(PgcBootstrapAggregateSupplyProofV1 {
+        announcement,
+        randomness_response: CanonicalScalarV1::from_scalar(
+            mask + challenge * aggregate_randomness,
+        ),
+    })
 }
 fn verify_aggregate_supply(
     statement: &AnonymousPgcBootstrapStatementV1<'_>,

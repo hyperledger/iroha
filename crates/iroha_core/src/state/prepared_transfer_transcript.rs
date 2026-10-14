@@ -51,6 +51,42 @@ impl StateTransaction<'_, '_> {
         Ok(())
     }
 
+    /// Consume only the original idle sweep's exact receipt/delta custody.
+    /// Failure leaves its State, source captures and quota journals disposable together.
+    pub(crate) fn flush_retail_native_transfer_transcripts(
+        &mut self,
+        permit: crate::retail_fee::RetailNativeMaintenancePermit,
+    ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<String>> {
+        let entries = match permit.into_entries(self) {
+            Ok(entries) => entries,
+            Err(error) => {
+                if let crate::execution_attempt::ExecutionAttemptError::Rejected(message) = &error {
+                    self.refuse_fastpq_source_preparation(message.clone());
+                }
+                return Err(error);
+            }
+        };
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC365")))]
+        if let Err(error) = self.fastpq_source_quota.begin_retail_batch() {
+            self.refuse_fastpq_source_preparation(error.clone());
+            return Err(error.into());
+        }
+        for (authority, purpose, delta) in entries {
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC365")))]
+            if let Err(error) = self.fastpq_source_quota.authorize_retail_receipt(purpose) {
+                self.refuse_fastpq_source_preparation(error.clone());
+                return Err(error.into());
+            }
+            let occurrence = self.prepare_transfer_occurrence(&authority, purpose, vec![delta]);
+            if let Some(occurrence) = &occurrence {
+                self.reserve_transfer_occurrence(occurrence)
+                    .map_err(|error| error.to_string())?;
+            }
+            self.stage_transfer_occurrence(occurrence);
+        }
+        Ok(())
+    }
+
     fn prepare_transfer_occurrence(
         &self,
         authority: &AccountId,

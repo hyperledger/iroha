@@ -280,20 +280,37 @@ impl Kura {
     pub(crate) fn reconcile_physical_resource_inventory(
         &self,
     ) -> std::result::Result<(), resource_inventory::Unavailable> {
+        // Original physical callbacks must also outlive failure invalidation below.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC361")))]
+        let (mut prune_releases, mut canonical_releases) = (
+            self.prune_lock.defer_notifications(),
+            self.canonical_chain_lock.defer_notifications(),
+        );
+        let mut sidecar_releases = self.sidecar_lock.defer_notifications();
         let result = (|| {
             if !self.physical_resource_reconciliation_allowed() {
                 return Err(resource_inventory::Unavailable::Unregistered);
             }
             // This is the writer order, never sidecar -> canonical. Query and
             // resident writers remain covered by the shared registry generation.
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC361")))]
+            let _prune_guard = prune_releases.lock();
+            #[cfg(all(test, sumeragi_core_mutation = "HC361"))]
             let _prune_guard = self.prune_lock.lock();
+            #[cfg(all(test, unix, not(target_os = "espidf")))]
+            original_inventory_release_tests::fence_boundary(self, 1);
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC361")))]
+            let _canonical_guard = canonical_releases.lock();
+            #[cfg(all(test, sumeragi_core_mutation = "HC361"))]
             let _canonical_guard = self.canonical_chain_lock.lock();
+            #[cfg(all(test, unix, not(target_os = "espidf")))]
+            original_inventory_release_tests::fence_boundary(self, 2);
             if !self.physical_resource_reconciliation_allowed() {
                 return Err(resource_inventory::Unavailable::Unregistered);
             }
             let generation = self.resource_inventory.reconciliation_generation()?;
             let scope = self.physical_resource_scope()?;
-            self.validate_fastpq_artifact_inventory_on_startup()
+            self.validate_fastpq_artifact_inventory_on_startup(&mut sidecar_releases)
                 .map_err(|_| resource_inventory::Unavailable::InvalidInventory)?;
             let counts = scope.observe(self.evidence_resource_limits())?;
             self.validate_physical_resource_owner_identity()?;
@@ -315,4 +332,10 @@ impl Kura {
         }
         result
     }
+}
+
+/// Original physical sources through startup/re-audit family publication and invalidation.
+#[cfg(all(test, unix, not(target_os = "espidf")))]
+mod original_inventory_release_tests {
+    include!("inventory_release_tests.rs");
 }

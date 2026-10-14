@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Additional Torii iterable query checks exercising server-side batching and
 //! multiple item types (blocks, transactions).
 use eyre::{Result, WrapErr};

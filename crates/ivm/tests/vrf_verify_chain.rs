@@ -1,7 +1,7 @@
 //! VRF exact-network binding and display-chain separation tests.
 #![cfg(feature = "ivm_vrf_tests")]
+use crate::common;
 use ivm::{self, IVM, IVMHost, Memory, PointerType};
-mod common;
 fn build_vrf_req(
     variant: u8,
     pk_len: usize,

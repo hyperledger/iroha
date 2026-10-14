@@ -185,9 +185,19 @@ rejection families. Exact accepted-request observations and local reviews
 retain explicit oracle and input premises. The [conditional lifetime ledger](../docs/validation/parliament_ballot_lifetime_ledger/README.md)
 now checks shared-log capacity, known event costs and logical register ownership
 for four accepted shapes, rejected-size VOTE and L0. Separate [full-cap content observations](../docs/validation/parliament_ballot_content_resources/README.md)
-cover four bounded-content cases without changing that ledger's supported inputs.
-TODO: finish the adaptive T/Q driver and theorem, preparation/purification
-resources, family-wide bounds and the primitive-entry assessment. Physical verifier
+cover four bounded-content cases. A separate [ContentFamily ledger extension](../docs/validation/parliament_ballot_content_lifetime/README.md)
+now prices them in mixed traces, under an explicit additional cap on all typed
+requests rather than assuming that the valid-request theorem budget covers invalid
+calls. The [finite sequence binder](../docs/validation/parliament_ballot_sequence_composition/README.md)
+implements shared-log circuit relocation and inverse composition for a sequence
+chosen in advance. The [domain audit](../docs/validation/parliament_ballot_family_domains/README.md)
+and [component bounds](../docs/validation/parliament_ballot_component_families/README.md)
+establish the legal length families and P0/P1/R1 arithmetic, while separating raw
+entry, witness and application errors. These checks replay frozen source bytes;
+the changed current Cargo manifest remains outside their qualification scope.
+TODO: finish the adaptive T/Q driver and theorem, upstream invalid-call accounting,
+preparation/purification resources, complete family/experiment bounds and the
+primitive-entry assessment. Physical verifier
 and independent qualification requirements remain separate; production stays gated.
 
 The current integration source contract is reconciled with the captured

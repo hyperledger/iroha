@@ -1,5 +1,5 @@
 //! Core host rejection of polynomial-opening payloads and registered IPA curve policy.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 mod goldilocks {
     use iroha_core::smartcontracts::ivm::host::CoreHost;
     use iroha_data_model::prelude::AccountId;

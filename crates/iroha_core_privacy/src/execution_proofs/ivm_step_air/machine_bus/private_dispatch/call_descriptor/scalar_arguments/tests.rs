@@ -925,7 +925,7 @@ fn original_public_capacity_is_complete_or_explicitly_unqualified() {
     let shape = Shape::new(&p).unwrap();
     assert_eq!(
         (shape.ports(), shape.history_rows(), shape.width()),
-        (16383, 131064, 1409637)
+        (16383, 131_064, 1_409_637)
     );
     for count in [3268, 8192] {
         let p = simple(&vec![CallTypeNodeV1::Unit; count]);

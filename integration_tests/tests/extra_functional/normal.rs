@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Baseline throughput and block production under normal conditions.
 use eyre::{Result, WrapErr};
 use integration_tests::sandbox;

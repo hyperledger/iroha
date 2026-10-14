@@ -1754,10 +1754,10 @@ pub async fn connect(addr: &SocketAddr, opts: &TcpConnectOptions) -> Result<TcpC
             Err(e) => {
                 static PROXY_CONNECT_SAMPLER: OnceLock<Mutex<LogSampler>> = OnceLock::new();
                 let sampler = PROXY_CONNECT_SAMPLER.get_or_init(|| Mutex::new(LogSampler::new()));
-                if let Ok(mut s) = sampler.lock() {
-                    if let Some(supp) = s.should_log(tokio::time::Duration::from_millis(500)) {
-                        iroha_logger::warn!(%e, proxy=%proxy_endpoint, suppressed=supp, "Failed to connect to proxy");
-                    }
+                if let Ok(mut s) = sampler.lock()
+                    && let Some(supp) = s.should_log(tokio::time::Duration::from_millis(500))
+                {
+                    iroha_logger::warn!(%e, proxy=%proxy_endpoint, suppressed=supp, "Failed to connect to proxy");
                 }
                 return Err(e);
             }
@@ -1793,10 +1793,10 @@ pub async fn connect(addr: &SocketAddr, opts: &TcpConnectOptions) -> Result<TcpC
             Err(e) => {
                 static DIRECT_CONNECT_SAMPLER: OnceLock<Mutex<LogSampler>> = OnceLock::new();
                 let sampler = DIRECT_CONNECT_SAMPLER.get_or_init(|| Mutex::new(LogSampler::new()));
-                if let Ok(mut s) = sampler.lock() {
-                    if let Some(supp) = s.should_log(tokio::time::Duration::from_millis(500)) {
-                        iroha_logger::warn!(%e, target=%addr.to_string(), suppressed=supp, "TCP connect failed");
-                    }
+                if let Ok(mut s) = sampler.lock()
+                    && let Some(supp) = s.should_log(tokio::time::Duration::from_millis(500))
+                {
+                    iroha_logger::warn!(%e, target=%addr.to_string(), suppressed=supp, "TCP connect failed");
                 }
                 Err(e)
             }

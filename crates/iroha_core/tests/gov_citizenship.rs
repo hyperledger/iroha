@@ -1,5 +1,5 @@
 //! Citizenship bonding and gating tests for governance flows.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     kura::Kura,
     query::store::LiveQueryStore,

@@ -387,10 +387,15 @@ mod tests {
                 disclosed_attributes: disclosures,
             })
             .unwrap();
-            for (signature, (segment, row)) in
-                [(1, 69168), (2, 69168), (2, 277200), (3, 69168), (3, 348784)]
-                    .into_iter()
-                    .enumerate()
+            for (signature, (segment, row)) in [
+                (1, 69168),
+                (2, 69168),
+                (2, 277_200),
+                (3, 69168),
+                (3, 348_784),
+            ]
+            .into_iter()
+            .enumerate()
             {
                 let b = plan.blocks[signature];
                 let registration = layout

@@ -178,7 +178,7 @@ impl PrepareAdmission for LanePrepareAdmission {
         {
             return Err(iroha_sumeragi::crypto::SigningError::InvalidInput);
         }
-        if !request.certified() && !cfg!(all(test, sumeragi_core_mutation = "HC362")) {
+        if !request.certified() && !cfg!(all(test, sumeragi_core_mutation = "HC383")) {
             let observed_ms = u64::try_from(self.time_source.now().as_millis())
                 .map_err(|_| iroha_sumeragi::crypto::SigningError::InvalidInput)?;
             if self.block_time_ms.saturating_sub(observed_ms) > self.max_clock_drift_ms {

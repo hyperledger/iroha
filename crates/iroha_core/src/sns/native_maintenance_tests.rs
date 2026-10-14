@@ -489,3 +489,112 @@ fn sns_source_inspection_refuses_foreign_incomplete_and_repeated_native_owners()
         );
     }
 }
+
+#[test]
+fn original_sns_late_fee_refusal_drops_witness_before_retry_metadata() {
+    let fixture = fixture(Quantity::from(2_u32), false, false);
+    let source = source(&fixture.state, EXPIRY - WINDOW);
+    {
+        let (mut block, _recording) =
+            crate::block::ValidBlock::start_component_execution(&source, &fixture.state).unwrap();
+        let bad_receipt: StatePath = "retail_fee_receipts_v1/malformed_native_retry_test"
+            .parse()
+            .unwrap();
+        let malformed = vec![0xff; 8];
+        let original = norito::decode_canonical::<
+            iroha_data_model::validation_fee::RetailFeeReceiptV1,
+        >(&malformed)
+        .unwrap_err();
+        assert!(matches!(&original, norito::Error::InvalidMagic));
+        {
+            let mut setup = block.transaction();
+            setup
+                .world
+                .smart_contract_state
+                .insert(bad_receipt, malformed);
+            setup.apply();
+        }
+        let before = block.native_maintenance_usage_for_testing();
+        block.reserve_ordinary_execution_outputs(&source).unwrap();
+        // SNS first rolls back its late fee refusal and persists retry metadata.
+        // The subsequent conversion-offer pass must reject the same malformed
+        // parent receipt; the entire carrier cannot be accepted as successful.
+        let refusal = block
+            .execute_ordinary_output_plan(&source, None)
+            .unwrap_err();
+        let expected = iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(
+            original.to_string().into(),
+        );
+        assert!(
+            matches!(&refusal, crate::state::ExecutionOutputAttemptError::Owner(reason)
+                if reason == &format!("validation fee reward maintenance failed: {expected}")),
+            "the unchanged Time owner must preserve the original late receipt rejection: {refusal:?}"
+        );
+        assert_eq!(block.native_maintenance_usage_for_testing(), before);
+        assert!(
+            block
+                .captured_fastpq_transcript_sources()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            balance(&block.world, &fixture, &fixture.owner),
+            Quantity::from(2_u32)
+        );
+        assert_eq!(
+            balance(&block.world, &fixture, &fixture.collector),
+            Quantity::zero()
+        );
+        assert_eq!(
+            record_by_selector(&block.world, &fixture.selector)
+                .unwrap()
+                .unwrap()
+                .expires_at_ms,
+            EXPIRY
+        );
+        let retry = alias_auto_renew_state(&block.world, &fixture.target)
+            .unwrap()
+            .unwrap();
+        assert_eq!(retry.revision, 2);
+        assert_eq!(retry.failure_count, 1);
+        assert_eq!(retry.next_retry_at_ms, Some(EXPIRY - WINDOW + 100));
+        assert_eq!(retry.suspended_reason, None);
+        assert!(
+            crate::exec_witness::snapshot_exec_witness()
+                .fastpq_transcripts
+                .is_empty(),
+            "original SNS late refusal must drop its prepared witness before retry metadata"
+        );
+    }
+    // The abandoned carrier never publishes its receipt, retry record or debit.
+    // Retrying the same genuine original Time source succeeds with its exact payment.
+    let (block, _recording, outputs, _) =
+        crate::state::run_empty_network_owner_fixture(&fixture.state, &source);
+    assert!(outputs.is_empty());
+    assert_eq!(
+        block
+            .native_maintenance_usage_for_testing()
+            .executed_entries,
+        1
+    );
+    assert_eq!(
+        crate::exec_witness::snapshot_exec_witness()
+            .fastpq_transcripts
+            .len(),
+        1
+    );
+    assert_eq!(
+        balance(&block.world, &fixture, &fixture.owner),
+        "1.5".parse().unwrap()
+    );
+    assert_eq!(
+        balance(&block.world, &fixture, &fixture.collector),
+        "0.5".parse().unwrap()
+    );
+    let renewed = alias_auto_renew_state(&block.world, &fixture.target)
+        .unwrap()
+        .unwrap();
+    assert_eq!((renewed.revision, renewed.failure_count), (2, 0));
+    assert_eq!(renewed.next_retry_at_ms, None);
+    assert_eq!(renewed.suspended_reason, None);
+}

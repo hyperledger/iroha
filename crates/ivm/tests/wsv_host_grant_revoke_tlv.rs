@@ -1,3 +1,5 @@
+use crate::common;
+use common::assemble_syscalls;
 use iroha_crypto::{Hash, PublicKey};
 use iroha_primitives::{numeric::Quantity, numeric_abi::QuantityValueV1};
 use ivm::{
@@ -5,8 +7,6 @@ use ivm::{
     mock_wsv::{AccountId, AssetDefinitionId, MockWorldStateView, PermissionToken, WsvHost},
     syscalls,
 };
-mod common;
-use common::assemble_syscalls;
 fn make_tlv(type_id: u16, payload: &[u8]) -> Vec<u8> {
     let payload = PointerType::from_u16(type_id)
         .map(|pty| common::payload_for_type(pty, payload))

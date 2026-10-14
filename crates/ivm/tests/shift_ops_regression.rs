@@ -1,5 +1,5 @@
+use crate::common;
 use ivm::{IVM, encoding, instruction};
-mod common;
 fn program_shift_ops() -> Vec<u8> {
     // Build: SLL x5 = x1 << x2; SRL x6 = x3 >> x2; SRA x7 = x4 >>> x2; HALT
     let sll = encoding::wide::encode_rr(instruction::wide::arithmetic::SLL, 5, 1, 2);

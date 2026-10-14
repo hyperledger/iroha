@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Grouped integration harness for revision-4 consensus, DA, and localnet scenarios.
 #[path = "da.rs"]
 mod da;

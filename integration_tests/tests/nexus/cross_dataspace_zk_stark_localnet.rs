@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "zk-stark")]
 //! Cross-dataspace STARK verification tests that validate proof outcomes while
 //! ensuring proof payload details are not exposed to other dataspaces.

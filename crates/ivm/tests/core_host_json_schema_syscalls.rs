@@ -1,4 +1,5 @@
 //! CoreHost JSON encode/decode and schema encode/decode helpers.
+use crate::common;
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_data_model::{
     prelude::{AccountId, AssetDefinitionId},
@@ -12,7 +13,6 @@ use ivm::{
     EmbeddedStateType, IVM, IVMHost, PointerType, ProgramMetadata, encoding, instruction::wide,
     syscalls,
 };
-mod common;
 fn tlv(pty: PointerType, payload: &[u8]) -> Vec<u8> {
     let payload = common::payload_for_type(pty, payload);
     let mut v = Vec::with_capacity(7 + payload.len() + 32);

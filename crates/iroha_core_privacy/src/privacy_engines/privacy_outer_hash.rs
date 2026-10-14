@@ -1035,7 +1035,7 @@ mod tests {
                 profile: &profile,
                 role: &role,
                 phase: &phase,
-                level: 81985529216486895,
+                level: 81_985_529_216_486_895,
                 index: 0,
                 counter: 0,
             };
@@ -1089,7 +1089,7 @@ mod tests {
                 role: &role,
                 phase: &phase,
                 level: 0,
-                index: 81985529216486895,
+                index: 81_985_529_216_486_895,
                 counter: 0,
             };
             let payloads: Vec<Vec<u8>> = vec![hex("78")];
@@ -1143,7 +1143,7 @@ mod tests {
                 phase: &phase,
                 level: 0,
                 index: 0,
-                counter: 81985529216486895,
+                counter: 81_985_529_216_486_895,
             };
             let payloads: Vec<Vec<u8>> = vec![hex("78")];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();

@@ -1,5 +1,5 @@
 //! Verify IVM pointer ABI applies queued instructions correctly.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(clippy::too_many_lines)]
 use iroha_core::{
     kura::Kura,

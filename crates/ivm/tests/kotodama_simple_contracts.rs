@@ -2,7 +2,7 @@
 use ivm::{CoreHost, IVM, ProgramMetadata, VMError};
 use kotodama_lang::compiler::Compiler;
 
-mod common;
+use crate::common;
 
 fn load(source: &str) -> (IVM, Vec<u8>) {
     let code = Compiler::new()

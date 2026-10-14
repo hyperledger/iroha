@@ -1,6 +1,6 @@
-use ivm::{IVM, syscalls};
-mod common;
+use crate::common;
 use common::assemble_syscalls;
+use ivm::{IVM, syscalls};
 #[test]
 fn register_compact_proof_decodes_and_verifies() {
     use iroha_crypto::{
@@ -59,7 +59,7 @@ fn register_compact_proof_decodes_and_verifies() {
         .expect("root");
     let root = HashOf::<MerkleTree<[u8; 32]>>::from_untyped_unchecked(Hash::prehashed(root_bytes));
     let commitment = MerkleTreeCommitment::new(
-        root.clone(),
+        root,
         NonZeroU64::new(256).expect("register count is non-zero"),
     );
     assert!(compact.verify_sha256(&leaf, &commitment));
@@ -69,10 +69,8 @@ fn register_compact_proof_decodes_and_verifies() {
         .expect("syscall emitted a canonical compact proof");
     assert_eq!(full.leaf_index(), idx as u32);
     assert!(full.verify_sha256(&leaf, &commitment));
-    let wrong_count = MerkleTreeCommitment::new(
-        root.clone(),
-        NonZeroU64::new(255).expect("wrong count is non-zero"),
-    );
+    let wrong_count =
+        MerkleTreeCommitment::new(root, NonZeroU64::new(255).expect("wrong count is non-zero"));
     assert!(!compact.verify_sha256(&leaf, &wrong_count));
     let wrong_index = CompactMerkleProof::from_parts(
         compact.depth(),

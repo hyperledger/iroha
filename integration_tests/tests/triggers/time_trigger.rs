@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Time-based trigger execution paths using bounded async waits.
 use crate::triggers::get_asset_value;
 use eyre::{Result, WrapErr};

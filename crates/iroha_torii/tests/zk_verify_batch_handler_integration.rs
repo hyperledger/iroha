@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration test for /v1/zk/verify-batch minimal handler.
 #![cfg(all(feature = "app_api", feature = "zk-verify-batch"))]
 use axum::{Router, routing::post};

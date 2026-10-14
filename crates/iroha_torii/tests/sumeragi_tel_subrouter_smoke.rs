@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Smoke test that Torii does not expose retired Sumeragi telemetry routes.
 #![cfg(feature = "telemetry")]
 use axum::{extract::ConnectInfo, http::Request};

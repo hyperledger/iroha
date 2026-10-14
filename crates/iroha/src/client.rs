@@ -28812,7 +28812,7 @@ mod tests {
         let manifest = norito::json::from_str(
             r#"{
             "code_hash":null,"abi_hash":null,"compiler_fingerprint":null,
-            "features_bitmap":null
+            "features_bitmap":null,"permissions":[],"events":[],"enum_types":[]
         }"#,
         )
         .expect("minimal manifest shape");
@@ -28866,7 +28866,7 @@ mod tests {
             Some(base64::engine::general_purpose::STANDARD.encode(b"foreign bytes"));
         let mut foreign_convenience_hash = canonical;
         foreign_convenience_hash.code_hash = Some("00".repeat(32));
-        for hostile in [
+        let mut hostile_responses = vec![
             norito::json::to_json(&foreign_scope).unwrap(),
             norito::json::to_json(&foreign_network).unwrap(),
             norito::json::to_json(&foreign_manifest).unwrap(),
@@ -28874,7 +28874,20 @@ mod tests {
             norito::json::to_json(&foreign_convenience_hash).unwrap(),
             format!("{},\"unknown\":true}}", body.trim_end_matches('}')),
             format!("{},\"code_bytes\":null}}", body.trim_end_matches('}')),
-        ] {
+        ];
+        for field in ["permissions", "events", "enum_types"] {
+            let mut missing: norito::json::Value = norito::json::from_str(&body).unwrap();
+            assert!(
+                missing
+                    .get_mut("manifest")
+                    .and_then(norito::json::Value::as_object_mut)
+                    .unwrap()
+                    .remove(field)
+                    .is_some()
+            );
+            hostile_responses.push(norito::json::to_json(&missing).unwrap());
+        }
+        for hostile in hostile_responses {
             let response = json_response(StatusCode::OK, &hostile);
             with_mock_http(
                 move |_| Ok(response.clone()),

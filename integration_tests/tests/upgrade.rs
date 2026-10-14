@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration coverage for installing and executing a real IVM executor.
 use eyre::Result;
 use integration_tests::sandbox;

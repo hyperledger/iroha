@@ -83,10 +83,18 @@ fn export_resource_admission_wire_fixtures() {
         records: vec![terminal.clone()],
         ..open_set.clone()
     };
-    validate_resource_clauses_v1(&[clause.clone()]).unwrap();
-    match_resource_requirements_v1(&[clause.clone()], &[requirement.clone()]).unwrap();
-    open_set.validate_for_owners(&[owner.clone()]).unwrap();
-    terminal_set.validate_for_owners(&[owner.clone()]).unwrap();
+    validate_resource_clauses_v1(std::slice::from_ref(&clause)).unwrap();
+    match_resource_requirements_v1(
+        std::slice::from_ref(&clause),
+        std::slice::from_ref(&requirement),
+    )
+    .unwrap();
+    open_set
+        .validate_for_owners(std::slice::from_ref(&owner))
+        .unwrap();
+    terminal_set
+        .validate_for_owners(std::slice::from_ref(&owner))
+        .unwrap();
     let native_open = NftCustodyRecordV1 {
         version: 1,
         network_id: network,

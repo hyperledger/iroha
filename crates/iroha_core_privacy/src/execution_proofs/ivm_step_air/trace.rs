@@ -614,6 +614,7 @@ impl ScalarSegment {
             return Err(Error::InvalidTrace);
         }
         let mut rows = Vec::with_capacity(self.physical_steps() + 1);
+        let scalar_vector_length = self.before.vector_length;
         for (index, record) in records.iter().enumerate() {
             let outcome = if index + 1 == self.steps {
                 self.outcome
@@ -632,8 +633,8 @@ impl ScalarSegment {
                 || record.after.halted
                 || record.before.constraint_failed
                 || record.after.constraint_failed
-                || record.before.vector_length != self.before.vector_length
-                || record.after.vector_length != self.before.vector_length
+                || record.before.vector_length != scalar_vector_length
+                || record.after.vector_length != scalar_vector_length
             {
                 return Err(Error::InvalidTrace);
             }

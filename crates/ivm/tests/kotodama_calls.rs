@@ -1,7 +1,7 @@
 //! Kotodama function calls and calling convention tests (nested calls, multi-returns).
+use crate::common;
 use ivm::IVM;
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 #[test]
 fn nested_function_calls_work() {
     // Without saving/restoring RA, nested calls would clobber return addresses.

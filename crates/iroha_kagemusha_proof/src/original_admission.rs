@@ -19,12 +19,12 @@ use iroha_plonk::{
     pcs::ipa::PinnedParams,
 };
 
-/// Source-admission policy selected by this crate's typed owners.
+/// Closed original-source admission selected by the owning native operation.
 #[derive(Clone, Copy)]
 pub enum OriginalAdmission {
-    /// Reconstruct the source and verify its original commitments.
+    /// Reconstruct the supplied source and compare its actual commitments.
     Strict,
-    /// Admit originals against one exact closed compiled member.
+    /// Use the exact compiled source member selected by the installation owner.
     Builtin(BuiltinSourceMemberV1),
 }
 

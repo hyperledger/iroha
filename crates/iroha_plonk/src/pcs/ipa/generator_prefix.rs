@@ -84,7 +84,7 @@ mod tests {
             &params.generator_prefix_sums,
             &independent.generator_prefix_sums
         ));
-        let clone = params.clone();
+        let clone = PinnedParams::clone(params);
         assert!(Arc::ptr_eq(
             &params.generator_prefix_sums,
             &clone.generator_prefix_sums

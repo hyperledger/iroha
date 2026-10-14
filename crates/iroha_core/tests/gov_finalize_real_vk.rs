@@ -1,6 +1,6 @@
 //! Production finalization rejects unqualified tally roles without changing the retained election.
 //! Tiny arithmetic fixtures are not semantic tally proofs; positive qualification remains open.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![cfg(feature = "zk-tests")]
 
 #[path = "common/governance_closed_registry.rs"]

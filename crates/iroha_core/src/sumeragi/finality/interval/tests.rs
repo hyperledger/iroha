@@ -196,10 +196,6 @@ fn check_first_target_order(chain: &CertifiedTestChain) {
         &expected,
         ProofError::Chain(ChainReadError::Malformed { height: 4, .. })
     ));
-    let ProofError::Chain(expected) = expected else {
-        unreachable!("matched original chain refusal")
-    };
-    let expected = NativeFinalityProofRefusal::from(expected);
     let (actual, counts) = relation_counts::measure(|| {
         build_proof_interval(&source, &owner, &limits(4, 4), &AtomicBool::new(false))
     });
@@ -215,7 +211,13 @@ fn check_first_target_order(chain: &CertifiedTestChain) {
         "original malformed target must precede the bad gap: actual={:?}, expected={expected:?}",
         actual.as_ref().err()
     );
-    assert_eq!(actual.err().unwrap().to_string(), expected.to_string());
+    let ProofError::Chain(expected) = expected else {
+        panic!("single native proof must reject the same original chain relation");
+    };
+    let Err(NativeFinalityProofIntervalError::Native(actual)) = actual else {
+        panic!("interval must retain the completed native rejection");
+    };
+    assert_eq!(actual, NativeFinalityProofRefusal::from(expected));
 }
 
 #[test]
@@ -253,7 +255,13 @@ fn check_first_target_header_order(chain: &CertifiedTestChain) {
     ));
     assert_eq!(counts.frames, [1, 4]);
     assert!(counts.qcs.is_empty());
-    assert_eq!(actual.err().unwrap().to_string(), expected.to_string());
+    let ProofError::Chain(expected) = expected else {
+        panic!("single native proof must reject the same original chain relation");
+    };
+    let Err(NativeFinalityProofIntervalError::Native(actual)) = actual else {
+        panic!("interval must retain the completed native rejection");
+    };
+    assert_eq!(actual, NativeFinalityProofRefusal::from(expected));
 }
 
 #[test]

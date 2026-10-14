@@ -1,4 +1,3 @@
-#![allow(clippy::restriction)]
 use super::*;
 use norito::json::{self, Value};
 use std::time::Duration;

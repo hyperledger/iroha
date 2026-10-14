@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! DA-4 regression: Torii must enforce the configured retention profile even
 //! when callers submit stale values. The manifest fetched from Torii should
 //! always expose the canonical policy, not the caller intent.

@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Roadmap ADDR-5 coverage ensuring Torii surfaces canonical I105 account IDs.
 use eyre::{Result, WrapErr, eyre};
 use integration_tests::sandbox::{

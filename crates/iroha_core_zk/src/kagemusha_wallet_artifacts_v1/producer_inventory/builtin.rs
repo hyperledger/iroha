@@ -288,12 +288,32 @@ mod tests {
     }
 
     #[test]
-    fn blob_literal_groups_length_and_preserves_digest() {
-        let bytes = [0x71; 1_000];
-        let blob = BlobV1::of(&bytes);
-        assert_eq!(
-            rust_blob(&bytes),
-            format!("BuiltinBlob {{ bytes: 1_000, sha256: {:?} }}", blob.sha256)
-        );
+    fn generated_blob_lengths_are_readable_and_preserve_original_values_and_hashes() {
+        for (length, literal) in [
+            (0, "0"),
+            (1, "1"),
+            (999, "999"),
+            (1_000, "1_000"),
+            (9_999, "9_999"),
+            (10_000, "10_000"),
+            (99_999, "99_999"),
+            (100_000, "100_000"),
+            (244_977, "244_977"),
+            (1_000_000, "1_000_000"),
+        ] {
+            let bytes = vec![0x5a; length];
+            let original = BlobV1::of(&bytes);
+            assert_eq!(
+                rust_blob(&bytes),
+                format!(
+                    "BuiltinBlob {{ bytes: {literal}, sha256: {:?} }}",
+                    original.sha256
+                )
+            );
+            assert_eq!(
+                literal.replace('_', "").parse::<u64>().unwrap(),
+                original.bytes
+            );
+        }
     }
 }

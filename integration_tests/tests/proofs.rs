@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration smoke test: submit a proof attachment and query its record via Torii.
 use eyre::{Report, Result};
 use integration_tests::sandbox;

@@ -23,6 +23,7 @@ pub(crate) enum Action<'a> {
     RetainedResult,
     CompleteAppleCollection,
     Abandon,
+    AbandonExpired(&'a [u8]),
     AbandonLedgerInstruction,
 }
 impl From<native::Error> for Failure {
@@ -105,6 +106,7 @@ pub(super) fn perform<F: advance::KagemushaWalletFsV1, P: advance::KagemushaWall
             None => response(20, Vec::new()),
         },
         Action::Abandon => abandonment(owner.abandon()?)?,
+        Action::AbandonExpired(proof) => abandonment(owner.abandon_expired(proof)?)?,
         Action::AbandonLedgerInstruction => match owner.abandonment_ledger_instruction()? {
             Some(bytes) => response(59, bytes),
             None => response(58, Vec::new()),
@@ -177,6 +179,7 @@ pub(crate) fn bounds(selector: u32) -> Result<[usize; 3]> {
         13 | 16 | 17 | 18 | 20 => [0; 3],
         14 => [1, 0, 0],
         15 => [1, 65_536, 0],
+        21 => [4_096, 0, 0],
         _ => return Err(Failure::code(INVALID)),
     })
 }
@@ -240,6 +243,7 @@ pub(crate) fn request<'a>(
         8 => Action::BeginOpen,
         10 => Action::Abandon,
         20 => Action::AbandonLedgerInstruction,
+        21 if !first.is_empty() => Action::AbandonExpired(first),
         9 if !first.is_empty() => Action::AcceptPermit(first),
         _ => return Err(Failure::code(INVALID)),
     })
@@ -310,6 +314,7 @@ mod tests {
                 assert!(request(selector, originals, &[]).is_err());
             }
         }
+        assert!(request(21, [b"expiry-proof", &[], &[]], &[]).is_ok());
         assert!(request(21, [&[]; 3], &[]).is_err());
         assert!(request(19, [&[]; 3], &[]).is_err());
         assert!(matches!(

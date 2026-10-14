@@ -1,5 +1,5 @@
 //! Canonical execution is independent of local advisory DAG sidecars.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //! Advisory metadata cannot add consensus-visible warning events.
 use iroha_core::kura::{PipelineDagSnapshot, PipelineRecoverySidecar, PipelineTxSnapshot};
 use iroha_data_model::{events::EventBox, prelude::*};

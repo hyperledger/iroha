@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Router-level tests for protected-namespaces endpoints.
 #![allow(clippy::redundant_closure_for_method_calls)]
 #![cfg(all(feature = "app_api", feature = "ws_integration_tests"))]

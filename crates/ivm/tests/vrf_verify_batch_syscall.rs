@@ -1,11 +1,11 @@
 //! VRF batch-syscall verification and exact-network admission tests.
 #![cfg(feature = "ivm_vrf_tests")]
-use ivm::{IVM, Memory, PointerType, host::DefaultHost};
-mod common;
+use crate::common;
 use blstrs::{G1Affine, G1Projective, G2Affine, G2Projective, Scalar};
 use common::assemble_syscalls;
 use group::{Curve, Group, prime::PrimeCurveAffine};
 use ivm::vrf::{VrfVerifyBatchRequest, VrfVerifyRequest};
+use ivm::{IVM, Memory, PointerType, host::DefaultHost};
 fn vrf_batch_vm_gas(payload_len: usize) -> u64 {
     ivm::gas::vrf_verify_gas(
         u64::try_from(ivm::vrf::MAX_VRF_VERIFY_BATCH_ITEMS_V1).expect("VRF batch cap fits u64"),

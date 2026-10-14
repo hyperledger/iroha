@@ -37,7 +37,14 @@ impl Kura {
     /// Append a debug dump while the caller holds prune and canonical-chain
     /// locks. Pending canonical bytes are captured before the lower-order
     /// geometry/sidecar capacity locks.
-    fn append_debug_block_dump(&self, block: &iroha_data_model::block::SharedSignedBlock) {
+    /// The caller retains both original notification owners until every outer
+    /// prune/canonical and physical writer guard has retired.
+    fn append_debug_block_dump(
+        &self,
+        block: &iroha_data_model::block::SharedSignedBlock,
+        geometry_releases: &mut crate::publication_lock::DeferredPublicationFence<'_, ()>,
+        sidecar_releases: &mut crate::publication_lock::DeferredPublicationFence<'_, ()>,
+    ) {
         let path_guard = self.block_plain_text_path.lock();
         let Some(path) = path_guard.clone() else {
             return;
@@ -61,7 +68,13 @@ impl Kura {
                 return;
             }
         };
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC357")))]
+        let _geometry_guard = geometry_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC357"))]
         let _geometry_guard = self.lane_geometry_lock.lock();
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC357")))]
+        let _sidecar_guard = sidecar_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC357"))]
         let _sidecar_guard = self.sidecar_lock.lock();
         if let Err(error) = self.validate_publication_disk_peak_locked(
             pending_canonical_bytes,
@@ -300,8 +313,25 @@ impl Kura {
         &self,
         block: &iroha_data_model::block::SharedSignedBlock,
     ) -> Result<()> {
+        // The complete publication owns notifications, including those emitted
+        // by debug output while its physical writer and outer fences are retained.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC357")))]
+        let (mut prune_releases, mut canonical_releases) = (
+            self.prune_lock.defer_notifications(),
+            self.canonical_chain_lock.defer_notifications(),
+        );
+        let (mut geometry_releases, mut sidecar_releases) = (
+            self.lane_geometry_lock.defer_notifications(),
+            self.sidecar_lock.defer_notifications(),
+        );
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC357")))]
+        let _prune_guard = prune_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC357"))]
         let _prune_guard = self.prune_lock.lock();
         self.ensure_prune_recovery_not_required()?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC357")))]
+        let _canonical_chain_guard = canonical_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC357"))]
         let _canonical_chain_guard = self.canonical_chain_lock.lock();
         self.resolve_canonical_storage_before_mutation()?;
         let block_hash = block.hash();
@@ -413,7 +443,7 @@ impl Kura {
         self.set_transaction_entrypoint_index_entry(actual_height_usize, block, new_len);
         drop(block_data);
 
-        self.append_debug_block_dump(block);
+        self.append_debug_block_dump(block, &mut geometry_releases, &mut sidecar_releases);
 
         debug!(
             height = actual_height,

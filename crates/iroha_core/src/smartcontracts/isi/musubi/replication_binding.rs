@@ -14,21 +14,63 @@ pub fn validate_replication_order_archive_binding<'world>(
     replication_order: &iroha_data_model::sorafs::pin_registry::ReplicationOrderId,
     world: &'world impl MusubiSourceReadOnly,
 ) -> Result<&'world MusubiReplicationOrderLocationLifecycleV1, ParseError> {
-    archive.validate()?;
-    let reference = world
-        .source_musubi_locations_by_replication_order()
-        .get(replication_order)
-        .ok_or_else(|| {
-            ParseError::new("Musubi replication order has no consensus archive binding")
-        })?;
-    reference.validate()?;
-    if reference.binding.replication_order != *replication_order
-        || reference.binding.archive_id != archive.archive_id
-        || reference.binding.commitment != archive.commitment
-    {
-        return Err(ParseError::new(
-            "Musubi replication-order binding does not match the authoritative archive commitment",
-        ));
+    try_validate_replication_order_archive_binding(archive, replication_order, world)
+        .map_err(ReadFailure::into_predicate)
+}
+
+/// Run the same predicate while preserving an original physical read refusal.
+pub(crate) fn try_validate_replication_order_archive_binding<'world, W: MusubiRead>(
+    archive: &MusubiArchiveRecordV1,
+    replication_order: &iroha_data_model::sorafs::pin_registry::ReplicationOrderId,
+    world: &'world W,
+) -> Result<&'world MusubiReplicationOrderLocationLifecycleV1, ReadFailure<W::Error, ParseError>> {
+    ReplicationBindingValidation::new().advance(archive, replication_order, world)
+}
+
+/// Retains the successful archive predicate across the original binding lookup refusal.
+pub(crate) struct ReplicationBindingValidation {
+    queries: [LookupCursor; 1],
+    archive_validated: bool,
+}
+impl ReplicationBindingValidation {
+    /// Begin one unchanged original archive/order binding check.
+    pub(crate) fn new() -> Self {
+        Self {
+            archive_validated: false,
+            queries: [LookupCursor::new(); 1],
+        }
     }
-    Ok(&reference.lifecycle)
+    /// Return the actual borrowed lifecycle after the same checks, retaining progress.
+    pub(crate) fn advance<'world, W: MusubiRead>(
+        &mut self,
+        archive: &MusubiArchiveRecordV1,
+        replication_order: &iroha_data_model::sorafs::pin_registry::ReplicationOrderId,
+        world: &'world W,
+    ) -> Result<&'world MusubiReplicationOrderLocationLifecycleV1, ReadFailure<W::Error, ParseError>>
+    {
+        if !self.archive_validated {
+            archive.validate()?;
+            self.archive_validated = true;
+        }
+        let reference = world
+            .musubi_locations_by_replication_order_get_retained(
+                replication_order,
+                &mut self.queries[0],
+            )
+            .map_err(ReadFailure::Source)?
+            .ok_or_else(|| {
+                ParseError::new("Musubi replication order has no consensus archive binding")
+            })?;
+        reference.validate()?;
+        if reference.binding.replication_order != *replication_order
+            || reference.binding.archive_id != archive.archive_id
+            || reference.binding.commitment != archive.commitment
+        {
+            return Err(ParseError::new(
+            "Musubi replication-order binding does not match the authoritative archive commitment",
+        )
+        .into());
+        }
+        Ok(&reference.lifecycle)
+    }
 }

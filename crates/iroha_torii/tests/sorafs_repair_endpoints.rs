@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "app_api")]
 //! Public-contract tests for the chain-authoritative SoraFS repair API.
 use iroha_torii::openapi::generate_spec;

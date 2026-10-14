@@ -19,7 +19,10 @@ pub(in crate::state) use typed::{
 
 #[path = "paired/retained_semantic.rs"]
 mod retained_semantic;
-pub(in crate::state) use retained_semantic::{RetainedSemanticError, RetainedSemanticRows};
+pub(in crate::state) use retained_semantic::{
+    RetainedSemanticError, RetainedSemanticOrdinalRows, RetainedSemanticProgress,
+    RetainedSemanticRows,
+};
 
 impl CanonicalTableLeafSet {
     /// Build both table indexes from one canonical streaming value per row.

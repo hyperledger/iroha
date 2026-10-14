@@ -1,5 +1,5 @@
 //! Verify explicit Kotodama CNTR selection enters `main` and reaches `write_detail`.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     kura::Kura,
     query::store::LiveQueryStore,

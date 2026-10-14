@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Tests that a restarted peer restores its state.
 use eyre::{Result, eyre};
 use integration_tests::sandbox;

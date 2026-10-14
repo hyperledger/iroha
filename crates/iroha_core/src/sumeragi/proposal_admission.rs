@@ -53,7 +53,7 @@ impl ProposalAdmissionOwner for NativeProposalAdmission {
         {
             return Err(SigningError::InvalidInput);
         }
-        if !request.certified() && !cfg!(all(test, sumeragi_core_mutation = "HC356")) {
+        if !request.certified() && !cfg!(all(test, sumeragi_core_mutation = "HC377")) {
             let now = self.clock.now();
             if self.creation_time > now {
                 return Err(SigningError::ClockAhead {

@@ -92,3 +92,40 @@ fn uniform_field_sampler_is_canonical() {
         Err(JindoSamplingErrorV1::RandomnessUnavailable),
     );
 }
+
+#[test]
+fn fractional_decay_initializes_once_on_a_bounded_native_stack_with_exact_values() {
+    use sha3::{Digest as _, Sha3_256};
+
+    let digest = std::thread::Builder::new()
+        .name("jindo-fraction-table-small-stack".to_owned())
+        .stack_size(128 * 1024)
+        .spawn(|| {
+            // A fresh cell forces the actual initializer even when another
+            // sampler test already warmed the production static table.
+            let table = OnceLock::new();
+            let values = table.get_or_init(build_fraction_decay_table_q256_v1);
+            assert_eq!(values.len(), FRACTION_TABLE_LEN_V1);
+            assert_eq!(values[0], U512::ONE.shl_vartime(Q256_FRACTION_BITS_V1));
+            assert!(values.windows(2).all(|pair| pair[0] > pair[1]));
+            assert!(core::ptr::eq(
+                values,
+                table.get_or_init(|| panic!("decay table must initialize exactly once")),
+            ));
+            assert_eq!(values.as_ref(), fraction_decay_table_q256_v1());
+            let mut digest = Sha3_256::new();
+            for value in values.iter() {
+                digest.update(value.to_be_bytes());
+            }
+            <[u8; 32]>::from(digest.finalize())
+        })
+        .expect("bounded-stack test thread must spawn")
+        .join()
+        .expect("fresh fractional-decay initialization must not exhaust the native stack");
+    // Independent integer replay of the original Q256 recurrence, covering
+    // every one of the 4,096 public entries in canonical big-endian order.
+    assert_eq!(
+        hex::encode(digest),
+        "a14479d5caab8b8d9bdfed56a41e9d39a76f6b6e034d4d1bea2de248b8d7cf7c",
+    );
+}

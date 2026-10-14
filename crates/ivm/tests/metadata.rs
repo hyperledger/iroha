@@ -1,6 +1,6 @@
 //! Tests for IVM bytecode header (ProgramMetadata) validation.
+use crate::common;
 use ivm::{ProgramMetadata, VMError, ivm_mode};
-mod common;
 fn encode_with(mut meta: ProgramMetadata, f: impl FnOnce(&mut ProgramMetadata)) -> Vec<u8> {
     f(&mut meta);
     meta.encode()

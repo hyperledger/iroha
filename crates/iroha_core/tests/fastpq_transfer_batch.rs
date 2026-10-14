@@ -1,5 +1,5 @@
 //! Tests for batched transfer transcripts.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     fastpq,
     kura::Kura,

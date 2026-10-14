@@ -1,5 +1,5 @@
 //! Overlay chunking: ensure overlays apply correctly when chunk size is small.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //! Builds a transaction with many `SetKeyValue` instructions and sets
 #![allow(clippy::cast_possible_truncation)]
 //! `overlay_chunk_instructions` to a tiny value to force many chunks.

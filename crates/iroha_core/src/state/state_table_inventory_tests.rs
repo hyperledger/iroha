@@ -19,7 +19,8 @@
 //!   another registry field with its handles and reader traits, or a table or cell
 //!   handle; a method belongs to a reader when the whole header of its `impl` or `trait`
 //!   block names one. A record of the peer handshake or of a lane block that the carrier
-//!   walk reads is matched as a return type whatever its name;
+//!   walk reads is matched as a return type whatever its name. Explicit digest-derived
+//!   record identities are matched separately from roots over State content;
 //! - the declarations of the consensus-carried types and their nested records: the block
 //!   header, the block payload and block result, the signed genesis consensus parameters,
 //!   the execution result, every Sumeragi wire message (`crates/iroha_sumeragi`), the lane
@@ -2568,6 +2569,11 @@ const HASH_TYPE_ENDINGS: &[&str] = &[
     "Root",
 ];
 
+/// Exact record-identity types whose bytes are derived from a cryptographic digest.
+/// These identities bind one record, not complete State content; retain their reviewed
+/// function classifications instead of treating every `Id` or nonce as a hash.
+const RECORD_DIGEST_TYPES: &[&str] = &["MultisigProposalId"];
+
 /// Records that carry a root or digest of State content under another name.
 const ROOT_BEARING_RECORDS: &[&str] = &[
     "AxtPolicySnapshot",
@@ -2613,7 +2619,7 @@ fn carried_records() -> Vec<&'static str> {
 const STATE_READER_RULE: &str = "a function or method of a non-test iroha_core source, outside items under #[cfg(test)] or #[test], whose generics, parameters or where clause name a State reader type, or that has a self receiver inside an impl or trait block whose header names one anywhere between the keyword and the opening brace: in the generics, the implemented trait, the implementing type, the supertraits or the where clause. A blanket implementation for all readers, an extension trait of a reader trait, an implementation of a reader trait for a type with another name and an impl block in a macro body are therefore matched. The State reader types (state_reader_types) are the owners of the registry fields (State, World, the transaction storage, the block-hash journal, the trigger set and the canonical runtime) with their reader traits and their block, transaction, view, prepared, detached and published handles, every other type that implements a reader trait in a literal impl block, and the table and cell handles that State is built from";
 
 /// The rule that decides which return types are hash-bearing.
-const HASH_RETURN_RULE: &str = "a return type is hash-bearing when it names Hash, HashOf or Hash32; or a raw digest array [u8; 32], [u8; Hash::LENGTH] or [u8; blake3::OUT_LEN]; or a type whose name, before an optional V<digits> version, ends in Commitment, Digest, Fingerprint, Hash, Proof, ProofBundle, Proofs or Root (wrappers, aliases and records named for what they carry); or one of the listed records that carry a root or digest of State content under another name (root_bearing_records); or one of the records of the peer handshake and of a lane block that the carrier walk reads (carried_records), whatever its name; Self in a return type stands for the implementing type of the enclosing impl block (an associated type Self::Name does not)";
+const HASH_RETURN_RULE: &str = "a return type is hash-bearing when it names Hash, HashOf or Hash32; or one of the explicitly listed digest-derived record identity types (record_digest_types); or a raw digest array [u8; 32], [u8; Hash::LENGTH] or [u8; blake3::OUT_LEN]; or a type whose name, before an optional V<digits> version, ends in Commitment, Digest, Fingerprint, Hash, Proof, ProofBundle, Proofs or Root (wrappers, aliases and records named for what they carry); or one of the listed records that carry a root or digest of State content under another name (root_bearing_records); or one of the records of the peer handshake and of a lane block that the carrier walk reads (carried_records), whatever its name; Self in a return type stands for the implementing type of the enclosing impl block (an associated type Self::Name does not)";
 
 /// The identifiers of a code text.
 fn identifiers(code: &str) -> impl Iterator<Item = &str> {
@@ -2647,6 +2653,7 @@ fn returns_hash(output: &str) -> bool {
         || compact.contains("OUT_LEN]")
         || identifiers(output).any(|name| {
             matches!(name, "Hash" | "HashOf" | "Hash32")
+                || RECORD_DIGEST_TYPES.contains(&name)
                 || ROOT_BEARING_RECORDS.contains(&name)
                 || is_hash_named(name)
                 || CARRIERS.iter().any(|carrier| {
@@ -6867,6 +6874,13 @@ fn generate() -> String {
     put(
         &mut out,
         &format!(
+            "    \"record_digest_types\": {},",
+            list(RECORD_DIGEST_TYPES.iter().copied())
+        ),
+    );
+    put(
+        &mut out,
+        &format!(
             "    \"root_bearing_records\": {},",
             list(ROOT_BEARING_RECORDS.iter().copied())
         ),
@@ -8774,6 +8788,86 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
         assert!(!returns_hash(output), "{output}");
     }
     assert!(names_state_reader("x: &crate::state::State") && !names_state_reader("LaneState"));
+}
+
+/// Typed occurrence identities remain record digests after the native multisig migration.
+#[test]
+fn state_hash_scan_preserves_typed_multisig_record_identity() {
+    assert_eq!(RECORD_DIGEST_TYPES, ["MultisigProposalId"]);
+    assert!(!ROOT_BEARING_RECORDS.contains(&"MultisigProposalId"));
+    let probe = "crates/iroha_core/src/pipeline/probe.rs";
+    for output in [
+        "MultisigProposalId",
+        "Vec<MultisigProposalId>",
+        "Result<Option<iroha_executor_data_model::isi::multisig::MultisigProposalId>, Error>",
+    ] {
+        assert!(returns_hash(output), "{output}");
+        let text = format!("fn typed_record(world: &World) -> {output} {{ todo!() }}");
+        assert_eq!(
+            scan_sources([(probe, text.as_str())])
+                .unlisted_functions
+                .into_iter()
+                .collect::<Vec<_>>(),
+            [format!("{probe}: typed_record: found 1")],
+            "{output}"
+        );
+    }
+    for output in [
+        "MultisigProposalNonce",
+        "AccountId",
+        "MultisigProposalIdentifier",
+    ] {
+        assert!(!returns_hash(output), "{output}");
+    }
+    let own =
+        fn_signatures("impl MultisigProposalId { fn retained(world: &World) -> Self { todo!() } }");
+    assert_eq!(
+        own,
+        [FnSignature {
+            name: "retained".to_owned(),
+            reads_state: true,
+            returns_hash: true,
+        }]
+    );
+
+    let path = "crates/iroha_core/src/smartcontracts/isi/multisig.rs";
+    let name = "invalidate_outstanding_proposals";
+    let text = source(path);
+    let scan = scan_sources([(path, text.as_str())]);
+    assert_eq!(
+        scan.state_hash_functions
+            .get(&(path.to_owned(), name.to_owned())),
+        Some(&1),
+        "the actual StateTransaction reader returning Vec<MultisigProposalId> stays inventoried"
+    );
+    let listed = STATE_HASH_FUNCTIONS
+        .iter()
+        .find(|listed| listed.path == path && listed.name == name)
+        .expect("the native occurrence reader retains its reviewed record classification");
+    assert_eq!(listed.count, 1);
+    assert!(matches!(
+        listed.owner,
+        UseOwner::Other(Use::Record, reason) if !reason.is_empty()
+    ));
+}
+
+/// The native exchange fixture checks a schema identifier, not a State hash domain.
+#[test]
+fn state_inventory_native_abc_result_tag_is_a_schema_name() {
+    let path = "crates/iroha_core/src/sumeragi/test_chain/kagemusha_setup/funding/settlement.rs";
+    let tag = "iroha.kagemusha.native-abc-result.v1";
+    let text = source(path);
+    let scan = scan_sources([(path, text.as_str())]);
+    assert_eq!(
+        scan.literal_uses.get(tag).and_then(|uses| uses.get(path)),
+        Some(&1),
+        "the retained native result schema is discovered at its actual source"
+    );
+    assert!(matches!(
+        domain_owners().get(tag),
+        Some(DomainOwner::Other(Use::Name))
+    ));
+    assert!(!scan.unlisted_domains.contains(&format!("{tag} in {path}")));
 }
 
 /// A test-only argument cannot hide the next original AMX State-reader method.

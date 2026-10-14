@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests for governance parameter updates.
 use eyre::Result;
 use integration_tests::sandbox;

@@ -1,6 +1,6 @@
-use ivm::{IVM, VMError, encoding, zk::MAX_CYCLES};
-mod common;
+use crate::common;
 use common::{assemble, assemble_zk};
+use ivm::{IVM, VMError, encoding, zk::MAX_CYCLES};
 #[test]
 fn test_zk_mode_padding_and_assert() {
     // Program that triggers an assertion failure via the ZK ASSERT instruction.

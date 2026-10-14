@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/Users/mtakemiya/dev/iroha/target/parliament-sequential-composition-stage/preflight-snapshot/target/parliament-sequential-composition-stage/observe.py", line 75, in <module>
+    print(json.dumps(observe(), indent=2, sort_keys=True))
+                     ~~~~~~~^^
+  File "/Users/mtakemiya/dev/iroha/target/parliament-sequential-composition-stage/preflight-snapshot/target/parliament-sequential-composition-stage/observe.py", line 41, in observe
+    require(content_resources == reference, 'fresh content metadata versus frozen observation')
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mtakemiya/dev/iroha/target/parliament-sequential-composition-stage/preflight-snapshot/target/parliament-sequential-composition-stage/observe.py", line 23, in require
+    raise ValueError(why)
+ValueError: fresh content metadata versus frozen observation

@@ -940,6 +940,25 @@ restart or a delayed issuer reply. Successful cancellation returns
 `LocalAbandoned`; it has no ledger instruction or slot/key effects. A different
 request identity may then start while the old Client and cancellation remain
 retained. If an Accepted original already exists, this pre-permit form refuses.
+
+An Accepted E1 whose account authorization never selected a Slot or Phase has a
+separate terminal expiry path. The Enrollment-role issuer signs a canonical
+`KagemushaEnrollmentExpiryProofV1` under the distinct
+`iroha:kagemusha:pre-key-expired:v1\0` domain. It binds the exact current Resume
+dispatch and retained Accepted permit SHA-256 digests, request and attempt
+identities, challenge digest, immutable expiry, and issuer observation at or
+after that expiry. Native verifies the rooted signer and every binding, retains
+Client and Accepted unchanged, requires Slot, Phase and Cancelled absence and
+refuses any matching intent or unavailable custody. Only then does it durably
+publish the immutable Expired proof. This has no ledger or hardware-key effect.
+Begin authenticates a retained Expired proof as terminal recovery DATA; permit
+acceptance and account authorization always refuse it. Generic abandonment or
+the expiry action may adopt that authenticated terminal outcome after restart
+without matching the new dispatch nonce to the old proof. This recovers a crash
+between Native publication and app completion DATA without replacing the proof,
+creating a key or allowing the expired identity to resume. A new request may
+start after `LocalAbandoned`; the old originals and proof remain retained.
+
 For selected slots, abandonment has two forms, chosen by the slot's durable
 state. The names below are Native's slot statuses
 (`KagemushaWalletSlotStatusV1`). Two different Native names say Pending. The
@@ -1794,14 +1813,11 @@ connect the canonical owner, remove obsolete exports/layouts/fixtures and run
 the affected checks in the same change. Keep no compatibility shim, second
 production engine or decoder fallback. Do not delete by filename prefix: the
 ordinary modules contain useful shared capabilities as well as retired protocol.
-This draft does not establish that live issued state is absent; the review
-found no evidence of a funded deployment outside testnets. Old-format value
-under a TestnetExperiment release is testnet value; a testnet reset is its
-cutover. Before an old release is removed from a network, establish whether
-funded old-format value exists there. If it does, that release's verifier
-stays until its holders have unloaded or paid it into the new scheme by their
-own choice; nobody is required to go online for the cutover. Keep no decoder
-fallback beyond that.
+This first release ships one current implementation and authenticated artifact
+format. Retired testnet releases do not justify retaining an old verifier,
+decoder, key fallback or monetary engine. Regenerate disposable testnet state
+from the current signed genesis and catalog when its protocol inputs change;
+historical test artifacts remain evidence only.
 
 ### 9.1 Cutover sequencing
 

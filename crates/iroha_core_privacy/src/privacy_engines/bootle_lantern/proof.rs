@@ -650,7 +650,7 @@ fn prove_projected_responses(
     randomness: &mut ProofRandomnessV1,
     rejection_budget: &mut ProofRejectionBudgetV1,
 ) -> Result<Option<ProjectionProofV1>, PresentationProofErrorV1> {
-    let s3 = Zeroizing::new(projected_norm_witness_v1(short));
+    let s3 = projected_norm_witness_v1(short);
     let s4 = Zeroizing::new(
         application_quotient_v1(relation, short).map_err(PresentationProofErrorV1::Toolbox)?,
     );
@@ -666,7 +666,7 @@ fn prove_projected_responses(
     }) {
         return Err(PresentationProofErrorV1::ApplicationQuotientBoundExceeded);
     }
-    let s3_coefficients = Zeroizing::new(centered_vector(s3.as_ref()));
+    let s3_coefficients = Zeroizing::new(centered_vector(s3.polynomials()));
     let s4_coefficients = Zeroizing::new(centered_vector(s4.as_ref()));
     for _ in 0..MAX_PROJECTION_SAMPLING_ATTEMPTS_PER_PROVE_ATTEMPT_V1 {
         if !rejection_budget.reserve(ProofRejectionStageV1::Projection) {
@@ -1763,9 +1763,10 @@ fn bootle_lantern_statement_matches_policy_v1(
     statement: &IrohaBootleLanternAnoncredStatementV1,
     policy: &BootleLanternIssuerPolicyV1,
 ) -> bool {
+    let authoritative_issuer_epoch = policy.epoch;
     statement.issuer_id == policy.issuer_id
         && statement.policy_id == policy.policy_id
-        && statement.issuer_policy_epoch == policy.epoch
+        && statement.issuer_policy_epoch == authoritative_issuer_epoch
         && statement.issuer_policy_record_digest == policy.record_digest
         && statement.issuer_parameter_id == policy.issuer_parameter_id
         && statement.issuer_parameter_digest == policy.issuer_parameter_digest

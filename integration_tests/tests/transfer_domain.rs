@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests for domain permissions and transfers.
 use eyre::{Result, eyre};
 use integration_tests::sandbox;

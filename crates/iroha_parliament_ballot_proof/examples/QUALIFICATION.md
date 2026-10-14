@@ -1,6 +1,6 @@
 # Resource observations
 
-`qualify` records experimental observations; all profile, hardware and production
+`parliament_ballot_qualify` records experimental observations; all profile, hardware and production
 integration qualification gates remain false. `measure.rs` and its earlier B5
 results remain unchanged. No production Norito record schema is defined here.
 
@@ -9,10 +9,10 @@ resulting binary. Use a stable target slot for repeated builds; do not use
 `--stable-local-metadata` for an identified qualification artifact.
 
 ```sh
-scripts/cargo_fast.sh --target-slot parliament-ballot --incremental -- build --release -p iroha_parliament_ballot_proof --example qualify --features accel
+scripts/cargo_fast.sh --target-slot parliament-ballot --incremental -- build --release -p iroha_parliament_ballot_proof --example parliament_ballot_qualify --features accel
 # Locate target directory from the wrapper output; record binary SHA-256.
-<target-directory>/release/examples/qualify --row candidate --samples 31 --source-id <source-manifest-sha256> --run-id <machine-build-label> > observations.jsonl
-<target-directory>/release/examples/qualify --row comparator --samples 3 --source-id <source-manifest-sha256> --run-id <machine-build-label> > comparator-observations.jsonl
+<target-directory>/release/examples/parliament_ballot_qualify --row candidate --samples 31 --source-id <source-manifest-sha256> --run-id <machine-build-label> > observations.jsonl
+<target-directory>/release/examples/parliament_ballot_qualify --row comparator --samples 3 --source-id <source-manifest-sha256> --run-id <machine-build-label> > comparator-observations.jsonl
 ```
 
 Omit `--features accel` for a portable build and record its separate binary hash.
@@ -66,7 +66,7 @@ contaminate these process-wide counters. These observations cannot establish a
 
 ## Malformed encoding observations
 
-`qualify malformed` accepts the same options and measures malformed encodings
+`parliament_ballot_qualify malformed` accepts the same options and measures malformed encodings
 through `cold_verify`. For each row/case it first constructs and accepts one
 fixed public-test-tape proof outside timing. It then constructs 16 registration
 or 22 vote mutations outside timing: outer lengths/tag/field framing, descriptor,
@@ -76,7 +76,7 @@ decode rejection or the specific backend codec error; all timed samples must
 reject at the same public boundary. No mutation construction/search is timed.
 
 ```sh
-<target-directory>/release/examples/qualify malformed --samples 31 --source-id <source-manifest-sha256> --run-id <machine-build-label> > malformed-observations.jsonl
+<target-directory>/release/examples/parliament_ballot_qualify malformed --samples 31 --source-id <source-manifest-sha256> --run-id <machine-build-label> > malformed-observations.jsonl
 ```
 
 Each fixed mutant is repeated in a warm process. These observations report
@@ -116,8 +116,8 @@ serialize runs and flush its writer when requested.
 Validation:
 
 ```sh
-scripts/cargo_fast.sh --target-slot parliament-ballot --incremental -- test --release -p iroha_parliament_ballot_proof --example qualify -- --test-threads=1
-scripts/cargo_fast.sh --target-slot parliament-ballot --incremental -- clippy -p iroha_parliament_ballot_proof --example qualify --features accel -- -D warnings
+scripts/cargo_fast.sh --target-slot parliament-ballot --incremental -- test --release -p iroha_parliament_ballot_proof --example parliament_ballot_qualify -- --test-threads=1
+scripts/cargo_fast.sh --target-slot parliament-ballot --incremental -- clippy -p iroha_parliament_ballot_proof --example parliament_ballot_qualify --features accel -- -D warnings
 ```
 
 Retain raw JSON lines, the exact command, compiler and OS versions, hardware

@@ -2867,11 +2867,10 @@ fn enter_test_runtime() -> Option<tokio::runtime::EnterGuard<'static>> {
     });
     Some(rt.enter())
 }
-fn trust_gossip_test_guard() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("trust gossip test lock poisoned")
+async fn trust_gossip_test_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    // Receive tests retain this counter lease while awaiting message handling.
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    LOCK.lock().await
 }
 fn queue_depth_test_guard() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -5800,8 +5799,8 @@ fn deferred_progress_never_displaces_safety_and_still_preserves_fifo_rank() {
             now,
             connection_id
         );
-        assert_eq!(
-            outcome.enqueued, false,
+        assert!(
+            !outcome.enqueued,
             "ordinary progress must never discard an already admitted safety witness"
         );
     }
@@ -10110,9 +10109,9 @@ fn accept_bucket_cap_enforced_under_churn() {
         "evictions counter should increase when cap forces churn"
     );
 }
-#[test]
-fn trust_gossip_send_skips_when_disabled() {
-    let _guard = trust_gossip_test_guard();
+#[tokio::test(flavor = "current_thread")]
+async fn trust_gossip_send_skips_when_disabled() {
+    let _guard = trust_gossip_test_guard().await;
     let_test_network!(network, TrustGossipMsg);
     network.trust_gossip = false;
     let before = trust_skip_count("send", "local_capability_off");
@@ -10132,9 +10131,9 @@ fn trust_gossip_send_skips_when_disabled() {
         "post + broadcast should both be skipped when trust gossip is disabled (before={before}, after={after})"
     );
 }
-#[test]
-fn peer_gossip_not_counted_as_trust_skip() {
-    let _guard = trust_gossip_test_guard();
+#[tokio::test(flavor = "current_thread")]
+async fn peer_gossip_not_counted_as_trust_skip() {
+    let _guard = trust_gossip_test_guard().await;
     let_test_network!(network, PeerGossipMsg);
     network.trust_gossip = false;
     let before = trust_skip_count("send", "local_capability_off");
@@ -10168,7 +10167,7 @@ async fn assert_trust_gossip_receive_skipped(
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn trust_gossip_recv_skips_when_local_capability_disabled() {
-    let _guard = trust_gossip_test_guard();
+    let _guard = trust_gossip_test_guard().await;
     assert_trust_gossip_receive_skipped(
         socket_addr!(127.0.0.1:200),
         true,
@@ -10179,7 +10178,7 @@ async fn trust_gossip_recv_skips_when_local_capability_disabled() {
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn trust_gossip_recv_skips_when_peer_lacks_capability() {
-    let _guard = trust_gossip_test_guard();
+    let _guard = trust_gossip_test_guard().await;
     assert_trust_gossip_receive_skipped(
         socket_addr!(127.0.0.1:201),
         false,
@@ -10879,7 +10878,7 @@ fn dispatch_to_subscribers_tracks_unmatched_topics() {
     network.dispatch_to_subscribers(PeerMessage::new(peer, TopicMsg::Peer, 1));
     let after = subscriber_unrouted_count();
     assert!(
-        after >= before + 1,
+        after > before,
         "unmatched topics should increment the unrouted counter"
     );
     assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
@@ -10902,7 +10901,7 @@ fn subscriber_queue_full_counts_increment_by_topic() {
         "queue-full counter should increase by at least the increment"
     );
     assert!(
-        after_safety >= before_safety + 1,
+        after_safety > before_safety,
         "safety drops must not be merged into ordinary consensus metrics"
     );
     assert!(
@@ -10910,7 +10909,7 @@ fn subscriber_queue_full_counts_increment_by_topic() {
         "queue-full per-topic counter should track consensus drops"
     );
     assert!(
-        after_chunks >= before_chunks + 1,
+        after_chunks > before_chunks,
         "queue-full per-topic counter should track consensus chunk drops"
     );
 }

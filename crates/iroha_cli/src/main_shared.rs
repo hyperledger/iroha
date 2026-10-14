@@ -1,6 +1,6 @@
 //! Iroha client CLI implementation executed by the thin `iroha` binary.
 #![deny(deprecated)]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::release_identity::CompiledBuildMetadata;
 use iroha_model_base::domain::DomainId;
 

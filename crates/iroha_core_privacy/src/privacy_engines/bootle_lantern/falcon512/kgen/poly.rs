@@ -145,7 +145,7 @@ pub(crate) fn poly_mp_set_small(logn: u32, f: &[i8], p: u32, d: &mut [u32]) {
 pub(crate) fn poly_mp_set(logn: u32, f: &mut [u32], p: u32) {
     for i in 0..(1usize << logn) {
         let x = f[i];
-        f[i] = mp_set((x | ((x & 0x40000000) << 1)) as i32, p);
+        f[i] = mp_set((x | ((x & 0x4000_0000) << 1)) as i32, p);
     }
 }
 // Convert a polynomial from RNS to plain, signed representation, 1 word
@@ -165,7 +165,7 @@ pub(crate) fn poly_max_bitlength(logn: u32, x: &[u32], xlen: usize) -> u32 {
     let mut tk = 0u32;
     for i in 0..n {
         // Extend sign bit into a 31-bit mask.
-        let m = (x[i + ((xlen - 1) << logn)] >> 30).wrapping_neg() & 0x7FFFFFFF;
+        let m = (x[i + ((xlen - 1) << logn)] >> 30).wrapping_neg() & 0x7FFF_FFFF;
         // Get top non-zero sign-adjusted word, with index.
         //   c    top non-zero word
         //   ck   index at which c was found
@@ -254,7 +254,7 @@ pub(crate) fn poly_big_to_fixed(logn: u32, f: &[u32], flen: usize, sc: u32, d: &
         // the shift count (the last notable architecture on which this
         // was not true was the Willamette and Northwood cores in the
         // Pentium IV).
-        w2 |= (w2 & 0x40000000) << 1;
+        w2 |= (w2 & 0x4000_0000) << 1;
         let xl = (w0 >> (scl - 1)) | (w1 << (32 - scl));
         let xh = (w1 >> scl) | (w2 << (31 - scl));
         d[i] = FXR::from_u64_scaled32((xl as u64) | ((xh as u64) << 32));
@@ -381,8 +381,8 @@ pub(crate) fn poly_sub_kfg_scaled_depth1(
         for i in 0..n {
             let xf = F[i];
             let xg = G[i];
-            let xf = xf | ((xf & 0x40000000) << 1);
-            let xg = xg | ((xg & 0x40000000) << 1);
+            let xf = xf | ((xf & 0x4000_0000) << 1);
+            let xg = xg | ((xg & 0x4000_0000) << 1);
             F[i] = mp_set(xf as i32, p);
             G[i] = mp_set(xg as i32, p);
         }
@@ -396,7 +396,7 @@ pub(crate) fn poly_sub_kfg_scaled_depth1(
         let z1 = mp_half(PRIMES[1].R2, p1);
         for i in 0..n {
             let xl = F[i];
-            let xh = F[i + n] | ((F[i + n] & 0x40000000) << 1);
+            let xh = F[i + n] | ((F[i + n] & 0x4000_0000) << 1);
             let yl0 = mp_set_u(xl, p0);
             let yh0 = mp_set(xh as i32, p0);
             let r0 = mp_add(yl0, mp_mmul(yh0, z0, p0, p0_0i), p0);
@@ -406,7 +406,7 @@ pub(crate) fn poly_sub_kfg_scaled_depth1(
             F[i] = r0;
             F[i + n] = r1;
             let xl = G[i];
-            let xh = G[i + n] | ((G[i + n] & 0x40000000) << 1);
+            let xh = G[i + n] | ((G[i + n] & 0x4000_0000) << 1);
             let yl0 = mp_set_u(xl, p0);
             let yh0 = mp_set(xh as i32, p0);
             let r0 = mp_add(yl0, mp_mmul(yh0, z0, p0, p0_0i), p0);
@@ -522,8 +522,8 @@ pub(crate) fn poly_sub_kfg_scaled_depth1(
     if FGlen == 1 {
         let p = PRIMES[0].p;
         for i in 0..n {
-            F[i] = (mp_norm(F[i], p) as u32) & 0x7FFFFFFF;
-            G[i] = (mp_norm(G[i], p) as u32) & 0x7FFFFFFF;
+            F[i] = (mp_norm(F[i], p) as u32) & 0x7FFF_FFFF;
+            G[i] = (mp_norm(G[i], p) as u32) & 0x7FFF_FFFF;
         }
     } else {
         let p0 = PRIMES[0].p;
@@ -539,8 +539,8 @@ pub(crate) fn poly_sub_kfg_scaled_depth1(
             let y = mp_mmul(mp_sub(x1, x0m1, p1), s, p1, p1_0i);
             let z = (x0 as u64) + (p0 as u64) * (y as u64);
             let z = z.wrapping_sub(pp & (hpp.wrapping_sub(z) >> 63).wrapping_neg());
-            F[i] = (z as u32) & 0x7FFFFFFF;
-            F[i + n] = ((z >> 31) as u32) & 0x7FFFFFFF;
+            F[i] = (z as u32) & 0x7FFF_FFFF;
+            F[i + n] = ((z >> 31) as u32) & 0x7FFF_FFFF;
         }
         for i in 0..n {
             let x0 = G[i];
@@ -549,8 +549,8 @@ pub(crate) fn poly_sub_kfg_scaled_depth1(
             let y = mp_mmul(mp_sub(x1, x0m1, p1), s, p1, p1_0i);
             let z = (x0 as u64) + (p0 as u64) * (y as u64);
             let z = z.wrapping_sub(pp & (hpp.wrapping_sub(z) >> 63).wrapping_neg());
-            G[i] = (z as u32) & 0x7FFFFFFF;
-            G[i + n] = ((z >> 31) as u32) & 0x7FFFFFFF;
+            G[i] = (z as u32) & 0x7FFF_FFFF;
+            G[i + n] = ((z >> 31) as u32) & 0x7FFF_FFFF;
         }
     }
 }

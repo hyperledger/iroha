@@ -1,8 +1,8 @@
 //! Signature verification opcode/syscall tests using TLVs.
+use crate::common;
+use common::assemble;
 use ivm::signature::{Ed25519BatchEntry, Ed25519BatchRequest};
 use ivm::{IVM, Memory, PointerType, VMError, encoding, instruction};
-mod common;
-use common::assemble;
 const ED25519_SMALL_ORDER_POINT: [u8; 32] = [
     1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];

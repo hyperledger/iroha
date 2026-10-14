@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Assert `ProofRejected` SSE JSON includes `proof_hash`, `call_hash`, `vk_ref`, `vk_commitment`.
 #![cfg(feature = "app_api")]
 #[path = "common/proof_events.rs"]

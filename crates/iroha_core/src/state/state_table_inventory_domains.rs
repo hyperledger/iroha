@@ -56,6 +56,11 @@ pub(super) struct OtherDomains {
 pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     OtherDomains {
         usage: Use::Name,
+        reason: "Schema identity of the retained native KAGEMUSHA A/B/C exchange result read by the signed test-chain fixture; selects the exact result layout, not a hash domain or State-content root",
+        literals: &[r"iroha.kagemusha.native-abc-result.v1"],
+    },
+    OtherDomains {
+        usage: Use::Name,
         reason: "Nominal Model codec identities of the committed fraud admission policy and its exact components; the value lives in world.parameters, and these literals select schema identities rather than hash domains or independent State roots",
         literals: &[
             r"iroha:fraud:admission-attester:v1",

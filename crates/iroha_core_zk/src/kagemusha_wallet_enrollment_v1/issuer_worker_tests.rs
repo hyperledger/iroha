@@ -89,7 +89,7 @@ fn fixture(apple: bool) -> VerifierRequestV1 {
                     spki_sha256: [4; 32],
                     revocation_source: KagemushaWalletRevocationSourceV1::GoogleAttestationStatus,
                 }],
-                patch_floor_yyyymm: 202608,
+                patch_floor_yyyymm: 202_608,
             }
         },
         regulatory_policy: KagemushaWalletRegulatoryPolicyV1::default(),

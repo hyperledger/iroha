@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Load `genesis.json` and ensure assets minted in genesis appear on all peers.
 use eyre::{Result, eyre};
 use integration_tests::sandbox;

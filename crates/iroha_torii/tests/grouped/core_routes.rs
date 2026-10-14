@@ -1,5 +1,5 @@
 //! Grouped Torii core route integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[path = "../account_query_subrouter_smoke.rs"]
 mod account_query_subrouter_smoke;
 #[path = "../accounts_endpoints.rs"]

@@ -1,0 +1,61 @@
+"""Preserve the domain audit and its exact selected-source bytes in a new package."""
+import hashlib
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
+AUDIT = ROOT/'target/parliament-family-domain-stage'
+OUT = HERE/'publication'
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def require(condition, reason):
+    if not condition:
+        raise ValueError(reason)
+
+
+def main():
+    require(not OUT.exists(), 'new publication destination required')
+    manifest = (AUDIT/'SHA256SUMS').read_bytes()
+    require(sha(manifest) == '9f6b66f7dd5815830781b87778ee12d99705514dcde244995805cc3d71a3bcb8', 'original manifest')
+    inputs = []
+    for line in manifest.decode().splitlines():
+        digest, relative = line.split('  ', 1)
+        path = Path(relative)
+        require(not path.is_absolute() and '..' not in path.parts, 'safe original member')
+        data = (AUDIT/path).read_bytes()
+        require(sha(data) == digest, 'original member: '+relative)
+        inputs.append((AUDIT/path, Path('audit')/path, data))
+    inputs.append((AUDIT/'SHA256SUMS', Path('audit/SHA256SUMS'), manifest))
+    receipt = json.loads((AUDIT/'receipt.json').read_bytes())
+    for relative, digest in receipt['source_sha256_after'].items():
+        path = Path(relative)
+        require(not path.is_absolute() and '..' not in path.parts, 'safe selected source')
+        data = (ROOT/path).read_bytes()
+        require(sha(data) == digest, 'selected source drift: '+relative)
+        inputs.append((ROOT/path, Path('source')/(relative+'.template'), data))
+    for name in ('README.md', 'assemble.py'):
+        path = HERE/name
+        output = Path('README.md') if name.endswith('.md') else Path('package-tools/assemble.py.template')
+        inputs.append((path, output, path.read_bytes()))
+    OUT.mkdir()
+    inventory = []
+    for source, path, data in inputs:
+        destination = OUT/path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+        inventory.append(dict(path=path.as_posix(), source=source.relative_to(ROOT).as_posix(), sha256=sha(data)))
+    for source, _, data in inputs:
+        require(source.read_bytes() == data, 'copy interval source drift')
+    (OUT/'inventory.json').write_text(json.dumps(inventory, sort_keys=True, indent=2)+'\n')
+    files = sorted(p for p in OUT.rglob('*') if p.is_file())
+    (OUT/'SHA256SUMS').write_text(''.join(sha(p.read_bytes())+'  '+p.relative_to(OUT).as_posix()+'\n' for p in files))
+    print(json.dumps(dict(files=len(files)+1, source_inputs=24, manifest_sha256=sha((OUT/'SHA256SUMS').read_bytes()))))
+
+
+if __name__ == '__main__':
+    main()

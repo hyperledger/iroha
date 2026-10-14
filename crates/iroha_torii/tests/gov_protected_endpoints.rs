@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Torii tests for protected-namespaces GET/POST endpoints.
 #![cfg(all(feature = "app_api", feature = "ws_integration_tests"))]
 #![allow(unexpected_cfgs, clippy::redundant_closure_for_method_calls)]

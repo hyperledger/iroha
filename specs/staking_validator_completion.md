@@ -232,8 +232,19 @@ readers must retain actual release owners, with callbacks outside enclosing fenc
   allocation to 3 MiB before conversion mutates any reserves. Together with the
   identity, registry and page limits, these bounds keep a mandatory page and
   its independent evidence sources within the 8 MiB block corpus. Mandatory
-  accrual runs before the optional idle-wallet sweep, whose complete batch
-  rolls back when its additional receipts exceed the remaining budget.
+  accrual runs before the optional idle-wallet sweep, whose complete selected batch
+  rolls back when its additional receipts exceed the remaining evidence budget.
+  Collected retail receipts share the unchanged finite native FASTPQ pool with
+  SNS renewals. Retail admits at most half; the odd slot alternates by block
+  height, including a one-entry policy. Each wallet retains its unsettled months
+  after an exact admitted boundary, with at most twelve months and 128 scanned
+  wallets per sweep. Only actually processed wallet keys advance the cursor.
+  Original quota transaction identity, receipt frames and moved deltas bind the
+  native permit; State, source quota and witness publish or roll back together.
+  The actual Time owner selects SNS renewals only from the remaining native E;
+  pool contention does not advance unselected records or count as payment failure.
+  Each renewal's child witness rolls back before genuine payment-failure retry
+  metadata is committed, including a late fee-evidence refusal.
   Before customer instructions, each committed block advances at most one funded
   exposure page per retained payout binding. Reward cursors create no blocks or
   transactions; a completely idle chain waits for ordinary submitted Network

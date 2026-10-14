@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests for /v1/zk/attachments endpoints (`app_api`).
 #![cfg(all(feature = "app_api", feature = "ws_integration_tests"))]
 #![allow(unexpected_cfgs)]

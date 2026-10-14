@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Library instrumentation runs in its own APK, whose application does not inherit the
+     tested library's main manifest. Keep its actual custody backup set empty too. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/kagemusha_wallet_v1_data_extraction_rules"
+        android:fullBackupContent="@xml/kagemusha_wallet_v1_full_backup_content"
+        tools:targetApi="31">
+        <activity
+            android:name="org.hyperledger.iroha.sdk.offline.wallet.KagemushaProbeConfirmationActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    </application>
+</manifest>

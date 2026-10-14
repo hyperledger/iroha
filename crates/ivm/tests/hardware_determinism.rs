@@ -1,9 +1,9 @@
 #[cfg(feature = "cuda")]
-use ivm::{IVM, Memory, encoding, instruction};
-#[cfg(feature = "cuda")]
-mod common;
+use crate::common;
 #[cfg(feature = "cuda")]
 use common::{MODE_VECTOR, assemble_with_mode};
+#[cfg(feature = "cuda")]
+use ivm::{IVM, Memory, encoding, instruction};
 #[cfg(feature = "cuda")]
 fn make_program() -> Vec<u8> {
     const HALT: [u8; 4] = encoding::wide::encode_halt().to_le_bytes();

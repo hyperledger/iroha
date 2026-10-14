@@ -1,5 +1,4 @@
 #![doc = "Verifying-key registry indexing by `(circuit_id, version)`."]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "zk-tests")]
 //! Verifying-key registry indexing by `(circuit_id, version)`.
 #[path = "common/native_genesis.rs"]

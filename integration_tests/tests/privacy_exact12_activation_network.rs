@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Four-validator governance lifecycle coverage for the complete canonical
 //! first-release exact-12 privacy registry. Eight executable profiles retain
 //! positive governance coverage; ZK-ACE, ZK-AMS, Vega, and ZK-X509 remain

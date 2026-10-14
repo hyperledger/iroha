@@ -1,5 +1,5 @@
 //! Grouped Iroha data model integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[path = "../support/fixture_json.rs"]
 mod fixture_json;
 #[path = "../game_v1_codec.rs"]
@@ -70,6 +70,8 @@ mod soracloud_manifest_fixtures;
 mod soranet_ticket_errors;
 #[path = "../streaming_events_roundtrip.rs"]
 mod streaming_events_roundtrip;
+#[path = "../support/mod.rs"]
+mod support;
 #[path = "../symlink_handling.rs"]
 mod symlink_handling;
 #[path = "../trait_objects.rs"]

@@ -1,5 +1,5 @@
 //! Type-mismatch validation for `CoreHost` pointer-ABI decoding.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::smartcontracts::ivm::host::CoreHost;
 use iroha_data_model::prelude::*;
 use iroha_model_base::domain::DomainId;

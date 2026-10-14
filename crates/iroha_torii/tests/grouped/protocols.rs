@@ -1,5 +1,5 @@
 //! Grouped Torii protocol, MCP, Norito ingress, and WebSocket tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[path = "../connect_gating.rs"]
 mod connect_gating;
 #[path = "../mcp_endpoints.rs"]

@@ -1,3 +1,5 @@
+use crate::common;
+use common::assemble_syscalls;
 use iroha_crypto::{Hash, PublicKey};
 use iroha_model_base::domain::DomainId;
 use iroha_model_base::name::Name;
@@ -10,8 +12,6 @@ use ivm::{
     syscalls,
 };
 use std::str::FromStr;
-mod common;
-use common::assemble_syscalls;
 fn make_tlv(type_id: u16, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(7 + payload.len() + 32);
     out.extend_from_slice(&type_id.to_be_bytes());

@@ -30,8 +30,8 @@ EXPECTED_BEACON_NETWORK_TEST = (
     'production_beacon_bootstrap::four_peer_fresh_custody_bootstrap_reaches_mandatory_pulse'
 )
 PLATFORM_REGRESSION_COUNT = 1 if sys.platform == "linux" else 0
-EXPECTED_BASIC_REGRESSION_COUNT = 2116 + PLATFORM_REGRESSION_COUNT
-EXPECTED_REGRESSION_COUNT = 2149 + PLATFORM_REGRESSION_COUNT
+EXPECTED_BASIC_REGRESSION_COUNT = 2182 + PLATFORM_REGRESSION_COUNT
+EXPECTED_REGRESSION_COUNT = 2215 + PLATFORM_REGRESSION_COUNT
 
 REWARD_ACCOUNTING_SOURCE_TESTS = {
     'smartcontracts/isi/multisig.rs': ('smartcontracts::isi::multisig::tests::', (
@@ -1557,6 +1557,155 @@ class BasicReleaseQualificationTests(unittest.TestCase):
         names = ['kura::native_frame_release_tests::original_native_frame_metadata_success_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_metadata_absence_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_metadata_refusal_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_body_success_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_body_refusal_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_partial_refusals_retain_exact_storage_errors', 'kura::native_frame_release_tests::original_native_frame_unwind_notifies_after_each_acquired_prefix']
         controls = (Path(__file__).resolve().parents[2] /
                     'crates/iroha_core/src/kura/native_frame_release_tests.rs').read_text()
+        for name in names:
+            self.assertEqual(controls.count("fn " + name.rsplit("::", 1)[-1] + "()"), 1)
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
+
+    def test_original_retail_native_purpose_controls_are_required_in_both_scopes(self):
+        names = ['sns::native_maintenance_tests::original_sns_late_fee_refusal_drops_witness_before_retry_metadata', 'retail_fee_tests::original_time_sns_sweep_uses_only_capacity_left_by_exact_retail_prefix', 'retail_fee_tests::original_idle_sweep_admits_exact_native_receipts_before_carrier_execution', 'retail_fee_tests::original_idle_sweep_keeps_bounded_month_prefix_and_fair_native_share', 'retail_fee_tests::original_one_entry_native_policy_alternates_retail_and_sns_admission', 'retail_fee_tests::original_idle_waived_receipts_keep_exact_history_without_native_entries', 'retail_fee::native_maintenance::tests::original_retail_permit_rejects_identical_discarded_sibling', 'retail_fee::native_maintenance::tests::original_retail_permit_rejects_changed_receipt_and_foreign_invocation_scope', 'retail_fee::native_maintenance::tests::original_idle_reward_refusal_rolls_back_witness_and_source_before_exact_retry', 'retail_fee::native_maintenance::tests::original_retail_receipt_decode_refusal_retains_exact_pending_owner_for_retry', 'fastpq::source_reservation::admission::tests::retail_native_batch_owns_only_its_exact_applied_receipt_prefix', 'fastpq::source_reservation::admission::tests::retail_native_quota_rejects_foreign_identity_and_mixed_authorities', 'fastpq::source_reservation::admission::tests::retail_and_sns_share_exact_original_native_capacity_without_lending']
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
+
+    def test_original_lane_recovery_isolation_controls_are_required_in_both_scopes(self):
+        names = ['sumeragi::lanes::registry::tests::isolation_tests::original_lane_recovery_allows_ready_disjoint_owner_during_native_sync', 'sumeragi::lanes::registry::tests::isolation_tests::original_lane_recovery_retains_in_flight_historical_join_through_retirement', 'sumeragi::lanes::registry::tests::isolation_tests::original_lane_recovery_runtime_refusal_cancels_only_after_active_owner_returns', 'sumeragi::lanes::registry::tests::isolation_tests::original_lane_opening_cloned_before_completion_joins_the_same_ready_store']
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
+
+    def test_original_native_lane_namespace_controls_are_required_in_both_scopes(self):
+        names = ['sumeragi::evidence_history::lane::tests::lane_proof_original_namespace_survives_funded_refusal_and_identical_replacement', 'sumeragi::evidence_history::lane::tests::completed_lane_proof_rejoins_original_namespace_before_attribution', 'sumeragi::lanes::evidence::frame::tests::funded_lane_frame_late_namespace_refusal_retains_completed_original_body', 'sumeragi::evidence_history::lane::tests::lane_proof_absent_instance_retries_original_context_before_acquiring_frames']
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
+
+    def test_original_capacity_recovery_controls_are_required_and_focused_in_both_scopes(self):
+        names = ['kura::capacity_release_tests::original_capacity_recovery_success_notifies_after_final_accounting', 'kura::capacity_release_tests::original_capacity_restore_success_notifies_after_final_accounting', 'kura::capacity_release_tests::original_capacity_recovery_capacity_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_prune_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_canonical_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_accounting_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_unwind_notifies_after_each_acquired_prefix']
+        controls = (Path(__file__).resolve().parents[2] /
+                    'crates/iroha_core/src/kura/capacity_release_tests.rs').read_text()
+        for name in names:
+            self.assertEqual(controls.count("fn " + name.rsplit("::", 1)[-1] + "()"), 1)
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
+
+    def test_original_durable_publication_controls_are_required_and_focused_in_both_scopes(self):
+        names = ['kura::tests::original_durable_release_tests::original_durable_append_notifies_after_every_storage_fence', 'kura::tests::original_durable_release_tests::original_durable_retry_notifies_after_every_storage_fence', 'kura::tests::original_durable_release_tests::original_durable_refusal_notifies_after_every_storage_fence', 'kura::tests::original_durable_release_tests::original_durable_debug_append_notifies_after_outer_writer_retires']
+        controls = (Path(__file__).resolve().parents[2] /
+                    'crates/iroha_core/src/kura/tests/15_remaining_physical_writer_tests.rs').read_text()
+        for name in names:
+            self.assertEqual(controls.count("fn " + name.rsplit("::", 1)[-1] + "()"), 1)
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
+
+    def test_original_fastpq_artifact_controls_are_required_and_focused_in_both_scopes(self):
+        names = ['kura::fastpq_artifact_store::original_release_tests::original_artifact_persist_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_exact_retry_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_quota_refusal_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_content_conflict_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_refusals_retain_exact_errors_and_bytes', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_partial_refusals_retain_exact_storage_errors', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_unwind_notifies_after_each_acquired_prefix']
+        controls = (Path(__file__).resolve().parents[2] /
+                    'crates/iroha_core/src/kura/fastpq_artifact_release_tests.rs').read_text()
+        for name in names:
+            self.assertEqual(controls.count("fn " + name.rsplit("::", 1)[-1] + "()"), 1)
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
+
+    def test_original_queued_sidecar_controls_are_required_and_focused_in_both_scopes(self):
+        names = ['kura::original_queued_sidecar_release_tests::original_direct_pipeline_success_notifies_after_outer_prune', 'kura::original_queued_sidecar_release_tests::original_direct_pipeline_io_refusal_retains_exact_bytes', 'kura::original_queued_sidecar_release_tests::original_queued_pipeline_writer_notifies_after_outer_prune', 'kura::original_queued_sidecar_release_tests::original_queued_fastpq_writer_notifies_after_attachment_publication', 'kura::original_queued_sidecar_release_tests::original_queued_fastpq_retry_and_exhaustion_finalize_before_notice', 'kura::original_queued_sidecar_release_tests::original_queued_fastpq_hash_refusal_retains_exact_bytes', 'kura::original_queued_sidecar_release_tests::original_standalone_fastpq_flush_notifies_after_retry_queue_finalizes', 'kura::original_queued_sidecar_release_tests::original_queued_sidecar_unwind_notifies_after_each_acquired_prefix']
+        controls = (Path(__file__).resolve().parents[2] /
+                    'crates/iroha_core/src/kura/queued_sidecar_release_tests.rs').read_text()
+        for name in names:
+            self.assertEqual(controls.count("fn " + name.rsplit("::", 1)[-1] + "()"), 1)
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
+
+    def test_original_snapshot_boundary_controls_are_required_and_focused_in_both_scopes(self):
+        names = ['kura::tests::original_snapshot_release_tests::original_snapshot_boundary_empty_notifies_after_storage_fences', 'kura::tests::original_snapshot_release_tests::original_snapshot_boundary_native_hash_notifies_after_storage_fences', 'kura::tests::original_snapshot_release_tests::original_snapshot_mapping_empty_notifies_after_storage_fences', 'kura::tests::original_snapshot_release_tests::original_snapshot_mapping_native_bytes_notifies_after_storage_fences', 'kura::tests::original_snapshot_release_tests::original_snapshot_mapping_height_refusal_retains_exact_journals', 'kura::tests::original_snapshot_release_tests::original_snapshot_corrupt_journal_refusal_retains_exact_error_and_bytes', 'kura::tests::original_snapshot_release_tests::original_snapshot_partial_refusals_preserve_storage_and_mode_errors', 'kura::tests::original_snapshot_release_tests::original_snapshot_unwind_notifies_after_each_acquired_prefix']
+        controls = (Path(__file__).resolve().parents[2] /
+                    'crates/iroha_core/src/kura/tests/snapshot_release_tests.rs').read_text()
+        for name in names:
+            self.assertEqual(controls.count("fn " + name.rsplit("::", 1)[-1] + "()"), 1)
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
+
+    def test_original_inventory_controls_are_required_and_focused_in_both_scopes(self):
+        names = ['kura::original_inventory_release_tests::original_inventory_absent_artifacts_publish_before_source_notice', 'kura::original_inventory_release_tests::original_inventory_retained_artifacts_publish_exact_counts_before_notice', 'kura::original_inventory_release_tests::original_inventory_artifact_refusal_invalidates_every_family_before_notice', 'kura::original_inventory_release_tests::original_inventory_tree_refusal_invalidates_every_family_before_notice', 'kura::original_inventory_release_tests::original_inventory_busy_owner_refusal_invalidates_before_prefix_notice', 'kura::original_inventory_release_tests::original_inventory_acquired_prefix_refusal_invalidates_before_notice', 'kura::original_inventory_release_tests::original_inventory_unwind_notifies_after_each_acquired_prefix']
+        controls = (Path(__file__).resolve().parents[2] / 'crates/iroha_core/src/kura/inventory_release_tests.rs').read_text()
         for name in names:
             self.assertEqual(controls.count("fn " + name.rsplit("::", 1)[-1] + "()"), 1)
         for scope in gate.QUALIFICATION_SCOPES:

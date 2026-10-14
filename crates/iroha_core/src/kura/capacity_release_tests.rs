@@ -278,3 +278,62 @@ fn original_capacity_recovery_unwind_notifies_after_each_acquired_prefix() {
         assert_eq!(kura.exact_durable_blocks_count().unwrap(), 0);
     }
 }
+
+#[test]
+fn original_capacity_recovery_cached_boundary_cannot_mask_corrupt_journals() {
+    for limit in [0, 1 << 30] {
+        for (file, message) in [
+            (
+                INDEX_FILE_NAME,
+                "block index journal has a partial trailing entry",
+            ),
+            (
+                HASHES_FILE_NAME,
+                "block hash journal has a partial trailing entry",
+            ),
+        ] {
+            let mut kura = Kura::blank_kura_for_testing();
+            Arc::get_mut(&mut kura)
+                .expect("fresh sole Kura owner")
+                .max_disk_usage_bytes = limit;
+            assert_eq!(kura.durable_budget_snapshot(), Some((0, 0)));
+            let path = Kura::canonical_storage_path(&kura.store_root).join(file);
+            let original = std::fs::read(&path).unwrap();
+            assert!(original.is_empty());
+            std::fs::write(&path, [1]).unwrap();
+            let result = observe_original_release(&kura, 1, Some(false), || {
+                kura.validate_and_publish_configured_kura_capacity_after_startup_recovery(true)
+            });
+            assert!(matches!(result, Err(Error::IO(ref error, ref actual_path))
+                if error.kind() == ErrorKind::InvalidData && actual_path == &path
+                && error.to_string() == message));
+            assert_eq!(std::fs::read(&path).unwrap(), [1]);
+            std::fs::write(&path, original).unwrap();
+            kura.validate_and_publish_configured_kura_capacity_after_startup_recovery(true)
+                .unwrap();
+            assert_usage(&kura);
+            assert_eq!(kura.exact_durable_blocks_count().unwrap(), 0);
+        }
+    }
+}
+
+#[test]
+fn original_capacity_recovery_poisoned_boundary_cannot_publish_accounting() {
+    for limit in [0, 1 << 30] {
+        let mut kura = Kura::blank_kura_for_testing();
+        Arc::get_mut(&mut kura)
+            .expect("fresh sole Kura owner")
+            .max_disk_usage_bytes = limit;
+        kura.canonical_storage_poisoned
+            .store(true, Ordering::Release);
+        let result = observe_original_release(&kura, 1, Some(false), || {
+            kura.validate_and_publish_configured_kura_capacity_after_startup_recovery(true)
+        });
+        assert!(matches!(result, Err(Error::CanonicalStoragePoisoned)));
+        assert!(kura.canonical_storage_poisoned.load(Ordering::Acquire));
+        assert!(matches!(
+            kura.exact_durable_blocks_count(),
+            Err(Error::CanonicalStoragePoisoned)
+        ));
+    }
+}

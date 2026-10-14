@@ -1,4 +1,5 @@
 //! Checked and explicitly wrapping Kotodama `int` arithmetic regressions.
+use crate::common;
 use iroha_crypto::Hash;
 use iroha_model_base::name::Name;
 use iroha_primitives::{
@@ -13,7 +14,6 @@ use ivm::{
 };
 use kotodama_lang::compiler::Compiler;
 use std::collections::BTreeMap;
-mod common;
 const MAX_INT: &str = "6703903964971298549787012499102923063739682910296196688861780721860882015036773488400937149083451713845015929093243025426876941405973284973216824503042047";
 const MIN_INT: &str = "-6703903964971298549787012499102923063739682910296196688861780721860882015036773488400937149083451713845015929093243025426876941405973284973216824503042048";
 fn compile(source: &str) -> Vec<u8> {

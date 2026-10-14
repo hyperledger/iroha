@@ -64,7 +64,7 @@ fn stage_musubi(world: &mut WorldBlock<'_>) {
     clippy::large_types_passed_by_value,
     reason = "the acquired block owns the supplied header independently of the caller"
 )]
-pub(super) fn staged_block(
+pub(in crate::state) fn staged_block(
     state: &State,
     header: BlockHeader,
     replacement: bool,
@@ -794,7 +794,7 @@ fn collect_original_ebr_until(budget: &iroha_allocation::AllocationBudget, expec
 mod retained_package_read_tests;
 
 #[path = "publication/retained_musubi_group/tests.rs"]
-mod retained_musubi_group_tests;
+pub(in crate::state) mod retained_musubi_group_tests;
 
 #[test]
 fn retained_state_successful_musubi_validation_survives_late_writer_refusal() {

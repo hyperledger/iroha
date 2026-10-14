@@ -124,6 +124,10 @@ impl ParliamentTimedOvnCastingContextArchiveV1 {
     #[doc(hidden)]
     #[must_use]
     #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "this constructor transfers the complete session into its owned archive or lifecycle state"
+    )]
     pub fn from_snapshot_parts_v1(
         finalized_height: u64,
         phase: ParliamentTimedOvnCastingPhaseV1,
@@ -160,6 +164,10 @@ impl ParliamentTimedOvnCastingContextArchiveV1 {
     /// oversized frame, malformed proof corpus, or mismatched TLE/session/release
     /// binding.
     #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "this constructor transfers the complete session into its owned archive or lifecycle state"
+    )]
     pub fn try_from_parts_v1(
         finalized_height: u64,
         phase: ParliamentTimedOvnCastingPhaseV1,
@@ -313,8 +321,12 @@ impl ParliamentTimedOvnCastingContextArchiveV1 {
                 release_identity,
                 &tle_key_session,
             )?),
-            (ParliamentTimedOvnCastingPhaseV1::Registered, None, None)
-            | (ParliamentTimedOvnCastingPhaseV1::RegistrationClosed, None, None) => None,
+            (
+                ParliamentTimedOvnCastingPhaseV1::Registered
+                | ParliamentTimedOvnCastingPhaseV1::RegistrationClosed,
+                None,
+                None,
+            ) => None,
             _ => return Err(TimedOvnCastingArchiveValidationErrorV1::PhaseFieldMismatch),
         };
         if self.release_identity.is_some_and(|identity| {
@@ -385,6 +397,10 @@ impl ValidatedParliamentTimedOvnCastingContextArchiveV1 {
     /// survivor/dropout roots, release identity, and TLE transcript binding, is
     /// recomputed from the archive before equality with that authenticated leaf
     /// may be accepted.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid phase/deadline schedule, registration
+    /// corpus, survivor count, or replay-derived release/root binding.
     pub fn compact_binding_v1(
         &self,
         registration_close_height: u64,
@@ -412,10 +428,12 @@ impl ValidatedParliamentTimedOvnCastingContextArchiveV1 {
             archive.survivor_participant_hashes.as_deref(),
             archive.release_identity,
         ) {
-            (ParliamentTimedOvnCastingPhaseV1::Registered, None, None)
-            | (ParliamentTimedOvnCastingPhaseV1::RegistrationClosed, None, None) => {
-                (None, None, None)
-            }
+            (
+                ParliamentTimedOvnCastingPhaseV1::Registered
+                | ParliamentTimedOvnCastingPhaseV1::RegistrationClosed,
+                None,
+                None,
+            ) => (None, None, None),
             (ParliamentTimedOvnCastingPhaseV1::SurvivorsFrozen, Some(survivors), Some(release)) => {
                 let roots = crate::evidence::derive_timed_ovn_roots_v1(
                     &archive.session,

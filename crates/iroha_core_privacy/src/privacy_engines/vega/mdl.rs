@@ -1321,7 +1321,7 @@ mod tests {
             ),
             Err(VegaMdlError::SignatureVerificationFailed {
                 role: VegaSignatureRoleV1::Issuer
-            }) | Err(VegaMdlError::InvalidSignatureEncoding {
+            } | VegaMdlError::InvalidSignatureEncoding {
                 role: VegaSignatureRoleV1::Issuer
             })
         ));

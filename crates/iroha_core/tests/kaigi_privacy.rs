@@ -1,5 +1,5 @@
 //! Integration coverage for final Kaigi authorization and usage instruction execution.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![cfg(feature = "zk-tests")]
 
 use core::num::NonZeroU64;

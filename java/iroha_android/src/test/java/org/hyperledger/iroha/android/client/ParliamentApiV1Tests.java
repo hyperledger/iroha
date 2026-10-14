@@ -321,7 +321,7 @@ public final class ParliamentApiV1Tests {
         List.of(
             sccpSubject("parameters", null),
             sccpSubject("light_client", bscMainnet()),
-            sccpSubject("bridge_key_fault", "ea0130" + "AB".repeat(48)))) {
+            sccpSubject("forgery_hold", bscMainnet()))) {
       org.hyperledger.iroha.sdk.client.ParliamentApiV1.Proposal.fromJson(
           sccpProposal(proposal -> proposal.put("base_revisions", List.of(subject))));
     }
@@ -355,11 +355,17 @@ public final class ParliamentApiV1Tests {
             proposal ->
                 proposal.put(
                     "base_revisions",
+                    List.of(sccpSubject("bridge_key_fault", "ea0130" + "AB".repeat(48)))),
+            proposal ->
+                proposal.put(
+                    "base_revisions",
                     List.of(
                         sccpSubject(
                             "route", map("network", "sora_taira", "profile", null)))),
             proposal ->
                 proposal.put("actions", List.of(map("action", "Remove", "payload", map()))),
+            proposal ->
+                proposal.put("actions", List.of(map("action", "clear_bridge_key_fault", "payload", map()))),
             proposal ->
                 proposal.put(
                     "actions", List.of(map("action", "freeze_light_client", "payload", null))));
@@ -375,6 +381,70 @@ public final class ParliamentApiV1Tests {
     assertThrows(
         IllegalArgumentException.class,
         () -> org.hyperledger.iroha.sdk.client.ParliamentApiV1.Proposal.fromJson(encode(anchorProposal)));
+  }
+
+  @Test
+  public void sccpCurrentEnvelopeTagsAndSubjectCoordinatesUseCanonicalKotlin() {
+    // This Java consumer exercises Kotlin's declared envelope contract; native typed
+    // action bodies and exact action-to-subject coverage retain their separate owner.
+    for (final String action : List.of(
+        "register_route", "activate_revision", "switch_revision", "deactivate_outbound",
+        "retire_revision", "remove_staged", "release_stranded", "set_taira_paused",
+        "set_destination_paused", "initialize_light_client", "install_trusted_checkpoint",
+        "freeze_light_client", "set_parameters", "activate_light_client_profile",
+        "attest_deployment_progress", "quarantine_revision", "open_reconciliation",
+        "set_fast_pause_suspended")) {
+      org.hyperledger.iroha.sdk.client.ParliamentApiV1.Proposal.fromJson(
+          sccpProposal(proposal -> proposal.put(
+              "actions", List.of(map("action", action, "payload", map())))));
+      for (final Object payload : Arrays.asList(null, List.of(), "object", true, 0)) {
+        assertThrows(
+            "accepted " + action + " with payload " + payload,
+            IllegalArgumentException.class,
+            () -> org.hyperledger.iroha.sdk.client.ParliamentApiV1.Proposal.fromJson(
+                sccpProposal(proposal -> proposal.put(
+                    "actions", List.of(map("action", action, "payload", payload))))));
+      }
+      for (final Map<String, Object> entry : List.of(
+          map("action", action), map("action", action, "payload", map(), "extra", 0))) {
+        assertThrows(
+            "accepted action envelope " + entry,
+            IllegalArgumentException.class,
+            () -> org.hyperledger.iroha.sdk.client.ParliamentApiV1.Proposal.fromJson(
+                sccpProposal(proposal -> proposal.put("actions", List.of(entry)))));
+      }
+    }
+    for (final String subject : List.of(
+        "route", "route_control", "light_client", "forgery_hold", "fast_hold", "fast_pause_control")) {
+      for (final String network : List.of("ethereum_mainnet", "bsc_mainnet", "ton_mainnet")) {
+        org.hyperledger.iroha.sdk.client.ParliamentApiV1.Proposal.fromJson(
+            sccpProposal(proposal -> proposal.put(
+                "base_revisions", List.of(sccpSubject(subject, map("network", network, "profile", null))))));
+      }
+      for (final Object key : Arrays.asList(
+          null, "ea0130", map(),
+          map("network", "sora_taira", "profile", null),
+          map("network", "tron_mainnet", "profile", null),
+          map("network", "bsc_mainnet", "profile", "default"),
+          map("network", "bsc_mainnet"),
+          map("network", "bsc_mainnet", "profile", null, "extra", 0))) {
+        assertThrows(
+            "accepted " + subject + " coordinate " + key,
+            IllegalArgumentException.class,
+            () -> org.hyperledger.iroha.sdk.client.ParliamentApiV1.Proposal.fromJson(
+                sccpProposal(proposal -> proposal.put(
+                    "base_revisions", List.of(sccpSubject(subject, key))))));
+      }
+      for (final Map<String, Object> coordinate : List.of(
+          map("subject", subject), map("subject", subject, "key", bscMainnet(), "extra", 0))) {
+        assertThrows(
+            "accepted subject envelope " + coordinate,
+            IllegalArgumentException.class,
+            () -> org.hyperledger.iroha.sdk.client.ParliamentApiV1.Proposal.fromJson(
+                sccpProposal(proposal -> proposal.put(
+                    "base_revisions", List.of(map("subject", coordinate, "revision", 0))))));
+      }
+    }
   }
 
   @Test

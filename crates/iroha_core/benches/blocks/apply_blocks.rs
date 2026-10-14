@@ -4,7 +4,7 @@
 //! starts from the same signed genesis and applies that certified suffix the way a node
 //! applies blocks Kura already holds: every certificate is verified, every block is stored,
 //! re-executed to its certified result and published through the node's `StateExecutor`.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[path = "./common.rs"]
 pub(crate) mod common;
 use common::*;

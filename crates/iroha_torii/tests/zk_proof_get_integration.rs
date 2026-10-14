@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests for GET /v1/zk/proof/{backend}/{hash} (`app_api`).
 #![allow(clippy::similar_names)]
 use axum::{Router, routing::get};

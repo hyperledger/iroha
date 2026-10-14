@@ -11,9 +11,15 @@ fn physical_debug_dump_counts_each_actual_append_including_identical_lines() {
     let path = kura.block_plain_text_path.lock().clone().unwrap();
     let before = metadata_physical_register(&kura);
     let block = NativeBlocks::new().next();
-    let _prune = kura.prune_lock.lock();
-    let _canonical = kura.canonical_chain_lock.lock();
-    kura.append_debug_block_dump(&block);
+    let (mut prune_releases, mut canonical_releases, mut geometry_releases, mut sidecar_releases) = (
+        kura.prune_lock.defer_notifications(),
+        kura.canonical_chain_lock.defer_notifications(),
+        kura.lane_geometry_lock.defer_notifications(),
+        kura.sidecar_lock.defer_notifications(),
+    );
+    let _prune = prune_releases.lock();
+    let _canonical = canonical_releases.lock();
+    kura.append_debug_block_dump(&block, &mut geometry_releases, &mut sidecar_releases);
     let once = metadata_physical_assert_actual(&kura);
     let line = fs::read(&path).unwrap();
     assert!(!line.is_empty());
@@ -22,7 +28,7 @@ fn physical_debug_dump_counts_each_actual_append_including_identical_lines() {
             - before[ResourceFamily::StorageBytes as usize].storage_bytes,
         line.len() as u64
     );
-    kura.append_debug_block_dump(&block);
+    kura.append_debug_block_dump(&block, &mut geometry_releases, &mut sidecar_releases);
     let twice = metadata_physical_assert_actual(&kura);
     assert_eq!(
         twice[ResourceFamily::StorageBytes as usize].storage_bytes

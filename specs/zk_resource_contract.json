@@ -7474,7 +7474,7 @@
     {
       "id": "work_budget.fastpq_native_maintenance_invocations",
       "group": "work_budget",
-      "what": "Separately reserved native-maintenance entries of one block (the bounded SNS auto-renew sweep); they cannot borrow trigger or governance capacity.",
+      "what": "Separately reserved native-maintenance entries shared by the bounded SNS auto-renew and retail idle sweeps. Retail admits at most half, alternating the odd slot by block height; unused capacity remains available to SNS. Exact original receipt purposes cannot borrow trigger or governance capacity.",
       "unit": "count",
       "value": 64,
       "source": "committed",

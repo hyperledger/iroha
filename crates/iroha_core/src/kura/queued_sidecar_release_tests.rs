@@ -326,7 +326,10 @@ fn original_queued_fastpq_writer_notifies_after_attachment_publication() {
     // An exact duplicate attachment is written logically, without changing physical bytes.
     let snapshot = sidecar.fastpq_proofs[0].clone();
     enqueue_proof(&kura, snapshot);
-    assert_eq!(kura.flush_fastpq_proof_snapshots(), 1);
+    assert_eq!(
+        kura.flush_fastpq_proof_snapshots(&mut kura.sidecar_lock.defer_notifications()),
+        1
+    );
     assert_eq!(inventory(&kura), before);
 }
 
@@ -377,7 +380,7 @@ fn original_standalone_fastpq_flush_notifies_after_retry_queue_finalizes() {
     let (kura, _, snapshot) = fixture();
     enqueue_proof(&kura, snapshot.clone());
     let written = observe_original_release(&kura, 3, 0, vec![(snapshot.clone(), 1)], || {
-        kura.flush_fastpq_proof_snapshots()
+        kura.flush_fastpq_proof_snapshots(&mut kura.sidecar_lock.defer_notifications())
     });
     assert_eq!(written, 0);
     let queue = kura.fastpq_proof_queue.lock();

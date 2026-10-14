@@ -174,7 +174,7 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                         else {
                             panic!("expected an unfinished local attempt")
                         };
-                        assert_decoder_deferral(&actual, expected.reason());
+                        assert_original_allocation_refusal(&actual, 0);
                     };
                 });
                 let opaque: InstructionBox = approval.clone().into();
@@ -192,7 +192,7 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                         else {
                             panic!("expected an unfinished local attempt")
                         };
-                        assert_unobserved_instruction_deferral(&actual, expected.reason());
+                        assert_instruction_decode_deferral(&actual, expected.reason());
                     };
                 });
                 let projected = limited(|| {
@@ -207,16 +207,13 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                     else {
                         panic!("expected an unfinished local attempt")
                     };
-                    assert_unobserved_instruction_deferral(&actual, expected.reason());
+                    assert_instruction_decode_deferral(&actual, expected.reason());
                 };
                 // The native approval entry point retains the same read refusal in
                 // its model-owned error bridge, before recording an approval outcome.
                 limited(|| execute_approve(&mut tx, authority, &approval))
                     .expect_err("an unfinished native read must stop approval");
-                assert_decoder_deferral(
-                    &tx.borrow_execution_deferral().unwrap(),
-                    expected.reason(),
-                );
+                assert_original_allocation_refusal(&tx.borrow_execution_deferral().unwrap(), 0);
                 assert!(
                     expected.allocation_refusal().is_none(),
                     "a Norito ceiling has no invented pool notification"
@@ -521,7 +518,7 @@ fn terminal_decode_retry(expired: bool) {
                         let ExecutionAttemptError::Deferred(actual) = child else {
                             panic!("expected an unfinished local attempt");
                         };
-                        assert_unobserved_instruction_deferral(&actual, expected.reason());
+                        assert_instruction_decode_deferral(&actual, expected.reason());
                     });
                     norito::with_decode_limits_scope(limits, || {
                         prune_expired(
@@ -539,7 +536,7 @@ fn terminal_decode_retry(expired: bool) {
                     let actual = tx
                         .borrow_execution_deferral()
                         .expect("expired traversal retains its original refusal");
-                    assert_unobserved_instruction_deferral(&actual, expected.reason());
+                    assert_instruction_decode_deferral(&actual, expected.reason());
                 }
                 assert_eq!(
                     tx.world
@@ -608,11 +605,12 @@ fn terminal_decode_retry(expired: bool) {
                     let ExecutionAttemptError::Deferred(actual) = error else {
                         panic!("expected an unfinished local attempt")
                     };
-                    assert_decoder_deferral(&actual, expected.reason());
-                    let observed = actual.decode_refusal().unwrap().clone();
-                    let moved = ExecutionDeferred::try_from_vm_error(actual.into_vm_error())
-                        .expect("the consuming VM boundary preserves the original decoder owner");
-                    assert_eq!(moved.decode_refusal(), Some(&observed));
+                    assert_original_depth_refusal(&actual, depth);
+                    let original = actual.decode_refusal().unwrap().clone();
+                    let transferred = ExecutionDeferred::try_from_vm_error(actual.into_vm_error())
+                        .expect("the original terminal refusal crosses the host boundary");
+                    assert_eq!(transferred.decode_refusal(), Some(&original));
+                    assert_original_depth_refusal(&transferred, depth);
                 };
                 assert!(tx.require_storage_admission().is_ok());
                 assert!(tx.is_execution_deferred());
@@ -753,25 +751,8 @@ fn outstanding_occurrence_invalidation_preserves_original_decode_refusal() {
     });
 }
 
-/// Require the captured enclosing decoder owner without inventing pool or verifier custody.
-fn assert_decoder_deferral(actual: &ExecutionDeferred, expected: ivm::error::ExecutionDeferral) {
-    assert_eq!(actual.reason(), expected);
-    assert_eq!(actual.phase(), None);
-    assert!(actual.allocation_refusal().is_none());
-    assert!(actual.allocator_refusal().is_none());
-    let original = actual
-        .decode_refusal()
-        .expect("the actual decoder refusal retains its original scope owner");
-    assert_eq!(
-        original.kind(),
-        norito::core::DecodeLocalRefusalKind::EnclosingLimit
-    );
-    assert!(actual.verification_refusal().is_none());
-}
-
-/// Direct custom-instruction reads have an active limit but no canonical admission observer.
-/// Their raw resource error cannot manufacture a captured decoder or allocation owner.
-fn assert_unobserved_instruction_deferral(
+/// Direct custom-instruction parsing reports its local reason without a canonical owner.
+fn assert_instruction_decode_deferral(
     actual: &ExecutionDeferred,
     expected: ivm::error::ExecutionDeferral,
 ) {
@@ -781,4 +762,41 @@ fn assert_unobserved_instruction_deferral(
     assert!(actual.allocator_refusal().is_none());
     assert!(actual.decode_refusal().is_none());
     assert!(actual.verification_refusal().is_none());
+}
+
+/// Canonical retained-row reads preserve their original scope without inventing a pool wake.
+fn original_decode_refusal(actual: &ExecutionDeferred) -> &norito::core::DecodeLocalRefusal {
+    assert_eq!(
+        actual.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    assert_eq!(actual.phase(), None);
+    assert!(actual.allocation_refusal().is_none());
+    assert!(actual.allocator_refusal().is_none());
+    assert!(actual.verification_refusal().is_none());
+    let original = actual
+        .decode_refusal()
+        .expect("canonical decode retains its original cause");
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
+    );
+    assert_eq!(original.allocation_bytes(), None);
+    original
+}
+
+fn assert_original_allocation_refusal(actual: &ExecutionDeferred, expected_limit: u64) {
+    assert!(matches!(
+        original_decode_refusal(actual).resource_error(),
+        norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit }
+            if limit == expected_limit && attempted > limit
+    ));
+}
+
+fn assert_original_depth_refusal(actual: &ExecutionDeferred, expected_limit: usize) {
+    assert!(matches!(
+        original_decode_refusal(actual).resource_error(),
+        norito::core::DecodeResourceError::NestingDepthExceeded { depth, limit, .. }
+            if limit == expected_limit && depth > limit
+    ));
 }

@@ -1,5 +1,5 @@
 //! Ensure scheduler ready-queue heap vs per-wave sort produce identical outcomes.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use crate::synthetic_state_snapshots as snapshots;
 use iroha_core::{
     state::WorldReadOnly,

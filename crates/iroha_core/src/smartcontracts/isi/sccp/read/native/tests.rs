@@ -530,7 +530,28 @@ fn original_projection_rejects_bare_body_wrong_scope_identity_and_qc_substitutio
         ),
         Err(SccpNativeReadError::Invalid(_))
     ));
-    for mutation in 0..7 {
+    let mut foreign_network = source;
+    foreign_network.network[0] ^= 1;
+    for (requested, selected_source) in [
+        (height, foreign_network),
+        (NonZeroU64::new(3).unwrap(), source),
+    ] {
+        assert!(matches!(
+            project_original(
+                view.world(),
+                requested,
+                selected_source,
+                original,
+                &owner,
+                &budget,
+                control(&stop)
+            ),
+            Err(SccpNativeReadError::Invalid(
+                "original certificate, result and selected generation disagree"
+            ))
+        ));
+    }
+    for mutation in 0..8 {
         let mut changed = original.clone();
         let mut qc: Qc = norito::decode_canonical(&changed.commit_qc).unwrap();
         match mutation {
@@ -542,6 +563,8 @@ fn original_projection_rejects_bare_body_wrong_scope_identity_and_qc_substitutio
             5 => qc.epoch.context.0[0] ^= 1,
             // Four signers are a rejected superset of the exact three-vote quorum.
             6 => qc.signers = iroha_sumeragi::types::Bitmap::from_bytes(vec![0x0f]),
+            // Two original signer bits remain below the exact three-vote quorum.
+            7 => qc.signers = iroha_sumeragi::types::Bitmap::from_bytes(vec![0x03]),
             _ => unreachable!(),
         }
         changed.commit_qc = norito::encode_canonical(&qc).unwrap();
@@ -1072,6 +1095,177 @@ fn genuine_rotation_retention_is_inclusive_at_the_original_tip_deadline() {
             committee_rotations(&view, u64::MAX, 1, &budget, control(&stop)),
             Err(SccpNativeReadError::NotFound(_))
         ));
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+}
+
+#[test]
+fn genuine_heartbeat_after_generation_deadline_retains_outgoing_native_finality() {
+    let mut chain = active_chain_with_cadence(NonZeroU64::new(1).unwrap());
+    let deadline = store::committee_generations::get(chain.state().view().world(), &1)
+        .unwrap()
+        .deadline_ms;
+    let late = deadline.checked_add(1).unwrap();
+    chain.commit_at(late, Vec::new());
+    check_late_outgoing_native_finality(&chain, deadline, late);
+}
+
+#[inline(never)]
+fn check_late_outgoing_native_finality(chain: &CertifiedTestChain, deadline: u64, late: u64) {
+    let stop = AtomicBool::new(false);
+    let budget = AllocationBudget::new(128 << 20);
+    let view = chain.state().view();
+    assert_eq!(
+        view.native_execution_tip().unwrap().creation_time_ms(),
+        late
+    );
+    let retained = store::committee_generations::get(view.world(), &1).unwrap();
+    assert_eq!(retained.deadline_ms, deadline);
+    assert!(late > retained.deadline_ms);
+    let latest = finality(&view, None, &budget, control(&stop)).unwrap();
+    let explicit = finality(&view, NonZeroU64::new(2), &budget, control(&stop)).unwrap();
+    assert_eq!(latest.data(), explicit.data());
+    let original = read_commit_certificate(
+        &view,
+        NonZeroU64::new(2).unwrap(),
+        &budget,
+        control(&stop).deadline,
+    )
+    .unwrap();
+    let raw = original.certificate();
+    let qc: Qc = norito::decode_canonical(&raw.commit_qc).unwrap();
+    let data = latest.data();
+    assert_eq!(data.height, 2);
+    assert_eq!(&data.header[..], &raw.result_preimage[..X_LEN]);
+    assert_eq!(data.aggregate_signature, qc.agg_sig.0);
+    let verified = verify_certificate(
+        &chain.instance().0,
+        &data.qc,
+        &data.header,
+        &data.aggregate_signature,
+        &data.committee,
+    )
+    .expect("late outgoing certificate keeps the genuine original aggregate");
+    assert_eq!(
+        verified.result,
+        result_of_preimage(&raw.result_preimage).unwrap().0
+    );
+    let x = verified.header;
+    assert!(x.is_active());
+    assert!(x.is_rotation());
+    assert_eq!(x.timestamp_ms(), late);
+    assert_eq!(x.generation(), 1);
+    assert_eq!(x.committee_root(), retained.committee_root);
+    let end = retained.end.as_ref().unwrap();
+    assert_eq!(end.end_height, data.height);
+    assert_eq!(end.end_timestamp_ms, late);
+    assert_eq!(end.next_committee_root, x.next_committee_root());
+    assert_eq!(end.successor_validity_ms, x.validity_ms());
+    let next = store::committee_generations::get(view.world(), &2).unwrap();
+    assert_eq!(next.start_height, 3);
+    assert_eq!(next.start_timestamp_ms, late);
+    assert_eq!(next.committee_root, end.next_committee_root);
+    assert_eq!(next.validity_ms, end.successor_validity_ms);
+    assert!(next.end.is_none());
+    drop((latest, explicit, original));
+    assert_eq!(budget.reserved_bytes(), 0);
+    // Serving retained rotation history has its own committed-tip deadline policy.
+    // That expiry cannot invalidate the same original outgoing native certificate.
+    assert!(matches!(
+        committee_rotations(&view, 1, 1, &budget, control(&stop)),
+        Err(SccpNativeReadError::RotationPruned)
+    ));
+    assert_eq!(budget.reserved_bytes(), 0);
+    let retry = finality(&view, NonZeroU64::new(2), &budget, control(&stop)).unwrap();
+    assert_eq!(retry.data().aggregate_signature, qc.agg_sig.0);
+    drop(retry);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn genuine_rotation_reader_rejects_changed_retained_handoff_coordinates() {
+    let mut chain = active_chain();
+    chain.commit_at(2_000, Vec::new());
+    let start = store::committee_generations::get(chain.state().view().world(), &1)
+        .unwrap()
+        .start_timestamp_ms;
+    chain.commit_at(
+        start + SccpParametersV1::taira_default().committee_heartbeat_ms,
+        Vec::new(),
+    );
+    check_original_handoff_coordinates(&chain);
+}
+
+#[inline(never)]
+fn check_original_handoff_coordinates(chain: &CertifiedTestChain) {
+    use crate::smartcontracts::isi::sccp::test_support::install_generation;
+    let stop = AtomicBool::new(false);
+    let budget = AllocationBudget::new(128 << 20);
+    let (outgoing, successor, original_certificate) = {
+        let view = chain.state().view();
+        let certificate = finality(&view, NonZeroU64::new(3), &budget, control(&stop)).unwrap();
+        let rotations = committee_rotations(&view, 1, 1, &budget, control(&stop)).unwrap();
+        assert_eq!(rotations.data().len(), 1);
+        assert_eq!(rotations.data()[0].certificate, *certificate.data());
+        (
+            generation_fixture_data(store::committee_generations::get(view.world(), &1).unwrap()),
+            generation_fixture_data(store::committee_generations::get(view.world(), &2).unwrap()),
+            certificate.data().clone(),
+        )
+    };
+    assert_eq!(budget.reserved_bytes(), 0);
+    for change in 0..5 {
+        // Only an uncommitted test-owned State overlay changes. All certificate
+        // frames, native signatures and committed generation records stay original.
+        let mut old = outgoing.clone();
+        let mut next = successor.clone();
+        let end = old.end.as_mut().unwrap();
+        match change {
+            0 => {
+                end.end_height = 2;
+                next.start_height = 3;
+            }
+            1 => end.next_committee_root[0] ^= 1,
+            2 => end.successor_validity_ms += 1,
+            3 => end.end_timestamp_ms += 1,
+            4 => next.start_height += 1,
+            _ => unreachable!(),
+        }
+        let mut block = chain.state().block(header(4));
+        let mut stx = block.transaction();
+        install_generation(&mut stx, 1, old).unwrap();
+        install_generation(&mut stx, 2, next).unwrap();
+        let rejected = committee_rotations(&stx, 1, 1, &budget, control(&stop));
+        match change {
+            1 | 4 => assert!(
+                matches!(
+                    rejected,
+                    Err(SccpNativeReadError::Unavailable(
+                        "successor generation does not bind the handoff"
+                    ))
+                ),
+                "changed coordinate {change}"
+            ),
+            _ => assert!(
+                matches!(
+                    rejected,
+                    Err(SccpNativeReadError::Invalid(
+                        "generation end has no matching original rotation"
+                    ))
+                ),
+                "changed coordinate {change}"
+            ),
+        }
+        assert_eq!(budget.reserved_bytes(), 0);
+        drop(stx);
+        drop(block);
+        let view = chain.state().view();
+        let unchanged = finality(&view, NonZeroU64::new(3), &budget, control(&stop)).unwrap();
+        assert_eq!(unchanged.data(), &original_certificate);
+        let retried = committee_rotations(&view, 1, 1, &budget, control(&stop)).unwrap();
+        assert_eq!(retried.data().len(), 1);
+        assert_eq!(&retried.data()[0].certificate, &original_certificate);
+        drop((unchanged, retried));
         assert_eq!(budget.reserved_bytes(), 0);
     }
 }

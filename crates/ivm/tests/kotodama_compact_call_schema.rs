@@ -1,5 +1,6 @@
 //! Genuine eager numeric argument and durable getter execution through complete CS1 metadata.
 
+use crate::common;
 use iroha_crypto::Hash;
 use iroha_data_model::smart_contract::entrypoint::{
     EntrypointArgumentRecordV1, EntrypointValueAtomV1,
@@ -11,7 +12,6 @@ use iroha_primitives::{
 };
 use ivm::{CoreHost, IVM, PointerType, ProgramMetadata, VMError, host::DefaultHost};
 use std::collections::BTreeMap;
-mod common;
 
 fn tlv(kind: PointerType, payload: &[u8]) -> Vec<u8> {
     let mut bytes = Vec::new();

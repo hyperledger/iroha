@@ -1,6 +1,5 @@
 //! Benchmarks for transaction signing, acceptance, validation, and block signing.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
-#![allow(clippy::all)]
+
 use criterion::{BatchSize, Criterion};
 use iroha_core::{
     block::*,

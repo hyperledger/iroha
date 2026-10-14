@@ -138,3 +138,43 @@ def test_current_build_script_data_reads_outside_rust_include_cannot_drift(tmp_p
     current = dict(originals); current[key] = 'e' * 64
     with pytest.raises(RuntimeError, match='source custody differs'):
         custody.consumed_source_projection(metadata, root, originals, current, receipts, 'iroha_js_host')
+
+
+@pytest.mark.parametrize('state', ('present', 'modified', 'missing', 'symlink'))
+def test_sccp_artifact_lock_is_captured_before_compile_and_bound_after(tmp_path, state):
+    root, metadata, _, _, _ = fixture(tmp_path)
+    metadata['target_directory'] = str(root / 'target')
+    (root / 'Cargo.lock').write_text('version = 4\n')
+    outside = (
+        'norito.md', 'scripts/norito_schema_capture/derive_probe.rs',
+        'codec/rans/tables/rans_seed0.toml', 'artifacts/poseidon/constants.ron',
+        'fixtures/sm/sm2_fixture.json',
+        'tests/interop/soranet/interop/rust/snnet-interop-nk2-v1.json',
+        'tests/interop/soranet/interop/rust/snnet-interop-nk3-v1.json',
+        'scripts/contract_tooling/artifact-lock.json',
+    )
+    for relative in outside:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{}\n')
+    key = 'scripts/contract_tooling/artifact-lock.json'
+    lock = root / key
+    digest = lambda path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    if state in ('missing', 'symlink'):
+        lock.unlink()
+        if state == 'symlink':
+            lock.symlink_to(root / 'fixtures/sm/sm2_fixture.json')
+        with pytest.raises(RuntimeError, match='outside-package input custody'):
+            custody.capture(metadata, root, digest, 'iroha_js_host')
+        return
+    before = custody.capture(metadata, root, digest, 'iroha_js_host')
+    assert before[key] == digest(lock)
+    receipts = [{'dep_info': [{'matched_originals': [{'path': key, 'sha256': before[key]}]}]}]
+    if state == 'modified':
+        lock.write_text('{"changed":true}\n')
+        current = custody.capture(metadata, root, digest, 'iroha_js_host')
+        with pytest.raises(RuntimeError, match='source custody differs'):
+            custody.consumed_source_projection(metadata, root, before, current, receipts, 'iroha_js_host')
+    else:
+        selected = custody.consumed_source_projection(metadata, root, before, before, receipts, 'iroha_js_host')
+        assert selected[key] == before[key]

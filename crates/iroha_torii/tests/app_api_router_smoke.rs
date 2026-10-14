@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Smoke test for App API routes wiring.
 #![allow(clippy::too_many_lines)]
 //!

@@ -1,5 +1,4 @@
 #![doc = "Verifying-key registry lifecycle event tests."]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "zk-tests")]
 //! Tests for `VerifyingKey` registry lifecycle events.
 #![allow(clippy::items_after_statements)]

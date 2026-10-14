@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Smoke test that Torii exposes account query routes via the merged sub-router.
 #![cfg(feature = "app_api")]
 use axum::extract::connect_info::ConnectInfo;

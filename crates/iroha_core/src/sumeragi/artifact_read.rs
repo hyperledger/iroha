@@ -42,6 +42,44 @@ impl std::error::Error for ArtifactReadError {
     }
 }
 
+#[cfg(test)]
+std::thread_local! {
+    static CHILD_REVALIDATION_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Exercise a real child-file validation interleaving, clearing the one-shot hook on unwind.
+#[cfg(test)]
+pub(super) fn with_child_revalidation_hook<T>(
+    hook: impl FnOnce() + 'static,
+    read: impl FnOnce() -> T,
+) -> T {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            CHILD_REVALIDATION_HOOK.with(|slot| {
+                slot.borrow_mut().take();
+            });
+        }
+    }
+    CHILD_REVALIDATION_HOOK.with(|slot| {
+        assert!(
+            slot.borrow().is_none(),
+            "child revalidation hooks cannot overlap"
+        );
+        *slot.borrow_mut() = Some(Box::new(hook));
+    });
+    let _reset = Reset;
+    read()
+}
+
+#[cfg(test)]
+fn before_child_file_validation() {
+    let hook = CHILD_REVALIDATION_HOOK.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
 // A body store may legitimately retire a whole height while its exact file remains open.
 // Keep its original root and file, joining the fixed child name at completion; do not pin
 // a Windows non-delete-sharing height handle across the asynchronous read lifetime.
@@ -61,6 +99,8 @@ impl ReadDirectory {
                 name: child,
             } => {
                 let directory = parent.open_child(child)?;
+                #[cfg(test)]
+                before_child_file_validation();
                 directory.require_same_regular_file(name, file)?;
                 parent.revalidate()
             }

@@ -1,10 +1,10 @@
 //! End-to-end tests for canonical role and permission builtins.
+use crate::common;
 use ivm::{
     IVM,
     mock_wsv::{MockWorldStateView, PermissionToken, WsvHost},
 };
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 const TEST_ACCOUNT_LITERAL: &str = "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV";
 const TEST_CALLER_PUBLIC_KEY: &str =
     "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03";

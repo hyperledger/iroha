@@ -340,7 +340,7 @@ mod tests {
 
     fn query_view() -> EntrypointValueTypeV1 {
         json::from_value(norito::json!({ "nodes": [
-            { "kind": "Struct", "value": { "name": "AccountView", "fields": ["id", "metadata"] } },
+            { "kind": "Struct", "value": { "name": "kotodama::AccountView", "fields": ["id", "metadata"] } },
             { "kind": "Leaf", "value": { "kind": "AccountId", "value": null } },
             { "kind": "Leaf", "value": { "kind": "Json", "value": null } }
         ] }))
@@ -349,9 +349,9 @@ mod tests {
 
     fn query_page() -> EntrypointValueTypeV1 {
         json::from_value(norito::json!({ "nodes": [
-            { "kind": "Struct", "value": { "name": "QueryPage", "fields": ["items", "next_offset"] } },
+            { "kind": "Struct", "value": { "name": "kotodama::QueryPage", "fields": ["items", "next_offset"] } },
             { "kind": "List", "value": { "capacity": 64 } },
-            { "kind": "Struct", "value": { "name": "AccountView", "fields": ["id", "metadata"] } },
+            { "kind": "Struct", "value": { "name": "kotodama::AccountView", "fields": ["id", "metadata"] } },
             { "kind": "Leaf", "value": { "kind": "AccountId", "value": null } },
             { "kind": "Leaf", "value": { "kind": "Json", "value": null } },
             { "kind": "Option", "value": null },
@@ -388,6 +388,27 @@ mod tests {
         assert_roundtrip(&with_return_schema(flat_int_tuple(
             widest_return_tuple_arity(),
         )));
+    }
+
+    #[test]
+    fn native_manifest_rejects_unqualified_reserved_nominal_names() {
+        for (schema, node, unqualified) in [
+            (query_view(), 0, "AccountView"),
+            (query_page(), 0, "QueryPage"),
+            (query_page(), 2, "AccountView"),
+        ] {
+            let mut manifest = with_return_schema(schema);
+            let schema = manifest.entrypoints.as_mut().unwrap()[0]
+                .return_schema
+                .as_mut()
+                .unwrap();
+            let Node::Struct(product) = &mut schema.nodes[node] else {
+                panic!("reserved nominal fixture must be a struct");
+            };
+            product.name = unqualified.to_owned();
+            assert!(!schema.validate());
+            assert_rejected_everywhere(&manifest);
+        }
     }
 
     #[test]

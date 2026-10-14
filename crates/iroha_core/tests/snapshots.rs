@@ -1,5 +1,5 @@
 //! Test helpers for fixture-backed event snapshots.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(dead_code)]
 use iroha_data_model::events::prelude::EventBox;
 use std::{

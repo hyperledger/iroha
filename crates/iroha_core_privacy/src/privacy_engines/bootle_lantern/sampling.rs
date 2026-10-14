@@ -599,7 +599,9 @@ impl ProofRandomnessV1 {
         shift: &[i64],
         profile: BootleSamplingProfileV1,
     ) -> Result<bool, SamplingErrorV1> {
-        if z.len() != profile.expected_coefficients() || shift.len() != z.len() {
+        let sampled_coefficients = z.len();
+        let profile_coefficients = profile.expected_coefficients();
+        if sampled_coefficients != profile_coefficients || shift.len() != z.len() {
             return Err(SamplingErrorV1::InvalidRejectionShape);
         }
         let (dot, norm) = dot_and_norm(z, shift)?;

@@ -1,7 +1,7 @@
 //! Verify dynamic durable lowering for `StateMap<int, int>`.
+use crate::common;
 use ivm::{CoreHost, IVM};
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 #[test]
 fn dynamic_map_set_uses_durable_state() {
     let src = r#"

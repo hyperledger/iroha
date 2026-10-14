@@ -1,5 +1,5 @@
 #![cfg(feature = "privacy-release-evidence")]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //! Four-peer DA/RBC, lifecycle, atomicity, nullifier replay, and restart gate
 //! for the retained native Orchard and PQ-MASP production actions.
 use eyre::{Result, WrapErr as _, ensure, eyre};

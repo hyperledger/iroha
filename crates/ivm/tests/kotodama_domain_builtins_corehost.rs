@@ -1,11 +1,11 @@
 //! End-to-end tests for Kotodama domain builtins: unregister_domain and transfer_domain.
+use crate::common;
 use iroha_model_base::domain::DomainId;
 use ivm::{
     IVM,
     mock_wsv::{AccountId, MockWorldStateView, PermissionToken, WsvHost},
 };
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 #[test]
 fn kotodama_unregister_domain() {
     // Program unregisters a domain using a constructor

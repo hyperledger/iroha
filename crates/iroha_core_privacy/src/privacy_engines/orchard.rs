@@ -2271,8 +2271,8 @@ pub(crate) mod tests {
         changed.actions[0].randomized_key = [0; 32];
         assert!(matches!(
             verify_orchard_bundle_v1(&changed, proof, &consensus_limits()),
-            Err(OrchardNativeErrorV1::RandomizedKeyEncoding { index: 0 })
-                | Err(OrchardNativeErrorV1::ActionEncoding { index: 0 })
+            Err(OrchardNativeErrorV1::RandomizedKeyEncoding { index: 0 }
+                | OrchardNativeErrorV1::ActionEncoding { index: 0 })
         ));
         changed = public.clone();
         changed.actions[0].note_commitment = [0xFF; 32];

@@ -1,5 +1,5 @@
 //! Grouped Torii Sumeragi and telemetry integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[path = "../metrics_registry.rs"]
 mod metrics_registry;
 #[path = "../metrics_registry_reset.rs"]

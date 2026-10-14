@@ -1,5 +1,5 @@
 //! Grouped Iroha data model integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[path = "../account_address_vectors.rs"]
 mod account_address_vectors;
 #[path = "../account_id_roundtrip.rs"]

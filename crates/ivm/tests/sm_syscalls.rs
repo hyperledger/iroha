@@ -9,7 +9,7 @@ fn test_caller_account() -> AccountId {
     AccountId::parse_encoded(TEST_CALLER_ID)
         .expect("test account literal must be valid canonical AccountId")
 }
-mod common;
+use crate::common;
 use common::{assemble, payload_for_type};
 fn make_tlv(kind: PointerType, payload: &[u8]) -> Vec<u8> {
     use iroha_crypto::Hash;

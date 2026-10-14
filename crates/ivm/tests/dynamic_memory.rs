@@ -1,6 +1,6 @@
-use ivm::{IVM, Memory, encoding, instruction, syscalls};
-mod common;
+use crate::common;
 use common::assemble;
+use ivm::{IVM, Memory, encoding, instruction, syscalls};
 const HALT: [u8; 4] = encoding::wide::encode_halt().to_le_bytes();
 #[test]
 fn test_heap_growth_allocation() {

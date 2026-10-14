@@ -2933,7 +2933,8 @@ pub(crate) fn validate_proof_shape_v1(
     layout: &AggregateProofLayoutV1,
 ) -> Result<(), AggregateStarkErrorV1> {
     layout.validate(parameters)?;
-    if proof.version != parameters.proof_version
+    let expected_proof_version = parameters.proof_version;
+    if proof.version != expected_proof_version
         || proof.trace_groups.len() != layout.trace_groups.len()
         || proof.composition_roots.len() != parameters.security_lanes
         || proof.composition_frontiers.len() != parameters.security_lanes

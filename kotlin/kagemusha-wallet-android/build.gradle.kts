@@ -1,5 +1,11 @@
 import java.io.File
 import java.net.URI
+import java.util.Properties
+import javax.inject.Inject
+import org.gradle.api.tasks.*
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.process.ExecOperations
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -19,10 +25,19 @@ val mobileSdkRepoDir = providers.gradleProperty("irohaSdkRepoDir")
 android {
     namespace = "org.hyperledger.iroha.sdk.offline.wallet"
     compileSdk = 35
+    ndkVersion = "28.0.12674087"
 
     defaultConfig {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Explicit developer-only test APK namespace; ordinary and published variants are unchanged.
+        providers.gradleProperty("kagemushaEnrollmentProbeApplicationId").orNull?.let { selected ->
+            require(selected.startsWith("org.hyperledger.iroha.kagemusha.enrollmentprobe.") &&
+                selected.matches(Regex("[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+"))) {
+                "Enrollment probe requires an explicitly disposable application identifier"
+            }
+            testApplicationId = selected
+        }
         consumerProguardFiles("consumer-rules.pro")
     }
 
@@ -38,6 +53,10 @@ android {
     sourceSets {
         getByName("test") {
             kotlin.srcDir(rootProject.file("test-support/src"))
+            kotlin.srcDir("src/testSupport/kotlin")
+        }
+        getByName("androidTest") {
+            kotlin.srcDir("src/testSupport/kotlin")
         }
     }
 
@@ -119,14 +138,24 @@ tasks.withType<Test>().configureEach {
     useJUnitPlatform {
         if (!hostNativeTask) excludeTags("host-native")
     }
-    // The wallet custody backup test asserts the processed library manifest, not only its source.
+    // Assert the actual library and standalone instrumentation APK custody manifests.
     if (name == "testDebugUnitTest") {
-        dependsOn("processDebugManifest")
+        dependsOn("processDebugManifest", "processDebugAndroidTestManifest")
         systemProperty(
             "iroha.kagemushaWalletAndroid.mergedManifest",
             layout.buildDirectory.file(
                 "intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml",
             ).get().asFile.absolutePath,
+        )
+        systemProperty(
+            "iroha.kagemushaWalletAndroid.testManifest",
+            layout.buildDirectory.file(
+                "intermediates/packaged_manifests/debugAndroidTest/processDebugAndroidTestManifest/AndroidManifest.xml",
+            ).get().asFile.absolutePath,
+        )
+        systemProperty(
+            "iroha.kagemushaWalletAndroid.testApplicationId",
+            android.defaultConfig.testApplicationId ?: "${android.namespace}.test",
         )
     }
 }
@@ -172,4 +201,54 @@ afterEvaluate {
             }
         }
     }
+}
+
+// This tiny filesystem helper is compiled into instrumentation APKs only. It is never a wallet
+// Native artifact, never packaged in the AAR, and has no production bridge or admission hook.
+abstract class CompileEnrollmentProbeFiles : DefaultTask() {
+    @get:InputFile @get:PathSensitive(PathSensitivity.NONE)
+    abstract val sourceFile: RegularFileProperty
+    @get:Internal abstract val ndkDirectory: DirectoryProperty
+    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+    @get:Inject abstract val execOperations: ExecOperations
+
+    @TaskAction fun compile() {
+        val ndk = ndkDirectory.get().asFile
+        val properties = Properties().apply {
+            ndk.resolve("source.properties").inputStream().use { load(it) }
+        }
+        require(properties.getProperty("Pkg.BaseRevision") == "28.0.12674087" &&
+            properties.getProperty("Pkg.Revision") == "28.0.12674087-beta2") { "Test mailbox helper requires the pinned NDK" }
+        val host = when {
+            System.getProperty("os.name").startsWith("Mac") -> "darwin-x86_64"
+            System.getProperty("os.name").startsWith("Linux") -> "linux-x86_64"
+            else -> error("Test mailbox helper requires a supported NDK Unix host")
+        }
+        val compiler = ndk.resolve("toolchains/llvm/prebuilt/$host/bin/clang")
+        require(compiler.isFile && compiler.canExecute()) { "Pinned NDK compiler is absent" }
+        for ((abi, target) in mapOf("arm64-v8a" to "aarch64-linux-android26",
+            "armeabi-v7a" to "armv7a-linux-androideabi26", "x86_64" to "x86_64-linux-android26")) {
+            val output = outputDirectory.get().asFile.resolve(abi)
+            check(output.isDirectory || output.mkdirs())
+            execOperations.exec {
+                commandLine(compiler.absolutePath, "--target=$target", "-std=c11", "-shared", "-fPIC",
+                    "-O2", "-Wall", "-Wextra", "-Werror", "-Wl,-z,relro,-z,now",
+                    "-Wl,-z,max-page-size=16384", "-Wl,--build-id=sha1",
+                    sourceFile.get().asFile.absolutePath, "-o",
+                    output.resolve("libkagemusha_enrollment_probe_files.so").absolutePath)
+            }
+        }
+    }
+}
+val compileEnrollmentProbeFiles = tasks.register<CompileEnrollmentProbeFiles>("compileEnrollmentProbeFiles") {
+    sourceFile.set(layout.projectDirectory.file("src/androidTest/cpp/enrollment_probe_rename.c"))
+    ndkDirectory.set(androidComponents.sdkComponents.ndkDirectory)
+    outputDirectory.set(layout.buildDirectory.dir("generated/androidTest/enrollmentProbeJni"))
+    // Recompile the tiny helper each time; do not make untracked toolchain changes cache authority.
+    outputs.upToDateWhen { false }
+}
+androidComponents.onVariants { variant ->
+    variant.androidTest?.sources?.jniLibs?.addGeneratedSourceDirectory(
+        compileEnrollmentProbeFiles, CompileEnrollmentProbeFiles::outputDirectory,
+    )
 }

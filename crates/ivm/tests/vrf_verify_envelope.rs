@@ -1,8 +1,8 @@
 //! VRF envelope type, decoding, and verification-status tests.
 #![cfg(feature = "ivm_vrf_tests")]
+use crate::common;
 use group::prime::PrimeCurveAffine;
 use ivm::{self, IVM, IVMHost, Memory, PointerType};
-mod common;
 fn build_tlv(ty: PointerType, payload: &[u8]) -> Vec<u8> {
     let payload = common::payload_for_type(ty, payload);
     let mut tlv = Vec::with_capacity(7 + payload.len() + 32);

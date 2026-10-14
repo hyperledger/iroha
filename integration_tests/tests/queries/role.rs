@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Tests queries for retrieving roles and their identifiers.
 use eyre::Result;
 use integration_tests::sandbox;

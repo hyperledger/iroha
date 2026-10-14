@@ -299,7 +299,8 @@ impl P256ArithmeticStarkFixedProviderV1 {
             .len()
             .checked_mul(P256_ARITHMETIC_ROWS_PER_OPERATION_V1)
             .ok_or(ZkX509P256AirErrorV1::Allocation)?;
-        if operations.is_empty() || !trace_size.is_power_of_two() || active_rows > trace_size {
+        let no_operations = operations.is_empty();
+        if no_operations || !trace_size.is_power_of_two() || active_rows > trace_size {
             return Err(ZkX509P256AirErrorV1::Topology);
         }
         let mut owned = Vec::new();

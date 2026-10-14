@@ -1,6 +1,6 @@
 //! Unqualified ballot proofs cannot create or change locks, consume nullifiers, or emit acceptance.
 //! This retained-state rejection test does not establish the missing real-proof lock lifecycle.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![cfg(feature = "zk-tests")]
 
 #[path = "common/governance_closed_registry.rs"]

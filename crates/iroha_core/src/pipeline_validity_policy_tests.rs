@@ -61,6 +61,7 @@ fn local_resources_of(pipeline: &Pipeline) -> String {
         ivm_cache_max_decoded_ops,
         ivm_cache_max_bytes,
         ivm_execution_max_bytes,
+        state_capture,
         ivm_prover_threads,
         overlay_max_instructions: _,
         overlay_max_bytes: _,
@@ -86,13 +87,38 @@ fn local_resources_of(pipeline: &Pipeline) -> String {
          {debug_trace_tx_eval} {signature_batch_max_ed25519} {signature_batch_max_secp256k1} \
          {signature_batch_max_pqc} {signature_batch_max_bls} {cache_size} \
          {ivm_cache_max_decoded_ops} {ivm_cache_max_bytes} {ivm_execution_max_bytes} \
-         {ivm_prover_threads} {query_default_cursor_mode:?}"
+         {state_capture:?} {ivm_prover_threads} {query_default_cursor_mode:?}"
     )
 }
 
 /// Settings whose every local resource differs from `base`.
 fn scarce_local_resources(base: &Pipeline) -> Pipeline {
     let mut node = base.clone();
+    node.state_capture = iroha_config::parameters::actual::StateCapture {
+        source_elements: base.state_capture.source_elements.saturating_sub(1),
+        source_variable_bytes: base.state_capture.source_variable_bytes.saturating_sub(1),
+        source_table_pass_rows: base.state_capture.source_table_pass_rows.saturating_sub(1),
+        source_lookup_index_entries: base
+            .state_capture
+            .source_lookup_index_entries
+            .saturating_sub(1),
+        source_model_operations: base.state_capture.source_model_operations.saturating_sub(1),
+        source_signature_checks: base.state_capture.source_signature_checks.saturating_sub(1),
+        native_work_per_attempt: base.state_capture.native_work_per_attempt.saturating_sub(1),
+        table_count: base.state_capture.table_count.saturating_sub(1),
+        table_rows: base.state_capture.table_rows.saturating_sub(1),
+        table_payload_bytes: base.state_capture.table_payload_bytes.saturating_sub(1),
+        table_ordered_bytes: base.state_capture.table_ordered_bytes.saturating_sub(1),
+        table_streamed_value_bytes: base
+            .state_capture
+            .table_streamed_value_bytes
+            .saturating_sub(1),
+        total_table_rows: base.state_capture.total_table_rows.saturating_sub(1),
+        encoding_work_per_attempt: base
+            .state_capture
+            .encoding_work_per_attempt
+            .saturating_sub(1),
+    };
     node.access_set_cache_enabled = !node.access_set_cache_enabled;
     node.debug_trace_tx_eval = !node.debug_trace_tx_eval;
     node.debug_trace_scheduler_inputs = !node.debug_trace_scheduler_inputs;

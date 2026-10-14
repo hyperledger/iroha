@@ -53,6 +53,16 @@ fn fee_read_transport_error(
         }
     }
 }
+/// Select result decoding policy only from this view's authenticated signed genesis.
+fn native_fee_finality_scope(
+    state: &impl StateReadOnly,
+) -> Result<iroha_data_model::sumeragi_finality::CertifiedResultScope, Error> {
+    iroha_core::sumeragi::certified_chain::CertifiedChain::new(state)
+        .map(|chain| chain.root_scope().into())
+        .map_err(|error| {
+            fee_read_transport_error(error.map_rejection(|error| error.to_string()), inconsistent)
+        })
+}
 fn inconsistent(message: impl Into<String>) -> Error {
     let message = message.into();
     if message.contains(iroha_data_model::validation_fee::RETAIL_FEE_CATCH_UP_REQUIRED) {
@@ -815,6 +825,7 @@ pub async fn handler_retail_receipts(
     let account = AccountId::parse_encoded(&account_id).map_err(|e| bad_request(e.to_string()))?;
     let state = app.state.view();
     authorize_retail_account(state.world(), &account, &verified.account)?;
+    let finality_scope = native_fee_finality_scope(&state)?;
     let limit = query.limit.unwrap_or(50) as usize;
     let after = query
         .after_receipt_id
@@ -855,13 +866,7 @@ pub async fn handler_retail_receipts(
             entry.insert(finality);
         }
         let root = proof_by_height[&receipt.recorded_at_height]
-            .decode_checked(
-                state
-                    .native_execution_tip()
-                    .ok_or_else(|| inconsistent("native receipt execution scope unavailable"))?
-                    .root_scope()
-                    .into(),
-            )
+            .decode_checked(finality_scope)
             .map_err(|e| inconsistent(format!("receipt finality is malformed: {e}")))?
             .execution()
             .ordinary_writes_root;
@@ -921,6 +926,7 @@ pub async fn handler_retail_statement_head(
     let account = AccountId::parse_encoded(&account_id).map_err(|e| bad_request(e.to_string()))?;
     let state = app.state.view();
     authorize_retail_account(state.world(), &account, &verified.account)?;
+    let finality_scope = native_fee_finality_scope(&state)?;
     let head = iroha_core::retail_fee::receipt_head(state.world(), &account)
         .map_err(|error| fee_read_transport_error(error, inconsistent))?
         .ok_or_else(|| Error::AppNotFound {
@@ -947,15 +953,9 @@ pub async fn handler_retail_statement_head(
     }
     let finality_proof = iroha_core::sumeragi::finality::build_proof(&state, height)
         .map_err(|e| inconsistent(format!("wallet head finality unavailable: {e}")))?;
-    // Retain the original execution owner's scope before releasing this exact State cut.
-    let scope = state
-        .native_execution_tip()
-        .ok_or_else(|| inconsistent("native wallet head execution scope unavailable"))?
-        .root_scope()
-        .into();
     drop(state);
     let ordinary_writes_root = finality_proof
-        .decode_checked(scope)
+        .decode_checked(finality_scope)
         .map_err(|e| inconsistent(format!("wallet head finality is malformed: {e}")))?
         .execution()
         .ordinary_writes_root;
@@ -1042,6 +1042,54 @@ pub async fn handler_retail_statement(
 mod tests {
     use super::*;
     use std::cell::Cell;
+    #[test]
+    fn native_fee_finality_scope_requires_original_signed_genesis() {
+        use iroha_core::{
+            kura::Kura,
+            query::store::LiveQueryStore,
+            state::{State as LedgerState, World},
+            sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
+        };
+        use iroha_data_model::{
+            block::consensus::SumeragiRootScope, sumeragi_finality::CertifiedResultScope,
+        };
+
+        // Mutable routing metadata cannot stand in for a native genesis trust root.
+        let mut world = World::new();
+        crate::test_utils::bind_fixture_root(&mut world, SumeragiRootScope::Global);
+        let uncommitted = LedgerState::new_for_testing(
+            world,
+            Kura::blank_kura_for_testing(),
+            LiveQueryStore::start_test(),
+        );
+        assert!(matches!(
+            native_fee_finality_scope(&uncommitted.view()),
+            Err(Error::AppServiceUnavailable {
+                code: "validation_fee_state_inconsistent",
+                ..
+            })
+        ));
+
+        let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000))
+            .expect("genuinely signed fee-read genesis");
+        let view = chain.state().view();
+        let scope = native_fee_finality_scope(&view).expect("authenticated result scope");
+        assert_eq!(scope, CertifiedResultScope::TairaGlobal);
+        let proof =
+            iroha_core::sumeragi::finality::build_proof(&view, 1).expect("native genesis proof");
+        let decoded = proof
+            .decode_checked(scope)
+            .expect("scope-bound native proof");
+        let certified = iroha_core::sumeragi::certified_chain::CertifiedChain::new(&view)
+            .unwrap()
+            .certified(1)
+            .unwrap();
+        assert_eq!(
+            decoded.execution().ordinary_writes_root,
+            certified.commitment().execution.ordinary_writes_root,
+            "receipt and head proof readers keep the exact native write commitment"
+        );
+    }
     #[test]
     fn validation_fee_projection_rejects_unrelated_current_proposal() {
         use iroha_data_model::governance::types::{

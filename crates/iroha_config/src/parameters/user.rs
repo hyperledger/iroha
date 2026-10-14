@@ -3820,6 +3820,9 @@ pub struct Pipeline {
     /// Finite active IVM allocation budget, distinct from idle retention (zero denies allocation).
     #[config(default = "defaults::pipeline::IVM_EXECUTION_MAX_BYTES")]
     pub ivm_execution_max_bytes: usize,
+    /// Original State capture scheduling and source work, independent of memory.
+    #[config(nested)]
+    pub state_capture: StateCapture,
     /// Rayon worker cap for prover/trace verification (0 = number of physical cores).
     #[config(
         env = "PIPELINE_IVM_PROVER_THREADS",
@@ -3832,6 +3835,75 @@ pub struct Pipeline {
         default = "defaults::pipeline::QUERY_DEFAULT_CURSOR_MODE.parse().unwrap()"
     )]
     pub query_default_cursor_mode: QueryCursorMode,
+}
+/// Node-local State capture work policy under `[pipeline.state_capture]`.
+///
+/// All dimensions are finite and independent of allocation credit. Zero denies
+/// the corresponding local work; it never means unlimited or invalid on-chain.
+#[derive(Debug, Clone, Copy, ReadConfig)]
+pub struct StateCapture {
+    /// Maximum visited containers, variants and nested entries across original source shapes.
+    #[config(default = "defaults::pipeline::state_capture::SOURCE_ELEMENTS")]
+    pub source_elements: u64,
+    /// Maximum visited variable text, key and signature input bytes; no allocation credit.
+    #[config(default = "defaults::pipeline::state_capture::SOURCE_VARIABLE_BYTES")]
+    pub source_variable_bytes: u64,
+    /// Maximum row visits across the explicitly enumerated semantic passes.
+    #[config(default = "defaults::pipeline::state_capture::SOURCE_TABLE_PASS_ROWS")]
+    pub source_table_pass_rows: u64,
+    /// Maximum original fixed-key evidence index population admitted for semantic lookup.
+    #[config(default = "defaults::pipeline::state_capture::SOURCE_LOOKUP_INDEX_ENTRIES")]
+    pub source_lookup_index_entries: u64,
+    /// Maximum explicitly planned model-validation and hash invocations.
+    #[config(default = "defaults::pipeline::state_capture::SOURCE_MODEL_OPERATIONS")]
+    pub source_model_operations: u64,
+    /// Maximum signature verifications, counting repeated provider edges.
+    #[config(default = "defaults::pipeline::state_capture::SOURCE_SIGNATURE_CHECKS")]
+    pub source_signature_checks: u64,
+    /// Additional native resolve/comparison work granted per scheduled capture attempt.
+    #[config(default = "defaults::pipeline::state_capture::NATIVE_WORK_PER_ATTEMPT")]
+    pub native_work_per_attempt: usize,
+    /// Maximum selected tables in each canonical builder; each semantic builder selects one table.
+    #[config(default = "defaults::pipeline::state_capture::TABLE_COUNT")]
+    pub table_count: usize,
+    /// Maximum canonical rows per table, matching the ordered-tree row geometry by default.
+    #[config(default = "defaults::pipeline::state_capture::TABLE_ROWS")]
+    pub table_rows: u64,
+    /// Maximum emitted payload bytes per key or value; the encoder also enforces its key bound.
+    #[config(default = "defaults::pipeline::state_capture::TABLE_PAYLOAD_BYTES")]
+    pub table_payload_bytes: usize,
+    /// Maximum retained ordered framing per table, matching the canonical ordered-tree bound by default.
+    #[config(default = "defaults::pipeline::state_capture::TABLE_ORDERED_BYTES")]
+    pub table_ordered_bytes: usize,
+    /// Maximum aggregate canonical value bytes across both encoding passes per table.
+    #[config(default = "defaults::pipeline::state_capture::TABLE_STREAMED_VALUE_BYTES")]
+    pub table_streamed_value_bytes: u64,
+    /// Maximum canonical rows across the three captured semantic tables.
+    #[config(default = "defaults::pipeline::state_capture::TOTAL_TABLE_ROWS")]
+    pub total_table_rows: u64,
+    /// Additional canonical encoding work per scheduled attempt, independent of native source work.
+    #[config(default = "defaults::pipeline::state_capture::ENCODING_WORK_PER_ATTEMPT")]
+    pub encoding_work_per_attempt: usize,
+}
+impl StateCapture {
+    fn into_actual(self) -> actual::StateCapture {
+        actual::StateCapture {
+            source_elements: self.source_elements,
+            source_variable_bytes: self.source_variable_bytes,
+            source_table_pass_rows: self.source_table_pass_rows,
+            source_lookup_index_entries: self.source_lookup_index_entries,
+            source_model_operations: self.source_model_operations,
+            source_signature_checks: self.source_signature_checks,
+            native_work_per_attempt: self.native_work_per_attempt,
+            table_count: self.table_count,
+            table_rows: self.table_rows,
+            table_payload_bytes: self.table_payload_bytes,
+            table_ordered_bytes: self.table_ordered_bytes,
+            table_streamed_value_bytes: self.table_streamed_value_bytes,
+            total_table_rows: self.total_table_rows,
+            encoding_work_per_attempt: self.encoding_work_per_attempt,
+        }
+    }
 }
 /// User-level configuration container for `TieredState`.
 #[derive(Debug, ReadConfig, Clone)]
@@ -4497,6 +4569,7 @@ impl Pipeline {
             ivm_cache_max_decoded_ops: self.ivm_cache_max_decoded_ops,
             ivm_cache_max_bytes: self.ivm_cache_max_bytes,
             ivm_execution_max_bytes: self.ivm_execution_max_bytes,
+            state_capture: self.state_capture.into_actual(),
             ivm_prover_threads: self.ivm_prover_threads,
             signature_batch_max_bls: self.signature_batch_max_bls,
             overlay_max_instructions: defaults::pipeline::OVERLAY_MAX_INSTRUCTIONS,
@@ -4576,10 +4649,112 @@ mod pipeline_tests {
             ivm_cache_max_decoded_ops: defaults::pipeline::IVM_CACHE_MAX_DECODED_OPS,
             ivm_cache_max_bytes: defaults::pipeline::IVM_CACHE_MAX_BYTES,
             ivm_execution_max_bytes: defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+            state_capture: StateCapture {
+                source_elements: defaults::pipeline::state_capture::SOURCE_ELEMENTS,
+                source_variable_bytes: defaults::pipeline::state_capture::SOURCE_VARIABLE_BYTES,
+                source_table_pass_rows: defaults::pipeline::state_capture::SOURCE_TABLE_PASS_ROWS,
+                source_lookup_index_entries:
+                    defaults::pipeline::state_capture::SOURCE_LOOKUP_INDEX_ENTRIES,
+                source_model_operations: defaults::pipeline::state_capture::SOURCE_MODEL_OPERATIONS,
+                source_signature_checks: defaults::pipeline::state_capture::SOURCE_SIGNATURE_CHECKS,
+                native_work_per_attempt: defaults::pipeline::state_capture::NATIVE_WORK_PER_ATTEMPT,
+                table_count: defaults::pipeline::state_capture::TABLE_COUNT,
+                table_rows: defaults::pipeline::state_capture::TABLE_ROWS,
+                table_payload_bytes: defaults::pipeline::state_capture::TABLE_PAYLOAD_BYTES,
+                table_ordered_bytes: defaults::pipeline::state_capture::TABLE_ORDERED_BYTES,
+                table_streamed_value_bytes:
+                    defaults::pipeline::state_capture::TABLE_STREAMED_VALUE_BYTES,
+                total_table_rows: defaults::pipeline::state_capture::TOTAL_TABLE_ROWS,
+                encoding_work_per_attempt:
+                    defaults::pipeline::state_capture::ENCODING_WORK_PER_ATTEMPT,
+            },
             ivm_prover_threads: defaults::pipeline::IVM_PROVER_THREADS,
             query_default_cursor_mode: QueryCursorMode::Ephemeral,
         }
     }
+    #[test]
+    fn state_capture_defaults_are_complete_and_independent_of_memory() {
+        use iroha_config_base::{read::ConfigReader, toml::TomlSource};
+        let table = toml::from_str("ivm_execution_max_bytes = 0").unwrap();
+        let user = ConfigReader::new()
+            .with_toml_source(TomlSource::inline(table))
+            .read_and_complete::<Pipeline>()
+            .unwrap();
+        let mut emitter = Emitter::new();
+        let actual = user.parse(&mut emitter);
+        emitter.into_result().unwrap();
+        assert_eq!(actual.ivm_execution_max_bytes, 0);
+        assert_eq!(actual.state_capture, actual::StateCapture::default());
+        assert!(actual.state_capture.source_elements > 0);
+        assert!(actual.state_capture.source_variable_bytes > 0);
+        assert!(actual.state_capture.source_table_pass_rows > 0);
+        assert!(actual.state_capture.source_lookup_index_entries > 0);
+        assert!(actual.state_capture.source_model_operations > 0);
+        assert!(actual.state_capture.source_signature_checks > 0);
+        assert!(actual.state_capture.native_work_per_attempt > 0);
+        assert!(actual.state_capture.table_count > 0);
+        assert!(actual.state_capture.table_rows > 0);
+        assert!(actual.state_capture.table_payload_bytes > 0);
+        assert!(actual.state_capture.table_ordered_bytes > 0);
+        assert!(actual.state_capture.table_streamed_value_bytes > 0);
+        assert!(actual.state_capture.total_table_rows > 0);
+        assert!(actual.state_capture.encoding_work_per_attempt > 0);
+    }
+
+    #[test]
+    fn state_capture_explicit_zero_and_each_override_reach_the_actual_owner() {
+        use iroha_config_base::{read::ConfigReader, toml::TomlSource};
+        let table = toml::from_str(
+            r"[state_capture]
+source_elements = 0
+source_variable_bytes = 1
+source_table_pass_rows = 2
+source_lookup_index_entries = 3
+source_model_operations = 4
+source_signature_checks = 5
+native_work_per_attempt = 6
+table_count = 7
+table_rows = 8
+table_payload_bytes = 9
+table_ordered_bytes = 10
+table_streamed_value_bytes = 11
+total_table_rows = 12
+encoding_work_per_attempt = 13
+",
+        )
+        .unwrap();
+        let user = ConfigReader::new()
+            .with_toml_source(TomlSource::inline(table))
+            .read_and_complete::<Pipeline>()
+            .unwrap();
+        let mut emitter = Emitter::new();
+        let actual = user.parse(&mut emitter);
+        emitter.into_result().unwrap();
+        assert_eq!(
+            actual.state_capture,
+            actual::StateCapture {
+                source_elements: 0,
+                source_variable_bytes: 1,
+                source_table_pass_rows: 2,
+                source_lookup_index_entries: 3,
+                source_model_operations: 4,
+                source_signature_checks: 5,
+                native_work_per_attempt: 6,
+                table_count: 7,
+                table_rows: 8,
+                table_payload_bytes: 9,
+                table_ordered_bytes: 10,
+                table_streamed_value_bytes: 11,
+                total_table_rows: 12,
+                encoding_work_per_attempt: 13,
+            }
+        );
+        assert_eq!(
+            actual.ivm_execution_max_bytes,
+            defaults::pipeline::IVM_EXECUTION_MAX_BYTES
+        );
+    }
+
     #[test]
     fn pipeline_gas_is_not_node_configuration() {
         use iroha_config_base::{read::ConfigReader, toml::TomlSource};

@@ -1,3 +1,4 @@
+use crate::common;
 use iroha_crypto::PublicKey;
 use iroha_model_base::domain::DomainId;
 use iroha_primitives::numeric::Quantity;
@@ -16,7 +17,6 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
 };
-mod common;
 fn repository_root() -> PathBuf {
     let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     crate_dir

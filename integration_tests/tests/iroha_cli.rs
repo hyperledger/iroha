@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests of the Iroha Client CLI
 use integration_tests::{
     binary_resolver::{

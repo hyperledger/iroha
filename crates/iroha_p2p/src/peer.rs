@@ -642,7 +642,7 @@ impl SoranetHandshakeConfig {
         })
     }
     /// Returns the number of active revocation fingerprints currently tracked.
-    #[must_use]
+    #[must_use = "check the active revocation count or its storage error"]
     #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn active_revocations(&self) -> Result<usize, ChallengeVerifyError> {
         let mut guard = self.lock_revocation_store()?;
@@ -1079,7 +1079,7 @@ pub(crate) fn create_soranet_transport_certificate_v5(
     }
     let certificate = SoranetTransportCertificateV5 {
         p2p_preface_version: PRE_VERSION,
-        network_id: network_id.clone(),
+        network_id: *network_id,
         node_id: PeerId::from(node_key_pair.public_key().clone()),
         transport_public_key: soranet_transport_key_pair.public_key().clone(),
         relay_authentication_mldsa65_public_key: relay_authentication_mldsa65_key_pair
@@ -1236,7 +1236,7 @@ fn verify_soranet_transport_delegation_v5(
     }
     if &signed.certificate.certificate.network_id != expected_network_id {
         return Err(DelegationError::NetworkMismatch {
-            expected: expected_network_id.clone(),
+            expected: *expected_network_id,
             found: signed.certificate.certificate.network_id,
         }
         .into());
@@ -4370,10 +4370,10 @@ mod run {
         hi_consensus_payload_rx: &mut post_channel::Receiver<T>,
         hi_consensus_chunk_rx: &mut post_channel::Receiver<T>,
     ) -> Option<(HighTopic, T)> {
-        if payload_burst >= HI_PAYLOAD_BURST_MAX {
-            if let Some(m) = hi_consensus_chunk_rx.try_recv_now() {
-                return Some((HighTopic::ConsensusChunk, m));
-            }
+        if payload_burst >= HI_PAYLOAD_BURST_MAX
+            && let Some(m) = hi_consensus_chunk_rx.try_recv_now()
+        {
+            return Some((HighTopic::ConsensusChunk, m));
         }
         if let Some(m) = hi_consensus_payload_rx.try_recv_now() {
             return Some((HighTopic::ConsensusPayload, m));
@@ -5020,23 +5020,22 @@ mod run {
                         topic_cap_violation: None,
                     });
                 }
-                let frame_len =
-                    match framed_message_len::<M>(remaining, framed_schema, framed_padding) {
-                        Ok(frame_len) => frame_len,
-                        Err(reason) => {
-                            return Err(MalformedParsedMessages {
-                                context: MalformedPayloadFrameContext::new(
-                                    reason,
-                                    encrypted_size,
-                                    Some(decrypted_len),
-                                    offset,
-                                    remaining.len(),
-                                    decoded_messages,
-                                ),
-                                topic_cap_violation: None,
-                            });
-                        }
-                    };
+                let frame_len = match framed_message_len(remaining, framed_schema, framed_padding) {
+                    Ok(frame_len) => frame_len,
+                    Err(reason) => {
+                        return Err(MalformedParsedMessages {
+                            context: MalformedPayloadFrameContext::new(
+                                reason,
+                                encrypted_size,
+                                Some(decrypted_len),
+                                offset,
+                                remaining.len(),
+                                decoded_messages,
+                            ),
+                            topic_cap_violation: None,
+                        });
+                    }
+                };
                 let Some(frame) = remaining.get(..frame_len) else {
                     return Err(MalformedParsedMessages {
                         context: MalformedPayloadFrameContext::new(
@@ -5223,10 +5222,10 @@ mod run {
                     self.reserve_for_frame().await?
                 };
                 // Try to get full message
-                if self.parse_next_encrypted_frame().await? {
-                    if let Some(msg) = self.pending.pop_front() {
-                        return Ok(Some(msg));
-                    }
+                if self.parse_next_encrypted_frame().await?
+                    && let Some(msg) = self.pending.pop_front()
+                {
+                    return Ok(Some(msg));
                 }
                 debug_assert_ne!(read_limit, 0);
                 let mut limited = (&mut *self.read).take(read_limit as u64);
@@ -6855,7 +6854,7 @@ mod run {
         }
         let padding = (alignment - ncore::Header::SIZE % alignment) % alignment;
         let length =
-            framed_message_len::<T>(frame, norito::schema::identity::frame_hash::<T>(), padding)
+            framed_message_len(frame, norito::schema::identity::frame_hash::<T>(), padding)
                 .map_err(|_| Error::Format)?;
         if length != frame.len() {
             return Err(Error::Format);
@@ -6931,7 +6930,7 @@ mod run {
         let limits = inbound_frame_decode_limits::<T>(frame, padding, topic_frame_caps)?;
         decode_inbound_frame_with_limits::<T>(frame, limits).map_err(InboundDecodeError::Codec)
     }
-    fn framed_message_len<M: Pload>(
+    fn framed_message_len(
         bytes: &[u8],
         expected_schema: [u8; 16],
         padding: usize,
@@ -12025,13 +12024,13 @@ mod state {
         const DOMAIN: &[u8] = b"iroha:p2p:identity-binding:v1|";
         let binding = HandshakeIdentityBindingV1 {
             session_binding: cryptographer.session_binding,
-            network_id: hello.network_id.clone(),
+            network_id: hello.network_id,
             soranet_transport_binding: *soranet_transport_binding,
             transport_binding: transport_binding.copied(),
             public_key: hello.public_key.clone(),
             advertised_addr: hello.addr.clone(),
             relay: hello.relay,
-            consensus: hello.consensus.clone(),
+            consensus: hello.consensus,
             confidential: hello.confidential.clone(),
             crypto: hello.crypto.clone(),
             trust: hello.trust.clone(),
@@ -12982,7 +12981,7 @@ mod state {
                 return Err(crate::Error::HandshakeNodeAlgorithmMismatch { found: alg });
             }
             let mut hello = HandshakeHello {
-                network_id: network_id.clone(),
+                network_id,
                 public_key: pk_bytes.to_vec(),
                 signature: Vec::new(),
                 addr: our_addr,

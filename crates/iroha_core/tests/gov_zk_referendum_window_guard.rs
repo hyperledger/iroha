@@ -1,5 +1,4 @@
 //! Authorized ZK ballots require an open referendum within its voting window.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 
 use iroha_core::{
     kura::Kura,

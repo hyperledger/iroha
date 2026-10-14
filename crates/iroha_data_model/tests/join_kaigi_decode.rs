@@ -27,8 +27,8 @@ fn join_kaigi_roundtrip_preserves_optional_fields() {
     let join = JoinKaigi::new(
         call_id.clone(),
         participant.clone(),
-        Some(commitment.clone()),
-        Some(nullifier.clone()),
+        Some(commitment),
+        Some(nullifier),
         Some(Hash::new([0xCC; Hash::LENGTH])),
         Some(vec![0x10, 0x20, 0x30]),
     );

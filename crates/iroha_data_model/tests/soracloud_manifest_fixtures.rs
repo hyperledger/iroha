@@ -1776,7 +1776,7 @@ fn deployment_bundle_charges_replica_private_lease_bytes_for_every_replica() {
         .service
         .lease_volumes
         .iter()
-        .position(|volume| volume.is_data_volume())
+        .position(iroha_data_model::soracloud::SoraLeaseVolumeBindingV1::is_data_volume)
         .expect("data lease volume");
     // Four copies of the 8-GiB root and 120-GiB data volumes exactly fill
     // the 512-GiB quota. Raising only the data volume must reject admission.

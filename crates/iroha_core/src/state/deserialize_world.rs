@@ -6,7 +6,7 @@ use musubi_rejection::{ProjectionCut, ProjectionRejection, ProjectionTable};
 pub(crate) mod musubi_source_read;
 
 #[path = "deserialize_world_musubi_live.rs"]
-mod musubi_live;
+pub(in crate::state) mod musubi_live;
 #[path = "deserialize_world_musubi_source_work.rs"]
 pub(in crate::state) mod musubi_source_work;
 pub(in crate::state) use musubi_live::validate_musubi_live_projection_cut;
@@ -10162,6 +10162,7 @@ fn default_pipeline() -> iroha_config::parameters::actual::Pipeline {
         ivm_cache_max_decoded_ops:
             iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_DECODED_OPS,
         ivm_cache_max_bytes: iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_BYTES,
+        state_capture: iroha_config::parameters::actual::StateCapture::default(),
         ivm_execution_max_bytes:
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         ivm_prover_threads: iroha_config::parameters::defaults::pipeline::IVM_PROVER_THREADS,

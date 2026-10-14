@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Norito Streaming integration test helpers and vectors.
 use core::convert::TryFrom;
 use hex::encode as hex_encode;

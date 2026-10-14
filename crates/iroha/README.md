@@ -402,6 +402,25 @@ The contract is `specs/zk_durable_workflow.md`; its fixtures are in `fixtures/zk
 
 ## Examples
 
+The [disposable KAGEMUSHA eligibility operator](examples/kagemusha_eligibility_operator.md)
+connects the canonical enrollment middleware adapter to an atomically published
+current-state image and a local authenticated HTTPS supervisor. It supports
+explicit SchemeOperator test campaigns; platform enrollment and network
+authority remain owned by the native issuer.
+
+The [one-shot KAGEMUSHA enrollment client](examples/kagemusha_enrollment_once.rs)
+sends one exact, SHA-256-selected Native service envelope through the canonical
+account-authenticated SDK transport. Its private `client.toml` selects the
+chain/network, actual Torii URL, transport policy, bounded request timeout and
+account; the only private-key reference is `account.key` in that same directory.
+HTTPS uses the ordinary transport; explicit HTTP is restricted to direct loopback.
+The example retains the request and a dispatch record before its one POST, then
+the canonical response and closed outcome. Missing completion after dispatch
+remains unknown. It neither retries automatically nor replaces enrollment/key
+identity. Build and test it with `cargo iroha-fast -- build -p iroha --example
+kagemusha_enrollment_once` and `cargo iroha-fast -- test -p iroha --example
+kagemusha_enrollment_once`; `--help` lists the six explicit arguments.
+
 We highly recommend looking at the sample [`iroha_cli`](../iroha_cli) binary
 crate, which builds the `iroha` executable, as well as our
 [tutorial](https://docs.iroha.tech/guide/tutorials/rust.html) for more examples

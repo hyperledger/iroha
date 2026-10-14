@@ -1,6 +1,6 @@
-use ivm::{IVM, encoding};
-mod common;
+use crate::common;
 use common::assemble;
+use ivm::{IVM, encoding};
 #[test]
 fn test_program_code_hash() {
     let halt = encoding::wide::encode_halt().to_le_bytes();

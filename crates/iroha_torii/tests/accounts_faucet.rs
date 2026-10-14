@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Torii account faucet tests.
 #![cfg(feature = "app_api")]
 use axum::{body::to_bytes, http::Request, response::Response};

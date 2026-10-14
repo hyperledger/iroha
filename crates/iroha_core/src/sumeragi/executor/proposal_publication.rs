@@ -34,7 +34,7 @@ impl Worker<'_> {
                 // Queue expiry or withdrawal during encoding retires this source.
                 // It cannot authorize publication, but ordinary churn is not a fault.
                 let reason = "completed proposal input custody retired before admission".into();
-                return Err(if cfg!(all(test, sumeragi_core_mutation = "HC359")) {
+                return Err(if cfg!(all(test, sumeragi_core_mutation = "HC380")) {
                     PublicationError::RecoveryRequired(reason)
                 } else {
                     PublicationError::Retryable(reason)

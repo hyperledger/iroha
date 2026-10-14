@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Kagami localnet bootstrap coverage for permissioned Sumeragi.
 use eyre::{Result, WrapErr, ensure, eyre};
 use integration_tests::{kagami::resolve_kagami_bin, process as test_process, sandbox};

@@ -1,4 +1,4 @@
-//! Ordinary network Register/Install/Activate/IssueLoad and authenticated event capture.
+//! Ordinary network Activate/IssueLoad after the same owner registered its scheme and pack.
 use super::*;
 
 pub(super) fn run(
@@ -6,10 +6,12 @@ pub(super) fn run(
     root: &Path,
     command: &norito::json::Value,
     setup_sha: &str,
+    registered: &registration::Registered,
+    deadline: Instant,
 ) -> Result<Vec<u8>> {
     ensure!(
-        committed_height(network)? == 2,
-        "fresh exact H1/H2 selected anchor required"
+        committed_height(network)? == 3,
+        "exact registration H3 must remain current before activation"
     );
     let output = root.join("funding");
     private_directory(&output)?;
@@ -67,19 +69,7 @@ pub(super) fn run(
     );
     let scheme_id = digest(&target["scheme_id"])?;
     let manifest = digest(&target["manifest_digest"])?;
-    let (_, pack) = selected(command, "verifier_pack", VERIFIER_PACK_MAX_BYTES_V1)?;
-    let admitted = InstalledVerifierPackV1::load(
-        &pack,
-        InstallationV1 {
-            scheme_id,
-            manifest_digest: manifest,
-        },
-    )?;
-    let scheme = *admitted.verifier().scheme();
-    ensure!(
-        scheme.network_id == *network.network_id().as_bytes(),
-        "verifier pack network"
-    );
+    registered.require_target(setup_sha, scheme_id, manifest, &asset)?;
     let activation_bytes = original(
         source,
         &target,
@@ -144,38 +134,28 @@ pub(super) fn run(
         ),
         "exact retained Load instruction"
     );
-    let register = KagemushaWalletLedgerV1::new(
-        scheme_id,
-        Action::Register {
-            scheme: scheme.to_canonical_bytes()?,
-            asset: norito::encode_canonical(&asset)?,
-            reserve: account(95),
-            balance_scope: AssetBalanceScope::Global,
-        },
-    );
-    let install = KagemushaWalletLedgerV1::new(
-        scheme_id,
-        Action::InstallVerifierPack {
-            asset: asset.asset_digest(),
-            manifest_digest: manifest,
-            pack,
-        },
-    );
-    let (_, h3) = submit(
-        network,
-        95,
-        vec![register.into(), install.into()],
-        &output,
-        "register-install-signed.norito",
-    )?;
-    ensure!(h3 == 3, "unexpected intervening network block");
-    let (_, h4) = submit(
+    let activation_transaction = signed(
         network,
         41,
         vec![KagemushaWalletLedgerV1::new(scheme_id, Action::Activate(activation_bytes)).into()],
-        &output,
-        "activate-signed.norito",
     )?;
+    let retention = activation::retain_before_submission(
+        network,
+        root,
+        &output,
+        command,
+        setup_sha,
+        &registered.summary,
+        &bytes,
+        &activation_transaction,
+        deadline,
+    )?;
+    require_live_campaign(network, root, setup_sha, deadline)?;
+    ensure!(
+        committed_height(network)? == 3,
+        "chain advanced while awaiting wallet retention"
+    );
+    let h4 = submit_retained(network, 41, &activation_transaction)?;
     ensure!(h4 == 4, "unexpected intervening network block");
     let (load_transaction, h5) = submit(
         network,
@@ -334,7 +314,7 @@ pub(super) fn run(
     let object = capture
         .as_object_mut()
         .ok_or_else(|| eyre!("capture object required"))?;
-    object.insert("scope".into(), "Actual four-validator Register/Install/Activate/IssueLoad and independently verified account-authenticated event proof; no mocked finality.".into());
+    object.insert("scope".into(), "Actual four-validator Register/Install before enrollment, then Activate/IssueLoad and independently verified account-authenticated event proof; no mocked finality.".into());
     object.insert("blocks".into(), norito::json::to_value(&blocks)?);
     object.insert("native_target_sha256".into(), hash(&bytes).into());
     object.insert("originals".into(), norito::json::to_value(&originals)?);
@@ -346,7 +326,7 @@ pub(super) fn run(
     let capture = norito::json::to_vec(&capture)?;
     publish(&output, "capture.json", &capture)?;
     let result = norito::json::to_vec(
-        &norito::json!({"schema":"iroha.kagemusha.network-funded-load.v1", "setup_sha256":setup_sha, "target_sha256":(hash(&bytes)), "source_pins":(target["source_pins"].clone()), "capture_sha256":(hash(&capture)), "receipt_sha256":(hash(&receipt_frame)), "balances":snapshots, "load_transaction_hash_hex":(hex::encode(load_transaction.hash().as_ref())), "certified_height":5}),
+        &norito::json!({"schema":"iroha.kagemusha.network-funded-load.v1", "setup_sha256":setup_sha, "registration_sha256":(hash(&registered.summary)), "target_sha256":(hash(&bytes)), "activation_retention":retention, "source_pins":(target["source_pins"].clone()), "capture_sha256":(hash(&capture)), "receipt_sha256":(hash(&receipt_frame)), "balances":snapshots, "load_transaction_hash_hex":(hex::encode(load_transaction.hash().as_ref())), "certified_height":5}),
     )?;
     publish(root, "funded.json", &result)?;
     Ok(result)

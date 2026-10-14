@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests for basic asset lifecycle operations.
 use eyre::{Report, Result, WrapErr, eyre};
 use integration_tests::{

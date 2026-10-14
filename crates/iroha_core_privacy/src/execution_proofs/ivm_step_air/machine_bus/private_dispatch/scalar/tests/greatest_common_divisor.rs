@@ -69,7 +69,7 @@ fn private_gcd_native_zero_signed_extremes_common_factors_tags_and_aliases_match
         (17, 17),
         (65536, 65535),
         (1 << 48, 1 << 40),
-        (7540113804746346429, 4660046610375530309),
+        (7_540_113_804_746_346_429, 4_660_046_610_375_530_309),
     ] {
         for tag in [false, true] {
             for rd in [0, 2, 3, 4] {
@@ -93,8 +93,8 @@ fn private_gcd_native_zero_signed_extremes_common_factors_tags_and_aliases_match
     let mut random = 0xc341_79a5_563c_b912_u64;
     for _ in 0..64 {
         random = random
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
         let left = random;
         random = random.rotate_left(17).wrapping_add(0xd341_e6c9_417d_c765);
         checked(

@@ -112,13 +112,14 @@ fn every_generated_raw_adapter_matches_its_declared_committed_encoder() {
 }
 
 #[test]
-fn each_missing_checked_semantic_or_membership_adapter_names_its_exact_output() {
+fn each_grouped_or_missing_adapter_preserves_its_exact_required_owner() {
     let state = new_state();
     let mut block = state.block(header());
     freeze_world(&mut block);
     let budget = state.ivm_execution_budget();
     budget.set_limit_bytes(0);
     let mut missing = Vec::new();
+    let mut musubi_group = Vec::new();
     for owner in TABLE_MATERIALIZERS {
         for table in owner.table_ids() {
             if matches!(owner, TableMaterializer::Native { .. })
@@ -163,6 +164,15 @@ fn each_missing_checked_semantic_or_membership_adapter_names_its_exact_output() 
                 ));
                 continue;
             }
+            if matches!(owner, TableMaterializer::MusubiSemantic(_)) {
+                assert!(matches!(
+                    &error,
+                    FrozenTableCaptureError(Failure::MusubiGroupRequired)
+                ));
+                assert_eq!(error.missing_adapter(), None);
+                musubi_group.push(table);
+                continue;
+            }
             assert_eq!(error.missing_adapter(), Some(table));
             assert!(
                 matches!(&(error), FrozenTableCaptureError(Failure::MissingAdapter(found)) if *found == table)
@@ -171,7 +181,16 @@ fn each_missing_checked_semantic_or_membership_adapter_names_its_exact_output() 
             missing.push(table);
         }
     }
-    assert_eq!(missing.len(), 3);
+    assert!(missing.is_empty());
+    musubi_group.sort_unstable();
+    assert_eq!(
+        musubi_group,
+        [
+            "world.musubi_archive_availability",
+            "world.musubi_public_directory",
+            "world.musubi_resolver_index"
+        ]
+    );
     assert!(!missing.contains(&"triggers.contracts"));
     assert!(!missing.contains(&"world.account_rekey_records"));
     assert!(!missing.contains(&"world.nfts"));
@@ -190,7 +209,7 @@ fn each_missing_checked_semantic_or_membership_adapter_names_its_exact_output() 
     assert!(!missing.contains(&"triggers.pipeline"));
     assert!(!missing.contains(&"triggers.time"));
     assert!(!missing.contains(&"triggers.by_call"));
-    assert!(missing.contains(&"world.musubi_archive_availability"));
+    assert!(!missing.contains(&"world.musubi_archive_availability"));
     assert!(!missing.contains(&"state.transactions.current"));
     assert!(!missing.contains(&"state.transactions.rollback"));
     for unknown in [

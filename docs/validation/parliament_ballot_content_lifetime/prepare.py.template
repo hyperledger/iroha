@@ -1,0 +1,54 @@
+"""Assemble an unpublished conditional content-ledger package, preserving captures."""
+from pathlib import Path
+import hashlib
+import json
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+OUT=HERE/'publication'
+REVIEW=ROOT/'target/parliament-ledger-content-extension-review'
+CAPTURE=REVIEW/'capture'
+def sha(data):return hashlib.sha256(data).hexdigest()
+def require(ok,why):
+    if not ok:raise RuntimeError(why)
+def encoded(value):return (json.dumps(value,indent=2,sort_keys=True)+'\n').encode()
+require(not OUT.exists(),'fresh publication candidate required')
+receipt_raw=(CAPTURE/'receipt.json').read_bytes()
+require(sha(receipt_raw)=='98b62bb5a26908854053acc21938070e4f233db5cfeecb5669ed06e386f01746','review receipt identity')
+receipt=json.loads(receipt_raw)
+manifest=(CAPTURE/'SHA256SUMS').read_bytes()
+require(sha(manifest)=='91182d3f21abe305ee686ced91a9f1de88becda58d7e0e2b0405de5df87db01f','capture manifest identity')
+for line in manifest.decode().splitlines():
+    digest,relative=line.split('  ',1)
+    require(sha((CAPTURE/relative).read_bytes())==digest,'original capture drift '+relative)
+members={};inventory={};mapping={}
+def add(relative,data,original=None):
+    require(relative not in members,'duplicate member')
+    members[relative]=data;inventory[relative]=dict(sha256=sha(data),original_path=original)
+for path,item in receipt['restored'].items():
+    mapping[path]=dict(origin='published-dependency',package=item['published_package'],
+        member=item['published_path'],sha256=item['sha256'])
+for path,digest in receipt['source_sha256_before'].items():
+    if path in mapping:continue
+    data=(CAPTURE/'replay'/path).read_bytes();require(sha(data)==digest,'replay source identity')
+    member='source/'+path+'.template';add(member,data,'target/parliament-ledger-content-extension-review/capture/replay/'+path)
+    mapping[path]=dict(origin='this-package',member=member,sha256=digest)
+for p in sorted(CAPTURE.iterdir()):
+    if p.is_file():add('capture/'+p.name,p.read_bytes(),p.relative_to(ROOT).as_posix())
+add('review/README.md',(REVIEW/'README.md').read_bytes(),'target/parliament-ledger-content-extension-review/README.md')
+add('README.md',(HERE/'README-candidate.md').read_bytes(),'target/parliament-ledger-content-extension-publication-stage/README-candidate.md')
+add('restore.py.template',(HERE/'restore.py').read_bytes(),'target/parliament-ledger-content-extension-publication-stage/restore.py')
+add('prepare.py.template',(HERE/'prepare.py').read_bytes(),'target/parliament-ledger-content-extension-publication-stage/prepare.py')
+add('dependencies.json',encoded(dict(published_manifest_sha256=receipt['published_manifest_sha256'],
+    selected_dependency_files=154,source_identity_not_semantic_or_runtime_attestation=True)))
+add('replay-inputs.json',encoded(mapping))
+add('inventory.json',encoded(dict(files=inventory,original_capture_manifest_preserved=True,
+    original_capture_member_count=176,replay_source_files=161,catalog_source_files=154,
+    execution_input_files=7,complete_resource_vector=False,current_candidate_qualified=False,production_gate_changed=False)))
+OUT.mkdir()
+for relative,data in members.items():
+    p=OUT/relative;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
+outer=''.join(sha(data)+'  '+path+'\n' for path,data in sorted(members.items()))
+(OUT/'SHA256SUMS').write_text(outer)
+print(json.dumps(dict(path=str(OUT),files=len(members)+1,manifest_entries=len(members),
+    manifest_sha256=sha(outer.encode()),inventory_sha256=sha(members['inventory.json']))))

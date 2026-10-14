@@ -2,8 +2,9 @@
 //! rows 5 and 6, `BlindingScheduleV1` items 5 and 6).
 //!
 //! - `R`: `n` random coefficients and a random blind, committed in
-//!   coefficient form before `y`; `R(x)` masks `h(x_3)` in the multiopen
-//!   because both are opened at `x`.
+//!   coefficient form before `y`; on the regular branch (`x_3 != x`), its
+//!   remaining value at `x_3` masks the combined quotient `H_x(x_3)` after
+//!   `R(x)` is disclosed, because both share the rotation-zero opening group.
 //! - `h`: the `(d - 1) n` coefficients from [`super::quotient`] split into
 //!   `d - 1` pieces of `n` coefficients, each with its own random blind,
 //!   committed in coefficient form and written in order before `x`.

@@ -1,0 +1,73 @@
+"""Capture selected-source stability and exact independent test membership."""
+from contextlib import redirect_stderr, redirect_stdout
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
+os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
+os.environ['PYTEST_DISABLE_PLUGIN_AUTOLOAD'] = '1'
+os.environ.pop('PYTEST_ADDOPTS', None)
+os.environ.pop('PYTEST_PLUGINS', None)
+sys.dont_write_bytecode = True
+
+import pytest
+
+
+def hashes(paths):
+    return {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(paths)}
+
+
+class Membership:
+    def __init__(self):
+        self.collected = []
+        self.reports = []
+
+    def pytest_collection_finish(self, session):
+        self.collected = [item.nodeid for item in session.items]
+
+    def pytest_runtest_logreport(self, report):
+        self.reports.append(dict(nodeid=report.nodeid, when=report.when, outcome=report.outcome))
+
+
+selected = set((ROOT/'target/parliament-ideal-machine-stage').glob('*.py'))
+selected.update((HERE/'capture.py', HERE/'test_independent.py',
+                 ROOT/'target/parliament-sequential-composition-stage/sequence.py'))
+before = hashes(selected)
+membership = Membership()
+with (HERE/'pytest.log').open('w') as log, redirect_stdout(log), redirect_stderr(log):
+    code = pytest.main(['-c', '/dev/null', '-o', 'addopts=', '-p', 'no:cacheprovider',
+                        '--noconftest', str(HERE/'test_independent.py'), '-q'], plugins=[membership])
+after = hashes(selected)
+loaded = {}
+for module in tuple(sys.modules.values()):
+    filename = getattr(module, '__file__', None)
+    if filename:
+        path = Path(filename).resolve()
+        if path.is_file() and path.is_relative_to(ROOT):
+            loaded[str(path.relative_to(ROOT))] = hashlib.sha256(path.read_bytes()).hexdigest()
+call_reports = [r for r in membership.reports if r['when'] == 'call']
+stable = before == after
+success = (code == 0 and stable and len(membership.collected) == 51
+           and len(call_reports) == 51 and all(r['outcome'] == 'passed' for r in call_reports)
+           and not any(r['outcome'] == 'failed' for r in membership.reports))
+receipt = dict(scope='independent fixed-sequence wiring controls; synthetic inputs and toy F',
+               exit_code=int(code), success=success, test_count=len(call_reports),
+               collected=membership.collected, reports=membership.reports,
+               selected_before=before, selected_after=after, selected_stable=stable,
+               loaded_repository_modules=loaded,
+               loaded_repository_modules_within_selected=all(p in before for p in loaded),
+               runtime=dict(python=platform.python_version(), executable=sys.executable,
+                            pytest=pytest.__version__),
+               source_dependency_closure_authenticated=False,
+               current_rust_candidate_qualified=False, independent_crypto_review=False,
+               full_joint_quantum_theorem=False, production_gate_changed=False)
+(HERE/'receipt.json').write_text(json.dumps(receipt, indent=2, sort_keys=True)+'\n')
+print(json.dumps(dict(success=success, tests=len(call_reports), selected=len(before),
+                     stable=stable, loaded_repo_modules=len(loaded))))
+raise SystemExit(0 if success else 1)

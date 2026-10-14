@@ -1,5 +1,5 @@
 //! Admission regression for the removed invocation-local scalar nullifier number.
-mod common;
+use crate::common;
 use common::assemble_syscalls;
 use ivm::{
     IVM, SyscallPolicy, VMError,

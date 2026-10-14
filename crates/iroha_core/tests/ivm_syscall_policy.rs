@@ -1,5 +1,5 @@
 //! Ensure `CoreHost` enforces syscall policy by `abi_version` header.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(clippy::cast_possible_truncation)]
 use iroha_core::{governance::manifest::LaneManifestRegistry, smartcontracts::ivm::host::CoreHost};
 use iroha_crypto::KeyPair;

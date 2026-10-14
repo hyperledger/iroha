@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Focused wrong-dataspace Torii ingress regression for transaction and query routing.
 use super::localnet_npos::npos_override_transactions;
 use eyre::{Result, WrapErr, ensure, eyre};

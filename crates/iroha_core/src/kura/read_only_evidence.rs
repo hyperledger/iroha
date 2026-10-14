@@ -565,8 +565,10 @@ mod canonical_evidence_read_only_fs {
         gid: u32,
         links: u64,
         size: u64,
-        modified: (i64, i64),
-        changed: (i64, i64),
+        // rustix exposes nanosecond fields as unsigned on Linux and as signed
+        // values on Apple. Keep the exact value in a platform-neutral wide type.
+        modified: (i64, i128),
+        changed: (i64, i128),
     }
     impl Identity {
         fn new(value: Stat) -> Result<Self> {
@@ -579,8 +581,8 @@ mod canonical_evidence_read_only_fs {
                 links: value.st_nlink as u64,
                 size: u64::try_from(value.st_size)
                     .map_err(|_| Error::Invalid("negative file size"))?,
-                modified: (value.st_mtime, value.st_mtime_nsec),
-                changed: (value.st_ctime, value.st_ctime_nsec),
+                modified: (value.st_mtime, i128::from(value.st_mtime_nsec)),
+                changed: (value.st_ctime, i128::from(value.st_ctime_nsec)),
             })
         }
         fn same_owner(self, other: Self) -> bool {

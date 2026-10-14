@@ -542,7 +542,9 @@ impl MainTracePolynomialSetV1 {
             if native.is_none() {
                 let batch =
                     sources.native_columns_v1(layout, kind, group_index, columns.clone())?;
-                if batch.len() != columns.len() || batch.capacity() != columns.len() {
+                let actual_columns = batch.len();
+                let requested_columns = columns.len();
+                if actual_columns != requested_columns || batch.capacity() != columns.len() {
                     return Err(ZkX509StarkErrorV1::ProofTooLarge);
                 }
                 native = Some(batch.into_iter());
@@ -697,7 +699,11 @@ impl MainTracePolynomialSetV1 {
                                     group,
                                     range.clone(),
                                 )?;
-                                if batch.len() != range.len() || batch.capacity() != range.len() {
+                                let actual_columns = batch.len();
+                                let requested_columns = range.len();
+                                if actual_columns != requested_columns
+                                    || batch.capacity() != range.len()
+                                {
                                     return Err(ZkX509StarkErrorV1::ProofTooLarge);
                                 }
                                 pending = batch.into_iter();

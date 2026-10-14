@@ -1509,8 +1509,10 @@ mod handle_update_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn handshake_update_returns_the_exact_actor_result() {
         let (handle, mut receivers) = handle_with_control_update_receivers();
-        let mut accepted = ActualSoranetHandshake::default();
-        accepted.kem_id = 11;
+        let accepted = ActualSoranetHandshake {
+            kem_id: 11,
+            ..Default::default()
+        };
         let accepted_task = tokio::spawn({
             let handle = handle.clone();
             async move { handle.update_soranet_handshake(accepted).await }
@@ -1530,8 +1532,10 @@ mod handle_update_tests {
             .expect("accepted update task")
             .expect("accepted actor result");
 
-        let mut rejected = ActualSoranetHandshake::default();
-        rejected.kem_id = 12;
+        let rejected = ActualSoranetHandshake {
+            kem_id: 12,
+            ..Default::default()
+        };
         let rejected_task = tokio::spawn({
             let handle = handle.clone();
             async move { handle.update_soranet_handshake(rejected).await }

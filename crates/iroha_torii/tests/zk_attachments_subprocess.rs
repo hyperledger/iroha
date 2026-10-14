@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration test for the subprocess attachment sanitizer path.
 #![cfg(all(feature = "app_api", feature = "ws_integration_tests"))]
 #![allow(unexpected_cfgs)]

@@ -685,7 +685,7 @@ impl ExecSched {
         }
         // Withdrawal releases the original unsigned body's retry custody as well as execution.
         // A native discard may refund its decode; that refund must not revive this request.
-        if !cfg!(all(test, sumeragi_core_mutation = "HC360")) {
+        if !cfg!(all(test, sumeragi_core_mutation = "HC381")) {
             let withdrawn = |original: &ProposalRecovery| {
                 original.body.header().height == height
                     && !keep.contains(&original.body.source().block_hash())
@@ -1377,8 +1377,8 @@ impl ExecSched {
     #[allow(clippy::too_many_lines)] // one arm per operation
     pub fn done(&mut self, now: Millis, done: ExecDone) -> Option<u64> {
         let running = self.running.take();
-        // HC358: obsolete worker identity must never swallow an original terminal failure.
-        if cfg!(all(test, sumeragi_core_mutation = "HC358"))
+        // HC379: obsolete worker identity must never swallow an original terminal failure.
+        if cfg!(all(test, sumeragi_core_mutation = "HC379"))
             && matches!(&done, ExecDone::ProposalAdmissionRecovered(Err(error)) if error.is_recovery_required())
         {
             self.running_cancelled = false;
@@ -1731,7 +1731,7 @@ impl ExecSched {
                         self.require_recovery(original.body.header().height, &reason);
                     }
                     Ok(admission)
-                        if cfg!(all(test, sumeragi_core_mutation = "HC357"))
+                        if cfg!(all(test, sumeragi_core_mutation = "HC378"))
                             || (!cancelled
                                 && self.proposal_recovery.as_ref() == Some(&original)) =>
                     {

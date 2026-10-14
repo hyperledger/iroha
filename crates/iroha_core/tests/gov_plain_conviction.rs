@@ -1,5 +1,5 @@
 //! Plain ballot conviction factor test.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     kura::Kura,
     query::store::LiveQueryStore,

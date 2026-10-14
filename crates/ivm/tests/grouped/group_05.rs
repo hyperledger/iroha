@@ -1,5 +1,7 @@
 //! Grouped IVM integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
+#[path = "../common.rs"]
+mod common;
 #[path = "../kotodama_amounts.rs"]
 mod kotodama_amounts;
 #[path = "../kotodama_argument_record.rs"]

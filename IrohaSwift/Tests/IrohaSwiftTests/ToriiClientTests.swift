@@ -7909,23 +7909,7 @@ final class ToriiClientTests: XCTestCase {
                         "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                         "created_at":"2025-01-01T00:00:00Z",
                         "kind":"Transfer",
-                        "box":{
-                            "encoded":"0xbeef",
-                            "framed_sha256":"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                            "json":{
-                                "kind":"Transfer",
-                                "payload":{
-                                    "Asset":{
-                                        "source":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                        "destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D",
-                                        "object":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM",
-                                        "value":"10"
-                                    }
-                                },
-                                "wire_id":"10",
-                                "encoded":"beef"
-                            }
-                        },
+                        "box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "10")),
                         "transaction_hash":"hash",
                         "transaction_status":"Committed",
                         "block":5,
@@ -7956,16 +7940,9 @@ final class ToriiClientTests: XCTestCase {
         let item = page.items[0]
         XCTAssertEqual(item.kind, "Transfer")
         XCTAssertEqual(item.transactionHash, "hash")
-        XCTAssertEqual(item.box.encoded, "0xbeef")
-        XCTAssertEqual(item.box.framedSha256, "0x" + String(repeating: "b", count: 64))
-        XCTAssertNil(item.box.scale)
-        guard case let .object(payload) = item.box.json else {
-            return XCTFail("Expected instruction box json payload to be an object.")
-        }
-        guard case let .string(kind) = payload["kind"] else {
-            return XCTFail("Expected instruction box json to contain a kind string.")
-        }
-        XCTAssertEqual(kind, "Transfer")
+        XCTAssertEqual(item.box.wireId, "iroha.transfer")
+        XCTAssertEqual(item.box.framedSha256.count, 64)
+        XCTAssertNotNil(item.transferDetails())
     }
 
     @available(iOS 15.0, macOS 12.0, *)
@@ -8038,20 +8015,7 @@ final class ToriiClientTests: XCTestCase {
                 "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                 "created_at":"2025-06-01T10:00:00Z",
                 "kind":"Burn",
-                "box":{
-                    "json":{
-                        "encoded":"00",
-                        "kind":"Burn",
-                        "payload":{
-                            "value":{
-                                "destination":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM",
-                                "object":"25"
-                            },
-                            "variant":"Asset"
-                        },
-                        "wire_id":"iroha.instruction.v1::mint_burn::BurnBox"
-                    }
-                },
+                "box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", amount: "25", kind: "Burn")),
                 "transaction_hash":"burn_hash_1",
                 "transaction_status":"Committed",
                 "block":5,
@@ -8087,21 +8051,7 @@ final class ToriiClientTests: XCTestCase {
                     "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at":"2025-01-01T00:00:00Z",
                     "kind":"Transfer",
-                    "box":{
-                        "json":{
-                            "kind":"Transfer",
-                            "payload":{
-                                "variant":"Asset",
-                                "value":{
-                                    "source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                    "destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D",
-                                    "object":"10"
-                                }
-                            },
-                            "wire_id":"10",
-                            "encoded":"beef"
-                        }
-                    },
+                    "box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "10")),
                     "transaction_hash":"transfer_hash",
                     "transaction_status":"Committed",
                     "block":1,
@@ -8111,20 +8061,7 @@ final class ToriiClientTests: XCTestCase {
                     "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at":"2025-01-02T00:00:00Z",
                     "kind":"Mint",
-                    "box":{
-                        "json":{
-                            "encoded":"00",
-                            "kind":"Mint",
-                            "payload":{
-                                "value":{
-                                    "destination":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM",
-                                    "object":"100"
-                                },
-                                "variant":"Asset"
-                            },
-                            "wire_id":"MintBox"
-                        }
-                    },
+                    "box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", amount: "100", kind: "Mint")),
                     "transaction_hash":"mint_hash",
                     "transaction_status":"Committed",
                     "block":2,
@@ -8134,17 +8071,7 @@ final class ToriiClientTests: XCTestCase {
                     "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at":"2025-01-03T00:00:00Z",
                     "kind":"SetKeyValue",
-                    "box":{
-                        "json":{
-                            "encoded":"00",
-                            "kind":"SetKeyValue",
-                            "payload":{
-                                "variant":"Domain",
-                                "value":{"key":"foo","value":"bar"}
-                            },
-                            "wire_id":"SetKeyValueBox"
-                        }
-                    },
+                    "box":{"wire_id":"iroha.set_key_value","instruction":"TlJUMAAAhip9dwddTSP/bBJh2wJ4EQC3AAAAAAAAAP/ZTURJe3SjAhQTaXJvaGEuc2V0X2tleV92YWx1ZaABmAAAAAAAAABOUlQwAAB/UyvHLBBdPNY92pDgDfiZAHAAAAAAAAAAL+NHTeox43QCAQAAAGtPAAAAAEohAAAAAAAAAAEAAUgBBwFaAVkBfgFyARoBFQFuAS4BBwGZAd4BXAHAAcUBMgFNAcYB5wHqAfEBzQHUAWIBUAGGAY4BxQEyARUB3QUEbWVtbxQTEiJmaXh0dXJlIG1ldGFkYXRhIg==","framed_sha256":"63ddf1893959fa3fcf6f69e1fca581436c11ca8a4277a1e3e893f2c7718743d1"},
                     "transaction_hash":"skv_hash",
                     "transaction_status":"Committed",
                     "block":3,
@@ -8204,22 +8131,7 @@ final class ToriiClientTests: XCTestCase {
                         "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                         "created_at":"2025-01-01T00:00:00Z",
                         "kind":"Transfer",
-                        "box":{
-                            "encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                            "json":{
-                                "kind":"Transfer",
-                                "payload":{
-                                    "variant":"Asset",
-                                    "value":{
-                                        "source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                        "object":"10",
-                                        "destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                    }
-                                },
-                                "wire_id":"10",
-                                "encoded":"beef"
-                            }
-                        },
+                        "box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "10")),
                         "transaction_hash":"hash1",
                         "transaction_status":"Committed",
                         "block":1,
@@ -8229,27 +8141,7 @@ final class ToriiClientTests: XCTestCase {
                         "authority":"sorauﾛ1Pﾀﾚｿ1ﾍｶsFｲAfｾeB3ｽヱヱｳcyﾊyｹ1ﾂﾈヰヰ6ﾛヰEAﾃｱｳﾖLPN4XM",
                         "created_at":"2025-01-01T00:00:00Z",
                         "kind":"Transfer",
-                        "box":{
-                            "encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                            "json":{
-                                "kind":"Transfer",
-                                "payload":{
-                                    "variant":"AssetBatch",
-                                    "value":{
-                                        "entries":[
-                                            {
-                                                "from":"sorauﾛ1Pﾀﾚｿ1ﾍｶsFｲAfｾeB3ｽヱヱｳcyﾊyｹ1ﾂﾈヰヰ6ﾛヰEAﾃｱｳﾖLPN4XM",
-                                                "to":"sorauﾛ1PﾜKNﾗ7ｼｺa2WｸｼﾒﾐQﾎbｺﾄocﾆﾁヰJaｱbg6sｾgｲﾖPfX7WAWRY",
-                                                "asset_definition":"61CtjvNd9T3THAR65GsMVHr82Bjc",
-                                                "amount":"2"
-                                            }
-                                        ]
-                                    }
-                                },
-                                "wire_id":"10",
-                                "encoded":"beef"
-                            }
-                        },
+                        "box":\(try explorerBatchBoxFixture([("sorauﾛ1Pﾀﾚｿ1ﾍｶsFｲAfｾeB3ｽヱヱｳcyﾊyｹ1ﾂﾈヰヰ6ﾛヰEAﾃｱｳﾖLPN4XM", "sorauﾛ1PﾜKNﾗ7ｼｺa2WｸｼﾒﾐQﾎbｺﾄocﾆﾁヰJaｱbg6sｾgｲﾖPfX7WAWRY", "61CtjvNd9T3THAR65GsMVHr82Bjc", "2")])),
                         "transaction_hash":"hash2",
                         "transaction_status":"Committed",
                         "block":1,
@@ -8525,20 +8417,7 @@ final class ToriiClientTests: XCTestCase {
                 "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                 "created_at":"2025-01-01T00:00:00Z",
                 "kind":"Transfer",
-                "box":{
-                    "encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    "json":{
-                        "kind":"Transfer",
-                        "payload":{
-                            "variant":"Asset",
-                            "value":{
-                                "source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                "object":"5",
-                                "destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                            }
-                        }
-                    }
-                },
+                "box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),
                 "transaction_hash":"hash1",
                 "transaction_status":"Committed",
                 "block":10,
@@ -8865,20 +8744,7 @@ final class ToriiClientTests: XCTestCase {
                     "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at":"2025-01-01T00:00:00Z",
                     "kind":"Transfer",
-                    "box":{
-                        "encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        "json":{
-                            "kind":"Transfer",
-                            "payload":{
-                                "variant":"Asset",
-                                "value":{
-                                    "source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                    "object":"5",
-                                    "destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                }
-                            }
-                        }
-                    },
+                    "box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),
                     "transaction_hash":"deadbeef",
                     "transaction_status":"Committed",
                     "block":10,
@@ -8896,20 +8762,7 @@ final class ToriiClientTests: XCTestCase {
                     "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at":"2025-01-01T00:00:01Z",
                     "kind":"Transfer",
-                    "box":{
-                        "encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        "json":{
-                            "kind":"Transfer",
-                            "payload":{
-                                "variant":"Asset",
-                                "value":{
-                                    "source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                    "object":"7",
-                                    "destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                }
-                            }
-                        }
-                    },
+                    "box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "7")),
                     "transaction_hash":"deadbeef",
                     "transaction_status":"Committed",
                     "block":10,
@@ -8967,20 +8820,7 @@ final class ToriiClientTests: XCTestCase {
                         "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                         "created_at":"2025-01-01T00:00:00Z",
                         "kind":"Transfer",
-                        "box":{
-                            "encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                            "json":{
-                                "kind":"Transfer",
-                                "payload":{
-                                    "variant":"Asset",
-                                    "value":{
-                                        "source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                        "object":"5",
-                                        "destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                    }
-                                }
-                            }
-                        },
+                        "box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),
                         "transaction_hash":"deadbeef",
                         "transaction_status":"Committed",
                         "block":10,
@@ -9017,20 +8857,7 @@ final class ToriiClientTests: XCTestCase {
                     "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at":"2025-01-01T00:00:00Z",
                     "kind":"Transfer",
-                    "box":{
-                        "encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        "json":{
-                            "kind":"Transfer",
-                            "payload":{
-                                "variant":"Asset",
-                                "value":{
-                                    "source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                    "object":"5",
-                                    "destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                }
-                            }
-                        }
-                    },
+                    "box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),
                     "transaction_hash":"deadbeef",
                     "transaction_status":"Committed",
                     "block":10,
@@ -9040,20 +8867,7 @@ final class ToriiClientTests: XCTestCase {
                     "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at":"2025-01-01T00:00:01Z",
                     "kind":"Transfer",
-                    "box":{
-                        "encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        "json":{
-                            "kind":"Transfer",
-                            "payload":{
-                                "variant":"Asset",
-                                "value":{
-                                    "source":"61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                    "object":"7",
-                                    "destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                }
-                            }
-                        }
-                    },
+                    "box":\(try explorerTransferBoxFixture(sourceAssetId: "61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "7")),
                     "transaction_hash":"deadbeef",
                     "transaction_status":"Committed",
                     "block":10,
@@ -9097,20 +8911,7 @@ final class ToriiClientTests: XCTestCase {
                 "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                 "created_at":"2025-01-01T00:00:00Z",
                 "kind":"Transfer",
-                "box":{
-                    "encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    "json":{
-                        "kind":"Transfer",
-                        "payload":{
-                            "variant":"Asset",
-                            "value":{
-                                "source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                "object":"5",
-                                "destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                            }
-                        }
-                    }
-                },
+                "box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),
                 "transaction_hash":"hash1",
                 "transaction_status":"Committed",
                 "block":10,
@@ -9153,22 +8954,7 @@ final class ToriiClientTests: XCTestCase {
                         "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                         "created_at":"2025-01-01T00:00:00Z",
                         "kind":"Transfer",
-                        "box":{
-                            "encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                            "json":{
-                                "kind":"Transfer",
-                                "payload":{
-                                    "variant":"Asset",
-                                    "value":{
-                                        "source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                        "object":"10",
-                                        "destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                    }
-                                },
-                                "wire_id":"10",
-                                "encoded":"beef"
-                            }
-                        },
+                        "box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "10")),
                         "transaction_hash":"hash1",
                         "transaction_status":"Committed",
                         "block":1,
@@ -9359,22 +9145,7 @@ final class ToriiClientTests: XCTestCase {
                             "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                             "created_at":"2025-01-01T00:00:00Z",
                             "kind":"Transfer",
-                            "box":{
-                                "encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                                "json":{
-                                    "kind":"Transfer",
-                                    "payload":{
-                                        "variant":"Asset",
-                                        "value":{
-                                            "source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                            "object":"10",
-                                            "destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                        }
-                                    },
-                                    "wire_id":"10",
-                                    "encoded":"beef"
-                                }
-                            },
+                            "box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "10")),
                             "transaction_hash":"hash1",
                             "transaction_status":"Committed",
                             "block":1,
@@ -9392,22 +9163,7 @@ final class ToriiClientTests: XCTestCase {
                             "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                             "created_at":"2025-01-01T00:00:01Z",
                             "kind":"Transfer",
-                            "box":{
-                                "encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                                "json":{
-                                    "kind":"Transfer",
-                                    "payload":{
-                                        "variant":"Asset",
-                                        "value":{
-                                            "source":"61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                            "object":"5",
-                                            "destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                        }
-                                    },
-                                    "wire_id":"10",
-                                    "encoded":"beef"
-                                }
-                            },
+                            "box":\(try explorerTransferBoxFixture(sourceAssetId: "61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),
                             "transaction_hash":"hash2",
                             "transaction_status":"Committed",
                             "block":2,
@@ -12199,7 +11955,7 @@ data: {"authority":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼ�
     @available(iOS 15.0, macOS 12.0, *)
     func testStreamExplorerInstructionsAsync() async throws {
         let ssePayload = """
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"5","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
 
 """
             .data(using: .utf8)!
@@ -12225,9 +11981,8 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
         XCTAssertEqual(first?.transactionStatus, "Committed")
         XCTAssertEqual(first?.block, 10)
         XCTAssertEqual(first?.index, 0)
-        XCTAssertEqual(first?.box.encoded, "0x00")
-        XCTAssertEqual(first?.box.framedSha256, "0x" + String(repeating: "a", count: 64))
-        XCTAssertNil(first?.box.scale)
+        XCTAssertEqual(first?.box.wireId, "iroha.transfer")
+        XCTAssertEqual(first?.box.framedSha256.count, 64)
 
         let second = try await iterator.next()
         XCTAssertNil(second)
@@ -12236,11 +11991,11 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
     @available(iOS 15.0, macOS 12.0, *)
     func testStreamExplorerTransfersAsync() async throws {
         let ssePayload = """
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"5","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
 
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"6","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":2}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "6")),"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":2}
 
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Mint","box":{"encoded":"0x01","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Mint","payload":{"variant":"Asset","value":{"destination":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM","object":"1"}}}},"transaction_hash":"hash2","transaction_status":"Committed","block":10,"index":1}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Mint","box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", amount: "1", kind: "Mint")),"transaction_hash":"hash2","transaction_status":"Committed","block":10,"index":1}
 
 """
             .data(using: .utf8)!
@@ -12279,9 +12034,9 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
     @available(iOS 15.0, macOS 12.0, *)
     func testStreamExplorerTransferSummariesAsync() async throws {
         let ssePayload = """
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"5","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
 
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"6","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":1}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "6")),"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":1}
 
 """
             .data(using: .utf8)!
@@ -12323,21 +12078,7 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
                     "authority": "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at": "2025-01-01T00:00:00Z",
                     "kind": "Transfer",
-                    "box": {
-                        "encoded": "0x00",
-                        "framed_sha256": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        "json": {
-                            "kind": "Transfer",
-                            "payload": {
-                                "variant": "Asset",
-                                "value": {
-                                    "source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                    "object": "5",
-                                    "destination": "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                }
-                            }
-                        }
-                    },
+                    "box": \(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),
                     "transaction_hash": "hash1",
                     "transaction_status": "Committed",
                     "block": 10,
@@ -12347,21 +12088,7 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
                     "authority": "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at": "2025-01-01T00:00:00Z",
                     "kind": "Transfer",
-                    "box": {
-                        "encoded": "0x00",
-                        "framed_sha256": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        "json": {
-                            "kind": "Transfer",
-                            "payload": {
-                                "variant": "Asset",
-                                "value": {
-                                    "source":"61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                    "object": "6",
-                                    "destination": "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                }
-                            }
-                        }
-                    },
+                    "box": \(try explorerTransferBoxFixture(sourceAssetId: "61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "6")),
                     "transaction_hash": "hash3",
                     "transaction_status": "Committed",
                     "block": 10,
@@ -12373,11 +12100,11 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
             .data(using: .utf8)!
 
         let ssePayload = """
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"5","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
 
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"7","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash2","transaction_status":"Committed","block":11,"index":0}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "7")),"transaction_hash":"hash2","transaction_status":"Committed","block":11,"index":0}
 
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"8","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash4","transaction_status":"Committed","block":11,"index":1}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "8")),"transaction_hash":"hash4","transaction_status":"Committed","block":11,"index":1}
 
 """
             .data(using: .utf8)!
@@ -12447,32 +12174,7 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
                     "authority": "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at": "2025-01-01T00:00:00Z",
                     "kind": "Transfer",
-                    "box": {
-                        "encoded": "0x00",
-                        "framed_sha256": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        "json": {
-                            "kind": "Transfer",
-                            "payload": {
-                                "variant": "AssetBatch",
-                                "value": {
-                                    "entries": [
-                                        {
-                                            "from": "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                            "to": "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D",
-                                            "asset_definition": "62Fk4FPcMuLvW5QjDGNF2a4jAmjM",
-                                            "amount": "5"
-                                        },
-                                        {
-                                            "from": "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                            "to": "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D",
-                                            "asset_definition": "62Fk4FPcMuLvW5QjDGNF2a4jAmjM",
-                                            "amount": "5"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    },
+                    "box": \(try explorerBatchBoxFixture([("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", "62Fk4FPcMuLvW5QjDGNF2a4jAmjM", "5"), ("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", "62Fk4FPcMuLvW5QjDGNF2a4jAmjM", "5")])),
                     "transaction_hash": "hash1",
                     "transaction_status": "Committed",
                     "block": 10,
@@ -12666,7 +12368,7 @@ data: {"authority":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼ�
     @available(iOS 15.0, macOS 12.0, *)
     func testExplorerInstructionsPublisherDeliversItems() throws {
         let ssePayload = """
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"5","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
 
 """
             .data(using: .utf8)!
@@ -12708,11 +12410,11 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
     @available(iOS 15.0, macOS 12.0, *)
     func testExplorerTransfersPublisherDeliversRecords() throws {
         let ssePayload = """
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"5","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
 
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"6","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":1}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "6")),"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":1}
 
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Mint","box":{"encoded":"0x01","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Mint","payload":{"variant":"Asset","value":{"destination":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM","object":"1"}}}},"transaction_hash":"hash2","transaction_status":"Committed","block":10,"index":1}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Mint","box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", amount: "1", kind: "Mint")),"transaction_hash":"hash2","transaction_status":"Committed","block":10,"index":1}
 
 """
             .data(using: .utf8)!
@@ -12754,9 +12456,9 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
     @available(iOS 15.0, macOS 12.0, *)
     func testExplorerTransferSummariesPublisherDeliversItems() throws {
         let ssePayload = """
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"5","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
 
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"6","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":1}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "6")),"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":1}
 
 """
             .data(using: .utf8)!
@@ -12809,21 +12511,7 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
                     "authority": "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at": "2025-01-01T00:00:00Z",
                     "kind": "Transfer",
-                    "box": {
-                        "encoded": "0x00",
-                        "framed_sha256": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        "json": {
-                            "kind": "Transfer",
-                            "payload": {
-                                "variant": "Asset",
-                                "value": {
-                                    "source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                    "object": "5",
-                                    "destination": "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                }
-                            }
-                        }
-                    },
+                    "box": \(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),
                     "transaction_hash": "hash1",
                     "transaction_status": "Committed",
                     "block": 10,
@@ -12833,21 +12521,7 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
                     "authority": "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at": "2025-01-01T00:00:00Z",
                     "kind": "Transfer",
-                    "box": {
-                        "encoded": "0x00",
-                        "framed_sha256": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        "json": {
-                            "kind": "Transfer",
-                            "payload": {
-                                "variant": "Asset",
-                                "value": {
-                                    "source":"61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                    "object": "6",
-                                    "destination": "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                }
-                            }
-                        }
-                    },
+                    "box": \(try explorerTransferBoxFixture(sourceAssetId: "61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "6")),
                     "transaction_hash": "hash3",
                     "transaction_status": "Committed",
                     "block": 10,
@@ -12859,11 +12533,11 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
             .data(using: .utf8)!
 
         let ssePayload = """
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"5","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:00Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),"transaction_hash":"hash1","transaction_status":"Committed","block":10,"index":0}
 
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"7","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash2","transaction_status":"Committed","block":11,"index":0}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "7")),"transaction_hash":"hash2","transaction_status":"Committed","block":11,"index":0}
 
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"8","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"hash4","transaction_status":"Committed","block":11,"index":1}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "8")),"transaction_hash":"hash4","transaction_status":"Committed","block":11,"index":1}
 
 """
             .data(using: .utf8)!
@@ -12945,21 +12619,7 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
                     "authority": "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at": "2025-01-01T00:00:00Z",
                     "kind": "Transfer",
-                    "box": {
-                        "encoded": "0x00",
-                        "framed_sha256": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        "json": {
-                            "kind": "Transfer",
-                            "payload": {
-                                "variant": "Asset",
-                                "value": {
-                                    "source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                    "object": "5",
-                                    "destination": "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                }
-                            }
-                        }
-                    },
+                    "box": \(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),
                     "transaction_hash": "deadbeef",
                     "transaction_status": "Committed",
                     "block": 10,
@@ -12969,21 +12629,7 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
                     "authority": "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at": "2025-01-01T00:00:00Z",
                     "kind": "Transfer",
-                    "box": {
-                        "encoded": "0x00",
-                        "framed_sha256": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        "json": {
-                            "kind": "Transfer",
-                            "payload": {
-                                "variant": "Asset",
-                                "value": {
-                                    "source":"61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                    "object": "6",
-                                    "destination": "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                }
-                            }
-                        }
-                    },
+                    "box": \(try explorerTransferBoxFixture(sourceAssetId: "61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "6")),
                     "transaction_hash": "deadbeef",
                     "transaction_status": "Committed",
                     "block": 10,
@@ -12995,11 +12641,11 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
             .data(using: .utf8)!
 
         let ssePayload = """
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"7","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"deadbeef","transaction_status":"Committed","block":11,"index":0}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "7")),"transaction_hash":"deadbeef","transaction_status":"Committed","block":11,"index":0}
 
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"8","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"deadbeef","transaction_status":"Committed","block":11,"index":2}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "8")),"transaction_hash":"deadbeef","transaction_status":"Committed","block":11,"index":2}
 
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:02Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"9","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"otherhash","transaction_status":"Committed","block":11,"index":1}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:02Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "9")),"transaction_hash":"otherhash","transaction_status":"Committed","block":11,"index":1}
 
 """
             .data(using: .utf8)!
@@ -13070,21 +12716,7 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
                     "authority": "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at": "2025-01-01T00:00:00Z",
                     "kind": "Transfer",
-                    "box": {
-                        "encoded": "0x00",
-                        "framed_sha256": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        "json": {
-                            "kind": "Transfer",
-                            "payload": {
-                                "variant": "Asset",
-                                "value": {
-                                    "source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                    "object": "5",
-                                    "destination": "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                }
-                            }
-                        }
-                    },
+                    "box": \(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "5")),
                     "transaction_hash": "deadbeef",
                     "transaction_status": "Committed",
                     "block": 10,
@@ -13094,21 +12726,7 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
                     "authority": "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at": "2025-01-01T00:00:00Z",
                     "kind": "Transfer",
-                    "box": {
-                        "encoded": "0x00",
-                        "framed_sha256": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        "json": {
-                            "kind": "Transfer",
-                            "payload": {
-                                "variant": "Asset",
-                                "value": {
-                                    "source":"61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-                                    "object": "6",
-                                    "destination": "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
-                                }
-                            }
-                        }
-                    },
+                    "box": \(try explorerTransferBoxFixture(sourceAssetId: "61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "6")),
                     "transaction_hash": "deadbeef",
                     "transaction_status": "Committed",
                     "block": 10,
@@ -13120,9 +12738,9 @@ data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽ
             .data(using: .utf8)!
 
         let ssePayload = """
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"7","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"deadbeef","transaction_status":"Committed","block":11,"index":0}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "7")),"transaction_hash":"deadbeef","transaction_status":"Committed","block":11,"index":0}
 
-data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":{"encoded":"0x00","framed_sha256":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","json":{"kind":"Transfer","payload":{"variant":"Asset","value":{"source":"61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","object":"8","destination":"sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"}}}},"transaction_hash":"deadbeef","transaction_status":"Committed","block":11,"index":2}
+data: {"authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV","created_at":"2025-01-01T00:00:01Z","kind":"Transfer","box":\(try explorerTransferBoxFixture(sourceAssetId: "61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", destination: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", amount: "8")),"transaction_hash":"deadbeef","transaction_status":"Committed","block":11,"index":2}
 
 """
             .data(using: .utf8)!

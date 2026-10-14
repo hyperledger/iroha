@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Release-only real-process tests for atomic private settlement.
 //!
 //! The ignored test deliberately uses the production wallet prover, encrypted

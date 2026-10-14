@@ -269,7 +269,7 @@ fn unavailable_original_storage_is_never_absence_or_missing_witness() {
     ));
     assert!(matches!(
         SourceCustodyV1::bootstrap(&mut Unavailable, &state, &[0], &[0]),
-        Err(Error::Invalid(_)) | Err(Error::WitnessLost(_))
+        Err(Error::Invalid(_) | Error::WitnessLost(_))
     ));
 }
 

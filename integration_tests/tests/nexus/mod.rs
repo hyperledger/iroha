@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Nexus-specific integration test modules.
 #[cfg(feature = "atomic-private-settlement-release")]
 mod atomic_private_settlement_localnet;

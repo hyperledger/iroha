@@ -1,7 +1,7 @@
 //! Retained diagnostic trace and execution behavior controls.
-use ivm::{IVM, encoding};
-mod common;
+use crate::common;
 use common::assemble_zk;
+use ivm::{IVM, encoding};
 #[test]
 fn zk_padding_extends_trace_to_max_cycles() {
     // Program: HALT

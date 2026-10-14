@@ -1,5 +1,4 @@
 #![doc = "ZK lane reporting: background verification emits a non-forking pipeline warning."]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "zk-tests")]
 //! ZK lane reporting: background verification emits a non-forking pipeline warning.
 use iroha_core::pipeline::zk_lane;

@@ -1,5 +1,5 @@
 //! Genuine native verification does not authorize a governance ballot through the vendor bridge.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![cfg(feature = "zk-tests")]
 #![allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
 use iroha_core::{

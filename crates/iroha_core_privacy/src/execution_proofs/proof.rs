@@ -414,8 +414,9 @@ fn validate_payload(
     }
     let relation = &payload.relation_inputs;
     let expected_outcome = race_game_outcome_v1(&payload.final_state)?;
+    let race_session_id = relation.race_id;
     if statement.network_id != relation.network_id
-        || statement.session_id != relation.race_id
+        || statement.session_id != race_session_id
         || statement.roster_hash != relation.roster_hash
         || statement.roster_hash
             != game_roster_hash_v1(

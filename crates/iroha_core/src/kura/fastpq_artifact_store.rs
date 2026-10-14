@@ -126,10 +126,30 @@ impl Kura {
             ));
         }
         let reference = FastpqStoredArtifactReference::for_bytes(bytes);
+        // The complete artifact operation retains each exact physical release
+        // source until all sibling fences and resource accounting have retired.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC358")))]
+        let (
+            mut prune_releases,
+            mut canonical_releases,
+            mut geometry_releases,
+            mut sidecar_releases,
+        ) = (
+            self.prune_lock.defer_notifications(),
+            self.canonical_chain_lock.defer_notifications(),
+            self.lane_geometry_lock.defer_notifications(),
+            self.sidecar_lock.defer_notifications(),
+        );
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC358")))]
+        let _prune_guard = prune_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC358"))]
         let _prune_guard = self.prune_lock.lock();
         #[cfg(all(test, unix, not(target_os = "espidf")))]
         original_release_tests::fence_boundary(1);
         self.ensure_prune_recovery_not_required()?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC358")))]
+        let _canonical_guard = canonical_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC358"))]
         let _canonical_guard = self.canonical_chain_lock.lock();
         #[cfg(all(test, unix, not(target_os = "espidf")))]
         original_release_tests::fence_boundary(2);
@@ -138,9 +158,15 @@ impl Kura {
         // require block-store locks before either geometry or sidecar locks.
         let pending_canonical_bytes =
             self.pending_canonical_capacity_bytes_under_prune_and_canonical_guards()?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC358")))]
+        let _geometry_guard = geometry_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC358"))]
         let _geometry_guard = self.lane_geometry_lock.lock();
         #[cfg(all(test, unix, not(target_os = "espidf")))]
         original_release_tests::fence_boundary(3);
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC358")))]
+        let _sidecar_guard = sidecar_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC358"))]
         let _sidecar_guard = self.sidecar_lock.lock();
         #[cfg(all(test, unix, not(target_os = "espidf")))]
         original_release_tests::fence_boundary(4);
@@ -254,14 +280,31 @@ impl Kura {
                 "FASTPQ artifact reference exceeds its byte cap",
             ));
         }
+        // The complete artifact operation retains each exact physical release
+        // source until all sibling fences and resource accounting have retired.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC358")))]
+        let (mut prune_releases, mut canonical_releases, mut sidecar_releases) = (
+            self.prune_lock.defer_notifications(),
+            self.canonical_chain_lock.defer_notifications(),
+            self.sidecar_lock.defer_notifications(),
+        );
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC358")))]
+        let _prune_guard = prune_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC358"))]
         let _prune_guard = self.prune_lock.lock();
         #[cfg(all(test, unix, not(target_os = "espidf")))]
         original_release_tests::fence_boundary(1);
         self.ensure_prune_recovery_not_required()?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC358")))]
+        let _canonical_guard = canonical_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC358"))]
         let _canonical_guard = self.canonical_chain_lock.lock();
         #[cfg(all(test, unix, not(target_os = "espidf")))]
         original_release_tests::fence_boundary(2);
         self.durable_mutation_authorized()?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC358")))]
+        let _sidecar_guard = sidecar_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC358"))]
         let _sidecar_guard = self.sidecar_lock.lock();
         #[cfg(all(test, unix, not(target_os = "espidf")))]
         original_release_tests::fence_boundary(3);
@@ -300,10 +343,20 @@ impl Kura {
 
     /// Validate existing retained FASTPQ bytes against the immutable configured policy.
     /// This bounded owner scan runs at initialization/re-audit, never at metric scrape.
-    pub(super) fn validate_fastpq_artifact_inventory_on_startup(&self) -> Result<()> {
+    pub(super) fn validate_fastpq_artifact_inventory_on_startup(
+        &self,
+        sidecar_releases: &mut crate::publication_lock::DeferredPublicationFence<'_, ()>,
+    ) -> Result<()> {
         let directory = self.store_root.join(DIRECTORY);
         Self::validate_fastpq_artifact_limits(self.fastpq_artifact_policy, &directory)?;
+        // The reconciliation caller retains this source through its outer physical
+        // guards and final family publication or invalidation.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC361")))]
+        let _sidecar_guard = sidecar_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC361"))]
         let _sidecar_guard = self.sidecar_lock.lock();
+        #[cfg(all(test, unix, not(target_os = "espidf")))]
+        super::original_inventory_release_tests::fence_boundary(self, 3);
         // Missing storage remains valid even on a platform that cannot publish artifacts.
         // Supported platforms still bind that absence to the live Kura root identity.
         #[cfg(all(unix, not(target_os = "espidf")))]
@@ -1014,8 +1067,10 @@ mod tests {
                 .is_err(),
             "a later successful receipt cannot erase an earlier accounting fault"
         );
-        kura.validate_fastpq_artifact_inventory_on_startup()
-            .unwrap();
+        kura.validate_fastpq_artifact_inventory_on_startup(
+            &mut kura.sidecar_lock.defer_notifications(),
+        )
+        .unwrap();
         let observed = observe_actual_physical_fixture(&kura);
         assert_eq!(
             kura.resource_inventory
@@ -1098,8 +1153,10 @@ mod tests {
                 _ => unreachable!(),
             }
             assert!(
-                kura.validate_fastpq_artifact_inventory_on_startup()
-                    .is_err(),
+                kura.validate_fastpq_artifact_inventory_on_startup(
+                    &mut kura.sidecar_lock.defer_notifications()
+                )
+                .is_err(),
                 "{invalid}"
             );
             let inventory_before = std::fs::read_dir(&namespace)

@@ -12811,6 +12811,51 @@ mod tests {
                 ),
             ],
         );
+        // Derive fixture nonces from the same owner-qualified instruction bodies
+        // carried by the proposals, so a second stale settlement layout cannot diverge.
+        let multisig_dvp = vec![InstructionBox::from(DvpIsi::new(
+            iroha_data_model::isi::SettlementId::new(
+                alice_id.clone(),
+                "multisig_dvp_plan".parse().expect("settlement reference"),
+            ),
+            SettlementLeg::new(
+                delivery_definition.clone(),
+                1_u32,
+                alice_id.clone(),
+                bob_id.clone(),
+            ),
+            SettlementLeg::new(
+                payment_definition.clone(),
+                1_u32,
+                bob_id.clone(),
+                alice_id.clone(),
+            ),
+            SettlementPlan::default(),
+        ))];
+        let multisig_mixed = vec![
+            InstructionBox::from(DvpIsi::new(
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "multisig_mixed_plan".parse().expect("settlement reference"),
+                ),
+                SettlementLeg::new(
+                    delivery_definition.clone(),
+                    1_u32,
+                    alice_id.clone(),
+                    bob_id.clone(),
+                ),
+                SettlementLeg::new(
+                    delivery_definition.clone(),
+                    1_u32,
+                    bob_id.clone(),
+                    alice_id.clone(),
+                ),
+                SettlementPlan::default(),
+            )),
+            InstructionBox::from(Register::domain(Domain::new(
+                DomainId::try_new("merchant", "payment").expect("domain id"),
+            ))),
+        ];
         let instructions = [
             (
                 "DVP",
@@ -12860,41 +12905,8 @@ mod tests {
                 "multisig-wrapped DVP",
                 InstructionBox::from(MultisigPropose::new(
                     alice_id.clone(),
-                    test_nonce(&HashOf::new(&vec![InstructionBox::from(DvpIsi::new(
-                        "multisig_dvp_plan".parse().expect("settlement id"),
-                        SettlementLeg::new(
-                            delivery_definition.clone(),
-                            1_u32,
-                            alice_id.clone(),
-                            bob_id.clone(),
-                        ),
-                        SettlementLeg::new(
-                            payment_definition.clone(),
-                            1_u32,
-                            bob_id.clone(),
-                            alice_id.clone(),
-                        ),
-                        SettlementPlan::default(),
-                    ))])),
-                    vec![InstructionBox::from(DvpIsi::new(
-                        iroha_data_model::isi::SettlementId::new(
-                            alice_id.clone(),
-                            "multisig_dvp_plan".parse().expect("settlement reference"),
-                        ),
-                        SettlementLeg::new(
-                            delivery_definition.clone(),
-                            1_u32,
-                            alice_id.clone(),
-                            bob_id.clone(),
-                        ),
-                        SettlementLeg::new(
-                            payment_definition.clone(),
-                            1_u32,
-                            bob_id.clone(),
-                            alice_id.clone(),
-                        ),
-                        SettlementPlan::default(),
-                    ))],
+                    test_nonce(&HashOf::new(&multisig_dvp)),
+                    multisig_dvp,
                     None,
                 )),
             ),
@@ -12902,51 +12914,8 @@ mod tests {
                 "multisig mixed private settlement and write",
                 InstructionBox::from(MultisigPropose::new(
                     alice_id.clone(),
-                    test_nonce(&HashOf::new(&vec![
-                        InstructionBox::from(DvpIsi::new(
-                            "multisig_mixed_plan".parse().expect("settlement id"),
-                            SettlementLeg::new(
-                                delivery_definition.clone(),
-                                1_u32,
-                                alice_id.clone(),
-                                bob_id.clone(),
-                            ),
-                            SettlementLeg::new(
-                                delivery_definition.clone(),
-                                1_u32,
-                                bob_id.clone(),
-                                alice_id.clone(),
-                            ),
-                            SettlementPlan::default(),
-                        )),
-                        InstructionBox::from(Register::domain(Domain::new(
-                            DomainId::try_new("merchant", "payment").expect("domain id"),
-                        ))),
-                    ])),
-                    vec![
-                        InstructionBox::from(DvpIsi::new(
-                            iroha_data_model::isi::SettlementId::new(
-                                alice_id.clone(),
-                                "multisig_mixed_plan".parse().expect("settlement reference"),
-                            ),
-                            SettlementLeg::new(
-                                delivery_definition.clone(),
-                                1_u32,
-                                alice_id.clone(),
-                                bob_id.clone(),
-                            ),
-                            SettlementLeg::new(
-                                delivery_definition.clone(),
-                                1_u32,
-                                bob_id.clone(),
-                                alice_id.clone(),
-                            ),
-                            SettlementPlan::default(),
-                        )),
-                        InstructionBox::from(Register::domain(Domain::new(
-                            DomainId::try_new("merchant", "payment").expect("domain id"),
-                        ))),
-                    ],
+                    test_nonce(&HashOf::new(&multisig_mixed)),
+                    multisig_mixed,
                     None,
                 )),
             ),
@@ -17319,12 +17288,15 @@ mod tests {
                 // different allocation; numeric demand equality would be a false control.
                 let original_observation = routed_cause.clone();
                 assert!(direct.allocation_refusal().is_none());
+                assert!(repeated.allocation_refusal().is_none());
                 assert!(custom.allocation_refusal().is_none());
                 assert!(routed.allocation_refusal().is_none());
                 assert!(direct.verification_refusal().is_none());
+                assert!(repeated.verification_refusal().is_none());
                 assert!(custom.verification_refusal().is_none());
                 assert!(routed.verification_refusal().is_none());
                 assert!(direct.phase().is_none());
+                assert!(repeated.phase().is_none());
                 assert!(custom.phase().is_none());
                 assert!(routed.phase().is_none());
                 let moved = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(

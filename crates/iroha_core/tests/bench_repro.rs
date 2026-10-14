@@ -1,5 +1,5 @@
 //! Reproduces the ISI gas calibration benchmark setup for debugging.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     executor::{Executor, InstructionExecutionProfile},
     gas,

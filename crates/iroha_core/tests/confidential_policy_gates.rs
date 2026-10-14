@@ -1,5 +1,5 @@
 //! Tests covering confidential policy gating for transparent asset instructions.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_config::parameters::defaults;
 use iroha_core::{
     kura::Kura,

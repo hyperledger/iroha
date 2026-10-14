@@ -16,7 +16,7 @@ use super::{
 };
 
 /// Fixed journal roles. Their bytes are recovery DATA, never reconstructed live authority.
-/// Client, Accepted, Slot and Cancelled are create-new and immutable. `Phase` is the attempt's one
+/// Client, Accepted, Slot, Cancelled and Expired are create-new and immutable. `Phase` is the attempt's one
 /// mandatory replace-only, monotone enrollment phase (`enrollment_phase.rs`): created before
 /// the Slot selection and atomically replaced before each effect it witnesses; never removed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -27,6 +27,8 @@ pub(crate) enum PreKeyRecordV1 {
     Phase,
     /// Terminal pre-permit cancellation bound to the exact retained Client digest.
     Cancelled,
+    /// Terminal E1 expiry proof bound to exact Client/Resume dispatch/Accepted originals.
+    Expired,
 }
 impl PreKeyRecordV1 {
     fn name(
@@ -55,6 +57,7 @@ impl PreKeyRecordV1 {
             Self::Slot => "slot",
             Self::Phase => "phase",
             Self::Cancelled => "cancelled",
+            Self::Expired => "expired",
         }
     }
 }

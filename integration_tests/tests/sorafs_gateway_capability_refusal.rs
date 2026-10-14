@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Tests covering the `SoraFS` gateway capability refusal fixture bundle.
 use integration_tests::sorafs_gateway_capability_refusal::{load_responses, load_scenarios};
 use norito::json::Value;

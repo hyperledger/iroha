@@ -231,12 +231,13 @@ fn oid_index(
     trace: &ZkX509Rfc5280TraceV1,
     value: ZkX509Rfc5280NodeProvenanceV1,
 ) -> Result<usize, ZkX509Rfc5280StarkErrorV1> {
+    let value_tlv_start = value.start;
     let mut nodes =
         role_nodes_v1(trace, ZkX509Rfc5280GrammarRoleV1::NameAttributeOid).filter(|node| {
             node.document == value.document
                 && node.role_instance == value.role_instance
                 && node.parent_node == value.parent_node
-                && node.content_end == value.start
+                && node.content_end == value_tlv_start
         });
     let oid = nodes.next().ok_or(ZkX509Rfc5280StarkErrorV1::Semantic)?;
     if nodes.next().is_some() {

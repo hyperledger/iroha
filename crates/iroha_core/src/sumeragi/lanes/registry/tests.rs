@@ -1232,7 +1232,16 @@ impl std::task::Wake for RegistryRefundProbe {
         self.remaining_bytes
             .store(fixture.stores.budget.reserved_bytes(), Ordering::SeqCst);
         let guard = fixture.stores.stores.try_lock();
-        let free = guard.is_some();
+        // Registry ownership includes the per-key recovery guard. A refund cannot
+        // run beneath it merely because unrelated map lookups are already available.
+        let free = guard.as_ref().is_some_and(|stores| {
+            stores
+                .get(&(LANE, INCARNATION))
+                .is_none_or(|slot| match slot {
+                    StoreSlot::Opening(opening, _) => opening.progress.try_lock().is_some(),
+                    StoreSlot::Ready(_) => true,
+                })
+        });
         drop(guard);
         self.registry_free.store(free, Ordering::SeqCst);
         if free {
@@ -1866,3 +1875,6 @@ fn original_authority_recheck_retains_reentrant_opening_and_historical_interest(
     assert_eq!(budget.reserved_bytes(), baseline);
     assert_eq!(fs::read(fixture.path()).unwrap(), bytes);
 }
+
+#[path = "isolation_tests.rs"]
+mod isolation_tests;

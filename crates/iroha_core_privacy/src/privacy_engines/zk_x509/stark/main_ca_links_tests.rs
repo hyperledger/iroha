@@ -274,7 +274,10 @@ fn ca_link_replay_transform_degree_and_owner_census_is_source_derived() {
         24 * (526_104 * 8 + core::mem::size_of::<Vec<F>>())
             + core::mem::size_of::<MainCaOriginalAuxiliaryV1>()
     );
-    assert_eq!(MainCaPrivatePlanV1::quotient_private_bytes_v1(), 109074624);
+    assert_eq!(
+        MainCaPrivatePlanV1::quotient_private_bytes_v1(),
+        109_074_624
+    );
 }
 
 #[test]

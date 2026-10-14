@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Four-validator modern SORA Parliament and mandatory timed-OVN lifecycle corridor.
 
 use iroha::data_model::{

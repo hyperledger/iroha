@@ -1,7 +1,7 @@
 //! Runtime regressions for pointer-backed literals projected from aggregate values.
+use crate::common;
 use ivm::{CoreHost, IVM};
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 fn run_program(source: &str) -> IVM {
     let code = KotodamaCompiler::new()
         .compile_source(source)

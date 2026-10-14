@@ -1,5 +1,5 @@
 //! Doc-sync tests for the Sumeragi governance and evidence documentation.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_config::parameters::defaults::sumeragi::npos;
 use std::path::Path;
 #[test]

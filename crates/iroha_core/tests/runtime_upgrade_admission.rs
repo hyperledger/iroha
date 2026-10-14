@@ -1,5 +1,5 @@
 //! Admission coverage for runtime upgrade manifests under the v1-only policy.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(clippy::items_after_statements)]
 use iroha_config::parameters::actual::RuntimeUpgradeProvenanceMode;
 use iroha_core::smartcontracts::Execute; // bring trait for `.execute()` on ISIs

@@ -184,7 +184,10 @@ fn allocator_observer_detects_backing_growth_and_recovers_after_unwind() {
 // Include the production helpers, not a copied predicate or diagnostic shim.
 #[path = "../src/state/deserialize_world_musubi_source_traits.rs"]
 mod source_traits;
-use source_traits::MusubiSourceReadOnly;
+use source_traits::{
+    MusubiSourceReadOnly,
+    access::{LookupCursor, MusubiRead, ReadFailure},
+};
 #[path = "../src/smartcontracts/isi/musubi/attestation_records.rs"]
 mod attestation_records;
 #[path = "../src/smartcontracts/isi/musubi/replication_binding.rs"]

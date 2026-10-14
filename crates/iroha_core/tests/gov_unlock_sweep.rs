@@ -1,5 +1,5 @@
 //! Automatic unlock sweep at block height.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     kura::Kura,
     query::store::LiveQueryStore,

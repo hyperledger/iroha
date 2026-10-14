@@ -88,22 +88,53 @@ impl Kura {
         &self,
         complete: bool,
     ) -> Result<()> {
+        // Preserve the exact physical sources until every acquired fence and
+        // the outer refusal-accounting invalidation have finished.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC356")))]
+        let (
+            mut prune_releases,
+            mut canonical_releases,
+            mut geometry_releases,
+            mut sidecar_releases,
+        ) = (
+            self.prune_lock.defer_notifications(),
+            self.canonical_chain_lock.defer_notifications(),
+            self.lane_geometry_lock.defer_notifications(),
+            self.sidecar_lock.defer_notifications(),
+        );
         let publication = (|| -> Result<()> {
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC356")))]
+            let _prune = prune_releases.lock();
+            #[cfg(all(test, sumeragi_core_mutation = "HC356"))]
             let _prune = self.prune_lock.lock();
             #[cfg(test)]
             capacity_release_tests::fence_boundary(1);
             self.ensure_prune_recovery_not_required()?;
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC356")))]
+            let _canonical = canonical_releases.lock();
+            #[cfg(all(test, sumeragi_core_mutation = "HC356"))]
             let _canonical = self.canonical_chain_lock.lock();
             #[cfg(test)]
             capacity_release_tests::fence_boundary(2);
             let pending = if complete {
+                // Completed recovery authenticates the original durable boundary even
+                // when capacity is unlimited or its accounting snapshot is cached.
+                // Do this before geometry/sidecar custody takes later-order locks.
+                #[cfg(not(all(test, sumeragi_core_mutation = "HC362")))]
+                self.exact_durable_blocks_count()?;
                 self.pending_canonical_capacity_bytes_under_prune_and_canonical_guards()?
             } else {
                 0
             };
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC356")))]
+            let _geometry = geometry_releases.lock();
+            #[cfg(all(test, sumeragi_core_mutation = "HC356"))]
             let _geometry = self.lane_geometry_lock.lock();
             #[cfg(test)]
             capacity_release_tests::fence_boundary(3);
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC356")))]
+            let _sidecar = sidecar_releases.lock();
+            #[cfg(all(test, sumeragi_core_mutation = "HC356"))]
             let _sidecar = self.sidecar_lock.lock();
             #[cfg(test)]
             capacity_release_tests::fence_boundary(4);

@@ -80,7 +80,7 @@ pub(crate) fn mp_hR(p: u32) -> u32 {
     //    p < 2^31 < 2*p
     // Hence, 2^31 = p + hR with 0 <= R < p.
     // We compute and return hR = 2^31 - p
-    0x80000000 - p
+    0x8000_0000 - p
 }
 // Compute a + b mod p.
 // This function is compatible with Montgomery representation: if a and b

@@ -1,4 +1,5 @@
 //! WsvHost JSON/Name/Schema decode syscalls coverage.
+use crate::common;
 use iroha_crypto::PublicKey;
 use iroha_data_model::prelude::AssetDefinitionId;
 use iroha_model_base::name::Name;
@@ -9,7 +10,6 @@ use ivm::{
     syscalls,
 };
 use std::str::FromStr;
-mod common;
 fn make_tlv(pty: PointerType, payload: &[u8]) -> Vec<u8> {
     let payload = common::payload_for_type(pty, payload);
     let mut v = Vec::with_capacity(7 + payload.len() + 32);

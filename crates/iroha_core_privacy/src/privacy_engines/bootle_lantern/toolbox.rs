@@ -349,9 +349,9 @@ impl<'a> QuadraticEquationV1<'a> {
             SIGNATURE_NORM_SQUARED_BOUND_V1,
         );
         let s4 = Zeroizing::new(application_quotient_v1(self.relation, &variables.short)?);
-        let s3 = Zeroizing::new(projected_norm_witness_v1(&variables.short));
+        let s3 = projected_norm_witness_v1(&variables.short);
         let s4_coefficients = Zeroizing::new(flatten_polynomials(s4.as_ref()));
-        let s3_coefficients = Zeroizing::new(flatten_polynomials(s3.as_ref()));
+        let s3_coefficients = Zeroizing::new(flatten_polynomials(s3.polynomials()));
         let y3 = Zeroizing::new(flatten_polynomials(
             &variables.message
                 [Y3_MESSAGE_START_V1..Y3_MESSAGE_START_V1 + PROJECTION_POLYNOMIALS_V1],
@@ -441,7 +441,7 @@ impl<'a> QuadraticEquationV1<'a> {
         let mut constraints = self.constraints(variables)?;
         let (beta3, beta4) = beta_polynomials_v1(variables.message[BETA_MESSAGE_INDEX_V1])?;
         let s4 = Zeroizing::new(application_quotient_v1(self.relation, &variables.short)?);
-        let s3 = Zeroizing::new(projected_norm_witness_v1(&variables.short));
+        let s3 = projected_norm_witness_v1(&variables.short);
         let beta4_s4 = Zeroizing::new(
             s4.iter()
                 .copied()
@@ -449,7 +449,8 @@ impl<'a> QuadraticEquationV1<'a> {
                 .collect::<Vec<_>>(),
         );
         let beta3_s3 = Zeroizing::new(
-            s3.iter()
+            s3.polynomials()
+                .iter()
                 .copied()
                 .map(|polynomial| beta3.multiply(polynomial))
                 .collect::<Vec<_>>(),
@@ -503,7 +504,7 @@ impl<'a> QuadraticEquationV1<'a> {
         let beta3 = Zeroizing::new(beta3);
         let beta4 = Zeroizing::new(beta4);
         let s4 = Zeroizing::new(application_quotient_v1(self.relation, &variables.short)?);
-        let s3 = Zeroizing::new(projected_norm_witness_v1(&variables.short));
+        let s3 = projected_norm_witness_v1(&variables.short);
         let scalar_relations = Zeroizing::new([
             binary_relation_polynomial_v1(&[
                 variables.short[RANDOMNESS_SLACK_INDEX_V1],
@@ -528,7 +529,7 @@ impl<'a> QuadraticEquationV1<'a> {
                 *beta3,
                 *beta4,
                 &*scalar_relations,
-                &*s3,
+                s3.polynomials(),
                 &*s4,
                 &variables.message
                     [Y3_MESSAGE_START_V1..Y3_MESSAGE_START_V1 + PROJECTION_POLYNOMIALS_V1],
@@ -1009,18 +1010,23 @@ fn beta_polynomials_v1(
         .map_err(|_| ToolboxErrorV1::InternalInvariant)?;
     Ok((beta3, beta4))
 }
-pub(crate) fn projected_norm_witness_v1(
-    short: &[ProofPolynomialV1; TBOX_M1_V1],
-) -> [ProofPolynomialV1; 50] {
-    let mut output = Zeroizing::new([ProofPolynomialV1::ZERO; 50]);
+/// Reorder the short witness under the same heap-owned, zeroizing custody.
+/// Returning the owner avoids materializing or copying a 25 KiB secret array
+/// through the caller's stack before it can establish its zeroizing guard.
+pub(crate) fn projected_norm_witness_v1(short: &[ProofPolynomialV1; TBOX_M1_V1]) -> ShortWitnessV1 {
+    let mut output = ShortWitnessV1 {
+        polynomials: boxed_zero_polynomial_array_v1(),
+    };
     for (destination, source) in BINARY_SHORT_INDICES_V1.into_iter().enumerate() {
-        output[destination] = short[source];
+        output.polynomials[destination] = short[source];
     }
-    output[16..32].copy_from_slice(&short[RANDOMNESS_SHORT_START_V1..RANDOMNESS_SHORT_END_V1]);
-    output[32..48].copy_from_slice(&short[SIGNATURE_SHORT_START_V1..SIGNATURE_SHORT_END_V1]);
-    output[48] = short[RANDOMNESS_SLACK_INDEX_V1];
-    output[49] = short[SIGNATURE_SLACK_INDEX_V1];
-    *output
+    output.polynomials[16..32]
+        .copy_from_slice(&short[RANDOMNESS_SHORT_START_V1..RANDOMNESS_SHORT_END_V1]);
+    output.polynomials[32..48]
+        .copy_from_slice(&short[SIGNATURE_SHORT_START_V1..SIGNATURE_SHORT_END_V1]);
+    output.polynomials[48] = short[RANDOMNESS_SLACK_INDEX_V1];
+    output.polynomials[49] = short[SIGNATURE_SLACK_INDEX_V1];
+    output
 }
 pub(crate) fn application_quotient_v1(
     relation: &BootleLanternApplicationRelationV1,
@@ -1157,6 +1163,47 @@ mod tests {
         )
         .expect("fully bound projection transcript")
         .proof_core()
+    }
+    #[test]
+    fn projected_norm_witness_keeps_exact_order_and_zeroizing_heap_custody() {
+        let short = ShortWitnessV1 {
+            polynomials: boxed_polynomial_array_from_fn_v1(|row| {
+                ProofPolynomialV1::from_centered_coefficients(core::array::from_fn(|column| {
+                    i64::try_from(1 + row * APPLICATION_RING_DEGREE_V1 + column)
+                        .expect("fixed witness geometry fits i64")
+                }))
+            }),
+        };
+        let mut projected = projected_norm_witness_v1(short.polynomials());
+        // The return value carries one owner, never another by-value witness.
+        assert_eq!(
+            core::mem::size_of_val(&projected),
+            core::mem::size_of::<usize>()
+        );
+        let expected_indices = (16..24)
+            .chain(40..48)
+            .chain(0..16)
+            .chain(24..40)
+            .chain([48, 49]);
+        let mut checked = 0;
+        for (actual, source) in projected.polynomials().iter().zip(expected_indices) {
+            assert_eq!(*actual, short.polynomials()[source]);
+            checked += 1;
+        }
+        assert_eq!(checked, 50);
+        projected.zeroize();
+        assert!(
+            projected
+                .polynomials()
+                .iter()
+                .all(ProofPolynomialV1::is_zero)
+        );
+        assert!(
+            short
+                .polynomials()
+                .iter()
+                .all(|polynomial| !polynomial.is_zero())
+        );
     }
     #[test]
     fn fixed_constraint_layout_is_exact() {

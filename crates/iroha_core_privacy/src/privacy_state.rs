@@ -9660,7 +9660,7 @@ const fn privacy_root_history_supports_retention_anchor_v1(
             PrivacyProtocolIdV1::IrohaZkAmsV1,
             PrivacyRootRoleV1::AccountRegistry
         ) | (
-            PrivacyProtocolIdV1::OrchardHalo2ActionsV1,
+            PrivacyProtocolIdV1::OrchardHalo2ActionsV1 | PrivacyProtocolIdV1::PqMaspStarkV1,
             PrivacyRootRoleV1::NoteCommitmentAnchor
         ) | (
             PrivacyProtocolIdV1::IrohaZkX509StarkP256V1,
@@ -9671,9 +9671,6 @@ const fn privacy_root_history_supports_retention_anchor_v1(
         ) | (
             PrivacyProtocolIdV1::IrohaIvmPrivateNoteStarkV1,
             PrivacyRootRoleV1::ProgramState
-        ) | (
-            PrivacyProtocolIdV1::PqMaspStarkV1,
-            PrivacyRootRoleV1::NoteCommitmentAnchor
         )
     )
 }

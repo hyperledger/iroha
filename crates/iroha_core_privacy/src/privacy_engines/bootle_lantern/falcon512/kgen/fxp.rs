@@ -39,7 +39,7 @@ impl FXR {
     // overflows and -2^31 is obtained as a result.
     #[inline(always)]
     pub(crate) const fn round(self) -> i32 {
-        let v = self.0.wrapping_add(0x80000000);
+        let v = self.0.wrapping_add(0x8000_0000);
         ((v as i64) >> 32) as i32
     }
     // Addition (internally, wraps around at 64 bits).

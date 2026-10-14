@@ -1,5 +1,5 @@
 //! Governance slashing and restitution flows for plain ballots and manual appeals.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     governance::manifest::LaneManifestRegistry,
     kura::Kura,

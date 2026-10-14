@@ -1,7 +1,7 @@
 //! Kotodama ternary conditional lowering regression tests.
+use crate::common;
 use ivm::{CoreHost, IVM};
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 #[test]
 fn kotodama_ternary_executes() {
     let src = r#"

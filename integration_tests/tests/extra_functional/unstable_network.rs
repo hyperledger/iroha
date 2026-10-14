@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Adversarial relay and partition scenarios for unstable networks.
 use eyre::{Result, eyre};
 use futures_util::{StreamExt, stream::FuturesUnordered};

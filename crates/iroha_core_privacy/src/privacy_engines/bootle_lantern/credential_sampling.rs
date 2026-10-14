@@ -239,21 +239,27 @@ fn gaussian_155_v1(
     center: f64,
     proposal_limit: u32,
 ) -> Result<(i32, u32), CredentialRandomnessErrorV1> {
-    const DOUBLE_SIGMA_SQUARED_RECIPROCAL: f64 = 1.0 / (2.0 * 1.55 * 1.55);
     for proposal in 1..=proposal_limit {
         let branch = i32::try_from(signs.next(stream)).expect("one bit fits i32");
         let magnitude = i32::try_from(cdf_155_sample_v1(stream))
             .map_err(|_| CredentialRandomnessErrorV1::InternalInvariant)?;
         let sample = ((-branch) & (2 * magnitude)) - magnitude + branch;
-        let sample_f64 = f64::from(sample);
-        let base_f64 = f64::from(sample - branch);
-        let exponent = ((sample_f64 - center) * (sample_f64 - center) - base_f64 * base_f64)
-            * DOUBLE_SIGMA_SQUARED_RECIPROCAL;
+        let exponent = gaussian_155_rejection_exponent_v1(sample, branch, center);
         if ber_exp_v1(stream, exponent) {
             return Ok((sample, proposal));
         }
     }
     Err(CredentialRandomnessErrorV1::CoefficientSamplingExhausted)
+}
+/// Difference of target and proposal squared distances for the sampled branch.
+fn gaussian_155_rejection_exponent_v1(sample: i32, branch: i32, center: f64) -> f64 {
+    const DOUBLE_SIGMA_SQUARED_RECIPROCAL: f64 = 1.0 / (2.0 * 1.55 * 1.55);
+    let sample_f64 = f64::from(sample);
+    let base_f64 = f64::from(sample - branch);
+    let centered_distance = sample_f64 - center;
+    let target_squared_distance = centered_distance * centered_distance;
+    let proposal_squared_distance = base_f64 * base_f64;
+    (target_squared_distance - proposal_squared_distance) * DOUBLE_SIGMA_SQUARED_RECIPROCAL
 }
 fn cdf_155_sample_v1(stream: &mut Aes256CtrV1<'_>) -> usize {
     let mut bytes = Zeroizing::new([0_u8; 16]);
@@ -369,6 +375,39 @@ mod tests {
         }
     }
     impl CryptoRng for FailingRng {}
+    #[test]
+    fn gaussian_rejection_exponent_matches_exact_branch_and_center_numerators() {
+        // The CDF terminator bounds magnitudes by 20; rounding supplies only 0 or 1/2.
+        for twice_center in [0_i32, 1] {
+            for branch in [0_i32, 1] {
+                for magnitude in 0_i32..=20 {
+                    let sample = if branch == 0 {
+                        -magnitude
+                    } else {
+                        magnitude + 1
+                    };
+                    let offset = if branch == 0 {
+                        twice_center
+                    } else {
+                        2 - twice_center
+                    };
+                    let exact_numerator = 4 * magnitude * offset + offset * offset;
+                    let expected = (f64::from(exact_numerator) / 4.0) * (1.0 / (2.0 * 1.55 * 1.55));
+                    let actual = gaussian_155_rejection_exponent_v1(
+                        sample,
+                        branch,
+                        f64::from(twice_center) / 2.0,
+                    );
+                    assert_eq!(
+                        actual.to_bits(),
+                        expected.to_bits(),
+                        "magnitude={magnitude}, branch={branch}, twice_center={twice_center}"
+                    );
+                    assert!(actual >= 0.0);
+                }
+            }
+        }
+    }
     #[test]
     fn pinned_lazer_seed_matches_first_polynomial_and_full_vector_digest() {
         let seed = core::array::from_fn(|index| u8::try_from(index).expect("index fits u8"));

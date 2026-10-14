@@ -1,10 +1,10 @@
 //! Kotodama structs: field access lowering via pointer-ABI to CoreHost.
+use crate::common;
 use ivm::{
     IVM,
     mock_wsv::{AccountId, MockWorldStateView, WsvHost},
 };
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 #[test]
 fn struct_fields_lower_to_syscall_args() {
     if std::env::var("IROHA_RUN_IGNORED").ok().as_deref() != Some("1") {

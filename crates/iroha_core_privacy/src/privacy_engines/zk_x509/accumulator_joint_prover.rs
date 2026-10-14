@@ -345,7 +345,9 @@ impl CaAwaitingJointOpeningsV1 {
                 super::super::super::private_table::zeroize_words_v1(values);
             },
         );
-        if fri_base.len() != extra_lde.len()
+        let fri_rows = fri_base.len();
+        let extra_rows = extra_lde.len();
+        if fri_rows != extra_rows
             || fri_base.capacity() != layout.common_lde_size()
             || extra_lde.capacity() != layout.common_lde_size()
         {

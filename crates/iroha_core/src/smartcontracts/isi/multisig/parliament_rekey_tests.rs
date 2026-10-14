@@ -103,6 +103,10 @@ fn exhausted_validation_fee_attempt_for_rekey_test(
 
     for sortition_sequence in 0..=MAX_PARLIAMENT_SORTITION_RETRIES_V1 {
         let request_height = 10_u64 + u64::from(sortition_sequence);
+        let beacon_session_id = BeaconSessionId::new([0x51; 32]);
+        let pulse_height = attempt
+            .next_sortition_generation_pulse_height_v1(request_height, beacon_session_id)
+            .expect("derive the exact consensus-native slot for this retry generation");
         let registrations = required_bodies
             .iter()
             .filter(|required| required.body != ParliamentBody::ConfirmationJury)
@@ -121,8 +125,8 @@ fn exhausted_validation_fee_attempt_for_rekey_test(
                     candidate_count: 0,
                     target_seats: 3,
                     request_height,
-                    pulse_height: request_height + 1,
-                    beacon_session_id: BeaconSessionId::new([0x51; 32]),
+                    pulse_height,
+                    beacon_session_id,
                 };
                 request.id = request.canonical_id();
                 ParliamentSortitionRequestRegistrationV1 {
@@ -138,6 +142,9 @@ fn exhausted_validation_fee_attempt_for_rekey_test(
                 Vec::new(),
             )
             .expect("exhaust hidden-electorate capacity for rejected-attempt fixture");
+        attempt
+            .validate()
+            .expect("each retained capacity failure preserves the canonical retry schedule");
     }
     assert_eq!(
         attempt.attempt().status,

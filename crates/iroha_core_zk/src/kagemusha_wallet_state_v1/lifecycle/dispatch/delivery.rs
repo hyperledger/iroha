@@ -60,7 +60,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             .operation
             .ok_or(Error::WitnessLost("selected Send operation"))?;
         match self.retry_bound_operation(&capsule, &commitment, &operation)? {
-            Some(Completion::Complete(_)) | Some(Completion::Archived) => {}
+            Some(Completion::Complete(_) | Completion::Archived) => {}
             Some(Completion::Pending) => return Err(Error::Pending),
             _ => return Err(Error::WitnessLost("selected Send completion")),
         }

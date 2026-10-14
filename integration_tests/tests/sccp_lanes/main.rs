@@ -11,7 +11,7 @@ use std::{
 };
 
 use eyre::{Result, ensure, eyre};
-use integration_tests::sandbox;
+use integration_tests::{sandbox, sync::get_status_with_retry_at_least};
 use iroha::{
     client::sccp::SccpFinalityAt,
     crypto::{
@@ -321,9 +321,26 @@ fn agreed_certificate(
     let mut first = None;
     let mut original_result = None;
     for peer in network.peers() {
-        let certificate = peer.client().sccp().finality(SccpFinalityAt::Height(
-            NonZeroU64::new(height).ok_or_else(|| eyre!("zero certificate height"))?,
-        ))?;
+        let client = peer.client();
+        // A CommitQC and Kura's durable hash journal can precede State publication.
+        // Fence the exact peer's applied view before its one original certificate read.
+        get_status_with_retry_at_least(&client, height)?;
+        let certificate = client
+            .sccp()
+            .finality(SccpFinalityAt::Height(
+                NonZeroU64::new(height).ok_or_else(|| eyre!("zero certificate height"))?,
+            ))
+            .map_err(|error| {
+                let context = match &error {
+                    iroha::Error::Http { body, .. } => format!(
+                        "peer {} certificate height {height}; response body prefix: {:?}",
+                        peer.mnemonic(),
+                        String::from_utf8_lossy(&body[..body.len().min(512)]),
+                    ),
+                    _ => format!("peer {} certificate height {height}", peer.mnemonic()),
+                };
+                eyre::Report::from(error).wrap_err(context)
+            })?;
         ensure!(certificate.height == height && certificate.committee == keys);
         let verified = verify_certificate(
             instance,
@@ -444,6 +461,9 @@ fn four_validators_rotate_after_real_idle_heartbeat_and_apply_prior_generation_f
             0,
         )
         .0;
+        for peer in network.peers() {
+            get_status_with_retry_at_least(&peer.client(), 1)?;
+        }
         let initial_generation = agreed_generation(&network, 1)?;
         ensure!(initial_generation.committee_root == root && initial_generation.keys == keys);
         ensure!(
@@ -642,6 +662,7 @@ fn four_validators_rotate_after_real_idle_heartbeat_and_apply_prior_generation_f
             }
         }
         runtime.block_on(network.ensure_blocks(anchor_height))?;
+        get_status_with_retry_at_least(&client, 4_097)?;
         let seal = client
             .sccp()
             .finality(SccpFinalityAt::Height(NonZeroU64::new(4_097).unwrap()))?;
@@ -739,6 +760,7 @@ fn four_validators_rotate_after_real_idle_heartbeat_and_apply_prior_generation_f
         client.submit_transaction_and_wait(&signed_evidence)?;
         let evidence_height = client.client().get_sumeragi_status()?.committed_height;
         runtime.block_on(network.ensure_blocks(evidence_height))?;
+        get_status_with_retry_at_least(&client, evidence_height)?;
         let pending = client.sccp().evidence(&evidence_id)?;
         ensure!(
             pending.generation == 1
@@ -751,9 +773,10 @@ fn four_validators_rotate_after_real_idle_heartbeat_and_apply_prior_generation_f
                 && pending.penalty_status == EvidencePenaltyStatus::Pending
         );
         for peer in network.peers() {
-            ensure!(peer.client().sccp().evidence(&evidence_id)? == pending);
-            let holds = peer
-                .client()
+            let peer_client = peer.client();
+            get_status_with_retry_at_least(&peer_client, evidence_height)?;
+            ensure!(peer_client.sccp().evidence(&evidence_id)? == pending);
+            let holds = peer_client
                 .sccp()
                 .forgery_hold(iroha_sccp::api::SccpForgeryHoldQuery::default())?;
             ensure!(
@@ -764,6 +787,7 @@ fn four_validators_rotate_after_real_idle_heartbeat_and_apply_prior_generation_f
         let before_due = register_successor(&network, 0x83)?;
         runtime.block_on(network.ensure_blocks(before_due))?;
         ensure!(before_due == evidence_height + 1);
+        get_status_with_retry_at_least(&client, before_due)?;
         ensure!(
             client.sccp().evidence(&evidence_id)?.penalty_status == EvidencePenaltyStatus::Pending
         );
@@ -777,6 +801,7 @@ fn four_validators_rotate_after_real_idle_heartbeat_and_apply_prior_generation_f
         let penalty_height = register_successor(&network, 0x84)?;
         runtime.block_on(network.ensure_blocks(penalty_height))?;
         ensure!(penalty_height == evidence_height + 2);
+        get_status_with_retry_at_least(&client, penalty_height)?;
         let applied = client.sccp().evidence(&evidence_id)?;
         ensure!(
             applied.penalty_status
@@ -792,16 +817,17 @@ fn four_validators_rotate_after_real_idle_heartbeat_and_apply_prior_generation_f
             "three original 1,000-unit stakes must be slashed"
         );
         for peer in network.peers() {
-            ensure!(peer.client().sccp().evidence(&evidence_id)? == applied);
+            let peer_client = peer.client();
+            get_status_with_retry_at_least(&peer_client, penalty_height)?;
+            ensure!(peer_client.sccp().evidence(&evidence_id)? == applied);
             ensure!(
-                peer.client()
+                peer_client
                     .client()
                     .get_public_lane_stake(LaneId::SINGLE, None)?
                     == stake_after
             );
             ensure!(
-                !peer
-                    .client()
+                !peer_client
                     .sccp()
                     .capabilities()?
                     .parliament_binding_ballot_available

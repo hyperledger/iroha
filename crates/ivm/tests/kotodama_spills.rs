@@ -1,10 +1,10 @@
 //! Tests that exercise spilled temporaries and nested calls with spills.
+use crate::common;
 use ivm::{
     IVM, LiteralKindV1, ProgramMetadata, decode_literal_descriptor, encoding, host::DefaultHost,
     instruction,
 };
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 #[test]
 fn many_locals_force_spills_and_compute() {
     // Create a chain of additions to overflow the allocatable register pool.
@@ -160,20 +160,19 @@ fn frame_and_spill_offsets_above_four_kib_are_bounded_and_execute() {
     let scalar_values = descriptors
         .iter()
         .enumerate()
-        .filter_map(|(index, (kind, offset))| {
-            (*kind == LiteralKindV1::I64).then(|| {
-                let start = section.start + usize::try_from(*offset).expect("literal offset");
-                let end = descriptors
-                    .get(index + 1)
-                    .map_or(section.data_end, |(_, next)| {
-                        section.start + usize::try_from(*next).expect("literal offset")
-                    });
-                i64::from_le_bytes(
-                    artifact[start..end]
-                        .try_into()
-                        .expect("i64 literal payload is exactly eight bytes"),
-                )
-            })
+        .filter(|(_, descriptor)| descriptor.0 == LiteralKindV1::I64)
+        .map(|(index, (_, offset))| {
+            let start = section.start + usize::try_from(*offset).expect("literal offset");
+            let end = descriptors
+                .get(index + 1)
+                .map_or(section.data_end, |(_, next)| {
+                    section.start + usize::try_from(*next).expect("literal offset")
+                });
+            i64::from_le_bytes(
+                artifact[start..end]
+                    .try_into()
+                    .expect("i64 literal payload is exactly eight bytes"),
+            )
         })
         .collect::<Vec<_>>();
     assert!(scalar_values.contains(&-frame_bytes));

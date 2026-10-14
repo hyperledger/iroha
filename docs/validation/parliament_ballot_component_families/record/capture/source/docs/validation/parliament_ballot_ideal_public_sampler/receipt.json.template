@@ -1,0 +1,404 @@
+{
+  "actual_IV_embedding_proved": false,
+  "actual_equal_input_collision_accounting_proved": false,
+  "additional_source_observed_at_utc": {
+    "crates/iroha_zkp_vole/src/field.rs": "2026-10-13T11:34:43.633902+00:00"
+  },
+  "complete_quantum_resource_vector": false,
+  "derivation": {
+    "path": "specs/parliament_ballot_b6_ideal_public_sampler.md",
+    "post_review_change": "Only status paragraph changed to record both completed local consistency reviews; mathematical statement and derivation unchanged.",
+    "reviewed_draft_sha256": "6676c46d9f77afaeb927670f286567f95595e896e74b32510d0e0afeb4ef092b",
+    "sha256": "eeea377a3686fcd31c1c77b8ea576d6f72895789389ed4c2d99d9107a5f0ab74"
+  },
+  "endpoint": {
+    "PRP_without_replacement_equivalence_proved": false,
+    "cache_scope": "invocation/node or selected-leaf replacement slot; one selected opening per invocation",
+    "global_key_iv_tweak_memoization_equivalence_proved": false,
+    "marked_internal_nodes": "independent uniform cached 64-byte outputs, including root",
+    "partial_hybrid_equivalence_proved": false,
+    "selected_leaves": "independent uniform cached 144-byte raw outputs, then actual affine map",
+    "selected_rows_and_high_mask": "already ideal and unused after previous coordinate/deletion steps",
+    "unmarked_subtrees_and_revealed_leaf_rows": "actual deterministic generators with actual IV/tweaks and byte-level aliases retained"
+  },
+  "exact_sampler": {
+    "H0_H1": "actual persistent functions, no uniform global commitment substitution",
+    "arbitrary_later_secret_tree_opening_interface": false,
+    "bounded_exhaustion_mixture_included": true,
+    "construction": "one source-shaped vole::reconstruct_as with one nested BAVC reconstruction",
+    "frontier_keys": "independent uniform 32-byte strings in actual revealed_nodes order",
+    "full_private_state_equality": false,
+    "hidden_commitments": "independent uniform 112-byte strings in vector order",
+    "implemented_programmable_QROM_Rust_API": false,
+    "joint_adaptive_public_oracle_equality": true,
+    "name": "IdealFrontierSim",
+    "padding": "exactly 32*(T_open-r) zero bytes",
+    "private_projection": "drop root/marked keys/selected seeds/row and high-mask coordinates unused after deletion",
+    "public_material_kernel_equality": true
+  },
+  "forward_primitive_entry_proved_here": false,
+  "frozen_arguments_and_ledger_modified": false,
+  "frozen_at_utc": "2026-10-13T11:40:50.109786+00:00",
+  "independent_cryptographic_review": false,
+  "local_links": [
+    {
+      "exists": true,
+      "path": "specs/parliament_ballot_b6_mask_coordinate.md",
+      "reference": "parliament_ballot_b6_mask_coordinate.md"
+    },
+    {
+      "exists": true,
+      "path": "specs/parliament_ballot_b6_hidden_assignment_deletion.md",
+      "reference": "parliament_ballot_b6_hidden_assignment_deletion.md"
+    },
+    {
+      "exists": true,
+      "path": "specs/parliament_ballot_b6_hybrid_driver.md",
+      "reference": "parliament_ballot_b6_hybrid_driver.md"
+    },
+    {
+      "exists": true,
+      "path": "specs/parliament_ballot_proof_arguments.md",
+      "reference": "parliament_ballot_proof_arguments.md"
+    },
+    {
+      "exists": true,
+      "path": "docs/validation/parliament_ballot_ideal_public_sampler/receipt.json",
+      "reference": "../docs/validation/parliament_ballot_ideal_public_sampler/receipt.json"
+    }
+  ],
+  "numerical_ledger_value_adopted": false,
+  "observed_at_utc": "2026-10-13T11:29:30.857516+00:00",
+  "operation_inventory": {
+    "AES_blocks": "4*u+(9+b)*n",
+    "H0_evaluations": 1,
+    "H1_evaluations": "tau+1",
+    "H5_evaluations": "n_mult",
+    "bounded_primary_value_storage_bytes": "32*2^20",
+    "formula_variables": {
+      "b": "ceil(ell_hat/128)",
+      "n": "L-tau",
+      "u": "L-tau-r"
+    },
+    "fresh_material_bytes": "32*r+112*tau",
+    "generator_key_constructions": "u+2*n",
+    "scope": "Per one direct material/VOLE reconstruction; mathematical/source operation inventory, not measured compiled work or a complete quantum resource vector.",
+    "zero_pattern_arithmetic_cross_check": {
+      "candidate": {
+        "AES_blocks_zero_registration": 1871854,
+        "AES_blocks_zero_vote": 2750500,
+        "ell_hat_registration": 35920,
+        "ell_hat_vote": 53584,
+        "frontier_zero": 11,
+        "leaves": 6400,
+        "nonhidden_leaf_and_row_calls": 6367,
+        "selected_opening_bytes": 11024,
+        "tau": 33,
+        "unmarked_internal_nodes_zero": 6356,
+        "zero_opening_random_material_bytes": 4048
+      },
+      "comparator": {
+        "AES_blocks_zero_registration": 18056844,
+        "AES_blocks_zero_vote": 26532528,
+        "ell_hat_registration": 35960,
+        "ell_hat_vote": 53624,
+        "frontier_zero": 12,
+        "leaves": 61440,
+        "nonhidden_leaf_and_row_calls": 61418,
+        "selected_opening_bytes": 9664,
+        "tau": 22,
+        "unmarked_internal_nodes_zero": 61406,
+        "zero_opening_random_material_bytes": 2848
+      }
+    }
+  },
+  "owner_acceptance": false,
+  "primitive_advantage_assumed_or_quantified": false,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "real_root_Sim_plus_equality": false,
+  "schedule": {
+    "all_primary_writes_retained": true,
+    "both_row_fallback_source": "docs/validation/parliament_ballot_zero_challenge/report.json",
+    "existing_sigma_removed": false,
+    "extra_auxiliary_oracle_writes": 0,
+    "fallback_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+    "max_auxiliary_trials": 1048576,
+    "max_primary_trials": 1048576,
+    "success_probability_factor_in_sampler_identity": false
+  },
+  "schema": "parliament-b6-ideal-public-sampler-v1",
+  "scope": "Bounded direct public sampler exactly realizing the public projection of the fully fresh-per-replacement-slot ideal material endpoint after mask-coordinate change and hidden-log deletion. Distinct from real-root frozen Sim+.",
+  "source_changes": {},
+  "source_changes_at_freeze": {},
+  "source_count": 22,
+  "source_references": [
+    {
+      "end_line": 58,
+      "excerpt_sha256": "856f569ed72a4ee004162c6e123f3b8c987c0f48a62ba6a319ea9093cdb64d0c",
+      "meaning": "actual heap, interleaved leaves, extended 144-to-112 leaf and opening format",
+      "path": "crates/iroha_zkp_vole/src/bavc.rs",
+      "start_line": 7
+    },
+    {
+      "end_line": 438,
+      "excerpt_sha256": "f54c8dfd068540dda68aa6f8e3949359de800553f7d48a917f3feb3f65dce548",
+      "meaning": "supported shape, interleaved positions, leaf tweaks and lengths",
+      "path": "crates/iroha_zkp_vole/src/bavc.rs",
+      "start_line": 362
+    },
+    {
+      "end_line": 462,
+      "excerpt_sha256": "a8507d1f2b3cfe5fee48d786d33ad999e4837c7c94eb00a2cbf0e3835813dc0e",
+      "meaning": "actual deterministic unmarked tree expansion",
+      "path": "crates/iroha_zkp_vole/src/bavc.rs",
+      "start_line": 452
+    },
+    {
+      "end_line": 510,
+      "excerpt_sha256": "cf77ed2e418a1f3f2c2777855c3c72a83ed3916157b456dc605ac79fb7087e4e",
+      "meaning": "affine low128 masked product",
+      "path": "crates/iroha_zkp_vole/src/bavc.rs",
+      "start_line": 479
+    },
+    {
+      "end_line": 551,
+      "excerpt_sha256": "2f4d79f2cd86223be7f29af82528a59d18f4f231f132c83ee53ef3d1e5b9ede9",
+      "meaning": "actual H0-derived leaf hash key",
+      "path": "crates/iroha_zkp_vole/src/bavc.rs",
+      "start_line": 526
+    },
+    {
+      "end_line": 618,
+      "excerpt_sha256": "91b452ab28438b2220446fd7d5fc5145591c1f49d85611b867a3e8c9dc343da0",
+      "meaning": "raw generator splits and complete revealed affine leaf computation",
+      "path": "crates/iroha_zkp_vole/src/bavc.rs",
+      "start_line": 582
+    },
+    {
+      "end_line": 741,
+      "excerpt_sha256": "5b5848a866c5bf5902c349132f254bcd7d79a4177178151b6294c31a9bc92c05",
+      "meaning": "mark closure and canonical frontier ordering",
+      "path": "crates/iroha_zkp_vole/src/bavc.rs",
+      "start_line": 700
+    },
+    {
+      "end_line": 797,
+      "excerpt_sha256": "caf4322e9046cc569dc1cb81f109d81a4e374dfeeac783f70a27bed613a3f44e",
+      "meaning": "cached selected commitments and exact H1 order",
+      "path": "crates/iroha_zkp_vole/src/bavc.rs",
+      "start_line": 752
+    },
+    {
+      "end_line": 960,
+      "excerpt_sha256": "399a65dfe1a031e8d04317efffab4f5858a91e45646ddbf5a5bd2f4ee63a8ae2",
+      "meaning": "opening selected commitment/cache obligation and key order",
+      "path": "crates/iroha_zkp_vole/src/bavc.rs",
+      "start_line": 927
+    },
+    {
+      "end_line": 1110,
+      "excerpt_sha256": "892805a4fcbea1cbbc2fa774b871ea00017733acd57f49f189e6d359ec39f160",
+      "meaning": "source direct reconstruction, validation, frontier expansion and zero hidden seed slots",
+      "path": "crates/iroha_zkp_vole/src/bavc.rs",
+      "start_line": 1046
+    },
+    {
+      "end_line": 1149,
+      "excerpt_sha256": "c16e31d8deec906e91ef3f4ad58145bcf89319801e1508fd84e451e19fa7d54b",
+      "meaning": "actual grinding/index decoder",
+      "path": "crates/iroha_zkp_vole/src/bavc.rs",
+      "start_line": 1125
+    },
+    {
+      "end_line": 289,
+      "excerpt_sha256": "546eb2f986deb4fda2292a84d472759b9d8c7bf0a8860a1ab8554d020d0279b8",
+      "meaning": "additive-mask leaf transformation and inverse law",
+      "path": "crates/iroha_zkp_vole/src/universal_hash.rs",
+      "start_line": 256
+    },
+    {
+      "end_line": 399,
+      "excerpt_sha256": "a534558a2dbd1fc449d381aa23cd2a2ee804b42772e9aa3a905be0fb502f9441",
+      "meaning": "field decoding accepts all correctly sized bit representations",
+      "path": "crates/iroha_zkp_vole/src/field.rs",
+      "start_line": 378
+    },
+    {
+      "end_line": 194,
+      "excerpt_sha256": "872b94261b1323faf5675c631d3e1573facd9649ceb89e72de7c7231ab2007ec",
+      "meaning": "all 32-byte keys accepted, source key setup",
+      "path": "crates/iroha_zkp_vole/src/prg.rs",
+      "start_line": 147
+    },
+    {
+      "end_line": 279,
+      "excerpt_sha256": "96d97d3a2ffbb6c766211c2e05d835e43c656de59a4fa0a85cfc993068e9c695",
+      "meaning": "actual AES counter block evaluation and exact bit truncation",
+      "path": "crates/iroha_zkp_vole/src/prg.rs",
+      "start_line": 214
+    },
+    {
+      "end_line": 117,
+      "excerpt_sha256": "254547119fff2f22f56f71f2b54aeddb5d581fcae93e9803475801036889bfba",
+      "meaning": "revealed rows actual expansion, hidden position skipped, stack fold",
+      "path": "crates/iroha_zkp_vole/src/vole/convert.rs",
+      "start_line": 73
+    },
+    {
+      "end_line": 257,
+      "excerpt_sha256": "aa3f0a44a2cdc3a2b8fa024a7014784a9279d59b8fff347e4a777c6ff51c1205",
+      "meaning": "canonical correction dimensions",
+      "path": "crates/iroha_zkp_vole/src/vole.rs",
+      "start_line": 247
+    },
+    {
+      "end_line": 1104,
+      "excerpt_sha256": "bd82e4c469e6109dd6301c71e1f79f4aa81e3d0d1d0e3ea8784b32a9a387a278",
+      "meaning": "single nested BAVC reconstruction, revealed rows, CRT products and H5 cache",
+      "path": "crates/iroha_zkp_vole/src/vole.rs",
+      "start_line": 985
+    },
+    {
+      "end_line": 425,
+      "excerpt_sha256": "4b8d97971f3827c7fadb9c663ec689b705f08f83ddb0c5cd64ab9363582cd352",
+      "meaning": "ell_hat uses ten mask blocks at maximum tree degree",
+      "path": "crates/iroha_zkp_vole/src/params.rs",
+      "start_line": 410
+    },
+    {
+      "end_line": 654,
+      "excerpt_sha256": "60ccfa4f60292fa14eccebd187398e5065742a700684a19f0427ec384f06115c",
+      "meaning": "actual public transcript order and bounded primary success/exhaustion",
+      "path": "crates/iroha_zkp_vole/src/proof.rs",
+      "start_line": 515
+    },
+    {
+      "end_line": 776,
+      "excerpt_sha256": "12dcee1f67e9a5fcc3e0459e42476bbe729972821d3404d51e725cc0ff4b4827",
+      "meaning": "public consistency and remaining coefficient computation",
+      "path": "crates/iroha_zkp_vole/src/proof.rs",
+      "start_line": 694
+    },
+    {
+      "end_line": 184,
+      "excerpt_sha256": "c713c2f486a3fb2a0f47df2280591d88ac129cabfc1510cbeb32562fcf419181",
+      "meaning": "candidate/comparator actual row constants",
+      "path": "crates/iroha_parliament_ballot_proof/src/profile.rs",
+      "start_line": 173
+    },
+    {
+      "end_line": 402,
+      "excerpt_sha256": "57ff3be270b5b100873a5bc3460f933db75142ca620eecb79645fb85fc5a4ed1",
+      "meaning": "role context and unchanged row geometry",
+      "path": "crates/iroha_parliament_ballot_proof/src/profile.rs",
+      "start_line": 385
+    },
+    {
+      "end_line": 39,
+      "excerpt_sha256": "10cb2a91f3c9e37728c3998595dd1e16665e2c1201dd6eee0e92f5982c4e37a6",
+      "meaning": "actual role witness dimensions",
+      "path": "crates/iroha_parliament_ballot_proof/src/layout.rs",
+      "start_line": 9
+    },
+    {
+      "end_line": 168,
+      "excerpt_sha256": "11d111e29203769767a495840250efbb27cb6ff6a5d38f1f06498b53d6272ea7",
+      "meaning": "bounded schedule and fully replaced marked-path/leaf/row endpoint",
+      "path": "specs/parliament_ballot_b6_hybrid_driver.md",
+      "start_line": 62
+    }
+  ],
+  "source_sha256_after": {
+    "crates/iroha_parliament_ballot_proof/src/layout.rs": "33db7b2cb59ccebaa557a73ee6db899c3cfa32a288bdc3382384d151fab4c6f0",
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+    "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+    "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+    "crates/iroha_zkp_vole/src/codec.rs": "ac354c72e09fb022b1dcb300cf339fa66303abdf76ae5518f7f9e243cc5e5a2f",
+    "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+    "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+    "crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+    "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+    "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+    "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+    "docs/validation/parliament_ballot_hidden_assignment_deletion/receipt.json": "b49bbf9f40314a233fa9a3b6c12a9bad7194695d7e84773c777c4b104e89c901",
+    "docs/validation/parliament_ballot_mask_coordinate/receipt.json": "2a62e32663f9e0bd58454ee1f5e31a95ca014330a19ff0ff9617a1f5b0712ca6",
+    "docs/validation/parliament_ballot_zero_challenge/report.json": "da1c8d3259301e9f65dd53de054372928cc757aea63ab841a9c3194b00fb69ac",
+    "specs/parliament_ballot_b6_generator_interface.md": "8aac83a0460548efe78555c978ce044978c4025d798e7d2f364ed76a67aa3226",
+    "specs/parliament_ballot_b6_h5_fixed_opening.md": "5476eedeb50e1efaa11e5d6e892174fabed16a02e2b31ab906a375aa5ed6f15e",
+    "specs/parliament_ballot_b6_hidden_assignment_deletion.md": "1a522853ba2aff3d3d7c77e11e5674ec41144ab93cad8e54f0e3b4c937ecb58b",
+    "specs/parliament_ballot_b6_hybrid_driver.md": "a95739b192f2a431cbf2a95c6964817137a6c5e0856121b20d4465a036f5835a",
+    "specs/parliament_ballot_b6_mask_coordinate.md": "0d4da06cd29cf8ea3e1b2fe8c6c15d7f78352295aed098c715402787129c3e45",
+    "specs/parliament_ballot_proof_arguments.md": "c2aca2dd5b936004edaaa3ff99b823de8d92d9fa6f9b1003056135d983fb776c"
+  },
+  "source_sha256_at_freeze": {
+    "crates/iroha_parliament_ballot_proof/src/layout.rs": "33db7b2cb59ccebaa557a73ee6db899c3cfa32a288bdc3382384d151fab4c6f0",
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+    "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+    "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+    "crates/iroha_zkp_vole/src/codec.rs": "ac354c72e09fb022b1dcb300cf339fa66303abdf76ae5518f7f9e243cc5e5a2f",
+    "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+    "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+    "crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+    "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+    "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+    "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+    "docs/validation/parliament_ballot_hidden_assignment_deletion/receipt.json": "b49bbf9f40314a233fa9a3b6c12a9bad7194695d7e84773c777c4b104e89c901",
+    "docs/validation/parliament_ballot_mask_coordinate/receipt.json": "2a62e32663f9e0bd58454ee1f5e31a95ca014330a19ff0ff9617a1f5b0712ca6",
+    "docs/validation/parliament_ballot_zero_challenge/report.json": "da1c8d3259301e9f65dd53de054372928cc757aea63ab841a9c3194b00fb69ac",
+    "specs/parliament_ballot_b6_generator_interface.md": "8aac83a0460548efe78555c978ce044978c4025d798e7d2f364ed76a67aa3226",
+    "specs/parliament_ballot_b6_h5_fixed_opening.md": "5476eedeb50e1efaa11e5d6e892174fabed16a02e2b31ab906a375aa5ed6f15e",
+    "specs/parliament_ballot_b6_hidden_assignment_deletion.md": "1a522853ba2aff3d3d7c77e11e5674ec41144ab93cad8e54f0e3b4c937ecb58b",
+    "specs/parliament_ballot_b6_hybrid_driver.md": "a95739b192f2a431cbf2a95c6964817137a6c5e0856121b20d4465a036f5835a",
+    "specs/parliament_ballot_b6_mask_coordinate.md": "0d4da06cd29cf8ea3e1b2fe8c6c15d7f78352295aed098c715402787129c3e45",
+    "specs/parliament_ballot_proof_arguments.md": "c2aca2dd5b936004edaaa3ff99b823de8d92d9fa6f9b1003056135d983fb776c"
+  },
+  "source_sha256_before": {
+    "crates/iroha_parliament_ballot_proof/src/layout.rs": "33db7b2cb59ccebaa557a73ee6db899c3cfa32a288bdc3382384d151fab4c6f0",
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+    "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+    "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+    "crates/iroha_zkp_vole/src/codec.rs": "ac354c72e09fb022b1dcb300cf339fa66303abdf76ae5518f7f9e243cc5e5a2f",
+    "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+    "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+    "crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+    "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+    "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+    "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+    "docs/validation/parliament_ballot_hidden_assignment_deletion/receipt.json": "b49bbf9f40314a233fa9a3b6c12a9bad7194695d7e84773c777c4b104e89c901",
+    "docs/validation/parliament_ballot_mask_coordinate/receipt.json": "2a62e32663f9e0bd58454ee1f5e31a95ca014330a19ff0ff9617a1f5b0712ca6",
+    "docs/validation/parliament_ballot_zero_challenge/report.json": "da1c8d3259301e9f65dd53de054372928cc757aea63ab841a9c3194b00fb69ac",
+    "specs/parliament_ballot_b6_generator_interface.md": "8aac83a0460548efe78555c978ce044978c4025d798e7d2f364ed76a67aa3226",
+    "specs/parliament_ballot_b6_h5_fixed_opening.md": "5476eedeb50e1efaa11e5d6e892174fabed16a02e2b31ab906a375aa5ed6f15e",
+    "specs/parliament_ballot_b6_hidden_assignment_deletion.md": "1a522853ba2aff3d3d7c77e11e5674ec41144ab93cad8e54f0e3b4c937ecb58b",
+    "specs/parliament_ballot_b6_hybrid_driver.md": "a95739b192f2a431cbf2a95c6964817137a6c5e0856121b20d4465a036f5835a",
+    "specs/parliament_ballot_b6_mask_coordinate.md": "0d4da06cd29cf8ea3e1b2fe8c6c15d7f78352295aed098c715402787129c3e45",
+    "specs/parliament_ballot_proof_arguments.md": "c2aca2dd5b936004edaaa3ff99b823de8d92d9fa6f9b1003056135d983fb776c"
+  },
+  "status": "CONDITIONAL_EXACT_SAMPLER_PROPOSAL_LOCAL_CONSISTENCY_REVIEW_COMPLETE",
+  "validation": {
+    "code_or_runtime_tests_run": false,
+    "finite_arithmetic_checked": true,
+    "local_links_exist": true,
+    "new_executable_code_added": false,
+    "peer_review": {
+      "entry_or_full_resource_certification": false,
+      "independent_cryptographic_review": false,
+      "owner_acceptance": false,
+      "ownership_review": "Read full derivation and actual leaf transformation, frontier order, nested reconstruction, hidden-index folding and PRG blocks. Checked projected public-state equality and adaptive conditioning; independently verified all 22 input hashes, 25 excerpt hashes, reviewed derivation hash and zero-pattern arithmetic.",
+      "root_review": "Read full derivation; checked fresh-slot scope, single nested reconstruction, one selected opening, actual alias preservation, mathematical algorithm scope and incomplete full resource vector.",
+      "status": "two_local_consistency_reviews_complete_no_blocking_findings_under_explicit_premises"
+    },
+    "source_bytes_unchanged": true,
+    "source_excerpts_match": true,
+    "source_identity_before_after_freeze_match": true
+  },
+  "whole_driver_proved": false,
+  "written_at_utc": "2026-10-13T11:36:35.621081+00:00"
+}

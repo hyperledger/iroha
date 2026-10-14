@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Tests for the pipeline recovery endpoints.
 use axum::{Router, routing::get};
 use http_body_util::{BodyExt as _, Full};

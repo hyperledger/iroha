@@ -1,3 +1,5 @@
+use crate::common;
+use common::{assemble, assemble_zk};
 use iroha_crypto::{
     Hash, HashOf, MerkleProof,
     blake2::{
@@ -14,8 +16,6 @@ use ivm::{
 use sha2::Digest as Sha2Digest;
 use sha3_hash::{Digest as Sha3Digest, Keccak256, Sha3_256};
 use std::{cell::Cell, collections::BTreeMap};
-mod common;
-use common::{assemble, assemble_zk};
 const HALT: [u8; 4] = encoding::wide::encode_halt().to_le_bytes();
 fn assemble_syscall(syscall: u8) -> Vec<u8> {
     let mut code = Vec::with_capacity(8);
