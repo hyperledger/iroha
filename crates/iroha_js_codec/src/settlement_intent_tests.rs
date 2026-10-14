@@ -16,7 +16,7 @@ use iroha_data_model::{
         ConditionalEscrowValue, ConditionalEscrowWithinCondition, EscrowId,
     },
     isi::{
-        AtomicSettlementEscrows, AtomicSettlementMovements, SettleAtomic,
+        AtomicSettlementEscrows, AtomicSettlementMovements, SettleAtomic, SettlementId,
         repo::{RepoInstructionBox, RepoIsi},
     },
     repo::{RepoCashLeg, RepoCollateralLeg, RepoGovernance},
@@ -80,16 +80,43 @@ fn escrow(asset: &str, from: u8, to: u8, label: &str, amount: u32) -> AtomicSett
     }
 }
 
+/// The settlement namespace owner: the smallest debited source account, so the
+/// identifier does not depend on the (possibly unsorted) leg order.
+fn settlement_id(
+    movements: &[AtomicSettlementMovement],
+    escrows: &[AtomicSettlementEscrow],
+) -> SettlementId {
+    let owner = movements
+        .iter()
+        .map(|movement| movement.source.account())
+        .chain(escrows.iter().map(|escrow| escrow.source.account()))
+        .min()
+        .cloned()
+        .unwrap_or_else(|| account(0xEE));
+    SettlementId::new(owner, "dvp_bond_1".parse().expect("settlement reference"))
+}
+
 fn atomic_value(
     movements: &[AtomicSettlementMovement],
     escrows: &[AtomicSettlementEscrow],
+) -> Value {
+    atomic_value_with_id(movements, escrows, &settlement_id(movements, escrows))
+}
+
+fn atomic_value_with_id(
+    movements: &[AtomicSettlementMovement],
+    escrows: &[AtomicSettlementEscrow],
+    settlement_id: &SettlementId,
 ) -> Value {
     let mut payload = json::Map::new();
     payload.insert(
         "network_id".into(),
         json::to_value(&network()).expect("network id"),
     );
-    payload.insert("settlement_id".into(), Value::String("dvp_bond_1".into()));
+    payload.insert(
+        "settlement_id".into(),
+        json::to_value(settlement_id).expect("settlement id"),
+    );
     let render = |items: Vec<Value>| Value::Array(items);
     payload.insert(
         "movements".into(),
@@ -130,7 +157,7 @@ fn native(
     escrows.sort_by_key(|escrow| escrow.escrow_id);
     let settlement = SettleAtomic::new(
         network(),
-        "dvp_bond_1".parse().expect("settlement id"),
+        settlement_id(&movements, &escrows),
         AtomicSettlementMovements::try_from(movements.clone()).expect("canonical movements"),
         AtomicSettlementEscrows::try_from(escrows.clone()).expect("canonical escrows"),
         NonZeroU64::new(500).expect("expiry"),
@@ -218,8 +245,31 @@ fn canonical_ordering_never_coalesces_or_admits_other_envelopes() {
         &[],
     );
     assert!(canonical_atomic_settlement_json(duplicate).is_err());
+    // One ordinary payment is a complete intent; an intent without any leg is not.
     let single = atomic_value(&[movement("cash", 10, 11, 5)], &[]);
-    assert!(canonical_atomic_settlement_json(single).is_err());
+    assert_eq!(
+        canonical_atomic_settlement_json(single.clone()).expect("single payment"),
+        single
+    );
+    assert!(canonical_atomic_settlement_json(atomic_value(&[], &[])).is_err());
+    // The settlement namespace owner must debit one of the legs.
+    let foreign_owner = atomic_value_with_id(
+        &[movement("cash", 10, 11, 5)],
+        &[],
+        &SettlementId::new(account(11), "dvp_bond_1".parse().expect("reference")),
+    );
+    assert!(canonical_atomic_settlement_json(foreign_owner.clone()).is_err());
+    assert!(atomic_settlement_intent_hash(foreign_owner).is_err());
+    // A bare reference is not a settlement identifier.
+    let mut bare = atomic_value(&[movement("cash", 10, 11, 5)], &[]);
+    bare.as_object_mut()
+        .and_then(|envelope| envelope.get_mut("Settlement"))
+        .and_then(Value::as_object_mut)
+        .and_then(|variants| variants.get_mut("Atomic"))
+        .and_then(Value::as_object_mut)
+        .expect("atomic payload")
+        .insert("settlement_id".into(), Value::String("dvp_bond_1".into()));
+    assert!(canonical_atomic_settlement_json(bare).is_err());
     let duplicate_escrow = atomic_value(
         &[],
         &[

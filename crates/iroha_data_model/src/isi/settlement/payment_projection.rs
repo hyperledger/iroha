@@ -112,6 +112,7 @@ pub fn project_atomic_payment_receipt_unverified(
         details: SettlementDetails::Atomic(AtomicSettlementDetails {
             movements: actual.movements.resolve().map_err(Error::InvalidIntent)?,
             intent_hash: actual.intent_hash()?,
+            escrow_ids: actual.escrows.escrow_ids(),
         }),
     })
 }

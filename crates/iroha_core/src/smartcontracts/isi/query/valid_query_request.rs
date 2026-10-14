@@ -619,7 +619,13 @@ impl ValidQueryRequest {
                     ),
                     QueryItemKind::BondRecord => run_query!(
                         iroha_data_model::bond::BondRecord,
-                        iroha_data_model::query::bond::prelude::FindBonds
+                        iroha_data_model::query::bond::prelude::FindBonds,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params,
+                        stored_cursor_budget
                     ),
                     QueryItemKind::OracleFeedConfig => run_query!(
                         iroha_data_model::oracle::FeedConfig,
@@ -1184,7 +1190,12 @@ impl ValidQueryRequest {
                     ),
                     QueryItemKind::BondRecord => run_query!(
                         iroha_data_model::bond::BondRecord,
-                        iroha_data_model::query::bond::prelude::FindBonds
+                        iroha_data_model::query::bond::prelude::FindBonds,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params
                     ),
                     QueryItemKind::OracleFeedConfig => run_query!(
                         iroha_data_model::oracle::FeedConfig,

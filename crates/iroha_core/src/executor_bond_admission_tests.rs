@@ -884,7 +884,7 @@ mod bond_admission {
                 repo::{RepoIsi, ReverseRepoIsi},
                 settlement::{
                     AtomicSettlementEscrow, AtomicSettlementEscrows, AtomicSettlementMovement,
-                    AtomicSettlementMovements, SettleAtomic,
+                    AtomicSettlementMovements, SettleAtomic, SettlementId,
                 },
             },
             repo::{RepoAgreementId, RepoCashLeg, RepoCollateralLeg, RepoGovernance},
@@ -1063,8 +1063,10 @@ mod bond_admission {
             fixture.submit(buyer, settlement, time, None);
         }
 
+        /// The submitting buyer debits its own EUR, so it owns the settlement namespace.
         fn atomic(
             fixture: &Fixture,
+            buyer: usize,
             label: &str,
             mut movements: Vec<AtomicSettlementMovement>,
             mut escrows: Vec<AtomicSettlementEscrow>,
@@ -1073,7 +1075,10 @@ mod bond_admission {
             escrows.sort_by_key(|leg| leg.escrow_id);
             SettleAtomic::new(
                 fixture.chain.network_id(),
-                label.parse().expect("settlement id"),
+                SettlementId::new(
+                    fixture.accounts[buyer].clone(),
+                    label.parse().expect("settlement reference"),
+                ),
                 AtomicSettlementMovements::try_from(movements).expect("canonical movements"),
                 AtomicSettlementEscrows::try_from(escrows).expect("canonical escrows"),
                 NonZeroU64::new(1_000_000).unwrap(),
@@ -1157,7 +1162,7 @@ mod bond_admission {
                 ),
             ];
             let escrows = legs.iter().map(|leg| leg.escrow_id).collect();
-            let settlement = atomic(fixture, label, movements, legs);
+            let settlement = atomic(fixture, buyer, label, movements, legs);
             settle(fixture, buyer, settlement, time);
             escrows
         }
@@ -1200,7 +1205,7 @@ mod bond_admission {
                 DEMO_MATURITY + 30 * DAY,
             );
             let escrow_id = reserve_leg.escrow_id;
-            let settlement = atomic(fixture, label, movements, vec![reserve_leg]);
+            let settlement = atomic(fixture, buyer, label, movements, vec![reserve_leg]);
             settle(fixture, buyer, settlement, time);
             escrow_id
         }

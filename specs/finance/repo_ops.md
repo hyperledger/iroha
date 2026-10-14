@@ -33,8 +33,9 @@ must be held by the initiator:
 
 1. The counterparty grants a cash-debit permission. Its `debited_asset` is the
    exact counterparty cash `AssetId`, including its dataspace scope. Its
-   `settlement_id` is the repo agreement identifier and its `intent_hash` is
-   `RepoIsi::initiation_intent_hash()`.
+   `settlement_id` is the owner-qualified `RepoIsi::settlement_id()`,
+   `{ owner: initiator, reference: agreement identifier }`, and its
+   `intent_hash` is `RepoIsi::initiation_intent_hash()`.
 2. The account that will hold collateral at maturity grants a
    collateral-release permission. In a bilateral repo this is the
    counterparty; in a tri-party repo it is the custodian. Its `debited_asset`

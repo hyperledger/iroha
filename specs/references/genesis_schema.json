@@ -3738,9 +3738,61 @@
         {
           "mask": 268435456,
           "name": "RevisionQuarantined"
+        },
+        {
+          "mask": 536870912,
+          "name": "ReconciliationOpened"
+        },
+        {
+          "mask": 1073741824,
+          "name": "ForgedMintProven"
+        },
+        {
+          "mask": 2147483648,
+          "name": "ReconciliationSettled"
+        },
+        {
+          "mask": 4294967296,
+          "name": "ReconciledClaimSettled"
+        },
+        {
+          "mask": 8589934592,
+          "name": "InboundStranded"
+        },
+        {
+          "mask": 17179869184,
+          "name": "PausePanelSeated"
+        },
+        {
+          "mask": 34359738368,
+          "name": "PausePanelUnavailable"
+        },
+        {
+          "mask": 68719476736,
+          "name": "PausePanelSeatAccepted"
+        },
+        {
+          "mask": 137438953472,
+          "name": "FastPauseEndorsed"
+        },
+        {
+          "mask": 274877906944,
+          "name": "FastPauseNoResult"
+        },
+        {
+          "mask": 549755813888,
+          "name": "FastPauseEnacted"
+        },
+        {
+          "mask": 1099511627776,
+          "name": "FastPauseRetained"
+        },
+        {
+          "mask": 2199023255552,
+          "name": "FastPauseCleared"
         }
       ],
-      "repr": "u32"
+      "repr": "u64"
     }
   },
   "SccpNetworkV1": {

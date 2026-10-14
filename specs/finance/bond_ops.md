@@ -725,21 +725,25 @@ timing rules of §11.2 hold.
 2. **Subscription before the minimum raise**: the buyer submits `SettleAtomic`
    with one movement (the trade fee, buyer EUR to the platform) and four escrow
    legs (bond units issuer to buyer — the allotment —, EUR buyer to issuer,
-   EUR buyer to platform, EUR buyer to the issuer's reserve account). The
-   issuer first grants the buyer `CanExecuteSettlement { debited_asset:
-   <issuer's bond balance>, settlement_id, intent_hash }` for that exact
-   settlement; the buyer's own balances need no consent. Until release the
-   allotment counts for the issuer (nobody, §4.2).
+   EUR buyer to platform, EUR buyer to the issuer's reserve account). Its
+   owner-qualified `settlement_id` is `{ owner: buyer, reference }`: the
+   namespace owner must debit one of the legs, and the buyer debits its own
+   EUR. The issuer first grants the buyer `CanExecuteSettlement {
+   debited_asset: <issuer's bond balance>, settlement_id, intent_hash }` for
+   that exact settlement; the buyer's own balances need no consent. Until
+   release the allotment counts for the issuer (nobody, §4.2).
 3. **Minimum raise**: the attestor submits `AttestEscrowCondition` for every
    leg and for the tranche (any number per transaction, before each escrow's
    expiry). Allotments go to the buyers, the tranche back to the issuer.
 4. **Purchase after the minimum raise**: `SettleAtomic` with the bond movement
    issuer to buyer, the EUR movements (issuer, platform) and one escrow leg for
-   the reserve, again under the issuer's consent.
+   the reserve, again buyer-owned (`{ owner: buyer, reference }`) and under the
+   issuer's consent.
 5. **Repo**: `RepoIsi` with the buyer as initiator delivering bond units as
    collateral and a counterparty (the bank) delivering EUR. The counterparty
-   grants the initiator two consents: its EUR balance under the initiation
-   intent hash and its bond balance under the maturity intent hash. With
+   grants the initiator two consents, both for the settlement id
+   `{ owner: initiator, reference: agreement id }`: its EUR balance under the
+   initiation intent hash and its bond balance under the maturity intent hash. With
    `allow_early_repayment`, `ReverseRepoIsi` returns the units early. The
    counterparty is holder of record while it holds the collateral (§4.2).
 6. **Failed offering**: at or after the escrow expiry anyone submits

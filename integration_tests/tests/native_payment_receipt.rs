@@ -24,8 +24,8 @@ use iroha_data_model::{
     block::SignedBlock,
     domain::Domain,
     isi::{
-        AtomicSettlementMovement, AtomicSettlementMovements, Mint, Register, SettleAtomic,
-        SettlementId,
+        AtomicSettlementEscrows, AtomicSettlementMovement, AtomicSettlementMovements, Mint,
+        Register, SettleAtomic, SettlementId,
     },
     parameter::system::ConsensusMode,
     query::CommittedTransaction,
@@ -119,6 +119,7 @@ fn intent(chain: &CertifiedTestChain) -> SettleAtomic {
             quantity: 250_000_u32.into(),
         }])
         .unwrap(),
+        AtomicSettlementEscrows::empty(),
         NonZeroU64::new(2).unwrap(),
         Metadata::default(),
     )
@@ -361,6 +362,7 @@ fn insufficient_funds_payment_is_included_but_cannot_authorize_customer_credit()
             quantity: 2_000_000_u32.into(),
         }])
         .unwrap(),
+        AtomicSettlementEscrows::empty(),
         NonZeroU64::new(2).unwrap(),
         Metadata::default(),
     );

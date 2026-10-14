@@ -2555,16 +2555,16 @@ impl Execute for Unregister<AssetDefinition> {
         // Retiring a definition deletes every balance of it, including the
         // deterministic custody of escrows that other accounts funded.
         crate::smartcontracts::isi::escrow::ensure_asset_definitions_not_retained_by_native_escrows(
-                state_transaction,
-                &BTreeSet::from([asset_definition_id.clone()]),
-                &format!("unregister asset definition {asset_definition_id}"),
-            )?;
+            state_transaction,
+            &BTreeSet::from([asset_definition_id.clone()]),
+            &format!("unregister asset definition {asset_definition_id}"),
+        )?;
         // Bond records are permanent and own their bond and payment definitions.
         crate::smartcontracts::isi::bond::ensure_asset_definitions_not_retained_by_bonds(
-                state_transaction.world(),
-                &BTreeSet::from([asset_definition_id.clone()]),
-                &format!("unregister asset definition {asset_definition_id}"),
-            )?;
+            state_transaction.world(),
+            &BTreeSet::from([asset_definition_id.clone()]),
+            &format!("unregister asset definition {asset_definition_id}"),
+        )?;
         if let Some(reference) = crate::smartcontracts::isi::sorafs_moderation::retained_moderation_asset_definition_reference(
                 state_transaction.world(),
                 &asset_definition_id,

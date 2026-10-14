@@ -6,7 +6,7 @@ type rows preserve 384 populated values and 1,536 complete root, vector, option
 and map frames.
 
 The fixture SHA-256 is
-`7d138d366c8f82d82c9e19a94494216043a3af45bd8157604cdd81e21ffa73ef`.
+`52370ddede6c0eeb654dbf2bf18b465e61e7cd43cef0ecb9ddb9f9955c24f33e`.
 `ClaimPublicLaneRewards` contains one mandatory exact authenticated fee claim
 against funded XOR custody. The manual recipient instruction and its record-ledger
 claim fields are removed. The external `staking_reward_identity_capture` native
@@ -216,9 +216,13 @@ every other row are unchanged.
 
 Also on 2026-10-13, the single `SettleAtomic` case was recaptured after the
 instruction gained its bounded `escrows` list (conditional escrow legs bound
-into the consent intent). The captured value is the original atomic fixture
-with an empty escrow list; all four frames were produced and round-tripped by a
-temporary current-codec capture test that was removed afterwards.
+into the consent intent). On 2026-10-15, after rebasing onto the owner-qualified
+`SettlementId`, it was recaptured again with the maintained ignored producer
+`print_scoped_settlement_atomic_fixture_rows`: the captured value is the
+owner-qualified three-movement atomic fixture with an empty escrow list. The
+same producer's box case replaced the `Atomic` case of
+`instruction_box_generated_identity_frames.json`. Only these frames differ; the
+nominal and directional identities and every other row are unchanged.
 
 The eight bond-kernel leaf records (`RegisterBond`, `RecordBondCashflow`,
 `FundBondCashflow`, `ClaimBondCashflow`, `CloseBondCashflow`, `CallBond`,

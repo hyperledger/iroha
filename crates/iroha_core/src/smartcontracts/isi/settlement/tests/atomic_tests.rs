@@ -375,9 +375,10 @@ fn atomic_settlement_single_global_payment_credits_250000_units_once() {
     assert_eq!(receipt.authority, authority);
     assert_eq!(receipt.metadata, instruction.metadata);
     assert!(matches!(&receipt.details,
-        SettlementDetails::Atomic(iroha_data_model::isi::AtomicSettlementDetails { movements, intent_hash })
+        SettlementDetails::Atomic(iroha_data_model::isi::AtomicSettlementDetails { movements, intent_hash, escrow_ids })
         if movements == &instruction.movements.resolve().expect("exact movement")
-            && *intent_hash == instruction.intent_hash().expect("exact intent")));
+            && *intent_hash == instruction.intent_hash().expect("exact intent")
+            && escrow_ids.is_empty()));
     assert_eq!(receipt.details.movements().count(), 1);
 
     // Distinct admitted component carriers cannot create a second monetary effect,
@@ -1113,7 +1114,7 @@ impl BondEscrowFixture {
         escrows.sort_by_key(|escrow| escrow.escrow_id);
         SettleAtomic::new(
             stx.network_id.clone(),
-            "bond_issue_1".parse().expect("id"),
+            SettlementId::new(payer.clone(), "bond_issue_1".parse().expect("reference")),
             AtomicSettlementMovements::try_from(movements).expect("canonical movements"),
             AtomicSettlementEscrows::try_from(escrows).expect("canonical escrows"),
             nonzero!(100_u64),
@@ -1409,7 +1410,10 @@ fn atomic_settlement_movement_cannot_credit_same_intent_escrow_custody() {
     movements.sort_by(|a, b| (&a.source, &a.recipient).cmp(&(&b.source, &b.recipient)));
     let instruction = SettleAtomic::new(
         stx.network_id.clone(),
-        "custody_credit".parse().expect("id"),
+        SettlementId::new(
+            fixture.investor.clone(),
+            "custody_credit".parse().expect("reference"),
+        ),
         AtomicSettlementMovements::try_from(movements).expect("canonical movements"),
         AtomicSettlementEscrows::try_from(vec![leg]).expect("canonical escrows"),
         nonzero!(100_u64),
@@ -1589,7 +1593,10 @@ fn atomic_subscription_with_one_fee_movement_and_four_escrow_legs() {
         legs.sort_by_key(|leg| leg.escrow_id);
         let instruction = SettleAtomic::new(
             stx.network_id.clone(),
-            "subscription".parse().expect("id"),
+            SettlementId::new(
+                fixture.investor.clone(),
+                "subscription".parse().expect("reference"),
+            ),
             AtomicSettlementMovements::try_from(vec![fee]).expect("one fee movement"),
             AtomicSettlementEscrows::try_from(legs).expect("four escrow legs"),
             nonzero!(100_u64),
@@ -1715,7 +1722,10 @@ fn atomic_settlement_with_only_two_escrow_legs_and_no_movement() {
     legs.sort_by_key(|leg| leg.escrow_id);
     let instruction = SettleAtomic::new(
         stx.network_id.clone(),
-        "escrow_exchange".parse().expect("id"),
+        SettlementId::new(
+            fixture.investor.clone(),
+            "escrow_exchange".parse().expect("reference"),
+        ),
         AtomicSettlementMovements::try_from(Vec::new()).expect("no movement"),
         AtomicSettlementEscrows::try_from(legs).expect("two escrow legs"),
         nonzero!(100_u64),

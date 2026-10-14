@@ -14988,6 +14988,7 @@
               "ATOMIC_SETTLEMENT_MAX_MOVEMENTS"
             ],
             "exprs": {
+              "ATOMIC_SETTLEMENT_MAX_ESCROWS": "16",
               "ATOMIC_SETTLEMENT_MAX_MOVEMENTS": "255"
             }
           },
@@ -24153,6 +24154,33 @@
         "exprs": {
           "ANCHOR_PATH_LEN": "12"
         }
+      },
+      {
+        "reason": "Field ceilings of registered bond terms, checked by `BondTerms::validate` when `RegisterBond` is admitted (specs/finance/bond_ops.md, section 1): the number of scheduled cash flows of one bond, the ISO 6166 ISIN, ISO 10962 CFI and ISO 17442 LEI identifier lengths, the BDT version label length, and the longest payment grace period (366 days, with its day length as a term). They bound one record of the bond product, which travels in one instruction bounded by transaction.max_tx_bytes and transaction.max_instructions; recording is paged by the separately named page size, so none of them sizes a quantity on the path.",
+        "path": "crates/iroha_data_model/src/bond.rs",
+        "symbols": [
+          "BOND_MAX_CASHFLOWS",
+          "BOND_MAX_PAYMENT_GRACE_MS",
+          "BOND_ISIN_MAX_LEN",
+          "BOND_CFI_MAX_LEN",
+          "BOND_LEI_MAX_LEN",
+          "BOND_BDT_VERSION_MAX_LEN",
+          "MS_PER_DAY"
+        ],
+        "exprs": {
+          "BOND_MAX_CASHFLOWS": "400",
+          "BOND_MAX_PAYMENT_GRACE_MS": "366 * MS_PER_DAY",
+          "BOND_ISIN_MAX_LEN": "12",
+          "BOND_CFI_MAX_LEN": "6",
+          "BOND_LEI_MAX_LEN": "20",
+          "BOND_BDT_VERSION_MAX_LEN": "32",
+          "MS_PER_DAY": "86_400_000"
+        },
+        "term_of": {
+          "MS_PER_DAY": [
+            "crates/iroha_data_model/src/bond.rs: BOND_MAX_PAYMENT_GRACE_MS"
+          ]
+        }
       }
     ],
     "literals": {
@@ -27215,6 +27243,20 @@
               "sites": {
                 "text.len() > 1024": 1,
                 "text.len() > 128": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "Civil-calendar arithmetic of the bond schedule (`days_from_civil` and its inverse): months are shifted so that the computational year starts in March, and the shift selects the year of January and February. They compute dates and bound no size, count or work.",
+          "files": [
+            {
+              "path": "crates/iroha_data_model/src/bond.rs",
+              "sites": {
+                "mp < 10": 1,
+                "m <= 2": 1,
+                "month <= 2": 1,
+                "month > 2": 1
               }
             }
           ]

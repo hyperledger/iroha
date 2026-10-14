@@ -10,8 +10,8 @@ use iroha_data_model::{
     NetworkId,
     asset::AssetBalanceScope,
     isi::{
-        AtomicSettlementMovement, AtomicSettlementMovements, SettleAtomic, SettlementDetails,
-        SettlementId,
+        AtomicSettlementEscrows, AtomicSettlementMovement, AtomicSettlementMovements, SettleAtomic,
+        SettlementDetails, SettlementId,
     },
     sumeragi_finality::SumeragiFinalityVerifier,
     transaction::{FeePaymentIntent, SignedTransaction, TransactionEntrypoint},
@@ -116,6 +116,7 @@ impl NativePaymentFullReturnRequest {
                 quantity: movement.quantity.clone(),
             }])
             .map_err(NativePaymentError::InvalidRequest)?,
+            AtomicSettlementEscrows::empty(),
             expiry_height,
             metadata,
         );

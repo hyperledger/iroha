@@ -6,7 +6,10 @@ codec and all five framing contexts plus the canonical instruction JSON carrier.
 The six other settlement variants reproduced their prior bytes exactly. On
 2026-10-13 that variant was recaptured after `SettleAtomic` gained its `escrows`
 field; the value is unchanged apart from an empty escrow list, and a temporary
-capture test (removed afterwards) produced every frame and the JSON carrier.
+capture test (removed afterwards) produced every frame and the JSON carrier. On
+2026-10-15, after `SettlementId` became owner-qualified, the maintained ignored
+producer `print_scoped_settlement_atomic_fixture_rows` recaptured that case with
+the owner-qualified identifier and an empty escrow list.
 
 The one-time unit capture first obtained actual compiler names and both codec
 hashes. Existing instruction roundtrip values supplied populated variant
@@ -32,8 +35,8 @@ writer, inferred-name fallback or alternative accepted codec identity remains.
 ## Fixture
 
 - File: `instruction_box_generated_identity_frames.json`
-- SHA-256: `0f86c15c131e729554d3dd98b048a5781f5cf75985275e61c0bb014d58f64f26`
-- Size: 169,472 bytes.
+- SHA-256: `b7ef3bba3351e22b50acc5927de188589f3fffaec0b99fa05756bd7a109476e5`
+- Size: 169,584 bytes.
 - Coverage: 12 types, 69 distinct variants, 345 complete frames, 69 JSON carriers.
 
 | Type | Variants |

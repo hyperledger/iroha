@@ -29,7 +29,7 @@ use iroha_data_model::{
         repo::{RepoIsi, ReverseRepoIsi},
         settlement::{
             AtomicSettlementEscrow, AtomicSettlementEscrows, AtomicSettlementMovement,
-            AtomicSettlementMovements, SettleAtomic,
+            AtomicSettlementMovements, SettleAtomic, SettlementId,
         },
         transfer::{TransferAssetBatch, TransferAssetBatchEntry},
     },
@@ -1043,7 +1043,10 @@ fn settle_atomic(
     movements.sort_by(|a, b| (&a.source, &a.recipient).cmp(&(&b.source, &b.recipient)));
     let instruction = SettleAtomic::new(
         stx.network_id.clone(),
-        "frozen_bond_trade".parse().expect("settlement id"),
+        SettlementId::new(
+            ids[seller].clone(),
+            "frozen_bond_trade".parse().expect("settlement reference"),
+        ),
         AtomicSettlementMovements::try_from(movements).expect("canonical movements"),
         AtomicSettlementEscrows::try_from(escrows).expect("canonical escrows"),
         NonZeroU64::new(1_000).expect("expiry"),

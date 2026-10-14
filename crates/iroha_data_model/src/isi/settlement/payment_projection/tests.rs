@@ -4,7 +4,9 @@ use super::*;
 use crate::{
     account::AccountId,
     asset::{AssetBalanceScope, AssetDefinitionId, AssetId},
-    isi::{AtomicSettlementMovement, AtomicSettlementMovements, SettlementId},
+    isi::{
+        AtomicSettlementEscrows, AtomicSettlementMovement, AtomicSettlementMovements, SettlementId,
+    },
     transaction::{
         FeeChargeLimit, FeePaymentIntent, TransactionBuilder,
         error::{TransactionLimitError, TransactionRejectionReason},
@@ -36,6 +38,7 @@ fn projection_fixture(pipeline_gas: bool) -> (SettleAtomic, BlockHeader, Transac
             quantity: Quantity::from(42_u32),
         }])
         .unwrap(),
+        AtomicSettlementEscrows::empty(),
         NonZeroU64::new(200).unwrap(),
         Metadata::default(),
     );

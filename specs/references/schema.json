@@ -640,8 +640,8 @@
         "type": "SortedVec<AccountId>"
       },
       {
-        "name": "invalidated_multisig_proposal_hashes",
-        "type": "Vec<HashOf<Vec<InstructionBox>>>"
+        "name": "invalidated_multisig_proposal_ids",
+        "type": "Vec<Array<u8, 32>>"
       },
       {
         "name": "proposed_by",
@@ -14855,6 +14855,10 @@
         "type": "AccountId"
       },
       {
+        "name": "proposal_id",
+        "type": "MultisigProposalId"
+      },
+      {
         "name": "instructions_hash",
         "type": "HashOf<Vec<InstructionBox>>"
       }
@@ -14865,6 +14869,10 @@
       {
         "name": "account",
         "type": "AccountId"
+      },
+      {
+        "name": "proposal_id",
+        "type": "MultisigProposalId"
       },
       {
         "name": "instructions_hash",
@@ -14937,8 +14945,26 @@
       }
     ]
   },
+  "MultisigProposalId": "Array<u8, 32>",
+  "MultisigProposalNonce": "Array<u8, 32>",
   "MultisigProposalValue": {
     "Struct": [
+      {
+        "name": "network_id",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
+        "name": "proposal_nonce",
+        "type": "MultisigProposalNonce"
+      },
+      {
+        "name": "proposal_id",
+        "type": "MultisigProposalId"
+      },
+      {
+        "name": "transaction_ttl_ms",
+        "type": "Option<NonZero<u64>>"
+      },
       {
         "name": "instructions",
         "type": "Vec<InstructionBox>"
@@ -14954,10 +14980,6 @@
       {
         "name": "approvals",
         "type": "SortedVec<AccountId>"
-      },
-      {
-        "name": "is_relayed",
-        "type": "Option<bool>"
       }
     ]
   },
@@ -14966,6 +14988,10 @@
       {
         "name": "account",
         "type": "AccountId"
+      },
+      {
+        "name": "proposal_nonce",
+        "type": "MultisigProposalNonce"
       },
       {
         "name": "instructions",
@@ -26090,6 +26116,71 @@
         "discriminant": 28,
         "tag": "revision_quarantined",
         "type": "SccpRevisionQuarantinedV1"
+      },
+      {
+        "discriminant": 29,
+        "tag": "reconciliation_opened",
+        "type": "SccpReconciliationOpenedV1"
+      },
+      {
+        "discriminant": 30,
+        "tag": "forged_mint_proven",
+        "type": "SccpForgedMintProvenV1"
+      },
+      {
+        "discriminant": 31,
+        "tag": "reconciliation_settled",
+        "type": "SccpReconciliationSettledV1"
+      },
+      {
+        "discriminant": 32,
+        "tag": "reconciled_claim_settled",
+        "type": "SccpReconciledClaimSettledV1"
+      },
+      {
+        "discriminant": 33,
+        "tag": "inbound_stranded",
+        "type": "SccpInboundStrandedV1"
+      },
+      {
+        "discriminant": 34,
+        "tag": "pause_panel_seated",
+        "type": "SccpPausePanelSeatedV1"
+      },
+      {
+        "discriminant": 35,
+        "tag": "pause_panel_unavailable",
+        "type": "SccpPausePanelUnavailableV1"
+      },
+      {
+        "discriminant": 36,
+        "tag": "pause_panel_seat_accepted",
+        "type": "SccpPausePanelSeatAcceptedV1"
+      },
+      {
+        "discriminant": 37,
+        "tag": "fast_pause_endorsed",
+        "type": "SccpFastPauseEndorsedV1"
+      },
+      {
+        "discriminant": 38,
+        "tag": "fast_pause_no_result",
+        "type": "SccpFastPauseNoResultV1"
+      },
+      {
+        "discriminant": 39,
+        "tag": "fast_pause_enacted",
+        "type": "SccpFastPauseEnactedV1"
+      },
+      {
+        "discriminant": 40,
+        "tag": "fast_pause_retained",
+        "type": "SccpFastPauseRetainedV1"
+      },
+      {
+        "discriminant": 41,
+        "tag": "fast_pause_cleared",
+        "type": "SccpFastPauseClearedV1"
       }
     ]
   },
@@ -26223,10 +26314,131 @@
         {
           "mask": 268435456,
           "name": "RevisionQuarantined"
+        },
+        {
+          "mask": 536870912,
+          "name": "ReconciliationOpened"
+        },
+        {
+          "mask": 1073741824,
+          "name": "ForgedMintProven"
+        },
+        {
+          "mask": 2147483648,
+          "name": "ReconciliationSettled"
+        },
+        {
+          "mask": 4294967296,
+          "name": "ReconciledClaimSettled"
+        },
+        {
+          "mask": 8589934592,
+          "name": "InboundStranded"
+        },
+        {
+          "mask": 17179869184,
+          "name": "PausePanelSeated"
+        },
+        {
+          "mask": 34359738368,
+          "name": "PausePanelUnavailable"
+        },
+        {
+          "mask": 68719476736,
+          "name": "PausePanelSeatAccepted"
+        },
+        {
+          "mask": 137438953472,
+          "name": "FastPauseEndorsed"
+        },
+        {
+          "mask": 274877906944,
+          "name": "FastPauseNoResult"
+        },
+        {
+          "mask": 549755813888,
+          "name": "FastPauseEnacted"
+        },
+        {
+          "mask": 1099511627776,
+          "name": "FastPauseRetained"
+        },
+        {
+          "mask": 2199023255552,
+          "name": "FastPauseCleared"
         }
       ],
-      "repr": "u32"
+      "repr": "u64"
     }
+  },
+  "SccpFastPauseCertificateId": "Array<u8, 32>",
+  "SccpFastPauseClearedReasonV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "lifted"
+      }
+    ]
+  },
+  "SccpFastPauseClearedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "part",
+        "type": "SccpFastPausePartV1"
+      },
+      {
+        "name": "reason",
+        "type": "SccpFastPauseClearedReasonV1"
+      }
+    ]
+  },
+  "SccpFastPauseEnactedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "certificate_id",
+        "type": "SccpFastPauseCertificateId"
+      },
+      {
+        "name": "until_ms",
+        "type": "u64"
+      },
+      {
+        "name": "renewal",
+        "type": "bool"
+      }
+    ]
+  },
+  "SccpFastPauseEndorsedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "panel_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "endorser",
+        "type": "AccountId"
+      },
+      {
+        "name": "incident_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "count",
+        "type": "u32"
+      }
+    ]
   },
   "SccpFastPauseLapsedV1": {
     "Struct": [
@@ -26241,6 +26453,107 @@
       {
         "name": "until_ms",
         "type": "u64"
+      }
+    ]
+  },
+  "SccpFastPauseNoResultReasonV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "expired"
+      },
+      {
+        "discriminant": 1,
+        "tag": "panel_changed"
+      },
+      {
+        "discriminant": 2,
+        "tag": "insufficient_eligible_endorsements"
+      },
+      {
+        "discriminant": 3,
+        "tag": "head_changed"
+      },
+      {
+        "discriminant": 4,
+        "tag": "suspended"
+      },
+      {
+        "discriminant": 5,
+        "tag": "renewal_window_closed"
+      },
+      {
+        "discriminant": 6,
+        "tag": "no_live_revision"
+      },
+      {
+        "discriminant": 7,
+        "tag": "control_capacity"
+      },
+      {
+        "discriminant": 8,
+        "tag": "counter_exhausted"
+      }
+    ]
+  },
+  "SccpFastPauseNoResultV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "panel_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "reason",
+        "type": "SccpFastPauseNoResultReasonV1"
+      }
+    ]
+  },
+  "SccpFastPausePartV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "taira"
+      },
+      {
+        "discriminant": 1,
+        "tag": "destination",
+        "type": "SccpFastPausePartV1::Destination"
+      }
+    ]
+  },
+  "SccpFastPausePartV1::Destination": {
+    "Struct": [
+      {
+        "name": "revision",
+        "type": "u32"
+      }
+    ]
+  },
+  "SccpFastPauseRetainedReasonV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "ballot_opened_before_or_at_enactment"
+      }
+    ]
+  },
+  "SccpFastPauseRetainedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "part",
+        "type": "SccpFastPausePartV1"
+      },
+      {
+        "name": "reason",
+        "type": "SccpFastPauseRetainedReasonV1"
       }
     ]
   },
@@ -26281,6 +26594,26 @@
       {
         "name": "reason",
         "type": "SccpFinalityDegradedReasonV1"
+      }
+    ]
+  },
+  "SccpForgedMintProvenV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "revision",
+        "type": "u32"
+      },
+      {
+        "name": "message_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "amount",
+        "type": "u128"
       }
     ]
   },
@@ -26436,6 +26769,21 @@
       {
         "discriminant": 3,
         "tag": "parameters"
+      },
+      {
+        "discriminant": 5,
+        "tag": "forgery_hold",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "discriminant": 6,
+        "tag": "fast_hold",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "discriminant": 7,
+        "tag": "fast_pause_control",
+        "type": "SccpNetworkV1"
       }
     ]
   },
@@ -26548,6 +26896,30 @@
       {
         "name": "fee",
         "type": "u128"
+      }
+    ]
+  },
+  "SccpInboundStrandedV1": {
+    "Struct": [
+      {
+        "name": "message_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "revision",
+        "type": "u32"
+      },
+      {
+        "name": "amount",
+        "type": "u128"
+      },
+      {
+        "name": "reason",
+        "type": "SccpBounceReasonV1"
       }
     ]
   },
@@ -26785,6 +27157,82 @@
       }
     ]
   },
+  "SccpPausePanelSeatAcceptedV1": {
+    "Struct": [
+      {
+        "name": "panel_seq",
+        "type": "u64"
+      },
+      {
+        "name": "member",
+        "type": "AccountId"
+      }
+    ]
+  },
+  "SccpPausePanelSeatedV1": {
+    "Struct": [
+      {
+        "name": "panel_seq",
+        "type": "u64"
+      },
+      {
+        "name": "pulse_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "primary_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "backup_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "seated_height",
+        "type": "u64"
+      },
+      {
+        "name": "seated_at_ms",
+        "type": "u64"
+      },
+      {
+        "name": "accept_until_ms",
+        "type": "u64"
+      },
+      {
+        "name": "term_ends_at_ms",
+        "type": "u64"
+      },
+      {
+        "name": "drawn_count",
+        "type": "u32"
+      }
+    ]
+  },
+  "SccpPausePanelUnavailableReasonV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "insufficient_candidates"
+      },
+      {
+        "discriminant": 1,
+        "tag": "snapshot_too_large"
+      }
+    ]
+  },
+  "SccpPausePanelUnavailableV1": {
+    "Struct": [
+      {
+        "name": "pulse_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "reason",
+        "type": "SccpPausePanelUnavailableReasonV1"
+      }
+    ]
+  },
   "SccpRecipientRegisteredV1": {
     "Struct": [
       {
@@ -26798,6 +27246,70 @@
       {
         "name": "message_id",
         "type": "Option<Array<u8, 32>>"
+      }
+    ]
+  },
+  "SccpReconciledClaimSettledV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "revision",
+        "type": "u32"
+      },
+      {
+        "name": "message_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "amount",
+        "type": "u128"
+      },
+      {
+        "name": "payout",
+        "type": "u128"
+      }
+    ]
+  },
+  "SccpReconciliationOpenedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "revision",
+        "type": "u32"
+      },
+      {
+        "name": "opened_at_ms",
+        "type": "u64"
+      },
+      {
+        "name": "closes_at_ms",
+        "type": "u64"
+      }
+    ]
+  },
+  "SccpReconciliationSettledV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "revision",
+        "type": "u32"
+      },
+      {
+        "name": "backing",
+        "type": "u128"
+      },
+      {
+        "name": "forged_supply",
+        "type": "u128"
       }
     ]
   },
@@ -34315,9 +34827,6 @@
   },
   "Vec<HashOf<TransactionResult>>": {
     "Vec": "HashOf<TransactionResult>"
-  },
-  "Vec<HashOf<Vec<InstructionBox>>>": {
-    "Vec": "HashOf<Vec<InstructionBox>>"
   },
   "Vec<InitialProviderAdmissionV1>": {
     "Vec": "InitialProviderAdmissionV1"

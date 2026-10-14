@@ -10,8 +10,8 @@ use iroha_data_model::{
     domain::Domain,
     executor::SettlementReplayDispositionV1,
     isi::{
-        AtomicSettlementMovement, AtomicSettlementMovements, InstructionBox, Mint, Register,
-        SettleAtomic, SettlementId,
+        AtomicSettlementEscrows, AtomicSettlementMovement, AtomicSettlementMovements,
+        InstructionBox, Mint, Register, SettleAtomic, SettlementId,
     },
     transaction::{
         FeeChargeKind, FeeChargeLimit, FeePaymentIntent, SignedTransaction, TransactionBuilder,
@@ -106,6 +106,7 @@ fn intent(chain: &CertifiedTestChain, reference: &str) -> SettleAtomic {
             quantity: 250_000_u32.into(),
         }])
         .unwrap(),
+        AtomicSettlementEscrows::empty(),
         NonZeroU64::new(2).unwrap(),
         Metadata::default(),
     )
