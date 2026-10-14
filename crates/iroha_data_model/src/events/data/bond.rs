@@ -28,18 +28,20 @@ use norito::codec::{Decode, Encode};
 pub enum BondEvent {
     /// A bond record was registered.
     Registered(BondRegistered),
-    /// A cash flow was recorded.
+    /// Recording of a cash flow completed.
     CashflowRecorded(BondCashflowRecorded),
     /// A recorded cash flow was funded into the vault.
     CashflowFunded(BondCashflowFunded),
     /// One holder claimed a funded cash flow.
     CashflowClaimed(BondCashflowClaimed),
-    /// A fully claimed cash flow was closed.
+    /// The paying agent closed active servicing of a funded cash flow.
     CashflowClosed(BondCashflowClosed),
     /// The issuer called the bond.
     Called(BondCalled),
     /// The paying agent declared a payment default.
     Defaulted(BondDefaulted),
+    /// The issuer replaced the paying agent.
+    PayingAgentReplaced(BondPayingAgentReplaced),
 }
 
 impl BondEvent {
@@ -54,6 +56,7 @@ impl BondEvent {
             Self::CashflowClosed(event) => &event.bond,
             Self::Called(event) => &event.bond,
             Self::Defaulted(event) => &event.bond,
+            Self::PayingAgentReplaced(event) => &event.bond,
         }
     }
 }
@@ -107,9 +110,9 @@ bond_event_payload!(
         index: u16,
         /// Cash-flow kind.
         kind: BondCashflowKind,
-        /// Investor holders in the snapshot.
+        /// Holders with a recorded entitlement.
         holders: u32,
-        /// Sum of snapshot units.
+        /// Sum of entitled units.
         entitled_units: Quantity,
         /// Amount due at the payment-asset scale.
         amount_due: Quantity,
@@ -135,7 +138,7 @@ bond_event_payload!(
         index: u16,
         /// Paid holder.
         holder: AccountId,
-        /// Snapshot units (burned for a redemption).
+        /// Entitled units (burned for a redemption).
         units: Quantity,
         /// Amount paid to the holder.
         amount: Quantity,
@@ -148,8 +151,10 @@ bond_event_payload!(
         bond: BondId,
         /// Cash-flow index.
         index: u16,
-        /// Rounding residual returned to the issuer.
-        residual: Quantity,
+        /// Entitled holders that have not claimed; they can still claim.
+        unclaimed_holders: u32,
+        /// Amount kept in the vault for those holders.
+        unclaimed_amount: Quantity,
     }
 );
 bond_event_payload!(
@@ -176,10 +181,22 @@ bond_event_payload!(
     }
 );
 
+bond_event_payload!(
+    /// Payload of [`BondEvent::PayingAgentReplaced`].
+    BondPayingAgentReplaced = "iroha_data_model::events::data::bond::BondPayingAgentReplaced" {
+        /// Bond identifier.
+        bond: BondId,
+        /// Replaced paying agent.
+        previous: AccountId,
+        /// New paying agent.
+        paying_agent: AccountId,
+    }
+);
+
 /// Prelude exports for bond events.
 pub mod prelude {
     pub use super::{
         BondCalled, BondCashflowClaimed, BondCashflowClosed, BondCashflowFunded,
-        BondCashflowRecorded, BondDefaulted, BondEvent, BondRegistered,
+        BondCashflowRecorded, BondDefaulted, BondEvent, BondPayingAgentReplaced, BondRegistered,
     };
 }

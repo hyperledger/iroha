@@ -252,6 +252,11 @@ capture_world_table_once!(
     "world.bonds"
 );
 capture_world_table_once!(
+    pub(super) capture_bond_entitlements_once,
+    bond_entitlements,
+    "world.bond_entitlements"
+);
+capture_world_table_once!(
     pub(super) capture_public_lane_validators_once,
     public_lane_validators,
     "world.public_lane_validators"

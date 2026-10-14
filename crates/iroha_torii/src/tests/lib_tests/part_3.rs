@@ -1943,10 +1943,20 @@ async fn identifier_receipt_lookup_returns_not_found_without_an_admitted_claim()
 #[tokio::test]
 async fn bond_routes_serve_registered_records_and_report_unknown_bonds() {
     use iroha_data_model::bond::{
-        BondCashflowKind, BondCashflowTerms, BondDayCount, BondIdentifiers, BondRecord, BondTerms,
+        BondCashflowKind, BondCashflowTerms, BondDayCount, BondEntitlement, BondEntitlementId,
+        BondIdentifiers, BondRecord, BondTerms,
     };
+    async fn body_json(response: axum::response::Response) -> norito::json::Value {
+        let body = http_body_util::BodyExt::collect(response.into_body())
+            .await
+            .expect("collect body")
+            .to_bytes();
+        norito::json::from_slice(&body).expect("JSON body")
+    }
     let issuer = checked_torii_test_account_id(0xb1, "derive bond route issuer fixture key");
     let agent = checked_torii_test_account_id(0xb2, "derive bond route agent fixture key");
+    let holders = [0xb3, 0xb4, 0xb5]
+        .map(|seed| checked_torii_test_account_id(seed, "derive bond route holder fixture key"));
     let domain = DomainId::try_new("bonds", "universal").expect("domain id");
     let bond = AssetDefinitionId::derive_from_components(
         domain.clone(),
@@ -1966,6 +1976,7 @@ async fn bond_routes_serve_registered_records_and_report_unknown_bonds() {
         issue_date_ms: 1_000,
         maturity_date_ms: 2_000,
         redemption_price_bps: 10_000,
+        payment_grace_ms: 0,
         call: None,
         cashflows: vec![BondCashflowTerms {
             index: 0,
@@ -1987,6 +1998,14 @@ async fn bond_routes_serve_registered_records_and_report_unknown_bonds() {
     let record = BondRecord::registered(bond.clone(), terms, Quantity::from(100_u32));
     let mut world = World::default();
     world.insert_bond_record_for_testing(record.clone());
+    for (units, holder) in [10_u32, 20, 30].into_iter().zip(&holders) {
+        world.insert_bond_entitlement_for_testing(BondEntitlement {
+            id: BondEntitlementId::new(bond.clone(), 0, holder.clone()),
+            units: Quantity::from(units),
+            amount: Quantity::from(units * 50),
+            claimed_at_ms: None,
+        });
+    }
     let app = mk_app_state_for_tests_with_world(world);
     let response = handler_bond_get(
         State(app.clone()),
@@ -2004,25 +2023,114 @@ async fn bond_routes_serve_registered_records_and_report_unknown_bonds() {
         .to_bytes();
     let fetched: BondRecord = norito::json::from_slice(&body).expect("decode bond record");
     assert_eq!(fetched, record);
+    // The list is a collection page of record rows.
     let response = handler_bonds(
         State(app.clone()),
+        "/v1/bonds?limit=10".parse().expect("uri"),
         HeaderMap::new(),
         crate::loopback_connect_info(),
     )
     .await
-    .expect("bond list")
-    .into_response();
+    .expect("bond list");
     assert_eq!(response.status(), StatusCode::OK);
-    let body = http_body_util::BodyExt::collect(response.into_body())
-        .await
-        .expect("collect bond list")
-        .to_bytes();
-    let listed: Vec<BondRecord> = norito::json::from_slice(&body).expect("decode bond list");
-    assert_eq!(listed, [record]);
+    let page = body_json(response).await;
+    let items = page
+        .get("items")
+        .and_then(norito::json::Value::as_array)
+        .expect("items");
+    assert_eq!(items.len(), 1);
+    let listed: BondRecord =
+        norito::json::from_value(items[0].clone()).expect("record row decodes as a record");
+    assert_eq!(listed, record);
+    assert_eq!(page.get("next_cursor"), Some(&norito::json::Value::Null));
+    let filtered = handler_bonds(
+        State(app.clone()),
+        "/v1/bonds?filter=state.lifecycle%20%3D%20%22Matured%22"
+            .parse()
+            .expect("uri"),
+        HeaderMap::new(),
+        crate::loopback_connect_info(),
+    )
+    .await
+    .expect("filtered bond list");
+    let page = body_json(filtered).await;
+    assert_eq!(
+        page.get("items")
+            .and_then(norito::json::Value::as_array)
+            .map(Vec::len),
+        Some(0)
+    );
+    // Entitlements page in cash-flow then holder order with a resumable cursor.
+    let entitlements = |query: &str| {
+        handler_bond_entitlements(
+            State(app.clone()),
+            format!("/v1/bonds/{bond}/entitlements{query}")
+                .parse()
+                .expect("uri"),
+            HeaderMap::new(),
+            crate::loopback_connect_info(),
+            AxPath(bond.to_string()),
+        )
+    };
+    let first = body_json(entitlements("?limit=2").await.expect("first page")).await;
+    let rows = first
+        .get("items")
+        .and_then(norito::json::Value::as_array)
+        .expect("rows")
+        .clone();
+    assert_eq!(rows.len(), 2);
+    let cursor = first
+        .get("next_cursor")
+        .and_then(norito::json::Value::as_str)
+        .expect("next cursor")
+        .to_owned();
+    let second = body_json(
+        entitlements(&format!("?limit=2&cursor={cursor}"))
+            .await
+            .expect("second page"),
+    )
+    .await;
+    let rest = second
+        .get("items")
+        .and_then(norito::json::Value::as_array)
+        .expect("rows")
+        .clone();
+    assert_eq!(rest.len(), 1);
+    let mut seen: Vec<String> = rows
+        .iter()
+        .chain(&rest)
+        .map(|row| {
+            assert_eq!(
+                row.get("bond").and_then(norito::json::Value::as_str),
+                Some(bond.to_string().as_str())
+            );
+            assert_eq!(row.get("claimed"), Some(&norito::json::Value::Bool(false)));
+            row.get("holder")
+                .and_then(norito::json::Value::as_str)
+                .expect("holder")
+                .to_owned()
+        })
+        .collect();
+    seen.sort();
+    let mut expected: Vec<String> = holders.iter().map(ToString::to_string).collect();
+    expected.sort();
+    assert_eq!(seen, expected);
     let unknown = AssetDefinitionId::derive_from_components(
         DomainId::try_new("bonds", "universal").expect("domain id"),
         Name::from_str("unknown").expect("asset name"),
     );
+    let response = handler_bond_entitlements(
+        State(app.clone()),
+        format!("/v1/bonds/{unknown}/entitlements")
+            .parse()
+            .expect("uri"),
+        HeaderMap::new(),
+        crate::loopback_connect_info(),
+        AxPath(unknown.to_string()),
+    )
+    .await
+    .expect("unknown bond entitlements");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
     let response = handler_bond_get(
         State(app.clone()),
         HeaderMap::new(),

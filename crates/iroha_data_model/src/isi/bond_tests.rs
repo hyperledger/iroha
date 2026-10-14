@@ -19,6 +19,7 @@ fn instructions() -> Vec<BondInstructionBox> {
         CloseBondCashflow::new(bond(), 0).into(),
         CallBond::new(bond(), 1_799_971_200_000).into(),
         DeclareBondDefault::new(bond(), 1, [5; 32]).into(),
+        ReplaceBondPayingAgent::new(bond(), account(3)).into(),
     ]
 }
 
@@ -44,6 +45,7 @@ fn bond_instruction_box_roundtrips_through_every_codec_path() {
     assert_slice_roundtrip(CloseBondCashflow::new(bond(), 3));
     assert_slice_roundtrip(CallBond::new(bond(), 42));
     assert_slice_roundtrip(DeclareBondDefault::new(bond(), 3, [1; 32]));
+    assert_slice_roundtrip(ReplaceBondPayingAgent::new(bond(), account(12)));
 }
 
 #[test]
@@ -60,6 +62,7 @@ fn bond_registry_decodes_only_the_stable_box_id() {
         std::any::type_name::<CloseBondCashflow>(),
         std::any::type_name::<CallBond>(),
         std::any::type_name::<DeclareBondDefault>(),
+        std::any::type_name::<ReplaceBondPayingAgent>(),
         std::any::type_name::<BondInstructionBox>(),
     ] {
         assert!(!registry.contains(name), "{name} must remain boxed-only");
@@ -117,6 +120,7 @@ fn bond_instruction_display_names_the_operation() {
         "BOND_CLOSE",
         "BOND_CALL",
         "BOND_DEFAULT",
+        "BOND_REPLACE_PAYING_AGENT",
     ]) {
         assert!(text.starts_with(prefix), "{text}");
     }
@@ -125,7 +129,7 @@ fn bond_instruction_display_names_the_operation() {
 #[test]
 fn unknown_bond_box_tag_is_rejected() {
     let mut bytes = BondInstructionBox::from(CloseBondCashflow::new(bond(), 0)).encode();
-    bytes[..4].copy_from_slice(&7_u32.to_le_bytes());
+    bytes[..4].copy_from_slice(&8_u32.to_le_bytes());
     assert!(
         <BondInstructionBox as norito::core::DecodeFromSlice>::decode_from_slice(&bytes).is_err()
     );

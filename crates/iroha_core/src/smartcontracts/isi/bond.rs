@@ -1,33 +1,35 @@
 //! Native bond-servicing kernel execution (`specs/finance/bond_ops.md`).
 //!
-//! Every authority, schedule, encumbrance and balance rule of the bond kernel
-//! is enforced here. Balance effects are expressed as one-shot verified
-//! capabilities consumed by the central numeric movement and burn paths in the
-//! asset module, which re-check them against the stored record.
-use std::collections::{BTreeMap, BTreeSet};
+//! Every authority, schedule, book-closing, entitlement and balance rule of the
+//! bond kernel is enforced here. Balance effects are expressed as one-shot
+//! verified capabilities consumed by the central numeric movement and burn
+//! paths in the asset module, which re-check them against the stored record
+//! and entitlement.
+use core::ops::Bound;
 
 use iroha_data_model::{
     account::AccountId,
     asset::{AssetBalancePolicy, AssetBalanceScope, AssetDefinitionId, AssetId},
     bond::{
-        BOND_MAX_SNAPSHOT_HOLDERS, BondCashflowKind, BondCashflowState, BondCashflowStatus,
-        BondCashflowTerms, BondError, BondId, BondLifecycle, BondRecord, holder_payment,
-        redemption_amount, snapshot_amount_due,
+        BOND_RECORDING_PAGE_ENTRIES, BondCashflowKind, BondCashflowState, BondCashflowStatus,
+        BondCashflowTerms, BondEntitlement, BondEntitlementId, BondError, BondId, BondLifecycle,
+        BondRecord, BondRecordingCursor, BondRecordingPhase, holder_payment, redemption_amount,
     },
-    escrow::AssetEscrowStatus,
+    escrow::EscrowId,
     events::data::{
         DataEvent,
         bond::{
             BondCalled, BondCashflowClaimed, BondCashflowClosed, BondCashflowFunded,
-            BondCashflowRecorded, BondDefaulted, BondEvent, BondRegistered,
+            BondCashflowRecorded, BondDefaulted, BondEvent, BondPayingAgentReplaced,
+            BondRegistered,
         },
     },
     isi::bond::{
         BondInstructionBox, CallBond, ClaimBondCashflow, CloseBondCashflow, DeclareBondDefault,
-        FundBondCashflow, RecordBondCashflow, RegisterBond,
+        FundBondCashflow, RecordBondCashflow, RegisterBond, ReplaceBondPayingAgent,
     },
 };
-use iroha_primitives::numeric::Quantity;
+use iroha_primitives::numeric::{NumericSpec, Quantity};
 use mv::storage::StorageReadOnly;
 
 use super::{Error, Execute};
@@ -37,10 +39,8 @@ use crate::state::{StateTransaction, WorldReadOnly};
 pub(in crate::smartcontracts::isi) enum VerifiedBondMovementPurpose {
     /// Paying agent or issuer funds the exact recorded amount due.
     Funding,
-    /// Vault pays one snapshot holder.
+    /// Vault pays one entitled holder.
     Payment,
-    /// Vault returns a closed cash flow's rounding residual to the issuer.
-    Residual,
 }
 
 /// Non-reusable proof that the bond kernel selected one exact vault movement.
@@ -55,7 +55,6 @@ pub(in crate::smartcontracts::isi) struct VerifiedBondMovement {
 }
 
 impl VerifiedBondMovement {
-    #[allow(clippy::too_many_arguments)]
     fn new(
         purpose: VerifiedBondMovementPurpose,
         authority: &AccountId,
@@ -99,7 +98,7 @@ impl VerifiedBondMovement {
     }
 }
 
-/// Non-reusable proof that a redemption claim burns one holder's exact snapshot units.
+/// Non-reusable proof that a redemption claim burns one holder's exact entitled units.
 pub(in crate::smartcontracts::isi) struct VerifiedBondRedemptionBurn {
     authority: AccountId,
     bond: BondId,
@@ -126,9 +125,8 @@ fn block_time_ms(state_transaction: &StateTransaction<'_, '_>) -> u64 {
     state_transaction.block_unix_timestamp_ms()
 }
 
-// TODO: every instruction clones and rewrites the whole record, including every
-// recorded snapshot; move entitlements into a per-holder table before bonds approach
-// the 4096-holder snapshot bound (`specs/finance/bond_ops.md` §9).
+/// Load a bond record. Records hold totals only; per-holder entitlements live in
+/// `world.bond_entitlements`, so cloning a record is bounded by its schedule.
 fn load(state_transaction: &StateTransaction<'_, '_>, bond: &BondId) -> Result<BondRecord, Error> {
     state_transaction
         .world
@@ -163,11 +161,15 @@ fn cashflow_mut(record: &mut BondRecord, index: u16) -> Result<&mut BondCashflow
         .ok_or_else(|| BondError::UnknownCashflow(index).into())
 }
 
-fn ensure_servicing(record: &BondRecord) -> Result<(), Error> {
-    if matches!(
+const fn is_servicing(record: &BondRecord) -> bool {
+    matches!(
         record.state.lifecycle,
         BondLifecycle::Active | BondLifecycle::Called
-    ) {
+    )
+}
+
+fn ensure_servicing(record: &BondRecord) -> Result<(), Error> {
+    if is_servicing(record) {
         Ok(())
     } else {
         Err(
@@ -208,106 +210,232 @@ fn ensure_global_definition(
     Ok(definition)
 }
 
-/// Reject recording while units of the bond are encumbered.
-///
-/// An active repo agreement that moves the bond (as collateral or cash) or an
-/// active native escrow whose custody holds bond units for anyone other than
-/// the issuer would leave the economic owner outside the record-date snapshot.
-fn ensure_unencumbered(
-    state_transaction: &StateTransaction<'_, '_>,
-    record: &BondRecord,
-) -> Result<(), Error> {
-    let bond = &record.id;
-    if let Some((agreement_id, _)) =
-        state_transaction
-            .world
-            .repo_agreements
-            .iter()
-            .find(|(_, agreement)| {
-                agreement.is_active()
-                    && (agreement.collateral_leg.asset_definition_id == *bond
-                        || agreement.cash_leg.asset_definition_id == *bond)
-            })
-    {
-        return Err(BondError::Encumbered(format!(
-            "active repo agreement {agreement_id} uses bond {bond}; settle it before recording"
-        ))
-        .into());
-    }
-    let issuer = &record.terms.issuer;
-    if let Some((escrow_id, _)) =
-        state_transaction
-            .world
-            .asset_escrows
-            .iter()
-            .find(|(_, escrow)| {
-                escrow.asset_definition == *bond
-                    && matches!(
-                        escrow.status,
-                        AssetEscrowStatus::Open
-                            | AssetEscrowStatus::Accepted
-                            | AssetEscrowStatus::PaymentSent
-                            | AssetEscrowStatus::Disputed
-                            | AssetEscrowStatus::Locked
-                    )
-                    && !escrow.remaining_amount.is_zero()
-                    && !(escrow.seller == *issuer
-                        && escrow.buyer.as_ref().is_none_or(|buyer| buyer == issuer))
-            })
-    {
-        return Err(BondError::Encumbered(format!(
-            "active native escrow {} holds units of bond {bond} pending for a holder; release or expire it before recording",
-            escrow_id.as_hash()
-        ))
-        .into());
-    }
-    Ok(())
+fn global_balance(
+    world: &impl WorldReadOnly,
+    definition: &AssetDefinitionId,
+    account: &AccountId,
+) -> Quantity {
+    world
+        .assets()
+        .get(&AssetId::new(definition.clone(), account.clone()))
+        .map_or_else(Quantity::zero, |value| value.as_ref().clone())
 }
 
-/// Build the record-date snapshot of investor holdings.
+/// The cash flow whose passed record date keeps the books of `record` closed at `now`.
 ///
-/// Global balances of the bond definition are aggregated per account,
-/// excluding the issuer, the bond vault and native protocol escrow custody.
-fn build_snapshot(
+/// Cash flows are recorded in index order and record dates never decrease, so
+/// only the first still `Scheduled` cash flow can close the books. Books are
+/// open on a matured or defaulted bond.
+fn books_closed_by(record: &BondRecord, now: u64) -> Option<&BondCashflowState> {
+    if !is_servicing(record) {
+        return None;
+    }
+    record
+        .state
+        .cashflows
+        .iter()
+        .find(|state| state.status == BondCashflowStatus::Scheduled)
+        .filter(|state| state.terms.record_date_ms <= now)
+}
+
+fn recording_in_progress(record: &BondRecord) -> Option<&BondCashflowState> {
+    record
+        .state
+        .cashflows
+        .iter()
+        .find(|state| state.status == BondCashflowStatus::Recording)
+}
+
+/// Running totals of one cash flow's entitlements during recording.
+struct RecordingTotals<'a> {
+    bond: &'a BondId,
+    index: u16,
+    amount_per_unit: &'a Quantity,
+    payment_spec: NumericSpec,
+    holders: u32,
+    entitled_units: Quantity,
+    amount_due: Quantity,
+}
+
+impl RecordingTotals<'_> {
+    /// Add `units` to `holder`'s entitlement and keep the totals exact.
+    fn credit(
+        &mut self,
+        state_transaction: &mut StateTransaction<'_, '_>,
+        holder: AccountId,
+        units: &Quantity,
+    ) -> Result<(), Error> {
+        let id = BondEntitlementId::new(self.bond.clone(), self.index, holder);
+        let previous = state_transaction.world.bond_entitlements.get(&id).cloned();
+        let (previous_units, previous_amount) = previous.as_ref().map_or_else(
+            || (Quantity::zero(), Quantity::zero()),
+            |entitlement| (entitlement.units.clone(), entitlement.amount.clone()),
+        );
+        let new_units = previous_units.checked_add(units).map_err(arithmetic)?;
+        let new_amount = holder_payment(&new_units, self.amount_per_unit, self.payment_spec)?;
+        self.amount_due = self
+            .amount_due
+            .checked_sub(&previous_amount)
+            .and_then(|due| due.checked_add(&new_amount))
+            .map_err(arithmetic)?;
+        self.entitled_units = self.entitled_units.checked_add(units).map_err(arithmetic)?;
+        if previous.is_none() {
+            self.holders = self
+                .holders
+                .checked_add(1)
+                .ok_or_else(|| BondError::Arithmetic("holder count overflows u32".to_owned()))?;
+        }
+        state_transaction.world.bond_entitlements.insert(
+            id.clone(),
+            BondEntitlement {
+                id,
+                units: new_units,
+                amount: new_amount,
+                claimed_at_ms: None,
+            },
+        );
+        Ok(())
+    }
+
+    /// Remove `account`'s entitlement, returning its units.
+    fn take(
+        &mut self,
+        state_transaction: &mut StateTransaction<'_, '_>,
+        account: &AccountId,
+    ) -> Result<Option<Quantity>, Error> {
+        let id = BondEntitlementId::new(self.bond.clone(), self.index, account.clone());
+        let Some(entitlement) = state_transaction.world.bond_entitlements.remove(id) else {
+            return Ok(None);
+        };
+        self.amount_due = self
+            .amount_due
+            .checked_sub(&entitlement.amount)
+            .map_err(arithmetic)?;
+        self.entitled_units = self
+            .entitled_units
+            .checked_sub(&entitlement.units)
+            .map_err(arithmetic)?;
+        self.holders = self
+            .holders
+            .checked_sub(1)
+            .ok_or_else(|| BondError::Arithmetic("holder count underflows".to_owned()))?;
+        Ok(Some(entitlement.units))
+    }
+}
+
+/// Whether `account` can hold no entitlement in the holders phase.
+///
+/// Native asset-escrow custody is attributed by the escrows phase instead; this
+/// covers the issuer's treasury, bond vaults, game custody and AMX custody.
+fn excluded_holder(
     state_transaction: &StateTransaction<'_, '_>,
     record: &BondRecord,
-) -> Result<BTreeMap<AccountId, Quantity>, Error> {
-    let vault = record.vault().clone();
-    let mut snapshot: BTreeMap<AccountId, Quantity> = BTreeMap::new();
-    let Some(assets) = state_transaction
+    account: &AccountId,
+) -> bool {
+    account == &record.terms.issuer
+        || account == record.vault()
+        || state_transaction.world.bond_vaults.get(account).is_some()
+        || state_transaction
+            .world
+            .game_custody_by_account
+            .get(account)
+            .is_some()
+        || state_transaction
+            .world
+            .sumeragi_amx_participant()
+            .canonical()
+            .is_some_and(|participant| &participant.custody == account)
+}
+
+/// Examine at most `budget` bond balances after the cursor; returns the entries used and
+/// whether the phase finished.
+fn record_holders_page(
+    state_transaction: &mut StateTransaction<'_, '_>,
+    record: &BondRecord,
+    cursor: &mut BondRecordingCursor,
+    totals: &mut RecordingTotals<'_>,
+    budget: usize,
+) -> Result<(usize, bool), Error> {
+    let page: Vec<AssetId> = state_transaction
         .world
         .asset_definition_assets
         .get(&record.id)
-        .cloned()
-    else {
-        return Ok(snapshot);
-    };
-    let custody = crate::smartcontracts::isi::escrow::native_escrow_custody_accounts_for(
-        state_transaction.world(),
-        &record.id,
-    );
-    for asset_id in assets {
-        let Some(balance) = state_transaction.world.assets.get(&asset_id) else {
+        .map(|assets| {
+            let lower = cursor
+                .after_asset
+                .as_ref()
+                .map_or(Bound::Unbounded, Bound::Excluded);
+            assets
+                .range::<AssetId, _>((lower, Bound::Unbounded))
+                .take(budget)
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    let used = page.len();
+    for asset_id in page {
+        let balance = state_transaction
+            .world
+            .assets
+            .get(&asset_id)
+            .map(|value| value.as_ref().clone());
+        let holder = asset_id.account().clone();
+        cursor.after_asset = Some(asset_id);
+        let Some(balance) = balance.filter(|balance| !balance.is_zero()) else {
             continue;
         };
-        let balance = balance.as_ref().clone();
-        let holder = asset_id.account();
-        if balance.is_zero()
-            || holder == &record.terms.issuer
-            || holder == &vault
-            || custody.contains(holder)
-        {
+        if excluded_holder(state_transaction, record, &holder) {
             continue;
         }
-        let entry = snapshot
-            .entry(holder.clone())
-            .or_insert_with(Quantity::zero);
-        *entry = entry.checked_add(&balance).map_err(arithmetic)?;
-        if snapshot.len() > BOND_MAX_SNAPSHOT_HOLDERS {
-            return Err(BondError::SnapshotTooLarge(snapshot.len()).into());
+        totals.credit(state_transaction, holder, &balance)?;
+    }
+    Ok((used, used < budget))
+}
+
+/// Examine at most `budget` escrow records after the cursor and attribute the custody
+/// balance of every escrow of this bond to its seller; returns the entries used and
+/// whether the phase finished.
+fn record_escrows_page(
+    state_transaction: &mut StateTransaction<'_, '_>,
+    record: &BondRecord,
+    cursor: &mut BondRecordingCursor,
+    totals: &mut RecordingTotals<'_>,
+    budget: usize,
+) -> Result<(usize, bool), Error> {
+    // TODO: index escrows by asset definition so this phase scans only the bond's
+    // escrows instead of every escrow record (`specs/finance/bond_ops.md` §9).
+    let page: Vec<(EscrowId, Option<(AccountId, AccountId)>)> = {
+        let lower = cursor
+            .after_escrow
+            .as_ref()
+            .map_or(Bound::Unbounded, Bound::Excluded);
+        state_transaction
+            .world
+            .asset_escrows
+            .range::<EscrowId>((lower, Bound::Unbounded))
+            .take(budget)
+            .map(|(id, escrow)| {
+                let custody = (escrow.asset_definition == record.id)
+                    .then(|| (escrow.custody.clone(), escrow.seller.clone()));
+                (*id, custody)
+            })
+            .collect()
+    };
+    let used = page.len();
+    for (escrow_id, custody) in page {
+        cursor.after_escrow = Some(escrow_id);
+        let Some((custody, seller)) = custody else {
+            continue;
+        };
+        let Some(units) = totals.take(state_transaction, &custody)? else {
+            continue;
+        };
+        // Until an escrow releases, its seller remains the holder of record.
+        if !excluded_holder(state_transaction, record, &seller) {
+            totals.credit(state_transaction, seller, &units)?;
         }
     }
-    Ok(snapshot)
+    Ok((used, used < budget))
 }
 
 impl Execute for RegisterBond {
@@ -333,6 +461,30 @@ impl Execute for RegisterBond {
             )
             .into());
         }
+        // Vaults hold payment assets; keeping bonds and payment assets disjoint
+        // means a vault never holds units of any bond.
+        if state_transaction
+            .world
+            .bonds
+            .get(&terms.payment_asset)
+            .is_some()
+        {
+            return Err(BondError::InvalidTerms(
+                "the payment asset must not be a registered bond".to_owned(),
+            )
+            .into());
+        }
+        if let Some((other, _)) = state_transaction
+            .world
+            .bonds
+            .iter()
+            .find(|(_, record)| record.terms.payment_asset == bond)
+        {
+            return Err(BondError::InvalidState(format!(
+                "asset definition {bond} is the payment asset of bond {other}"
+            ))
+            .into());
+        }
         let definition = ensure_global_definition(state_transaction, &bond, "bond")?;
         if definition.owned_by() != &terms.issuer {
             return Err(BondError::Unauthorized(
@@ -356,6 +508,15 @@ impl Execute for RegisterBond {
             )
             .into());
         }
+        // Every unit starts with the issuer, so no unit can sit in custody the
+        // kernel does not attribute; distribution follows registration.
+        if global_balance(state_transaction.world(), &bond, &terms.issuer) != outstanding {
+            return Err(BondError::InvalidState(
+                "the issuer must hold the entire minted supply when registering the bond"
+                    .to_owned(),
+            )
+            .into());
+        }
         let cashflows = u16::try_from(terms.cashflows.len()).map_err(arithmetic)?;
         let record = BondRecord::registered(bond.clone(), terms, outstanding.clone());
         let event = BondRegistered {
@@ -365,6 +526,10 @@ impl Execute for RegisterBond {
             outstanding_units: outstanding,
             cashflows,
         };
+        state_transaction
+            .world
+            .bond_vaults
+            .insert(record.vault().clone(), bond.clone());
         store(state_transaction, record);
         iroha_logger::info!(%bond, "bond registered");
         emit(state_transaction, BondEvent::Registered(event));
@@ -375,75 +540,122 @@ impl Execute for RegisterBond {
 impl Execute for RecordBondCashflow {
     fn execute(
         self,
-        authority: &AccountId,
+        _authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         let RecordBondCashflow { bond, index } = self;
         let mut record = load(state_transaction, &bond)?;
-        ensure_paying_agent(&record, authority, "recording")?;
         ensure_servicing(&record)?;
         let now = block_time_ms(state_transaction);
-        let terms = {
-            let current = cashflow(&record, index)?;
-            if current.status != BondCashflowStatus::Scheduled {
+        let current = cashflow(&record, index)?.clone();
+        let mut cursor = match current.status {
+            BondCashflowStatus::Scheduled => {
+                if now < current.terms.record_date_ms {
+                    return Err(BondError::TooEarly(format!(
+                        "cash flow {index} record date {} is after block time {now}",
+                        current.terms.record_date_ms
+                    ))
+                    .into());
+                }
+                if let Some(earlier) =
+                    record.state.cashflows[..usize::from(index)]
+                        .iter()
+                        .find(|earlier| {
+                            matches!(
+                                earlier.status,
+                                BondCashflowStatus::Scheduled | BondCashflowStatus::Recording
+                            )
+                        })
+                {
+                    return Err(BondError::InvalidState(format!(
+                        "cash flow {} must be recorded first",
+                        earlier.terms.index
+                    ))
+                    .into());
+                }
+                BondRecordingCursor::start()
+            }
+            BondCashflowStatus::Recording => current.recording.clone().ok_or_else(|| {
+                BondError::InvalidState(format!("cash flow {index} is Recording without a cursor"))
+            })?,
+            status => {
                 return Err(BondError::InvalidState(format!(
-                    "cash flow {index} is {}, not Scheduled",
-                    current.status
+                    "cash flow {index} is {status}, not Scheduled or Recording"
                 ))
                 .into());
             }
-            if now < current.terms.record_date_ms {
-                return Err(BondError::TooEarly(format!(
-                    "cash flow {index} record date {} is after block time {now}",
-                    current.terms.record_date_ms
-                ))
-                .into());
-            }
-            current.terms.clone()
         };
-        if let Some(earlier) = record.state.cashflows[..usize::from(index)]
-            .iter()
-            .find(|earlier| earlier.status == BondCashflowStatus::Scheduled)
-        {
-            return Err(BondError::InvalidState(format!(
-                "cash flow {} must be recorded first",
-                earlier.terms.index
-            ))
-            .into());
-        }
-        ensure_unencumbered(state_transaction, &record)?;
-        let snapshot = build_snapshot(state_transaction, &record)?;
         let payment_spec = state_transaction
             .numeric_spec_for(&record.terms.payment_asset)
             .map_err(Error::from)?;
-        let amount_due = snapshot_amount_due(&snapshot, &terms.amount_per_unit, payment_spec)?;
-        let entitled_units = snapshot
-            .values()
-            .try_fold(Quantity::zero(), |total, units| total.checked_add(units))
-            .map_err(arithmetic)?;
-        let holders = u32::try_from(snapshot.len()).map_err(arithmetic)?;
-        if terms.kind == BondCashflowKind::Redemption {
+        let mut totals = RecordingTotals {
+            bond: &bond,
+            index,
+            amount_per_unit: &current.terms.amount_per_unit,
+            payment_spec,
+            holders: current.holders,
+            entitled_units: current.entitled_units.clone(),
+            amount_due: current.amount_due.clone(),
+        };
+        let mut budget = BOND_RECORDING_PAGE_ENTRIES;
+        let mut finished = false;
+        while budget > 0 && !finished {
+            let (used, phase_done) = match cursor.phase {
+                BondRecordingPhase::Holders => record_holders_page(
+                    state_transaction,
+                    &record,
+                    &mut cursor,
+                    &mut totals,
+                    budget,
+                )?,
+                BondRecordingPhase::Escrows => record_escrows_page(
+                    state_transaction,
+                    &record,
+                    &mut cursor,
+                    &mut totals,
+                    budget,
+                )?,
+            };
+            budget -= used;
+            if phase_done {
+                match cursor.phase {
+                    BondRecordingPhase::Holders => cursor.phase = BondRecordingPhase::Escrows,
+                    BondRecordingPhase::Escrows => finished = true,
+                }
+            }
+        }
+        let (holders, entitled_units, amount_due) =
+            (totals.holders, totals.entitled_units, totals.amount_due);
+        if finished && current.terms.kind == BondCashflowKind::Redemption {
             record.state.transfers_frozen = true;
         }
         let state = cashflow_mut(&mut record, index)?;
-        state.status = BondCashflowStatus::Recorded;
-        state.snapshot = snapshot;
+        state.holders = holders;
         state.entitled_units = entitled_units.clone();
         state.amount_due = amount_due.clone();
-        state.recorded_at_ms = Some(now);
+        if finished {
+            state.status = BondCashflowStatus::Recorded;
+            state.recording = None;
+            state.recorded_at_ms = Some(now);
+        } else {
+            state.status = BondCashflowStatus::Recording;
+            state.recording = Some(cursor);
+        }
         store(state_transaction, record);
-        iroha_logger::info!(%bond, index, %amount_due, "bond cash flow recorded");
-        emit(
-            state_transaction,
-            BondEvent::CashflowRecorded(BondCashflowRecorded {
-                bond,
-                index,
-                kind: terms.kind,
-                holders,
-                entitled_units,
-                amount_due,
-            }),
-        );
+        if finished {
+            iroha_logger::info!(%bond, index, %amount_due, "bond cash flow recorded");
+            emit(
+                state_transaction,
+                BondEvent::CashflowRecorded(BondCashflowRecorded {
+                    bond,
+                    index,
+                    kind: current.terms.kind,
+                    holders,
+                    entitled_units,
+                    amount_due,
+                }),
+            );
+        }
         Ok(())
     }
 }
@@ -541,11 +753,11 @@ impl Execute for ClaimBondCashflow {
             .into());
         }
         let now = block_time_ms(state_transaction);
-        let (kind, units, amount_per_unit) = {
+        let kind = {
             let current = cashflow(&record, index)?;
-            if current.status != BondCashflowStatus::Funded {
+            if !current.is_claimable() {
                 return Err(BondError::InvalidState(format!(
-                    "cash flow {index} is {}, not Funded",
+                    "cash flow {index} is {}, not Funded or Closed",
                     current.status
                 ))
                 .into());
@@ -557,24 +769,20 @@ impl Execute for ClaimBondCashflow {
                 ))
                 .into());
             }
-            let units = current
-                .snapshot
-                .get(&holder)
-                .cloned()
-                .ok_or_else(|| BondError::NotInSnapshot(holder.to_string()))?;
-            if current.claimed.contains(&holder) {
-                return Err(BondError::AlreadyClaimed(holder.to_string()).into());
-            }
-            (
-                current.terms.kind,
-                units,
-                current.terms.amount_per_unit.clone(),
-            )
+            current.terms.kind
         };
-        let payment_spec = state_transaction
-            .numeric_spec_for(&record.terms.payment_asset)
-            .map_err(Error::from)?;
-        let amount = holder_payment(&units, &amount_per_unit, payment_spec)?;
+        let id = BondEntitlementId::new(bond.clone(), index, holder.clone());
+        let mut entitlement = state_transaction
+            .world
+            .bond_entitlements
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| BondError::NotEntitled(holder.to_string()))?;
+        if entitlement.claimed_at_ms.is_some() {
+            return Err(BondError::AlreadyClaimed(holder.to_string()).into());
+        }
+        let units = entitlement.units.clone();
+        let amount = entitlement.amount.clone();
         if kind == BondCashflowKind::Redemption {
             crate::smartcontracts::isi::asset::isi::execute_verified_bond_redemption_burn(
                 state_transaction,
@@ -616,9 +824,17 @@ impl Execute for ClaimBondCashflow {
                 .map_err(arithmetic)?;
         }
         let state = cashflow_mut(&mut record, index)?;
-        state.claimed.insert(holder.clone());
+        state.claimed_holders = state
+            .claimed_holders
+            .checked_add(1)
+            .ok_or_else(|| BondError::Arithmetic("claimed holders overflow".to_owned()))?;
         state.paid = state.paid.checked_add(&amount).map_err(arithmetic)?;
         store(state_transaction, record);
+        entitlement.claimed_at_ms = Some(now);
+        state_transaction
+            .world
+            .bond_entitlements
+            .insert(id, entitlement);
         emit(
             state_transaction,
             BondEvent::CashflowClaimed(BondCashflowClaimed {
@@ -642,7 +858,8 @@ impl Execute for CloseBondCashflow {
         let CloseBondCashflow { bond, index } = self;
         let mut record = load(state_transaction, &bond)?;
         ensure_paying_agent(&record, authority, "closing")?;
-        let residual = {
+        let now = block_time_ms(state_transaction);
+        let (unclaimed_holders, unclaimed_amount) = {
             let current = cashflow(&record, index)?;
             if current.status != BondCashflowStatus::Funded {
                 return Err(BondError::InvalidState(format!(
@@ -651,52 +868,34 @@ impl Execute for CloseBondCashflow {
                 ))
                 .into());
             }
-            if !current.all_claimed() {
-                return Err(BondError::InvalidState(format!(
-                    "cash flow {index} still has unclaimed snapshot holders"
+            if now < current.terms.payment_date_ms {
+                return Err(BondError::TooEarly(format!(
+                    "cash flow {index} payment date {} is after block time {now}",
+                    current.terms.payment_date_ms
                 ))
                 .into());
             }
-            current
-                .funded
-                .checked_sub(&current.paid)
-                .map_err(arithmetic)?
+            (
+                current.holders.saturating_sub(current.claimed_holders),
+                current
+                    .funded
+                    .checked_sub(&current.paid)
+                    .map_err(arithmetic)?,
+            )
         };
-        if !residual.is_zero() {
-            let vault = AssetId::new(record.terms.payment_asset.clone(), record.vault().clone());
-            let destination = AssetId::new(
-                record.terms.payment_asset.clone(),
-                record.terms.issuer.clone(),
-            );
-            crate::smartcontracts::isi::asset::isi::execute_verified_bond_movement(
-                state_transaction,
-                VerifiedBondMovement::new(
-                    VerifiedBondMovementPurpose::Residual,
-                    authority,
-                    &bond,
-                    index,
-                    vault,
-                    destination,
-                    residual.clone(),
-                ),
-            )?;
-        }
-        let now = block_time_ms(state_transaction);
         let state = cashflow_mut(&mut record, index)?;
         state.status = BondCashflowStatus::Closed;
         state.closed_at_ms = Some(now);
-        // The bond matures once its effective redemption and every other
-        // effective cash flow are closed; an unpaid coupon keeps it servicing
-        // (and open to a default declaration).
-        if matches!(
-            record.state.lifecycle,
-            BondLifecycle::Active | BondLifecycle::Called
-        ) && record.state.cashflows.iter().all(|state| {
-            matches!(
-                state.status,
-                BondCashflowStatus::Closed | BondCashflowStatus::Cancelled
-            )
-        }) {
+        // The bond matures once every effective cash flow is closed or cancelled;
+        // an unpaid coupon keeps it servicing (and open to a default declaration).
+        if is_servicing(&record)
+            && record.state.cashflows.iter().all(|state| {
+                matches!(
+                    state.status,
+                    BondCashflowStatus::Closed | BondCashflowStatus::Cancelled
+                )
+            })
+        {
             record.state.lifecycle = BondLifecycle::Matured;
         }
         store(state_transaction, record);
@@ -705,7 +904,8 @@ impl Execute for CloseBondCashflow {
             BondEvent::CashflowClosed(BondCashflowClosed {
                 bond,
                 index,
-                residual,
+                unclaimed_holders,
+                unclaimed_amount,
             }),
         );
         Ok(())
@@ -833,20 +1033,27 @@ impl Execute for DeclareBondDefault {
         ensure_paying_agent(&record, authority, "a default declaration")?;
         ensure_servicing(&record)?;
         let now = block_time_ms(state_transaction);
+        let grace_ms = record.terms.payment_grace_ms;
         let state = cashflow_mut(&mut record, index)?;
-        if !matches!(
-            state.status,
-            BondCashflowStatus::Scheduled | BondCashflowStatus::Recorded
-        ) {
-            return Err(BondError::InvalidState(format!(
-                "cash flow {index} is {} and cannot default",
-                state.status
-            ))
-            .into());
+        match state.status {
+            BondCashflowStatus::Scheduled | BondCashflowStatus::Recorded => {}
+            BondCashflowStatus::Recording => {
+                return Err(BondError::InvalidState(format!(
+                    "cash flow {index} is being recorded; complete the recording first"
+                ))
+                .into());
+            }
+            status => {
+                return Err(BondError::InvalidState(format!(
+                    "cash flow {index} is {status} and cannot default"
+                ))
+                .into());
+            }
         }
-        if now <= state.terms.payment_date_ms {
+        let deadline = state.terms.payment_date_ms.saturating_add(grace_ms);
+        if now <= deadline {
             return Err(BondError::TooEarly(format!(
-                "cash flow {index} payment date {} has not passed at block time {now}",
+                "cash flow {index} payment date {} and its {grace_ms}ms grace period have not passed at block time {now}",
                 state.terms.payment_date_ms
             ))
             .into());
@@ -868,6 +1075,53 @@ impl Execute for DeclareBondDefault {
     }
 }
 
+impl Execute for ReplaceBondPayingAgent {
+    fn execute(
+        self,
+        authority: &AccountId,
+        state_transaction: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), Error> {
+        let ReplaceBondPayingAgent { bond, paying_agent } = self;
+        let mut record = load(state_transaction, &bond)?;
+        if authority != &record.terms.issuer {
+            return Err(BondError::Unauthorized(
+                "the paying agent can only be replaced by the issuer".to_owned(),
+            )
+            .into());
+        }
+        if paying_agent == record.terms.paying_agent {
+            return Err(BondError::InvalidState(format!(
+                "{paying_agent} is already the paying agent of bond {bond}"
+            ))
+            .into());
+        }
+        if state_transaction
+            .world
+            .bond_vaults
+            .get(&paying_agent)
+            .is_some()
+        {
+            return Err(BondError::InvalidState(
+                "a bond vault cannot be a paying agent".to_owned(),
+            )
+            .into());
+        }
+        state_transaction.world.account(&paying_agent)?;
+        let previous = core::mem::replace(&mut record.terms.paying_agent, paying_agent.clone());
+        store(state_transaction, record);
+        iroha_logger::info!(%bond, %paying_agent, "bond paying agent replaced");
+        emit(
+            state_transaction,
+            BondEvent::PayingAgentReplaced(BondPayingAgentReplaced {
+                bond,
+                previous,
+                paying_agent,
+            }),
+        );
+        Ok(())
+    }
+}
+
 impl Execute for BondInstructionBox {
     fn execute(
         self,
@@ -882,28 +1136,112 @@ impl Execute for BondInstructionBox {
             Self::CloseCashflow(isi) => isi.execute(authority, state_transaction),
             Self::Call(isi) => isi.execute(authority, state_transaction),
             Self::DeclareDefault(isi) => isi.execute(authority, state_transaction),
+            Self::ReplacePayingAgent(isi) => isi.execute(authority, state_transaction),
         }
     }
 }
 
-/// Reject any movement of a bond whose redemption has been recorded.
+/// Whether `source` is the custody of a native escrow of `source`'s bond whose seller is
+/// `destination`'s account: the seller is the holder of record of escrowed units.
+fn is_escrow_return_to_seller(
+    world: &impl WorldReadOnly,
+    source: &AssetId,
+    destination: &AssetId,
+) -> bool {
+    world
+        .asset_escrows_by_seller()
+        .get(destination.account())
+        .is_some_and(|escrows| {
+            escrows.iter().any(|escrow_id| {
+                world.asset_escrows().get(escrow_id).is_some_and(|escrow| {
+                    escrow.asset_definition == *source.definition()
+                        && escrow.custody == *source.account()
+                })
+            })
+        })
+}
+
+/// Enforce the book closing and the redemption freeze of a registered bond on one movement.
 ///
 /// Called by the central numeric movement preparation, so it covers ordinary
 /// transfers, transfer batches, atomic settlement movements and escrow legs,
-/// conditional-escrow funding and repo initiation alike. Redemption claims burn
-/// units through a separate verified burn and are not movements.
+/// native escrow funding and release, and repo legs alike.
+///
+/// - While a cash flow is being recorded every movement is refused: the
+///   recording cursor walks the balances.
+/// - From the record date of the next scheduled cash flow until it is recorded
+///   (books closed), and permanently once the redemption is recorded (frozen),
+///   only a native escrow returning custody to its seller may move units: the
+///   seller is already the holder of record of escrowed units.
+///
+/// Redemption claims burn units through a separate verified burn and are not movements.
 pub(crate) fn ensure_bond_units_movable(
+    state_transaction: &StateTransaction<'_, '_>,
+    source: &AssetId,
+    destination: &AssetId,
+    native_escrow_release: bool,
+) -> Result<(), Error> {
+    let world = state_transaction.world();
+    let Some(record) = world.bonds().get(source.definition()) else {
+        return Ok(());
+    };
+    if let Some(recording) = recording_in_progress(record) {
+        return Err(BondError::BooksClosed(format!(
+            "cash flow {} of bond {} is being recorded; complete it with RecordBondCashflow before moving units",
+            recording.terms.index, record.id
+        ))
+        .into());
+    }
+    let closed = books_closed_by(record, block_time_ms(state_transaction));
+    if !record.state.transfers_frozen && closed.is_none() {
+        return Ok(());
+    }
+    if native_escrow_release && is_escrow_return_to_seller(world, source, destination) {
+        return Ok(());
+    }
+    if record.state.transfers_frozen {
+        return Err(BondError::TransfersFrozen(record.id.to_string()).into());
+    }
+    let closed = closed.expect("books are closed");
+    Err(BondError::BooksClosed(format!(
+        "the record date {} of cash flow {} of bond {} has passed; record it with RecordBondCashflow before moving units",
+        closed.terms.record_date_ms, closed.terms.index, record.id
+    ))
+    .into())
+}
+
+/// Movement purposes that may carry registered bond units, besides plain transaction transfers.
+///
+/// Registered bond units rest only in accounts (holders of record) and native
+/// asset-escrow custody (attributed to the escrow seller). Every other
+/// protocol custody would leave the economic owner outside the entitlements.
+const BOND_UNIT_MOVEMENT_PURPOSES: [&str; 4] = [
+    "native-escrow-funding",
+    "native-escrow-retained",
+    "repo-bilateral",
+    "settlement-bilateral",
+];
+
+/// Reject moving registered bond units through a protocol custody the kernel does not attribute.
+///
+/// `purpose` is the typed movement purpose tag, or `None` for a plain transaction movement.
+pub(crate) fn ensure_bond_custody_supported(
     world: &impl WorldReadOnly,
     definition: &AssetDefinitionId,
+    purpose: Option<&str>,
 ) -> Result<(), Error> {
-    if world
-        .bonds()
-        .get(definition)
-        .is_some_and(|record| record.state.transfers_frozen)
-    {
-        return Err(BondError::TransfersFrozen(definition.to_string()).into());
+    match purpose {
+        Some(tag)
+            if !BOND_UNIT_MOVEMENT_PURPOSES.contains(&tag)
+                && world.bonds().get(definition).is_some() =>
+        {
+            Err(BondError::CustodyUnsupported(format!(
+                "units of bond {definition} cannot move through `{tag}`; registered bond units rest in accounts and native asset escrows"
+            ))
+            .into())
+        }
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 /// Reject ordinary supply changes of a registered bond.
@@ -923,19 +1261,18 @@ pub(crate) fn ensure_bond_supply_unlocked(
 /// Return whether `account` is the deterministic vault of a registered bond.
 ///
 /// Vaults are key-less; every debit and credit of a vault balance goes through
-/// the bond kernel's verified movements.
+/// the bond kernel's verified movements. The lookup uses the `bond_vaults` index.
 pub(crate) fn is_bond_vault_account(world: &impl WorldReadOnly, account: &AccountId) -> bool {
-    world
-        .bonds()
-        .iter()
-        .any(|(_, record)| &record.vault == account)
+    world.bond_vaults().get(account).is_some()
 }
 
 /// Return whether `asset_id` is the payment-asset balance held by a bond vault.
 pub(crate) fn is_bond_vault_asset(world: &impl WorldReadOnly, asset_id: &AssetId) -> bool {
-    world.bonds().iter().any(|(_, record)| {
-        &record.terms.payment_asset == asset_id.definition() && &record.vault == asset_id.account()
-    })
+    world
+        .bond_vaults()
+        .get(asset_id.account())
+        .and_then(|bond| world.bonds().get(bond))
+        .is_some_and(|record| &record.terms.payment_asset == asset_id.definition())
 }
 
 /// Reject retiring asset definitions that a bond record depends on.
@@ -944,7 +1281,7 @@ pub(crate) fn is_bond_vault_asset(world: &impl WorldReadOnly, asset_id: &AssetId
 /// asset definition are retained for as long as the ledger exists.
 pub(crate) fn ensure_asset_definitions_not_retained_by_bonds(
     world: &impl WorldReadOnly,
-    definitions: &BTreeSet<AssetDefinitionId>,
+    definitions: &std::collections::BTreeSet<AssetDefinitionId>,
     context: &str,
 ) -> Result<(), Error> {
     for (id, record) in world.bonds().iter() {
@@ -965,39 +1302,169 @@ pub(crate) fn ensure_asset_definitions_not_retained_by_bonds(
     Ok(())
 }
 
-/// Reject removing or rekeying an account that a bond record still depends on.
+/// Whether a bond still needs its issuer and paying agent to act.
+fn needs_parties(record: &BondRecord) -> bool {
+    is_servicing(record)
+        || record.state.cashflows.iter().any(|state| {
+            matches!(
+                state.status,
+                BondCashflowStatus::Recording
+                    | BondCashflowStatus::Recorded
+                    | BondCashflowStatus::Funded
+            )
+        })
+}
+
+/// Reject unregistering an account that a bond record still depends on.
 ///
-/// The bond vault, the issuer and the paying agent of every registered bond
-/// and every unclaimed holder of a recorded or funded cash flow are retained.
+/// Retained: every bond vault, the issuer and paying agent of a bond that is
+/// still servicing or has an open cash flow, and every account holding units of
+/// a registered bond (unregistering would destroy units outside the supply lock).
+/// Unclaimed entitlements of an unregistered account are not destroyed; they
+/// stay claimable once the same account exists again.
 pub(crate) fn ensure_account_not_retained_by_bonds(
     world: &impl WorldReadOnly,
     account: &AccountId,
     context: &str,
 ) -> Result<(), Error> {
+    if let Some(bond) = world.bond_vaults().get(account) {
+        return Err(BondError::Retained(format!(
+            "cannot {context}: account {account} is the vault of bond {bond}"
+        ))
+        .into());
+    }
     for (id, record) in world.bonds().iter() {
-        let retained = if &record.vault == account {
-            Some("is its vault")
-        } else if &record.terms.issuer == account {
-            Some("is its issuer")
+        let role = if &record.terms.issuer == account {
+            Some("issuer")
         } else if &record.terms.paying_agent == account {
-            Some("is its paying agent")
-        } else if record.state.cashflows.iter().any(|state| {
-            matches!(
-                state.status,
-                BondCashflowStatus::Recorded | BondCashflowStatus::Funded
-            ) && state.snapshot.contains_key(account)
-                && !state.claimed.contains(account)
-        }) {
-            Some("holds an unclaimed entitlement")
+            Some("paying agent")
         } else {
             None
         };
-        if let Some(reason) = retained {
+        if let Some(role) = role
+            && needs_parties(record)
+        {
             return Err(BondError::Retained(format!(
-                "cannot {context}: account {account} {reason} of bond {id}"
+                "cannot {context}: account {account} is the {role} of bond {id}"
             ))
             .into());
         }
+    }
+    if let Some(held) = world.assets_in_account_iter(account).find(|asset| {
+        !asset.value().as_ref().is_zero() && world.bonds().get(asset.id().definition()).is_some()
+    }) {
+        return Err(BondError::Retained(format!(
+            "cannot {context}: account {account} holds units of bond {}",
+            held.id().definition()
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+/// Reject a rekey that would invalidate a running recording or move a vault.
+///
+/// Called before any rekey mutation; [`rekey_bond_references`] performs the
+/// migration afterwards.
+pub(crate) fn ensure_account_rekey_allowed_by_bonds(
+    world: &impl WorldReadOnly,
+    old_account: &AccountId,
+) -> Result<(), Error> {
+    if let Some(bond) = world.bond_vaults().get(old_account) {
+        return Err(BondError::Retained(format!(
+            "cannot rekey account {old_account}: it is the vault of bond {bond}"
+        ))
+        .into());
+    }
+    for (id, record) in world.bonds().iter() {
+        let Some(recording) = recording_in_progress(record) else {
+            continue;
+        };
+        let holds_units = !global_balance(world, id, old_account).is_zero();
+        let entitled = world
+            .bond_entitlements()
+            .get(&BondEntitlementId::new(
+                id.clone(),
+                recording.terms.index,
+                old_account.clone(),
+            ))
+            .is_some();
+        if holds_units || entitled {
+            return Err(BondError::BooksClosed(format!(
+                "cannot rekey account {old_account}: cash flow {} of bond {id} is being recorded",
+                recording.terms.index
+            ))
+            .into());
+        }
+    }
+    Ok(())
+}
+
+/// Move bond references of a rekeyed account to its new identifier.
+///
+/// The issuer and paying agent of every record and every unclaimed entitlement
+/// follow the account; claimed entitlements stay as history under the old
+/// identifier.
+pub(crate) fn rekey_bond_references(
+    state_transaction: &mut StateTransaction<'_, '_>,
+    old_account: &AccountId,
+    new_account: &AccountId,
+) -> Result<(), Error> {
+    // TODO: an index of entitlements by holder would avoid probing every recorded
+    // cash flow of every bond on each rekey (`specs/finance/bond_ops.md` §9).
+    let mut records = Vec::new();
+    let mut moved = Vec::new();
+    for (id, record) in state_transaction.world.bonds.iter() {
+        for state in &record.state.cashflows {
+            let old_id = BondEntitlementId::new(id.clone(), state.terms.index, old_account.clone());
+            if let Some(entitlement) = state_transaction.world.bond_entitlements.get(&old_id)
+                && entitlement.claimed_at_ms.is_none()
+            {
+                moved.push(entitlement.clone());
+            }
+        }
+        if &record.terms.issuer == old_account || &record.terms.paying_agent == old_account {
+            records.push(record.clone());
+        }
+    }
+    for mut record in records {
+        if &record.terms.issuer == old_account {
+            record.terms.issuer = new_account.clone();
+        }
+        if &record.terms.paying_agent == old_account {
+            record.terms.paying_agent = new_account.clone();
+        }
+        store(state_transaction, record);
+    }
+    for entitlement in moved {
+        let new_id = BondEntitlementId::new(
+            entitlement.id.bond.clone(),
+            entitlement.id.index,
+            new_account.clone(),
+        );
+        if state_transaction
+            .world
+            .bond_entitlements
+            .get(&new_id)
+            .is_some()
+        {
+            return Err(BondError::Retained(format!(
+                "cannot rekey account {old_account}: {new_account} already has an entitlement to cash flow {} of bond {}",
+                new_id.index, new_id.bond
+            ))
+            .into());
+        }
+        state_transaction
+            .world
+            .bond_entitlements
+            .remove(entitlement.id.clone());
+        state_transaction.world.bond_entitlements.insert(
+            new_id.clone(),
+            BondEntitlement {
+                id: new_id,
+                ..entitlement
+            },
+        );
     }
     Ok(())
 }
@@ -1048,7 +1515,8 @@ pub mod query {
 
 #[cfg(any(test, feature = "iroha-core-tests"))]
 impl crate::state::World {
-    /// Seed one bond record into an owned test world for read-path fixtures.
+    /// Seed one bond record (and its vault index entry) into an owned test world for
+    /// read-path fixtures.
     ///
     /// This does not authorize production registration; `RegisterBond` keeps
     /// every issuer, definition and supply check.
@@ -1059,7 +1527,26 @@ impl crate::state::World {
                 iroha_config::parameters::actual::LaneConfig::default(),
                 0,
             );
+            transaction
+                .bond_vaults
+                .insert(record.vault().clone(), record.id.clone());
             transaction.bonds.insert(record.id.clone(), record);
+            transaction.apply();
+        }
+        block.commit();
+    }
+
+    /// Seed one bond entitlement into an owned test world for read-path fixtures.
+    pub fn insert_bond_entitlement_for_testing(&mut self, entitlement: BondEntitlement) {
+        let mut block = self.block();
+        {
+            let mut transaction = block.transaction_without_telemetry(
+                iroha_config::parameters::actual::LaneConfig::default(),
+                0,
+            );
+            transaction
+                .bond_entitlements
+                .insert(entitlement.id.clone(), entitlement);
             transaction.apply();
         }
         block.commit();

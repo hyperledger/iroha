@@ -1,12 +1,12 @@
 # Generated instruction record identities
 
 `instruction_record_generated_identity_frames.json` contains immutable captures
-for the current instruction records and concrete generic instantiations. Its 327
-type rows preserve 370 populated values and 1,480 complete root, vector, option
+for the current instruction records and concrete generic instantiations. Its 340
+type rows preserve 383 populated values and 1,532 complete root, vector, option
 and map frames.
 
 The fixture SHA-256 is
-`21084b066d6536a22354958e0bf9e42a64096a6c07347ebf4140cadc0cd05804`.
+`af9aac8c3ff93cda4522a4f94e0379da10ca08e8954271f246aaa59f3b2ecc92`.
 `ClaimPublicLaneRewards` contains one mandatory exact authenticated fee claim
 against funded XOR custody. The manual recipient instruction and its record-ledger
 claim fields are removed. The external `staking_reward_identity_capture` native
@@ -219,3 +219,10 @@ instruction gained its bounded `escrows` list (conditional escrow legs bound
 into the consent intent). The captured value is the original atomic fixture
 with an empty escrow list; all four frames were produced and round-tripped by a
 temporary current-codec capture test that was removed afterwards.
+
+The eight bond-kernel leaf records (`RegisterBond`, `RecordBondCashflow`,
+`FundBondCashflow`, `ClaimBondCashflow`, `CloseBondCashflow`, `CallBond`,
+`DeclareBondDefault`, `ReplaceBondPayingAgent`) were added on 2026-10-14 with one
+populated value each from `generated_record_values.rs` (`bond_values`, printed by
+the ignored `print_bond_record_fixture_rows`). They travel only inside
+`BondInstructionBox`; these rows pin their leaf identities and frames.

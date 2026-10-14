@@ -328,6 +328,7 @@ pub mod prelude {
         alias_setup::*,
         asset::prelude::*,
         block::prelude::*,
+        bond::prelude::*,
         bridge::*,
         confidential::prelude::*,
         content::prelude::*,

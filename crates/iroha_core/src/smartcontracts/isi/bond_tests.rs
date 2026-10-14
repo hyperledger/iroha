@@ -1,15 +1,19 @@
 //! Core bond-kernel validation and transition tests (`specs/finance/bond_ops.md`).
 use core::num::NonZeroU64;
+use std::collections::BTreeSet;
 
 use iroha_crypto::{Algorithm, Hash, KeyPair};
 use iroha_data_model::{
     Registrable as _,
-    account::Account,
-    asset::{Asset, AssetDefinition},
+    account::{Account, AccountController},
+    asset::{
+        ASSET_ISSUER_USAGE_POLICY_METADATA_KEY, Asset, AssetDefinition, AssetIssuerUsagePolicyV1,
+        AssetSubjectBindingV1,
+    },
     block::BlockHeader,
     bond::{
-        BondCallTerms, BondDayCount, BondIdentifiers, BondScheduleRequest, BondTerms,
-        bond_vault_account_id, fixed_rate_bullet_schedule,
+        BOND_RECORDING_PAGE_ENTRIES, BondCallTerms, BondDayCount, BondEntitlement, BondIdentifiers,
+        BondScheduleRequest, BondTerms, bond_vault_account_id, fixed_rate_bullet_schedule,
     },
     domain::Domain,
     escrow::{
@@ -17,16 +21,25 @@ use iroha_data_model::{
         ConditionalEscrowValue, EscrowId,
     },
     isi::{
-        Burn, Mint, Transfer, Unregister,
-        escrow::OpenConditionalEscrow,
-        repo::{RepoIsi, ReverseRepoIsi},
+        Burn, Mint, SetKeyValue, Transfer, Unregister,
+        escrow::{
+            AcceptAssetEscrow, AttestEscrowCondition, CancelAssetEscrow, MarkEscrowPaymentSent,
+            OpenAssetEscrow, OpenConditionalEscrow, ReleaseAssetEscrow,
+        },
+        repo::RepoIsi,
+        settlement::{
+            AtomicSettlementEscrow, AtomicSettlementEscrows, AtomicSettlementMovement,
+            AtomicSettlementMovements, SettleAtomic,
+        },
+        transfer::{TransferAssetBatch, TransferAssetBatchEntry},
     },
     permission::Permission,
+    query::error::FindError,
     repo::{RepoAgreementId, RepoCashLeg, RepoCollateralLeg, RepoGovernance},
 };
 use iroha_executor_data_model::permission::settlement::CanExecuteSettlement;
-use iroha_model_base::domain::DomainId;
-use iroha_primitives::numeric::NumericSpec;
+use iroha_model_base::{domain::DomainId, metadata::Metadata};
+use iroha_primitives::{json::Json, numeric::NumericSpec};
 
 use super::*;
 use crate::{
@@ -42,6 +55,7 @@ const COUPON_0: u64 = 1_784_073_600_000; // 2026-07-15
 const COUPON_1: u64 = 1_799_971_200_000; // 2027-01-15
 const COUPON_2: u64 = 1_815_609_600_000; // 2027-07-15
 const MATURITY: u64 = 1_831_507_200_000; // 2028-01-15
+const GRACE: u64 = 7 * DAY;
 
 const ISSUER: usize = 0;
 const AGENT: usize = 1;
@@ -49,19 +63,23 @@ const HOLDER_A: usize = 2;
 const HOLDER_B: usize = 3;
 const HOLDER_C: usize = 4;
 const OUTSIDER: usize = 5;
+const NEW_AGENT: usize = 6;
+const ACCOUNTS: usize = 7;
 
 fn q(text: &str) -> Quantity {
     text.parse().expect("quantity literal")
 }
 
-fn accounts() -> [AccountId; 6] {
-    [0x31, 0x32, 0x33, 0x34, 0x35, 0x36].map(|seed| {
-        AccountId::new(
-            KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519)
-                .public_key()
-                .clone(),
-        )
-    })
+fn key(seed: u8) -> KeyPair {
+    KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519)
+}
+
+fn account(seed: u8) -> AccountId {
+    AccountId::new(key(seed).public_key().clone())
+}
+
+fn accounts() -> [AccountId; ACCOUNTS] {
+    [0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37].map(account)
 }
 
 fn domain() -> DomainId {
@@ -73,8 +91,8 @@ fn definition(name: &str) -> AssetDefinitionId {
 }
 
 /// Semi-annual 6.50 % bond, denomination 50: coupon 1.625 per unit, four coupons and a par
-/// redemption, callable from the second coupon date at 101 %.
-fn terms(ids: &[AccountId; 6]) -> BondTerms {
+/// redemption, callable from the second coupon date at 101 %, seven days of payment grace.
+fn terms(ids: &[AccountId; ACCOUNTS]) -> BondTerms {
     let cashflows = fixed_rate_bullet_schedule(&BondScheduleRequest {
         denomination: q("50"),
         coupon_rate_bps: 650,
@@ -96,6 +114,7 @@ fn terms(ids: &[AccountId; 6]) -> BondTerms {
         issue_date_ms: ISSUE,
         maturity_date_ms: MATURITY,
         redemption_price_bps: 10_000,
+        payment_grace_ms: GRACE,
         call: Some(BondCallTerms {
             first_call_date_ms: COUPON_1,
             price_bps: 10_100,
@@ -116,13 +135,14 @@ fn terms(ids: &[AccountId; 6]) -> BondTerms {
 struct Harness {
     state: State,
     height: u64,
-    ids: [AccountId; 6],
+    ids: [AccountId; ACCOUNTS],
     bond: AssetDefinitionId,
     eur: AssetDefinitionId,
+    holdings: Vec<(usize, u32)>,
 }
 
 impl Harness {
-    /// Issuer holds 700 units, holders A/B/C hold 200/99/1; the agent and issuer hold EUR.
+    /// The issuer mints 1 000 units; after registration holders A/B/C receive 200/99/1.
     fn new() -> Self {
         Self::with_holdings(&[(HOLDER_A, 200), (HOLDER_B, 99), (HOLDER_C, 1)])
     }
@@ -132,11 +152,24 @@ impl Harness {
         let bond = definition("slo_bond");
         let eur = definition("eur");
         let issuer = &ids[ISSUER];
-        let investor_units: u32 = holdings.iter().map(|(_, units)| units).sum();
-        let mut assets = vec![
+        let scale0 = |name: &str, label: &str, policy, owner: &AccountId| {
+            AssetDefinition::new(
+                definition(name),
+                label,
+                NumericSpec::integer(),
+                policy,
+                Some(domain()),
+            )
+            .build(owner)
+        };
+        let assets = vec![
             Asset::new(
                 AssetId::new(bond.clone(), issuer.clone()),
-                Quantity::from(1_000 - investor_units),
+                Quantity::from(1_000_u32),
+            ),
+            Asset::new(
+                AssetId::new(definition("other_bond"), issuer.clone()),
+                Quantity::from(100_u32),
             ),
             Asset::new(
                 AssetId::new(eur.clone(), ids[AGENT].clone()),
@@ -151,29 +184,42 @@ impl Harness {
                 Quantity::from(10_000_u32),
             ),
         ];
-        assets.extend(holdings.iter().map(|(holder, units)| {
-            Asset::new(
-                AssetId::new(bond.clone(), ids[*holder].clone()),
-                Quantity::from(*units),
-            )
-        }));
         let world = World::with_assets(
             [Domain::new(domain()).build(issuer)],
             ids.iter().map(|id| Account::new(id.clone()).build(id)),
             [
-                AssetDefinition::new(
-                    bond.clone(),
-                    "SLO bond",
-                    NumericSpec::integer(),
+                scale0("slo_bond", "SLO bond", AssetBalancePolicy::Global, issuer),
+                scale0(
+                    "other_bond",
+                    "Other bond",
                     AssetBalancePolicy::Global,
-                    Some(domain()),
-                )
-                .build(issuer),
+                    issuer,
+                ),
+                scale0(
+                    "ds_bond",
+                    "Dataspace bond",
+                    AssetBalancePolicy::DataspaceRestricted,
+                    issuer,
+                ),
+                scale0(
+                    "orphan_bond",
+                    "Bond of an unregistered issuer",
+                    AssetBalancePolicy::Global,
+                    &account(0x98),
+                ),
                 AssetDefinition::new(
                     eur.clone(),
                     "EUR",
                     NumericSpec::fractional(2),
                     AssetBalancePolicy::Global,
+                    Some(domain()),
+                )
+                .build(issuer),
+                AssetDefinition::new(
+                    definition("ds_eur"),
+                    "Dataspace EUR",
+                    NumericSpec::fractional(2),
+                    AssetBalancePolicy::DataspaceRestricted,
                     Some(domain()),
                 )
                 .build(issuer),
@@ -192,6 +238,7 @@ impl Harness {
             ids,
             bond,
             eur,
+            holdings: holdings.to_vec(),
         }
     }
 
@@ -261,9 +308,14 @@ impl Harness {
         );
     }
 
+    /// Register the bond while the issuer holds the whole supply, then distribute it.
     fn register(&mut self) {
         let terms = terms(&self.ids);
         self.exec_ok(ISSUE, ISSUER, RegisterBond::new(self.bond.clone(), terms));
+        for (holder, units) in self.holdings.clone() {
+            self.transfer_units(ISSUE, ISSUER, holder, units)
+                .expect("allotment after registration");
+        }
     }
 
     fn record(&self) -> BondRecord {
@@ -274,6 +326,28 @@ impl Harness {
             .get(&self.bond)
             .cloned()
             .expect("registered bond")
+    }
+
+    fn cashflow(&self, index: u16) -> BondCashflowState {
+        self.record().state.cashflows[usize::from(index)].clone()
+    }
+
+    fn entitlement(&self, index: u16, who: &AccountId) -> Option<BondEntitlement> {
+        self.state
+            .view()
+            .world()
+            .bond_entitlements()
+            .get(&BondEntitlementId::new(
+                self.bond.clone(),
+                index,
+                who.clone(),
+            ))
+            .cloned()
+    }
+
+    fn entitled_units(&self, index: u16, who: usize) -> Option<Quantity> {
+        self.entitlement(index, &self.ids[who])
+            .map(|entitlement| entitlement.units)
     }
 
     fn balance(&self, definition: &AssetDefinitionId, account: &AccountId) -> Quantity {
@@ -323,12 +397,25 @@ impl Harness {
         })
     }
 
+    /// Record a cash flow to completion, one page per block.
+    fn record_cashflow(&mut self, time_ms: u64, signer: usize, index: u16) -> usize {
+        let mut steps = 0;
+        loop {
+            self.exec_ok(
+                time_ms,
+                signer,
+                RecordBondCashflow::new(self.bond.clone(), index),
+            );
+            steps += 1;
+            if self.cashflow(index).status != BondCashflowStatus::Recording {
+                return steps;
+            }
+            assert!(steps < 64, "recording must finish");
+        }
+    }
+
     fn record_fund_cashflow(&mut self, index: u16, record_at: u64) {
-        self.exec_ok(
-            record_at,
-            AGENT,
-            RecordBondCashflow::new(self.bond.clone(), index),
-        );
+        self.record_cashflow(record_at, AGENT, index);
         let source = AssetId::new(self.eur.clone(), self.ids[AGENT].clone());
         self.exec_ok(
             record_at,
@@ -353,9 +440,7 @@ impl Harness {
     }
 
     fn service_coupon(&mut self, index: u16) {
-        let terms = self.record().state.cashflows[usize::from(index)]
-            .terms
-            .clone();
+        let terms = self.cashflow(index).terms;
         self.record_fund_cashflow(index, terms.record_date_ms);
         self.claim_all(terms.payment_date_ms, index);
         self.exec_ok(
@@ -363,6 +448,29 @@ impl Harness {
             AGENT,
             CloseBondCashflow::new(self.bond.clone(), index),
         );
+    }
+
+    fn set_usage_policy(&mut self, time: u64, definition: &AssetDefinitionId, bound: &[AccountId]) {
+        let policy = AssetIssuerUsagePolicyV1 {
+            require_subject_binding: true,
+            subject_bindings: bound
+                .iter()
+                .map(|account| (account.clone(), AssetSubjectBindingV1::default()))
+                .collect(),
+        };
+        let issuer = self.ids[ISSUER].clone();
+        let definition = definition.clone();
+        self.run(time, |stx| {
+            SetKeyValue::asset_definition(
+                definition,
+                ASSET_ISSUER_USAGE_POLICY_METADATA_KEY
+                    .parse()
+                    .expect("metadata key"),
+                Json::new(policy),
+            )
+            .execute(&issuer, stx)
+        })
+        .expect("issuer sets a usage policy");
     }
 }
 
@@ -375,6 +483,10 @@ fn bond_events(stx: &StateTransaction<'_, '_>) -> Vec<BondEvent> {
             _ => None,
         })
         .collect()
+}
+
+fn h_bond() -> AssetDefinitionId {
+    definition("slo_bond")
 }
 
 #[test]
@@ -420,7 +532,7 @@ fn registration_requires_the_issuer_owning_a_scale0_global_definition() {
         ISSUER,
         RegisterBond::new(h.eur.clone(), {
             let mut eur_terms = terms.clone();
-            eur_terms.payment_asset = h.bond.clone();
+            eur_terms.payment_asset = definition("other_bond");
             eur_terms
         }),
         "scale 0",
@@ -434,7 +546,19 @@ fn registration_requires_the_issuer_owning_a_scale0_global_definition() {
         RegisterBond::new(h.bond.clone(), foreign),
         "the issuer must own the bond asset definition",
     );
-    // Success: outstanding is the minted total and the vault is derived.
+    // Every unit must still be with the issuer: nothing can sit in custody the kernel
+    // does not attribute before the record exists.
+    h.transfer_units(ISSUE, ISSUER, HOLDER_A, 1)
+        .expect("pre-registration transfer");
+    h.exec_err(
+        ISSUE,
+        ISSUER,
+        RegisterBond::new(h.bond.clone(), terms.clone()),
+        "the issuer must hold the entire minted supply",
+    );
+    h.transfer_units(ISSUE, HOLDER_A, ISSUER, 1)
+        .expect("return the unit");
+    // Success: outstanding is the minted total and the vault is derived and indexed.
     let event = h
         .run(ISSUE, |stx| {
             RegisterBond::new(h_bond(), terms.clone()).execute(&accounts()[ISSUER], stx)?;
@@ -447,6 +571,15 @@ fn registration_requires_the_issuer_owning_a_scale0_global_definition() {
     assert_eq!(record.state.redeemed_units, Quantity::zero());
     assert!(!record.state.transfers_frozen);
     assert_eq!(record.vault, bond_vault_account_id(&h.bond));
+    assert_eq!(
+        h.state
+            .view()
+            .world()
+            .bond_vaults()
+            .get(&record.vault)
+            .cloned(),
+        Some(h.bond.clone())
+    );
     assert_eq!(record.state.cashflows.len(), 5);
     assert!(
         record
@@ -468,18 +601,70 @@ fn registration_requires_the_issuer_owning_a_scale0_global_definition() {
     h.exec_err(
         ISSUE,
         ISSUER,
-        RegisterBond::new(h.bond.clone(), terms),
+        RegisterBond::new(h.bond.clone(), terms.clone()),
         "bond.already_registered",
+    );
+    // Bonds and payment assets stay disjoint, so a vault never holds bond units.
+    let mut on_bond = terms.clone();
+    on_bond.payment_asset = h.bond.clone();
+    h.exec_err(
+        ISSUE,
+        ISSUER,
+        RegisterBond::new(definition("other_bond"), on_bond),
+        "the payment asset must not be a registered bond",
+    );
+    h.exec_err(
+        ISSUE,
+        ISSUER,
+        RegisterBond::new(h.eur.clone(), {
+            let mut eur_terms = terms;
+            eur_terms.payment_asset = definition("other_bond");
+            eur_terms
+        }),
+        "is the payment asset of bond",
     );
 }
 
-fn h_bond() -> AssetDefinitionId {
-    definition("slo_bond")
-}
-
 #[test]
-fn registration_rejects_unissued_and_dataspace_scoped_bonds() {
+fn registration_rejects_dataspace_scoped_unissued_and_partyless_bonds() {
     let mut h = Harness::with_holdings(&[]);
+    let terms = terms(&h.ids);
+    h.exec_err(
+        ISSUE,
+        ISSUER,
+        RegisterBond::new(definition("ds_bond"), terms.clone()),
+        "bond asset definition must keep global balances",
+    );
+    let mut dataspace_payment = terms.clone();
+    dataspace_payment.payment_asset = definition("ds_eur");
+    h.exec_err(
+        ISSUE,
+        ISSUER,
+        RegisterBond::new(h.bond.clone(), dataspace_payment),
+        "payment asset definition must keep global balances",
+    );
+    // The issuer and the paying agent must be existing accounts.
+    let mut no_agent = terms.clone();
+    no_agent.paying_agent = account(0x99);
+    let error = h
+        .exec(ISSUE, ISSUER, RegisterBond::new(h.bond.clone(), no_agent))
+        .expect_err("missing paying agent");
+    assert!(
+        matches!(&error, Error::Find(FindError::Account(missing)) if *missing == account(0x99)),
+        "{error:?}"
+    );
+    let orphan_issuer = account(0x98);
+    let mut orphan = terms.clone();
+    orphan.issuer = orphan_issuer.clone();
+    let error = h
+        .run(ISSUE, |stx| {
+            RegisterBond::new(definition("orphan_bond"), orphan).execute(&orphan_issuer, stx)
+        })
+        .expect_err("missing issuer account");
+    assert!(
+        matches!(&error, Error::Find(FindError::Account(missing)) if *missing == account(0x98)),
+        "{error:?}"
+    );
     // Burn the issuer's whole supply first: an unissued bond cannot be registered.
     let issuer = h.ids[ISSUER].clone();
     let units = AssetId::new(h.bond.clone(), issuer.clone());
@@ -487,7 +672,6 @@ fn registration_rejects_unissued_and_dataspace_scoped_bonds() {
         Burn::asset_quantity(1_000_u32, units).execute(&issuer, stx)
     })
     .expect("burn unregistered supply");
-    let terms = terms(&h.ids);
     h.exec_err(
         ISSUE,
         ISSUER,
@@ -522,61 +706,57 @@ fn bond_supply_is_locked_after_registration() {
 }
 
 #[test]
-fn record_requires_agent_record_date_order_and_builds_investor_snapshot() {
+fn recording_is_permissionless_and_captures_record_date_holdings() {
     let mut h = Harness::new();
     h.register();
     let record_0 = COUPON_0 - DAY;
     h.exec_err(
-        record_0,
-        ISSUER,
-        RecordBondCashflow::new(h.bond.clone(), 0),
-        "bond.unauthorized: recording must be signed by the paying agent",
-    );
-    h.exec_err(
         record_0 - 1,
-        AGENT,
+        OUTSIDER,
         RecordBondCashflow::new(h.bond.clone(), 0),
         "bond.too_early",
     );
     h.exec_err(
         COUPON_1,
-        AGENT,
+        OUTSIDER,
         RecordBondCashflow::new(h.bond.clone(), 1),
         "cash flow 0 must be recorded first",
     );
     h.exec_err(
         record_0,
-        AGENT,
+        OUTSIDER,
         RecordBondCashflow::new(h.bond.clone(), 9),
         "bond.unknown_cashflow",
     );
     // OTC transfer before the record date moves the entitlement.
     h.transfer_units(record_0 - DAY, HOLDER_A, HOLDER_C, 20)
         .expect("transfer before record date");
+    // Any account may record: the books are closed, so the result cannot depend on it.
     let events = h
         .run(record_0, |stx| {
-            RecordBondCashflow::new(h_bond(), 0).execute(&accounts()[AGENT], stx)?;
+            RecordBondCashflow::new(h_bond(), 0).execute(&accounts()[OUTSIDER], stx)?;
             Ok(bond_events(stx))
         })
         .expect("record");
-    let record = h.record();
-    let cashflow = &record.state.cashflows[0];
+    let cashflow = h.cashflow(0);
     assert_eq!(cashflow.status, BondCashflowStatus::Recorded);
     assert_eq!(cashflow.recorded_at_ms, Some(record_0));
+    assert_eq!(cashflow.recording, None);
     // The issuer's 700 retained units are excluded.
-    assert_eq!(
-        cashflow.snapshot,
-        BTreeMap::from([
-            (h.ids[HOLDER_A].clone(), q("180")),
-            (h.ids[HOLDER_B].clone(), q("99")),
-            (h.ids[HOLDER_C].clone(), q("21")),
-        ])
-    );
+    assert_eq!(h.entitled_units(0, HOLDER_A), Some(q("180")));
+    assert_eq!(h.entitled_units(0, HOLDER_B), Some(q("99")));
+    assert_eq!(h.entitled_units(0, HOLDER_C), Some(q("21")));
+    assert_eq!(h.entitled_units(0, ISSUER), None);
+    assert_eq!(cashflow.holders, 3);
     assert_eq!(cashflow.entitled_units, q("300"));
     // 180 x 1.625 = 292.50; 99 x 1.625 = 160.875 -> 160.87; 21 x 1.625 = 34.125 -> 34.12.
+    assert_eq!(
+        h.entitlement(0, &h.ids[HOLDER_B]).unwrap().amount,
+        q("160.87")
+    );
     assert_eq!(cashflow.amount_due, q("487.49"));
     assert!(
-        !record.state.transfers_frozen,
+        !h.record().state.transfers_frozen,
         "coupons do not freeze transfers"
     );
     assert_eq!(
@@ -594,20 +774,65 @@ fn record_requires_agent_record_date_order_and_builds_investor_snapshot() {
         record_0,
         AGENT,
         RecordBondCashflow::new(h.bond.clone(), 0),
-        "is Recorded, not Scheduled",
+        "is Recorded, not Scheduled or Recording",
     );
-    // Transfers after the coupon record date do not change the recorded entitlement.
+    // Transfers after recording reopen the books and do not change entitlements.
     h.transfer_units(record_0 + 1, HOLDER_C, HOLDER_A, 21)
         .expect("ex-coupon transfer");
-    assert_eq!(h.record().state.cashflows[0].snapshot.len(), 3);
+    assert_eq!(h.entitled_units(0, HOLDER_C), Some(q("21")));
 }
 
 #[test]
-fn record_rejects_snapshots_above_the_holder_limit() {
-    let mut h = Harness::with_holdings(&[]);
+fn books_close_from_the_record_date_until_recording_completes() {
+    let mut h = Harness::new();
     h.register();
-    // Seed one more investor balance than a snapshot admits.
-    let extra = BOND_MAX_SNAPSHOT_HOLDERS + 1;
+    let record_0 = COUPON_0 - DAY;
+    h.transfer_units(record_0 - 1, HOLDER_A, HOLDER_C, 10)
+        .expect("transfer before the record date");
+    // From the record date nothing moves until the cash flow is recorded, so a late
+    // recording still captures the holders of record.
+    for (time, from, to) in [
+        (record_0, HOLDER_A, HOLDER_C),
+        (COUPON_0 + 5 * DAY, HOLDER_C, OUTSIDER),
+        (COUPON_0 + 5 * DAY, ISSUER, HOLDER_A),
+    ] {
+        let error = h
+            .transfer_units(time, from, to, 1)
+            .expect_err("books are closed");
+        assert!(error.to_string().contains("bond.books_closed"), "{error}");
+    }
+    h.record_cashflow(COUPON_0 + 5 * DAY, OUTSIDER, 0);
+    assert_eq!(h.entitled_units(0, HOLDER_A), Some(q("190")));
+    assert_eq!(h.entitled_units(0, HOLDER_C), Some(q("11")));
+    h.transfer_units(COUPON_0 + 5 * DAY, HOLDER_A, OUTSIDER, 1)
+        .expect("books reopen after recording");
+    // The final coupon and the redemption share a record date: recording the coupon
+    // does not reopen the books before the redemption is recorded too.
+    let source = AssetId::new(h.eur.clone(), h.ids[AGENT].clone());
+    h.exec_ok(
+        COUPON_0 + 5 * DAY,
+        AGENT,
+        FundBondCashflow::new(h.bond.clone(), 0, source),
+    );
+    for index in 1..3 {
+        h.service_coupon(index);
+    }
+    h.record_cashflow(MATURITY - DAY, AGENT, 3);
+    let error = h
+        .transfer_units(MATURITY - DAY, HOLDER_A, OUTSIDER, 1)
+        .expect_err("still closed for the redemption");
+    assert!(error.to_string().contains("bond.books_closed"), "{error}");
+    h.record_cashflow(MATURITY - DAY, AGENT, 4);
+    assert!(h.record().state.transfers_frozen);
+    assert_eq!(h.entitled_units(3, HOLDER_A), h.entitled_units(4, HOLDER_A));
+}
+
+#[test]
+fn recording_is_paged_and_unbounded_in_holders() {
+    let mut h = Harness::new();
+    h.register();
+    // Seed more investor balances than one recording step examines.
+    let extra = BOND_RECORDING_PAGE_ENTRIES + 90;
     let bond = h.bond.clone();
     h.run(ISSUE + 1, |stx| {
         for seed in 0..extra {
@@ -629,12 +854,256 @@ fn record_rejects_snapshots_above_the_holder_limit() {
         Ok(())
     })
     .expect("seed holders");
-    h.exec_err(
-        COUPON_0 - DAY,
-        AGENT,
+    let record_0 = COUPON_0 - DAY;
+    h.exec_ok(
+        record_0,
+        OUTSIDER,
         RecordBondCashflow::new(h.bond.clone(), 0),
-        "bond.snapshot_too_large",
     );
+    let partial = h.cashflow(0);
+    assert_eq!(partial.status, BondCashflowStatus::Recording);
+    let cursor = partial.recording.clone().expect("cursor");
+    assert_eq!(cursor.phase, BondRecordingPhase::Holders);
+    assert!(cursor.after_asset.is_some());
+    // While the cursor walks the balances nothing moves and nothing defaults.
+    let error = h
+        .transfer_units(record_0, HOLDER_A, OUTSIDER, 1)
+        .expect_err("recording in progress");
+    assert!(error.to_string().contains("is being recorded"), "{error}");
+    h.exec_err(
+        COUPON_0 + GRACE + 1,
+        AGENT,
+        DeclareBondDefault::new(h.bond.clone(), 0, [1; 32]),
+        "complete the recording first",
+    );
+    let error = h
+        .run(record_0, |stx| {
+            crate::smartcontracts::isi::multisig::replace_account_controller(
+                &accounts()[HOLDER_A],
+                stx,
+                &accounts()[HOLDER_A],
+                AccountController::Single(key(0x51).public_key().clone()),
+            )
+            .map_err(Error::from)
+        })
+        .expect_err("rekey during recording");
+    assert!(error.to_string().contains("is being recorded"), "{error}");
+    let steps = 1 + h.record_cashflow(record_0, OUTSIDER, 0);
+    assert_eq!(steps, 2);
+    let cashflow = h.cashflow(0);
+    assert_eq!(cashflow.status, BondCashflowStatus::Recorded);
+    let extra = u32::try_from(extra).unwrap();
+    assert_eq!(cashflow.holders, extra + 3);
+    assert_eq!(cashflow.entitled_units, Quantity::from(300 + extra));
+    // Each seeded holder receives 1.62; the three investors 487.49 between them.
+    let seeded = Quantity::from(extra)
+        .try_mul_decimal(q("1.62").as_numeric())
+        .expect("seeded amount");
+    assert_eq!(
+        cashflow.amount_due,
+        q("487.49").checked_add(&seeded).unwrap()
+    );
+}
+
+fn escrow_id(label: &str) -> EscrowId {
+    EscrowId::new(Hash::new(format!("bond-test-escrow:{label}")))
+}
+
+fn open_conditional(
+    bond: &AssetDefinitionId,
+    label: &str,
+    beneficiary: &AccountId,
+    attestor: &AccountId,
+    units: u32,
+) -> OpenConditionalEscrow {
+    OpenConditionalEscrow::new(
+        escrow_id(label),
+        bond.clone(),
+        beneficiary.clone(),
+        units,
+        vec![ConditionalEscrowCondition::Oracle(
+            ConditionalEscrowOracleCondition {
+                id: "paid".parse().unwrap(),
+                attestor: attestor.clone(),
+                predicate: ConditionalEscrowPredicate::Equals(ConditionalEscrowValue::Bool(true)),
+                sequence: core::num::NonZeroU32::new(1).unwrap(),
+            },
+        )],
+        MATURITY + 365 * DAY,
+    )
+}
+
+fn repo(initiator: usize, counterparty: usize, maturity_ms: u64) -> RepoIsi {
+    let ids = accounts();
+    RepoIsi::new(
+        RepoAgreementId::new("bond_repo".parse().unwrap()),
+        ids[initiator].clone(),
+        ids[counterparty].clone(),
+        None,
+        RepoCashLeg::new(definition("eur"), 100_u32),
+        RepoCollateralLeg::new(definition("slo_bond"), 10_u32),
+        0,
+        maturity_ms,
+        RepoGovernance::new(0, 0, false),
+    )
+}
+
+fn grant_settlement_consents(
+    stx: &mut StateTransaction<'_, '_>,
+    grantee: &AccountId,
+    consents: impl IntoIterator<Item = Permission>,
+) {
+    let mut permissions = stx
+        .world
+        .account_permissions
+        .get(grantee)
+        .cloned()
+        .unwrap_or_default();
+    permissions.extend(consents);
+    stx.world
+        .account_permissions
+        .insert(grantee.clone(), permissions);
+}
+
+/// Initiate a repo where `initiator` pledges 10 bond units to `counterparty` for 100 EUR.
+fn initiate_repo(
+    stx: &mut StateTransaction<'_, '_>,
+    initiator: usize,
+    counterparty: usize,
+    maturity_ms: u64,
+) -> Result<(), Error> {
+    let ids = accounts();
+    let instruction = repo(initiator, counterparty, maturity_ms);
+    let settlement_id = instruction.settlement_id();
+    let consents = [
+        Permission::from(CanExecuteSettlement {
+            debited_asset: AssetId::new(definition("eur"), ids[counterparty].clone()),
+            settlement_id: settlement_id.clone(),
+            intent_hash: instruction.initiation_intent_hash(),
+        }),
+        Permission::from(CanExecuteSettlement {
+            debited_asset: AssetId::new(definition("slo_bond"), ids[counterparty].clone()),
+            settlement_id,
+            intent_hash: instruction.maturity_intent_hash(),
+        }),
+    ];
+    grant_settlement_consents(stx, &ids[initiator], consents);
+    instruction.execute(&ids[initiator], stx)
+}
+
+/// Settle atomically: `seller` delivers one bond unit (as a movement, or as a conditional
+/// escrow leg) against one euro from `buyer`.
+fn settle_atomic(
+    stx: &mut StateTransaction<'_, '_>,
+    seller: usize,
+    buyer: usize,
+    escrow_leg: bool,
+) -> Result<(), Error> {
+    let ids = accounts();
+    let bond_source = AssetId::new(definition("slo_bond"), ids[seller].clone());
+    let cash_source = AssetId::new(definition("eur"), ids[buyer].clone());
+    let mut movements = vec![AtomicSettlementMovement {
+        source: cash_source.clone(),
+        recipient: ids[seller].clone(),
+        quantity: Quantity::one(),
+    }];
+    let mut escrows = Vec::new();
+    if escrow_leg {
+        escrows.push(AtomicSettlementEscrow {
+            source: bond_source.clone(),
+            escrow_id: escrow_id("settlement-leg"),
+            beneficiary: ids[buyer].clone(),
+            amount: Quantity::one(),
+            conditions: vec![ConditionalEscrowCondition::Oracle(
+                ConditionalEscrowOracleCondition {
+                    id: "paid".parse().unwrap(),
+                    attestor: ids[AGENT].clone(),
+                    predicate: ConditionalEscrowPredicate::Equals(ConditionalEscrowValue::Bool(
+                        true,
+                    )),
+                    sequence: core::num::NonZeroU32::new(1).unwrap(),
+                },
+            )],
+            expires_at_ms: MATURITY + 365 * DAY,
+            evidence_hashes: Vec::new(),
+        });
+    } else {
+        movements.push(AtomicSettlementMovement {
+            source: bond_source.clone(),
+            recipient: ids[buyer].clone(),
+            quantity: Quantity::one(),
+        });
+    }
+    movements.sort_by(|a, b| (&a.source, &a.recipient).cmp(&(&b.source, &b.recipient)));
+    let instruction = SettleAtomic::new(
+        stx.network_id.clone(),
+        "frozen_bond_trade".parse().expect("settlement id"),
+        AtomicSettlementMovements::try_from(movements).expect("canonical movements"),
+        AtomicSettlementEscrows::try_from(escrows).expect("canonical escrows"),
+        NonZeroU64::new(1_000).expect("expiry"),
+        Metadata::default(),
+    );
+    stx.tx_call_hash = Some(Hash::new(b"frozen-bond-settlement-carrier"));
+    let intent_hash = instruction.intent_hash().expect("complete intent");
+    let consents = [bond_source, cash_source].map(|source| {
+        Permission::from(CanExecuteSettlement {
+            debited_asset: source,
+            settlement_id: instruction.settlement_id().clone(),
+            intent_hash,
+        })
+    });
+    grant_settlement_consents(stx, &ids[seller], consents);
+    instruction.execute(&ids[seller], stx)
+}
+
+/// Encumbrances cannot veto recording: escrowed units count for their seller, repo
+/// collateral for its title holder, and unreleased allotments for the issuer.
+#[test]
+fn escrows_and_repos_are_attributed_to_holders_of_record_and_cannot_veto_recording() {
+    let mut h = Harness::new();
+    h.register();
+    let bond = h.bond.clone();
+    // A never-expiring marketplace escrow of 5 units, accepted by an outsider.
+    let seller = h.ids[HOLDER_A].clone();
+    let listing = OpenAssetEscrow::new(escrow_id("listing"), bond.clone(), 5_u32);
+    h.run(ISSUE + DAY, |stx| listing.execute(&seller, stx))
+        .expect("open listing");
+    let outsider = h.ids[OUTSIDER].clone();
+    h.run(ISSUE + DAY, |stx| {
+        AcceptAssetEscrow::new(escrow_id("listing")).execute(&outsider, stx)
+    })
+    .expect("outsider accepts");
+    // A repo from A to B that is never settled: B holds the collateral title.
+    h.run(ISSUE + DAY, |stx| {
+        initiate_repo(stx, HOLDER_A, HOLDER_B, COUPON_0 - 2 * DAY)
+    })
+    .expect("repo initiation");
+    // An issuer allotment escrow that is still conditional at the record date.
+    let issuer = h.ids[ISSUER].clone();
+    let attestor = h.ids[AGENT].clone();
+    let allotment = open_conditional(&bond, "allotment", &outsider, &attestor, 25);
+    h.run(ISSUE + DAY, |stx| allotment.execute(&issuer, stx))
+        .expect("allotment escrow");
+    assert_eq!(h.units_of(HOLDER_A), q("185"));
+    h.record_cashflow(COUPON_0 - DAY, OUTSIDER, 0);
+    assert_eq!(h.entitled_units(0, HOLDER_A), Some(q("190")));
+    assert_eq!(h.entitled_units(0, HOLDER_B), Some(q("109")));
+    assert_eq!(h.entitled_units(0, HOLDER_C), Some(q("1")));
+    assert_eq!(h.entitled_units(0, OUTSIDER), None);
+    assert_eq!(h.cashflow(0).entitled_units, q("300"));
+    assert_eq!(h.cashflow(0).holders, 3);
+    // Once recorded, the books reopen and the allotment settles normally.
+    h.run(COUPON_0 - DAY, |stx| {
+        AttestEscrowCondition::new(
+            escrow_id("allotment"),
+            "paid".parse().unwrap(),
+            ConditionalEscrowValue::Bool(true),
+            None,
+        )
+        .execute(&attestor, stx)
+    })
+    .expect("release allotment");
+    assert_eq!(h.units_of(OUTSIDER), q("25"));
 }
 
 #[test]
@@ -649,7 +1118,7 @@ fn fund_moves_exactly_the_amount_due_from_the_signers_balance() {
         FundBondCashflow::new(h.bond.clone(), 0, agent_eur.clone()),
         "is Scheduled, not Recorded",
     );
-    h.exec_ok(record_0, AGENT, RecordBondCashflow::new(h.bond.clone(), 0));
+    h.record_cashflow(record_0, AGENT, 0);
     for (signer, source, fragment) in [
         (
             OUTSIDER,
@@ -684,7 +1153,7 @@ fn fund_moves_exactly_the_amount_due_from_the_signers_balance() {
         .expect("issuer funding");
     assert_eq!(h.vault_eur(), q("487.49"));
     assert_eq!(h.eur_of(ISSUER), q("99512.51"));
-    let cashflow = h.record().state.cashflows[0].clone();
+    let cashflow = h.cashflow(0);
     assert_eq!(cashflow.status, BondCashflowStatus::Funded);
     assert_eq!(cashflow.funded, q("487.49"));
     assert_eq!(cashflow.funded_at_ms, Some(record_0));
@@ -709,8 +1178,7 @@ fn fund_without_balance_changes_nothing() {
     let mut h = Harness::new();
     h.register();
     let record_0 = COUPON_0 - DAY;
-    h.exec_ok(record_0, AGENT, RecordBondCashflow::new(h.bond.clone(), 0));
-    // Holder B is no funder; give the agent an empty EUR balance by moving it away first.
+    h.record_cashflow(record_0, AGENT, 0);
     let agent = h.ids[AGENT].clone();
     let agent_eur = AssetId::new(h.eur.clone(), agent.clone());
     let sink = h.ids[OUTSIDER].clone();
@@ -726,10 +1194,7 @@ fn fund_without_balance_changes_nothing() {
         "",
     );
     assert_eq!(h.vault_eur(), Quantity::zero());
-    assert_eq!(
-        h.record().state.cashflows[0].status,
-        BondCashflowStatus::Recorded
-    );
+    assert_eq!(h.cashflow(0).status, BondCashflowStatus::Recorded);
 }
 
 #[test]
@@ -737,12 +1202,12 @@ fn claims_pay_rounded_entitlements_once_from_the_payment_date() {
     let mut h = Harness::new();
     h.register();
     let record_0 = COUPON_0 - DAY;
-    h.exec_ok(record_0, AGENT, RecordBondCashflow::new(h.bond.clone(), 0));
+    h.record_cashflow(record_0, AGENT, 0);
     h.exec_err(
         COUPON_0,
         HOLDER_A,
         ClaimBondCashflow::new(h.bond.clone(), 0, h.ids[HOLDER_A].clone()),
-        "is Recorded, not Funded",
+        "is Recorded, not Funded or Closed",
     );
     let agent_eur = AssetId::new(h.eur.clone(), h.ids[AGENT].clone());
     h.exec_ok(
@@ -766,7 +1231,7 @@ fn claims_pay_rounded_entitlements_once_from_the_payment_date() {
         COUPON_0,
         ISSUER,
         ClaimBondCashflow::new(h.bond.clone(), 0, h.ids[ISSUER].clone()),
-        "bond.not_in_snapshot",
+        "bond.not_entitled",
     );
     // Holder self-claim.
     let events = h
@@ -787,6 +1252,10 @@ fn claims_pay_rounded_entitlements_once_from_the_payment_date() {
             amount: q("325"),
         })]
     );
+    assert_eq!(
+        h.entitlement(0, &h.ids[HOLDER_A]).unwrap().claimed_at_ms,
+        Some(COUPON_0)
+    );
     h.exec_err(
         COUPON_0,
         HOLDER_A,
@@ -798,16 +1267,11 @@ fn claims_pay_rounded_entitlements_once_from_the_payment_date() {
     h.claim(COUPON_0, AGENT, 0, HOLDER_B);
     assert_eq!(h.eur_of(HOLDER_B), q("10160.87"));
     assert_eq!(h.eur_of(AGENT), agent_before);
-    h.exec_err(
-        COUPON_0,
-        AGENT,
-        CloseBondCashflow::new(h.bond.clone(), 0),
-        "still has unclaimed snapshot holders",
-    );
     h.claim(COUPON_0, HOLDER_C, 0, HOLDER_C);
     assert_eq!(h.eur_of(HOLDER_C), q("1.62"));
-    let cashflow = h.record().state.cashflows[0].clone();
+    let cashflow = h.cashflow(0);
     assert_eq!(cashflow.paid, q("487.49"));
+    assert_eq!(cashflow.claimed_holders, 3);
     assert!(cashflow.all_claimed());
     assert_eq!(h.vault_eur(), Quantity::zero());
     h.exec_err(
@@ -823,113 +1287,160 @@ fn claims_pay_rounded_entitlements_once_from_the_payment_date() {
     assert_eq!(record.state.lifecycle, BondLifecycle::Active);
 }
 
+/// A cash flow closes at its payment date whatever its holders do; unclaimed
+/// entitlements stay payable from the vault, so nothing is trapped and nobody blocks maturity.
 #[test]
-fn close_returns_any_vault_remainder_to_the_issuer() {
+fn closing_keeps_unclaimed_entitlements_claimable_and_matures_the_bond() {
     let mut h = Harness::new();
     h.register();
-    let record_0 = COUPON_0 - DAY;
-    h.record_fund_cashflow(0, record_0);
-    h.claim_all(COUPON_0, 0);
-    // Rounded-down claims sum exactly to the amount due, so the residual is zero by
-    // construction; force a remainder into the record to exercise the residual movement.
-    let bond = h.bond.clone();
-    let eur = h.eur.clone();
-    h.run(COUPON_0, |stx| {
-        let mut record = stx.world.bonds.get(&bond).cloned().expect("record");
-        let vault = record.vault.clone();
-        record.state.cashflows[0].funded = q("487.50");
-        stx.world.bonds.insert(bond.clone(), record);
-        crate::smartcontracts::isi::asset::isi::seed_numeric_asset_balance_for_test(
-            &mut stx.world,
-            &AssetId::new(eur, vault),
-            &q("0.01"),
-        )
-    })
-    .expect("inject remainder");
-    let issuer_before = h.eur_of(ISSUER);
+    h.record_fund_cashflow(0, COUPON_0 - DAY);
+    h.exec_err(
+        COUPON_0 - 1,
+        AGENT,
+        CloseBondCashflow::new(h.bond.clone(), 0),
+        "bond.too_early",
+    );
     let events = h
         .run(COUPON_0, |stx| {
             CloseBondCashflow::new(h_bond(), 0).execute(&accounts()[AGENT], stx)?;
             Ok(bond_events(stx))
         })
-        .expect("close with residual");
-    assert_eq!(
-        h.eur_of(ISSUER),
-        issuer_before.checked_add(&q("0.01")).unwrap()
-    );
-    assert_eq!(h.vault_eur(), Quantity::zero());
+        .expect("close with nobody paid");
     assert_eq!(
         events,
         [BondEvent::CashflowClosed(BondCashflowClosed {
             bond: h.bond.clone(),
             index: 0,
-            residual: q("0.01"),
+            unclaimed_holders: 3,
+            unclaimed_amount: q("487.49"),
         })]
     );
+    assert_eq!(h.vault_eur(), q("487.49"));
+    // Claims of a closed cash flow are still paid from the vault.
+    h.claim(COUPON_0 + 30 * DAY, HOLDER_A, 0, HOLDER_A);
+    assert_eq!(h.eur_of(HOLDER_A), q("325"));
+    assert_eq!(h.vault_eur(), q("162.49"));
+    for index in 1..4 {
+        h.service_coupon(index);
+    }
+    // The redemption closes with holder C unclaimed; the bond still matures.
+    h.record_fund_cashflow(4, MATURITY);
+    h.claim(MATURITY, AGENT, 4, HOLDER_A);
+    h.claim(MATURITY, AGENT, 4, HOLDER_B);
+    h.exec_ok(MATURITY, AGENT, CloseBondCashflow::new(h.bond.clone(), 4));
+    let record = h.record();
+    assert_eq!(record.state.lifecycle, BondLifecycle::Matured);
+    assert_eq!(record.state.outstanding_units, q("701"));
+    // C redeems after maturity: burn and pay from the vault.
+    h.claim(MATURITY + 90 * DAY, HOLDER_C, 4, HOLDER_C);
+    assert_eq!(h.units_of(HOLDER_C), Quantity::zero());
+    assert_eq!(h.record().state.outstanding_units, q("700"));
+    assert_eq!(h.record().state.redeemed_units, q("300"));
+    // Only B's and C's unclaimed first coupon remain in the vault.
+    assert_eq!(h.vault_eur(), q("162.49"));
 }
 
+/// Every movement path of a frozen bond is refused, except escrow custody returning to
+/// its seller (the holder of record), which lets that seller redeem.
 #[test]
+#[allow(clippy::too_many_lines)]
 fn redemption_record_freezes_every_movement_and_claims_burn_then_pay() {
     let mut h = Harness::new();
     h.register();
+    let bond = h.bond.clone();
+    // A lists 5 units (open); B sells 9 units to an outsider who marks payment sent.
+    let seller_a = h.ids[HOLDER_A].clone();
+    let seller_b = h.ids[HOLDER_B].clone();
+    let outsider = h.ids[OUTSIDER].clone();
+    let listing = OpenAssetEscrow::new(escrow_id("a-listing"), bond.clone(), 5_u32);
+    h.run(ISSUE + DAY, |stx| listing.execute(&seller_a, stx))
+        .expect("A lists");
+    let sale = OpenAssetEscrow::new(escrow_id("b-sale"), bond.clone(), 9_u32);
+    h.run(ISSUE + DAY, |stx| sale.execute(&seller_b, stx))
+        .expect("B lists");
+    h.run(ISSUE + DAY, |stx| {
+        AcceptAssetEscrow::new(escrow_id("b-sale")).execute(&outsider, stx)?;
+        MarkEscrowPaymentSent::new(escrow_id("b-sale")).execute(&outsider, stx)
+    })
+    .expect("outsider pays off chain");
     for index in 0..4 {
         h.service_coupon(index);
     }
+    assert_eq!(h.entitled_units(3, HOLDER_A), Some(q("200")));
     let redemption_record = MATURITY;
-    h.exec_ok(
-        redemption_record,
-        AGENT,
-        RecordBondCashflow::new(h.bond.clone(), 4),
-    );
+    h.record_cashflow(redemption_record, AGENT, 4);
     let record = h.record();
     assert!(record.state.transfers_frozen);
     assert_eq!(record.state.cashflows[4].amount_due, q("15000"));
+    let frozen = |error: Error| {
+        assert!(
+            error.to_string().contains("bond.transfers_frozen"),
+            "{error}"
+        );
+    };
     // Ordinary transfers, including by the issuer, are refused.
-    let error = h
-        .transfer_units(redemption_record, HOLDER_A, OUTSIDER, 1)
-        .expect_err("frozen transfer");
-    assert!(
-        error.to_string().contains("bond.transfers_frozen"),
-        "{error}"
+    frozen(
+        h.transfer_units(redemption_record, HOLDER_A, OUTSIDER, 1)
+            .expect_err("frozen transfer"),
     );
-    let error = h
-        .transfer_units(redemption_record, ISSUER, HOLDER_A, 1)
-        .expect_err("frozen issuer transfer");
-    assert!(
-        error.to_string().contains("bond.transfers_frozen"),
-        "{error}"
+    frozen(
+        h.transfer_units(redemption_record, ISSUER, HOLDER_A, 1)
+            .expect_err("frozen issuer transfer"),
     );
-    // Conditional escrow opening moves bond units into custody and is refused too.
-    let bond = h.bond.clone();
-    let beneficiary = h.ids[OUTSIDER].clone();
-    let attestor = h.ids[AGENT].clone();
-    let opener = h.ids[HOLDER_A].clone();
-    let error = h
-        .run(redemption_record, |stx| {
-            open_escrow(&bond, &beneficiary, &attestor, 5).execute(&opener, stx)
+    // Batches, atomic settlement movements and escrow legs, conditional escrows and repo.
+    let batch = TransferAssetBatch::new(vec![TransferAssetBatchEntry::new(
+        seller_a.clone(),
+        outsider.clone(),
+        bond.clone(),
+        1_u32,
+    )]);
+    frozen(
+        h.run(redemption_record, |stx| batch.execute(&seller_a, stx))
+            .expect_err("frozen batch"),
+    );
+    frozen(
+        h.run(redemption_record, |stx| {
+            settle_atomic(stx, HOLDER_A, HOLDER_B, false)
         })
-        .expect_err("frozen escrow");
-    assert!(
-        error.to_string().contains("bond.transfers_frozen"),
-        "{error}"
+        .expect_err("frozen settlement movement"),
     );
-    // Repo initiation with the bond as collateral is refused.
-    let error = h
-        .run(redemption_record, |stx| {
+    frozen(
+        h.run(redemption_record, |stx| {
+            settle_atomic(stx, HOLDER_A, HOLDER_B, true)
+        })
+        .expect_err("frozen settlement escrow leg"),
+    );
+    let attestor = h.ids[AGENT].clone();
+    let escrow = open_conditional(&bond, "frozen", &outsider, &attestor, 5);
+    frozen(
+        h.run(redemption_record, |stx| escrow.execute(&seller_a, stx))
+            .expect_err("frozen escrow"),
+    );
+    frozen(
+        h.run(redemption_record, |stx| {
             initiate_repo(stx, HOLDER_A, HOLDER_B, MATURITY + DAY)
         })
-        .expect_err("frozen repo");
-    assert!(
-        error.to_string().contains("bond.transfers_frozen"),
-        "{error}"
+        .expect_err("frozen repo"),
     );
+    // B's sold escrow cannot release to the buyer: the buyer is not the holder of record.
+    frozen(
+        h.run(redemption_record, |stx| {
+            ReleaseAssetEscrow::new(escrow_id("b-sale")).execute(&seller_b, stx)
+        })
+        .expect_err("frozen release to buyer"),
+    );
+    // A's listing returns to A, the holder of record, who then redeems all 200 units.
+    h.run(redemption_record, |stx| {
+        CancelAssetEscrow::new(escrow_id("a-listing")).execute(&seller_a, stx)
+    })
+    .expect("escrow returns custody to its seller");
+    assert_eq!(h.units_of(HOLDER_A), q("200"));
     let agent_eur = AssetId::new(h.eur.clone(), h.ids[AGENT].clone());
     h.exec_ok(
         redemption_record,
         AGENT,
         FundBondCashflow::new(h.bond.clone(), 4, agent_eur),
     );
-    // Holder self-claim burns its units and pays the redemption amount.
     let events = h
         .run(MATURITY, |stx| {
             ClaimBondCashflow::new(h_bond(), 4, accounts()[HOLDER_A].clone())
@@ -949,25 +1460,21 @@ fn redemption_record_freezes_every_movement_and_claims_burn_then_pay() {
             amount: q("10000"),
         })]
     );
-    let record = h.record();
-    assert_eq!(record.state.outstanding_units, q("800"));
-    assert_eq!(record.state.redeemed_units, q("200"));
-    // Paying-agent push redemption.
-    h.claim(MATURITY, AGENT, 4, HOLDER_B);
-    h.claim(MATURITY, AGENT, 4, HOLDER_C);
-    assert_eq!(h.units_of(HOLDER_B), Quantity::zero());
-    assert_eq!(h.units_of(HOLDER_C), Quantity::zero());
-    assert_eq!(
-        h.total_units(),
-        q("700"),
-        "only issuer-retained units remain"
+    // B's 9 units are still in the sale escrow, so B's redemption burn fails atomically
+    // and the entitlement stays claimable.
+    h.exec_err(
+        MATURITY,
+        AGENT,
+        ClaimBondCashflow::new(h.bond.clone(), 4, h.ids[HOLDER_B].clone()),
+        "",
     );
-    assert_eq!(h.vault_eur(), Quantity::zero());
+    h.claim(MATURITY, AGENT, 4, HOLDER_C);
     h.exec_ok(MATURITY, AGENT, CloseBondCashflow::new(h.bond.clone(), 4));
     let record = h.record();
     assert_eq!(record.state.lifecycle, BondLifecycle::Matured);
-    assert_eq!(record.state.outstanding_units, q("700"));
-    assert_eq!(record.state.redeemed_units, q("300"));
+    assert_eq!(record.state.outstanding_units, q("799"));
+    assert_eq!(record.state.redeemed_units, q("201"));
+    assert_eq!(h.vault_eur(), q("4950"));
     // A matured bond accepts no further servicing.
     h.exec_err(
         MATURITY,
@@ -1008,7 +1515,54 @@ fn redemption_claim_fails_atomically_when_units_are_missing() {
     );
     assert_eq!(h.vault_eur(), vault_before);
     assert_eq!(h.eur_of(HOLDER_A), q("1300"));
-    assert!(h.record().state.cashflows[4].claimed.is_empty());
+    assert_eq!(h.cashflow(4).claimed_holders, 0);
+    // The stuck entitlement does not stop the cash flow from closing.
+    h.claim(MATURITY, AGENT, 4, HOLDER_B);
+    h.claim(MATURITY, AGENT, 4, HOLDER_C);
+    h.exec_ok(MATURITY, AGENT, CloseBondCashflow::new(h.bond.clone(), 4));
+    assert_eq!(h.record().state.lifecycle, BondLifecycle::Matured);
+    assert_eq!(h.vault_eur(), q("10000"));
+}
+
+/// The definition owner cannot block funded redemptions by tightening the bond's usage
+/// policy after funding, and the e-money issuer cannot trap payments by binding the
+/// key-less vault into its payment asset's usage policy.
+#[test]
+fn issuer_policies_cannot_trap_funded_payments() {
+    let mut h = Harness::new();
+    h.register();
+    // The payment asset requires an explicit binding; the vault has none.
+    let bound: Vec<AccountId> = [ISSUER, AGENT, HOLDER_A, HOLDER_B]
+        .map(|who| h.ids[who].clone())
+        .to_vec();
+    let eur = h.eur.clone();
+    h.set_usage_policy(ISSUE + DAY, &eur, &bound);
+    h.record_fund_cashflow(0, COUPON_0 - DAY);
+    h.claim(COUPON_0, AGENT, 0, HOLDER_A);
+    h.claim(COUPON_0, AGENT, 0, HOLDER_B);
+    // C is not bound by the e-money issuer; its claim waits without blocking the close.
+    h.exec_err(
+        COUPON_0,
+        AGENT,
+        ClaimBondCashflow::new(h.bond.clone(), 0, h.ids[HOLDER_C].clone()),
+        "requires explicit subject binding",
+    );
+    h.exec_ok(COUPON_0, AGENT, CloseBondCashflow::new(h.bond.clone(), 0));
+    let mut with_c = bound.clone();
+    with_c.push(h.ids[HOLDER_C].clone());
+    h.set_usage_policy(COUPON_0 + DAY, &eur, &with_c);
+    h.claim(COUPON_0 + DAY, HOLDER_C, 0, HOLDER_C);
+    assert_eq!(h.eur_of(HOLDER_C), q("1.62"));
+    for index in 1..4 {
+        h.service_coupon(index);
+    }
+    h.record_fund_cashflow(4, MATURITY);
+    // After funding, the bond issuer requires a binding nobody has on the bond itself.
+    let bond = h.bond.clone();
+    h.set_usage_policy(MATURITY, &bond, &[]);
+    h.claim_all(MATURITY, 4);
+    assert_eq!(h.record().state.redeemed_units, q("300"));
+    assert_eq!(h.vault_eur(), Quantity::zero());
 }
 
 #[test]
@@ -1045,158 +1599,54 @@ fn bond_vault_is_protocol_custody() {
         .expect_err("vault mint");
     assert!(error.to_string().contains("bond.vault_custody"), "{error}");
     assert_eq!(h.vault_eur(), q("487.49"));
+    let world = h.state.view();
+    assert!(is_bond_vault_account(
+        world.world(),
+        &bond_vault_account_id(&h.bond)
+    ));
+    assert!(is_bond_vault_asset(
+        world.world(),
+        &AssetId::new(h.eur.clone(), bond_vault_account_id(&h.bond))
+    ));
+    assert!(!is_bond_vault_asset(
+        world.world(),
+        &AssetId::new(h.bond.clone(), bond_vault_account_id(&h.bond))
+    ));
 }
 
-fn open_escrow(
-    bond: &AssetDefinitionId,
-    beneficiary: &AccountId,
-    attestor: &AccountId,
-    units: u32,
-) -> OpenConditionalEscrow {
-    OpenConditionalEscrow::new(
-        EscrowId::new(Hash::new(b"bond_allotment")),
-        bond.clone(),
-        beneficiary.clone(),
-        units,
-        vec![ConditionalEscrowCondition::Oracle(
-            ConditionalEscrowOracleCondition {
-                id: "paid".parse().unwrap(),
-                attestor: attestor.clone(),
-                predicate: ConditionalEscrowPredicate::Equals(ConditionalEscrowValue::Bool(true)),
-                sequence: core::num::NonZeroU32::new(1).unwrap(),
-            },
-        )],
-        MATURITY + 365 * DAY,
-    )
-}
-
-fn repo(initiator: usize, counterparty: usize, maturity_ms: u64) -> RepoIsi {
-    let ids = accounts();
-    RepoIsi::new(
-        RepoAgreementId::new("bond_repo".parse().unwrap()),
-        ids[initiator].clone(),
-        ids[counterparty].clone(),
+#[test]
+fn registered_bond_units_only_enter_attributed_custody() {
+    let mut h = Harness::new();
+    h.register();
+    let world = h.state.view();
+    let world = world.world();
+    for purpose in [
         None,
-        RepoCashLeg::new(definition("eur"), 100_u32),
-        RepoCollateralLeg::new(definition("slo_bond"), 10_u32),
-        0,
-        maturity_ms,
-        RepoGovernance::new(0, 0, false),
-    )
-}
-
-/// Initiate a repo where `initiator` pledges 10 bond units to `counterparty` for 100 EUR.
-fn initiate_repo(
-    stx: &mut StateTransaction<'_, '_>,
-    initiator: usize,
-    counterparty: usize,
-    maturity_ms: u64,
-) -> Result<(), Error> {
-    let ids = accounts();
-    let instruction = repo(initiator, counterparty, maturity_ms);
-    let settlement_id = instruction.settlement_id();
-    let consents = [
-        Permission::from(CanExecuteSettlement {
-            debited_asset: AssetId::new(definition("eur"), ids[counterparty].clone()),
-            settlement_id: settlement_id.clone(),
-            intent_hash: instruction.initiation_intent_hash(),
-        }),
-        Permission::from(CanExecuteSettlement {
-            debited_asset: AssetId::new(definition("slo_bond"), ids[counterparty].clone()),
-            settlement_id,
-            intent_hash: instruction.maturity_intent_hash(),
-        }),
-    ];
-    let mut permissions = stx
-        .world
-        .account_permissions
-        .get(&ids[initiator])
-        .cloned()
-        .unwrap_or_default();
-    permissions.extend(consents);
-    stx.world
-        .account_permissions
-        .insert(ids[initiator].clone(), permissions);
-    instruction.execute(&ids[initiator], stx)
-}
-
-#[test]
-fn record_is_refused_while_repo_collateral_or_pending_allotments_encumber_units() {
-    let mut h = Harness::new();
-    h.register();
-    let record_0 = COUPON_0 - DAY;
-    // Holder A pledges 10 units to holder B in an open repo.
-    h.run(ISSUE + DAY, |stx| {
-        initiate_repo(stx, HOLDER_A, HOLDER_B, COUPON_0 - 2 * DAY)
-    })
-    .expect("repo initiation");
-    h.exec_err(
-        record_0,
-        AGENT,
-        RecordBondCashflow::new(h.bond.clone(), 0),
-        "bond.encumbered: active repo agreement",
-    );
-    let agreement = RepoAgreementId::new("bond_repo".parse().unwrap());
-    let counterparty = h.ids[HOLDER_B].clone();
-    h.run(record_0, |stx| {
-        ReverseRepoIsi::new(agreement).execute(&counterparty, stx)
-    })
-    .expect("repo maturity");
-    // The issuer allots units to an investor through a conditional escrow.
-    let bond = h.bond.clone();
-    let investor = h.ids[OUTSIDER].clone();
-    let attestor = h.ids[AGENT].clone();
-    let issuer = h.ids[ISSUER].clone();
-    h.run(record_0, |stx| {
-        open_escrow(&bond, &investor, &attestor, 25).execute(&issuer, stx)
-    })
-    .expect("allotment escrow");
-    h.exec_err(
-        record_0,
-        AGENT,
-        RecordBondCashflow::new(h.bond.clone(), 0),
-        "bond.encumbered: active native escrow",
-    );
-    // Release the allotment; the investor now holds the units directly.
-    let escrow = EscrowId::new(Hash::new(b"bond_allotment"));
-    h.run(record_0, |stx| {
-        iroha_data_model::isi::escrow::AttestEscrowCondition::new(
-            escrow,
-            "paid".parse().unwrap(),
-            ConditionalEscrowValue::Bool(true),
-            None,
-        )
-        .execute(&attestor, stx)
-    })
-    .expect("release allotment");
-    h.exec_ok(record_0, AGENT, RecordBondCashflow::new(h.bond.clone(), 0));
-    let snapshot = h.record().state.cashflows[0].snapshot.clone();
-    assert_eq!(snapshot.get(&h.ids[OUTSIDER]), Some(&q("25")));
-    assert_eq!(snapshot.get(&h.ids[HOLDER_A]), Some(&q("200")));
-}
-
-#[test]
-fn issuer_escrow_custody_is_excluded_from_snapshots() {
-    let mut h = Harness::new();
-    h.register();
-    // An escrow whose beneficiary is the issuer itself is no pending allotment; its custody
-    // balance is neither an encumbrance nor an investor holding.
-    let bond = h.bond.clone();
-    let issuer = h.ids[ISSUER].clone();
-    let attestor = h.ids[AGENT].clone();
-    let beneficiary = issuer.clone();
-    h.run(ISSUE + DAY, |stx| {
-        open_escrow(&bond, &beneficiary, &attestor, 50).execute(&issuer, stx)
-    })
-    .expect("issuer escrow");
-    h.exec_ok(
-        COUPON_0 - DAY,
-        AGENT,
-        RecordBondCashflow::new(h.bond.clone(), 0),
-    );
-    let cashflow = h.record().state.cashflows[0].clone();
-    assert_eq!(cashflow.entitled_units, q("300"));
-    assert_eq!(cashflow.snapshot.len(), 3);
+        Some("native-escrow-funding"),
+        Some("native-escrow-retained"),
+        Some("repo-bilateral"),
+        Some("settlement-bilateral"),
+    ] {
+        ensure_bond_custody_supported(world, &h.bond, purpose).expect("attributed custody");
+    }
+    for purpose in [
+        "game-seat-funding",
+        "vpn-lease-funding",
+        "native-amx-prepare",
+        "sccp-escrow-lock",
+        "fx-corridor-owner-funding",
+        "privacy-pool-deposit",
+        "staking-bond",
+    ] {
+        let error = ensure_bond_custody_supported(world, &h.bond, Some(purpose))
+            .expect_err("unattributed custody");
+        assert!(
+            error.to_string().contains("bond.custody_unsupported"),
+            "{error}"
+        );
+        ensure_bond_custody_supported(world, &h.eur, Some(purpose))
+            .expect("other assets are unaffected");
+    }
 }
 
 #[test]
@@ -1277,7 +1727,7 @@ fn call_replaces_later_cashflows_with_one_redemption() {
     assert_eq!(call.payment_date_ms, COUPON_1);
     assert_eq!(call.record_date_ms, COUPON_1 - DAY);
     assert_eq!(call.amount_per_unit, q("50.5"));
-    // The registered terms are immutable.
+    // The registered schedule is immutable.
     assert_eq!(record.terms.cashflows.len(), 5);
     h.exec_err(
         COUPON_1 - notice,
@@ -1290,7 +1740,7 @@ fn call_replaces_later_cashflows_with_one_redemption() {
         COUPON_2,
         AGENT,
         RecordBondCashflow::new(h.bond.clone(), 2),
-        "is Cancelled, not Scheduled",
+        "is Cancelled, not Scheduled or Recording",
     );
     // The call redemption is recorded after the call-date coupon.
     h.exec_err(
@@ -1315,35 +1765,34 @@ fn call_replaces_later_cashflows_with_one_redemption() {
 }
 
 #[test]
-fn default_requires_a_missed_unfunded_payment_and_stops_servicing() {
+fn default_waits_for_the_payment_grace_period_and_stops_servicing() {
     let mut h = Harness::new();
     h.register();
     h.record_fund_cashflow(0, COUPON_0 - DAY);
     h.exec_err(
-        COUPON_0 + 1,
+        COUPON_0 + GRACE + 1,
         AGENT,
         DeclareBondDefault::new(h.bond.clone(), 0, [7; 32]),
         "is Funded and cannot default",
     );
-    h.exec_ok(
-        COUPON_1 - DAY,
-        AGENT,
-        RecordBondCashflow::new(h.bond.clone(), 1),
-    );
+    h.record_cashflow(COUPON_1 - DAY, AGENT, 1);
+    // Neither the payment date nor the grace period has passed.
+    for time in [COUPON_1, COUPON_1 + 1, COUPON_1 + GRACE] {
+        h.exec_err(
+            time,
+            AGENT,
+            DeclareBondDefault::new(h.bond.clone(), 1, [7; 32]),
+            "grace period have not passed",
+        );
+    }
     h.exec_err(
-        COUPON_1,
-        AGENT,
-        DeclareBondDefault::new(h.bond.clone(), 1, [7; 32]),
-        "has not passed",
-    );
-    h.exec_err(
-        COUPON_1 + 1,
+        COUPON_1 + GRACE + 1,
         ISSUER,
         DeclareBondDefault::new(h.bond.clone(), 1, [7; 32]),
         "a default declaration must be signed by the paying agent",
     );
     let events = h
-        .run(COUPON_1 + 1, |stx| {
+        .run(COUPON_1 + GRACE + 1, |stx| {
             DeclareBondDefault::new(h_bond(), 1, [7; 32]).execute(&accounts()[AGENT], stx)?;
             Ok(bond_events(stx))
         })
@@ -1363,10 +1812,12 @@ fn default_requires_a_missed_unfunded_payment_and_stops_servicing() {
         BondCashflowStatus::Defaulted
     );
     assert_eq!(record.state.cashflows[1].evidence_sha256, Some([7; 32]));
-    // No further recording, funding, call or default.
+    // The recorded entitlements remain as the record of who was owed.
+    assert_eq!(h.entitled_units(1, HOLDER_A), Some(q("200")));
+    // No further recording, funding, call or default; the books are open again.
     let agent_eur = AssetId::new(h.eur.clone(), h.ids[AGENT].clone());
     h.exec_err(
-        COUPON_1 + 1,
+        COUPON_1 + GRACE + 1,
         AGENT,
         FundBondCashflow::new(h.bond.clone(), 1, agent_eur),
         "is Defaulted",
@@ -1383,10 +1834,12 @@ fn default_requires_a_missed_unfunded_payment_and_stops_servicing() {
         CallBond::new(h.bond.clone(), MATURITY - DAY),
         "is Defaulted, not Active",
     );
+    h.transfer_units(COUPON_2, HOLDER_A, OUTSIDER, 1)
+        .expect("a defaulted bond still trades");
     // Funds already in the vault stay claimable by their holders and the cash flow closes.
-    h.claim_all(COUPON_1 + 1, 0);
+    h.claim_all(COUPON_1 + GRACE + 1, 0);
     h.exec_ok(
-        COUPON_1 + 1,
+        COUPON_1 + GRACE + 1,
         AGENT,
         CloseBondCashflow::new(h.bond.clone(), 0),
     );
@@ -1395,14 +1848,129 @@ fn default_requires_a_missed_unfunded_payment_and_stops_servicing() {
 }
 
 #[test]
-fn bond_records_retain_definitions_and_accounts() {
+fn issuer_replaces_the_paying_agent() {
     let mut h = Harness::new();
     h.register();
-    h.exec_ok(
+    let new_agent = h.ids[NEW_AGENT].clone();
+    h.exec_err(
+        ISSUE,
+        AGENT,
+        ReplaceBondPayingAgent::new(h.bond.clone(), new_agent.clone()),
+        "the paying agent can only be replaced by the issuer",
+    );
+    h.exec_err(
+        ISSUE,
+        ISSUER,
+        ReplaceBondPayingAgent::new(h.bond.clone(), h.ids[AGENT].clone()),
+        "is already the paying agent",
+    );
+    h.exec_err(
+        ISSUE,
+        ISSUER,
+        ReplaceBondPayingAgent::new(h.bond.clone(), bond_vault_account_id(&h.bond)),
+        "a bond vault cannot be a paying agent",
+    );
+    let events = h
+        .run(ISSUE, |stx| {
+            ReplaceBondPayingAgent::new(h_bond(), accounts()[NEW_AGENT].clone())
+                .execute(&accounts()[ISSUER], stx)?;
+            Ok(bond_events(stx))
+        })
+        .expect("replace agent");
+    assert_eq!(
+        events,
+        [BondEvent::PayingAgentReplaced(BondPayingAgentReplaced {
+            bond: h.bond.clone(),
+            previous: h.ids[AGENT].clone(),
+            paying_agent: new_agent.clone(),
+        })]
+    );
+    assert_eq!(h.record().terms.paying_agent, new_agent);
+    h.record_cashflow(COUPON_0 - DAY, OUTSIDER, 0);
+    let old_agent_eur = AssetId::new(h.eur.clone(), h.ids[AGENT].clone());
+    h.exec_err(
         COUPON_0 - DAY,
         AGENT,
-        RecordBondCashflow::new(h.bond.clone(), 0),
+        FundBondCashflow::new(h.bond.clone(), 0, old_agent_eur),
+        "funding must be signed by the paying agent or the issuer",
     );
+    let issuer_eur = AssetId::new(h.eur.clone(), h.ids[ISSUER].clone());
+    h.exec_ok(
+        COUPON_0 - DAY,
+        ISSUER,
+        FundBondCashflow::new(h.bond.clone(), 0, issuer_eur),
+    );
+    h.exec_err(
+        COUPON_0,
+        AGENT,
+        CloseBondCashflow::new(h.bond.clone(), 0),
+        "closing must be signed by the paying agent",
+    );
+    h.exec_ok(
+        COUPON_0,
+        NEW_AGENT,
+        CloseBondCashflow::new(h.bond.clone(), 0),
+    );
+}
+
+#[test]
+fn rekey_moves_bond_parties_and_unclaimed_entitlements() {
+    let mut h = Harness::new();
+    h.register();
+    h.record_fund_cashflow(0, COUPON_0 - DAY);
+    let rekey = |h: &mut Harness, who: usize, seed: u8| -> AccountId {
+        let old = h.ids[who].clone();
+        let new = h
+            .run(COUPON_0 - DAY, |stx| {
+                crate::smartcontracts::isi::multisig::replace_account_controller(
+                    &old,
+                    stx,
+                    &old,
+                    AccountController::Single(key(seed).public_key().clone()),
+                )
+                .map_err(Error::from)
+            })
+            .expect("rekey");
+        h.ids[who] = new.clone();
+        new
+    };
+    let old_holder = h.ids[HOLDER_A].clone();
+    let holder = rekey(&mut h, HOLDER_A, 0x61);
+    let issuer = rekey(&mut h, ISSUER, 0x62);
+    let agent = rekey(&mut h, AGENT, 0x63);
+    let record = h.record();
+    assert_eq!(record.terms.issuer, issuer);
+    assert_eq!(record.terms.paying_agent, agent);
+    assert_eq!(h.entitlement(0, &old_holder), None);
+    assert_eq!(h.entitled_units(0, HOLDER_A), Some(q("200")));
+    assert_eq!(h.units_of(HOLDER_A), q("200"));
+    // The rekeyed holder claims and the rekeyed agent closes.
+    let claim = ClaimBondCashflow::new(h.bond.clone(), 0, holder.clone());
+    h.exec_ok(COUPON_0, HOLDER_A, claim);
+    assert_eq!(h.eur_of(HOLDER_A), q("325"));
+    h.claim(COUPON_0, AGENT, 0, HOLDER_B);
+    h.exec_ok(COUPON_0, AGENT, CloseBondCashflow::new(h.bond.clone(), 0));
+    // The vault itself is never rekeyed.
+    let vault = bond_vault_account_id(&h.bond);
+    let error = h
+        .run(COUPON_0, |stx| {
+            crate::smartcontracts::isi::multisig::replace_account_controller(
+                &vault,
+                stx,
+                &vault,
+                AccountController::Single(key(0x64).public_key().clone()),
+            )
+            .map_err(Error::from)
+        })
+        .expect_err("vault rekey");
+    assert!(error.to_string().contains("bond.retained"), "{error}");
+}
+
+#[test]
+fn bond_records_retain_definitions_vaults_parties_and_holders() {
+    let mut h = Harness::new();
+    h.register();
+    h.record_fund_cashflow(0, COUPON_0 - DAY);
     let issuer = h.ids[ISSUER].clone();
     for definition in [h.bond.clone(), h.eur.clone()] {
         let error = h
@@ -1412,13 +1980,21 @@ fn bond_records_retain_definitions_and_accounts() {
             .expect_err("retained definition");
         assert!(error.to_string().contains("bond.retained"), "{error}");
     }
-    for account in [ISSUER, AGENT, HOLDER_A] {
-        let target = h.ids[account].clone();
-        let error = h
-            .run(COUPON_0, |stx| {
-                Unregister::account(target).execute(&issuer, stx)
-            })
-            .expect_err("retained account");
+    let unregister = |h: &mut Harness, target: AccountId| {
+        let authority = target.clone();
+        h.run(COUPON_0, |stx| {
+            Unregister::account(target).execute(&authority, stx)
+        })
+    };
+    // Issuer and agent of a servicing bond, the vault and every unit holder are retained:
+    // unregistering a holder would destroy units outside the supply lock.
+    for target in [
+        h.ids[ISSUER].clone(),
+        h.ids[AGENT].clone(),
+        h.ids[HOLDER_A].clone(),
+        bond_vault_account_id(&h.bond),
+    ] {
+        let error = unregister(&mut h, target).expect_err("retained account");
         assert!(error.to_string().contains("bond.retained"), "{error}");
     }
     let domain = domain();
@@ -1428,6 +2004,21 @@ fn bond_records_retain_definitions_and_accounts() {
         })
         .expect_err("retained domain definitions");
     assert!(error.to_string().contains("bond.retained"), "{error}");
+    // A holder that sold out may leave; its unclaimed entitlement is kept and pays out
+    // once the account exists again.
+    h.transfer_units(COUPON_0, HOLDER_C, HOLDER_A, 1)
+        .expect("C sells out");
+    let holder_c = h.ids[HOLDER_C].clone();
+    unregister(&mut h, holder_c.clone()).expect("unit-less holder may unregister");
+    assert!(h.entitlement(0, &holder_c).is_some());
+    let registrar = holder_c.clone();
+    h.run(COUPON_0, |stx| {
+        iroha_data_model::isi::Register::account(Account::new(registrar.clone()))
+            .execute(&registrar, stx)
+    })
+    .expect("re-register C");
+    h.claim(COUPON_0, HOLDER_C, 0, HOLDER_C);
+    assert_eq!(h.eur_of(HOLDER_C), q("1.62"));
 }
 
 #[test]
@@ -1439,6 +2030,7 @@ fn verified_movements_reject_capabilities_that_do_not_match_the_record() {
     let eur = h.eur.clone();
     let ids = h.ids.clone();
     let vault = bond_vault_account_id(&bond);
+    let pay_c = |h: &mut Harness| h.claim(COUPON_0, AGENT, 0, HOLDER_C);
     let cases = [
         // Paying a non-holder.
         (
@@ -1448,21 +2040,13 @@ fn verified_movements_reject_capabilities_that_do_not_match_the_record() {
             AssetId::new(eur.clone(), ids[OUTSIDER].clone()),
             q("1"),
         ),
-        // Paying more than the funded remainder.
+        // Paying a holder other than its exact entitlement.
         (
             VerifiedBondMovementPurpose::Payment,
             AGENT,
             AssetId::new(eur.clone(), vault.clone()),
             AssetId::new(eur.clone(), ids[HOLDER_A].clone()),
-            q("487.50"),
-        ),
-        // Residual before every holder claimed.
-        (
-            VerifiedBondMovementPurpose::Residual,
-            AGENT,
-            AssetId::new(eur.clone(), vault.clone()),
-            AssetId::new(eur.clone(), ids[ISSUER].clone()),
-            q("0.01"),
+            q("325.01"),
         ),
         // Funding a funded cash flow.
         (
@@ -1504,4 +2088,94 @@ fn verified_movements_reject_capabilities_that_do_not_match_the_record() {
         );
     }
     assert_eq!(h.vault_eur(), q("487.49"));
+    // A claimed entitlement cannot be paid twice through a forged capability.
+    pay_c(&mut h);
+    let error = h
+        .run(COUPON_0, |stx| {
+            crate::smartcontracts::isi::asset::isi::execute_verified_bond_movement(
+                stx,
+                VerifiedBondMovement::new(
+                    VerifiedBondMovementPurpose::Payment,
+                    &ids[AGENT],
+                    &bond,
+                    0,
+                    AssetId::new(eur.clone(), vault.clone()),
+                    AssetId::new(eur.clone(), ids[HOLDER_C].clone()),
+                    q("1.62"),
+                ),
+            )
+        })
+        .expect_err("double payment");
+    assert!(
+        error.to_string().contains("capability does not match"),
+        "{error}"
+    );
+}
+
+#[test]
+fn entitlements_of_one_bond_iterate_as_a_key_range() {
+    let mut h = Harness::new();
+    h.register();
+    h.service_coupon(0);
+    h.record_cashflow(COUPON_1 - DAY, OUTSIDER, 1);
+    let view = h.state.view();
+    let world = view.world();
+    let all: Vec<_> = world
+        .bond_entitlements_of_bond_iter(&h.bond, None, None)
+        .map(|(id, _)| (id.index, id.holder.clone()))
+        .collect();
+    assert_eq!(all.len(), 6);
+    assert!(all.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(all[..3].iter().all(|(index, _)| *index == 0));
+    let first = BondEntitlementId::new(h.bond.clone(), all[0].0, all[0].1.clone());
+    let last = BondEntitlementId::new(h.bond.clone(), all[5].0, all[5].1.clone());
+    assert_eq!(
+        world
+            .bond_entitlements_of_bond_iter(&h.bond, Some(&first), Some(&last))
+            .count(),
+        4
+    );
+    assert_eq!(
+        world
+            .bond_entitlements_of_bond_iter(&h.bond, None, None)
+            .rev()
+            .next()
+            .map(|(id, _)| id.clone()),
+        Some(last)
+    );
+    // Another bond's range is empty and never includes these rows.
+    assert_eq!(
+        world
+            .bond_entitlements_of_bond_iter(&h.eur, None, None)
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn bond_vault_index_rebuilds_from_records() {
+    let mut h = Harness::new();
+    h.register();
+    let vault = bond_vault_account_id(&h.bond);
+    let mut world = World::new();
+    world.insert_bond_record_for_testing(h.record());
+    assert!(world.bond_vaults.view().get(&vault).is_some());
+    world.bond_vaults = mv::storage::Storage::default();
+    assert!(world.bond_vaults.view().get(&vault).is_none());
+    world.rebuild_bond_vault_index();
+    assert_eq!(world.bond_vaults.view().get(&vault), Some(&h.bond));
+}
+
+#[test]
+fn entitlement_keys_group_one_cash_flow() {
+    let ids = accounts();
+    let bond = h_bond();
+    let mut keys = BTreeSet::new();
+    for index in [1_u16, 0] {
+        for holder in &ids {
+            keys.insert(BondEntitlementId::new(bond.clone(), index, holder.clone()));
+        }
+    }
+    let first_flow: Vec<_> = keys.iter().take(ids.len()).map(|key| key.index).collect();
+    assert!(first_flow.iter().all(|index| *index == 0));
 }

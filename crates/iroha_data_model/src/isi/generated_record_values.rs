@@ -325,6 +325,33 @@ fn sorafs_values() -> Vec<Value> {
     ]
 }
 
+/// One populated value of every bond-kernel leaf record.
+fn bond_values() -> Vec<Value> {
+    use crate::{
+        bond::tests::{account as bond_account, annual_terms, definition},
+        isi::bond,
+    };
+    let id = definition("fixture_bond");
+    vec![
+        capture(bond::RegisterBond::new(id.clone(), annual_terms())),
+        capture(bond::RecordBondCashflow::new(id.clone(), 2)),
+        capture(bond::FundBondCashflow::new(
+            id.clone(),
+            2,
+            AssetId::new(definition("eur"), bond_account(2)),
+        )),
+        capture(bond::ClaimBondCashflow::new(
+            id.clone(),
+            2,
+            bond_account(10),
+        )),
+        capture(bond::CloseBondCashflow::new(id.clone(), 2)),
+        capture(bond::CallBond::new(id.clone(), 1_799_971_200_000)),
+        capture(bond::DeclareBondDefault::new(id.clone(), 2, [0x5d; 32])),
+        capture(bond::ReplaceBondPayingAgent::new(id, bond_account(3))),
+    ]
+}
+
 pub(super) fn values() -> Vec<Value> {
     let mut records = confidential_values();
     records.push(capture(content::RetireContentBundle {
@@ -350,8 +377,18 @@ pub(super) fn values() -> Vec<Value> {
         .validate()
         .expect("canonical pin-outbox generated record fixture");
     records.push(capture(pin_outbox_advance));
-    assert_eq!(records.len(), 30);
+    records.extend(bond_values());
+    assert_eq!(records.len(), 38);
     records
+}
+
+#[test]
+#[ignore = "explicit maintenance command prints the canonical bond-kernel record frames"]
+fn print_bond_record_fixture_rows() {
+    println!(
+        "BOND_FIXTURE_ROWS={}",
+        norito::json::to_json(&bond_values()).expect("canonical bond record rows")
+    );
 }
 
 #[test]

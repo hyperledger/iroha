@@ -49,6 +49,10 @@ pub enum CollectionTarget {
     Subscriptions,
     /// `/v1/space-directory/uaids/{uaid}/manifests`
     UaidManifests(String),
+    /// `/v1/bonds`
+    Bonds,
+    /// `/v1/bonds/{bond_id}/entitlements` (path literal: canonical bond address)
+    BondEntitlements(String),
 }
 
 impl CollectionTarget {
@@ -72,6 +76,8 @@ impl CollectionTarget {
             Self::SubscriptionPlans => &specs::SUBSCRIPTION_PLANS,
             Self::Subscriptions => &specs::SUBSCRIPTIONS,
             Self::UaidManifests(_) => &specs::UAID_MANIFESTS,
+            Self::Bonds => &specs::BONDS,
+            Self::BondEntitlements(_) => &specs::BOND_ENTITLEMENTS,
         }
     }
 
@@ -84,7 +90,8 @@ impl CollectionTarget {
             | Self::AccountTransactions(literal)
             | Self::AccountHistory(literal)
             | Self::AccountPermissions(literal)
-            | Self::UaidManifests(literal) => literal,
+            | Self::UaidManifests(literal)
+            | Self::BondEntitlements(literal) => literal,
             Self::Domains
             | Self::Accounts
             | Self::AssetDefinitions
@@ -95,7 +102,8 @@ impl CollectionTarget {
             | Self::ContractEvents
             | Self::RepoAgreements
             | Self::SubscriptionPlans
-            | Self::Subscriptions => "",
+            | Self::Subscriptions
+            | Self::Bonds => "",
         }
     }
 
@@ -119,8 +127,67 @@ impl CollectionTarget {
             Self::SubscriptionPlans => ENDPOINT_SUBSCRIPTION_PLANS_LIST,
             Self::Subscriptions => ENDPOINT_SUBSCRIPTIONS_LIST,
             Self::UaidManifests(_) => ENDPOINT_SPACE_DIRECTORY_MANIFESTS,
+            Self::Bonds => ENDPOINT_BONDS,
+            Self::BondEntitlements(_) => ENDPOINT_BOND_ENTITLEMENTS,
         }
     }
+}
+
+/// Collection endpoint label of `GET /v1/bonds`.
+const ENDPOINT_BONDS: &str = "/v1/bonds";
+/// Collection endpoint label of `GET /v1/bonds/{bond_id}/entitlements`.
+const ENDPOINT_BOND_ENTITLEMENTS: &str = "/v1/bonds/{bond_id}/entitlements";
+
+/// Parse a bond entitlement cursor or row id `<index>:<holder>`.
+fn parse_bond_entitlement_id(
+    bond: &AssetDefinitionId,
+    id: &str,
+) -> Option<iroha_data_model::bond::BondEntitlementId> {
+    let (index, holder) = id.split_once(':')?;
+    if index.is_empty() || (index.len() > 1 && index.starts_with('0')) {
+        return None;
+    }
+    Some(iroha_data_model::bond::BondEntitlementId::new(
+        bond.clone(),
+        index.parse().ok()?,
+        AccountId::parse_encoded(holder).ok()?,
+    ))
+}
+
+/// Row of one bond record: its canonical JSON (`id`, `vault`, `terms`, `state`).
+fn bond_record_row(record: &iroha_data_model::bond::BondRecord) -> Result<Map> {
+    match norito::json::to_value(record) {
+        Ok(Value::Object(row)) => Ok(row),
+        Ok(_) | Err(_) => Err(Error::from(CollectionError::new(
+            "internal",
+            "row",
+            "bond record did not render as a JSON object",
+        ))),
+    }
+}
+
+/// Row of one bond entitlement; `id` is `<index>:<holder>`.
+fn bond_entitlement_row(entitlement: &iroha_data_model::bond::BondEntitlement) -> Map {
+    let mut row = Map::new();
+    let id = &entitlement.id;
+    row.insert(
+        "id".into(),
+        Value::from(format!("{}:{}", id.index, id.holder)),
+    );
+    row.insert("bond".into(), Value::from(id.bond.to_string()));
+    row.insert("index".into(), Value::from(u64::from(id.index)));
+    row.insert("holder".into(), Value::from(id.holder.to_string()));
+    row.insert("units".into(), Value::from(entitlement.units.to_string()));
+    row.insert("amount".into(), Value::from(entitlement.amount.to_string()));
+    row.insert(
+        "claimed".into(),
+        Value::from(entitlement.claimed_at_ms.is_some()),
+    );
+    row.insert(
+        "claimed_at_ms".into(),
+        entitlement.claimed_at_ms.map_or(Value::Null, Value::from),
+    );
+    row
 }
 
 /// Engine bounds derived from the configured app-API page limits.
@@ -795,6 +862,76 @@ async fn execute_prepared_collection_local(
         }
         CollectionTarget::ContractEvents => {
             return contract_emission_page(state, prepared, visibility);
+        }
+        CollectionTarget::Bonds => {
+            let world = state.world_view();
+            let scan = prepared.ordered_scan();
+            let parse = |id: &str| AssetDefinitionId::parse_address_literal(id).ok();
+            let after = cursor_key(scan.and_then(|scan| scan.after), parse)?;
+            let descending = scan.is_some_and(|scan| scan.descending);
+            let mut failure = None;
+            let rows = until_error(
+                seek_keys(
+                    world.bonds(),
+                    id_candidates(query, parse),
+                    after.as_ref().filter(|_| !query.include_total),
+                    descending,
+                )
+                .map(|(id, record)| {
+                    bond_record_row(record).map(|row| {
+                        (
+                            entry_after_cursor(id, after.as_ref(), descending),
+                            Some(row),
+                        )
+                    })
+                }),
+                &mut failure,
+            );
+            let page = if scan.is_some() {
+                prepared.execute_ordered(rows, &limits)
+            } else {
+                prepared.execute_entries(rows.map(|(_, row)| row), &limits)
+            };
+            if let Some(error) = failure {
+                return Err(error);
+            }
+            page
+        }
+        CollectionTarget::BondEntitlements(bond_literal) => {
+            let bond = AssetDefinitionId::parse_address_literal(bond_literal).map_err(|error| {
+                Error::from(CollectionError::new(
+                    "invalid_scope",
+                    "bond_id",
+                    format!("invalid bond identifier: {error}"),
+                ))
+            })?;
+            let world = state.world_view();
+            let scan = prepared.ordered_scan();
+            let after = cursor_key(scan.and_then(|scan| scan.after), |id| {
+                parse_bond_entitlement_id(&bond, id)
+            })?;
+            let descending = scan.is_some_and(|scan| scan.descending);
+            let seek = after.as_ref().filter(|_| !query.include_total);
+            let entries: Box<dyn Iterator<Item = _>> = if descending {
+                Box::new(
+                    world
+                        .bond_entitlements_of_bond_iter(&bond, None, seek)
+                        .rev(),
+                )
+            } else {
+                Box::new(world.bond_entitlements_of_bond_iter(&bond, seek, None))
+            };
+            let rows = entries.map(|(id, entitlement)| {
+                (
+                    entry_after_cursor(id, after.as_ref(), descending),
+                    Some(bond_entitlement_row(entitlement)),
+                )
+            });
+            if scan.is_some() {
+                prepared.execute_ordered(rows, &limits)
+            } else {
+                prepared.execute_entries(rows.map(|(_, row)| row), &limits)
+            }
         }
         CollectionTarget::RepoAgreements => {
             let world = state.world_view();

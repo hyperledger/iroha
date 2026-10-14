@@ -2826,6 +2826,10 @@ pub mod prelude {
             SetAssetHoldingLimit, SetAssetTransferAvailability, SetAssetTransferBlacklist,
             SetAssetTransferControl,
         },
+        bond::{
+            BondInstructionBox, CallBond, ClaimBondCashflow, CloseBondCashflow, DeclareBondDefault,
+            FundBondCashflow, RecordBondCashflow, RegisterBond, ReplaceBondPayingAgent,
+        },
         bridge::{RecordBridgeReceipt, SubmitBridgeProof},
         confidential::{
             PublishPedersenParams, PublishPoseidonParams, SetPedersenParamsLifecycle,

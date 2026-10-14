@@ -832,6 +832,46 @@ record!(
     "iroha_data_model::isi::register::Unregister<iroha_data_model::trigger::model::model::Trigger>"
 );
 record!(
+    bond_register_bond,
+    crate::isi::bond::RegisterBond,
+    "iroha_data_model::isi::bond::RegisterBond"
+);
+record!(
+    bond_record_bond_cashflow,
+    crate::isi::bond::RecordBondCashflow,
+    "iroha_data_model::isi::bond::RecordBondCashflow"
+);
+record!(
+    bond_fund_bond_cashflow,
+    crate::isi::bond::FundBondCashflow,
+    "iroha_data_model::isi::bond::FundBondCashflow"
+);
+record!(
+    bond_claim_bond_cashflow,
+    crate::isi::bond::ClaimBondCashflow,
+    "iroha_data_model::isi::bond::ClaimBondCashflow"
+);
+record!(
+    bond_close_bond_cashflow,
+    crate::isi::bond::CloseBondCashflow,
+    "iroha_data_model::isi::bond::CloseBondCashflow"
+);
+record!(
+    bond_call_bond,
+    crate::isi::bond::CallBond,
+    "iroha_data_model::isi::bond::CallBond"
+);
+record!(
+    bond_declare_bond_default,
+    crate::isi::bond::DeclareBondDefault,
+    "iroha_data_model::isi::bond::DeclareBondDefault"
+);
+record!(
+    bond_replace_bond_paying_agent,
+    crate::isi::bond::ReplaceBondPayingAgent,
+    "iroha_data_model::isi::bond::ReplaceBondPayingAgent"
+);
+record!(
     repo_repo_isi,
     crate::isi::repo::RepoIsi,
     "iroha_data_model::isi::repo::RepoIsi"

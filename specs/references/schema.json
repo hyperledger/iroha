@@ -3154,7 +3154,11 @@
         "type": "u16"
       },
       {
-        "name": "residual",
+        "name": "unclaimed_holders",
+        "type": "u32"
+      },
+      {
+        "name": "unclaimed_amount",
         "type": "Quantity"
       }
     ]
@@ -3226,8 +3230,16 @@
         "type": "BondCashflowStatus"
       },
       {
-        "name": "snapshot",
-        "type": "SortedMap<AccountId, Quantity>"
+        "name": "recording",
+        "type": "Option<BondRecordingCursor>"
+      },
+      {
+        "name": "holders",
+        "type": "u32"
+      },
+      {
+        "name": "claimed_holders",
+        "type": "u32"
       },
       {
         "name": "entitled_units",
@@ -3244,10 +3256,6 @@
       {
         "name": "paid",
         "type": "Quantity"
-      },
-      {
-        "name": "claimed",
-        "type": "SortedVec<AccountId>"
       },
       {
         "name": "recorded_at_ms",
@@ -3275,22 +3283,26 @@
       },
       {
         "discriminant": 1,
-        "tag": "Recorded"
+        "tag": "Recording"
       },
       {
         "discriminant": 2,
-        "tag": "Funded"
+        "tag": "Recorded"
       },
       {
         "discriminant": 3,
-        "tag": "Closed"
+        "tag": "Funded"
       },
       {
         "discriminant": 4,
-        "tag": "Defaulted"
+        "tag": "Closed"
       },
       {
         "discriminant": 5,
+        "tag": "Defaulted"
+      },
+      {
+        "discriminant": 6,
         "tag": "Cancelled"
       }
     ]
@@ -3391,6 +3403,11 @@
         "discriminant": 6,
         "tag": "Defaulted",
         "type": "BondDefaulted"
+      },
+      {
+        "discriminant": 7,
+        "tag": "PayingAgentReplaced",
+        "type": "BondPayingAgentReplaced"
       }
     ]
   },
@@ -3454,6 +3471,11 @@
         "discriminant": 6,
         "tag": "DeclareDefault",
         "type": "DeclareBondDefault"
+      },
+      {
+        "discriminant": 7,
+        "tag": "ReplacePayingAgent",
+        "type": "ReplaceBondPayingAgent"
       }
     ]
   },
@@ -3477,6 +3499,22 @@
       }
     ]
   },
+  "BondPayingAgentReplaced": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "previous",
+        "type": "AccountId"
+      },
+      {
+        "name": "paying_agent",
+        "type": "AccountId"
+      }
+    ]
+  },
   "BondRecord": {
     "Struct": [
       {
@@ -3494,6 +3532,34 @@
       {
         "name": "state",
         "type": "BondState"
+      }
+    ]
+  },
+  "BondRecordingCursor": {
+    "Struct": [
+      {
+        "name": "phase",
+        "type": "BondRecordingPhase"
+      },
+      {
+        "name": "after_asset",
+        "type": "Option<AssetId>"
+      },
+      {
+        "name": "after_escrow",
+        "type": "Option<EscrowId>"
+      }
+    ]
+  },
+  "BondRecordingPhase": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Holders"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Escrows"
       }
     ]
   },
@@ -3586,6 +3652,10 @@
       {
         "name": "redemption_price_bps",
         "type": "u32"
+      },
+      {
+        "name": "payment_grace_ms",
+        "type": "u64"
       },
       {
         "name": "call",
@@ -18162,6 +18232,9 @@
   "Option<BondCallTerms>": {
     "Option": "BondCallTerms"
   },
+  "Option<BondRecordingCursor>": {
+    "Option": "BondRecordingCursor"
+  },
   "Option<BridgeProofRecord>": {
     "Option": "BridgeProofRecord"
   },
@@ -23961,6 +24034,18 @@
       }
     ]
   },
+  "ReplaceBondPayingAgent": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "paying_agent",
+        "type": "AccountId"
+      }
+    ]
+  },
   "ReplicationOrderId": "Array<u8, 32>",
   "RepoAccountEvent": {
     "Enum": [
@@ -29610,12 +29695,6 @@
         "tag": "Desc"
       }
     ]
-  },
-  "SortedMap<AccountId, Quantity>": {
-    "Map": {
-      "key": "AccountId",
-      "value": "Quantity"
-    }
   },
   "SortedMap<AccountId, u8>": {
     "Map": {

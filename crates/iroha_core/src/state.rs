@@ -66,7 +66,7 @@ use iroha_data_model::{
         consensus::{ExecKv, ExecWitness},
         proofs::BlockProofs,
     },
-    bond::BondRecord,
+    bond::{BondEntitlement, BondEntitlementId, BondRecord},
     confidential::ConfidentialFeatureDigest,
     consensus::{
         ConsensusKeyId, ConsensusKeyRecord, ConsensusKeyRole, ConsensusKeyStatus,
@@ -218,8 +218,9 @@ use norito::{
 use once_cell::sync::OnceCell as SyncOnceCell;
 use range_bounds::*;
 pub use range_bounds::{
-    AsAssetIdAccountCompare, AsAssetIdAccountDefinitionCompare, AssetByAccountBounds,
-    AssetByAccountDefinitionBounds, RoleIdByAccountBounds,
+    AsAssetIdAccountCompare, AsAssetIdAccountDefinitionCompare, AsBondEntitlementBondCompare,
+    AssetByAccountBounds, AssetByAccountDefinitionBounds, BondEntitlementsByBondBounds,
+    RoleIdByAccountBounds,
 };
 use sha2::{Digest as Sha2Digest, Sha256};
 
@@ -1376,6 +1377,8 @@ macro_rules! with_world_overlay_fields {
             repo_agreements_by_custodian,
             settlement_receipts,
             bonds,
+            bond_entitlements,
+            bond_vaults,
             public_lane_validators,
             public_lane_stake_shares,
             public_lane_stake_custody,
@@ -4608,6 +4611,11 @@ pub struct WorldData {
     pub(crate) settlement_receipts: Storage<SettlementId, SettlementReceipt>,
     /// Native bond records keyed by the bond asset definition.
     pub(crate) bonds: Storage<AssetDefinitionId, BondRecord>,
+    /// Record-date bond entitlements keyed by bond, cash flow and holder.
+    pub(crate) bond_entitlements: Storage<BondEntitlementId, BondEntitlement>,
+    /// Bond identifiers keyed by their deterministic vault account.
+    #[norito(skip)]
+    pub(crate) bond_vaults: Storage<AccountId, AssetDefinitionId>,
     /// Public-lane validators keyed by `(lane_id, validator account id)`.
     #[norito(skip)]
     pub(crate) public_lane_validators: Storage<(LaneId, AccountId), PublicLaneValidatorRecord>,
@@ -5632,6 +5640,11 @@ pub struct WorldBlockFields<'world> {
     pub(crate) settlement_receipts: StorageField<'world, SettlementId, SettlementReceipt>,
     /// Native bond records keyed by the bond asset definition.
     pub(crate) bonds: StorageField<'world, AssetDefinitionId, BondRecord>,
+    /// Record-date bond entitlements keyed by bond, cash flow and holder.
+    pub(crate) bond_entitlements: StorageField<'world, BondEntitlementId, BondEntitlement>,
+    /// Bond identifiers keyed by their deterministic vault account.
+    #[norito(skip)]
+    pub(crate) bond_vaults: StorageField<'world, AccountId, AssetDefinitionId>,
     /// Public lane validator registry.
     #[norito(skip)]
     pub(crate) public_lane_validators:
@@ -6488,6 +6501,8 @@ impl WorldBlock<'_> {
             repo_agreements_by_custodian,
             settlement_receipts,
             bonds,
+            bond_entitlements,
+            bond_vaults,
             public_lane_validators,
             public_lane_stake_shares,
             public_lane_stake_custody,
@@ -7344,6 +7359,10 @@ pub struct WorldTransaction<'block, 'world> {
     pub(crate) settlement_receipts: StorageTransaction<'block, SettlementId, SettlementReceipt>,
     /// Native bond records keyed by the bond asset definition.
     pub(crate) bonds: StorageTransaction<'block, AssetDefinitionId, BondRecord>,
+    /// Record-date bond entitlements keyed by bond, cash flow and holder.
+    pub(crate) bond_entitlements: StorageTransaction<'block, BondEntitlementId, BondEntitlement>,
+    /// Bond identifiers keyed by their deterministic vault account.
+    pub(crate) bond_vaults: StorageTransaction<'block, AccountId, AssetDefinitionId>,
     /// Public-lane validators keyed by lane and account.
     pub(crate) public_lane_validators:
         StorageTransaction<'block, (LaneId, AccountId), PublicLaneValidatorRecord>,
@@ -9729,6 +9748,10 @@ pub struct WorldView<'world> {
     pub(crate) settlement_receipts: StorageView<'world, SettlementId, SettlementReceipt>,
     /// Native bond records keyed by the bond asset definition.
     pub(crate) bonds: StorageView<'world, AssetDefinitionId, BondRecord>,
+    /// Record-date bond entitlements keyed by bond, cash flow and holder.
+    pub(crate) bond_entitlements: StorageView<'world, BondEntitlementId, BondEntitlement>,
+    /// Bond identifiers keyed by their deterministic vault account.
+    pub(crate) bond_vaults: StorageView<'world, AccountId, AssetDefinitionId>,
     /// Public-lane validators keyed by lane and account.
     pub(crate) public_lane_validators:
         StorageView<'world, (LaneId, AccountId), PublicLaneValidatorRecord>,
@@ -19235,6 +19258,8 @@ impl World {
             repo_agreements_by_custodian: Storage::default(),
             settlement_receipts: Storage::default(),
             bonds: Storage::default(),
+            bond_entitlements: Storage::default(),
+            bond_vaults: Storage::default(),
             ministry_agenda_proposals: Storage::default(),
             governance_proposals: Storage::default(),
             governance_referenda: Storage::default(),
@@ -19316,6 +19341,7 @@ impl World {
             .rebuild_vpn_lease_indexes()
             .map_err(|error| format!("invalid VPN lease indexes in world constructor: {error}"))?;
         world.rebuild_repo_agreement_indexes();
+        world.rebuild_bond_vault_index();
         world.rebuild_proof_status_index();
         world.validate_identifier_claims().map_err(|error| {
             format!("identifier claims must match account bindings in world constructor: {error}")
@@ -20005,6 +20031,16 @@ impl World {
         self.vpn_active_lease_by_address_slot = active_by_address_slot.into_iter().collect();
         self.vpn_settled_leases_by_account = by_account.into_iter().collect();
         Ok(())
+    }
+    /// Rebuild the derived vault index from the registered bond records.
+    pub(crate) fn rebuild_bond_vault_index(&mut self) {
+        let vaults: BTreeMap<AccountId, AssetDefinitionId> = self
+            .bonds
+            .view()
+            .iter()
+            .map(|(id, record)| (record.vault().clone(), id.clone()))
+            .collect();
+        self.bond_vaults = vaults.into_iter().collect();
     }
     fn rebuild_repo_agreement_indexes(&mut self) {
         let (by_initiator, by_counterparty, by_custodian) = {
@@ -21054,6 +21090,10 @@ macro_rules! world_ro_accessors {
             storage settlement_receipts: SettlementId => SettlementReceipt;
             /// Native bond records (read-only).
             storage bonds: AssetDefinitionId => BondRecord;
+            /// Record-date bond entitlements (read-only).
+            storage bond_entitlements: BondEntitlementId => BondEntitlement;
+            /// Bond identifiers keyed by vault account (read-only).
+            storage bond_vaults: AccountId => AssetDefinitionId;
             /// Public lane validators keyed by `(lane_id, validator)` (read-only).
             storage public_lane_validators: (LaneId, AccountId) => PublicLaneValidatorRecord;
             /// Public lane stake shares keyed by `(lane_id, validator, staker)` (read-only).
@@ -21862,6 +21902,19 @@ pub trait WorldReadOnly {
             .get(definition_id)
             .into_iter()
             .flat_map(BTreeSet::iter)
+    }
+    /// Iterate the entitlements of `bond` in key order (cash flow, then holder), strictly
+    /// between the optional `after` and `before` entitlements of the same bond.
+    fn bond_entitlements_of_bond_iter<'a>(
+        &'a self,
+        bond: &'a AssetDefinitionId,
+        after: Option<&'a BondEntitlementId>,
+        before: Option<&'a BondEntitlementId>,
+    ) -> impl DoubleEndedIterator<Item = (&'a BondEntitlementId, &'a BondEntitlement)> + 'a {
+        self.bond_entitlements()
+            .range::<dyn AsBondEntitlementBondCompare>(BondEntitlementsByBondBounds::new(
+                bond, after, before,
+            ))
     }
     /// Iterate assets in account
     #[allow(clippy::type_complexity)]
@@ -24721,6 +24774,8 @@ impl WorldTransaction<'_, '_> {
             soradns_history_len: _,
             settlement_receipts: _,
             bonds: _,
+            bond_entitlements: _,
+            bond_vaults: _,
             public_lane_validators: _,
             public_lane_stake_shares: _,
             public_lane_stake_custody: _,
@@ -24950,6 +25005,8 @@ impl WorldTransaction<'_, '_> {
         self.soradns_history_len.apply();
         self.settlement_receipts.apply();
         self.bonds.apply();
+        self.bond_entitlements.apply();
+        self.bond_vaults.apply();
         self.domain_committees.apply();
         self.domain_endorsement_policies.apply();
         self.domain_endorsements.apply();
@@ -27153,6 +27210,7 @@ impl State {
             .map_err(|error| format!("failed to rebuild contract alias indexes: {error}"))?;
         self.rebuild_snapshot_root_indexes()?;
         self.world.rebuild_game_session_indexes()?;
+        self.world.rebuild_bond_vault_index();
         self.world.rebuild_nft_custody_indexes()?;
         for (_, record) in self.world.nft_custody_records.view().iter() {
             if record.network_id != self.network_id {

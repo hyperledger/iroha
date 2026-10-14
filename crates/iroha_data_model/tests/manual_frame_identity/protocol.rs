@@ -27,7 +27,7 @@ use iroha_data_model::{
     isi::{
         bond::{
             BondInstructionBox, CallBond, ClaimBondCashflow, CloseBondCashflow, DeclareBondDefault,
-            FundBondCashflow, RecordBondCashflow, RegisterBond,
+            FundBondCashflow, RecordBondCashflow, RegisterBond, ReplaceBondPayingAgent,
         },
         repo::{RepoInstructionBox, RepoIsi, RepoMarginCallIsi, ReverseRepoIsi},
     },
@@ -386,6 +386,7 @@ fn bond_values(rows: &mut Vec<Value>) {
         issue_date_ms: issue,
         maturity_date_ms: maturity,
         redemption_price_bps: 10_000,
+        payment_grace_ms: 7 * 86_400_000,
         call: Some(BondCallTerms {
             first_call_date_ms: 1_799_971_200_000,
             price_bps: 10_100,
@@ -413,12 +414,13 @@ fn bond_values(rows: &mut Vec<Value>) {
         BondInstructionBox::from(ClaimBondCashflow::new(bond.clone(), 2, account(0x33))),
         BondInstructionBox::from(CloseBondCashflow::new(bond.clone(), 2)),
         BondInstructionBox::from(CallBond::new(bond.clone(), 1_799_971_200_000)),
-        BondInstructionBox::from(DeclareBondDefault::new(bond, 3, [0xDE; 32])),
+        BondInstructionBox::from(DeclareBondDefault::new(bond.clone(), 3, [0xDE; 32])),
+        BondInstructionBox::from(ReplaceBondPayingAgent::new(bond, account(0x44))),
     ];
-    for (tag, value) in (0u32..7).zip(&values) {
+    for (tag, value) in (0u32..8).zip(&values) {
         assert_eq!(&value.encode()[..4], &tag.to_le_bytes());
         let mut unknown = value.encode();
-        unknown[..4].copy_from_slice(&7_u32.to_le_bytes());
+        unknown[..4].copy_from_slice(&8_u32.to_le_bytes());
         reject_payload::<BondInstructionBox>(&unknown);
     }
     for length in 0..4 {
@@ -435,7 +437,7 @@ fn manual_protocol_evidence() -> Value {
     kagemusha_values(&mut rows);
     repo_values(&mut rows);
     bond_values(&mut rows);
-    assert_eq!(rows.len(), 64);
+    assert_eq!(rows.len(), 66);
     norito::json!({
         "format_version": 1,
         "purpose": "eight public manual protocol owners before identity declaration",

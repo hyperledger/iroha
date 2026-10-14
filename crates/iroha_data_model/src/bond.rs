@@ -3,23 +3,28 @@
 //! A bond is an ordinary scale-0 fungible asset definition whose identifier is
 //! also the bond identifier. [`BondRecord`] stores the immutable registered
 //! [`BondTerms`] (including the fully materialised schedule) and the mutable
-//! [`BondState`] (lifecycle, holder snapshots and cash-flow accounting). Every
+//! [`BondState`] (lifecycle and cash-flow accounting). Every
 //! legally material cash-flow operation is a native instruction in
 //! [`crate::isi::bond`]; see `specs/finance/bond_ops.md` for the normative
 //! contract.
 //!
+//! Record-date entitlements live outside the record, one
+//! [`BondEntitlement`] per holder and cash flow, so a record stays small however
+//! widely the bond is held.
+//!
 //! All arithmetic is exact decimal arithmetic on [`Quantity`]; no floating point
 //! is used. Validation that depends only on the terms lives here so that SDKs and
 //! Core share one implementation.
-use std::collections::{BTreeMap, BTreeSet};
-
 use iroha_crypto::derive_non_signing_ed25519_public_key;
 use iroha_primitives::numeric::{Numeric, NumericSpec, Quantity, RoundingMode};
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 
 use crate::{
-    DeriveJsonDeserialize, DeriveJsonSerialize, account::AccountId, asset::AssetDefinitionId,
+    DeriveJsonDeserialize, DeriveJsonSerialize,
+    account::AccountId,
+    asset::{AssetDefinitionId, AssetId},
+    escrow::EscrowId,
 };
 
 /// A bond is identified by the asset definition of its units.
@@ -27,8 +32,13 @@ pub type BondId = AssetDefinitionId;
 
 /// Maximum number of scheduled cash flows in registered terms.
 pub const BOND_MAX_CASHFLOWS: usize = 400;
-/// Maximum number of investor holders captured by one record-date snapshot.
-pub const BOND_MAX_SNAPSHOT_HOLDERS: usize = 4096;
+/// Maximum number of balances or escrow records one `RecordBondCashflow` step examines.
+///
+/// Recording is paged: each step continues from the stored cursor, so the number
+/// of holders is unbounded while every instruction does bounded work.
+pub const BOND_RECORDING_PAGE_ENTRIES: usize = 512;
+/// Longest payment grace period a bond may register (366 days).
+pub const BOND_MAX_PAYMENT_GRACE_MS: u64 = 366 * MS_PER_DAY;
 /// Maximum ISIN length (ISO 6166).
 pub const BOND_ISIN_MAX_LEN: usize = 12;
 /// Maximum CFI length (ISO 10962).
@@ -61,8 +71,9 @@ pub fn bond_vault_account_id(bond: &BondId) -> AccountId {
 
 /// Day-count convention label recorded with the terms.
 ///
-/// The first-release kernel requires regular periods, so the label does not
-/// change any computed amount; it is retained for the legal record.
+/// Registration requires every coupon period to be regular (see
+/// [`BondTerms::validate`]), so the label does not change any computed amount;
+/// it is retained for the legal record.
 #[derive(
     Debug,
     Clone,
@@ -197,7 +208,9 @@ pub struct BondCashflowTerms {
     pub index: u16,
     /// Coupon or redemption.
     pub kind: BondCashflowKind,
-    /// Record date (Unix milliseconds); the holder snapshot is taken at or after it.
+    /// Record date (Unix milliseconds). From this time until the cash flow is
+    /// recorded the books are closed, so the recorded entitlements are the
+    /// holdings of record at this date.
     pub record_date_ms: u64,
     /// Payment date (Unix milliseconds); claims open at or after it.
     pub payment_date_ms: u64,
@@ -246,6 +259,9 @@ pub struct BondTerms {
     pub maturity_date_ms: u64,
     /// Redemption price in basis points of the denomination (`10_000` = par).
     pub redemption_price_bps: u32,
+    /// Grace period after a payment date before a missed payment may be declared a
+    /// default (at most [`BOND_MAX_PAYMENT_GRACE_MS`]).
+    pub payment_grace_ms: u64,
     /// Optional issuer call provision.
     pub call: Option<BondCallTerms>,
     /// Fully materialised schedule, 1..=400 entries.
@@ -305,11 +321,13 @@ pub enum BondLifecycle {
 pub enum BondCashflowStatus {
     /// Not yet recorded.
     Scheduled,
-    /// Holder snapshot taken; awaiting funding.
+    /// Record-date entitlements are being written page by page; the books are closed.
+    Recording,
+    /// Every entitlement is recorded; awaiting funding.
     Recorded,
     /// Exact amount due is held by the bond vault; holders may claim.
     Funded,
-    /// Every snapshot holder claimed and the residual returned to the issuer.
+    /// The paying agent closed active servicing; unclaimed entitlements stay claimable.
     Closed,
     /// Payment default declared for this cash flow.
     Defaulted,
@@ -379,6 +397,7 @@ bond_unit_enum_json!(BondLifecycle {
 });
 bond_unit_enum_json!(BondCashflowStatus {
     Scheduled,
+    Recording,
     Recorded,
     Funded,
     Closed,
@@ -386,7 +405,73 @@ bond_unit_enum_json!(BondCashflowStatus {
     Cancelled
 });
 
+/// Phase of a paged record-date recording.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    norito::NoritoSchema,
+)]
+#[norito_schema(name = "iroha_data_model::bond::BondRecordingPhase")]
+#[repr(u8)]
+pub enum BondRecordingPhase {
+    /// Aggregating the bond's global balances in asset-identifier order.
+    Holders,
+    /// Attributing native escrow custody balances to the escrow sellers.
+    Escrows,
+}
+bond_unit_enum_json!(BondRecordingPhase { Holders, Escrows });
+
+/// Resumption point of a paged record-date recording.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito_schema(name = "iroha_data_model::bond::BondRecordingCursor")]
+#[norito(deny_unknown_fields)]
+pub struct BondRecordingCursor {
+    /// Current phase.
+    pub phase: BondRecordingPhase,
+    /// Last bond balance examined in the holders phase.
+    pub after_asset: Option<AssetId>,
+    /// Last escrow record examined in the escrows phase.
+    pub after_escrow: Option<EscrowId>,
+}
+
+impl BondRecordingCursor {
+    /// Cursor of a recording that has not examined any entry yet.
+    #[must_use]
+    pub const fn start() -> Self {
+        Self {
+            phase: BondRecordingPhase::Holders,
+            after_asset: None,
+            after_escrow: None,
+        }
+    }
+}
+
 /// Mutable servicing state of one cash flow, together with its effective terms.
+///
+/// Per-holder entitlements are stored separately as [`BondEntitlement`]s; this
+/// state keeps only their totals.
 #[derive(
     Debug,
     Clone,
@@ -409,9 +494,13 @@ pub struct BondCashflowState {
     pub terms: BondCashflowTerms,
     /// Servicing status.
     pub status: BondCashflowStatus,
-    /// Entitled units per investor holder at record time.
-    pub snapshot: BTreeMap<AccountId, Quantity>,
-    /// Sum of snapshot units.
+    /// Resumption point while the status is `Recording`.
+    pub recording: Option<BondRecordingCursor>,
+    /// Holders with a recorded entitlement.
+    pub holders: u32,
+    /// Holders whose entitlement was claimed.
+    pub claimed_holders: u32,
+    /// Sum of entitled units.
     pub entitled_units: Quantity,
     /// Sum over holders of `floor(units × amount_per_unit)` at the payment-asset scale.
     pub amount_due: Quantity,
@@ -419,9 +508,7 @@ pub struct BondCashflowState {
     pub funded: Quantity,
     /// Amount paid to holders from the vault for this cash flow.
     pub paid: Quantity,
-    /// Holders that already claimed.
-    pub claimed: BTreeSet<AccountId>,
-    /// Committed block time of the record instruction.
+    /// Committed block time at which recording completed.
     pub recorded_at_ms: Option<u64>,
     /// Committed block time of the fund instruction.
     pub funded_at_ms: Option<u64>,
@@ -439,12 +526,13 @@ impl BondCashflowState {
         Self {
             terms,
             status: BondCashflowStatus::Scheduled,
-            snapshot: BTreeMap::new(),
+            recording: None,
+            holders: 0,
+            claimed_holders: 0,
             entitled_units: Quantity::zero(),
             amount_due: Quantity::zero(),
             funded: Quantity::zero(),
             paid: Quantity::zero(),
-            claimed: BTreeSet::new(),
             recorded_at_ms: None,
             funded_at_ms: None,
             closed_at_ms: None,
@@ -452,13 +540,87 @@ impl BondCashflowState {
         }
     }
 
-    /// Return whether every snapshot holder has claimed.
+    /// Return whether every entitled holder has claimed.
     #[must_use]
-    pub fn all_claimed(&self) -> bool {
-        self.snapshot
-            .keys()
-            .all(|holder| self.claimed.contains(holder))
+    pub const fn all_claimed(&self) -> bool {
+        self.claimed_holders == self.holders
     }
+
+    /// Return whether claims against this cash flow are open (funded, possibly closed).
+    #[must_use]
+    pub const fn is_claimable(&self) -> bool {
+        matches!(
+            self.status,
+            BondCashflowStatus::Funded | BondCashflowStatus::Closed
+        )
+    }
+}
+
+/// Key of one holder's record-date entitlement to one cash flow.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito_schema(name = "iroha_data_model::bond::BondEntitlementId")]
+#[norito(deny_unknown_fields)]
+pub struct BondEntitlementId {
+    /// Bond identifier.
+    pub bond: BondId,
+    /// Cash-flow index.
+    pub index: u16,
+    /// Entitled holder of record.
+    pub holder: AccountId,
+}
+
+impl BondEntitlementId {
+    /// Construct an entitlement key.
+    #[must_use]
+    pub fn new(bond: BondId, index: u16, holder: AccountId) -> Self {
+        Self {
+            bond,
+            index,
+            holder,
+        }
+    }
+}
+
+/// One holder's record-date entitlement to one cash flow.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito_schema(name = "iroha_data_model::bond::BondEntitlement")]
+#[norito(deny_unknown_fields)]
+pub struct BondEntitlement {
+    /// Bond, cash flow and holder.
+    pub id: BondEntitlementId,
+    /// Units held of record (own balance plus escrowed units the holder sold into custody).
+    pub units: Quantity,
+    /// Payment `floor(units × amount_per_unit)` at the payment-asset scale.
+    pub amount: Quantity,
+    /// Committed block time of the claim, once claimed.
+    pub claimed_at_ms: Option<u64>,
 }
 
 /// Mutable bond state.
@@ -486,7 +648,8 @@ pub struct BondState {
     /// Units burned by redemption claims.
     pub redeemed_units: Quantity,
     /// Set when a redemption cash flow is recorded; every movement of the bond
-    /// asset other than the redemption claim burn is then rejected.
+    /// asset is then rejected, except an escrow returning custody to its seller
+    /// (the holder of record), and only the redemption claim burn changes supply.
     pub transfers_frozen: bool,
     /// Effective schedule and servicing state, ordered by index.
     pub cashflows: Vec<BondCashflowState>,
@@ -566,39 +729,55 @@ impl BondRecord {
 ///
 /// Core surfaces every variant as an `InvariantViolation` whose message starts
 /// with the stable `bond.<code>:` prefix returned by [`BondError::code`].
-#[derive(Debug, Clone, PartialEq, Eq, displaydoc::Display, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BondError {
-    /// bond.invalid_terms: {0}
+    /// The terms violate a registration rule.
+    #[error("bond.invalid_terms: {0}")]
     InvalidTerms(String),
-    /// bond.unauthorized: {0}
+    /// The signer may not perform the operation.
+    #[error("bond.unauthorized: {0}")]
     Unauthorized(String),
-    /// bond.not_registered: bond {0} is not registered
+    /// No record exists for the bond.
+    #[error("bond.not_registered: bond {0} is not registered")]
     NotRegistered(String),
-    /// bond.already_registered: bond {0} is already registered
+    /// A record already exists for the bond.
+    #[error("bond.already_registered: bond {0} is already registered")]
     AlreadyRegistered(String),
-    /// bond.unknown_cashflow: bond has no cash flow {0}
+    /// The cash-flow index is out of range.
+    #[error("bond.unknown_cashflow: bond has no cash flow {0}")]
     UnknownCashflow(u16),
-    /// bond.invalid_state: {0}
+    /// The lifecycle or cash-flow status forbids the operation.
+    #[error("bond.invalid_state: {0}")]
     InvalidState(String),
-    /// bond.too_early: {0}
+    /// A date gate has not been reached.
+    #[error("bond.too_early: {0}")]
     TooEarly(String),
-    /// bond.encumbered: {0}
-    Encumbered(String),
-    /// bond.snapshot_too_large: record-date snapshot has {0} holders (maximum 4096)
-    SnapshotTooLarge(usize),
-    /// bond.not_in_snapshot: {0} is not entitled to this cash flow
-    NotInSnapshot(String),
-    /// bond.already_claimed: {0} already claimed this cash flow
+    /// The books are closed between a record date and the completed recording.
+    #[error("bond.books_closed: {0}")]
+    BooksClosed(String),
+    /// The account has no entitlement to the cash flow.
+    #[error("bond.not_entitled: {0} has no entitlement to this cash flow")]
+    NotEntitled(String),
+    /// The entitlement was already claimed.
+    #[error("bond.already_claimed: {0} already claimed this cash flow")]
     AlreadyClaimed(String),
-    /// bond.transfers_frozen: bond {0} is frozen after its redemption record date
+    /// The redemption is recorded, so the units cannot move any more.
+    #[error("bond.transfers_frozen: bond {0} is frozen after its redemption record date")]
     TransfersFrozen(String),
-    /// bond.supply_locked: bond {0} supply is fixed by its registered record
+    /// Mint and burn are locked for a registered bond.
+    #[error("bond.supply_locked: bond {0} supply is fixed by its registered record")]
     SupplyLocked(String),
-    /// bond.vault_custody: {0}
+    /// A bond vault can be debited and credited only by the kernel.
+    #[error("bond.vault_custody: {0}")]
     VaultCustody(String),
-    /// bond.retained: {0}
+    /// Registered bond units cannot enter a protocol custody the kernel does not attribute.
+    #[error("bond.custody_unsupported: {0}")]
+    CustodyUnsupported(String),
+    /// A record depends on the definition or account.
+    #[error("bond.retained: {0}")]
     Retained(String),
-    /// bond.arithmetic: {0}
+    /// Exact arithmetic failed.
+    #[error("bond.arithmetic: {0}")]
     Arithmetic(String),
 }
 
@@ -614,13 +793,13 @@ impl BondError {
             Self::UnknownCashflow(_) => "bond.unknown_cashflow",
             Self::InvalidState(_) => "bond.invalid_state",
             Self::TooEarly(_) => "bond.too_early",
-            Self::Encumbered(_) => "bond.encumbered",
-            Self::SnapshotTooLarge(_) => "bond.snapshot_too_large",
-            Self::NotInSnapshot(_) => "bond.not_in_snapshot",
+            Self::BooksClosed(_) => "bond.books_closed",
+            Self::NotEntitled(_) => "bond.not_entitled",
             Self::AlreadyClaimed(_) => "bond.already_claimed",
             Self::TransfersFrozen(_) => "bond.transfers_frozen",
             Self::SupplyLocked(_) => "bond.supply_locked",
             Self::VaultCustody(_) => "bond.vault_custody",
+            Self::CustodyUnsupported(_) => "bond.custody_unsupported",
             Self::Retained(_) => "bond.retained",
             Self::Arithmetic(_) => "bond.arithmetic",
         }
@@ -692,36 +871,20 @@ pub fn holder_payment(
     amount_per_unit: &Quantity,
     payment_spec: NumericSpec,
 ) -> Result<Quantity, BondError> {
-    match payment_spec.scale() {
-        Some(scale) => units
-            .try_mul_div_decimal_round(
-                amount_per_unit.as_numeric(),
-                &Numeric::one(),
-                scale,
-                RoundingMode::TowardZero,
-            )
-            .map_err(arithmetic),
-        None => units
-            .try_mul_decimal(amount_per_unit.as_numeric())
-            .map_err(arithmetic),
-    }
-}
-
-/// Total amount due for a snapshot: the sum of rounded-down holder payments.
-///
-/// # Errors
-/// Rejects an unrepresentable product or sum.
-pub fn snapshot_amount_due(
-    snapshot: &BTreeMap<AccountId, Quantity>,
-    amount_per_unit: &Quantity,
-    payment_spec: NumericSpec,
-) -> Result<Quantity, BondError> {
-    snapshot
-        .values()
-        .try_fold(Quantity::zero(), |total, units| {
-            let payment = holder_payment(units, amount_per_unit, payment_spec)?;
-            total.checked_add(&payment).map_err(arithmetic)
-        })
+    payment_spec
+        .scale()
+        .map_or_else(
+            || units.try_mul_decimal(amount_per_unit.as_numeric()),
+            |scale| {
+                units.try_mul_div_decimal_round(
+                    amount_per_unit.as_numeric(),
+                    &Numeric::one(),
+                    scale,
+                    RoundingMode::TowardZero,
+                )
+            },
+        )
+        .map_err(arithmetic)
 }
 
 fn validate_label(label: &str, value: &str, max: usize) -> Result<(), BondError> {
@@ -776,6 +939,9 @@ impl BondTerms {
         if self.issue_date_ms >= self.maturity_date_ms {
             return Err(invalid("issue date must precede maturity"));
         }
+        if self.payment_grace_ms > BOND_MAX_PAYMENT_GRACE_MS {
+            return Err(invalid("payment grace period must not exceed 366 days"));
+        }
         if let Some(call) = &self.call {
             if call.price_bps == 0 {
                 return Err(invalid("call price must be positive"));
@@ -799,6 +965,14 @@ impl BondTerms {
                 "schedule must contain 1..={BOND_MAX_CASHFLOWS} cash flows"
             )));
         }
+        // Coupon amounts are only right for regular periods, so the coupon
+        // payment dates must be exactly the regular dates of the terms.
+        let regular_dates = regular_coupon_payment_dates(
+            self.coupon_frequency,
+            self.issue_date_ms,
+            self.maturity_date_ms,
+        )?;
+        let mut coupons = 0_usize;
         let coupon_amount = if self.coupon_frequency == 0 {
             None
         } else {
@@ -858,23 +1032,39 @@ impl BondTerms {
                             cashflow.index
                         )));
                     }
+                    match regular_dates.get(coupons) {
+                        Some(date) if *date == cashflow.payment_date_ms => {}
+                        Some(date) => {
+                            return Err(invalid(format!(
+                                "coupon {} must be paid on the regular date {date}",
+                                cashflow.index
+                            )));
+                        }
+                        None => {
+                            return Err(invalid(format!(
+                                "the regular schedule has {} coupons",
+                                regular_dates.len()
+                            )));
+                        }
+                    }
+                    coupons += 1;
                 }
             }
-            if let Some(previous) = previous {
-                // Coupon payment dates strictly increase. The final coupon and
-                // the redemption may share the maturity payment date, as in
-                // every bullet bond.
-                let same_day_redemption = previous.kind == BondCashflowKind::Coupon
-                    && cashflow.kind == BondCashflowKind::Redemption
-                    && previous.payment_date_ms == cashflow.payment_date_ms;
-                if cashflow.payment_date_ms <= previous.payment_date_ms && !same_day_redemption {
-                    return Err(invalid("payment dates must strictly increase"));
-                }
-                if cashflow.record_date_ms < previous.record_date_ms {
-                    return Err(invalid("record dates must not decrease"));
-                }
+            // Coupon payment dates are the strictly increasing regular dates and
+            // the redemption is paid on maturity together with the final coupon,
+            // so only record dates need an ordering check.
+            if let Some(previous) = previous
+                && cashflow.record_date_ms < previous.record_date_ms
+            {
+                return Err(invalid("record dates must not decrease"));
             }
             previous = Some(cashflow);
+        }
+        if coupons != regular_dates.len() {
+            return Err(invalid(format!(
+                "the regular schedule has {} coupons",
+                regular_dates.len()
+            )));
         }
         Ok(())
     }
@@ -952,11 +1142,57 @@ fn months_before(timestamp_ms: u64, months: u32) -> Option<u64> {
         .checked_add(time_of_day)
 }
 
+/// Regular coupon payment dates of a fixed-rate bullet bond, in increasing order.
+///
+/// Dates step back from maturity by `12 / coupon_frequency` calendar months
+/// (end-of-month clamping, time of day kept) and must land exactly on the issue
+/// date, so every period is regular. The last date is the maturity date. A
+/// zero-coupon bond (`coupon_frequency == 0`) has none.
+///
+/// # Errors
+/// Rejects an unsupported frequency, an issue date not before maturity, an
+/// irregular first period or more than [`BOND_MAX_CASHFLOWS`] coupons.
+pub fn regular_coupon_payment_dates(
+    coupon_frequency: u8,
+    issue_date_ms: u64,
+    maturity_date_ms: u64,
+) -> Result<Vec<u64>, BondError> {
+    if !BOND_COUPON_FREQUENCIES.contains(&coupon_frequency) {
+        return Err(invalid("coupon frequency must be 0, 1, 2, 4 or 12"));
+    }
+    if issue_date_ms >= maturity_date_ms {
+        return Err(invalid("issue date must precede maturity"));
+    }
+    let mut payment_dates = Vec::new();
+    if coupon_frequency == 0 {
+        return Ok(payment_dates);
+    }
+    let step = 12 / u32::from(coupon_frequency);
+    let mut periods = 0_u32;
+    loop {
+        let date = months_before(maturity_date_ms, step * periods)
+            .ok_or_else(|| invalid("schedule date out of range"))?;
+        if date <= issue_date_ms {
+            if date != issue_date_ms {
+                return Err(invalid(
+                    "the first coupon period is irregular: whole periods back from maturity must reach the issue date",
+                ));
+            }
+            break;
+        }
+        payment_dates.push(date);
+        periods += 1;
+        if payment_dates.len() >= BOND_MAX_CASHFLOWS {
+            return Err(invalid("schedule exceeds the cash-flow limit"));
+        }
+    }
+    payment_dates.reverse();
+    Ok(payment_dates)
+}
+
 /// Materialise the regular schedule of a fixed-rate bullet bond.
 ///
-/// Coupon payment dates are generated backwards from maturity in steps of
-/// `12 / coupon_frequency` calendar months (end-of-month clamping) and must
-/// land exactly on the issue date, so every period is regular. The final coupon
+/// Coupon payment dates are [`regular_coupon_payment_dates`]. The final coupon
 /// and the redemption share the maturity payment date. Every record date is
 /// `payment_date - record_offset_ms`, clamped to the issue date.
 ///
@@ -966,40 +1202,16 @@ fn months_before(timestamp_ms: u64, months: u32) -> Option<u64> {
 pub fn fixed_rate_bullet_schedule(
     request: &BondScheduleRequest,
 ) -> Result<Vec<BondCashflowTerms>, BondError> {
-    if !BOND_COUPON_FREQUENCIES.contains(&request.coupon_frequency) {
-        return Err(invalid("coupon frequency must be 0, 1, 2, 4 or 12"));
-    }
-    if request.issue_date_ms >= request.maturity_date_ms {
-        return Err(invalid("issue date must precede maturity"));
-    }
+    let payment_dates = regular_coupon_payment_dates(
+        request.coupon_frequency,
+        request.issue_date_ms,
+        request.maturity_date_ms,
+    )?;
     let record_date = |payment: u64| {
         payment
             .saturating_sub(request.record_offset_ms)
             .max(request.issue_date_ms)
     };
-    let mut payment_dates = Vec::new();
-    if request.coupon_frequency != 0 {
-        let step = 12 / u32::from(request.coupon_frequency);
-        let mut periods = 0_u32;
-        loop {
-            let date = months_before(request.maturity_date_ms, step * periods)
-                .ok_or_else(|| invalid("schedule date out of range"))?;
-            if date <= request.issue_date_ms {
-                if date != request.issue_date_ms {
-                    return Err(invalid(
-                        "the first coupon period is irregular; materialise the schedule explicitly",
-                    ));
-                }
-                break;
-            }
-            payment_dates.push(date);
-            periods += 1;
-            if payment_dates.len() >= BOND_MAX_CASHFLOWS {
-                return Err(invalid("schedule exceeds the cash-flow limit"));
-            }
-        }
-        payment_dates.reverse();
-    }
     let coupon = (request.coupon_frequency != 0)
         .then(|| {
             regular_coupon_amount(
@@ -1034,7 +1246,8 @@ pub fn fixed_rate_bullet_schedule(
 pub mod prelude {
     pub use super::{
         BondCallTerms, BondCashflowKind, BondCashflowState, BondCashflowStatus, BondCashflowTerms,
-        BondDayCount, BondId, BondIdentifiers, BondLifecycle, BondRecord, BondState, BondTerms,
+        BondDayCount, BondEntitlement, BondEntitlementId, BondId, BondIdentifiers, BondLifecycle,
+        BondRecord, BondRecordingCursor, BondRecordingPhase, BondState, BondTerms,
         bond_vault_account_id,
     };
 }

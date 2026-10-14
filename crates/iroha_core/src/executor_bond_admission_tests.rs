@@ -2,15 +2,17 @@
 mod bond_admission {
     use super::*;
     use crate::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+    use iroha_data_model::transaction::TransactionBuilder;
     use iroha_data_model::{
         asset::AssetBalancePolicy,
         bond::{
-            BondCallTerms, BondCashflowKind, BondCashflowStatus, BondCashflowTerms, BondDayCount,
-            BondIdentifiers, BondLifecycle, BondRecord, BondTerms, bond_vault_account_id,
+            BondCallTerms, BondCashflowStatus, BondCashflowTerms, BondDayCount, BondEntitlementId,
+            BondIdentifiers, BondLifecycle, BondRecord, BondScheduleRequest, BondTerms,
+            bond_vault_account_id, fixed_rate_bullet_schedule,
         },
         isi::bond::{
-            BondInstructionBox, CallBond, ClaimBondCashflow, CloseBondCashflow,
-            DeclareBondDefault, FundBondCashflow, RecordBondCashflow, RegisterBond,
+            BondInstructionBox, CallBond, ClaimBondCashflow, CloseBondCashflow, DeclareBondDefault,
+            FundBondCashflow, RecordBondCashflow, RegisterBond, ReplaceBondPayingAgent,
         },
     };
     use iroha_primitives::numeric::NumericSpec;
@@ -24,23 +26,38 @@ mod bond_admission {
     /// Key slots reserved for investors; the budget test uses all of them.
     const MAX_INVESTORS: usize = 17;
 
-    /// Compressed schedule: issue at 10s, four semi-annual-rate coupons every 100s and a par
-    /// redemption on the last coupon date. Record dates precede payment dates by 10s.
-    const ISSUE: u64 = 10_000;
-    const PERIOD: u64 = 100_000;
-    const RECORD_OFFSET: u64 = 10_000;
+    /// Regular semi-annual schedule from 2026-01-15 to 2028-01-15: four coupons and a par
+    /// redemption on the last coupon date. Record dates precede payment dates by one day.
+    const DAY: u64 = 86_400_000;
+    const ISSUE: u64 = 1_768_435_200_000;
+    const MATURITY: u64 = 1_831_507_200_000;
+    const RECORD_OFFSET: u64 = DAY;
+    const GRACE: u64 = 7 * DAY;
     const COUPONS: u16 = 4;
 
     fn q(text: &str) -> Quantity {
         text.parse().expect("quantity literal")
     }
 
+    fn schedule() -> Vec<BondCashflowTerms> {
+        fixed_rate_bullet_schedule(&BondScheduleRequest {
+            denomination: q("50"),
+            coupon_rate_bps: 650,
+            coupon_frequency: 2,
+            issue_date_ms: ISSUE,
+            maturity_date_ms: MATURITY,
+            redemption_price_bps: 10_000,
+            record_offset_ms: RECORD_OFFSET,
+        })
+        .expect("regular schedule")
+    }
+
     fn payment_date(index: u16) -> u64 {
-        ISSUE + PERIOD * (u64::from(index) + 1)
+        schedule()[usize::from(index)].payment_date_ms
     }
 
     fn maturity() -> u64 {
-        payment_date(COUPONS - 1)
+        MATURITY
     }
 
     struct Fixture {
@@ -51,10 +68,22 @@ mod bond_admission {
         bond: AssetDefinitionId,
         eur: AssetDefinitionId,
         now: u64,
+        /// Fee asset every transaction pays a Nexus base fee in, when fees are enabled.
+        fee_asset: Option<AssetDefinitionId>,
     }
 
     impl Fixture {
         fn new() -> Self {
+            Self::build(false)
+        }
+
+        /// A chain whose signed genesis charges a one-unit Nexus base fee on every
+        /// transaction; every account holds the fee asset.
+        fn with_fees() -> Self {
+            Self::build(true)
+        }
+
+        fn build(fees: bool) -> Self {
             let keys: Vec<KeyPair> = (0..FIRST_INVESTOR + MAX_INVESTORS)
                 .map(|slot| {
                     KeyPair::from_seed(
@@ -74,38 +103,107 @@ mod bond_admission {
             );
             let eur =
                 AssetDefinitionId::derive_from_components(domain.clone(), "eur".parse().unwrap());
-            let world = World::with_assets(
-                [Domain::new(domain.clone()).build(&accounts[ISSUER])],
-                accounts.iter().map(|id| Account::new(id.clone()).build(id)),
-                [AssetDefinition::new(
+            let fee_asset = fees.then(|| {
+                AssetDefinitionId::parse_address_literal(
+                    &iroha_config::parameters::defaults::nexus::fees::fee_asset_id(),
+                )
+                .expect("canonical fee asset")
+            });
+            let mut definitions = vec![
+                AssetDefinition::new(
                     eur.clone(),
                     "EUR e-money",
                     NumericSpec::fractional(2),
                     AssetBalancePolicy::Global,
                     Some(domain.clone()),
                 )
-                .build(&accounts[AGENT])],
-                [
+                .build(&accounts[AGENT]),
+            ];
+            let mut assets = vec![
+                Asset::new(
+                    AssetId::new(eur.clone(), accounts[AGENT].clone()),
+                    Quantity::from(1_000_000_u32),
+                ),
+                Asset::new(
+                    AssetId::new(eur.clone(), accounts[ISSUER].clone()),
+                    Quantity::from(1_000_u32),
+                ),
+            ];
+            if let Some(fee_asset) = &fee_asset {
+                definitions.push(
+                    AssetDefinition::numeric(
+                        fee_asset.clone(),
+                        "xor".to_owned(),
+                        AssetBalancePolicy::Global,
+                        None,
+                    )
+                    .build(&accounts[OUTSIDER]),
+                );
+                assets.extend(accounts.iter().map(|account| {
                     Asset::new(
-                        AssetId::new(eur.clone(), accounts[AGENT].clone()),
-                        Quantity::from(1_000_000_u32),
-                    ),
-                    Asset::new(
-                        AssetId::new(eur.clone(), accounts[ISSUER].clone()),
+                        AssetId::new(fee_asset.clone(), account.clone()),
                         Quantity::from(1_000_u32),
-                    ),
-                ],
+                    )
+                }));
+            }
+            let world = World::with_assets(
+                [Domain::new(domain.clone()).build(&accounts[ISSUER])],
+                accounts.iter().map(|id| Account::new(id.clone()).build(id)),
+                definitions,
+                assets,
                 [],
             );
+            let mut config = TestChainConfig::new(world, 1_000);
+            if let Some(fee_asset) = &fee_asset {
+                let mut nexus = iroha_config::parameters::actual::Nexus::default();
+                nexus.fees.base_fee = Quantity::from(1_u32);
+                nexus.fees.per_byte_fee = Quantity::zero();
+                nexus.fees.per_instruction_fee = Quantity::zero();
+                nexus.fees.per_gas_unit_fee = Quantity::zero();
+                nexus.fees.fee_asset_id = fee_asset.to_string();
+                nexus.fees.fee_sink_account_id = accounts[OUTSIDER].to_string();
+                config.nexus = Some(nexus);
+            }
             Self {
-                chain: CertifiedTestChain::start(TestChainConfig::new(world, 1_000)).unwrap(),
+                chain: CertifiedTestChain::start(config).unwrap(),
                 keys,
                 accounts,
                 domain,
                 bond,
                 eur,
                 now: 1_000,
+                fee_asset,
             }
+        }
+
+        /// Sign `instructions` for `signer`, consenting to the fixture's Nexus fee when enabled.
+        fn sign(
+            &self,
+            signer: usize,
+            instructions: Vec<InstructionBox>,
+            created_ms: u64,
+        ) -> SignedTransaction {
+            let Some(fee_asset) = &self.fee_asset else {
+                return self
+                    .chain
+                    .sign(&self.keys[signer], instructions, created_ms);
+            };
+            let mut builder = TransactionBuilder::new(
+                self.chain.network_id(),
+                self.accounts[signer].clone(),
+                FeePaymentIntent::authority(
+                    vec![FeeChargeLimit::new(
+                        FeeChargeKind::Nexus,
+                        fee_asset.clone(),
+                        Quantity::from(10_u32),
+                    )],
+                    None,
+                ),
+            );
+            builder.set_creation_time(core::time::Duration::from_millis(created_ms));
+            builder
+                .with_instructions(instructions)
+                .sign(self.keys[signer].private_key())
         }
 
         fn investor(n: usize) -> usize {
@@ -124,7 +222,7 @@ mod bond_admission {
         ) {
             let time = time.max(self.now + 2);
             self.now = time;
-            let transaction = self.chain.sign(&self.keys[signer], instructions, time - 1);
+            let transaction = self.sign(signer, instructions, time - 1);
             let outcome = self.chain.commit_at(time, vec![transaction]);
             let committed = self.chain.committed(self.chain.height());
             let error = committed.block().output_error(0);
@@ -147,22 +245,8 @@ mod bond_admission {
         }
 
         fn terms(&self, call: Option<BondCallTerms>) -> BondTerms {
-            let mut cashflows: Vec<BondCashflowTerms> = (0..COUPONS)
-                .map(|index| BondCashflowTerms {
-                    index,
-                    kind: BondCashflowKind::Coupon,
-                    record_date_ms: payment_date(index) - RECORD_OFFSET,
-                    payment_date_ms: payment_date(index),
-                    amount_per_unit: q("1.625"),
-                })
-                .collect();
-            cashflows.push(BondCashflowTerms {
-                index: COUPONS,
-                kind: BondCashflowKind::Redemption,
-                record_date_ms: maturity() - RECORD_OFFSET,
-                payment_date_ms: maturity(),
-                amount_per_unit: q("50"),
-            });
+            let cashflows = schedule();
+            assert_eq!(cashflows.len(), usize::from(COUPONS) + 1);
             BondTerms {
                 issuer: self.accounts[ISSUER].clone(),
                 paying_agent: self.accounts[AGENT].clone(),
@@ -174,6 +258,7 @@ mod bond_admission {
                 issue_date_ms: ISSUE,
                 maturity_date_ms: maturity(),
                 redemption_price_bps: 10_000,
+                payment_grace_ms: GRACE,
                 call,
                 cashflows,
                 identifiers: BondIdentifiers {
@@ -272,12 +357,30 @@ mod bond_admission {
             .into()
         }
 
+        fn units_entitled(&self, index: u16, slot: usize) -> Option<Quantity> {
+            self.chain
+                .state()
+                .view()
+                .world()
+                .bond_entitlements()
+                .get(&BondEntitlementId::new(
+                    self.bond.clone(),
+                    index,
+                    self.accounts[slot].clone(),
+                ))
+                .map(|entitlement| entitlement.units.clone())
+        }
+
         fn record_and_fund(&mut self, index: u16, record_date: u64) {
             self.submit(
                 AGENT,
                 BondInstructionBox::from(RecordBondCashflow::new(self.bond.clone(), index)),
                 record_date,
                 None,
+            );
+            assert_eq!(
+                self.record().state.cashflows[usize::from(index)].status,
+                BondCashflowStatus::Recorded
             );
             let source = AssetId::new(self.eur.clone(), self.accounts[AGENT].clone());
             self.submit(
@@ -309,7 +412,7 @@ mod bond_admission {
                 .public_key()
                 .clone(),
         );
-        let instructions: [InstructionBox; 6] = [
+        let instructions: [InstructionBox; 7] = [
             BondInstructionBox::from(RecordBondCashflow::new(bond.clone(), 0)).into(),
             BondInstructionBox::from(FundBondCashflow::new(
                 bond.clone(),
@@ -320,7 +423,16 @@ mod bond_admission {
             BondInstructionBox::from(ClaimBondCashflow::new(bond.clone(), 0, holder)).into(),
             BondInstructionBox::from(CloseBondCashflow::new(bond.clone(), 0)).into(),
             BondInstructionBox::from(CallBond::new(bond.clone(), 1)).into(),
-            BondInstructionBox::from(DeclareBondDefault::new(bond, 0, [1; 32])).into(),
+            BondInstructionBox::from(DeclareBondDefault::new(bond.clone(), 0, [1; 32])).into(),
+            BondInstructionBox::from(ReplaceBondPayingAgent::new(
+                bond,
+                AccountId::new(
+                    KeyPair::from_seed(vec![0xBF; 32], Algorithm::Ed25519)
+                        .public_key()
+                        .clone(),
+                ),
+            ))
+            .into(),
         ];
         for instruction in &instructions {
             assert!(
@@ -340,7 +452,10 @@ mod bond_admission {
         fixture.issue(None, &allotments);
         // OTC transfer before the first record date moves 5 units from investor 1 to 0.
         let otc = Transfer::asset_quantity(
-            AssetId::new(fixture.bond.clone(), fixture.accounts[Fixture::investor(1)].clone()),
+            AssetId::new(
+                fixture.bond.clone(),
+                fixture.accounts[Fixture::investor(1)].clone(),
+            ),
             5_u32,
             fixture.accounts[Fixture::investor(0)].clone(),
         );
@@ -352,7 +467,8 @@ mod bond_admission {
         assert_eq!(units[1], q("15"));
         assert_eq!(fixture.units(ISSUER), q("717"));
 
-        // Recording is the paying agent's, never the issuer's, and only at the record date.
+        // Recording opens at the record date; from then the books stay closed until it is
+        // recorded, and any account may record because the result is the holders of record.
         let record_0 = payment_date(0) - RECORD_OFFSET;
         fixture.submit(
             AGENT,
@@ -360,16 +476,40 @@ mod bond_admission {
             record_0 - 1,
             Some("bond.too_early"),
         );
+        let closed = Transfer::asset_quantity(
+            AssetId::new(
+                fixture.bond.clone(),
+                fixture.accounts[Fixture::investor(2)].clone(),
+            ),
+            1_u32,
+            fixture.accounts[OUTSIDER].clone(),
+        );
         fixture.submit(
-            ISSUER,
+            Fixture::investor(2),
+            closed,
+            record_0,
+            Some("bond.books_closed"),
+        );
+        fixture.submit(
+            OUTSIDER,
             BondInstructionBox::from(RecordBondCashflow::new(fixture.bond.clone(), 0)),
             record_0,
-            Some("recording must be signed by the paying agent"),
+            None,
         );
-        fixture.record_and_fund(0, record_0);
+        let source = AssetId::new(fixture.eur.clone(), fixture.accounts[AGENT].clone());
+        fixture.submit(
+            AGENT,
+            BondInstructionBox::from(FundBondCashflow::new(fixture.bond.clone(), 0, source)),
+            record_0,
+            None,
+        );
         let cashflow = fixture.record().state.cashflows[0].clone();
         assert_eq!(cashflow.status, BondCashflowStatus::Funded);
-        assert_eq!(cashflow.snapshot.len(), INVESTORS);
+        assert_eq!(cashflow.holders, u32::try_from(INVESTORS).unwrap());
+        assert_eq!(
+            fixture.units_entitled(0, Fixture::investor(0)),
+            Some(q("15"))
+        );
         assert_eq!(cashflow.entitled_units, q("283"));
         // Each holding times 1.625, rounded down to cents.
         let expected_due = units
@@ -384,7 +524,9 @@ mod bond_admission {
                     )
                     .unwrap()
             })
-            .try_fold(Quantity::zero(), |total, payment| total.checked_add(&payment))
+            .try_fold(Quantity::zero(), |total, payment| {
+                total.checked_add(&payment)
+            })
             .unwrap();
         assert_eq!(cashflow.amount_due, expected_due);
         assert_eq!(fixture.vault_eur(), expected_due);
@@ -449,7 +591,10 @@ mod bond_admission {
         assert!(fixture.record().state.transfers_frozen);
         assert_eq!(fixture.vault_eur(), q("14150"));
         let frozen = Transfer::asset_quantity(
-            AssetId::new(fixture.bond.clone(), fixture.accounts[Fixture::investor(2)].clone()),
+            AssetId::new(
+                fixture.bond.clone(),
+                fixture.accounts[Fixture::investor(2)].clone(),
+            ),
             1_u32,
             fixture.accounts[OUTSIDER].clone(),
         );
@@ -512,7 +657,7 @@ mod bond_admission {
             payment_date(0),
             Some(crate::fastpq::source_reservation::admission::SOURCE_INTRINSIC_REJECTION),
         );
-        assert!(fixture.record().state.cashflows[0].claimed.is_empty());
+        assert_eq!(fixture.record().state.cashflows[0].claimed_holders, 0);
         assert_eq!(fixture.eur(Fixture::investor(0)), Quantity::zero());
         let full = claims(&fixture, 0, 0..16);
         fixture.submit_many(AGENT, full, payment_date(0), None);
@@ -538,10 +683,9 @@ mod bond_admission {
             Some(crate::fastpq::source_reservation::admission::SOURCE_INTRINSIC_REJECTION),
         );
         assert_eq!(fixture.units(Fixture::investor(0)), q("10"));
-        assert!(
-            fixture.record().state.cashflows[usize::from(COUPONS)]
-                .claimed
-                .is_empty()
+        assert_eq!(
+            fixture.record().state.cashflows[usize::from(COUPONS)].claimed_holders,
+            0
         );
         for range in [0..16, 16..MAX_INVESTORS] {
             let packed = claims(&fixture, COUPONS, range);
@@ -553,13 +697,50 @@ mod bond_admission {
         assert_eq!(fixture.record().state.lifecycle, BondLifecycle::Matured);
     }
 
+    /// A paid Nexus fee does not use the sixteen-delta entry budget of the claims it
+    /// carries: the bootstrap profile bounds the body, and the fee is charged separately.
+    #[test]
+    fn initial_fee_paying_claims_keep_the_sixteen_claim_bound() {
+        let _guard = crate::status::nexus_fee_test_lock()
+            .lock()
+            .expect("nexus fee test lock");
+        crate::status::reset_nexus_economics_for_tests();
+        let mut fixture = Fixture::with_fees();
+        let fee_asset = fixture.fee_asset.clone().expect("fees enabled");
+        let fee_balance =
+            |fixture: &Fixture, slot: usize| fixture.balance(&fee_asset, &fixture.accounts[slot]);
+        fixture.issue(None, &[10; MAX_INVESTORS]);
+        fixture.record_and_fund(0, payment_date(0) - RECORD_OFFSET);
+        let claims = |fixture: &Fixture, holders: core::ops::Range<usize>| {
+            holders
+                .map(|n| fixture.claim(0, Fixture::investor(n)))
+                .collect::<Vec<InstructionBox>>()
+        };
+        let agent_fee = fee_balance(&fixture, AGENT);
+        let over = claims(&fixture, 0..MAX_INVESTORS);
+        fixture.submit_many(
+            AGENT,
+            over,
+            payment_date(0),
+            Some(crate::fastpq::source_reservation::admission::SOURCE_INTRINSIC_REJECTION),
+        );
+        assert_eq!(fixture.record().state.cashflows[0].claimed_holders, 0);
+        let full = claims(&fixture, 0..16);
+        fixture.submit_many(AGENT, full, payment_date(0), None);
+        assert_eq!(fixture.record().state.cashflows[0].claimed_holders, 16);
+        assert!(
+            fee_balance(&fixture, AGENT) < agent_fee,
+            "the agent paid its fees"
+        );
+    }
+
     #[test]
     fn initial_bond_call_redeems_a_single_holder_at_the_call_price() {
         let mut fixture = Fixture::new();
         let call = BondCallTerms {
             first_call_date_ms: payment_date(1),
             price_bps: 10_100,
-            notice_ms: 50_000,
+            notice_ms: 30 * DAY,
         };
         fixture.issue(Some(call), &[100]);
         let holder = Fixture::investor(0);
@@ -571,13 +752,13 @@ mod bond_admission {
         fixture.submit(
             AGENT,
             BondInstructionBox::from(CallBond::new(fixture.bond.clone(), call_date)),
-            call_date - 60_000,
+            call_date - 31 * DAY,
             Some("a call must be signed by the issuer"),
         );
         fixture.submit(
             ISSUER,
             BondInstructionBox::from(CallBond::new(fixture.bond.clone(), call_date)),
-            call_date - 60_000,
+            call_date - 31 * DAY,
             None,
         );
         let record = fixture.record();
@@ -622,19 +803,19 @@ mod bond_admission {
         fixture.submit(
             AGENT,
             BondInstructionBox::from(DeclareBondDefault::new(fixture.bond.clone(), 1, [0xDE; 32])),
-            payment_date(1),
-            Some("has not passed"),
+            payment_date(1) + GRACE,
+            Some("grace period have not passed"),
         );
         fixture.submit(
             OUTSIDER,
             BondInstructionBox::from(DeclareBondDefault::new(fixture.bond.clone(), 1, [0xDE; 32])),
-            payment_date(1) + 1,
+            payment_date(1) + GRACE + 1,
             Some("a default declaration must be signed by the paying agent"),
         );
         fixture.submit(
             AGENT,
             BondInstructionBox::from(DeclareBondDefault::new(fixture.bond.clone(), 1, [0xDE; 32])),
-            payment_date(1) + 1,
+            payment_date(1) + GRACE + 1,
             None,
         );
         let record = fixture.record();
@@ -647,7 +828,7 @@ mod bond_admission {
         fixture.submit(
             AGENT,
             BondInstructionBox::from(FundBondCashflow::new(fixture.bond.clone(), 1, source)),
-            payment_date(1) + 2,
+            payment_date(1) + GRACE + 2,
             Some("is Defaulted"),
         );
         // The coupon funded before the default stays claimable.
@@ -655,8 +836,8 @@ mod bond_admission {
             fixture.claim(0, Fixture::investor(0)),
             fixture.claim(0, Fixture::investor(1)),
         ];
-        fixture.submit_many(AGENT, claims, payment_date(1) + 2, None);
-        fixture.close(0, payment_date(1) + 2);
+        fixture.submit_many(AGENT, claims, payment_date(1) + GRACE + 2, None);
+        fixture.close(0, payment_date(1) + GRACE + 2);
         assert_eq!(fixture.eur(Fixture::investor(0)), q("162.5"));
         assert_eq!(fixture.eur(Fixture::investor(1)), q("81.25"));
         assert_eq!(fixture.vault_eur(), Quantity::zero());

@@ -1692,11 +1692,14 @@ fn initial_native_instruction_is_explicitly_admitted(instruction: &InstructionBo
         return true;
     }
     // The bond-servicing kernel is admitted only through its registered outer
-    // box; leaf wire identifiers stay unregistered. Core binds registration and
-    // calls to the issuer owning the scale-0 definition, recording, closing and
-    // defaults to the registered paying agent, funding to the paying agent or
-    // issuer debiting its own balance, and claims to the holder or a paying-agent
-    // push that always pays the holder. Committed block time gates every date.
+    // box; leaf wire identifiers stay unregistered. Core binds registration,
+    // calls and paying-agent replacement to the issuer owning the scale-0
+    // definition, closing and defaults to the registered paying agent, funding to
+    // the paying agent or issuer debiting its own balance, and claims to the
+    // holder or a paying-agent push that always pays the holder. Recording is
+    // open to any signer: the books are closed from the record date, so the
+    // recorded entitlements do not depend on who records or when. Committed block
+    // time gates every date.
     if is_any!(iroha_data_model::isi::bond::BondInstructionBox) {
         return true;
     }

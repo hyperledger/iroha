@@ -2,8 +2,9 @@
 //!
 //! `javascript/iroha_js/test/fixtures/bond-v1-codec.json` is produced by this module from
 //! the native data model: instruction envelopes with their exact archive and frame bytes,
-//! vault accounts, `fixed_rate_bullet_schedule` outputs, `BondTerms::validate` verdicts and
-//! rounded holder payments. The JavaScript SDK tests replay the same vectors.
+//! vault accounts, `fixed_rate_bullet_schedule` outputs, `BondTerms::validate` verdicts,
+//! rounded holder payments and a serviced record with its entitlements. The JavaScript SDK
+//! tests replay the same vectors.
 
 use base64::Engine as _;
 use iroha_crypto::{Algorithm, KeyPair};
@@ -11,14 +12,14 @@ use iroha_data_model::{
     account::AccountId,
     asset::AssetId,
     bond::{
-        BondCallTerms, BondCashflowKind, BondCashflowStatus, BondDayCount, BondIdentifiers,
-        BondRecord, BondScheduleRequest, BondTerms, bond_vault_account_id,
-        fixed_rate_bullet_schedule, holder_payment, snapshot_amount_due,
+        BondCallTerms, BondCashflowKind, BondCashflowStatus, BondDayCount, BondEntitlement,
+        BondEntitlementId, BondIdentifiers, BondRecord, BondScheduleRequest, BondTerms,
+        bond_vault_account_id, fixed_rate_bullet_schedule, holder_payment,
     },
     isi::{
         bond::{
             CallBond, ClaimBondCashflow, CloseBondCashflow, DeclareBondDefault, FundBondCashflow,
-            RecordBondCashflow, RegisterBond,
+            RecordBondCashflow, RegisterBond, ReplaceBondPayingAgent,
         },
         instruction_wire_id,
     },
@@ -106,6 +107,7 @@ fn annual_terms() -> BondTerms {
         issue_date_ms: ISSUE,
         maturity_date_ms: MATURITY,
         redemption_price_bps: 10_000,
+        payment_grace_ms: 7 * DAY,
         call: Some(BondCallTerms {
             first_call_date_ms: ISSUE + 365 * DAY,
             price_bps: 10_100,
@@ -193,6 +195,10 @@ fn native_instructions() -> Vec<(&'static str, InstructionBox)> {
         (
             "DeclareDefault",
             BondInstructionBox::from(DeclareBondDefault::new(bond(), 1, [0xab; 32])).into(),
+        ),
+        (
+            "ReplacePayingAgent",
+            BondInstructionBox::from(ReplaceBondPayingAgent::new(bond(), holder_b())).into(),
         ),
     ]
 }
@@ -453,6 +459,9 @@ fn validation_cases() -> Vec<(&'static str, TermsMutation)> {
         ("issue_not_before_maturity", |terms| {
             terms.maturity_date_ms = terms.issue_date_ms;
         }),
+        ("grace_too_long", |terms| {
+            terms.payment_grace_ms = 366 * DAY + 1;
+        }),
         ("zero_call_price", |terms| {
             terms.call.as_mut().expect("call").price_bps = 0;
         }),
@@ -467,6 +476,18 @@ fn validation_cases() -> Vec<(&'static str, TermsMutation)> {
             terms.call.as_mut().expect("call").price_bps = 3;
         }),
         ("empty_schedule", |terms| terms.cashflows.clear()),
+        ("too_many_cashflows", |terms| {
+            let template = terms.cashflows[0].clone();
+            terms.cashflows = (0..=400)
+                .map(|index| iroha_data_model::bond::BondCashflowTerms {
+                    index,
+                    ..template.clone()
+                })
+                .collect();
+        }),
+        ("irregular_issue_date", |terms| {
+            terms.issue_date_ms = ISSUE + DAY;
+        }),
         ("indices_not_contiguous", |terms| {
             terms.cashflows[1].index = 2;
         }),
@@ -512,9 +533,27 @@ fn validation_cases() -> Vec<(&'static str, TermsMutation)> {
             terms.cashflows[1].record_date_ms = terms.cashflows[0].record_date_ms - 1;
             terms.cashflows[0].record_date_ms = terms.cashflows[0].payment_date_ms;
         }),
-        ("valid_final_coupon_before_maturity", |terms| {
+        ("final_coupon_before_maturity", |terms| {
             terms.cashflows[2].payment_date_ms = MATURITY - DAY;
             terms.cashflows[2].record_date_ms = MATURITY - 2 * DAY;
+        }),
+        ("single_coupon_at_maturity", |terms| {
+            let coupon = terms.cashflows[2].clone();
+            let redemption = terms.cashflows[3].clone();
+            terms.cashflows = vec![
+                iroha_data_model::bond::BondCashflowTerms { index: 0, ..coupon },
+                iroha_data_model::bond::BondCashflowTerms {
+                    index: 1,
+                    ..redemption
+                },
+            ];
+        }),
+        ("missing_final_coupon", |terms| {
+            terms.cashflows.remove(2);
+            terms.cashflows[2].index = 2;
+        }),
+        ("valid_record_date_inside_period", |terms| {
+            terms.cashflows[1].record_date_ms = terms.cashflows[0].payment_date_ms;
         }),
     ]
 }
@@ -593,27 +632,64 @@ fn vault_vectors() -> Value {
     )
 }
 
-/// Annual bond with coupon 0 funded and coupon 1 recorded for two holders, as Torii serves it.
+/// Entitlements of the serviced record: holder (3 units) claimed coupon 0; holder B (997) did not.
+fn serviced_entitlements() -> Vec<BondEntitlement> {
+    let terms = annual_terms();
+    let mut entitlements = Vec::new();
+    for index in [0_u16, 1] {
+        let amount_per_unit = &terms.cashflows[usize::from(index)].amount_per_unit;
+        for (account, units) in [(holder(), q("3")), (holder_b(), q("997"))] {
+            let amount = holder_payment(&units, amount_per_unit, NumericSpec::fractional(2))
+                .expect("holder payment");
+            let claimed_at_ms = (index == 0 && account == holder())
+                .then(|| terms.cashflows[0].payment_date_ms + 60_000);
+            entitlements.push(BondEntitlement {
+                id: BondEntitlementId::new(bond(), index, account),
+                units,
+                amount,
+                claimed_at_ms,
+            });
+        }
+    }
+    entitlements
+}
+
+/// Annual bond with coupon 0 funded (one holder claimed) and coupon 1 recorded, as Torii
+/// serves it; its entitlements are [`serviced_entitlements`].
 fn serviced_record() -> BondRecord {
     let mut record = BondRecord::registered(bond(), annual_terms(), q("1000"));
+    let entitlements = serviced_entitlements();
     for (index, status) in [
         (0_u16, BondCashflowStatus::Funded),
         (1, BondCashflowStatus::Recorded),
     ] {
         let cashflow = record.cashflow_mut(index).expect("scheduled coupon");
-        cashflow.snapshot =
-            std::collections::BTreeMap::from([(holder(), q("3")), (holder_b(), q("997"))]);
+        let own: Vec<&BondEntitlement> = entitlements
+            .iter()
+            .filter(|entitlement| entitlement.id.index == index)
+            .collect();
+        cashflow.holders = u32::try_from(own.len()).expect("holders");
         cashflow.entitled_units = q("1000");
-        cashflow.amount_due = snapshot_amount_due(
-            &cashflow.snapshot,
-            &cashflow.terms.amount_per_unit,
-            NumericSpec::fractional(2),
-        )
-        .expect("amount due");
+        cashflow.amount_due = own
+            .iter()
+            .try_fold(Quantity::zero(), |total, entitlement| {
+                total.checked_add(&entitlement.amount)
+            })
+            .expect("amount due");
         cashflow.recorded_at_ms = Some(cashflow.terms.record_date_ms + 60_000);
         if status == BondCashflowStatus::Funded {
             cashflow.funded = cashflow.amount_due.clone();
             cashflow.funded_at_ms = Some(cashflow.terms.record_date_ms + 120_000);
+            for entitlement in own
+                .iter()
+                .filter(|entitlement| entitlement.claimed_at_ms.is_some())
+            {
+                cashflow.claimed_holders += 1;
+                cashflow.paid = cashflow
+                    .paid
+                    .checked_add(&entitlement.amount)
+                    .expect("paid");
+            }
         }
         cashflow.status = status;
     }
@@ -643,6 +719,7 @@ fn generate_fixture() -> Value {
         ("terms_validation", validation_vectors()),
         ("holder_payments", holder_payment_vectors()),
         ("record", value(&serviced_record())),
+        ("entitlements", value(&serviced_entitlements())),
     ])
 }
 

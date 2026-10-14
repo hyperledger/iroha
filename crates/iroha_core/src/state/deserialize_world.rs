@@ -8875,6 +8875,7 @@ fn decode_world_fields(
     let repo_agreements = take_required(&mut map, "repo_agreements")?;
     let settlement_receipts = take_required(&mut map, "settlement_receipts")?;
     let bonds = take_required(&mut map, "bonds")?;
+    let bond_entitlements = take_required(&mut map, "bond_entitlements")?;
     let manifest_aliases = take_required(&mut map, "manifest_aliases")?;
     validate_musubi_location_reverse_indices(
         &musubi_archives,
@@ -9146,6 +9147,8 @@ fn decode_world_fields(
         repo_agreements_by_custodian: Storage::default(),
         settlement_receipts,
         bonds,
+        bond_entitlements,
+        bond_vaults: Storage::default(),
         domain_committees,
         domain_endorsement_policies,
         domain_endorsements,
@@ -9637,6 +9640,7 @@ fn parse_world(
             message,
         })?;
     world.rebuild_repo_agreement_indexes();
+    world.rebuild_bond_vault_index();
     world.rebuild_proof_status_index();
     world
         .validate_identifier_claims()

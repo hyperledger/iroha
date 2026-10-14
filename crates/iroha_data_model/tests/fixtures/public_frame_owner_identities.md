@@ -71,7 +71,7 @@ root/Option/Vec frames retain their individually observed identities.
 | Fixture | Coverage | SHA-256 |
 | --- | --- | --- |
 | `manual_scalar_identity_frames.json` | Five owners, 35 frames: X.509 key usage, contract argument, alias, address and manifest CID | `7326473b538f2ef1248d6c1c847fadccdc01a139bd199cec291479b8379c6ece` |
-| `manual_protocol_identity_frames.json` | Eight owners, 64 frames: privacy magic/digest/catalog, confidential memo, device key/signature, repo instruction and bond instruction | `2b9a6caa7e66732d51da103299d4a8a195746a38ef685a24cc5f2a8d13309f46` |
+| `manual_protocol_identity_frames.json` | Eight owners, 66 frames: privacy magic/digest/catalog, confidential memo, device key/signature, repo instruction and bond instruction | `4c3635b62741a5a9dfa183c17d6d4f8231167996f1c213f2e0ce56d622ed879e` |
 | `manual_proof_identity_frames.json` | Three owners, 29 frames: proof attachment/list and Kaigi authorization scalar | `dbaa4907c8c3076bf5fb3e436f6e1a8129de115734c31402c89b3a8f603e01d7` |
 
 The repo instruction rows were recaptured on 2026-10-13 after `RepoGovernance`

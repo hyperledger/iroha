@@ -28,10 +28,13 @@ isi! {
     }
 }
 isi! {
-    /// Record one cash flow: snapshot investor holdings and compute the amount due.
+    /// Record one cash flow, or continue its paged recording.
     ///
-    /// Signed by the paying agent at or after the record date. Recording the
-    /// redemption cash flow freezes every further movement of the bond asset.
+    /// Any account may sign at or after the record date: the books are closed
+    /// from the record date until recording completes, so the result is the
+    /// holdings of record whoever records and whenever. Each step writes at most
+    /// `BOND_RECORDING_PAGE_ENTRIES` entries; repeat it until the cash flow is
+    /// `Recorded`. Recording the redemption freezes the bond asset.
     #[derive(DeriveJsonSerialize, DeriveJsonDeserialize)]
     #[norito(deny_unknown_fields)]
     #[norito_schema(name = "iroha_data_model::isi::bond::RecordBondCashflow")]
@@ -57,7 +60,7 @@ isi! {
     }
 }
 isi! {
-    /// Pay one snapshot holder from the vault; a redemption also burns the holder's units.
+    /// Pay one entitled holder from the vault; a redemption also burns the holder's units.
     ///
     /// Signed by the holder, or by the paying agent pushing the payment; the
     /// destination is always the holder.
@@ -69,12 +72,14 @@ isi! {
         pub bond: BondId,
         /// Cash-flow index.
         pub index: u16,
-        /// Snapshot holder receiving the payment.
+        /// Entitled holder receiving the payment.
         pub holder: AccountId,
     }
 }
 isi! {
-    /// Close a fully claimed cash flow and return its rounding residual to the issuer.
+    /// Close active servicing of a funded cash flow at or after its payment date.
+    ///
+    /// Unclaimed entitlements stay claimable from the vault afterwards.
     #[derive(DeriveJsonSerialize, DeriveJsonDeserialize)]
     #[norito(deny_unknown_fields)]
     #[norito_schema(name = "iroha_data_model::isi::bond::CloseBondCashflow")]
@@ -98,7 +103,7 @@ isi! {
     }
 }
 isi! {
-    /// Declare a payment default on an unfunded cash flow after its payment date.
+    /// Declare a payment default on an unfunded cash flow after its payment date and grace period.
     #[derive(DeriveJsonSerialize, DeriveJsonDeserialize)]
     #[norito(deny_unknown_fields)]
     #[norito_schema(name = "iroha_data_model::isi::bond::DeclareBondDefault")]
@@ -110,6 +115,19 @@ isi! {
         /// SHA-256 of the default evidence.
         #[norito(json = "crate::json_helpers::fixed_bytes_hex")]
         pub evidence_sha256: [u8; 32],
+    }
+}
+
+isi! {
+    /// Replace the paying agent of a bond (signed by the issuer).
+    #[derive(DeriveJsonSerialize, DeriveJsonDeserialize)]
+    #[norito(deny_unknown_fields)]
+    #[norito_schema(name = "iroha_data_model::isi::bond::ReplaceBondPayingAgent")]
+    pub struct ReplaceBondPayingAgent {
+        /// Bond asset definition.
+        pub bond: BondId,
+        /// New paying agent; an existing account.
+        pub paying_agent: AccountId,
     }
 }
 
@@ -175,6 +193,14 @@ impl DeclareBondDefault {
     }
 }
 
+impl ReplaceBondPayingAgent {
+    /// Construct a paying-agent replacement.
+    #[must_use]
+    pub fn new(bond: BondId, paying_agent: AccountId) -> Self {
+        Self { bond, paying_agent }
+    }
+}
+
 impl core::fmt::Display for RegisterBond {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
@@ -226,6 +252,16 @@ impl core::fmt::Display for DeclareBondDefault {
     }
 }
 
+impl core::fmt::Display for ReplaceBondPayingAgent {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "BOND_REPLACE_PAYING_AGENT `{}` AGENT `{}`",
+            self.bond, self.paying_agent
+        )
+    }
+}
+
 impl crate::seal::Instruction for RegisterBond {}
 impl crate::seal::Instruction for RecordBondCashflow {}
 impl crate::seal::Instruction for FundBondCashflow {}
@@ -233,10 +269,15 @@ impl crate::seal::Instruction for ClaimBondCashflow {}
 impl crate::seal::Instruction for CloseBondCashflow {}
 impl crate::seal::Instruction for CallBond {}
 impl crate::seal::Instruction for DeclareBondDefault {}
+impl crate::seal::Instruction for ReplaceBondPayingAgent {}
 
 isi_box! {
     /// Grouping enum for the native bond-servicing kernel.
     #[norito_schema(name = "iroha_data_model::isi::bond::BondInstructionBox")]
+    #[allow(
+        clippy::large_enum_variant,
+        reason = "the box keeps every leaf's canonical Norito frame; registration carries the full terms once per bond"
+    )]
     pub enum BondInstructionBox {
         /// Register a bond record.
         Register(RegisterBond),
@@ -252,10 +293,12 @@ isi_box! {
         Call(CallBond),
         /// Declare a payment default.
         DeclareDefault(DeclareBondDefault),
+        /// Replace the paying agent.
+        ReplacePayingAgent(ReplaceBondPayingAgent),
     }
 }
 impl_into_box! {
-    RegisterBond | RecordBondCashflow | FundBondCashflow | ClaimBondCashflow | CloseBondCashflow | CallBond | DeclareBondDefault => BondInstructionBox
+    RegisterBond | RecordBondCashflow | FundBondCashflow | ClaimBondCashflow | CloseBondCashflow | CallBond | DeclareBondDefault | ReplaceBondPayingAgent => BondInstructionBox
 }
 impl crate::seal::Instruction for BondInstructionBox {}
 impl BondInstructionBox {
@@ -273,6 +316,7 @@ impl BondInstructionBox {
             Self::CloseCashflow(isi) => &isi.bond,
             Self::Call(isi) => &isi.bond,
             Self::DeclareDefault(isi) => &isi.bond,
+            Self::ReplacePayingAgent(isi) => &isi.bond,
         }
     }
 }
@@ -308,6 +352,10 @@ impl_aos_decode_from_slice!(DeclareBondDefault {
     index: u16,
     evidence_sha256: [u8; 32],
 });
+impl_aos_decode_from_slice!(ReplaceBondPayingAgent {
+    bond: BondId,
+    paying_agent: AccountId,
+});
 
 impl<'a> norito::core::DecodeFromSlice<'a> for BondInstructionBox {
     fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
@@ -336,6 +384,7 @@ impl<'a> norito::core::DecodeFromSlice<'a> for BondInstructionBox {
             4 => variant!(CloseCashflow, CloseBondCashflow),
             5 => variant!(Call, CallBond),
             6 => variant!(DeclareDefault, DeclareBondDefault),
+            7 => variant!(ReplacePayingAgent, ReplaceBondPayingAgent),
             _ => {
                 return Err(norito::core::Error::Message(format!(
                     "invalid BondInstructionBox tag {tag}"

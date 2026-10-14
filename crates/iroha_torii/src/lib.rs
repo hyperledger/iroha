@@ -33802,21 +33802,41 @@ fn parse_bond_id(raw: &str) -> Result<iroha_data_model::bond::BondId, Error> {
     iroha_data_model::asset::AssetDefinitionId::parse_address_literal(raw.trim())
         .map_err(|err| identifier_conversion_error(format!("invalid bond identifier: {err}")))
 }
-/// List every native bond record (`specs/finance/bond_ops.md`).
+/// Apply the public read-route admission used by the collection routes.
 #[cfg(feature = "app_api")]
+async fn check_bond_read_access(
+    app: &SharedAppState,
+    headers: &axum::http::HeaderMap,
+    remote_ip: std::net::IpAddr,
+    endpoint: &str,
+) -> Result<(), Error> {
+    if !limits::is_allowed_by_cidr(headers, Some(remote_ip), &app.api_rate_limit_bypass_nets) {
+        let enforce =
+            app.fee_policy.is_enabled() || app.queue.active_len() >= app.high_load_tx_threshold;
+        check_access_enforced(app, headers, Some(remote_ip), endpoint, enforce).await?;
+    }
+    Ok(())
+}
+/// Page native bond records with the collection query language (`specs/finance/bond_ops.md`).
+///
+/// Records carry terms, the effective schedule and per-cash-flow totals; holder
+/// entitlements are paged separately by [`handler_bond_entitlements`].
+#[cfg(feature = "app_api")]
+#[axum::debug_handler]
 async fn handler_bonds(
     State(app): State<SharedAppState>,
+    uri: axum::http::Uri,
     headers: axum::http::HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
-) -> Result<AxResponse, Error> {
-    check_access(&app, &headers, Some(remote.ip()), "v1/bonds").await?;
-    let world = app.state.world_view();
-    let records: Vec<iroha_data_model::bond::BondRecord> = world
-        .bonds()
-        .iter()
-        .map(|(_, record)| record.clone())
-        .collect();
-    json_ok(records)
+) -> Result<Response, Error> {
+    check_bond_read_access(&app, &headers, remote.ip(), "v1/bonds").await?;
+    let query = list_query_from_query_string(uri.query())?;
+    execute_direct_collection_read(
+        &app,
+        routing::collection_sources::CollectionTarget::Bonds,
+        query,
+    )
+    .await
 }
 /// Return the authoritative record of one native bond, or 404 when it is not registered.
 #[cfg(feature = "app_api")]
@@ -33826,13 +33846,43 @@ async fn handler_bond_get(
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
     AxPath(bond_literal): AxPath<String>,
 ) -> Result<AxResponse, Error> {
-    check_access(&app, &headers, Some(remote.ip()), "v1/bonds/{bond_id}").await?;
+    check_bond_read_access(&app, &headers, remote.ip(), "v1/bonds/{bond_id}").await?;
     let bond = parse_bond_id(&bond_literal)?;
     let world = app.state.world_view();
     let Some(record) = world.bonds().get(&bond).cloned() else {
         return Ok(StatusCode::NOT_FOUND.into_response());
     };
     json_ok(record)
+}
+/// Page the record-date entitlements of one bond with the collection query language,
+/// in cash-flow then holder order; 404 when the bond is not registered.
+#[cfg(feature = "app_api")]
+#[axum::debug_handler]
+async fn handler_bond_entitlements(
+    State(app): State<SharedAppState>,
+    uri: axum::http::Uri,
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    AxPath(bond_literal): AxPath<String>,
+) -> Result<Response, Error> {
+    check_bond_read_access(
+        &app,
+        &headers,
+        remote.ip(),
+        "v1/bonds/{bond_id}/entitlements",
+    )
+    .await?;
+    let bond = parse_bond_id(&bond_literal)?;
+    if app.state.world_view().bonds().get(&bond).is_none() {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    }
+    let query = list_query_from_query_string(uri.query())?;
+    execute_direct_collection_read(
+        &app,
+        routing::collection_sources::CollectionTarget::BondEntitlements(bond.to_string()),
+        query,
+    )
+    .await
 }
 #[cfg(test)]
 fn normalise_alias(input: &str) -> String {
@@ -38439,6 +38489,7 @@ impl Torii {
             REPO_AGREEMENTS_GET => public_get(handler_repo_agreements);
             BONDS_GET => public_get(handler_bonds);
             BONDS_BY_BOND_ID_GET => public_get(handler_bond_get);
+            BONDS_BY_BOND_ID_ENTITLEMENTS_GET => public_get(handler_bond_entitlements);
         );
         mount_repo_agreements_query(builder, app_state.clone(), transaction_max_content_len);
         #[cfg(feature = "push")]

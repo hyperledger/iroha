@@ -3,12 +3,12 @@ use super::*;
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_model_base::domain::DomainId;
 
-pub(crate) fn account(seed: u8) -> AccountId {
+pub fn account(seed: u8) -> AccountId {
     let key_pair = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519).expect("seeded key");
     AccountId::new(key_pair.public_key().clone())
 }
 
-pub(crate) fn definition(name: &str) -> AssetDefinitionId {
+pub fn definition(name: &str) -> AssetDefinitionId {
     AssetDefinitionId::derive_from_components(
         DomainId::try_new("bonds", "universal").expect("domain"),
         name.parse().expect("asset name"),
@@ -25,7 +25,7 @@ const ISSUE: u64 = 1_768_435_200_000;
 const MATURITY: u64 = 1_863_129_600_000;
 
 /// Annual 6.50 % bond, denomination 50, three coupons and par redemption.
-pub(crate) fn annual_terms() -> BondTerms {
+pub fn annual_terms() -> BondTerms {
     let cashflows = fixed_rate_bullet_schedule(&BondScheduleRequest {
         denomination: q("50"),
         coupon_rate_bps: 650,
@@ -47,6 +47,7 @@ pub(crate) fn annual_terms() -> BondTerms {
         issue_date_ms: ISSUE,
         maturity_date_ms: MATURITY,
         redemption_price_bps: 10_000,
+        payment_grace_ms: 7 * DAY,
         call: Some(BondCallTerms {
             first_call_date_ms: ISSUE + 365 * DAY,
             price_bps: 10_100,
@@ -123,10 +124,9 @@ fn holder_payments_round_down_to_the_payment_scale() {
         holder_payment(&q("3"), &q("1.625"), NumericSpec::unconstrained()).unwrap(),
         q("4.875")
     );
-    let snapshot = BTreeMap::from([(account(10), q("3")), (account(11), q("1"))]);
     assert_eq!(
-        snapshot_amount_due(&snapshot, &q("1.625"), two).unwrap(),
-        q("6.49")
+        holder_payment(&q("1"), &q("0.004"), two).unwrap(),
+        Quantity::zero()
     );
 }
 
@@ -150,7 +150,25 @@ fn registration_rules_reject_each_violation() {
     let mut terms = annual_terms();
     terms.cashflows[1].payment_date_ms = terms.cashflows[0].payment_date_ms;
     terms.cashflows[1].record_date_ms = terms.cashflows[0].record_date_ms;
-    rejected(&terms, "strictly increase");
+    rejected(&terms, "coupon 1 must be paid on the regular date");
+
+    let mut terms = annual_terms();
+    let template = terms.cashflows[0].clone();
+    terms.cashflows = (0..=400)
+        .map(|index| BondCashflowTerms {
+            index,
+            ..template.clone()
+        })
+        .collect();
+    rejected(&terms, "1..=400");
+
+    let mut terms = annual_terms();
+    terms.cashflows[2].payment_date_ms = MATURITY + 1;
+    rejected(&terms, "outside [issue, maturity]");
+
+    let mut terms = annual_terms();
+    terms.payment_grace_ms = BOND_MAX_PAYMENT_GRACE_MS + 1;
+    rejected(&terms, "payment grace period must not exceed 366 days");
 
     let mut terms = annual_terms();
     terms.cashflows[0].record_date_ms = terms.cashflows[0].payment_date_ms + 1;
@@ -221,9 +239,104 @@ fn registration_rules_reject_each_violation() {
     rejected(&terms, "record dates must not decrease");
 }
 
+/// The coupon schedule must be exactly the regular schedule of the stated rate and frequency.
+#[test]
+fn coupon_dates_must_follow_the_regular_schedule() {
+    // An annual 6.50 % three-year bond that pays a single coupon at maturity.
+    let mut terms = annual_terms();
+    terms.cashflows = vec![
+        BondCashflowTerms {
+            index: 0,
+            kind: BondCashflowKind::Coupon,
+            record_date_ms: MATURITY - DAY,
+            payment_date_ms: MATURITY,
+            amount_per_unit: q("3.25"),
+        },
+        BondCashflowTerms {
+            index: 1,
+            kind: BondCashflowKind::Redemption,
+            record_date_ms: MATURITY - DAY,
+            payment_date_ms: MATURITY,
+            amount_per_unit: q("50"),
+        },
+    ];
+    rejected(
+        &terms,
+        "coupon 0 must be paid on the regular date 1799971200000",
+    );
+
+    // Thirty-six monthly coupons of the annual amount under frequency 1.
+    let mut terms = annual_terms();
+    let mut cashflows: Vec<BondCashflowTerms> = (0..36_u16)
+        .map(|index| {
+            let payment = ISSUE + (u64::from(index) + 1) * 30 * DAY;
+            BondCashflowTerms {
+                index,
+                kind: BondCashflowKind::Coupon,
+                record_date_ms: payment - DAY,
+                payment_date_ms: payment,
+                amount_per_unit: q("3.25"),
+            }
+        })
+        .collect();
+    cashflows.push(BondCashflowTerms {
+        index: 36,
+        kind: BondCashflowKind::Redemption,
+        record_date_ms: MATURITY - DAY,
+        payment_date_ms: MATURITY,
+        amount_per_unit: q("50"),
+    });
+    terms.cashflows = cashflows;
+    rejected(&terms, "coupon 0 must be paid on the regular date");
+
+    // A semi-annual bond whose two coupons are a week apart.
+    let mut terms = annual_terms();
+    terms.coupon_frequency = 2;
+    terms.cashflows = fixed_rate_bullet_schedule(&BondScheduleRequest {
+        denomination: q("50"),
+        coupon_rate_bps: 650,
+        coupon_frequency: 2,
+        issue_date_ms: ISSUE,
+        maturity_date_ms: MATURITY,
+        redemption_price_bps: 10_000,
+        record_offset_ms: DAY,
+    })
+    .expect("semi-annual schedule");
+    terms.validate().expect("regular semi-annual terms");
+    terms.cashflows[1].payment_date_ms = terms.cashflows[0].payment_date_ms + 7 * DAY;
+    terms.cashflows[1].record_date_ms = terms.cashflows[1].payment_date_ms - DAY;
+    rejected(&terms, "coupon 1 must be paid on the regular date");
+
+    // A missing coupon.
+    let mut terms = annual_terms();
+    terms.cashflows.remove(1);
+    for (index, cashflow) in terms.cashflows.iter_mut().enumerate() {
+        cashflow.index = u16::try_from(index).unwrap();
+    }
+    rejected(&terms, "coupon 1 must be paid on the regular date");
+    let mut terms = annual_terms();
+    terms.cashflows.remove(2);
+    for (index, cashflow) in terms.cashflows.iter_mut().enumerate() {
+        cashflow.index = u16::try_from(index).unwrap();
+    }
+    rejected(&terms, "the regular schedule has 3 coupons");
+
+    // Irregular issue and maturity dates have no regular schedule at all.
+    let mut terms = annual_terms();
+    terms.issue_date_ms = ISSUE + DAY;
+    rejected(&terms, "the first coupon period is irregular");
+
+    // Record dates may be chosen freely inside each period.
+    let mut terms = annual_terms();
+    terms.cashflows[1].record_date_ms = terms.cashflows[0].payment_date_ms;
+    terms.validate().expect("any record date inside the period");
+}
+
+type IdentifierCase = (fn(&mut BondIdentifiers), &'static str);
+
 #[test]
 fn identifier_bounds_are_enforced() {
-    let cases: [(fn(&mut BondIdentifiers), &str); 6] = [
+    let cases: [IdentifierCase; 6] = [
         (|ids| ids.isin = Some("SI00312345678".to_owned()), "isin"),
         (|ids| ids.cfi = Some("DBFTFBX".to_owned()), "cfi"),
         (|ids| ids.issuer_lei = Some("5".repeat(21)), "issuer_lei"),
@@ -312,23 +425,61 @@ fn record_json_and_codec_roundtrip() {
     let terms = annual_terms();
     let mut record = BondRecord::registered(definition("bond"), terms, q("1000"));
     let cashflow = record.cashflow_mut(0).unwrap();
-    cashflow.status = BondCashflowStatus::Recorded;
-    cashflow.snapshot.insert(account(10), q("3"));
-    cashflow.claimed.insert(account(10));
+    cashflow.status = BondCashflowStatus::Recording;
+    cashflow.recording = Some(BondRecordingCursor {
+        phase: BondRecordingPhase::Escrows,
+        after_asset: Some(AssetId::new(definition("bond"), account(10))),
+        after_escrow: None,
+    });
+    cashflow.holders = 2;
+    cashflow.claimed_holders = 1;
     cashflow.evidence_sha256 = Some([3; 32]);
     let json = norito::json::to_json(&record).expect("record JSON");
     assert!(json.contains(&"09".repeat(32)), "{json}");
+    assert!(json.contains(r#""phase":"Escrows""#), "{json}");
+    assert!(json.contains(r#""payment_grace_ms":604800000"#), "{json}");
     let decoded: BondRecord = norito::json::from_str(&json).expect("record from JSON");
     assert_eq!(decoded, record);
     let bytes = record.encode();
     let decoded = BondRecord::decode(&mut bytes.as_slice()).expect("record decode");
     assert_eq!(decoded, record);
-    assert!(decoded.cashflow(0).unwrap().all_claimed());
-    assert!(
-        !decoded
-            .cashflow(1)
-            .unwrap()
-            .snapshot
-            .contains_key(&account(10))
+    assert!(!decoded.cashflow(0).unwrap().all_claimed());
+    assert!(decoded.cashflow(1).unwrap().all_claimed());
+    assert!(!decoded.cashflow(0).unwrap().is_claimable());
+}
+
+#[test]
+fn entitlement_json_and_codec_roundtrip() {
+    let entitlement = BondEntitlement {
+        id: BondEntitlementId::new(definition("bond"), 3, account(10)),
+        units: q("21"),
+        amount: q("34.12"),
+        claimed_at_ms: Some(ISSUE),
+    };
+    let json = norito::json::to_json(&entitlement).expect("entitlement JSON");
+    assert!(json.contains(r#""units":"21""#), "{json}");
+    assert_eq!(
+        norito::json::from_str::<BondEntitlement>(&json).expect("entitlement from JSON"),
+        entitlement
     );
+    let bytes = entitlement.encode();
+    assert_eq!(
+        BondEntitlement::decode(&mut bytes.as_slice()).expect("entitlement decode"),
+        entitlement
+    );
+    // Snapshot keys have one canonical spelling.
+    let mut key = String::new();
+    norito::json::JsonKeyCodec::encode_json_key(&entitlement.id, &mut key);
+    let inner: String = norito::json::from_str(&key).expect("quoted key");
+    assert_eq!(
+        <BondEntitlementId as norito::json::JsonKeyCodec>::decode_json_key(&inner)
+            .expect("decode key"),
+        entitlement.id
+    );
+    let spaced = inner.replacen(':', ": ", 1);
+    assert!(<BondEntitlementId as norito::json::JsonKeyCodec>::decode_json_key(&spaced).is_err());
+    // Keys order by bond, then cash flow, then holder, so one cash flow is one key range.
+    let first = BondEntitlementId::new(definition("bond"), 0, account(200));
+    let second = BondEntitlementId::new(definition("bond"), 1, account(1));
+    assert!(first < second);
 }

@@ -6,6 +6,48 @@
     "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW"
   },
   "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+  "entitlements": [
+    {
+      "amount": "9.75",
+      "claimed_at_ms": 1799971260000,
+      "id": {
+        "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+        "holder": "testuﾛ1PYﾛ9ｵﾆﾘﾐ3Yf8wﾜｿﾋﾉajｼｱ6eﾑbHｱﾜｶBｳdUｺcヰｲnﾌNP21YC",
+        "index": 0
+      },
+      "units": "3"
+    },
+    {
+      "amount": "3240.25",
+      "claimed_at_ms": null,
+      "id": {
+        "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+        "holder": "testuﾛ1Prﾇuﾉﾉ4ﾒdﾛﾑｲﾄn5tﾆﾒrsR9ﾋ2Gｷ7gWeFzyﾁﾋﾁAHﾌTJQQ4L",
+        "index": 0
+      },
+      "units": "997"
+    },
+    {
+      "amount": "9.75",
+      "claimed_at_ms": null,
+      "id": {
+        "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+        "holder": "testuﾛ1PYﾛ9ｵﾆﾘﾐ3Yf8wﾜｿﾋﾉajｼｱ6eﾑbHｱﾜｶBｳdUｺcヰｲnﾌNP21YC",
+        "index": 1
+      },
+      "units": "3"
+    },
+    {
+      "amount": "3240.25",
+      "claimed_at_ms": null,
+      "id": {
+        "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+        "holder": "testuﾛ1Prﾇuﾉﾉ4ﾒdﾛﾑｲﾄn5tﾆﾒrsR9ﾋ2Gｷ7gWeFzyﾁﾋﾁAHﾌTJQQ4L",
+        "index": 1
+      },
+      "units": "997"
+    }
+  ],
   "holder_payments": [
     {
       "amountPerUnit": "1.625",
@@ -52,8 +94,8 @@
   ],
   "instructions": [
     {
-      "archive_hex": "0b0a69726f68612e626f6e64ac05a4020000000000004e5254300000a7cc396b4b626e170e7e898610704b77007c02000000000000e1d4ce159f11d1e40200000000f60420018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017dd3044f000000004a2100000000000000010001d0014a01b201320174012b01b401ab013a0113016801bd0146011501e401e601d00122014a01b7011a0101016b01af0185012001a3013201c90177018701374f000000004a2100000000000000010001200140014001e3016401c1010f012b01ec019c011f01e5010001a101cd014c0124017c018901d6015001a0011e01d701e8012c01ab01a801670187017c0121200185010a01810173019601b1014101ce01b901e001b2014901e201c501de015c0b0501000000320400000000048a020000010104000000000800b0f3be9b0100000800902dcbb101000004102700001901170800dca416a301000004742700000800c87e9a00000000a70104000000000000002702000004000000000800807e11a30100000800dca416a30100000c0602000000450104020000002702010004000000000800ac2f69aa010000080008566eaa0100000c06020000004501040200000027020200040000000008003407c6b10100000800902dcbb10100000c06020000004501040200000026020300040100000008003407c6b10100000800902dcbb10100000b05010000003204000000007e0f010d0c53493030333132333435363709010706444246544642170115143532393930303044493330343745324c4956303308076264742d312e3042014001070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107200909090909090909090909090909090909090909090909090909090909090909",
-      "frame_hex": "4e5254300000862a7d77075d4d23ff6c1261db02781100ba020000000000004ea993b4db8ad1ea020b0a69726f68612e626f6e64ac05a4020000000000004e5254300000a7cc396b4b626e170e7e898610704b77007c02000000000000e1d4ce159f11d1e40200000000f60420018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017dd3044f000000004a2100000000000000010001d0014a01b201320174012b01b401ab013a0113016801bd0146011501e401e601d00122014a01b7011a0101016b01af0185012001a3013201c90177018701374f000000004a2100000000000000010001200140014001e3016401c1010f012b01ec019c011f01e5010001a101cd014c0124017c018901d6015001a0011e01d701e8012c01ab01a801670187017c0121200185010a01810173019601b1014101ce01b901e001b2014901e201c501de015c0b0501000000320400000000048a020000010104000000000800b0f3be9b0100000800902dcbb101000004102700001901170800dca416a301000004742700000800c87e9a00000000a70104000000000000002702000004000000000800807e11a30100000800dca416a30100000c0602000000450104020000002702010004000000000800ac2f69aa010000080008566eaa0100000c06020000004501040200000027020200040000000008003407c6b10100000800902dcbb10100000c06020000004501040200000026020300040100000008003407c6b10100000800902dcbb10100000b05010000003204000000007e0f010d0c53493030333132333435363709010706444246544642170115143532393930303044493330343745324c4956303308076264742d312e3042014001070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107200909090909090909090909090909090909090909090909090909090909090909",
+      "archive_hex": "0b0a69726f68612e626f6e64b505ad020000000000004e5254300000a7cc396b4b626e170e7e898610704b770085020000000000008ee1874b07fdf5830200000000ff0420018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017ddc044f000000004a2100000000000000010001d0014a01b201320174012b01b401ab013a0113016801bd0146011501e401e601d00122014a01b7011a0101016b01af0185012001a3013201c90177018701374f000000004a2100000000000000010001200140014001e3016401c1010f012b01ec019c011f01e5010001a101cd014c0124017c018901d6015001a0011e01d701e8012c01ab01a801670187017c0121200185010a01810173019601b1014101ce01b901e001b2014901e201c501de015c0b0501000000320400000000048a020000010104000000000800b0f3be9b0100000800902dcbb101000004102700000800840c24000000001901170800dca416a301000004742700000800c87e9a00000000a70104000000000000002702000004000000000800807e11a30100000800dca416a30100000c0602000000450104020000002702010004000000000800ac2f69aa010000080008566eaa0100000c06020000004501040200000027020200040000000008003407c6b10100000800902dcbb10100000c06020000004501040200000026020300040100000008003407c6b10100000800902dcbb10100000b05010000003204000000007e0f010d0c53493030333132333435363709010706444246544642170115143532393930303044493330343745324c4956303308076264742d312e3042014001070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107200909090909090909090909090909090909090909090909090909090909090909",
+      "frame_hex": "4e5254300000862a7d77075d4d23ff6c1261db02781100c302000000000000a308e6b5661acc0b020b0a69726f68612e626f6e64b505ad020000000000004e5254300000a7cc396b4b626e170e7e898610704b770085020000000000008ee1874b07fdf5830200000000ff0420018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017ddc044f000000004a2100000000000000010001d0014a01b201320174012b01b401ab013a0113016801bd0146011501e401e601d00122014a01b7011a0101016b01af0185012001a3013201c90177018701374f000000004a2100000000000000010001200140014001e3016401c1010f012b01ec019c011f01e5010001a101cd014c0124017c018901d6015001a0011e01d701e8012c01ab01a801670187017c0121200185010a01810173019601b1014101ce01b901e001b2014901e201c501de015c0b0501000000320400000000048a020000010104000000000800b0f3be9b0100000800902dcbb101000004102700000800840c24000000001901170800dca416a301000004742700000800c87e9a00000000a70104000000000000002702000004000000000800807e11a30100000800dca416a30100000c0602000000450104020000002702010004000000000800ac2f69aa010000080008566eaa0100000c06020000004501040200000027020200040000000008003407c6b10100000800902dcbb10100000c06020000004501040200000026020300040100000008003407c6b10100000800902dcbb10100000b05010000003204000000007e0f010d0c53493030333132333435363709010706444246544642170115143532393930303044493330343745324c4956303308076264742d312e3042014001070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107200909090909090909090909090909090909090909090909090909090909090909",
       "json": {
         "Bond": {
           "Register": {
@@ -110,6 +152,7 @@
               "maturity_date_ms": 1863129600000,
               "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
               "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+              "payment_grace_ms": 604800000,
               "redemption_price_bps": 10000,
               "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
             }
@@ -119,8 +162,8 @@
       "name": "Register"
     },
     {
-      "archive_hex": "0b0a69726f68612e626f6e64ae03a6010000000000004e5254300000a7cc396b4b626e170e7e898610704b77007e01000000000000c07ac5203535a3860200000000f8022001f801cc01390159010c0199014c01e0019a0126013e01880168019f0174011ad5024f000000004a2100000000000000010001d0014a01b201320174012b01b401ab013a0113016801bd0146011501e401e601d00122014a01b7011a0101016b01af0185012001a3013201c90177018701374f000000004a2100000000000000010001200140014001e3016401c1010f012b01ec019c011f01e5010001a101cd014c0124017c018901d6015001a0011e01d701e8012c01ab01a801670187017c0121200185010a01810173019601b1014101ce01b901e001b2014901e201c501de015c0b05010000006404000000000400000000010004030000000800b0f3be9b0100000800902dcbb1010000041027000001002f010000000000000026020000040100000008003407c6b10100000800902dcbb10100000b05010000006404000000001101000100010008076264742d312e300100200909090909090909090909090909090909090909090909090909090909090909",
-      "frame_hex": "4e5254300000862a7d77075d4d23ff6c1261db02781100bc01000000000000aa09d4131ead39ef020b0a69726f68612e626f6e64ae03a6010000000000004e5254300000a7cc396b4b626e170e7e898610704b77007e01000000000000c07ac5203535a3860200000000f8022001f801cc01390159010c0199014c01e0019a0126013e01880168019f0174011ad5024f000000004a2100000000000000010001d0014a01b201320174012b01b401ab013a0113016801bd0146011501e401e601d00122014a01b7011a0101016b01af0185012001a3013201c90177018701374f000000004a2100000000000000010001200140014001e3016401c1010f012b01ec019c011f01e5010001a101cd014c0124017c018901d6015001a0011e01d701e8012c01ab01a801670187017c0121200185010a01810173019601b1014101ce01b901e001b2014901e201c501de015c0b05010000006404000000000400000000010004030000000800b0f3be9b0100000800902dcbb1010000041027000001002f010000000000000026020000040100000008003407c6b10100000800902dcbb10100000b05010000006404000000001101000100010008076264742d312e300100200909090909090909090909090909090909090909090909090909090909090909",
+      "archive_hex": "0b0a69726f68612e626f6e64b703af010000000000004e5254300000a7cc396b4b626e170e7e898610704b77008701000000000000721b147f001e8d28020000000081032001f801cc01390159010c0199014c01e0019a0126013e01880168019f0174011ade024f000000004a2100000000000000010001d0014a01b201320174012b01b401ab013a0113016801bd0146011501e401e601d00122014a01b7011a0101016b01af0185012001a3013201c90177018701374f000000004a2100000000000000010001200140014001e3016401c1010f012b01ec019c011f01e5010001a101cd014c0124017c018901d6015001a0011e01d701e8012c01ab01a801670187017c0121200185010a01810173019601b1014101ce01b901e001b2014901e201c501de015c0b05010000006404000000000400000000010004030000000800b0f3be9b0100000800902dcbb101000004102700000800840c240000000001002f010000000000000026020000040100000008003407c6b10100000800902dcbb10100000b05010000006404000000001101000100010008076264742d312e300100200909090909090909090909090909090909090909090909090909090909090909",
+      "frame_hex": "4e5254300000862a7d77075d4d23ff6c1261db02781100c501000000000000e0b2fbc7622de27e020b0a69726f68612e626f6e64b703af010000000000004e5254300000a7cc396b4b626e170e7e898610704b77008701000000000000721b147f001e8d28020000000081032001f801cc01390159010c0199014c01e0019a0126013e01880168019f0174011ade024f000000004a2100000000000000010001d0014a01b201320174012b01b401ab013a0113016801bd0146011501e401e601d00122014a01b7011a0101016b01af0185012001a3013201c90177018701374f000000004a2100000000000000010001200140014001e3016401c1010f012b01ec019c011f01e5010001a101cd014c0124017c018901d6015001a0011e01d701e8012c01ab01a801670187017c0121200185010a01810173019601b1014101ce01b901e001b2014901e201c501de015c0b05010000006404000000000400000000010004030000000800b0f3be9b0100000800902dcbb101000004102700000800840c240000000001002f010000000000000026020000040100000008003407c6b10100000800902dcbb10100000b05010000006404000000001101000100010008076264742d312e300100200909090909090909090909090909090909090909090909090909090909090909",
       "json": {
         "Bond": {
           "Register": {
@@ -152,6 +195,7 @@
               "maturity_date_ms": 1863129600000,
               "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
               "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+              "payment_grace_ms": 604800000,
               "redemption_price_bps": 10000,
               "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
             }
@@ -240,6 +284,19 @@
         }
       },
       "name": "DeclareDefault"
+    },
+    {
+      "archive_hex": "0b0a69726f68612e626f6e64a6019e000000000000004e5254300000a7cc396b4b626e170e7e898610704b77007600000000000000367d99152a1f82fa02070000007120018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d4f000000004a2100000000000000010001a0019a01a501f4017a016701590180012f01f9015501f801dc012d012a011401a501c9019d012301be019701f801640112017f01f901380134015501a401f0",
+      "frame_hex": "4e5254300000862a7d77075d4d23ff6c1261db02781100b400000000000000a621dc2db50f0cbf020b0a69726f68612e626f6e64a6019e000000000000004e5254300000a7cc396b4b626e170e7e898610704b77007600000000000000367d99152a1f82fa02070000007120018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d4f000000004a2100000000000000010001a0019a01a501f4017a016701590180012f01f9015501f801dc012d012a011401a501c9019d012301be019701f801640112017f01f901380134015501a401f0",
+      "json": {
+        "Bond": {
+          "ReplacePayingAgent": {
+            "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+            "paying_agent": "testuﾛ1Prﾇuﾉﾉ4ﾒdﾛﾑｲﾄn5tﾆﾒrsR9ﾋ2Gｷ7gWeFzyﾁﾋﾁAHﾌTJQQ4L"
+          }
+        }
+      },
+      "name": "ReplacePayingAgent"
     }
   ],
   "network_prefix": 369,
@@ -250,18 +307,16 @@
       "cashflows": [
         {
           "amount_due": "3250",
-          "claimed": [],
+          "claimed_holders": 1,
           "closed_at_ms": null,
           "entitled_units": "1000",
           "evidence_sha256": null,
           "funded": "3250",
           "funded_at_ms": 1799884920000,
-          "paid": "0",
+          "holders": 2,
+          "paid": "9.75",
           "recorded_at_ms": 1799884860000,
-          "snapshot": {
-            "testuﾛ1PYﾛ9ｵﾆﾘﾐ3Yf8wﾜｿﾋﾉajｼｱ6eﾑbHｱﾜｶBｳdUｺcヰｲnﾌNP21YC": "3",
-            "testuﾛ1Prﾇuﾉﾉ4ﾒdﾛﾑｲﾄn5tﾆﾒrsR9ﾋ2Gｷ7gWeFzyﾁﾋﾁAHﾌTJQQ4L": "997"
-          },
+          "recording": null,
           "status": "Funded",
           "terms": {
             "amount_per_unit": "3.25",
@@ -273,18 +328,16 @@
         },
         {
           "amount_due": "3250",
-          "claimed": [],
+          "claimed_holders": 0,
           "closed_at_ms": null,
           "entitled_units": "1000",
           "evidence_sha256": null,
           "funded": "0",
           "funded_at_ms": null,
+          "holders": 2,
           "paid": "0",
           "recorded_at_ms": 1831420860000,
-          "snapshot": {
-            "testuﾛ1PYﾛ9ｵﾆﾘﾐ3Yf8wﾜｿﾋﾉajｼｱ6eﾑbHｱﾜｶBｳdUｺcヰｲnﾌNP21YC": "3",
-            "testuﾛ1Prﾇuﾉﾉ4ﾒdﾛﾑｲﾄn5tﾆﾒrsR9ﾋ2Gｷ7gWeFzyﾁﾋﾁAHﾌTJQQ4L": "997"
-          },
+          "recording": null,
           "status": "Recorded",
           "terms": {
             "amount_per_unit": "3.25",
@@ -296,15 +349,16 @@
         },
         {
           "amount_due": "0",
-          "claimed": [],
+          "claimed_holders": 0,
           "closed_at_ms": null,
           "entitled_units": "0",
           "evidence_sha256": null,
           "funded": "0",
           "funded_at_ms": null,
+          "holders": 0,
           "paid": "0",
           "recorded_at_ms": null,
-          "snapshot": {},
+          "recording": null,
           "status": "Scheduled",
           "terms": {
             "amount_per_unit": "3.25",
@@ -316,15 +370,16 @@
         },
         {
           "amount_due": "0",
-          "claimed": [],
+          "claimed_holders": 0,
           "closed_at_ms": null,
           "entitled_units": "0",
           "evidence_sha256": null,
           "funded": "0",
           "funded_at_ms": null,
+          "holders": 0,
           "paid": "0",
           "recorded_at_ms": null,
-          "snapshot": {},
+          "recording": null,
           "status": "Scheduled",
           "terms": {
             "amount_per_unit": "50",
@@ -392,6 +447,7 @@
       "maturity_date_ms": 1863129600000,
       "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
       "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+      "payment_grace_ms": 604800000,
       "redemption_price_bps": 10000,
       "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
     },
@@ -1084,7 +1140,7 @@
       }
     },
     {
-      "error": "bond.invalid_terms: the first coupon period is irregular; materialise the schedule explicitly",
+      "error": "bond.invalid_terms: the first coupon period is irregular: whole periods back from maturity must reach the issue date",
       "name": "irregular_first_period",
       "request": {
         "couponFrequency": 1,
@@ -1192,6 +1248,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -1226,6 +1283,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -1281,6 +1339,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -1340,6 +1399,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -1399,6 +1459,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -1458,6 +1519,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -1517,6 +1579,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -1576,6 +1639,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -1635,6 +1699,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -1694,6 +1759,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 0,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -1753,6 +1819,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -1812,6 +1879,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -1871,6 +1939,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -1930,6 +1999,67 @@
         "maturity_date_ms": 1768435200000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: payment grace period must not exceed 366 days",
+      "name": "grace_too_long",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 31622400001,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -1989,6 +2119,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2048,6 +2179,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2107,6 +2239,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2166,6 +2299,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2196,6 +2330,2906 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: schedule must contain 1..=400 cash flows",
+      "name": "too_many_cashflows",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 3,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 4,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 5,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 6,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 7,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 8,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 9,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 10,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 11,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 12,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 13,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 14,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 15,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 16,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 17,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 18,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 19,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 20,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 21,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 22,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 23,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 24,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 25,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 26,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 27,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 28,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 29,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 30,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 31,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 32,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 33,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 34,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 35,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 36,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 37,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 38,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 39,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 40,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 41,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 42,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 43,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 44,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 45,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 46,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 47,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 48,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 49,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 50,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 51,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 52,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 53,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 54,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 55,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 56,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 57,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 58,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 59,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 60,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 61,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 62,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 63,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 64,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 65,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 66,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 67,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 68,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 69,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 70,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 71,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 72,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 73,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 74,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 75,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 76,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 77,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 78,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 79,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 80,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 81,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 82,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 83,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 84,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 85,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 86,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 87,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 88,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 89,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 90,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 91,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 92,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 93,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 94,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 95,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 96,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 97,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 98,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 99,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 100,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 101,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 102,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 103,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 104,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 105,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 106,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 107,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 108,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 109,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 110,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 111,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 112,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 113,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 114,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 115,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 116,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 117,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 118,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 119,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 120,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 121,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 122,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 123,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 124,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 125,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 126,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 127,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 128,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 129,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 130,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 131,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 132,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 133,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 134,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 135,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 136,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 137,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 138,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 139,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 140,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 141,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 142,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 143,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 144,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 145,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 146,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 147,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 148,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 149,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 150,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 151,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 152,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 153,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 154,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 155,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 156,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 157,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 158,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 159,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 160,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 161,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 162,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 163,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 164,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 165,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 166,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 167,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 168,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 169,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 170,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 171,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 172,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 173,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 174,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 175,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 176,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 177,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 178,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 179,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 180,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 181,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 182,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 183,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 184,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 185,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 186,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 187,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 188,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 189,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 190,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 191,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 192,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 193,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 194,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 195,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 196,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 197,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 198,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 199,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 200,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 201,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 202,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 203,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 204,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 205,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 206,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 207,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 208,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 209,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 210,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 211,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 212,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 213,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 214,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 215,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 216,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 217,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 218,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 219,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 220,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 221,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 222,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 223,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 224,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 225,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 226,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 227,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 228,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 229,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 230,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 231,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 232,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 233,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 234,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 235,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 236,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 237,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 238,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 239,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 240,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 241,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 242,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 243,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 244,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 245,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 246,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 247,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 248,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 249,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 250,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 251,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 252,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 253,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 254,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 255,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 256,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 257,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 258,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 259,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 260,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 261,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 262,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 263,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 264,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 265,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 266,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 267,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 268,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 269,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 270,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 271,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 272,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 273,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 274,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 275,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 276,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 277,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 278,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 279,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 280,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 281,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 282,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 283,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 284,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 285,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 286,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 287,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 288,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 289,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 290,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 291,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 292,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 293,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 294,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 295,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 296,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 297,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 298,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 299,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 300,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 301,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 302,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 303,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 304,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 305,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 306,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 307,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 308,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 309,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 310,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 311,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 312,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 313,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 314,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 315,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 316,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 317,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 318,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 319,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 320,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 321,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 322,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 323,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 324,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 325,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 326,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 327,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 328,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 329,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 330,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 331,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 332,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 333,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 334,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 335,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 336,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 337,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 338,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 339,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 340,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 341,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 342,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 343,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 344,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 345,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 346,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 347,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 348,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 349,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 350,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 351,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 352,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 353,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 354,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 355,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 356,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 357,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 358,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 359,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 360,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 361,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 362,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 363,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 364,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 365,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 366,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 367,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 368,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 369,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 370,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 371,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 372,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 373,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 374,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 375,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 376,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 377,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 378,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 379,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 380,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 381,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 382,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 383,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 384,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 385,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 386,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 387,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 388,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 389,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 390,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 391,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 392,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 393,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 394,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 395,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 396,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 397,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 398,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 399,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 400,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: the first coupon period is irregular: whole periods back from maturity must reach the issue date",
+      "name": "irregular_issue_date",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768521600000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2255,6 +5289,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2314,6 +5349,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2373,6 +5409,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2432,6 +5469,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2491,6 +5529,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2550,6 +5589,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2609,6 +5649,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2668,6 +5709,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2727,6 +5769,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2786,6 +5829,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2845,12 +5889,13 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
     },
     {
-      "error": "bond.invalid_terms: payment dates must strictly increase",
+      "error": "bond.invalid_terms: coupon 1 must be paid on the regular date 1831507200000",
       "name": "payment_dates_repeat",
       "terms": {
         "call": {
@@ -2904,6 +5949,7 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
@@ -2963,13 +6009,14 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }
     },
     {
-      "error": null,
-      "name": "valid_final_coupon_before_maturity",
+      "error": "bond.invalid_terms: coupon 2 must be paid on the regular date 1863129600000",
+      "name": "final_coupon_before_maturity",
       "terms": {
         "call": {
           "first_call_date_ms": 1799971200000,
@@ -3022,6 +6069,166 @@
         "maturity_date_ms": 1863129600000,
         "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
         "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: coupon 0 must be paid on the regular date 1799971200000",
+      "name": "single_coupon_at_maturity",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 1,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: the regular schedule has 3 coupons",
+      "name": "missing_final_coupon",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 2,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": null,
+      "name": "valid_record_date_inside_period",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1799971200000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "payment_grace_ms": 604800000,
         "redemption_price_bps": 10000,
         "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
       }

@@ -1075,6 +1075,11 @@
         "discriminant": 26,
         "tag": "KagemushaLoadCommitted",
         "type": "Option<Array<u8, 32>>"
+      },
+      {
+        "discriminant": 27,
+        "tag": "Bond",
+        "type": "Option<AssetDefinitionId>"
       }
     ]
   },
@@ -1755,6 +1760,11 @@
         "discriminant": 59,
         "tag": "SettlementReceipt",
         "type": "SettlementId"
+      },
+      {
+        "discriminant": 60,
+        "tag": "Bond",
+        "type": "AssetDefinitionId"
       }
     ]
   },

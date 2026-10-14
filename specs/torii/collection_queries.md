@@ -43,6 +43,8 @@ Design rules:
 | account movements | `GET /v1/accounts/{account_id}/history` | `POST /v1/accounts/{account_id}/history/query` |
 | contract activity | `GET /v1/contracts/activity` | `POST /v1/contracts/activity/query` |
 | contract events | `GET /v1/contracts/events` | `POST /v1/contracts/events/query` |
+| bonds | `GET /v1/bonds` | — |
+| bond entitlements | `GET /v1/bonds/{bond_id}/entitlements` | — |
 
 `GET` and `POST …/query` are equivalent; `POST` additionally supports
 `aggregate` and avoids URL length limits. Responses are JSON. Transactions, account movements, contract activity and events
@@ -264,6 +266,8 @@ absent.
 | UAID manifests | `dataspace_id` (number, *sort*), `dataspace_alias`, `manifest_hash`, `status` (strings, *sort*), `manifest`, `lifecycle` (JSON), `accounts` (list of strings) | `dataspace_id` |
 | account movements | `id`, `source`, `type`, `status`, `direction`, `account_id`, `counterparty_account_id`, `asset_id`, `asset_definition_id`, `tx_hash` (strings), `timestamp_ms`, `block_height`, `block_index`, `movement_index`, `expires_at_ms`, `finalized_at_ms` (numbers), `operation_id`, `requesting_fi_id` (strings), `amount` (decimal), `result_ok` (bool) | newest chain position first, then descending movement index |
 | contract activity | `authority`, `entrypoint_hash`, `contract_address`, `contract_alias`, `contract_entrypoint` (strings), `timestamp_ms`, `block_height`, `block_index` (numbers), `result_ok` (bool), `contract_payload`, `fee_payment` (JSON) | newest first |
+| bonds | `id`, `vault`, `terms.issuer`, `terms.paying_agent`, `terms.payment_asset`, `terms.identifiers.isin`, `state.lifecycle` (strings, *sort*), `terms.coupon_rate_bps`, `terms.coupon_frequency`, `terms.issue_date_ms`, `terms.maturity_date_ms` (numbers, *sort*), `state.outstanding_units`, `state.redeemed_units` (decimals, *sort*), `state.transfers_frozen` (bool), `terms`, `state` (JSON); each item is the complete `BondRecord` | `id` |
+| bond entitlements | `id` (`<index>:<holder>`), `bond`, `holder` (strings, *sort*), `index`, `claimed_at_ms` (number or null) (numbers, *sort*), `units`, `amount` (decimals, *sort*), `claimed` (bool) | `id` (cash flow, then holder) |
 | contract events | `event_id`, `provenance` (always `emitted`), `authority`, `execution_hash_hex`, `block_hash_hex`, `contract_address`, `event_kind` (strings), `schema_version`, `timestamp_ms`, `block_height`, `output_index`, `emission_index` (numbers), `result_ok` (always true), `participants`, `asset_ids` (lists of strings), `numeric_fields`, `payload`, `emission`, `fee_payment` (JSON) | descending `block_height`, `output_index`, `emission_index` |
 
 Subscription status is a lower-case string (`active`, `paused`, `past_due`,

@@ -558,8 +558,58 @@ pub static CONTRACT_EVENTS: CollectionSpec = CollectionSpec {
     ordered: false,
 };
 
+/// Native bond records: the record JSON with filterable terms and state fields.
+pub static BONDS: CollectionSpec = CollectionSpec {
+    id: "bonds",
+    tag: 18,
+    fields: &[
+        text("id"),
+        account("vault"),
+        account("terms.issuer"),
+        account("terms.paying_agent"),
+        text("terms.payment_asset"),
+        number("terms.coupon_rate_bps"),
+        number("terms.coupon_frequency"),
+        number("terms.issue_date_ms"),
+        number("terms.maturity_date_ms"),
+        text("terms.identifiers.isin"),
+        text("state.lifecycle"),
+        number("state.outstanding_units"),
+        number("state.redeemed_units"),
+        boolean("state.transfers_frozen"),
+        json("terms"),
+        json("state"),
+    ],
+    metadata: false,
+    default_sort: &[("id", Order::Asc)],
+    identity: &["id"],
+    positioned: 0,
+    ordered: true,
+};
+
+/// Record-date entitlements of one bond, in cash-flow then holder order.
+pub static BOND_ENTITLEMENTS: CollectionSpec = CollectionSpec {
+    id: "bond_entitlements",
+    tag: 19,
+    fields: &[
+        text("id"),
+        text("bond"),
+        number("index"),
+        account("holder"),
+        number("units"),
+        number("amount"),
+        boolean("claimed"),
+        number("claimed_at_ms"),
+    ],
+    metadata: false,
+    default_sort: &[("id", Order::Asc)],
+    identity: &["id"],
+    positioned: 0,
+    ordered: true,
+};
+
 /// Every collection, in cursor-tag order.
-pub const ALL: [&CollectionSpec; 17] = [
+pub const ALL: [&CollectionSpec; 19] = [
     &DOMAINS,
     &ACCOUNTS,
     &ASSET_DEFINITIONS,
@@ -577,6 +627,8 @@ pub const ALL: [&CollectionSpec; 17] = [
     &ACCOUNT_HISTORY,
     &CONTRACT_ACTIVITY,
     &CONTRACT_EVENTS,
+    &BONDS,
+    &BOND_ENTITLEMENTS,
 ];
 
 #[cfg(test)]

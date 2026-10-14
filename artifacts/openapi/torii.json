@@ -5446,6 +5446,554 @@
         "pattern": "^ea0130[0-9A-F]{96}$",
         "type": "string"
       },
+      "BondCallTerms": {
+        "additionalProperties": false,
+        "properties": {
+          "first_call_date_ms": {
+            "description": "Earliest call date.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "notice_ms": {
+            "description": "Minimum notice between the call block and the call date.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "price_bps": {
+            "description": "Call price in basis points of the denomination.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "first_call_date_ms",
+          "price_bps",
+          "notice_ms"
+        ],
+        "type": "object"
+      },
+      "BondCashflowState": {
+        "additionalProperties": false,
+        "description": "Servicing state and totals of one effective cash flow.",
+        "properties": {
+          "amount_due": {
+            "description": "Sum of rounded holder payments.",
+            "type": "string"
+          },
+          "claimed_holders": {
+            "description": "Holders that claimed.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "closed_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "entitled_units": {
+            "description": "Sum of entitled units.",
+            "type": "string"
+          },
+          "evidence_sha256": {
+            "description": "Lowercase hex SHA-256 digest (64 digits).",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "funded": {
+            "description": "Amount moved into the vault.",
+            "type": "string"
+          },
+          "funded_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "holders": {
+            "description": "Holders with a recorded entitlement.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "paid": {
+            "description": "Amount paid to holders.",
+            "type": "string"
+          },
+          "recorded_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recording": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BondRecordingCursor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "Scheduled",
+              "Recording",
+              "Recorded",
+              "Funded",
+              "Closed",
+              "Defaulted",
+              "Cancelled"
+            ],
+            "type": "string"
+          },
+          "terms": {
+            "$ref": "#/components/schemas/BondCashflowTerms"
+          }
+        },
+        "required": [
+          "terms",
+          "status",
+          "recording",
+          "holders",
+          "claimed_holders",
+          "entitled_units",
+          "amount_due",
+          "funded",
+          "paid",
+          "recorded_at_ms",
+          "funded_at_ms",
+          "closed_at_ms",
+          "evidence_sha256"
+        ],
+        "type": "object"
+      },
+      "BondCashflowTerms": {
+        "additionalProperties": false,
+        "description": "One effective scheduled cash flow.",
+        "properties": {
+          "amount_per_unit": {
+            "description": "Exact payment-asset amount per bond unit (decimal string).",
+            "type": "string"
+          },
+          "index": {
+            "description": "Cash-flow index.",
+            "format": "uint16",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "Coupon",
+              "Redemption"
+            ],
+            "type": "string"
+          },
+          "payment_date_ms": {
+            "description": "Payment date (Unix milliseconds); claims open from it.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "record_date_ms": {
+            "description": "Record date (Unix milliseconds); the books close from it until the cash flow is recorded.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "index",
+          "kind",
+          "record_date_ms",
+          "payment_date_ms",
+          "amount_per_unit"
+        ],
+        "type": "object"
+      },
+      "BondEntitlementPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BondEntitlementRow"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "description": "Pass as `cursor` to read the next page; `null` on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "description": "Exact match count; present only with `include_total`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "type": "object"
+      },
+      "BondEntitlementRow": {
+        "additionalProperties": false,
+        "description": "One holder's record-date entitlement to one cash flow.",
+        "properties": {
+          "amount": {
+            "description": "Payment at the payment-asset scale.",
+            "type": "string"
+          },
+          "bond": {
+            "description": "Bond asset definition.",
+            "type": "string"
+          },
+          "claimed": {
+            "type": "boolean"
+          },
+          "claimed_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "holder": {
+            "description": "Holder of record (I105).",
+            "type": "string"
+          },
+          "id": {
+            "description": "`<index>:<holder>`; the identity and cursor key.",
+            "type": "string"
+          },
+          "index": {
+            "format": "uint16",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "units": {
+            "description": "Units held of record (own balance plus units the holder escrowed).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "bond",
+          "index",
+          "holder",
+          "units",
+          "amount",
+          "claimed",
+          "claimed_at_ms"
+        ],
+        "type": "object"
+      },
+      "BondIdentifiers": {
+        "additionalProperties": false,
+        "properties": {
+          "bdt_document_sha256": {
+            "description": "Lowercase hex SHA-256 digest (64 digits).",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bdt_version": {
+            "description": "Bond data taxonomy version label.",
+            "type": "string"
+          },
+          "cfi": {
+            "description": "ISO 10962 CFI code.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isin": {
+            "description": "ISO 6166 ISIN.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuer_lei": {
+            "description": "ISO 17442 issuer LEI.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "isin",
+          "cfi",
+          "issuer_lei",
+          "bdt_version",
+          "bdt_document_sha256"
+        ],
+        "type": "object"
+      },
+      "BondRecord": {
+        "additionalProperties": false,
+        "description": "Authoritative native bond record (specs/finance/bond_ops.md).",
+        "properties": {
+          "id": {
+            "description": "Bond asset definition (Base58 address).",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/BondState"
+          },
+          "terms": {
+            "$ref": "#/components/schemas/BondTerms"
+          },
+          "vault": {
+            "description": "Deterministic key-less vault account (I105).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "vault",
+          "terms",
+          "state"
+        ],
+        "type": "object"
+      },
+      "BondRecordPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BondRecord"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "description": "Pass as `cursor` to read the next page; `null` on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "description": "Exact match count; present only with `include_total`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "type": "object"
+      },
+      "BondRecordingCursor": {
+        "additionalProperties": false,
+        "description": "Resumption point of a paged recording.",
+        "properties": {
+          "after_asset": {
+            "description": "Last examined bond balance.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "after_escrow": {
+            "description": "Last examined escrow id.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phase": {
+            "enum": [
+              "Holders",
+              "Escrows"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase",
+          "after_asset",
+          "after_escrow"
+        ],
+        "type": "object"
+      },
+      "BondState": {
+        "additionalProperties": false,
+        "properties": {
+          "cashflows": {
+            "items": {
+              "$ref": "#/components/schemas/BondCashflowState"
+            },
+            "type": "array"
+          },
+          "lifecycle": {
+            "enum": [
+              "Active",
+              "Called",
+              "Matured",
+              "Defaulted"
+            ],
+            "type": "string"
+          },
+          "outstanding_units": {
+            "description": "Units in existence: the minted total minus redeemed units.",
+            "type": "string"
+          },
+          "redeemed_units": {
+            "description": "Units burned by redemption claims.",
+            "type": "string"
+          },
+          "transfers_frozen": {
+            "description": "Set once the redemption is recorded.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "lifecycle",
+          "outstanding_units",
+          "redeemed_units",
+          "transfers_frozen",
+          "cashflows"
+        ],
+        "type": "object"
+      },
+      "BondTerms": {
+        "additionalProperties": false,
+        "description": "Registered bond terms; only the issuer and paying-agent account references change (rekey, ReplaceBondPayingAgent).",
+        "properties": {
+          "call": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BondCallTerms"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cashflows": {
+            "items": {
+              "$ref": "#/components/schemas/BondCashflowTerms"
+            },
+            "maxItems": 400,
+            "type": "array"
+          },
+          "coupon_frequency": {
+            "enum": [
+              0,
+              1,
+              2,
+              4,
+              12
+            ],
+            "type": "integer"
+          },
+          "coupon_rate_bps": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "day_count": {
+            "enum": [
+              "ActActIcma",
+              "Thirty360",
+              "Act360",
+              "Act365Fixed"
+            ],
+            "type": "string"
+          },
+          "denomination": {
+            "description": "Payment-asset amount per bond unit.",
+            "type": "string"
+          },
+          "identifiers": {
+            "$ref": "#/components/schemas/BondIdentifiers"
+          },
+          "issue_date_ms": {
+            "description": "Issue date.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "issuer": {
+            "description": "Issuer account (I105).",
+            "type": "string"
+          },
+          "maturity_date_ms": {
+            "description": "Maturity date.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "paying_agent": {
+            "description": "Paying agent account (I105).",
+            "type": "string"
+          },
+          "payment_asset": {
+            "description": "Payment asset definition (Base58 address).",
+            "type": "string"
+          },
+          "payment_grace_ms": {
+            "description": "Grace period after a payment date before a default may be declared.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "redemption_price_bps": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "terms_sha256": {
+            "description": "Lowercase hex SHA-256 digest (64 digits).",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "issuer",
+          "paying_agent",
+          "payment_asset",
+          "denomination",
+          "coupon_rate_bps",
+          "coupon_frequency",
+          "day_count",
+          "issue_date_ms",
+          "maturity_date_ms",
+          "redemption_price_bps",
+          "payment_grace_ms",
+          "call",
+          "cashflows",
+          "identifiers",
+          "terms_sha256"
+        ],
+        "type": "object"
+      },
       "BootleLanternIssuanceAuthorizationWireV1": {
         "contentMediaType": "application/x-norito",
         "description": "One exact canonical 320-byte ILA1 Bootle/Lantern issuance authorization.",
@@ -64086,13 +64634,72 @@
     },
     "/v1/bonds": {
       "get": {
-        "description": "List every registered native bond record (terms, lifecycle, effective schedule, record-date snapshots and cash-flow accounting) as Norito JSON. See specs/finance/bond_ops.md.",
+        "description": "List registered native bond records with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Each item is the complete `BondRecord` (terms, effective schedule, lifecycle and per-cash-flow totals); holder entitlements are paged by `/v1/bonds/{bond_id}/entitlements`. Rows follow `sort`, then bond identifier order. See specs/finance/bond_ops.md and specs/torii/collection_queries.md.",
+        "parameters": [
+          {
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "maxLength": 32768,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated sort keys; a leading `-` sorts descending, e.g. `-quantity,id`.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated fields to return, e.g. `id,quantity`.",
+            "in": "query",
+            "name": "select",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "uint32",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The previous page's `next_cursor`.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Add the exact match count as `total`; costs a full scan.",
+            "in": "query",
+            "name": "include_total",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonValue"
+                  "$ref": "#/components/schemas/BondRecordPage"
                 }
               }
             },
@@ -64120,7 +64727,7 @@
     },
     "/v1/bonds/{bond_id}": {
       "get": {
-        "description": "Fetch the authoritative native bond record of one bond asset definition as Norito JSON. See specs/finance/bond_ops.md.",
+        "description": "Fetch the authoritative native bond record of one bond asset definition (terms, effective schedule, lifecycle and per-cash-flow totals) as Norito JSON. See specs/finance/bond_ops.md.",
         "parameters": [
           {
             "description": "Canonical address literal of the bond asset definition.",
@@ -64137,7 +64744,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonValue"
+                  "$ref": "#/components/schemas/BondRecord"
                 }
               }
             },
@@ -64162,6 +64769,111 @@
           "authentication": "torii_default",
           "schemaVersion": 1,
           "stableRouteId": "application.bonds_by_bond_id_get"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/bonds/{bond_id}/entitlements": {
+      "get": {
+        "description": "Page the record-date entitlements of one bond with the collection query language, in cash-flow then holder order. Each row is one holder's entitlement to one cash flow: units of record, the rounded payment and whether it was claimed. Filter on `index` or `holder` to read one cash flow or one holder. See specs/finance/bond_ops.md and specs/torii/collection_queries.md.",
+        "parameters": [
+          {
+            "description": "Canonical address literal of the bond asset definition.",
+            "in": "path",
+            "name": "bond_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "maxLength": 32768,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated sort keys; a leading `-` sorts descending, e.g. `-quantity,id`.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated fields to return, e.g. `id,quantity`.",
+            "in": "query",
+            "name": "select",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "uint32",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The previous page's `next_cursor`.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Add the exact match count as `total`; costs a full scan.",
+            "in": "query",
+            "name": "include_total",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BondEntitlementPage"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "404": {
+            "description": "The asset definition has no registered bond record."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "List a bond's record-date entitlements.",
+        "tags": [
+          "Settlement"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "application.bonds_by_bond_id_entitlements_get"
         },
         "x-iroha-tool-effect": "read"
       }
