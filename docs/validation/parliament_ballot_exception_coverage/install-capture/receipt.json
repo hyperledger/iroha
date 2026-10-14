@@ -1,0 +1,162 @@
+{
+  "absent_conftests": [
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate/conftest.py",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate/scripts/conftest.py",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate/scripts/tests/conftest.py"
+  ],
+  "commands": [
+    {
+      "command": [
+        "/opt/homebrew/bin/pytest",
+        "-c",
+        "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate/pytest.ini",
+        "-o",
+        "addopts=",
+        "--confcutdir=/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate",
+        "--import-mode=importlib",
+        "-p",
+        "no:cacheprovider",
+        "--maxfail=0",
+        "--tb=short",
+        "-q",
+        "--collect-only",
+        "scripts/tests/parliament_ballot_exception_coverage_independent_test.py"
+      ],
+      "cwd": "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate",
+      "exit_code": 0,
+      "name": "collection",
+      "seconds": 0.16400395799428225
+    },
+    {
+      "command": [
+        "/opt/homebrew/bin/pytest",
+        "-c",
+        "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate/pytest.ini",
+        "-o",
+        "addopts=",
+        "--confcutdir=/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate",
+        "--import-mode=importlib",
+        "-p",
+        "no:cacheprovider",
+        "--maxfail=0",
+        "--tb=short",
+        "-q",
+        "scripts/tests/parliament_ballot_exception_coverage_independent_test.py",
+        "--basetemp=/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-pytest-tmp",
+        "--junitxml=/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-capture/tests.xml"
+      ],
+      "cwd": "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate",
+      "exit_code": 0,
+      "name": "tests",
+      "seconds": 0.20086649991571903
+    }
+  ],
+  "environment_overrides": {
+    "PYTEST_ADDOPTS": "",
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+    "PYTEST_PLUGINS": "",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONOPTIMIZE": "0",
+    "PYTHONPATH": ""
+  },
+  "error": null,
+  "extraction": {
+    "derived_sha256": "b646feb3469c7398c3325fe4b850ac9c8474e3be714636e2331cb803df2afe23",
+    "diff_sha256": "7c5e021413e393ea483780a8b5cb477fc83dada86104ef59691c55a179855e96",
+    "expected_remaining_tests": 113,
+    "extraction_recipe_sha256": "7c564063031849d0dc0e893234013bf9e538eb39a5ce61b10ff9784cf052c838",
+    "helper_sha256": "3693abdecf793fc2d1aac32679cf394c9843c5c3dcbc0befb74510a61db94c4d",
+    "original_sha256": "5a742bef80148d0d4c3c52016e22cab578d85919da1e366f7fae456fb26a386d",
+    "original_tests": 119,
+    "removed_functions": [
+      {
+        "end_line": 257,
+        "name": "test_actual_image_table_totals_match_independent_raw_byte_census",
+        "start_line": 230,
+        "test_cases": 2
+      },
+      {
+        "end_line": 295,
+        "name": "test_personality_reference_is_exact_independently_reviewed_rust_1931",
+        "start_line": 286,
+        "test_cases": 2
+      },
+      {
+        "end_line": 450,
+        "name": "test_actual_fde_header_counts_match_independent_byte_census",
+        "start_line": 437,
+        "test_cases": 2
+      }
+    ],
+    "retained_function_ast_identical": true,
+    "retained_lines_byte_identical": true,
+    "schema": "exception-synthetic-partition-extraction-v1",
+    "source_configuration_sha256": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62"
+  },
+  "output_sha256": {
+    "collected-nodeids.json": "6b9a1c1d8ab217c05e13f3b627d0ca2352f8666c73399b7c4c6210bfc935d8aa",
+    "collection.command.json": "4b78d47bc2ecfe83d062dc7540e8962882c3ef21972b3951305e08e01693ff80",
+    "collection.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "collection.stdout.txt": "56c5515f6bdad110f1b301755f9d5031bcac0abb5afb5e9b74a536f28005655b",
+    "sources/00-parliament_ballot_exception_coverage.py.template": "3693abdecf793fc2d1aac32679cf394c9843c5c3dcbc0befb74510a61db94c4d",
+    "sources/01-parliament_ballot_exception_coverage_independent_test.py.template": "b646feb3469c7398c3325fe4b850ac9c8474e3be714636e2331cb803df2afe23",
+    "sources/02-pytest.ini.template": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "sources/03-pytest.ini.template": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "sources/04-prepare-install-test.py.template": "7c564063031849d0dc0e893234013bf9e538eb39a5ce61b10ff9784cf052c838",
+    "sources/05-install-extraction.json.template": "396faf8931fbc1fdb491bec2dcdd01930977c54e94724806c4234513921a85fa",
+    "sources/06-install-extraction.diff.template": "7c5e021413e393ea483780a8b5cb477fc83dada86104ef59691c55a179855e96",
+    "sources/07-capture-install-test.py.template": "aed994858db416897c497e8200460901a606dd060f46c87327ce21a177aa14da",
+    "tests.command.json": "494bbcacbbcd87cc2bfa96255d202f6c6b0b4c1be0c2f243b55268e34073e519",
+    "tests.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tests.stdout.txt": "43f4211ebb9e102a63e9dc2e8febb1ad2e585b143967fdf9efaec609109e239a",
+    "tests.xml": "9e071e0ea35f3773d10f198ec98e06c7c3dcb1ea305060b73de5ab173389eebe"
+  },
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "runtime_after": {
+    "/opt/homebrew/Cellar/python@3.11/3.11.17/Frameworks/Python.framework/Versions/3.11/bin/python3.11": "bff9a674241830f21e8e2933b7d9563a0b61f60ea0f3206964d0fcccd9ab8fd6",
+    "/opt/homebrew/Cellar/python@3.15/3.15.0/Frameworks/Python.framework/Versions/3.15/bin/python3.15": "15c72833c1ffc09bc4e05d1e1866784d126721ad548d9c4d8f943641262535cb",
+    "/opt/homebrew/bin/pytest": "63aac753282bf709581dee19db2f6f8198954d5ddcaaa0bcc0b1677ebaac4edd"
+  },
+  "runtime_before": {
+    "/opt/homebrew/Cellar/python@3.11/3.11.17/Frameworks/Python.framework/Versions/3.11/bin/python3.11": "bff9a674241830f21e8e2933b7d9563a0b61f60ea0f3206964d0fcccd9ab8fd6",
+    "/opt/homebrew/Cellar/python@3.15/3.15.0/Frameworks/Python.framework/Versions/3.15/bin/python3.15": "15c72833c1ffc09bc4e05d1e1866784d126721ad548d9c4d8f943641262535cb",
+    "/opt/homebrew/bin/pytest": "63aac753282bf709581dee19db2f6f8198954d5ddcaaa0bcc0b1677ebaac4edd"
+  },
+  "schema": "exception-relocated-synthetic-capture-v1",
+  "scope": "Relocated repository-shaped synthetic parser tests only. No original images or host references are used by this partition. Observations are non-atomic; Python/pytest dependencies and import/cache coherence remain trusted. This is not a tracked-source rerun, worker execution or whole-resource qualification.",
+  "source_after": {
+    "/Users/mtakemiya/dev/iroha/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/capture-install-test.py": "aed994858db416897c497e8200460901a606dd060f46c87327ce21a177aa14da",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate/scripts/parliament_ballot_exception_coverage.py": "3693abdecf793fc2d1aac32679cf394c9843c5c3dcbc0befb74510a61db94c4d",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate/scripts/tests/parliament_ballot_exception_coverage_independent_test.py": "b646feb3469c7398c3325fe4b850ac9c8474e3be714636e2331cb803df2afe23",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-extraction.diff": "7c5e021413e393ea483780a8b5cb477fc83dada86104ef59691c55a179855e96",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-extraction.json": "396faf8931fbc1fdb491bec2dcdd01930977c54e94724806c4234513921a85fa",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/prepare-install-test.py": "7c564063031849d0dc0e893234013bf9e538eb39a5ce61b10ff9784cf052c838"
+  },
+  "source_before": {
+    "/Users/mtakemiya/dev/iroha/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/capture-install-test.py": "aed994858db416897c497e8200460901a606dd060f46c87327ce21a177aa14da",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate/scripts/parliament_ballot_exception_coverage.py": "3693abdecf793fc2d1aac32679cf394c9843c5c3dcbc0befb74510a61db94c4d",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate/scripts/tests/parliament_ballot_exception_coverage_independent_test.py": "b646feb3469c7398c3325fe4b850ac9c8474e3be714636e2331cb803df2afe23",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-extraction.diff": "7c5e021413e393ea483780a8b5cb477fc83dada86104ef59691c55a179855e96",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-extraction.json": "396faf8931fbc1fdb491bec2dcdd01930977c54e94724806c4234513921a85fa",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/prepare-install-test.py": "7c564063031849d0dc0e893234013bf9e538eb39a5ce61b10ff9784cf052c838"
+  },
+  "source_snapshots": {
+    "/Users/mtakemiya/dev/iroha/pytest.ini": "sources/03-pytest.ini.template",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/capture-install-test.py": "sources/07-capture-install-test.py.template",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate/pytest.ini": "sources/02-pytest.ini.template",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate/scripts/parliament_ballot_exception_coverage.py": "sources/00-parliament_ballot_exception_coverage.py.template",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate/scripts/tests/parliament_ballot_exception_coverage_independent_test.py": "sources/01-parliament_ballot_exception_coverage_independent_test.py.template",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-extraction.diff": "sources/06-install-extraction.diff.template",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-extraction.json": "sources/05-install-extraction.json.template",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/prepare-install-test.py": "sources/04-prepare-install-test.py.template"
+  },
+  "status": "PASS",
+  "tests": 113,
+  "tracked_source_tests_rerun": false,
+  "worker_executed": false
+}

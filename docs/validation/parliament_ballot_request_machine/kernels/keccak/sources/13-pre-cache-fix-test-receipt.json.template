@@ -1,0 +1,42 @@
+{
+  "command": [
+    "/opt/homebrew/bin/pytest",
+    "-q",
+    "-o",
+    "addopts=",
+    "-p",
+    "no:cacheprovider",
+    "--noconftest",
+    "--basetemp=/Users/mtakemiya/dev/iroha/target/parliament-keccak-review/pytest-tmp",
+    "--junitxml=/Users/mtakemiya/dev/iroha/target/parliament-keccak-review/junit.xml",
+    "/Users/mtakemiya/dev/iroha/target/parliament-keccak-review/test_independent_keccak.py",
+    "/Users/mtakemiya/dev/iroha/target/parliament-keccak-machine-stage/test_keccak1600.py"
+  ],
+  "exit_code": 0,
+  "before": {
+    "target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64",
+    "target/parliament-keccak-machine-stage/keccak1600.py": "3bdc8284f122b20cf7cb77b54c922ab02e6ff46fc35f8f102ac8510756702d2b",
+    "target/parliament-keccak-machine-stage/test_keccak1600.py": "3d2157d007374d04c1b4805166b157a635d3c5d087f25e195d037b7cc470c4cb",
+    "target/parliament-keccak-machine-stage/report.py": "46023477b94a724ee41cc99665ae1da2f286f5d33a658574a3f2da8610eebec2",
+    "target/parliament-keccak-machine-stage/README.md": "acbe65a553942de82bb868e00f5e0afeefa814d4f827c67add8bb0d0ca8b1290",
+    "target/parliament-keccak-machine-stage/references/NIST.FIPS.202.pdf": "1592607831ff0908cc590632ce371c6c95e94025bb1a0c8ae90a4d0ec1ed025e",
+    "target/parliament-keccak-review/test_independent_keccak.py": "f15de11824717dd8ffbb0ae225ecf6318db8330ed8d7f509d06d11302993228f",
+    "crates/iroha_zkp_vole/src/hash.rs": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+    "crates/iroha_parliament_ballot_proof/src/framing.rs": "784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0",
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d"
+  },
+  "after": {
+    "target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64",
+    "target/parliament-keccak-machine-stage/keccak1600.py": "3bdc8284f122b20cf7cb77b54c922ab02e6ff46fc35f8f102ac8510756702d2b",
+    "target/parliament-keccak-machine-stage/test_keccak1600.py": "3d2157d007374d04c1b4805166b157a635d3c5d087f25e195d037b7cc470c4cb",
+    "target/parliament-keccak-machine-stage/report.py": "46023477b94a724ee41cc99665ae1da2f286f5d33a658574a3f2da8610eebec2",
+    "target/parliament-keccak-machine-stage/README.md": "acbe65a553942de82bb868e00f5e0afeefa814d4f827c67add8bb0d0ca8b1290",
+    "target/parliament-keccak-machine-stage/references/NIST.FIPS.202.pdf": "1592607831ff0908cc590632ce371c6c95e94025bb1a0c8ae90a4d0ec1ed025e",
+    "target/parliament-keccak-review/test_independent_keccak.py": "f15de11824717dd8ffbb0ae225ecf6318db8330ed8d7f509d06d11302993228f",
+    "crates/iroha_zkp_vole/src/hash.rs": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+    "crates/iroha_parliament_ballot_proof/src/framing.rs": "784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0",
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d"
+  },
+  "production_qualified": false,
+  "scope": "independent finite component controls only"
+}

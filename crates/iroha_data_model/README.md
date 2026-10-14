@@ -37,6 +37,13 @@ The crate exports no C ABI of its own. Swift, Kotlin/Java, JavaScript and
 Python consumers use the hand-written native bridges (`connect_norito_bridge`,
 `iroha_js_host`, `iroha_python_rs`) with Norito as the wire contract.
 
+`SumeragiFinalityVerifier::retain_recent_decisions(count)` bounds authenticated
+history in memory without changing verification rules. Streaming consumers call
+it after each verified page and include witness parents in their window: a witness
+lagging `L` heights behind the tip needs `L + 2` decisions. At least three decisions
+remain for checkpoint export. Checkpoint encoding and import retain their existing
+three-decision restart context; they do not persist the larger runtime window.
+
 ## Trait Objects
 
 Many parts of the data model operate on trait objects to allow mixing different

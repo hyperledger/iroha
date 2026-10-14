@@ -175,18 +175,26 @@ class KagemushaWalletEnrollmentV1 internal constructor(handle: Long, private val
     /** Exact authenticated durable E6, including issuer evidence, for interrupted delivery.
      * Only Native's explicit absence outcome permits null; provider errors are preserved. */
     @Synchronized fun retainedResult(): ByteArray? = call(18).let { if (it.status == 25) it.bytes() else null }
-    /** Qualify all installed sources before transferring this handle to original wallet open. */
+    /** Transfer the same qualified Native owner to original wallet open after durable enrollment. */
     @Synchronized fun loadRuntime(): KagemushaWalletRuntimeV1 {
         exact(call(7),26)
         val runtime = KagemushaWalletRuntimeV1(owner, platformOwner)
         owner = 0
         return runtime
     }
+    /** Transfer the enrolled owner, including its qualified sources and platform custody, once.
+     * Closing this enrollment after transfer cannot close the returned owner. Original E6 and
+     * existing-account admission are still required before a wallet can be opened. */
+    fun loadInstalledRuntime(): KagemushaWalletInstalledRuntimeV1 {
+        KagemushaWalletInstalledRuntimeV1.requireNoUnreleasedAdmissions()
+        return KagemushaWalletInstalledRuntimeV1.adoptEnrolled(loadRuntime())
+    }
     /**
      * Permanently abandon this unused enrollment (design §3.2), for example after an E1 refusal,
      * an ineligible pre-E5 check or an interruption that cannot resume. Native chooses the form
      * from the slot's durable state: [KagemushaWalletEnrollmentAbandonmentV1.LocalAbandoned] when
-     * no marker exists (nothing to submit), otherwise the exact retained signed
+     * the authenticated retained Client has no accepted permit or selected slot, or no marker
+     * exists in a selected slot (nothing to submit), otherwise the exact retained signed
      * [KagemushaWalletEnrollmentAbandonmentV1.Abandonment] frame, byte for byte on every retry.
      * Native refuses once Bootstrap is selected; a returned frame does not mean the ledger
      * accepted it. A fresh enrollment may start as soon as this returns.

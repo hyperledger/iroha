@@ -182,6 +182,25 @@ impl<'a> PreparationMapsV1<'a> {
         self.draft.maps[role.index()].non_membership(&mut self.store, key)
     }
 
+    /// Authenticate the actual member or bracketing low leaf without changing this map.
+    /// Conditional no-op circuits still require this real path against the selected root.
+    ///
+    /// # Errors
+    /// Missing/corrupt objects, invalid key or an opening that differs from the selected root.
+    pub fn member_or_low(
+        &mut self,
+        role: PreparationMapV1,
+        key: &[u8; 32],
+    ) -> Result<
+        (
+            KagemushaWalletIndexedLeafV1,
+            KagemushaWalletIndexedOpeningV1,
+        ),
+        Error,
+    > {
+        self.draft.maps[role.index()].member_or_low(&mut self.store, key)
+    }
+
     /// Derive a native insertion for a map owned by this operation.
     ///
     /// # Errors

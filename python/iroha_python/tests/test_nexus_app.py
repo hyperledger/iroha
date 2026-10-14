@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from iroha_python import NetworkId
-from iroha_python.address import AccountAddress
+from iroha_python.address import AccountAddress, CurveId, MultisigMember
 from iroha_python.connect import ConnectUri, build_connect_uri, generate_connect_sid
 from iroha_python.nexus_app import (
     DefaultNexusTransactionCodec,
@@ -1232,3 +1232,24 @@ def test_nexus_app_fixture_error_codes_are_stable():
     assert expected_codes["authority mismatch"] == "approval_account_mismatch"
     assert expected_codes["approval signing key mismatch"] == "approval_account_mismatch"
     assert expected_codes["approval session substitution"] == "approval_session_mismatch"
+
+
+def test_nexus_app_multisig_approval_requires_a_supported_signing_controller():
+    account = AccountAddress.from_multisig_policy(
+        threshold=1,
+        members=(MultisigMember(CurveId.ED25519, FIXTURE_PUBLIC_KEY, 1),),
+    ).to_i105(FIXTURE_CHAIN_DISCRIMINANT)
+    client = NexusAppClient(
+        NexusAppConfig(
+            network_id=NETWORK_ID,
+            account_chain_discriminant=FIXTURE_CHAIN_DISCRIMINANT,
+        ),
+        connect_transport=FakeConnect(
+            FIXTURE_SIGNATURE,
+            account_id=account,
+            signing_public_key=FIXTURE_PUBLIC_KEY,
+        ),
+    )
+    with pytest.raises(NexusAppError) as failure:
+        client.await_approval(_nexus_connect_session())
+    assert failure.value.code == "missing_signing_public_key"

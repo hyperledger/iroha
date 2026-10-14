@@ -1,0 +1,204 @@
+"""Concrete FIPS 202 public permutation and fixed-byte SHA3-512 circuits.
+
+State bits are A[x,y,z] at 64*(x+5*y)+z. These are concrete Boolean
+computations, not calls to the simulator's ideal base random oracle.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from functools import lru_cache
+
+from bit_ir import Builder, Cost, integer, require
+
+
+def round_constant(index):
+    """Derive the public 64-bit iota constant from FIPS 202 algorithms 5/6."""
+    integer(index, 0, 23, "Keccak round")
+    value = 0
+    for j in range(7):
+        register = 1
+        for _ in range((j + 7 * index) % 255):
+            register = ((register << 1) ^ (0x71 if register & 128 else 0)) & 255
+        value |= (register & 1) << ((1 << j) - 1)
+    return value
+
+
+def rotation_offsets():
+    """Derive the fixed rho offsets; no data-dependent permutation or lookup."""
+    out = [0] * 25
+    x, y = 1, 0
+    for t in range(24):
+        out[x + 5*y] = ((t+1)*(t+2)//2) % 64
+        x, y = y, (2*x + 3*y) % 5
+    return tuple(out)
+
+
+def round_bits(builder, state, index):
+    """Emit one complete theta/rho/pi/chi/iota round into fresh SSA targets."""
+    require(type(state) is tuple and len(state) == 1600, "Keccak state width")
+    for wire in state:
+        integer(wire, 0, builder.cursor - 1, "Keccak state wire")
+    constant = round_constant(index)
+
+    def at(x, y, z):
+        return state[64*(x + 5*y) + z]
+
+    parity = []
+    for x in range(5):
+        column = []
+        for z in range(64):
+            value = at(x, 0, z)
+            for y in range(1, 5):
+                value = builder.bit("xor", value, at(x, y, z))
+            column.append(value)
+        parity.append(tuple(column))
+    delta = tuple(tuple(builder.bit("xor", parity[(x-1) % 5][z],
+                                    parity[(x+1) % 5][(z-1) % 64])
+                        for z in range(64)) for x in range(5))
+    linear = tuple(builder.bit("xor", at(x, y, z), delta[x][z])
+                   for y in range(5) for x in range(5) for z in range(64))
+    # rho and pi are static wire relabeling. Every bit has one destination.
+    shuffled = [None] * 1600
+    offsets = rotation_offsets()
+    for y in range(5):
+        for x in range(5):
+            for z in range(64):
+                shuffled[64*(y + 5*((2*x+3*y) % 5)) + ((z+offsets[x+5*y]) % 64)] = linear[64*(x+5*y)+z]
+    require(None not in shuffled and len(set(shuffled)) == 1600, "rho/pi wire bijection")
+    nonlinear = []
+    for y in range(5):
+        for x in range(5):
+            for z in range(64):
+                a = shuffled[64*(x+5*y)+z]
+                b = shuffled[64*((x+1) % 5+5*y)+z]
+                c = shuffled[64*((x+2) % 5+5*y)+z]
+                nonlinear.append(builder.bit("xor", a, builder.bit("and", builder.bit("not", b), c)))
+    for z in range(64):
+        if (constant >> z) & 1:
+            nonlinear[z] = builder.bit("not", nonlinear[z])
+    return tuple(nonlinear)
+
+
+@lru_cache(maxsize=1)
+def keccak1600_block():
+    """Complete 24-round Keccak-f[1600] Boolean SSA program."""
+    builder = Builder(1600)
+    state = tuple(range(1600))
+    for index in range(24):
+        state = round_bits(builder, state, index)
+    return builder.finish(state)
+
+
+@lru_cache(maxsize=1)
+def keccak1600_cost():
+    """Memoize counts derived from the same immutable permutation block."""
+    return keccak1600_block().cost.times(2) + Cost(cx=1600)
+
+
+def emit_relocated(block, inputs, outputs, work):
+    """Relocate one actual clean circuit; caller registers must be disjoint."""
+    require(type(inputs) is tuple and type(outputs) is tuple and type(work) is tuple,
+            "Keccak wire containers")
+    require(len(inputs) == block.inputs and len(outputs) == len(block.outputs)
+            and len(work) == block.derived + block.work, "Keccak wire widths")
+    wires = inputs + work + outputs
+    require(all(type(w) is int and w >= 0 for w in wires)
+            and len(set(wires)) == len(wires), "Keccak wire aliases")
+    for gate in block.emit_clean():
+        yield (gate[0], *(wires[w] for w in gate[1:]))
+
+
+class Keccak1600Kernel:
+    """Clean concrete permutation-XOR, with no ideal-oracle invocation."""
+    name = "concrete-fips202-keccak1600"
+    inputs = 1600
+    outputs = 1600
+
+    @property
+    def work(self):
+        """Fresh Boolean history bits, all returned to zero."""
+        return keccak1600_block().derived
+
+    @property
+    def cost(self):
+        """Actual compute/copy/uncompute gate counts."""
+        return keccak1600_cost()
+
+    def evaluate(self, inputs):
+        """Evaluate the exact Boolean program on a finite basis state."""
+        return keccak1600_block().evaluate(inputs)
+
+    def emit(self, inputs, outputs, work):
+        """Emit the circuit on the caller's disjoint wire labels."""
+        yield from emit_relocated(keccak1600_block(), inputs, outputs, work)
+
+
+@lru_cache(maxsize=16)
+def sha3_512_block(message_bytes):
+    """Fixed public byte length with rate72, suffix06 and final pad80.
+
+    An empty message has one unused input bit because the generic IR requires
+    a nonempty input register. Its value never affects the hash. Length is
+    public circuit shape; this is not a variable-length coherent interface.
+    """
+    integer(message_bytes, 0, 1 << 20, "SHA3 message bytes")
+    kernel = Keccak1600Kernel()
+    builder = Builder(max(1, message_bytes*8), (kernel,))
+    state = tuple(builder.bit("zero") for _ in range(1600))
+    for block_number in range(message_bytes // 72 + 1):
+        start = 72*block_number
+        take = min(72, message_bytes-start)
+        mutable = list(state)
+        for i in range(8*take):
+            mutable[i] = builder.bit("xor", mutable[i], 8*start+i)
+        if take < 72:
+            for offset in (8*take+1, 8*take+2, 575):
+                mutable[offset] = builder.bit("not", mutable[offset])
+        state = builder.node("kernel", *mutable, kernel=kernel.name, width=1600)
+    return builder.finish(state[:512])
+
+
+@lru_cache(maxsize=16)
+def sha3_512_cost(message_bytes):
+    """Memoize exact counts for a fixed public message shape."""
+    return sha3_512_block(message_bytes).cost.times(2) + Cost(cx=512)
+
+
+@dataclass(frozen=True)
+class SHA3_512Kernel:
+    """Concrete fixed-public-length public digest; separate from backend H_mu."""
+    message_bytes: int
+
+    def __post_init__(self):
+        integer(self.message_bytes, 0, 1 << 20, "SHA3 message bytes")
+
+    @property
+    def name(self):
+        """Distinct static shapes, all implementing the same concrete hash."""
+        return f"concrete-fips202-sha3-512-{self.message_bytes}"
+
+    @property
+    def inputs(self):
+        """Message bits, or one untouched dummy for an empty message."""
+        return max(1, 8*self.message_bytes)
+
+    outputs = 512
+
+    @property
+    def work(self):
+        """Retained absorb states plus shared clean permutation workspace."""
+        block = sha3_512_block(self.message_bytes)
+        return block.derived + block.work
+
+    @property
+    def cost(self):
+        """Include every permutation's compute and reverse traversal."""
+        return sha3_512_cost(self.message_bytes)
+
+    def evaluate(self, inputs):
+        """Hash finite message bits through the same circuit model."""
+        return sha3_512_block(self.message_bytes).evaluate(inputs)
+
+    def emit(self, inputs, outputs, work):
+        """Emit the whole clean fixed-length sponge circuit."""
+        yield from emit_relocated(sha3_512_block(self.message_bytes), inputs, outputs, work)

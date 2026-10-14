@@ -30,6 +30,7 @@
 //! never rejects a valid proof (S10).
 
 use core::fmt;
+use std::sync::{Arc, Mutex};
 
 use ff::Field;
 use iroha_pasta::{
@@ -45,10 +46,14 @@ use crate::{
 };
 
 pub mod accumulator;
+mod bundled;
 pub mod claim;
+mod generator_prefix;
 pub use claim::GeneratorClaim;
 pub mod commit;
 pub mod prover;
+mod public_column_cache;
+pub(crate) use public_column_cache::HashedPublicColumn;
 pub mod verifier;
 
 /// An IPA operation failed.
@@ -148,6 +153,13 @@ pub enum ParamsTrustError {
     UnknownCurve,
     /// The bytes are shorter than the `k` header.
     MissingHeader,
+    /// An embedded representation belongs to another requested domain.
+    DomainMismatch {
+        /// The requested `k`.
+        expected: u32,
+        /// The `k` declared by the selected representation.
+        actual: u32,
+    },
     /// No digest is pinned for this curve and `k`; derive the parameters.
     Unpinned {
         /// The curve.
@@ -171,6 +183,12 @@ impl fmt::Display for ParamsTrustError {
         match self {
             Self::UnknownCurve => f.write_str("unknown curve"),
             Self::MissingHeader => f.write_str("params bytes lack the k header"),
+            Self::DomainMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "selected params encode k = {actual}, requested k = {expected}"
+                )
+            }
             Self::Unpinned { curve, k } => {
                 write!(f, "no params digest is pinned for {curve:?} at k = {k}")
             }
@@ -195,11 +213,21 @@ impl From<ParamsError> for ParamsTrustError {
 
 /// IPA parameters a verifier may trust (S5): derived from the transparent
 /// setup, or decoded from bytes that hash to the pinned digest.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct PinnedParams<C: PastaCurve> {
     params: ParamsIpa<C>,
     curve: CurveV1,
+    public_columns: Arc<Mutex<public_column_cache::PublicColumnCache<C>>>,
+    generator_prefix_sums: Arc<generator_prefix::GeneratorPrefixSums<C>>,
 }
+
+// Runtime memos of already computed public points are not parameter identity.
+impl<C: PastaCurve> PartialEq for PinnedParams<C> {
+    fn eq(&self, other: &Self) -> bool {
+        self.params == other.params && self.curve == other.curve
+    }
+}
+impl<C: PastaCurve> Eq for PinnedParams<C> {}
 
 impl<C: PastaCurve> PinnedParams<C> {
     /// Derives the parameters for `2^k` generators (`hash_to_curve` with the
@@ -215,6 +243,8 @@ impl<C: PastaCurve> PinnedParams<C> {
         Ok(Self {
             params: ParamsIpa::new(k)?,
             curve,
+            public_columns: Arc::default(),
+            generator_prefix_sums: Arc::default(),
         })
     }
 
@@ -243,6 +273,8 @@ impl<C: PastaCurve> PinnedParams<C> {
         Ok(Self {
             params: ParamsIpa::from_bytes(bytes)?,
             curve,
+            public_columns: Arc::default(),
+            generator_prefix_sums: Arc::default(),
         })
     }
 

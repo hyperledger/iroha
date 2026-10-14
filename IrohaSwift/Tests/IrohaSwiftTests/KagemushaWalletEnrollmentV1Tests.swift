@@ -81,6 +81,7 @@ final class KagemushaWalletEnrollmentV1Tests: XCTestCase {
     }
     _ = try KagemushaWalletEnrollmentInputV1(14,Data([1]))
     _ = try KagemushaWalletEnrollmentInputV1(15,Data([1]),Data([2]))
+    XCTAssertThrowsError(try KagemushaWalletEnrollmentInputV1(21))
     for selector: UInt32 in [21, UInt32.max] {
       XCTAssertThrowsError(try KagemushaWalletEnrollmentInputV1(selector))
     }

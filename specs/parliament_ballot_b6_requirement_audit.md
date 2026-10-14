@@ -1,6 +1,6 @@
 # Parliament ballot B6 requirement audit
 
-Status, 2026-10-13: **no profile selected or qualified; production remains
+Status, 2026-10-14: **no profile selected or qualified; production remains
 gated**. This matrix maps the current [design](parliament_private_ballot_design.md)
 §5, §12.2 and §13 to retained evidence and remaining work. It is a source and
 requirements audit, not independent cryptographic review, owner acceptance,
@@ -45,6 +45,29 @@ below. A listed source test is not a claim of exhaustive coverage.
   supplies conditional coherent lookup/append gate and wire bounds with 21
   controls. Full quantum and physical resources remain open; request count is
   not inferred from external query count, and base calls remain separately charged.
+  The [clean admissibility circuit](parliament_ballot_b6_admissibility_circuit.md)
+  separately prices the actual grinding/opening predicate with exact gates and
+  reusable work wires. It excludes challenge sampling, first-success selection,
+  the trial controller and every separate reconstruction pass.
+  The [clean field-product kernels](../docs/validation/parliament_ballot_gf_circuit/README.md)
+  separately price three source field APIs with exact reversible gates and
+  clean work. Supplied operands/output/work must be disjoint; the atomic request
+  composition below prices routing and cleanup within its declared boundary. These
+  kernels do not close the full simulator or physical verifier resource gates.
+- [Mathematical request machine](../docs/validation/parliament_ballot_request_machine/README.md):
+  explicit atomic generation, programming, return and cleanup, with content and
+  full-width length rejection families. Accepted-request gate/oracle/storage
+  observations are source-bound cases, not a family-wide maximum. Adaptive
+  lifetime accounting, primitive-entry assumptions, external review and native
+  workspace qualification remain open; no production gate changes.
+- [Conditional lifetime ledger](../docs/validation/parliament_ballot_lifetime_ledger/README.md):
+  common log/oracle contracts, supported event-cost composition and disjoint
+  retained-register accounting. Actual adaptive execution, unsupported families,
+  initialization and primitive resources remain open.
+- [Full-cap content observations](../docs/validation/parliament_ballot_content_resources/README.md):
+  four exact bounded-content cases include validation, controlled writes, returns
+  and cleanup. They do not establish a family maximum or extend the ledger's
+  supported inputs automatically.
 - [Standalone resource model](parliament_ballot_b6_standalone_resources.md):
   source-bound conditional requested-allocation ceilings and separated
   arithmetic/hash/loop counts, not complete work or process-memory bounds.
@@ -81,6 +104,19 @@ below. A listed source test is not a claim of exhaustive coverage.
   checks now bound those outer coordinators with 18 and 24 passing tests. They
   retain lower constructor/hash/allocator/native terms, source/ABI premises and
   the registration trap continuation; no complete resource certificate follows.
+  A separate [opaque-field constructor check](../docs/validation/parliament_ballot_opaque_field_bound/README.md)
+  derives all four full-width length paths in both retained images, including
+  guarded requests of at most 256 bytes and a 48-byte own frame. Returning paths
+  cost 20/23/29 local instructions; the 18-instruction allocation-failure prefix
+  retains its final error call and outside-body continuation as unknown. Native
+  and complete workspace costs remain unresolved.
+  The [retained-image exception audit](../docs/validation/parliament_ballot_exception_coverage/README.md)
+  now checks compact/FDE mapping for all 228 LSDAs per mode and conservatively
+  seeds every table-listed landing pad of reached owners. Its 182 staged tests
+  and LLVM header comparison preserve a 46-instruction indirect-control gap
+  per image relative to the independent whole-function census. CFI execution,
+  loaded personality correspondence and exceptional stack/native costs remain
+  unknown; no complete resource or current-checkout qualification follows.
   A [current-source rebuild](../docs/validation/parliament_ballot_current_candidate/README.md)
   separately passes both worker modes, 122 observations, four output controls
   and fresh stack diagnostics. The waker assertion correction passes 28 shared
@@ -90,6 +126,9 @@ below. A listed source test is not a claim of exhaustive coverage.
   component analyzers on the new captures. Its 49 controls and 2,123 stable input
   guards preserve the original premises and unresolved terms; complete
   native/workspace costs remain open.
+  Subsequent root-lock drift makes the build, allocation and correspondence
+  results historical; exact originals remain archived. No qualification is
+  transferred to the later checkout.
 - Standalone source checks: [relations](../crates/iroha_parliament_ballot_proof/tests/relation.rs),
   [proofs](../crates/iroha_parliament_ballot_proof/tests/proofs.rs),
   [test decoder](../crates/iroha_parliament_ballot_proof/src/test_codec.rs),
@@ -254,12 +293,12 @@ integration obligations, not new standalone work authorized by this audit.
 | Constructive valid-nonminimal-counter acceptance | Local component check complete: four tests and strict lint pass in each feature mode; [receipt](../docs/validation/parliament_ballot_b6/nonminimal-counter-receipt.json) pins the 92-file source scope and binaries. Vote cases use `S=3`; no production or hardware qualification inferred |
 | Malformed-encoding time/allocation distributions and maxima | Selected local campaign complete: 10,168 observations across both modes, expected refusal and 164-class input/outcome/diagnostic parity; [receipt](../docs/validation/parliament_ballot_b6/malformed-receipt.json) pins the new 225-file source scope. Shared warm-process observations only; complete malformed-input bounds and baseline qualification remain open |
 | Standalone charge and workspace contract | Owner-authorized research/proposal implemented: [fixed reservation and bounded worker](parliament_ballot_resource_contract.md), 10 Rust tests per mode, 33 supervisor tests and 120 source-bound worker calls pass. Full physical cost and runtime/workspace certificates remain open; the prior front-end inventory remains a distinct frozen worksheet |
-| Actual generator driver, remaining reductions and full resource vectors | Cryptographic author and independent reviewer; open. Reference games do not accept new premises |
+| Actual generator driver, remaining reductions and full resource vectors | Cryptographic author and independent reviewer; open. The [write-frame component](parliament_ballot_b6_write_framing.md) prices supplied-field preparation/cleanup, and the [admissibility circuit](parliament_ballot_b6_admissibility_circuit.md) prices the actual grinding/opening predicate. Source generation, controller, remaining reconstruction/primitive costs and full reductions remain unresolved. Reference games do not accept new premises |
 | Primitive/model qualification and independent attack-cost assessment | Independent cryptographic reviewers; open |
 | Both security weakenings, approved premises and envelope-order resolution | Design owner with required independent review; open |
 | Exact Xeon and named phone evidence, physical x86 parity, battery/thermal/cancellation conditions | Hardware/qualification owners; open; Intel run explicitly deferred by owner |
 | Capacity/admission derivation | Resource and governance-policy owners; open, using complete qualified worst-case costs; no policy parameter silently chosen |
-| Current integration source-contract mismatch | SCCP and Parliament integration owners; open. Scoped queue/Kura, seven-call phase and construction guards bind original owners and order. The initial 36-test queue capture was insufficient and retains its counterexample. The [latest actual recheck](../docs/validation/parliament_ballot_construction_guard/README.md) passes the construction boundary and first refuses the untouched Torii `request_local_partial_release_v1` binding. Earlier queue/Kura/ordering/construction failures and historical 1,115/92 totals describe earlier snapshots; later assertions remain unexecuted |
+| Current integration source-contract reconciliation | Scoped structural checkpoint complete. Queue/Kura, phase, construction, Torii release, daemon startup, beacon-witness and execution-result guards bind the reviewed owners and order. The full Python capture passed 1,755 tests on its recorded sources; a later constructor migration changed two observed Rust files. Their originals remain archived, and the [post-merge source check](../docs/validation/parliament_ballot_post_merge_source_check/README.md) passes across 402 stable inputs. Prior tests are not transferred to those changed files. Resolver/compiler/runtime premises remain; no Rust runtime or production qualification follows |
 | Production implementation, retirement and launch qualification | Postselection owners; gated by unmet selection conditions and eventual owner qualification record |
 
 The three focused accounting suites pass 38 tests and six subtests on the
@@ -269,8 +308,13 @@ with exact provenance; resource/front-end guards refuse the changed live input.
 The frozen reconstruction remains separate from these later sources. On the frozen source, the
 security check intentionally returns exit 2 with qualification false; the
 resource and front-end checks return exit 1 with complete certificates false.
-The latest source-contract guard first rejects the Torii release-function binding;
-earlier queue, Kura, start-phase and construction failures remain historical evidence. New local work has
+The [source-contract capture](../docs/validation/parliament_ballot_execution_result_guard/source-check.json)
+passed after scoped beacon borrowing and execution-result assertion repairs.
+The matching [complete regression capture](../docs/validation/parliament_ballot_source_guard_regressions/README.md)
+passed all 1,755 collected Python tests. Their source scope precedes two later
+constructor-migration edits; the separate post-merge source check passes on
+those changed inputs without transferring the full regression result. Earlier queue, Kura, start-phase,
+construction, Torii, daemon and execution-assertion failures remain historical evidence. New local work has
 separate source identities and receipts; the
 B6 artifact manifest records the final retained files. No full-workspace pass,
 independent human review or owner approval is asserted.

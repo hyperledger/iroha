@@ -1,0 +1,356 @@
+"""Publish reviewed source-guard and write-framing evidence once.
+
+Retain earlier capture identities and distinguish later live-path changes.
+This is evidence bookkeeping, not a new worker build or qualification proof.
+"""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+import re
+import subprocess
+
+ROOT = Path.cwd()
+B6 = ROOT / 'docs/validation/parliament_ballot_b6'
+PRIOR = B6 / 'pre-torii-release-guard-artifact-manifest.sha256'
+INDEX = B6 / 'B6_ARTIFACTS_SHA256SUMS'
+RECIPE = B6 / 'source-framing-coherence.py.template'
+RECEIPT = B6 / 'source-framing-coherence.json'
+BUNDLES = {
+    'parliament_ballot_torii_release_guard': '601656df1f9192103e5b2bdddb430c2798b47634906cf6db233c05f435a21cda',
+    'parliament_ballot_daemon_startup_guard': '6a7dca25c4d78d879e4949163177c5aa8448d1208ece09723050d398aca035df',
+    'parliament_ballot_beacon_borrow_guard': 'c298a4e26593ac6c207f1a281266bdfa1e02f18e4821f506811058c7d69535fb',
+    'parliament_ballot_execution_result_guard': 'cca0a8ba74c0ffe4f5142943608280b527f32e1d74718c3a476ae9171afef235',
+    'parliament_ballot_source_guard_regressions': '4aec28af3f72e727b1a99ab8b7d7ab9e0a5fdc1da99ef16c8412daae298da10b',
+    'parliament_ballot_write_framing': 'a696d2b6edbc9a28600d8337c6b12c609129d7f9ef8911a10f2cb9f7d999de0d',
+}
+DOCUMENTS = {
+    'docs/validation/parliament_ballot_b6.md',
+    'specs/parliament_ballot_b6_requirement_audit.md',
+    'specs/parliament_ballot_implementation_goals.md',
+}
+GUARDS = {
+    'scripts/formal/check_sora_parliament_source_contract.py',
+    'scripts/tests/check_sora_parliament_source_contract_test.py',
+}
+NEW_SOURCES = {
+    'scripts/parliament_ballot_write_framing.py',
+    'scripts/tests/parliament_ballot_write_framing_test.py',
+    'specs/parliament_ballot_b6_write_framing.md',
+}
+VALIDATED = {}
+EXISTENCE = {}
+HISTORICAL_RECIPE_CHANGE = {
+    'docs/validation/parliament_ballot_source_guard_regressions/capture.py.template': {
+        'before': '664b44c77d2c7f66cd3ef09014cbc6a5d0ed30cf8bdb8e615b390c03dc2dced7',
+        'after': '36d4bc1b67626a73c42b664903aca84378d74541876ed5719f9190c4af114ec4',
+    },
+}
+
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(str(message))
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def read(path):
+    return json.loads(Path(path).read_text())
+
+
+def inventory(path):
+    result = {}
+    for line in path.read_text().splitlines():
+        expected, name = line.split('  ', 1)
+        require(name not in result and re.fullmatch(r'[0-9a-f]{64}', expected), (path, name))
+        result[name] = expected
+    return result
+
+
+def bind(path, expected=None):
+    path = (ROOT / path).resolve()
+    expected = sha(path) if expected is None else expected
+    require(sha(path) == expected, ('input differs', path))
+    name = str(path)
+    require(name not in VALIDATED or VALIDATED[name] == expected, ('conflicting identities', path))
+    VALIDATED[name] = expected
+
+
+def files(folder):
+    return {str(p.resolve()) for p in folder.rglob('*') if p.is_file()
+            and '__pycache__' not in p.parts and p.name != '.DS_Store'}
+
+
+def drift(pins):
+    result = {}
+    for name, expected in pins.items():
+        path = ROOT / name
+        current = sha(path) if path.is_file() else None
+        if current != expected:
+            result[name] = {'before': expected, 'after': current}
+    return result
+
+
+def retained_inputs(pins):
+    """Find exact historical bytes in authenticated archives; also bind live state."""
+    changed = drift(pins)
+    allowed = {(ROOT / path).resolve() for path in DOCUMENTS | GUARDS | {'status.md'}}
+    for name, change in changed.items():
+        relative = (ROOT / name).resolve().relative_to(ROOT).as_posix()
+        if relative in HISTORICAL_RECIPE_CHANGE:
+            require(change == HISTORICAL_RECIPE_CHANGE[relative], ('unreviewed recipe delta', name, change))
+            allowed.add((ROOT / name).resolve())
+    require({(ROOT / name).resolve() for name in changed} <= allowed,
+            ('unreviewed child-capture drift', changed))
+    resolved = {}
+    for name, expected in pins.items():
+        if name not in changed:
+            bind(name, expected)
+            continue
+        archives = sorted(path for path, value in VALIDATED.items()
+                          if value == expected and '/docs/validation/' in path)
+        require(archives, ('original bytes unavailable', name, expected))
+        bind(archives[0], expected)
+        require(changed[name]['after'] is not None, ('live source removed', name))
+        bind(name, changed[name]['after'])
+        resolved[name] = {'sha256': expected, 'archive': archives[0]}
+    return {'recorded_input_count': len(pins), 'current_path_drift': changed,
+            'resolved_originals': resolved, 'current_source_applicability': not bool(changed)}
+
+
+require(sha(PRIOR) == '10f93244edf43753ab433c310ccdffe7037ec9bd7cd098247bff50062778ad19', 'wrong prior index')
+require(INDEX.read_bytes() == PRIOR.read_bytes(), 'index already changed')
+require(not RECEIPT.exists(), 'receipt already published')
+bind(PRIOR)
+bind(RECIPE)
+old = inventory(PRIOR)
+changed_index = drift(old)
+require(set(changed_index) == DOCUMENTS | GUARDS, ('unexpected indexed changes', changed_index))
+for name, expected in old.items():
+    bind(name, changed_index[name]['after'] if name in changed_index else expected)
+
+bundle_members = {}
+manifests = []
+for name, expected in BUNDLES.items():
+    require(re.fullmatch(r'[0-9a-f]{64}', expected), ('bundle review unfinished', name))
+    folder = ROOT / 'docs/validation' / name
+    manifest = folder / 'SHA256SUMS'
+    bind(manifest, expected)
+    entries = inventory(manifest)
+    for path, value in entries.items():
+        bind(path, value)
+    bundle_members[name] = files(folder)
+    require(bundle_members[name] <= set(VALIDATED), ('unmanifested bundle files', name))
+    manifests.append({'path': str(manifest.relative_to(ROOT)), 'sha256': expected, 'entries': len(entries)})
+
+archives = B6 / 'pre-source-framing-documents'
+for path in files(archives):
+    bind(path)
+for name, entry in read(archives / 'sources.json').items():
+    expected = old.get(name)
+    if name == 'status.md':
+        expected = read(B6 / 'current-resource-coherence.json')['current_status_roadmap_sha256'][name]
+    require(entry['sha256'] == expected, ('wrong earlier document', name))
+    bind(entry['archive'], expected)
+for name in NEW_SOURCES | {'status.md', 'roadmap.md'}:
+    bind(name)
+
+previous = read(B6 / 'current-resource-coherence.json')
+previous_drift = drift(previous['validated_recorded_input_sha256'])
+allowed = {str(ROOT / path) for path in DOCUMENTS | GUARDS | {'status.md'}}
+require(set(previous_drift) <= allowed, ('unreviewed concurrent source drift', previous_drift))
+prior_scope = retained_inputs(previous['validated_recorded_input_sha256'])
+prior_index_scope = retained_inputs(old)
+
+# Each child receipt remains immutable, with current applicability assessed here.
+captures = {}
+for bundle in BUNDLES:
+    folder = ROOT / 'docs/validation' / bundle
+    for path in sorted(folder.glob('*.json')):
+        value = read(path)
+        pins = value.get('source_after', value.get('source_sha256_at_freeze', value.get('source_sha256_after')))
+        if not isinstance(pins, dict):
+            continue
+        before = value.get('source_before', value.get('source_sha256_before', pins))
+        require(before == pins, ('child capture drift', path))
+        captures[str(path.relative_to(ROOT))] = retained_inputs(pins)
+        if 'executing_artifact_sha256_after' in value:
+            executing = value['executing_artifact_sha256_after']
+            require(executing == value['executing_artifact_sha256_before'], ('executing artifact drift', path))
+            captures[str(path.relative_to(ROOT)) + '#executing-artifacts'] = retained_inputs(executing)
+
+# Earlier guards are historical. Published live guards must still be precisely
+# the final reviewed candidate, not another edit under the same allowed paths.
+latest_guard_path = ROOT / 'docs/validation/parliament_ballot_execution_result_guard/source-check.json'
+latest_guard = read(latest_guard_path)
+for name in GUARDS:
+    bind(name, latest_guard['source_after'][name])
+require(captures[str(latest_guard_path.relative_to(ROOT))]['current_source_applicability'],
+        'latest source check is no longer current')
+require(latest_guard['exit'] == 0 and latest_guard['probe_matches_cli_result']
+        and not latest_guard['cli_read_set_independently_traced']
+        and latest_guard['binding_ballot_available'] is False
+        and latest_guard['qualified_attempt_latency_ms'] is None
+        and latest_guard['no_experimental_core_torii_dependencies'], 'latest source/gate check failed')
+
+guard_checks = {}
+for bundle, count, input_count in (
+    ('parliament_ballot_torii_release_guard', 136, 93),
+    ('parliament_ballot_daemon_startup_guard', 181, 112),
+    ('parliament_ballot_beacon_borrow_guard', 182, 390),
+):
+    folder = ROOT / 'docs/validation' / bundle
+    freeze = read(folder / 'freeze-receipt.json')
+    source = read(folder / 'source-check.json')
+    require(freeze['control_count'] == count and freeze['source_check_input_count'] == input_count,
+            ('unexpected guard scope', bundle))
+    require(source['exit'] == 1 and source['probe_matches_cli_result']
+            and not source['cli_read_set_independently_traced'], ('unexpected source check', bundle))
+    require(source['binding_ballot_available'] is False
+            and source['qualified_attempt_latency_ms'] is None
+            and source['no_experimental_core_torii_dependencies'], ('production gate changed', bundle))
+    guard_checks[bundle] = {
+        'controls': count, 'source_check_inputs': input_count,
+        'source_check_exit': source['exit'], 'first_error': source['observed_main_error'],
+        'source_check_sha256': sha(folder / 'source-check.json'),
+        'current_scope': captures[str((folder / 'source-check.json').relative_to(ROOT))],
+    }
+latest_freeze = read(latest_guard_path.parent / 'freeze-receipt.json')
+guard_checks['parliament_ballot_execution_result_guard'] = {
+    'controls': latest_freeze['control_count'],
+    'source_check_inputs': latest_freeze['source_check_input_count'],
+    'source_check_exit': latest_guard['exit'], 'first_error': latest_guard['observed_main_error'],
+    'source_check_sha256': sha(latest_guard_path),
+    'current_scope': captures[str(latest_guard_path.relative_to(ROOT))],
+}
+
+framing_folder = ROOT / 'docs/validation/parliament_ballot_write_framing'
+framing = read(framing_folder / 'receipt.json')
+framing_report = read(framing_folder / 'report.json')
+for name in NEW_SOURCES:
+    bind(name, framing['executing_artifact_sha256_after'][name])
+require(captures[str((framing_folder / 'receipt.json').relative_to(ROOT))]['current_source_applicability']
+        and captures[str((framing_folder / 'receipt.json').relative_to(ROOT)) + '#executing-artifacts']['current_source_applicability'],
+        'latest framing capture is no longer current')
+require(framing['test_count'] == 11 and framing['source_count'] == 69
+        and len(framing['executing_artifact_sha256_after']) == 6
+        and framing['source_unchanged'], 'framing capture scope changed')
+require(framing['exit_codes'] == {'framing_only_width': 0, 'illustrative': 0,
+        'qualification_refusal': 2, 'tests': 0, 'zero_requests': 0}
+        and framing['qualification_refusal_stdout_equals_report'], 'framing command scope changed')
+for name, expected in framing['output_sha256'].items():
+    bind(framing_folder / name, expected)
+for value in (framing, framing_report):
+    for flag in ('full_resource_vector', 'actual_input_collision_bridge',
+                 'independent_cryptographic_review', 'physical_verification_workspace_certificate',
+                 'primitive_advantage_assumed', 'production_gate_changed', 'profile_qualified'):
+        require(value[flag] is False, ('framing qualification claim changed', flag))
+require(framing_report['lifetime']['additional_base_oracle_calls'] == 0
+        and framing_report['lifetime']['additional_clean_work_wires'] == 0
+        and framing_report['shared_length_width_satisfies_prior_honest_envelope'], 'framing composition changed')
+
+regression_folder = ROOT / 'docs/validation/parliament_ballot_source_guard_regressions'
+regressions = read(regression_folder / 'full.json')
+collection = read(regression_folder / 'final-collection.json')
+require(regressions['exit'] == collection['exit'] == 0
+        and regressions['collected_count'] == collection['collected_count']
+        and regressions['call_outcomes'] == {'passed': regressions['collected_count'], 'failed': 0, 'skipped': 0}
+        and not regressions['setup_teardown_errors'] and not regressions['collection_errors'],
+        'complete source regression suite did not pass')
+nodeids = []
+for record, name in ((collection, 'final-collection.json'), (regressions, 'full.json')):
+    require(not record['source_changes'] and not record['path_existence_changes'], ('regression input drift', name))
+    config = record['effective_pytest_config']
+    require(not config['keyword'] and not config['markexpr'] and config['maxfail'] == 0,
+            ('regression selection or fail-fast', name))
+    require(config['collectonly'] == (name == 'final-collection.json'), ('regression phase mismatch', name))
+    require(captures[str((regression_folder / name).relative_to(ROOT))]['current_source_applicability'],
+            ('regression capture no longer current', name))
+    for source in GUARDS:
+        require(record['source_after'][source] == latest_guard['source_after'][source],
+                ('regressions use another checker/test pair', name, source))
+    bind(record['nodeids'], record['nodeids_sha256'])
+    bind(record['log'], record['log_sha256'])
+    ids = read(ROOT / record['nodeids'])
+    require(len(ids) == len(set(ids)) == record['collected_count'], ('duplicate or missing test ids', name))
+    nodeids.append(set(ids))
+    for source, exists in record['guarded_path_existence_before'].items():
+        path = str((ROOT / source).resolve())
+        require(Path(path).exists() == exists, ('guarded existence changed', path))
+        require(path not in EXISTENCE or EXISTENCE[path] == exists, ('conflicting existence', path))
+        EXISTENCE[path] = exists
+require(nodeids[0] == nodeids[1], 'full execution differs from final collected inventory')
+
+links, broken = [], []
+for name in DOCUMENTS | {'specs/parliament_ballot_b6_write_framing.md'}:
+    path = ROOT / name
+    for target in re.findall(r'\]\(([^)]+)\)', path.read_text()):
+        if '://' in target or target.startswith('#'):
+            continue
+        destination = (path.parent / target.split('#')[0]).resolve()
+        (links if destination.exists() else broken).append({'source': name, 'target': target})
+require(not broken, ('broken local links', broken))
+checks = []
+for label, paths in [('scoped', sorted(DOCUMENTS | GUARDS | NEW_SOURCES)), ('shared-status', ['status.md'])]:
+    command = ['git', 'diff', '--check', '--', *paths]
+    completed = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+    log = B6 / ('source-framing-' + label + '-diff.txt')
+    require(not log.exists(), ('refusing log overwrite', log))
+    log.write_text(completed.stdout + completed.stderr)
+    require(completed.returncode == 0, ('diff check failed', command))
+    bind(log)
+    checks.append({'command': command, 'exit': completed.returncode,
+                   'log': str(log.relative_to(ROOT)), 'log_sha256': sha(log)})
+
+# Recheck all captured identities and membership, never silently repin at publish.
+for name, expected in VALIDATED.items():
+    require(sha(name) == expected, ('late input change', name))
+for name, exists in EXISTENCE.items():
+    require(Path(name).exists() == exists, ('late existence change', name))
+for name, expected in bundle_members.items():
+    require(files(ROOT / 'docs/validation' / name) == expected, ('bundle membership changed', name))
+require(drift(old) == changed_index and drift(previous['validated_recorded_input_sha256']) == previous_drift,
+        'historical drift changed during validation')
+require(INDEX.read_bytes() == PRIOR.read_bytes(), 'index changed during validation')
+value = {
+    'schema': 'parliament-source-framing-coherence-v1',
+    'observed_at_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    'prior_manifest_sha256': sha(PRIOR), 'prior_entries': len(old),
+    'component_manifests': manifests, 'updated_live_entries': changed_index,
+    'previous_coherence_sha256': sha(B6 / 'current-resource-coherence.json'),
+    'previous_coherence_current_scope': prior_scope,
+    'prior_index_current_scope': prior_index_scope, 'retained_child_capture_scopes': captures,
+    'source_guard_checks': guard_checks,
+    'write_framing_checks': {'receipt_sha256': sha(framing_folder / 'receipt.json'),
+        'report_sha256': sha(framing_folder / 'report.json'), 'controls': 11,
+        'source_inputs': 69, 'executing_artifacts': 6,
+        'qualification_refusal_exit': framing['exit_codes']['qualification_refusal']},
+    'complete_source_regression_checks': {'receipt_sha256': sha(regression_folder / 'full.json'),
+        'final_collection_sha256': sha(regression_folder / 'final-collection.json'),
+        'collected': regressions['collected_count'], 'outcomes': regressions['call_outcomes'],
+        'source_inputs': regressions['source_count'], 'elapsed_seconds': regressions['elapsed_seconds']},
+    'checks': checks, 'local_links_checked': len(links), 'broken_links': broken,
+    'validated_recorded_input_sha256': VALIDATED,
+    'validated_recorded_path_existence': EXISTENCE,
+    'reviewed_historical_recipe_change': HISTORICAL_RECIPE_CHANGE,
+    'binding_ballot_available': False, 'qualified_attempt_latency_ms': None,
+    'profile_qualified': False, 'complete_workspace_certificate': False,
+    'complete_quantum_resource_vector': False, 'full_workspace_suite_run': False,
+    'scope': 'Reviewed source guards and conditional write-frame circuit accounting only. Previous builds retain their exact historical source scope. Child receipts state actual commands, failures and trusted premises; no new worker build, Rust runtime suite, complete resource proof, independent cryptographic review or production qualification is inferred.',
+}
+RECEIPT.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
+bind(RECEIPT)
+publish = set(old) | NEW_SOURCES | {str(RECIPE.relative_to(ROOT)), str(RECEIPT.relative_to(ROOT)), str(PRIOR.relative_to(ROOT))}
+publish |= {str(Path(path).relative_to(ROOT)) for members in bundle_members.values() for path in members}
+publish |= {str(Path(path).relative_to(ROOT)) for path in files(archives)}
+publish |= {entry['log'] for entry in checks}
+for name in publish:
+    require(str(ROOT / name) in VALIDATED, ('unvalidated publication', name))
+    require(sha(ROOT / name) == VALIDATED[str(ROOT / name)], ('publication drift', name))
+INDEX.write_text(''.join(VALIDATED[str(ROOT / name)] + '  ' + name + '\n' for name in sorted(publish)))
+require(not drift(inventory(INDEX)), 'published manifest mismatch')
+print(json.dumps({'entries': len(publish), 'manifest_sha256': sha(INDEX), 'receipt_sha256': sha(RECEIPT),
+                  'validated_inputs': len(VALIDATED), 'links': len(links)}))

@@ -1,0 +1,269 @@
+[package]
+name = "iroha_torii"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+autotests = false
+
+
+description.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Owning unit-test mutations only; never enable this in a shipping dependency.
+mutation-testing = []
+default = ["node-api"]
+# Shipping HTTP/WebSocket surface. The integration-test marker is deliberately
+# excluded; tests can request `ws_integration_tests` explicitly.
+node-api = [
+    "app_api",
+    "app_api_https",
+    "transparent_api",
+    "app_api_wss",
+    "connect",
+    "push",
+    "telemetry",
+    "schema",
+    "proofs-full",
+    "ipa-commitment",
+    "zk-verify-batch",
+    "gost",
+    "sm",
+]
+proofs-stark = ["zk-stark"]
+proofs-full = ["proofs-stark"]
+# Enables Telemetry (i.e. Status, Metrics, and API Version) endpoints
+telemetry = [
+    "iroha_telemetry",
+    "iroha_core/telemetry",
+    "iroha_futures/telemetry",
+    "dep:prometheus",
+]
+# Enables profiling endpoint
+profiling = ["dep:pprof", "dep:bytes"]
+# Enables Data Model Schema endpoint
+schema = ["iroha_schema", "iroha_schema_gen"]
+# App-facing JSON API (convenience endpoints, JSON DSL).
+app_api = ["dep:kotodama_lang"]
+# Fixture execution and publication helpers for tests and benchmarks only.
+# Shipping/default feature sets must not include this authority.
+test-fixtures = ["iroha_core/iroha-core-tests"]
+# Feature-isolated, owner-only controller for authenticated private-settlement
+# route faults in real-process tests. Shipping/default builds never enable it.
+test-network-private-settlement-route-control = [
+    "iroha_core/test-network-private-settlement-evidence",
+]
+## Enable ZK batch verify handler and tests that depend on iroha_zkp_halo2.
+zk-verify-batch = ["dep:iroha_zkp_halo2", "app_api"]
+# Forward `transparent_api` to data model so Torii can gate fields like authority/timestamp
+transparent_api = ["iroha_data_model/transparent_api"]
+# Enable TC26 GOST algorithm family plumbing in dependent crates.
+gost = [
+    "iroha_config/gost",
+    "iroha_core/gost",
+    "iroha_crypto/gost",
+    "iroha_data_model/gost",
+]
+# Enable portable SM support and advertise it through capability telemetry.
+sm = [
+    "iroha_config/sm",
+    "iroha_core/sm",
+    "iroha_crypto/sm",
+    "iroha_data_model/sm",
+    "iroha_telemetry?/sm",
+]
+## WalletConnect-style WS + minimal in-node relay. Non-consensus.
+connect = []
+## Enable HTTPS webhook delivery using reqwest + rustls native roots (client-only).
+app_api_https = []
+## Enable WebSocket/WebSocket Secure webhook delivery using tokio-tungstenite (client-only).
+app_api_wss = ["dep:tokio-tungstenite"]
+## Optional push notification bridge for app-facing API (FCM/APNS via HTTP).
+push = ["app_api"]
+## Enable the WebSocket integration-test marker explicitly. The shipping aggregate already
+## includes the WSS transport without compiling test-only hooks.
+ws_integration_tests = ["app_api_wss"]
+## Prototype: read-only debug endpoints for proof tag index; forwards to `iroha_core/zk-proof-tags`.
+zk-proof-tags = ["iroha_core/zk-proof-tags"]
+zk-stark = ["iroha_core/zk-stark"]
+ipa-commitment = ["dep:iroha_zkp_halo2"]
+zk-tests = ["iroha_core/zk-tests"]
+# Exposes in-process handlers that deliberately omit network admission so the
+# registered benchmarks can measure the execution hot path. Never enable this
+# feature on a shipping node.
+bench = []
+
+[[bin]]
+name = "attachment_sanitizer"
+path = "src/bin/attachment_sanitizer.rs"
+required-features = ["app_api"]
+
+[dependencies]
+zeroize = { workspace = true }
+iroha_allocation = { workspace = true }
+iroha_core_privacy = { workspace = true, default-features = false }
+iroha_core_timed_ovn = { workspace = true }
+iroha_sumeragi = { workspace = true }
+iroha_sccp = { workspace = true }
+iroha_model_base = { workspace = true }
+norito = { workspace = true, default-features = false, features = ["node-codec"] }
+iroha_core = { workspace = true, default-features = false, features = ["app_api", "runtime"] }
+iroha_core_zk = { workspace = true, default-features = false }
+iroha_config = { workspace = true }
+iroha_primitives = { workspace = true, features = ["simd-accel"] }
+iroha_logger = { workspace = true }
+iroha_data_model = { workspace = true, default-features = false, features = ["http"] }
+iroha_executor_data_model = { workspace = true }
+iroha_crypto = { workspace = true, default-features = false, features = ["consensus"] }
+sorafs_car = { workspace = true, features = ["manifest"] }
+sorafs_chunker = { workspace = true }
+sorafs_node = { path = "../sorafs_node" }
+sorafs_orchestrator = { workspace = true }
+iroha_version = { workspace = true }
+iroha_torii_shared = { workspace = true }
+iroha_fs = { workspace = true }
+iroha_futures = { workspace = true }
+iroha_panic_hook = { workspace = true }
+iroha_p2p = { workspace = true }
+iroha_schema = { workspace = true, optional = true }
+iroha_schema_gen = { workspace = true, optional = true }
+iroha_telemetry = { workspace = true, optional = true }
+iroha_zkp_halo2 = { path = "../iroha_zkp_halo2", optional = true }
+ivm = { path = "../ivm" }
+ivm_abi = { workspace = true }
+kotodama_lang = { workspace = true, optional = true }
+sorafs_manifest = { path = "../sorafs_manifest", default-features = false }
+reqwest = { workspace = true, features = ["blocking", "json", "rustls-tls-native-roots", "http2", "stream"] }
+url = { workspace = true }
+prometheus = { workspace = true, optional = true }
+
+thiserror = { workspace = true }
+displaydoc = { workspace = true }
+futures = { workspace = true, features = ["std", "async-await"] }
+axum = { workspace = true, features = ["ws", "query", "json", "tokio", "http1", "macros", "matched-path", "original-uri"] }
+tower-http = { version = "0.6.6", features = ["cors", "trace", "timeout"] }
+tower = "0.5.2"
+tokio = { workspace = true, features = ["sync", "time", "macros"] }
+tokio-rustls = { workspace = true, features = ["ring"] }
+eyre = { workspace = true }
+error-stack = { workspace = true, features = ["eyre"] }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+ciborium = { version = "0.2.2", default-features = false, features = ["std"] }
+x509-parser = { version = "0.18.1", features = ["verify"] }
+hex = { workspace = true }
+blake3 = { workspace = true }
+ed25519-dalek = "2.2.0"
+libc = "0.2.177"
+p256 = { version = "0.13.2", default-features = false, features = ["std", "ecdsa", "pkcs8"] }
+time = { version = "0.3.44", features = ["formatting"] }
+# Security: avoid vulnerable 2.x codec; use prost instead
+pprof = { version = "0.15.0", optional = true, default-features = false, features = ["prost-codec", "frame-pointer", "cpp"] }
+nonzero_ext = { workspace = true }
+pretty-error-debug = "0.3.2"
+tungstenite = { workspace = true }
+sha2 = { version = "0.10.9", default-features = false }
+sha1 = "0.10.6"
+socket2 = "0.6.3"
+scrypt = { workspace = true }
+tempfile = { workspace = true }
+mv = { workspace = true }
+dashmap = { workspace = true }
+hyper = { version = "1.7.0", default-features = false, features = ["http1", "client", "server" ] }
+http-body-util = { workspace = true }
+http = { workspace = true }
+tokio-tungstenite = { workspace = true, features = ["rustls-tls-native-roots"], optional = true }
+urlencoding = "2.1.3"
+rand = { workspace = true }
+regex = "1.11.0"
+parking_lot = { workspace = true }
+flate2 = "1.1.5"
+zstd = { workspace = true }
+futures-util = "0.3.31"
+jsonwebtoken = { version = "9", default-features = false, features = ["use_pem"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["fs", "process"] }
+
+[build-dependencies]
+# Cargo resolves host features separately: pprof's prost-build dependency must
+# also use the workspace's std-only bytes implementation.
+bytes = { workspace = true, optional = true, features = ["std"] }
+
+[dev-dependencies]
+iroha_p2p = { workspace = true, features = ["test-fixtures"] }
+fastpq_prover = { workspace = true }
+humantime = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+iroha_service_model = { workspace = true }
+criterion = { workspace = true }
+tower = "0.5.2"
+hyper = "1.7.0"
+ivm = { path = "../ivm" }
+kotodama_lang = { workspace = true }
+iroha = { workspace = true }
+iroha_telemetry = { workspace = true }
+iroha_core = { workspace = true, default-features = false, features = ["runtime", "iroha-core-tests"] }
+iroha_core_zk = { workspace = true, default-features = false, features = ["test-utils"] }
+iroha_test_samples = { path = "../iroha_test_samples" }
+rand_core_06 = { workspace = true }
+rcgen = "0.14.5"
+
+[[bench]]
+name = "status_tail"
+harness = false
+
+[[bench]]
+name = "torii_hot_paths"
+harness = false
+required-features = ["app_api", "bench"]
+
+[[test]]
+name = "taira_app_contracts"
+path = "tests/grouped/taira_app_contracts.rs"
+required-features = ["node-api", "test-fixtures"]
+
+[[test]]
+name = "torii_core_routes"
+path = "tests/grouped/core_routes.rs"
+required-features = ["app_api", "test-fixtures"]
+
+[[test]]
+name = "torii_governance"
+path = "tests/grouped/governance.rs"
+required-features = ["app_api", "test-fixtures"]
+
+[[test]]
+name = "torii_nexus_sorafs"
+path = "tests/grouped/nexus_sorafs.rs"
+required-features = ["app_api", "test-fixtures"]
+
+[[test]]
+name = "torii_protocols"
+path = "tests/grouped/protocols.rs"
+required-features = ["app_api", "test-fixtures"]
+
+[[test]]
+name = "torii_sumeragi_telemetry"
+path = "tests/grouped/sumeragi_telemetry.rs"
+required-features = ["app_api", "test-fixtures"]
+
+[[test]]
+name = "torii_zk"
+path = "tests/grouped/zk.rs"
+required-features = ["app_api", "test-fixtures"]
+
+[[test]]
+name = "account_capabilities_contract"
+path = "tests/account_capabilities_contract.rs"
+required-features = ["node-api", "test-fixtures"]

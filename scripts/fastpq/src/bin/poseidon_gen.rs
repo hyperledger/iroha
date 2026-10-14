@@ -230,11 +230,11 @@ impl DomainRng {
     }
     fn constants_for(&mut self, set: &StarkParameterSet) -> Result<DerivedConstants> {
         validate_domain_geometry(set)?;
-        let mut seeded = self.base.clone();
+        let mut seeded = self.base;
         absorb_tag(&mut seeded, set.name.as_bytes());
         seeded.absorb(u64::from(set.trace_log_size));
         seeded.absorb(u64::from(set.lde_log_size));
-        let mut lde_sponge = seeded.clone();
+        let mut lde_sponge = seeded;
         absorb_tag(&mut lde_sponge, b"lde_root");
         lde_sponge.absorb(self.next_counter());
         let lde_root = derive_primitive_root(&mut lde_sponge, set.lde_log_size)

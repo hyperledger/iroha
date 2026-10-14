@@ -90,15 +90,23 @@ impl Kura {
     ) -> Result<()> {
         let publication = (|| -> Result<()> {
             let _prune = self.prune_lock.lock();
+            #[cfg(test)]
+            capacity_release_tests::fence_boundary(1);
             self.ensure_prune_recovery_not_required()?;
             let _canonical = self.canonical_chain_lock.lock();
+            #[cfg(test)]
+            capacity_release_tests::fence_boundary(2);
             let pending = if complete {
                 self.pending_canonical_capacity_bytes_under_prune_and_canonical_guards()?
             } else {
                 0
             };
             let _geometry = self.lane_geometry_lock.lock();
+            #[cfg(test)]
+            capacity_release_tests::fence_boundary(3);
             let _sidecar = self.sidecar_lock.lock();
+            #[cfg(test)]
+            capacity_release_tests::fence_boundary(4);
             if complete {
                 self.validate_publication_disk_peak_locked(pending, 0, &self.store_root)?;
             }
@@ -120,4 +128,10 @@ impl Kura {
         }
         publication
     }
+}
+
+/// Original physical notification custody for startup recovery capacity accounting.
+#[cfg(test)]
+mod capacity_release_tests {
+    include!("capacity_release_tests.rs");
 }

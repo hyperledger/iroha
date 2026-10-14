@@ -3964,7 +3964,7 @@ fn assert_stake_amount_matches_spec(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{
         block::ValidBlock,
@@ -4004,7 +4004,7 @@ mod tests {
     fn checked_peer_id() -> iroha_model_base::peer::PeerId {
         iroha_model_base::peer::PeerId::from(checked_keypair().public_key().clone())
     }
-    fn rebind_for_test(
+    pub(crate) fn rebind_for_test(
         stx: &StateTransaction<'_, '_>,
         lane_id: LaneId,
         validator: &AccountId,

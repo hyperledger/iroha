@@ -107,10 +107,12 @@ final Omega/artifact, hardware and wallet acceptance qualification remain open.
 `a_relation::native::bootstrap::Prover::from_artifacts` installs shared exact
 `KeyArtifact` descriptor/VK metadata without retaining any proving key or
 original PK bytes. `import_first`, `import_wrapper` and `import_terminal`
-reconstruct the exact unknown A1/W0/A2 sources and return one owned PK for the
-caller to borrow during its stage and release afterward. W0 binds the complete
+reconstruct the exact unknown A1/W0/A2 sources and return compact opaque source
+seals without constructing proving FFTs, masks or caches. Each proof reconstructs
+its admitted stage buffers and releases them afterward. W0 binds the complete
 installed A1 key digest, and A2 binds the installed W0 identity. Existing
-`PIPAPK01` import checks source tables, copy mapping, selectors and commitments;
+`PIPACPK1` import reconstructs source tables and checks their fingerprint, copy
+mapping, selectors and every original VK commitment;
 every import and borrowed proof boundary checks the full installed descriptor
 and VK. Metadata consistency alone is not source or catalog authority.
 Preparation verifies both Q proofs and openings, binds the original sigma tape
@@ -395,7 +397,8 @@ Vesta and terminal-A opening obligations separately. The reader also requires th
 rejects Omega transports above the common Payment bound before proof admission.
 The current producer retains shared verifier metadata for four A and three W
 stages and admits each original PK against its exact unknown source and installed
-preceding key. The import drops the PK and returns a compact source-admission seal;
+preceding key. Strict admission returns a compact source-admission seal without
+constructing proving FFTs, masks or caches;
 every proof checks full descriptor/VK identity before folds, reconstructs exact
 temporary buffers, and releases them before verification. Canonical checkpoint
 verification uses metadata only. Earlier captures passed all11 native consuming
@@ -487,8 +490,9 @@ remain evidence only for their recorded executables.
 
 `a_relation::native::archive` now implements the shared ten-A/nine-W producer
 for both evidence forms. It preserves all original bytes and soft proposals,
-checks hard predecessor/Q proofs, imports one original PK against its exact
-unknown compiled source, and retains only its compact source-admission seal. Proving
+checks hard predecessor/Q proofs, admits one original against its exact
+unknown compiled source without constructing proving buffers, and retains only
+its compact source-admission seal. Proving
 reconstructs the exact source and drops the temporary key before verification.
 Canonical Norito
 checkpoints pin role, stage, descriptor, verifier and source context; restoration
@@ -713,10 +717,11 @@ stage/VK/table/truncation cases, reproduce original proof bytes, and restore
 canonical checkpoint payloads. This result used eager PK retention.
 The current native Refresh producer instead retains only the shared
 `native::artifact::KeyArtifact` descriptor/VK metadata. Its per-stage `import_a`
-and `import_w` methods reconstruct the exact unknown source, validate original
-PIPAPK01 tables and installed VK, drop the imported PK and return a compact
+and `import_w` methods reconstruct the exact unknown source, validate the original
+`PIPACPK1` source fingerprint, reconstructed tables and installed VK, and return a compact
 source-admission seal. Each proof reconstructs the exact admitted source and drops temporary
-proving buffers before verification. It retains no original PK bytes.
+proving buffers before verification. Admission constructs no proving FFTs, masks
+or coset caches and retains no original PK bytes.
 Metadata construction does not authenticate a release catalog; that remains the
 installation owner's prerequisite. Source construction creates no Prepared
 operation or accepted claims and generates no runtime key. Proving checks the

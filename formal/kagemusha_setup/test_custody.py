@@ -8,6 +8,36 @@ from . import custody
 
 
 class CustodyTests(unittest.TestCase):
+    def test_generated_registry_is_observed_data_not_source_authority(self):
+        manifest = custody.checked_sources()
+        self.assertNotIn(custody.GENERATED_DATA, manifest['sources'])
+        before = custody.observed_generated_data()
+        read_bytes = custody.Path.read_bytes
+        def substituted(path):
+            raw = read_bytes(path)
+            return raw + b'\nchanged DATA' if path == custody.ROOT/custody.GENERATED_DATA else raw
+        with patch.object(custody.Path, 'read_bytes', substituted):
+            self.assertEqual(custody.checked_sources(), manifest)
+            after = custody.observed_generated_data()
+        self.assertNotEqual(before['sha256'], after['sha256'])
+        self.assertEqual(before['role'], 'unqualified generated DATA')
+        with patch.object(custody.Path, 'is_symlink', return_value=True):
+            with self.assertRaisesRegex(ValueError, 'regular file'):
+                custody.observed_generated_data()
+        changed = copy.deepcopy(manifest)
+        changed['sources'][custody.GENERATED_DATA] = before['sha256']
+        with self.assertRaisesRegex(ValueError, 'dependency inventory'):
+            custody.validate_manifest(changed)
+        for name in ('crates/iroha_plonk/build_support/source_identity.rs',
+                     'crates/iroha_plonk/src/keys/keygen/builtin.rs'):
+            def changed_owner(path, selected=custody.ROOT/name):
+                raw = read_bytes(path)
+                return raw + b'\nchanged owner' if path == selected else raw
+            with self.subTest(source=name):
+                with patch.object(custody.Path, 'read_bytes', changed_owner):
+                    with self.assertRaisesRegex(ValueError, 'changed source '+name):
+                        custody.checked_sources()
+
     def test_exact_inventory_rejects_missing_extra_or_noncanonical_pins(self):
         manifest = custody.checked_sources()
         for role in ('files', 'sources'):
@@ -27,7 +57,7 @@ class CustodyTests(unittest.TestCase):
             'crates/iroha_plonk/src/keys/source_fingerprint.rs',
         )
         read_bytes = custody.Path.read_bytes
-        for name in reconstruction:
+        for name in (*reconstruction, *sorted(custody.DELEGATED_SOURCES)):
             self.assertIn(name, manifest['sources'])
             changed = copy.deepcopy(manifest)
             del changed['sources'][name]

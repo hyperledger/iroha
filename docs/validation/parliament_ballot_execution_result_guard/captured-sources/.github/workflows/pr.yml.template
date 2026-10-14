@@ -1,0 +1,1204 @@
+name: Pull Request CI
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  IROHA_CLI_DIR: "/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/test"
+  TEST_NETWORK_TMP_DIR: /tmp
+  NEXTEST_PROFILE: ci
+
+jobs:
+  ivm_only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - run: python3 -m pip install -r scripts/requirements.txt
+      - name: Enforce the IVM-only source and artifact boundary
+        run: bash ci/check_std_only.sh
+      - name: Exercise forbidden-target and artifact regressions
+        run: python3 -m pytest -q pytests/scripts/ivm_only_guard_test.py
+
+  first_release_history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - run: python3 -m pip install -r scripts/requirements.txt
+      - name: Check the first-release history and cutover inventory against the source
+        run: python3 scripts/check_first_release_history.py
+      - name: Exercise the history guard and the obsolete-history evidence tool
+        run: >-
+          python3 -m pytest -q
+          pytests/scripts/first_release_history_guard_test.py
+          pytests/scripts/first_release_history_evidence_test.py
+
+  pre_build:
+    if: needs.rust_changes.outputs.has_binaries == 'true'
+    needs: rust_changes
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          cache-on-failure: "true"
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - name: Build selected release binaries
+        env:
+          REQUIRED_BINARIES: ${{ needs.rust_changes.outputs.binaries }}
+        run: |
+          python3 scripts/rust_ci.py build-binaries \
+            --binaries "$REQUIRED_BINARIES" \
+            --output-dir target/release/pre_build
+      - name: Upload binaries
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: bins
+          path: target/release/pre_build
+          retention-days: 1
+
+  consistency:
+    if: needs.rust_changes.outputs.run_consistency == 'true'
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    needs: [rust_changes, pre_build]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Download binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: bins
+          path: bins
+      - name: Check
+        env:
+          BIN_KAGAMI: bins/kagami
+          BIN_IROHA: bins/iroha
+        run: |
+          chmod +x -R bins
+          ./scripts/tests/consistency.sh all
+
+  kotodama_docs:
+    if: needs.rust_changes.outputs.run_kotodama_docs == 'true'
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    needs: [rust_changes, pre_build]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - name: Download canonical koto driver
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: bins
+          path: bins
+      - name: Make koto executable
+        run: chmod +x bins/koto
+      - name: Install pytest
+        run: python3 -m pip install --disable-pip-version-check pytest==9.0.3
+      - name: Unit-test Kotodama documentation checker
+        run: python3 -m pytest -q pytests/scripts/check_kotodama_docs_test.py
+      - name: Verify sealed Kotodama compiler test sources
+        run: |
+          python3 -m pytest -q pytests/scripts/kotodama_fixture_manifest_test.py
+          python3 scripts/check_kotodama_test_sources.py
+      - name: Verify workspace release-workflow semantics
+        run: python3 -m pytest -q pytests/scripts/workspace_release_gate_test.py
+      - name: Compile canonical Kotodama documentation fences
+        run: python3 scripts/check_kotodama_docs.py --koto bins/koto
+
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+          components: "rustfmt"
+      - name: Format
+        run: cargo fmt --all -- --check
+
+  sumeragi:
+    name: Sumeragi core, simulator and node lanes
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          cache-on-failure: "true"
+      - name: Core, simulator, specification traceability and quorums (default seeds)
+        run: env -u SUMERAGI_SIM_SEED -u SUMERAGI_SIM_SEED_BASE -u SUMERAGI_SIM_SEEDS cargo test --locked -p iroha_sumeragi --features sim
+      - name: Node driver, lanes and four-validator node tests
+        run: env -u SUMERAGI_SIM_SEED -u SUMERAGI_SIM_SEED_BASE -u SUMERAGI_SIM_SEEDS cargo test --locked -p iroha_core --lib -- sumeragi::lanes sumeragi::node sumeragi::driver sumeragi::executor
+
+  # The Rust lanes test default features only; this target needs the opt-in
+  # `fastpq-replay-measurement` feature. `iroha_measurement` itself is tested by
+  # the foundation lane (`ci/rust_lanes.toml`).
+  zk_phase_tree_measurement:
+    name: ZK phase-tree measurement on a FASTPQ workload
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          cache-on-failure: "true"
+      - name: FASTPQ prove and verify under the shared phase and resource recorder
+        run: cargo test --locked -p iroha_core_privacy --features fastpq-replay-measurement --test fastpq_phase_tree_measurement
+      # The State commitment candidates of task G.2 are development-only: their
+      # conformance adapters and their measurement target compile only under
+      # opt-in features that no default lane sets.
+      - name: State commitment candidates satisfy the keyed State contract
+        run: cargo test --locked -p iroha_core --lib --features state-commitment-prototypes -- keyed_commitment::candidates_tests
+      - name: State commitment candidate measurement target (smoke run)
+        run: cargo test --locked -p iroha_core_privacy --features fastpq-replay-measurement --test state_commitment_candidates_measurement
+
+  norito_rpc_verify:
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          cache-on-failure: "true"
+      - name: Norito-RPC fixture parity
+        run: cargo run --locked -p xtask --features dev-tools --bin xtask -- norito-rpc-verify
+
+  numeric_v1_architecture_parity:
+    name: Numeric V1 parity (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-latest
+          - ubuntu-24.04-arm
+          - macos-14
+          - windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          cache-on-failure: "true"
+          shared-key: numeric-v1-${{ matrix.runner }}
+      - name: Verify canonical numeric fixtures and consensus behavior
+        run: |
+          cargo test --locked -p ivm --test ivm_group_06 numeric_
+          cargo test --locked -p ivm --test ivm_group_01 abi_hash_versions::
+          cargo test --locked -p ivm --test ivm_group_03 gas_schedule_hash
+          cargo run --locked -p ivm --features dev-tools --bin gen_abi_hash_doc -- --check
+          cargo test --locked -p ivm --test ivm_group_05 kotodama_checked_arithmetic::
+          cargo run --locked -p ivm --example entrypoint_argument_record_v1_fixture -- --check fixtures/kotodama/entrypoint_argument_record_v1.json
+          cargo test --locked -p ivm --test ivm_group_05 kotodama_argument_record::
+          cargo test --locked -p iroha_primitives randomized_decimal_arithmetic_matches_independent_rational_reference
+
+  android_fixture_compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: "temurin"
+          java-version: "21"
+      - name: Android fixture compatibility
+        working-directory: java/iroha_android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :core:test \
+            --tests org.hyperledger.iroha.android.tx.TransactionFixtureManifestTests \
+            --tests org.hyperledger.iroha.android.tx.TransactionPayloadFixtureTests
+
+  rust_changes:
+    name: Classify affected Rust lanes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      has_rust: ${{ steps.classify.outputs.has_rust }}
+      full: ${{ steps.classify.outputs.full }}
+      matrix: ${{ steps.classify.outputs.matrix }}
+      package_count: ${{ steps.classify.outputs.package_count }}
+      has_binary_free_rust: ${{ steps.classify.outputs.has_binary_free_rust }}
+      has_binary_rust: ${{ steps.classify.outputs.has_binary_rust }}
+      binary_free_matrix: ${{ steps.classify.outputs.binary_free_matrix }}
+      binary_matrix: ${{ steps.classify.outputs.binary_matrix }}
+      has_binaries: ${{ steps.classify.outputs.has_binaries }}
+      binaries: ${{ steps.classify.outputs.binaries }}
+      run_consistency: ${{ steps.classify.outputs.run_consistency }}
+      run_kotodama_docs: ${{ steps.classify.outputs.run_kotodama_docs }}
+      run_pytests: ${{ steps.classify.outputs.run_pytests }}
+      run_sora_parliament_lifecycle: ${{ steps.classify.outputs.run_sora_parliament_lifecycle }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - name: Install pinned router-test dependency
+        run: python3 -m pip install --disable-pip-version-check pytest==9.0.3
+      - name: Verify exhaustive Rust lane ownership
+        run: |
+          python3 -I -S scripts/check_build_efficiency_provenance.py
+          python3 scripts/rust_ci.py validate
+          python3 -m pytest -q pytests/scripts/rust_ci_test.py
+          python3 -m pytest -q \
+            pytests/scripts/check_cargo_feature_hygiene_test.py \
+            scripts/tests/panic_recovery_boundaries_test.py \
+            scripts/tests/release_feature_graph_test.py \
+            scripts/tests/release_prebuilt_provenance_test.py \
+            pytests/scripts/check_workspace_target_inventory_test.py \
+            scripts/tests/cargo_fast_test.py \
+            scripts/tests/profile_cargo_build_test.py \
+            scripts/tests/profile_rustc_test.py \
+            scripts/tests/profile_build_script_probes_test.py \
+            scripts/tests/check_compile_memory_budget_test.py \
+            scripts/tests/apply_norito_schema_identities_test.py \
+            scripts/tests/norito_schema_capture_test.py \
+            scripts/tests/check_musubi_fixture_owner_test.py \
+            scripts/tests/check_compile_time_table_assets_test.py \
+            scripts/tests/check_build_efficiency_provenance_test.py \
+            scripts/tests/check_jni_sdk_android_pairs_test.py \
+            scripts/tests/check_kotlin_jni_test.py \
+            scripts/tests/check_dependency_budget_test.py \
+            scripts/tests/sdk_operation_inventory_test.py \
+            scripts/tests/check_compile_unit_budget_test.py \
+            scripts/tests/check_generated_artifacts_test.py \
+            scripts/tests/regenerate_kotodama_goldens_test.py \
+            scripts/tests/check_nexus_provisioning_templates_test.py \
+            scripts/tests/check_zk_delivery_plan_test.py \
+            scripts/tests/check_fhe_ownership_map_test.py \
+            scripts/tests/fhe_bgv_cost_model_test.py \
+            scripts/tests/check_zk_x509_presentation_interval_test.py \
+            scripts/tests/check_zk_resource_contract_test.py \
+            scripts/tests/check_zk_runtime_validity_test.py \
+            scripts/tests/check_zk_feature_parity_test.py \
+            scripts/tests/check_zk_operation_inventory_test.py \
+            scripts/tests/check_durable_workflow_contract_test.py \
+            scripts/tests/check_zk_economic_invariants_test.py \
+            scripts/tests/check_zk_primitive_workloads_test.py \
+            scripts/tests/check_state_commitment_candidates_test.py \
+            scripts/tests/zk_resource_harness_test.py \
+            pytests/scripts/iso_xsd_fixture_verify_test.py \
+            pytests/scripts/iso_xsd_profile_catalog_include_test.py
+          python3 scripts/check_cargo_feature_hygiene.py
+          python3 -I -S scripts/check_panic_recovery_boundaries.py
+          python3 -I -S scripts/check_release_feature_graph.py
+          python3 -I -S scripts/check_no_vendored_halo2.py
+          python3 scripts/check_workspace_target_inventory.py
+          python3 scripts/check_compile_time_table_assets.py
+          python3 -I -S scripts/check_jni_sdk_android_pairs.py
+          python3 scripts/check_dependency_budget.py
+          python3 scripts/check_dependency_budget.py --check-boundaries
+          python3 scripts/sdk_operation_inventory.py
+          python3 -I -S scripts/check_telemetry_metric_catalog_v2.py
+          python3 -I -S scripts/check_telemetry_metric_catalog_v2.py --self-test
+          python3 -m unittest \
+            scripts.tests.connect_gating_fixture_compaction_source_test \
+            scripts.tests.developer_executable_retirement_source_test \
+            scripts.tests.native_prover_retirement_source_test \
+            scripts.tests.check_no_vendored_halo2_test \
+            scripts.tests.integration_target_consolidation_source_test \
+            scripts.tests.isi_instruction_box_macro_source_test \
+            scripts.tests.ivm_vector_metal_compaction_source_test \
+            scripts.tests.kotodama_ir_compaction_source_test \
+            scripts.tests.kotodama_typed_case_registry_source_test \
+            scripts.tests.norito_codec_contracts_test \
+            scripts.tests.norito_scratch_retirement_source_test \
+            scripts.tests.obsolete_developer_test_retirement_source_test \
+            scripts.tests.shared_proc_macro_emitter_source_test
+          python3 scripts/check_generated_artifacts.py
+          python3 scripts/check_nexus_provisioning_templates.py
+          python3 -I -S scripts/check_zk_delivery_plan.py
+          python3 -I -S scripts/check_zk_x509_presentation_interval.py
+          python3 -I -S scripts/check_zk_resource_contract.py
+          python3 -I -S scripts/check_zk_runtime_validity.py
+          python3 -I -S scripts/check_zk_operation_inventory.py
+          python3 -I -S scripts/check_durable_workflow_contract.py
+          python3 -I -S scripts/check_zk_economic_invariants.py
+          python3 -I -S scripts/check_zk_primitive_workloads.py
+          python3 -I -S scripts/check_state_commitment_candidates.py
+          python3 -I -S scripts/check_fhe_ownership_map.py
+          python3 -I -S scripts/fhe_bgv_cost_model.py
+          python3 -I -S crates/iroha_fhe/tests/vectors/bgv_reference.py --check
+      - name: Classify the PR reverse-dependency closure
+        id: classify
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          FULL_REQUESTED: ${{ contains(github.event.pull_request.labels.*.name, 'ci/full') }}
+        run: |
+          mkdir -p target/ci
+          scope_args=(--base "$BASE_SHA")
+          if test "$FULL_REQUESTED" = true; then
+            scope_args=(--all)
+          fi
+          python3 scripts/rust_ci.py classify \
+            "${scope_args[@]}" \
+            --json-out target/ci/rust-classification.json \
+            --github-output "$GITHUB_OUTPUT" \
+            > target/ci/rust-classification.log
+      - name: Upload Rust classification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rust-classification
+          path: |
+            target/ci/rust-classification.json
+            target/ci/rust-classification.log
+          if-no-files-found: error
+
+  rust_affected:
+    name: Rust ${{ matrix.lane }} (${{ matrix.package_count }} packages)
+    if: needs.rust_changes.outputs.has_binary_free_rust == 'true'
+    needs: rust_changes
+    runs-on: [self-hosted, Linux, iroha2]
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.rust_changes.outputs.binary_free_matrix) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          cache-on-failure: "true"
+          shared-key: rust-lane-1.93.1-${{ matrix.lane }}
+      - name: Enforce data-model compile-unit budget
+        if: matrix.lane == 'execution'
+        run: >-
+          python3 scripts/check_compile_unit_budget.py
+          --locked
+          --lib
+          -p iroha_data_model
+          --artifact-scope workspace
+          --baseline ci/compile_unit_baselines.json
+          --baseline-key iroha_data_model_lib
+          --budget-percent 2
+          --budget-min-growth 3
+          --json-out target/ci/iroha-data-model-compile-units.json
+      - name: Upload data-model compile-unit evidence
+        if: always() && matrix.lane == 'execution'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: compile-units-${{ matrix.lane }}
+          path: target/ci/iroha-data-model-compile-units.json
+          if-no-files-found: error
+      - name: Run locked affected checks
+        run: >
+          python3 scripts/rust_ci.py run
+          --packages "${{ matrix.packages }}"
+          --checks clippy,build,test,doc
+
+  rust_network:
+    name: Rust network ${{ matrix.lane }} (${{ matrix.package_count }} packages)
+    if: needs.rust_changes.outputs.has_binary_rust == 'true'
+    needs: [rust_changes, pre_build]
+    runs-on: [self-hosted, Linux, iroha2]
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.rust_changes.outputs.binary_matrix) }}
+    env:
+      IROHA_TEST_REQUIRE_NETWORK: "1"
+      TEST_NETWORK_BIN_IROHAD: bins/iroha3d
+      TEST_NETWORK_BIN_IROHA: bins/iroha
+      TEST_NETWORK_BIN_IROHAD_PRIVATE_SETTLEMENT_ROUTES: bins/iroha3d_private_settlement_routes
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          cache-on-failure: "true"
+          shared-key: rust-network-1.93.1-${{ matrix.lane }}
+      - name: Download test-network binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: bins
+          path: bins
+      - name: Make test-network binaries executable
+        run: chmod +x -R bins
+      - name: Run locked affected checks
+        run: >
+          python3 scripts/rust_ci.py run
+          --packages "${{ matrix.packages }}"
+          --checks clippy,build,test,doc
+      - name: Upload failed test-network artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: test-network-${{ matrix.lane }}
+          path: ${{ env.TEST_NETWORK_TMP_DIR }}/irohad_test_network_*
+          if-no-files-found: ignore
+          retention-days: 3
+
+  rust_required:
+    name: Required affected Rust validation
+    if: always()
+    needs: [rust_changes, rust_affected, rust_network, pre_build, consistency, kotodama_docs, pytests, sora_parliament_lifecycle]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate dynamic Rust lane results
+        env:
+          CLASSIFIER_RESULT: ${{ needs.rust_changes.result }}
+          BINARY_FREE_RESULT: ${{ needs.rust_affected.result }}
+          BINARY_FREE_SELECTED: ${{ needs.rust_changes.outputs.has_binary_free_rust }}
+          NETWORK_RESULT: ${{ needs.rust_network.result }}
+          NETWORK_SELECTED: ${{ needs.rust_changes.outputs.has_binary_rust }}
+          BUILD_RESULT: ${{ needs.pre_build.result }}
+          BUILD_SELECTED: ${{ needs.rust_changes.outputs.has_binaries }}
+          CONSISTENCY_RESULT: ${{ needs.consistency.result }}
+          CONSISTENCY_SELECTED: ${{ needs.rust_changes.outputs.run_consistency }}
+          KOTODAMA_RESULT: ${{ needs.kotodama_docs.result }}
+          KOTODAMA_SELECTED: ${{ needs.rust_changes.outputs.run_kotodama_docs }}
+          PYTESTS_RESULT: ${{ needs.pytests.result }}
+          PYTESTS_SELECTED: ${{ needs.rust_changes.outputs.run_pytests }}
+          PARLIAMENT_RESULT: ${{ needs.sora_parliament_lifecycle.result }}
+          PARLIAMENT_SELECTED: ${{ needs.rust_changes.outputs.run_sora_parliament_lifecycle }}
+        run: |
+          set -euo pipefail
+          test "$CLASSIFIER_RESULT" = success
+          check_result() {
+            case "$1:$2" in
+              true:success|false:skipped) return 0 ;;
+              *) echo "Unexpected selected/result pair: $1:$2" >&2; return 1 ;;
+            esac
+          }
+          check_result "$BINARY_FREE_SELECTED" "$BINARY_FREE_RESULT"
+          check_result "$NETWORK_SELECTED" "$NETWORK_RESULT"
+          check_result "$BUILD_SELECTED" "$BUILD_RESULT"
+          check_result "$CONSISTENCY_SELECTED" "$CONSISTENCY_RESULT"
+          check_result "$KOTODAMA_SELECTED" "$KOTODAMA_RESULT"
+          check_result "$PYTESTS_SELECTED" "$PYTESTS_RESULT"
+          check_result "$PARLIAMENT_SELECTED" "$PARLIAMENT_RESULT"
+
+  pytests:
+    if: needs.rust_changes.outputs.run_pytests == 'true'
+    needs: [rust_changes, pre_build]
+    runs-on: ubuntu-latest
+    env:
+      IROHA_CONTAINER: "defaults-irohad0-1"
+      BIN_IROHAD: bins/iroha3d
+      BIN_IROHA: bins/iroha
+      BIN_KAGAMI: bins/kagami
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: 3.11.12
+      - uses: abatilo/actions-poetry@0dd19c9498c3dc8728967849d0d2eae428a8a3d8
+      - name: Download binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: bins
+          path: bins
+      - name: Make binaries executable
+        run: chmod +x -R bins
+      - name: Install test_env deps globally
+        run: pip install tomli-w
+      - name: Run test env
+        run: ./scripts/test_env.py setup
+      - name: Install Torii pytest dependencies
+        working-directory: pytests/iroha_torii_tests
+        run: poetry install --no-root
+      - name: Run Torii pytests
+        working-directory: pytests/iroha_torii_tests
+        run: poetry run pytest
+      - name: Install client pytest dependencies
+        working-directory: pytests/iroha_cli_tests
+        run: poetry install --no-root
+      - name: Run client pytests
+        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08
+        env:
+          # created by test_env.py
+          TMP_DIR: ../../test
+          IROHA_CLI_BINARY: iroha
+          IROHA_CLI_CONFIG: client.toml
+        with:
+          timeout_minutes: 10
+          max_attempts: 5
+          command: |
+            cd pytests/iroha_cli_tests
+            poetry run pytest
+          on_retry_command: |
+            ./scripts/test_env.py cleanup
+            ./scripts/test_env.py setup
+      - name: Terminate test network
+        run: ./scripts/test_env.py cleanup
+
+  check_title:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Check conventional commits
+        uses: amannn/action-semantic-pull-request@e32d7e603df1aa1ba07e981f2a23455dee596825
+        id: lint_pr_title
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          validateSingleCommit: true
+          validateSingleCommitMatchesPrTitle: true
+
+      - name: Post error comment
+        uses: marocchino/sticky-pull-request-comment@773744901bac0e8cbb5a0dc842800d45e9b2b405
+        if: always() && (steps.lint_pr_title.outputs.error_message != null)
+        with:
+          header: pr-title-lint-error
+          message: |
+            Hey there and thank you for opening this pull request! 👋🏼
+
+            We require pull request titles to follow the [Conventional Commits specification](https://www.conventionalcommits.org/en/v1.0.0/), and it looks like your proposed title needs to be adjusted.
+
+            Details:
+
+            ```
+            ${{ steps.lint_pr_title.outputs.error_message }}
+            ```
+
+      # Delete a previous comment when the issue has been resolved
+      - name: Delete error comment
+        if: ${{ steps.lint_pr_title.outputs.error_message == null }}
+        uses: marocchino/sticky-pull-request-comment@773744901bac0e8cbb5a0dc842800d45e9b2b405
+        with:
+          header: pr-title-lint-error
+          delete: true
+
+  check_links:
+    runs-on: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Restore lychee cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: .lycheecache
+          key: cache-lychee-${{ github.ref_name }}
+          restore-keys: cache-lychee-
+      - name: Link Checker
+        id: lychee
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8
+        with:
+          args: "--cache --max-cache-age 1d '**/*.rs' ."
+          token: ${{ secrets.CUSTOM_TOKEN }}
+          # We want to have a report, but it is not a hard error
+          fail: false
+
+  formal_models:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_NET_OFFLINE: "true"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Create fresh private formal invocation layout
+        id: formal_layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          invocation_base="$(cd -- /tmp && pwd -P)"
+          invocation_root="$(mktemp -d "$invocation_base/iroha-formal.XXXXXX")"
+          chmod 700 "$invocation_root"
+          mkdir -m 700 \
+            "$invocation_root/target" \
+            "$invocation_root/artifacts" \
+            "$invocation_root/artifacts/formal" \
+            "$invocation_root/artifacts/formal/sora_parliament" \
+            "$invocation_root/artifacts/formal/sora_parliament/inputs" \
+            "$invocation_root/tmp" \
+            "$invocation_root/tools" \
+            "$invocation_root/tools/tla2tools"
+          {
+            printf 'invocation_root=%s\n' "$invocation_root"
+            printf 'artifact_root=%s\n' "$invocation_root/artifacts"
+          } >> "$GITHUB_OUTPUT"
+          {
+            printf 'CARGO_TARGET_DIR=%s\n' "$invocation_root/target"
+            printf 'IROHA_RELEASE_ARTIFACT_ROOT=%s\n' "$invocation_root/artifacts"
+            printf 'IROHA_RELEASE_CANCEL_REQUEST_PATH=%s\n' "$invocation_root/cancel-request.json"
+            printf 'ATOMIC_PRIVATE_SETTLEMENT_FORMAL_EVIDENCE_DIR=%s\n' "$invocation_root/artifacts/formal/atomic_private_settlement"
+            printf 'SORA_PARLIAMENT_FORMAL_EVIDENCE_DIR=%s\n' "$invocation_root/artifacts/formal/sora_parliament"
+            printf 'TMPDIR=%s\n' "$invocation_root/tmp"
+            printf 'TLA2TOOLS_INSTALL_ROOT=%s\n' "$invocation_root/tools/tla2tools"
+          } >> "$GITHUB_ENV"
+      - name: Install pinned TLA2Tools
+        run: |
+          set -euo pipefail
+          bash scripts/formal/install_tla2tools.sh
+          printf 'TLA2TOOLS_JAR=%s\n' "$TLA2TOOLS_INSTALL_ROOT/1.7.4/tla2tools.jar" >> "$GITHUB_ENV"
+      - name: Atomic private settlement bounded TLC corpus
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 \
+            python3 -m unittest scripts.tests.private_settlement_tlc_report_test
+          scripts/formal/run_atomic_private_settlement_tlc.sh \
+            --workers 2 \
+            --config AtomicPrivateSettlementV1_3.cfg \
+            --config AtomicPrivateSettlementV1_255.cfg \
+            --config AtomicPrivateSettlementV1_expiry.cfg \
+            --config AtomicPrivateSettlementV1CommitteeFaults_2_validator_focused.cfg \
+            --config AtomicPrivateSettlementV1CommitteeFaults_4_clean.cfg \
+            --config AtomicPrivateSettlementV1CommitteeFaults_expiry.cfg \
+            --config AtomicPrivateSettlementV1CommitteeFaults_drop_stage_bug.cfg \
+            --config AtomicPrivateSettlementV1_partial_apply_bug.cfg \
+            --config AtomicPrivateSettlementV1_commit_before_prepare_bug.cfg \
+            --config AtomicPrivateSettlementV1_drop_stage_on_crash_bug.cfg \
+            --output-dir "$ATOMIC_PRIVATE_SETTLEMENT_FORMAL_EVIDENCE_DIR"
+      - name: SORA Parliament source contract and bounded TLC model
+        run: |
+          set -euo pipefail
+
+          readonly model_source="formal/sora_parliament/SoraParliamentV1.tla"
+          readonly config_source="formal/sora_parliament/SoraParliamentV1.cfg"
+          readonly model_input="$SORA_PARLIAMENT_FORMAL_EVIDENCE_DIR/inputs/SoraParliamentV1.tla"
+          readonly config_input="$SORA_PARLIAMENT_FORMAL_EVIDENCE_DIR/inputs/SoraParliamentV1.cfg"
+          readonly metadata="$SORA_PARLIAMENT_FORMAL_EVIDENCE_DIR/run-metadata.json"
+          readonly source_contract_log="$SORA_PARLIAMENT_FORMAL_EVIDENCE_DIR/source-contract.log"
+          readonly source_contract_status_path="$SORA_PARLIAMENT_FORMAL_EVIDENCE_DIR/source-contract-exit-status.txt"
+          readonly tlc_log="$SORA_PARLIAMENT_FORMAL_EVIDENCE_DIR/tlc.log"
+          readonly tlc_status_path="$SORA_PARLIAMENT_FORMAL_EVIDENCE_DIR/tlc-exit-status.txt"
+
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          install -m 600 -- "$model_source" "$model_input"
+          install -m 600 -- "$config_source" "$config_input"
+          set +e
+          python3 scripts/formal/check_sora_parliament_source_contract.py \
+            2>&1 | tee "$source_contract_log"
+          source_contract_status="${PIPESTATUS[0]}"
+          java -cp "$TLA2TOOLS_JAR" tlc2.TLC \
+            -config "$config_input" \
+            "$model_input" 2>&1 | tee "$tlc_log"
+          tlc_status="${PIPESTATUS[0]}"
+          set -e
+          printf '%s\n' "$source_contract_status" > "$source_contract_status_path"
+          printf '%s\n' "$tlc_status" > "$tlc_status_path"
+
+          python3 -I -S - \
+            "$metadata" "$GITHUB_SHA" "$TLA2TOOLS_JAR" \
+            "$model_input" "$config_input" \
+            "$source_contract_log" "$source_contract_status_path" \
+            "$tlc_log" "$tlc_status_path" \
+            "$source_contract_status" "$tlc_status" <<'PY'
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          (
+              metadata_name,
+              source_commit,
+              jar_name,
+              model_name,
+              config_name,
+              source_contract_log_name,
+              source_contract_status_name,
+              tlc_log_name,
+              tlc_status_name,
+              source_contract_status,
+              tlc_status,
+          ) = sys.argv[1:]
+
+          def digest(path: str) -> str:
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+          def evidence(path: str, artifact_path: str) -> dict[str, object]:
+              item = Path(path)
+              return {
+                  "artifact_path": artifact_path,
+                  "sha256": digest(path),
+                  "size_bytes": item.stat().st_size,
+              }
+
+          source_status = int(source_contract_status)
+          model_status = int(tlc_status)
+          source_status_evidence = evidence(
+              source_contract_status_name, "source-contract-exit-status.txt"
+          )
+          source_status_evidence["exit_status"] = source_status
+          model_status_evidence = evidence(tlc_status_name, "tlc-exit-status.txt")
+          model_status_evidence["exit_status"] = model_status
+          document = {
+              "schema": "iroha.sora_parliament.formal_run.v2",
+              "source_commit": source_commit,
+              "successful": source_status == 0 and model_status == 0,
+              "tool": {
+                  "name": "TLC",
+                  "tla2tools_version": "1.7.4",
+                  "jar_sha256": digest(jar_name),
+              },
+              "inputs": {
+                  "model": {
+                      "source_path": "formal/sora_parliament/SoraParliamentV1.tla",
+                      **evidence(model_name, "inputs/SoraParliamentV1.tla"),
+                  },
+                  "config": {
+                      "source_path": "formal/sora_parliament/SoraParliamentV1.cfg",
+                      **evidence(config_name, "inputs/SoraParliamentV1.cfg"),
+                  },
+              },
+              "commands": {
+                  "source_contract": [
+                      "python3",
+                      "scripts/formal/check_sora_parliament_source_contract.py",
+                  ],
+                  "model_checker": [
+                      "java",
+                      "-cp",
+                      "<tla2tools.jar>",
+                      "tlc2.TLC",
+                      "-config",
+                      "inputs/SoraParliamentV1.cfg",
+                      "inputs/SoraParliamentV1.tla",
+                  ],
+              },
+              "outputs": {
+                  "source_contract_log": evidence(
+                      source_contract_log_name, "source-contract.log"
+                  ),
+                  "source_contract_exit_status": source_status_evidence,
+                  "tlc_log": evidence(tlc_log_name, "tlc.log"),
+                  "tlc_exit_status": model_status_evidence,
+              },
+          }
+          path = Path(metadata_name)
+          path.write_text(
+              json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          path.chmod(0o600)
+          PY
+
+          if ((source_contract_status != 0)); then
+            exit "$source_contract_status"
+          fi
+          exit "$tlc_status"
+      - name: Validate SORA Parliament formal evidence closure
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          readonly evidence_dir="$SORA_PARLIAMENT_FORMAL_EVIDENCE_DIR"
+          readonly required_files=(
+            "inputs/SoraParliamentV1.tla"
+            "inputs/SoraParliamentV1.cfg"
+            "run-metadata.json"
+            "source-contract.log"
+            "source-contract-exit-status.txt"
+            "tlc.log"
+            "tlc-exit-status.txt"
+          )
+          for relative_path in "${required_files[@]}"; do
+            test -f "$evidence_dir/$relative_path"
+          done
+          python3 -I -S - "$evidence_dir/run-metadata.json" "$GITHUB_SHA" <<'PY'
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          metadata_path = Path(sys.argv[1])
+          expected_commit = sys.argv[2]
+          root = metadata_path.parent
+          document = json.loads(metadata_path.read_text(encoding="utf-8"))
+          if document.get("schema") != "iroha.sora_parliament.formal_run.v2":
+              raise SystemExit("unexpected SORA Parliament formal evidence schema")
+          if document.get("source_commit") != expected_commit:
+              raise SystemExit("formal evidence source commit does not match checkout")
+
+          def verify(entry: object) -> None:
+              if not isinstance(entry, dict):
+                  raise SystemExit("formal evidence entry is not an object")
+              artifact_path = entry.get("artifact_path")
+              if not isinstance(artifact_path, str):
+                  raise SystemExit("formal evidence entry lacks artifact_path")
+              path = root / artifact_path
+              payload = path.read_bytes()
+              if entry.get("size_bytes") != len(payload):
+                  raise SystemExit(f"formal evidence size mismatch: {artifact_path}")
+              if entry.get("sha256") != hashlib.sha256(payload).hexdigest():
+                  raise SystemExit(f"formal evidence digest mismatch: {artifact_path}")
+
+          for item in document["inputs"].values():
+              verify(item)
+          for name, item in document["outputs"].items():
+              verify(item)
+              if name.endswith("exit_status"):
+                  status_path = root / item["artifact_path"]
+                  if item.get("exit_status") != int(status_path.read_text().strip()):
+                      raise SystemExit(
+                          f"formal evidence status mismatch: {item['artifact_path']}"
+                      )
+          expected_success = all(
+              document["outputs"][name]["exit_status"] == 0
+              for name in ("source_contract_exit_status", "tlc_exit_status")
+          )
+          if document.get("successful") is not expected_success:
+              raise SystemExit("formal evidence success classification is inconsistent")
+          PY
+      - name: Upload atomic private settlement formal evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: atomic-private-settlement-formal-pr
+          path: ${{ steps.formal_layout.outputs.artifact_root }}/formal/atomic_private_settlement
+          if-no-files-found: error
+      - name: Upload SORA Parliament formal evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sora-parliament-formal-pr
+          path: ${{ steps.formal_layout.outputs.artifact_root }}/formal/sora_parliament
+          if-no-files-found: error
+
+  sora_parliament_lifecycle:
+    if: needs.rust_changes.outputs.run_sora_parliament_lifecycle == 'true'
+    needs: rust_changes
+    runs-on: [self-hosted, Linux, iroha2]
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    timeout-minutes: 120
+    env:
+      CARGO_TARGET_DIR: target/sora-parliament-lifecycle
+      SORA_PARLIAMENT_ALERT_EVIDENCE_DIR: target/sora-parliament-alert-evidence
+      SORA_PARLIAMENT_CRYPTO_EVIDENCE_DIR: target/sora-parliament-crypto-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install pinned Parliament benchmark checker dependency
+        run: python3 -m pip install --disable-pip-version-check pytest==9.0.3
+      - name: Create fresh private Parliament crypto evidence layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e "$SORA_PARLIAMENT_CRYPTO_EVIDENCE_DIR" ]]; then
+            echo "Parliament crypto evidence path already exists" >&2
+            exit 1
+          fi
+          install -d -m 700 -- \
+            "$SORA_PARLIAMENT_CRYPTO_EVIDENCE_DIR" \
+            "$SORA_PARLIAMENT_CRYPTO_EVIDENCE_DIR/inputs"
+          install -m 600 -- \
+            crates/iroha_crypto/benches/parliament_crypto_allocation_budgets.json \
+            "$SORA_PARLIAMENT_CRYPTO_EVIDENCE_DIR/inputs/allocation-budgets.json"
+      - name: Install checksum-pinned Prometheus LTS promtool
+        shell: bash
+        run: |
+          set -euo pipefail
+          readonly version="3.13.2"
+          readonly runner_temp="${RUNNER_TEMP:?RUNNER_TEMP is required}"
+          readonly install_root="$runner_temp/promtool-$version"
+          readonly promtool_bin="$install_root/promtool"
+          if [[ ! -x "$promtool_bin" ]]; then
+            readonly download_dir="$(mktemp -d "$runner_temp/promtool-download.XXXXXX")"
+            trap 'rm -rf -- "$download_dir"' EXIT
+            readonly archive="$download_dir/prometheus-$version.linux-amd64.tar.gz"
+            curl --fail --location --proto '=https' --tlsv1.2 \
+              --output "$archive" \
+              "https://github.com/prometheus/prometheus/releases/download/v$version/prometheus-$version.linux-amd64.tar.gz"
+            printf '%s  %s\n' \
+              "0e8c4d46101bd025ea8265e377d2caabc57f488fc1be1c367f37db69ea41be6f" \
+              "$archive" | sha256sum --check --strict -
+            tar --extract --gzip --file "$archive" --directory "$download_dir"
+            install -d -m 755 -- "$install_root"
+            install -m 755 -- \
+              "$download_dir/prometheus-$version.linux-amd64/promtool" \
+              "$promtool_bin"
+          fi
+          "$promtool_bin" --version
+          printf '%s\n' "$install_root" >> "$GITHUB_PATH"
+      - name: Validate Parliament alert rules and deterministic fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 700 -- "$SORA_PARLIAMENT_ALERT_EVIDENCE_DIR"
+          promtool --version 2>&1 | tee \
+            "$SORA_PARLIAMENT_ALERT_EVIDENCE_DIR/promtool-version.log"
+          scripts/check_prometheus_rules.sh \
+            dashboards/alerts/sora_parliament_rules.yml 2>&1 | tee \
+            "$SORA_PARLIAMENT_ALERT_EVIDENCE_DIR/check-rules.log"
+          scripts/check_prometheus_rules.sh --test \
+            dashboards/alerts/tests/sora_parliament_rules.test.yml 2>&1 | tee \
+            "$SORA_PARLIAMENT_ALERT_EVIDENCE_DIR/test-rules.log"
+          sha256sum \
+            "$(command -v promtool)" \
+            dashboards/alerts/sora_parliament_rules.yml \
+            dashboards/alerts/tests/sora_parliament_rules.test.yml \
+            "$SORA_PARLIAMENT_ALERT_EVIDENCE_DIR/promtool-version.log" \
+            "$SORA_PARLIAMENT_ALERT_EVIDENCE_DIR/check-rules.log" \
+            "$SORA_PARLIAMENT_ALERT_EVIDENCE_DIR/test-rules.log" \
+            > "$SORA_PARLIAMENT_ALERT_EVIDENCE_DIR/SHA256SUMS"
+      - name: Upload Parliament alert-rule evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sora-parliament-alert-rules
+          path: ${{ env.SORA_PARLIAMENT_ALERT_EVIDENCE_DIR }}
+          if-no-files-found: error
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          cache-on-failure: "true"
+          shared-key: sora-parliament-lifecycle
+      - name: Test Parliament crypto benchmark evidence checker
+        if: always()
+        run: python3 -m pytest -q scripts/tests/check_sora_parliament_crypto_bench_test.py
+      - name: Capture Parliament crypto allocation and Criterion evidence
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          readonly evidence_dir="$SORA_PARLIAMENT_CRYPTO_EVIDENCE_DIR"
+          readonly allocation_evidence="$evidence_dir/allocations.tsv"
+          readonly criterion_dir="$evidence_dir/criterion"
+
+          set +e
+          IROHA_PARLIAMENT_CRYPTO_ALLOCATION_EVIDENCE_V1="$allocation_evidence" \
+            cargo bench --locked -p iroha_crypto --bench parliament_crypto \
+              --no-default-features --features bls -- --noplot \
+              2>&1 | tee "$evidence_dir/allocation-benchmark.log"
+          allocation_pipeline=("${PIPESTATUS[@]}")
+          CRITERION_HOME="$criterion_dir" \
+            cargo bench --locked -p iroha_crypto --bench parliament_crypto \
+              --no-default-features --features bls -- --noplot \
+              2>&1 | tee "$evidence_dir/criterion-benchmark.log"
+          criterion_pipeline=("${PIPESTATUS[@]}")
+          set -e
+
+          printf '%s\n' "${allocation_pipeline[0]}" \
+            > "$evidence_dir/allocation-exit-status.txt"
+          printf '%s\n' "${allocation_pipeline[1]}" \
+            > "$evidence_dir/allocation-log-exit-status.txt"
+          printf '%s\n' "${criterion_pipeline[0]}" \
+            > "$evidence_dir/criterion-exit-status.txt"
+          printf '%s\n' "${criterion_pipeline[1]}" \
+            > "$evidence_dir/criterion-log-exit-status.txt"
+      - name: Build and verify Parliament crypto benchmark report
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          readonly evidence_dir="$SORA_PARLIAMENT_CRYPTO_EVIDENCE_DIR"
+          readonly checker="scripts/check_sora_parliament_crypto_bench.py"
+          readonly budget="crates/iroha_crypto/benches/parliament_crypto_allocation_budgets.json"
+          readonly report="$evidence_dir/report.json"
+          readonly common_args=(
+            --criterion-dir "$evidence_dir/criterion"
+            --allocation-evidence "$evidence_dir/allocations.tsv"
+            --allocation-budget "$budget"
+            --repository-root "$GITHUB_WORKSPACE"
+            --expected-source-commit "$GITHUB_SHA"
+          )
+
+          set +e
+          python3 -I -S "$checker" "${common_args[@]}" \
+            --write-report "$report" \
+            2>&1 | tee "$evidence_dir/report-write.log"
+          report_write_pipeline=("${PIPESTATUS[@]}")
+          python3 -I -S "$checker" "${common_args[@]}" \
+            --verify-report "$report" \
+            2>&1 | tee "$evidence_dir/report-verify.log"
+          report_verify_pipeline=("${PIPESTATUS[@]}")
+          set -e
+
+          printf '%s\n' "${report_write_pipeline[0]}" \
+            > "$evidence_dir/report-write-exit-status.txt"
+          printf '%s\n' "${report_write_pipeline[1]}" \
+            > "$evidence_dir/report-write-log-exit-status.txt"
+          printf '%s\n' "${report_verify_pipeline[0]}" \
+            > "$evidence_dir/report-verify-exit-status.txt"
+          printf '%s\n' "${report_verify_pipeline[1]}" \
+            > "$evidence_dir/report-verify-log-exit-status.txt"
+      - name: Seal Parliament crypto benchmark evidence
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          readonly evidence_dir="$SORA_PARLIAMENT_CRYPTO_EVIDENCE_DIR"
+
+          set +e
+          python3 -I -S - "$evidence_dir" <<'PY'
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          if root.is_symlink() or not root.is_dir():
+              raise SystemExit("Parliament crypto evidence root is absent or a symlink")
+          required_files = (
+              "allocation-benchmark.log",
+              "allocation-exit-status.txt",
+              "allocation-log-exit-status.txt",
+              "allocations.tsv",
+              "criterion-benchmark.log",
+              "criterion-exit-status.txt",
+              "criterion-log-exit-status.txt",
+              "inputs/allocation-budgets.json",
+              "report-write-exit-status.txt",
+              "report-write-log-exit-status.txt",
+              "report-verify-exit-status.txt",
+              "report-verify-log-exit-status.txt",
+              "report-verify.log",
+              "report-write.log",
+              "report.json",
+          )
+          for relative in required_files:
+              path = root / relative
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(f"missing regular Parliament evidence file: {relative}")
+          policy = Path(
+              "crates/iroha_crypto/benches/"
+              "parliament_crypto_allocation_budgets.json"
+          )
+          if (root / "inputs/allocation-budgets.json").read_bytes() != policy.read_bytes():
+              raise SystemExit("Parliament allocation policy snapshot changed")
+          criterion = root / "criterion"
+          if criterion.is_symlink() or not criterion.is_dir():
+              raise SystemExit("Criterion evidence root is absent or a symlink")
+          for path in sorted(root.rglob("*")):
+              if path.is_symlink():
+                  raise SystemExit(f"symlink in Parliament crypto evidence: {path}")
+              if not path.is_dir() and not path.is_file():
+                  raise SystemExit(f"non-regular Parliament crypto evidence path: {path}")
+          PY
+          seal_status="$?"
+          set -e
+          printf '%s\n' "$seal_status" > "$evidence_dir/seal-exit-status.txt"
+
+          python3 -I -S - "$evidence_dir" <<'PY'
+          import hashlib
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          manifest = root / "SHA256SUMS"
+          entries = []
+          for path in sorted(root.rglob("*")):
+              if path == manifest:
+                  continue
+              if path.is_symlink():
+                  raise SystemExit(f"symlink in Parliament crypto evidence: {path}")
+              if path.is_dir():
+                  continue
+              if not path.is_file():
+                  raise SystemExit(f"non-regular Parliament crypto evidence path: {path}")
+              relative = path.relative_to(root).as_posix()
+              entries.append(
+                  f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {relative}"
+              )
+          if not entries:
+              raise SystemExit("Parliament crypto evidence is empty")
+          manifest.write_text("\n".join(entries) + "\n", encoding="utf-8")
+          PY
+      - name: Upload Parliament crypto benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sora-parliament-crypto-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.SORA_PARLIAMENT_CRYPTO_EVIDENCE_DIR }}
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
+      - name: Enforce Parliament crypto benchmark evidence result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          readonly evidence_dir="$SORA_PARLIAMENT_CRYPTO_EVIDENCE_DIR"
+          readonly status_files=(
+            allocation-exit-status.txt
+            allocation-log-exit-status.txt
+            criterion-exit-status.txt
+            criterion-log-exit-status.txt
+            report-write-exit-status.txt
+            report-write-log-exit-status.txt
+            report-verify-exit-status.txt
+            report-verify-log-exit-status.txt
+            seal-exit-status.txt
+          )
+          failure=0
+          for relative in "${status_files[@]}"; do
+            path="$evidence_dir/$relative"
+            if [[ ! -f "$path" || -L "$path" ]]; then
+              echo "missing regular Parliament crypto status: $relative" >&2
+              failure=1
+              continue
+            fi
+            status="$(tr -d '\n' < "$path")"
+            if [[ ! "$status" =~ ^(0|[1-9][0-9]*)$ ]]; then
+              echo "invalid Parliament crypto status in $relative: $status" >&2
+              failure=1
+            elif ((status != 0)); then
+              echo "Parliament crypto gate failed in $relative: $status" >&2
+              failure=1
+            fi
+          done
+          for relative in report.json SHA256SUMS; do
+            if [[ ! -f "$evidence_dir/$relative" || -L "$evidence_dir/$relative" ]]; then
+              echo "missing Parliament crypto evidence artifact: $relative" >&2
+              failure=1
+            fi
+          done
+          exit "$failure"
+      - name: Verify isolated Parliament corridor source contract
+        run: python3 -I -S scripts/tests/sora_parliament_lifecycle_corridor_source_test.py
+      - name: Run exact four-validator Parliament lifecycle corridor
+        run: bash ci/check_sora_parliament_lifecycle.sh

@@ -2,7 +2,7 @@
 use super::*;
 use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
 use iroha_data_model::{NetworkId, alias_setup::AccountAliasName};
-use iroha_executor_data_model::permission::query::CanReadAccountData;
+use iroha_executor_data_model::permission::query::{CanReadAccountData, CanReadCertifiedOriginals};
 fn request(challenge: u8) -> NativeAuthorityOriginalsRequestV1 {
     NativeAuthorityOriginalsRequestV1 {
         network_id: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
@@ -183,7 +183,7 @@ fn signed(
     )
 }
 #[test]
-fn actual_signed_post_requires_native_root_not_listener_or_selective_permissions() {
+fn actual_signed_post_requires_certified_read_not_listener_or_selective_permissions() {
     let (app, account, key, body, uri) = native_auth_fixture();
     let mut token_only = HeaderMap::new();
     token_only.insert(
@@ -237,7 +237,11 @@ fn actual_signed_post_requires_native_root_not_listener_or_selective_permissions
         )
         .is_err()
     );
-    grant(&app, &account, CanReadAllLedgerData.into());
+    grant(&app, &account, CanReadCertifiedOriginals.into());
+    assert!(
+        require_full_ledger_carrier_permission(&app, &account).is_err(),
+        "certified-original access must not authorize full ledger carriers",
+    );
     assert_eq!(
         authenticate_body(
             &app,
@@ -250,10 +254,72 @@ fn actual_signed_post_requires_native_root_not_listener_or_selective_permissions
         account
     );
 }
+
+#[test]
+fn certified_originals_reject_malformed_token_and_keep_genesis_root_access() {
+    let (app, account, key, body, uri) = native_auth_fixture();
+    let malformed = Permission::new(
+        "CanReadCertifiedOriginals".into(),
+        iroha_primitives::json::Json::from_norito_value_ref(&norito::json!({"extra": true}))
+            .unwrap(),
+    );
+    grant(&app, &account, malformed);
+    assert!(
+        authenticate_body(
+            &app,
+            &signed(&app, &account, &key, &body, &uri),
+            &Method::POST,
+            &uri,
+            &body,
+        )
+        .is_err(),
+        "permission names alone never authorize certified originals",
+    );
+    grant(&app, &account, CanReadAllLedgerData.into());
+    assert_eq!(
+        authenticate_body(
+            &app,
+            &signed(&app, &account, &key, &body, &uri),
+            &Method::POST,
+            &uri,
+            &body,
+        )
+        .unwrap(),
+        account,
+    );
+}
+
+#[test]
+fn certified_resource_names_get_requires_exact_signed_target_and_current_grant() {
+    let (app, account, key, _, _) = native_auth_fixture();
+    let uri: Uri = format!("/v1/ledger/resource-names/{}", "ab".repeat(32))
+        .parse()
+        .unwrap();
+    let headers = || {
+        crate::tests_runtime_handlers::signed_network_app_headers(
+            app.state.network_id_ref(),
+            &account,
+            &key,
+            &Method::GET,
+            &uri,
+            &[],
+        )
+    };
+    assert!(authenticate_body(&app, &headers(), &Method::GET, &uri, &[]).is_err());
+    grant(&app, &account, CanReadCertifiedOriginals.into());
+    assert_eq!(
+        authenticate_body(&app, &headers(), &Method::GET, &uri, &[]).unwrap(),
+        account,
+    );
+    let changed: Uri = format!("/v1/ledger/resource-names/{}", "ac".repeat(32))
+        .parse()
+        .unwrap();
+    assert!(authenticate_body(&app, &headers(), &Method::GET, &changed, &[]).is_err());
+}
 #[test]
 fn actual_native_post_signature_rejects_body_selector_network_and_nonce_substitution() {
     let (app, account, key, body, uri) = native_auth_fixture();
-    grant(&app, &account, CanReadAllLedgerData.into());
+    grant(&app, &account, CanReadCertifiedOriginals.into());
     let mut changed = request(9);
     changed.network_id = *app.state.network_id_ref();
     let altered = changed.canonical_wire().unwrap();
@@ -305,7 +371,7 @@ fn actual_native_post_signature_rejects_body_selector_network_and_nonce_substitu
 #[test]
 fn existing_read_root_revocation_is_current_at_queued_and_egress_fences() {
     let (app, account, key, body, uri) = native_auth_fixture();
-    let permission: Permission = CanReadAllLedgerData.into();
+    let permission: Permission = CanReadCertifiedOriginals.into();
     grant(&app, &account, permission.clone());
     assert_eq!(
         authenticate_body(
@@ -335,7 +401,7 @@ fn existing_read_root_revocation_is_current_at_queued_and_egress_fences() {
     block.commit_world_overlay_for_testing().unwrap();
     // Both actual handler fences call this same current permission check, rather
     // than retaining a passing pre-admission scalar or treating a signed old grant as current.
-    assert!(require_full_ledger_carrier_permission(&app, &account).is_err());
+    assert!(require_permission(&app, &account).is_err());
     assert!(
         authenticate_body(
             &app,
@@ -401,10 +467,90 @@ fn identifier_selector_requires_exact_signed_body_and_existing_full_read_root() 
         )
         .is_err()
     );
-    grant(&app, &account, CanReadAllLedgerData.into());
+    grant(&app, &account, CanReadCertifiedOriginals.into());
     let mut other = selected.clone();
     other.selector =
         NativeAuthorityOriginalsSelectorV1::IdentifierPolicy("other#retail".parse().unwrap());
+    assert!(
+        authenticate_body(
+            &app,
+            &signed(&app, &account, &key, &body, &uri),
+            &Method::POST,
+            &uri,
+            &other.canonical_wire().unwrap()
+        )
+        .is_err()
+    );
+    other = selected.clone();
+    other.challenge = [48; 32];
+    assert!(
+        authenticate_body(
+            &app,
+            &signed(&app, &account, &key, &body, &uri),
+            &Method::POST,
+            &uri,
+            &other.canonical_wire().unwrap()
+        )
+        .is_err()
+    );
+    let headers = signed(&app, &account, &key, &body, &uri);
+    assert_eq!(
+        authenticate_body(&app, &headers, &Method::POST, &uri, &body).unwrap(),
+        account
+    );
+    assert!(authenticate_body(&app, &headers, &Method::POST, &uri, &body).is_err());
+}
+
+#[test]
+fn retail_selector_requires_exact_signed_body_and_existing_full_read_root() {
+    let (app, account, key, _, uri) = native_auth_fixture();
+    let mut selected = request(47);
+    selected.network_id = *app.state.network_id_ref();
+    selected.selector = NativeAuthorityOriginalsSelectorV1::RetailPolicy {
+        asset: iroha_data_model::asset::AssetDefinitionId::derive_from_components(
+            iroha_model_base::domain::DomainId::try_new("retail", "universal").unwrap(),
+            "unit".parse().unwrap(),
+        ),
+        dataspace: iroha_model_base::topology::DataSpaceId::new(41),
+    };
+    let body = selected.canonical_wire().unwrap();
+    assert!(
+        authenticate_body(
+            &app,
+            &signed(&app, &account, &key, &body, &uri),
+            &Method::POST,
+            &uri,
+            &body
+        )
+        .is_err()
+    );
+    grant(
+        &app,
+        &account,
+        CanReadAccountData {
+            account: account.clone(),
+        }
+        .into(),
+    );
+    assert!(
+        authenticate_body(
+            &app,
+            &signed(&app, &account, &key, &body, &uri),
+            &Method::POST,
+            &uri,
+            &body
+        )
+        .is_err()
+    );
+    grant(&app, &account, CanReadCertifiedOriginals.into());
+    let mut other = selected.clone();
+    other.selector = NativeAuthorityOriginalsSelectorV1::RetailPolicy {
+        asset: iroha_data_model::asset::AssetDefinitionId::derive_from_components(
+            iroha_model_base::domain::DomainId::try_new("retail", "universal").unwrap(),
+            "unit".parse().unwrap(),
+        ),
+        dataspace: iroha_model_base::topology::DataSpaceId::new(42),
+    };
     assert!(
         authenticate_body(
             &app,

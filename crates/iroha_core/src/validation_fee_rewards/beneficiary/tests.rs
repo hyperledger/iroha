@@ -241,3 +241,127 @@ fn recovery_preserves_reserved_and_delayed_rewards_through_repeated_rekeys() {
         assert!(corpus.iter().any(|r| matches!(&r.payload, FeeEvidencePayloadV1::RewardEntitlement(a) if a.allocation_sequence == 1 && a.beneficiaries.get(&old) == Some(&old))));
     });
 }
+
+#[test]
+fn superseded_owner_retirement_requires_exact_successor_and_journal() {
+    crate::retail_fee_tests::fixture(1_793_451_600_000, |stx, _| {
+        let binding = active_bindings(stx).unwrap().remove(0);
+        let original = super::super::tests::account(2);
+        ensure(stx, &binding, &original).unwrap();
+        let initial = owner(stx, &binding, &original).unwrap().unwrap();
+        assert_eq!(
+            retirement_height(&stx.world, &binding, &initial).unwrap(),
+            None
+        );
+        let mut previous = original.clone();
+        for seed in 40..72 {
+            let next = super::super::tests::account(seed);
+            rekey_beneficiary(stx, &previous, &next).unwrap();
+            previous = next;
+        }
+        let current = owner(stx, &binding, &original).unwrap().unwrap();
+        assert_eq!(current.revision, 32);
+        assert_eq!(
+            retirement_height(&stx.world, &binding, &current).unwrap(),
+            None
+        );
+        assert_eq!(
+            retirement_height(&stx.world, &binding, &initial).unwrap(),
+            Some(stx.block_height())
+        );
+        history::validate_journals(&stx.world, &binding, &history::Checkpoint::default()).unwrap();
+        let key = revision_key(&binding, &original, 1).unwrap();
+        let bytes = stx.world.smart_contract_state.remove(key.clone()).unwrap();
+        assert!(retirement_height(&stx.world, &binding, &initial).is_err());
+        assert!(super::super::reconciliation::validate(&stx.world, &binding).is_err());
+        let mut substituted: Revision = norito::decode_canonical(&bytes).unwrap();
+        substituted.previous_account_id = Some(super::super::tests::account(99));
+        stx.world
+            .smart_contract_state
+            .insert(key.clone(), norito::to_bytes(&substituted).unwrap());
+        assert!(retirement_height(&stx.world, &binding, &initial).is_err());
+        stx.world.smart_contract_state.insert(key, bytes);
+        let journal_prefix = state_key(&binding, "HistoryJournal/").unwrap();
+        let journals: Vec<_> = stx
+            .world
+            .smart_contract_state
+            .range(journal_prefix.clone()..)
+            .take_while(|(key, _)| key.as_ref().starts_with(journal_prefix.as_ref()))
+            .map(|(key, bytes)| (key.clone(), bytes.clone()))
+            .collect();
+        assert_eq!(journals.len(), 32);
+        let (journal_key, journal_bytes) = &journals[0];
+        stx.world.smart_contract_state.remove(journal_key.clone());
+        assert!(
+            history::validate_journals(&stx.world, &binding, &history::Checkpoint::default())
+                .is_err()
+        );
+        stx.world
+            .smart_contract_state
+            .insert(journal_key.clone(), journal_bytes.clone());
+        super::super::reconciliation::validate(&stx.world, &binding).unwrap();
+        // Current owner revisions are live authority, not retirement candidates.
+        let current_key = revision_key(&binding, &original, current.revision).unwrap();
+        let current_bytes = stx
+            .world
+            .smart_contract_state
+            .get(&current_key)
+            .unwrap()
+            .clone();
+        history::journal_superseded_revision(stx, &current_key, &current_bytes).unwrap();
+        assert!(
+            history::validate_journals(&stx.world, &binding, &history::Checkpoint::default())
+                .is_err()
+        );
+    });
+}
+
+#[test]
+fn dropped_recovery_discards_retirement_journal_and_keeps_claim_owner() {
+    crate::retail_fee_tests::fixture_block(1_793_451_600_000, |block, _| {
+        let original = super::super::tests::account(2);
+        let successor = super::super::tests::account(40);
+        let binding = {
+            let mut stx = block.transaction();
+            let binding = active_bindings(&stx).unwrap().remove(0);
+            ensure(&mut stx, &binding, &original).unwrap();
+            stx.apply();
+            binding
+        };
+        let before: BTreeMap<_, _> = block
+            .world
+            .smart_contract_state
+            .iter()
+            .map(|(key, bytes)| (key.clone(), bytes.clone()))
+            .collect();
+        {
+            let mut stx = block.transaction();
+            rekey_beneficiary(&mut stx, &original, &successor).unwrap();
+            history::validate_journals(&stx.world, &binding, &history::Checkpoint::default())
+                .unwrap();
+            assert_eq!(
+                owner(&stx, &binding, &original)
+                    .unwrap()
+                    .unwrap()
+                    .account_id,
+                successor
+            );
+            // A failed surrounding transaction discards the complete journal.
+        }
+        let after: BTreeMap<_, _> = block
+            .world
+            .smart_contract_state
+            .iter()
+            .map(|(key, bytes)| (key.clone(), bytes.clone()))
+            .collect();
+        assert_eq!(before, after);
+        let retry = block.transaction();
+        assert_eq!(
+            owner(&retry, &binding, &original)
+                .unwrap()
+                .unwrap()
+                .account_id,
+            original
+        );
+    });
+}

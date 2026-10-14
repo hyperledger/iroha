@@ -19,7 +19,8 @@
 //!   rolled-back marker set: reconciliation stops and discards nothing; **R7** staging that no
 //!   marker binds is discarded; **R8** lower generations are retired by name;
 //! - **R9** a Selected head is finished offline (receipt, record, Released marker) and a
-//!   lagging anchor is raised;
+//!   lagging anchor is raised. Every fully reconciled anchor also requires an acknowledged
+//!   exact mutation: a visible value can belong to an earlier uncertain write;
 //! - **R10** without any marker, an intent whose key is definitively absent may continue
 //!   enrollment, an intent with a key is abandoned (never used), and a key or any journal
 //!   record without a marker is lost custody. No slot, key or file is deleted on these paths.
@@ -47,10 +48,7 @@ use super::{
     KagemushaWalletEnrollmentPhaseV1, KagemushaWalletLostCustodyV1, KagemushaWalletProviderErrorV1,
     advance::FinishedV1,
     advance::{KagemushaWalletAdvanceCapsuleV1, KagemushaWalletTransitionOwnerV1},
-    anchor::{
-        KagemushaWalletAnchorCheckV1, kagemusha_wallet_check_anchor_v1,
-        kagemusha_wallet_raise_anchor_v1,
-    },
+    anchor::{kagemusha_wallet_check_anchor_v1, kagemusha_wallet_raise_anchor_v1},
     capsule::{
         KagemushaWalletLoadedPairV1, kagemusha_wallet_list_capsules_v1,
         kagemusha_wallet_load_capsule_v1, kagemusha_wallet_repair_pair_v1,
@@ -366,7 +364,7 @@ where
         self.require_not_abandoned(slot)?;
         // The authenticated enrollment phase names this marker before any effect.
         self.require_marker_phase(current.record())?;
-        let anchor = kagemusha_wallet_check_anchor_v1(&self.platform, current.record())?;
+        kagemusha_wallet_check_anchor_v1(&self.platform, current.record())?;
         let phase = current.record().phase();
         if phase != KagemushaWalletMarkerPhaseV1::Terminal {
             self.require_payment_key(current.record())?; // R4
@@ -384,9 +382,7 @@ where
                 kagemusha_wallet_retire_markers_v1(&self.store, &durable, current.lower())?;
                 // The pre-key phase commits this exact durable marker before it is used.
                 self.commit_enrollment_marker_phase(&record)?;
-                if anchor == KagemushaWalletAnchorCheckV1::Lagging {
-                    kagemusha_wallet_raise_anchor_v1(&self.platform, &record)?;
-                }
+                kagemusha_wallet_raise_anchor_v1(&self.platform, &record)?;
                 let status = KagemushaWalletSlotStatusV1::Enrollment(record);
                 self.remember(slot, durable, status.clone());
                 Ok(status)
@@ -415,18 +411,14 @@ where
                 self.settle_capsule(&durable, &boot, false)?;
                 self.settle_released_completion(&durable, &boot)?;
                 kagemusha_wallet_retire_markers_v1(&self.store, &durable, current.lower())?;
-                if anchor == KagemushaWalletAnchorCheckV1::Lagging {
-                    kagemusha_wallet_raise_anchor_v1(&self.platform, &record)?;
-                }
+                kagemusha_wallet_raise_anchor_v1(&self.platform, &record)?;
                 let status = KagemushaWalletSlotStatusV1::Released(record);
                 self.remember(slot, durable, status.clone());
                 Ok(status)
             }
             KagemushaWalletMarkerPhaseV1::Terminal => {
                 kagemusha_wallet_retire_markers_v1(&self.store, &durable, current.lower())?;
-                if anchor == KagemushaWalletAnchorCheckV1::Lagging {
-                    kagemusha_wallet_raise_anchor_v1(&self.platform, &record)?;
-                }
+                kagemusha_wallet_raise_anchor_v1(&self.platform, &record)?;
                 if matches!(
                     record.marker().state,
                     iroha_data_model::kagemusha::KagemushaWalletMarkerStateV1::Terminal {

@@ -3738,10 +3738,10 @@ def test_parliament_pulse_isolation_evidence_baseline_and_entrypoint() -> None:
      "    invalid(\n        &mut executor_in(&custody.chain, ConsensusMode::Permissioned),\n"
      "        &custody.chain,\n        &unrequested,\n    );\n", "    let _ = &unrequested;\n"),
     (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
-     "control::encode(Some(genuine_pulse_at_next_height(&custody, &custody.chain)))",
+     "control::encode(Some(genuine_pulse_at_next_height(&custody, &custody.chain)).as_ref())",
      "control::encode(None)"),
     (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
-     "Some(ExecOutcome::Valid(_))", "Some(_)"),
+     "Ok(Some(ExecOutcome::Valid { .. }))", "Ok(Some(_))"),
     (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
      "        commit_unrelated_work(&mut chain);\n        assert_no_pulse(&chain);\n",
      "        commit_unrelated_work(&mut chain);\n"),
@@ -3805,7 +3805,7 @@ def test_parliament_pulse_isolation_evidence_baseline_and_entrypoint() -> None:
     (guard.BEACON_EXECUTION_TESTS_PATH, "fn commit_unrelated_work(",
      ".is_some_and(|(_, output)| output.result.is_ok())", ".is_some()"),
     (guard.BEACON_EXECUTION_TESTS_PATH, "fn invalid(",
-     "Some(ExecOutcome::Invalid)", "Some(_)"),
+     "Ok(Some(ExecOutcome::Invalid))", "Ok(Some(_))"),
     (guard.BEACON_EXECUTION_TESTS_PATH, "fn invalid(",
      "executor.execute(candidate, &hash, false)", "executor.execute(candidate, &hash, true)"),
     (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
@@ -4718,8 +4718,8 @@ def test_publication_keeps_original_kura_release_custody(
 
 
 @pytest.mark.parametrize("original,replacement", (
-    ("PreparedStartup::prepare(config, genesis).await?", "PreparedStartup::prepare(config, genesis).await.unwrap()"),
-    ("PreparedStartup::prepare(config, genesis).await?", "PreparedStartup::prepare(other_config, genesis).await?"),
+    ("Box::pin(PreparedStartup::prepare(config, genesis)).await?", "Box::pin(PreparedStartup::prepare(config, genesis)).await.unwrap()"),
+    ("Box::pin(PreparedStartup::prepare(config, genesis)).await?", "Box::pin(PreparedStartup::prepare(other_config, genesis)).await?"),
     ("            prepared,", "            other_prepared,"),
     ("            runtime_deps,", "            other_runtime_deps,"),
     ("            musubi_publication_factory,", "            other_factory,"),
@@ -4736,3 +4736,600 @@ def test_threshold_startup_delegates_only_its_prepared_runtime(
     changed = daemon.replace(body, body.replace(original, replacement, 1), 1)
     with pytest.raises(RuntimeError, match="propagate original preparation"):
         guard.require_threshold_signer_startup_readiness(runtime_deps, changed)
+
+
+TORII_RELEASE_SERVICE = "crates/iroha_torii/src/parliament_tle_release.rs"
+TORII_RELEASE_LIB = "crates/iroha_torii/src/lib.rs"
+TORII_RELEASE_RECOVERY = "crates/iroha_torii/src/panic_recovery.rs"
+TORII_RELEASE_OWNERS = (
+    (TORII_RELEASE_SERVICE, "pub async fn require_empty_body_v1("),
+    (TORII_RELEASE_SERVICE, "fn parse_ballot_attempt_id("),
+    (TORII_RELEASE_SERVICE, "fn map_coordinator_error("),
+    (TORII_RELEASE_SERVICE, "pub async fn request_local_partial_release_v1("),
+    (TORII_RELEASE_LIB, "async fn handler_gov_parliament_tle_partial_release("),
+    (TORII_RELEASE_LIB, "pub(crate) struct QueryAdmissionPermit"),
+    (TORII_RELEASE_LIB, "async fn acquire_query_admission("),
+    (TORII_RELEASE_RECOVERY, "pub fn spawn_blocking_recoverable<F, T>("),
+    (TORII_RELEASE_RECOVERY, "pub async fn join_recoverable<T>("),
+)
+
+
+@pytest.fixture(scope="module")
+def torii_release_sources() -> dict[str, str]:
+    """Retain actual source text once; mutations never change the worktree."""
+    return {path: guard.read(path) for path in (
+        TORII_RELEASE_SERVICE, TORII_RELEASE_LIB, TORII_RELEASE_RECOVERY,
+    )}
+
+
+def _check_torii_release_sources(sources: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> None:
+    """Supply the real recovery dependency through the same production read hook."""
+    original_read = guard.read
+    monkeypatch.setattr(guard, "read", lambda path: sources[path] if path in sources else original_read(path))
+    guard.require_local_partial_release_boundary(sources[TORII_RELEASE_SERVICE], sources[TORII_RELEASE_LIB])
+
+
+def test_torii_release_current_source_boundary(
+    torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Current pub functions remain under their original private app_api module."""
+    _check_torii_release_sources(torii_release_sources, monkeypatch)
+
+
+def test_torii_release_check_is_directly_connected_to_main() -> None:
+    """The production entrypoint calls the new check with its two actual reads."""
+    tree = ast.parse(inspect.getsource(guard.main)).body[0]
+    calls = [node.value for node in tree.body if isinstance(node, ast.Expr)
+             and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name)
+             and node.value.func.id == "require_local_partial_release_boundary"]
+    assert len(calls) == 1
+    assert [arg.id for arg in calls[0].args] == ["local_release", "torii"]
+    assignments = {node.targets[0].id: node.value for node in tree.body
+                   if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)}
+    local_read = assignments["local_release"]
+    assert isinstance(local_read, ast.Call) and local_read.func.id == "read"
+    assert local_read.args[0].value == TORII_RELEASE_SERVICE
+    assert assignments["torii_path"].value == TORII_RELEASE_LIB
+    assert assignments["torii"].func.id == "read" and assignments["torii"].args[0].id == "torii_path"
+
+
+@pytest.mark.parametrize("path,declaration", TORII_RELEASE_OWNERS)
+@pytest.mark.parametrize("mode", ("disabled", "nested", "macro", "raw_duplicate"))
+def test_torii_release_rejects_wrong_or_disabled_owners(
+    path: str, declaration: str, mode: str,
+    torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An intact function under cfg, another module or a macro cannot be a live owner."""
+    sources = dict(torii_release_sources)
+    item = guard.rust_item(sources[path], declaration, path)
+    if mode == "disabled":
+        replacement = "#[cfg(any())]\n" + item
+    elif mode == "nested":
+        replacement = "mod wrong_owner {\n" + item + "\n}"
+    elif mode == "macro":
+        replacement = "macro_rules! unused_decoy { () => {\n" + item + "\n} }"
+    else:
+        raw_item = re.sub(r"\b(fn|struct) (\w+)", r"\1 r#\2", item, count=1)
+        assert raw_item != item
+        replacement = raw_item + "\n#[cfg(any())]\n" + item
+    sources[path] = sources[path].replace(item, replacement, 1)
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        _check_torii_release_sources(sources, monkeypatch)
+
+
+TORII_RELEASE_MUTATIONS = (
+    # Bodies/IDs may not be accepted via short circuits or enlarged input bounds.
+    (0, "to_bytes(body, 1)", "to_bytes(body, usize::MAX)"),
+    (0, "Ok(bytes) if bytes.is_empty() => Ok(())", "Ok(_) => Ok(())"),
+    (0, "match axum::body", "return Ok(()); match axum::body"),
+    (0, 'code: "parliament_tle_partial_release_body_not_empty"', 'code: "different_body_error"'),
+    (1, ".all(|byte| *byte == 0)", ".all(|byte| *byte != 0)"),
+    (1, "value.parse::<BallotAttemptId>()", "value.trim().parse::<BallotAttemptId>()"),
+    (1, "Ok(ballot_attempt_id)", "Ok(BallotAttemptId::default())"),
+    # Every error mapping stays closed, with constant text and the original class.
+    (2, "TleReleaseCoordinatorErrorV1::SignerUnavailable", "TleReleaseCoordinatorErrorV1::SignerFailed"),
+    (2, 'code: "parliament_tle_release_signer_invalid_output"', 'code: "unverified_output_accepted"'),
+    (2, "=> crate::Error::AppNotFound", "=> crate::Error::AppServiceUnavailable"),
+    (2, 'message: "the Parliament TLE release signer could not produce a share".to_owned()', 'message: format!("{error:?}")'),
+    # Capacity must follow the physical closure through the committed-state call.
+    (3, "let _signer_admission = signer_admission;", "drop(signer_admission);"),
+    (3, "let _signer_admission = signer_admission;", "let _ = signer_admission;"),
+    (3, "move || {", "move || { return Err(TleReleaseCoordinatorErrorV1::SignerFailed);"),
+    (3, "let view = state.query_view();", "drop(_signer_admission); let view = state.query_view();"),
+    (3, "let view = state.query_view();", "let view = foreign_state.query_view();"),
+    (3, "coordinator.request_partial_release(&view, ballot_attempt_id)", "coordinator.request_partial_release(&view, foreign_ballot_attempt_id)"),
+    (3, "crate::panic_recovery::spawn_blocking_recoverable(", "tokio::task::spawn_blocking("),
+    (3, "crate::panic_recovery::join_recoverable(", "identity("),
+    (3, ".map_err(map_coordinator_error)", ".map_err(|error| crate::routing::conversion_error(format!(\"{error:?}\")))"),
+    (3, 'message: "the Parliament TLE release worker is unavailable".to_owned()', 'message: "provider private handle".to_owned()'),
+    (3, "let ballot_attempt_id = parse_ballot_attempt_id(&ballot_attempt_id)?;", "let ballot_attempt_id = BallotAttemptId::default();"),
+    # Handler keeps the same request body, heavy permit, state/coordinator/ID and output.
+    (4, "check_access(", "unused_access_check("),
+    (4, "request.into_body()", "Body::empty()"),
+    (4, "acquire_query_admission(app.as_ref(), true)", "acquire_query_admission(app.as_ref(), false)"),
+    (4, "app.state.clone()", "foreign_state.clone()"),
+    (4, "app.parliament_tle_release_coordinator.clone()", "foreign_coordinator.clone()"),
+    (4, "        signer_admission,", "        replacement_admission,"),
+    (4, "identity_digest: share.identity_digest", "identity_digest: foreign_identity"),
+    (4, "    check_access(", "    return Ok(fake_response);\n    check_access("),
+    # Explicit admission/recovery premises are structural, not runtime proofs.
+    (5, "_heavy: Option<tokio::sync::OwnedSemaphorePermit>", "_heavy: ()"),
+    (5, "_query: tokio::sync::OwnedSemaphorePermit", "_query: Option<tokio::sync::OwnedSemaphorePermit>"),
+    (6, "app.query_queue_timeout.is_zero()", "true"),
+    (6, ".then(|| app.query_heavy_inflight.clone().try_acquire_owned())", ".then(|| app.query_inflight.clone().try_acquire_owned())"),
+    (6, "tokio::time::timeout(app.query_queue_timeout, acquire)", "tokio::time::timeout(std::time::Duration::MAX, acquire)"),
+    (7, "iroha_panic_hook::catch_unwind_suppressed(operation)", "operation()"),
+    (8, "Ok(Err(_)) => Err(RecoverableTaskError::Panicked)", "Ok(Err(error)) => panic!(\"{error:?}\")"),
+)
+
+
+@pytest.mark.parametrize("owner,original,replacement", TORII_RELEASE_MUTATIONS)
+@pytest.mark.parametrize("retain_comment", (False, True))
+def test_torii_release_rejects_semantic_mutations_with_decoys(
+    owner: int, original: str, replacement: str, retain_comment: bool,
+    torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retained old text in comments never rescues changed guarded code or literals."""
+    sources = dict(torii_release_sources)
+    path, declaration = TORII_RELEASE_OWNERS[owner]
+    item = guard.rust_item(sources[path], declaration, path)
+    assert item.count(original) == 1
+    changed = item.replace(original, ("/* " + original + " */" if retain_comment else "") + replacement, 1)
+    sources[path] = sources[path].replace(item, changed, 1)
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        _check_torii_release_sources(sources, monkeypatch)
+
+
+@pytest.mark.parametrize("mutation", ("early_permit", "reorder_body_admission", "reorder_fields"))
+def test_torii_release_rejects_reordered_custody(
+    mutation: str, torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same tokens cannot move admission outside the physical owner or before body rejection."""
+    sources = dict(torii_release_sources)
+    if mutation == "early_permit":
+        path, declaration = TORII_RELEASE_OWNERS[3]
+        item = guard.rust_item(sources[path], declaration, path)
+        line = "            let _signer_admission = signer_admission;"
+        changed = item.replace(line, "", 1).replace("    crate::panic_recovery::join_recoverable", line + "\n    crate::panic_recovery::join_recoverable", 1)
+    elif mutation == "reorder_body_admission":
+        path, declaration = TORII_RELEASE_OWNERS[4]
+        item = guard.rust_item(sources[path], declaration, path)
+        body = "    crate::parliament_tle_release::require_empty_body_v1(request.into_body()).await?;"
+        admission = "    let signer_admission = acquire_query_admission(app.as_ref(), true).await?;"
+        assert body + "\n" + admission in item
+        changed = item.replace(body + "\n" + admission, admission + "\n" + body, 1)
+    else:
+        path, declaration = TORII_RELEASE_OWNERS[5]
+        item = guard.rust_item(sources[path], declaration, path)
+        fields = "    _heavy: Option<tokio::sync::OwnedSemaphorePermit>,\n    _query: tokio::sync::OwnedSemaphorePermit,"
+        assert fields in item
+        changed = item.replace(fields, "    _query: tokio::sync::OwnedSemaphorePermit,\n    _heavy: Option<tokio::sync::OwnedSemaphorePermit>,", 1)
+    assert changed != item
+    sources[path] = sources[path].replace(item, changed, 1)
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        _check_torii_release_sources(sources, monkeypatch)
+
+
+@pytest.mark.parametrize("original,replacement", (
+    ('#[cfg(feature = "app_api")]\nmod parliament_tle_release;', '#[cfg(any())]\nmod parliament_tle_release;'),
+    ('#[cfg(feature = "app_api")]\nmod parliament_tle_release;', '#[cfg(feature = "app_api")]\npub mod parliament_tle_release;'),
+    ('#[cfg(feature = "app_api")]\nmod parliament_tle_release;', '#[cfg_attr(feature = "app_api", cfg(any()))]\nmod parliament_tle_release;'),
+    ('mod panic_recovery;', '#[cfg(test)]\nmod panic_recovery;'),
+    ('#[cfg(feature = "app_api")]\nasync fn handler_gov_parliament_tle_partial_release(', '#[cfg(feature = "app_api")]\n#[cfg(any())]\nasync fn handler_gov_parliament_tle_partial_release('),
+    ('#![allow(unexpected_cfgs)]', '#![cfg(any())]'),
+    ('#![allow(unexpected_cfgs)]', '#![allow(unexpected_cfgs)]\n#![cfg(any())]'),
+    ('all(test, feature = "node-api")', 'all(test, feature = "app_api")'),
+    ('mod account_activity;', 'mod account_activity;\n#![allow(dead_code)]'),
+))
+def test_torii_release_rejects_module_and_lint_attribute_changes(
+    original: str, replacement: str,
+    torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the exact reviewed lint attributes and original module/handler cfg are allowed."""
+    sources = dict(torii_release_sources)
+    assert sources[TORII_RELEASE_LIB].count(original) == 1
+    sources[TORII_RELEASE_LIB] = sources[TORII_RELEASE_LIB].replace(original, replacement, 1)
+    with pytest.raises(RuntimeError, match=re.escape(TORII_RELEASE_LIB)):
+        _check_torii_release_sources(sources, monkeypatch)
+
+
+@pytest.mark.parametrize("path,prefix", (
+    (TORII_RELEASE_SERVICE, "use hostile::coordinator as TleReleaseCoordinatorV1;\n"),
+    (TORII_RELEASE_SERVICE, "macro_rules! unused { () => {} }\n"),
+    (TORII_RELEASE_RECOVERY, "use hostile::tokio;\n"),
+    (TORII_RELEASE_RECOVERY, "macro_rules! unused { () => {} }\n"),
+))
+def test_torii_release_pins_small_defining_modules(
+    path: str, prefix: str, torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unchanged function text is insufficient when module binding tokens change."""
+    sources = dict(torii_release_sources)
+    sources[path] = prefix + sources[path]
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        _check_torii_release_sources(sources, monkeypatch)
+
+
+def test_torii_release_accepts_code_comments_and_spacing(
+    torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Literal-aware token pins tolerate harmless source presentation changes."""
+    sources = dict(torii_release_sources)
+    sources[TORII_RELEASE_SERVICE] = sources[TORII_RELEASE_SERVICE].replace(
+        "let _signer_admission = signer_admission;",
+        "let /* physical owner */ _signer_admission  =\n signer_admission ;", 1)
+    sources[TORII_RELEASE_LIB] = sources[TORII_RELEASE_LIB].replace(
+        '#![allow(unexpected_cfgs)]', '# ! [ allow ( unexpected_cfgs ) ] /* lint only */', 1)
+    _check_torii_release_sources(sources, monkeypatch)
+
+
+@pytest.mark.parametrize("implementation", (
+    "impl Drop for QueryAdmissionPermit",
+    "impl std::ops::Drop for QueryAdmissionPermit",
+    "impl ::core::ops::Drop for crate::QueryAdmissionPermit",
+    "impl core::ops::r#Drop for crate::r#QueryAdmissionPermit",
+    "impl Drop for (QueryAdmissionPermit)",
+    "#[cfg(any())] impl Drop for QueryAdmissionPermit",
+))
+def test_torii_release_rejects_custom_permit_drop(
+    implementation: str, torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Custom Drop cannot retire a field ahead of the pinned declaration order."""
+    sources = dict(torii_release_sources)
+    sources[TORII_RELEASE_LIB] += implementation + " { fn drop(&mut self) { drop(self._heavy.take()); } }"
+    with pytest.raises(RuntimeError, match="custom Drop implementation"):
+        _check_torii_release_sources(sources, monkeypatch)
+
+
+def test_torii_release_ignores_quoted_custom_drop_decoy(
+    torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A comment mentioning an absent custom Drop is not an implementation."""
+    sources = dict(torii_release_sources)
+    sources[TORII_RELEASE_LIB] += "\n/* impl Drop for QueryAdmissionPermit { fn drop(&mut self) {} } */"
+    _check_torii_release_sources(sources, monkeypatch)
+
+
+DAEMON_BOXED_ENTRY = "pub(crate) async fn start_with_runtime_deps("
+
+
+@pytest.mark.parametrize("original,replacement", (
+    ("Box::pin(PreparedStartup::prepare(config, genesis))", "PreparedStartup::prepare(config, genesis)"),
+    ("Box::pin(Self::activate_with_runtime_deps(", "Self::activate_with_runtime_deps("),
+    ("Box::pin(PreparedStartup::prepare(config, genesis)).await?", "Box::pin(PreparedStartup::prepare(config, genesis))"),
+    ("Box::pin(PreparedStartup::prepare(config, genesis)).await?", "Box::pin(PreparedStartup::prepare(config, genesis)).await.ok()"),
+    ("let prepared = Box::pin", "return Err(fake_error); let prepared = Box::pin"),
+    ("let prepared = Box::pin", "let prepared = if false { Box::pin"),
+    ("let prepared = Box::pin", "let prepared = other_prepare(); let _unused = Box::pin"),
+    ("        Box::pin(Self::activate_with_runtime_deps(", "        let _ = async { Box::pin(Self::activate_with_runtime_deps("),
+    ("        Box::pin(Self::activate_with_runtime_deps(", "        drop(prepared); Box::pin(Self::activate_with_runtime_deps("),
+    ("            prepared,", "            prepared.clone(),"),
+    ("            logger,", "            foreign_logger,"),
+    ("            shutdown_signal,", "            foreign_shutdown_signal,"),
+    ("            runtime_deps,", "            IrohaRuntimeDeps::default(),"),
+    ("            musubi_publication_factory,", "            None,"),
+    ("        .await\n", "        .await.map_err(|_| replacement_error)\n"),
+    ("        .await\n", "        .await?; Ok(fake_result)\n"),
+    ("runtime_deps: IrohaRuntimeDeps", "runtime_deps: ForeignRuntimeDeps"),
+    ("prepared = Box::pin", "prepared = HostileBox::pin"),
+))
+@pytest.mark.parametrize("retain_comment", (False, True))
+def test_daemon_boxed_startup_rejects_changed_handoff(
+    original: str, replacement: str, retain_comment: bool,
+) -> None:
+    """Both exact pins, awaits, original owners and error propagation remain mandatory."""
+    runtime_deps, daemon = _readiness_sources()
+    item = guard.rust_item(daemon, DAEMON_BOXED_ENTRY, DAEMON_PATH)
+    assert item.count(original) == 1
+    changed = item.replace(original, ("/* " + original + " */" if retain_comment else "") + replacement, 1)
+    # Removing the activation Box requires removing its matching close parenthesis.
+    if original == "Box::pin(Self::activate_with_runtime_deps(":
+        changed = changed.replace("        ))\n        .await", "        )\n        .await", 1)
+    daemon = daemon.replace(item, changed, 1)
+    with pytest.raises(RuntimeError, match="propagate original preparation"):
+        guard.require_threshold_signer_startup_readiness(runtime_deps, daemon)
+
+
+@pytest.mark.parametrize("mode", ("disabled", "foreign", "macro", "raw_duplicate", "comment_only", "qualifier"))
+def test_daemon_boxed_startup_rejects_nonoriginal_owner(mode: str) -> None:
+    """An intact boxed body outside the unconditional original Iroha impl is refused."""
+    runtime_deps, daemon = _readiness_sources()
+    item = guard.rust_item(daemon, DAEMON_BOXED_ENTRY, DAEMON_PATH)
+    if mode == "disabled":
+        changed = daemon.replace(item, "#[cfg(any())]\n" + item, 1)
+    elif mode == "foreign":
+        changed = daemon.replace(item, "", 1) + "\nimpl ForeignIroha {\n" + item + "\n}"
+    elif mode == "macro":
+        changed = daemon.replace(item, "macro_rules! unused { () => {\n" + item + "\n} }", 1)
+    elif mode == "raw_duplicate":
+        raw = item.replace("fn start_with_runtime_deps(", "fn r#start_with_runtime_deps(", 1)
+        changed = daemon.replace(item, raw + "\n#[cfg(any())]\n" + item, 1)
+    elif mode == "comment_only":
+        changed = daemon.replace(item, "/* " + item + " */", 1)
+    else:
+        changed = daemon.replace(item, item.replace("pub(crate) async fn", "pub(crate) unsafe async fn", 1), 1)
+    with pytest.raises(RuntimeError, match=re.escape(DAEMON_PATH)):
+        guard.require_threshold_signer_startup_readiness(runtime_deps, changed)
+
+
+def test_daemon_boxed_startup_accepts_only_presentation_changes() -> None:
+    """Spacing and comments do not change the pinned boxed entry semantics."""
+    runtime_deps, daemon = _readiness_sources()
+    item = guard.rust_item(daemon, DAEMON_BOXED_ENTRY, DAEMON_PATH)
+    changed = item.replace("let prepared = Box::pin", "let /* original prepared owner */ prepared =\n Box :: pin", 1)
+    guard.require_threshold_signer_startup_readiness(runtime_deps, daemon.replace(item, changed, 1))
+
+
+BEACON_BORROW_PATHS = (guard.EPOCH_BEACON_PATH, guard.BEACON_PRODUCER_PATH, guard.BEACON_CONTROL_PATH)
+
+
+def _beacon_borrow_sources() -> dict[str, str]:
+    return {path: guard.read(path) for path in BEACON_BORROW_PATHS}
+
+
+def test_beacon_borrow_preserves_original_demanded_witness() -> None:
+    """The current original producer delegates its exact borrowed pulse to the live codec."""
+    guard.require_beacon_borrowed_witness(*_beacon_borrow_sources().values())
+
+
+def test_beacon_borrow_is_required_by_executed_beacon_guard() -> None:
+    """The main-wired demand guard calls this boundary once with the live codec read."""
+    body = ast.parse(inspect.getsource(guard.require_parliament_beacon_requirement))
+    calls = [node for node in ast.walk(body) if isinstance(node, ast.Call)
+             and isinstance(node.func, ast.Name) and node.func.id == "require_beacon_borrowed_witness"]
+    assert len(calls) == 1
+    assert ast.unparse(calls[0]) == "require_beacon_borrowed_witness(beacon, producer, read(BEACON_CONTROL_PATH))"
+
+
+@pytest.mark.parametrize("original,replacement", (
+    ("&self,", "&mut self,"),
+    ("context: &ControlWitnessContext", "context: &ForeignContext"),
+    ("instance: self.instance", "instance: other.instance"),
+    ("epoch: context.epoch", "epoch: other.epoch"),
+    ("height: context.height", "height: other.height"),
+    ("parent_hash: context.parent_hash", "parent_hash: other.parent_hash"),
+    ("parent_result: context.parent_result", "parent_result: other.parent_result"),
+    ("if self.prepared.as_ref() != Some(&source)", "if false"),
+    ("return Err(NativeBeaconError::Context);", "return Ok(ControlWitness::empty());"),
+    ("let pulse = match &self.active", "return Ok(ControlWitness::empty()); let pulse = match &self.active"),
+    ("None => None", "None => Some(foreign_pulse)"),
+    ("Some(active.finalized.ok_or(NativeBeaconError::AwaitingShares {\n                height: context.height,\n            })?)", "active.finalized"),
+    ("control::encode(pulse.as_ref())", "control::encode(None)"),
+    ("control::encode(pulse.as_ref())", "control::encode(pulse)"),
+    ("control::encode(pulse.as_ref())", "control::encode(other.as_ref())"),
+    ("control::encode(pulse.as_ref())", "let pulse = None; control::encode(pulse.as_ref())"),
+    ("control::encode(pulse.as_ref())", "if false { return Ok(ControlWitness::empty()); } control::encode(pulse.as_ref())"),
+    (".map_err(NativeBeaconError::from)", ".or_else(|_| Ok(ControlWitness::empty()))"),
+))
+@pytest.mark.parametrize("retain_comment", (False, True))
+def test_beacon_borrow_rejects_changed_prepared_handoff(
+    original: str, replacement: str, retain_comment: bool,
+) -> None:
+    """Every source field, actual finalized pulse and typed failure remain in the exact live body."""
+    sources = _beacon_borrow_sources()
+    path = guard.BEACON_PRODUCER_PATH
+    item = guard.rust_item(sources[path], "pub(crate) fn build(", path)
+    assert original in item
+    changed = item.replace(original, ("/* " + original + " */" if retain_comment else "") + replacement, 1)
+    sources[path] = sources[path].replace(item, changed, 1)
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        guard.require_beacon_borrowed_witness(*sources.values())
+
+
+@pytest.mark.parametrize("original,replacement", (
+    ("Option<&Pulse>", "Option<Pulse>"),
+    ("Option<&Pulse>", "Option<&ForeignPulse>"),
+    ("let mut witness = ControlWitness::empty();", "return Ok(ControlWitness::empty()); let mut witness = ControlWitness::empty();"),
+    ("if let Some(pulse) = pulse", "if let Some(pulse) = None"),
+    ("write_canonical_to_writer(pulse, &mut witness)?", "write_canonical_to_writer(&pulse, &mut witness)?"),
+    ("write_canonical_to_writer(pulse, &mut witness)?", "write_canonical_to_writer(foreign_pulse, &mut witness)?"),
+    ("write_canonical_to_writer(pulse, &mut witness)?", "write_canonical_to_writer(pulse, &mut foreign_witness)?"),
+    ("write_canonical_to_writer(pulse, &mut witness)?", "write_canonical_to_writer(pulse, &mut witness).ok()"),
+    ("Ok(witness)", "Ok(ControlWitness::empty())"),
+))
+@pytest.mark.parametrize("retain_comment", (False, True))
+def test_beacon_borrow_rejects_changed_codec_handoff(
+    original: str, replacement: str, retain_comment: bool,
+) -> None:
+    """A borrowed pulse reaches the returned witness through the exact fallible canonical writer."""
+    sources = _beacon_borrow_sources()
+    path = guard.BEACON_CONTROL_PATH
+    item = guard.rust_item(sources[path], "pub(crate) fn encode(", path)
+    assert item.count(original) == 1
+    changed = item.replace(original, ("/* " + original + " */" if retain_comment else "") + replacement, 1)
+    sources[path] = sources[path].replace(item, changed, 1)
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        guard.require_beacon_borrowed_witness(*sources.values())
+
+
+@pytest.mark.parametrize("path,name", ((guard.BEACON_PRODUCER_PATH, "build"), (guard.BEACON_CONTROL_PATH, "encode")))
+@pytest.mark.parametrize("mode", ("disabled", "foreign", "macro", "raw_duplicate", "comment_only", "qualifier", "inner_cfg"))
+def test_beacon_borrow_rejects_nonoriginal_owner(path: str, name: str, mode: str) -> None:
+    """Disabled, shadowed, foreign and quoted owners cannot stand in for the live entry."""
+    sources = _beacon_borrow_sources()
+    item = guard.rust_item(sources[path], "pub(crate) fn " + name + "(", path)
+    if mode == "disabled":
+        changed = "#[cfg(any())]\n" + item
+    elif mode == "foreign":
+        changed = "mod foreign {\n" + item + "\n}"
+    elif mode == "macro":
+        changed = "macro_rules! unused { () => {\n" + item + "\n} }"
+    elif mode == "raw_duplicate":
+        changed = item.replace("fn " + name + "(", "fn r#" + name + "(", 1) + "\n#[cfg(any())]\n" + item
+    elif mode == "comment_only":
+        changed = "/* " + item + " */"
+    elif mode == "qualifier":
+        changed = item.replace("pub(crate) fn", "pub(crate) unsafe fn", 1)
+    else:
+        sources[path] = "#![cfg(any())]\n" + sources[path]
+        changed = item
+    sources[path] = sources[path].replace(item, changed, 1)
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        guard.require_beacon_borrowed_witness(*sources.values())
+
+
+@pytest.mark.parametrize("path,route", (
+    (guard.EPOCH_BEACON_PATH, "pub(crate) mod control;"),
+    (guard.EPOCH_BEACON_PATH, "pub(crate) mod producer;"),
+    (guard.BEACON_PRODUCER_PATH, "use super::control;"),
+))
+@pytest.mark.parametrize("mode", ("disabled", "nested", "comment_only", "duplicate"))
+def test_beacon_borrow_rejects_disconnected_route(path: str, route: str, mode: str) -> None:
+    """Direct module declarations and the producer's codec import remain unconditional and unique."""
+    sources = _beacon_borrow_sources()
+    if mode == "disabled":
+        replacement = "#[cfg(any())]\n" + route
+    elif mode == "nested":
+        replacement = "mod other { " + route + " }"
+    elif mode == "comment_only":
+        replacement = "/* " + route + " */"
+    else:
+        replacement = route + "\n#[cfg(any())]\n" + route
+    assert sources[path].count(route) == 1
+    sources[path] = sources[path].replace(route, replacement, 1)
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        guard.require_beacon_borrowed_witness(*sources.values())
+
+
+@pytest.mark.parametrize("original,replacement", (
+    ("FinalizedGlobalThresholdBeaconPulseV1 as Pulse", "ForeignPulse as Pulse"),
+    ("use iroha_sumeragi::types::", "use foreign_types::"),
+    ("fn limits()", "macro_rules! hidden { () => {} }\nfn limits()"),
+))
+def test_beacon_borrow_rejects_changed_codec_module(original: str, replacement: str) -> None:
+    """The defining codec's imports and macros are covered by its complete token pin."""
+    sources = _beacon_borrow_sources()
+    path = guard.BEACON_CONTROL_PATH
+    assert sources[path].count(original) == 1
+    sources[path] = sources[path].replace(original, replacement, 1)
+    with pytest.raises(RuntimeError, match="defining module tokens"):
+        guard.require_beacon_borrowed_witness(*sources.values())
+
+
+def test_beacon_borrow_accepts_only_presentation_changes() -> None:
+    """Comments and code spacing leave the exact handoff and full codec token sequence intact."""
+    sources = _beacon_borrow_sources()
+    for path in sources:
+        sources[path] = "/* fn r#encode() {} impl Foreign { fn build() {} } */\n" + sources[path]
+    sources[guard.EPOCH_BEACON_PATH] = sources[guard.EPOCH_BEACON_PATH].replace("pub(crate) mod control;", "pub ( crate ) mod /* codec */ control ;")
+    sources[guard.BEACON_PRODUCER_PATH] = sources[guard.BEACON_PRODUCER_PATH].replace("control::encode(pulse.as_ref())", "control :: encode ( pulse . as_ref ( ) )")
+    sources[guard.BEACON_CONTROL_PATH] = sources[guard.BEACON_CONTROL_PATH].replace("write_canonical_to_writer(pulse,", "write_canonical_to_writer( /* exact pulse */ pulse ,")
+    guard.require_beacon_borrowed_witness(*sources.values())
+
+
+@pytest.mark.parametrize("declaration,edits", (
+    ("fn invalid(", (("Ok(Some(ExecOutcome::Invalid))", "Err(_)"),)),
+    ("fn invalid(", (("Ok(Some(ExecOutcome::Invalid))", "Ok(None)"),)),
+    ("fn invalid(", (("Ok(Some(ExecOutcome::Invalid))", "Ok(Some(_))"),)),
+    ("fn invalid(", (("Ok(Some(ExecOutcome::Invalid))", "Ok(Some(ExecOutcome::Valid { .. }))"),)),
+    ("fn invalid(", (("Ok(Some(ExecOutcome::Invalid))", "Ok(Some(ExecOutcome::Invalid)) | Err(_)"),)),
+    ("fn invalid(", (
+        ("executor.execute(candidate, &hash, false)", "executor.execute(candidate, &hash, false).ok().flatten()"),
+        ("Ok(Some(ExecOutcome::Invalid))", "Some(ExecOutcome::Invalid)"),
+    )),
+    ("fn invalid(", (
+        ("executor.execute(candidate, &hash, false)", "executor.execute(candidate, &hash, false).unwrap_or(Some(ExecOutcome::Invalid))"),
+        ("Ok(Some(ExecOutcome::Invalid))", "Some(ExecOutcome::Invalid)"),
+    )),
+    ("fn invalid(", (("executor.execute(candidate, &hash, false)", "executor.execute(other, &hash, false)"),)),
+    ("fn invalid(", (("executor.execute(candidate, &hash, false)", "executor.execute(candidate, &foreign_hash, false)"),)),
+    ("fn invalid(", (("assert_eq!(u64::try_from(view.height()).unwrap(), chain.height());", "assert!(true);"),)),
+    (KILL_TEST, (("Ok(Some(ExecOutcome::Valid { .. }))", "Err(_)"),)),
+    (KILL_TEST, (("Ok(Some(ExecOutcome::Valid { .. }))", "Ok(None)"),)),
+    (KILL_TEST, (("Ok(Some(ExecOutcome::Valid { .. }))", "Ok(Some(_))"),)),
+    (KILL_TEST, (("Ok(Some(ExecOutcome::Valid { .. }))", "Ok(Some(ExecOutcome::Invalid))"),)),
+    (KILL_TEST, (("Ok(Some(ExecOutcome::Valid { .. }))", "Ok(Some(ExecOutcome::Valid { .. })) | Err(_)"),)),
+    (KILL_TEST, (
+        ("                false\n            )", "                false\n            ).ok().flatten()"),
+        ("Ok(Some(ExecOutcome::Valid { .. }))", "Some(ExecOutcome::Valid { .. })"),
+    )),
+    (KILL_TEST, (("                &requested_nothing,", "                &unrequested,"),)),
+    (KILL_TEST, (("                &hash,", "                &foreign_hash,"),)),
+    (KILL_TEST, (("Some(genuine_pulse_at_next_height(&custody, &custody.chain)).as_ref()", "None"),)),
+    (KILL_TEST, (("Some(genuine_pulse_at_next_height(&custody, &custody.chain)).as_ref()", "Some(genuine_pulse_at_next_height(&custody, &replay)).as_ref()"),)),
+    (KILL_TEST, (("with_pulse.control_witness =", "foreign_header.control_witness ="),)),
+    (KILL_TEST, (("control::encode(Some(genuine_pulse_at_next_height(&custody, &custody.chain)).as_ref())\n            .unwrap()", "control::encode(Some(genuine_pulse_at_next_height(&custody, &custody.chain)).as_ref())\n            .unwrap_or_else(|_| ControlWitness::empty())"),)),
+    (KILL_TEST, (("        &unrequested,\n    );", "        &requested_nothing,\n    );"),)),
+))
+@pytest.mark.parametrize("retain_comment", (False, True))
+def test_execution_result_guard_rejects_weakened_outcomes_and_witnesses(
+    declaration: str, edits: tuple[tuple[str, str], ...], retain_comment: bool,
+) -> None:
+    """Errors, absence, foreign inputs and substituted witnesses cannot satisfy success/refusal assertions."""
+    sources = _evidence_sources()
+    path = guard.BEACON_EXECUTION_TESTS_PATH
+    item = guard.rust_item(sources[path], declaration, path)
+    changed = item
+    for original, replacement in edits:
+        assert changed.count(original) == 1
+        changed = changed.replace(original, replacement, 1)
+    if retain_comment:
+        changed += "\n/* Original assertions are not live evidence:\n" + item + "\n*/"
+    sources[path] = sources[path].replace(item, changed, 1)
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        _check_evidence(sources)
+
+
+def test_execution_result_guard_accepts_result_and_borrow_presentation_changes() -> None:
+    """Comments and spacing preserve the required Ok/Some outcome and exact borrowed witness."""
+    sources = _evidence_sources()
+    path = guard.BEACON_EXECUTION_TESTS_PATH
+    sources[path] = sources[path].replace("Ok(Some(ExecOutcome::Invalid))", "Ok ( /* execution completed */ Some ( ExecOutcome :: Invalid ) )")
+    sources[path] = sources[path].replace("Ok(Some(ExecOutcome::Valid { .. }))", "Ok ( Some ( ExecOutcome :: Valid { /* fields retained by executor */ .. } ) )")
+    sources[path] = sources[path].replace("&custody.chain)).as_ref()", "&custody.chain)) . /* same local option */ as_ref ( )")
+    _check_evidence(sources)
+
+
+@pytest.mark.parametrize("declaration", ("fn invalid(", KILL_TEST))
+@pytest.mark.parametrize("wrapper", ("if false", "let unused = ||", "macro_rules! unused { () =>", "while false"))
+def test_execution_result_guard_rejects_dormant_assertion_bodies(declaration: str, wrapper: str) -> None:
+    """Whole-item pins refuse exact assertions moved into nonexecuted branches, closures or macros."""
+    sources = _evidence_sources()
+    path = guard.BEACON_EXECUTION_TESTS_PATH
+    item = guard.rust_item(sources[path], declaration, path)
+    opening = item.index("{")
+    body = item[opening + 1:-1]
+    closing = "}; }" if wrapper.startswith("macro_rules!") else "};"
+    changed = item[:opening + 1] + wrapper + " {" + body + "\n" + closing + "\n}"
+    sources[path] = sources[path].replace(item, changed, 1)
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        _check_evidence(sources)
+
+
+@pytest.mark.parametrize("declaration", ("fn invalid(", KILL_TEST))
+@pytest.mark.parametrize("mode", ("nested", "foreign_impl", "macro", "raw_duplicate", "disabled", "qualifier"))
+def test_execution_result_guard_rejects_nonoriginal_assertion_owners(declaration: str, mode: str) -> None:
+    """An intact body is evidence only in its reviewed module-level owner and attributes."""
+    sources = _evidence_sources()
+    path = guard.BEACON_EXECUTION_TESTS_PATH
+    item = guard.rust_item(sources[path], declaration, path)
+    attributed = ("#[test]\n" if declaration == KILL_TEST else "") + item
+    assert sources[path].count(attributed) == 1
+    if mode == "nested":
+        changed = "mod other {\n" + attributed + "\n}"
+    elif mode == "foreign_impl":
+        changed = "impl Other {\n" + attributed + "\n}"
+    elif mode == "macro":
+        changed = "macro_rules! unused { () => {\n" + attributed + "\n} }"
+    elif mode == "raw_duplicate":
+        changed = attributed.replace("fn ", "fn r#", 1) + "\n#[cfg(any())]\n" + attributed
+    elif mode == "disabled":
+        changed = "#[cfg(any())]\n" + attributed
+    else:
+        changed = attributed.replace("fn ", "unsafe fn ", 1)
+    sources[path] = sources[path].replace(attributed, changed, 1)
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        _check_evidence(sources)
+
+
+def test_execution_result_guard_rejects_original_if_false_counterexample() -> None:
+    """The independently found dormant invalid assertion is rejected even with every old token present."""
+    sources = _evidence_sources()
+    path = guard.BEACON_EXECUTION_TESTS_PATH
+    assertion = """    assert!(matches!(
+        executor.execute(candidate, &hash, false),
+        Ok(Some(ExecOutcome::Invalid))
+    ));"""
+    assert sources[path].count(assertion) == 1
+    sources[path] = sources[path].replace(assertion, "if false {\n" + assertion + "\n}", 1)
+    with pytest.raises(RuntimeError, match="Result-aware assertion owner changed its complete body"):
+        _check_evidence(sources)

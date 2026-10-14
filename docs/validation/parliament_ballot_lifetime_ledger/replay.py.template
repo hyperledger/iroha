@@ -1,0 +1,140 @@
+"""Restore exact selected ledger sources into a new ignored tree; optionally replay."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+BUNDLE=Path(__file__).resolve().parent
+CAPTURE_MANIFEST='197af921c59071e8600e3b26841f2cedcd6d0d9c0abb17cd99de5d7a95b84f14'
+CAPTURE_RECEIPT='94525d2779a8753cd088c14e64a494d4c4591b576faeb322b5ae44a8a98178cc'
+REVIEW_RECEIPT='1f313f3552d80469c8730b98c1cc8abb4e90f0e996cd88cdfa2c828619cf5c6e'
+MAIN_MANIFEST='a1d8a09dbe677b4eee0eb230ab8f998f4e80f90b2546dde1c9faa6b46679923d'
+
+
+def require(ok,why):
+    if not ok:raise ValueError(why)
+def sha(data):return hashlib.sha256(data).hexdigest()
+def relative(value):
+    require(type(value) is str and value and '\\' not in value,'invalid relative path')
+    path=PurePosixPath(value)
+    require(not path.is_absolute() and '..' not in path.parts and path.as_posix()==value,'unsafe path')
+    return Path(value)
+def bytes_at(path,expected=None):
+    data=path.read_bytes()
+    if expected is not None:require(sha(data)==expected,'hash mismatch: '+str(path))
+    return data
+def manifest(data):
+    result={}
+    for line in data.decode().splitlines():
+        h,p=line.split('  ',1);relative(p)
+        require(len(h)==64 and all(c in '0123456789abcdef' for c in h) and p not in result,'manifest row')
+        result[p]=h
+    return result
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--destination',type=Path,required=True)
+    parser.add_argument('--run-owned',action='store_true')
+    parser.add_argument('--run-independent',action='store_true')
+    parser.add_argument('--pytest',default='/opt/homebrew/bin/pytest')
+    args=parser.parse_args()
+    # Run from a workspace root. Refuse all existing/symlink destinations and
+    # all paths outside its already present ignored target directory.
+    scratch=Path.cwd().resolve()/'target'
+    require(scratch.is_dir() and not scratch.is_symlink(),'workspace target directory required')
+    lexical=args.destination.absolute()
+    require(not any(x=='..' for x in lexical.parts),'destination traversal')
+    destination=lexical.resolve()
+    require(destination.is_relative_to(scratch) and destination!=scratch,'destination must be under workspace target')
+    require(not lexical.exists() and not lexical.is_symlink(),'destination must be absent')
+    for parent in lexical.parents:
+        if parent==scratch:break
+        require(not parent.is_symlink(),'symlink destination ancestor')
+    ignored=subprocess.run(['git','check-ignore','-q','--',str(destination)],capture_output=True)
+    require(ignored.returncode==0,'destination must be ignored by current repository')
+    top=manifest(bytes_at(BUNDLE/'SHA256SUMS'))
+    actual=set()
+    for p in BUNDLE.rglob('*'):
+        require(not p.is_symlink(),'bundle symlink')
+        if p.is_file() and p!=BUNDLE/'SHA256SUMS':actual.add(p.relative_to(BUNDLE).as_posix())
+    require(actual==set(top),'exact bundle membership')
+    for p,h in top.items():bytes_at(BUNDLE/relative(p),h)
+    old=manifest(bytes_at(BUNDLE/'capture/SHA256SUMS',CAPTURE_MANIFEST))
+    require(len(old)==86,'original capture entry count')
+    for p,h in old.items():bytes_at(BUNDLE/'capture'/relative(p),h)
+    receipt=json.loads(bytes_at(BUNDLE/'capture/receipt.json',CAPTURE_RECEIPT))
+    review=json.loads(bytes_at(BUNDLE/'review/review-receipt.json',REVIEW_RECEIPT))
+    require(receipt['source_sha256_before']==receipt['source_sha256_after'],'owned source stability')
+    require(review['source_sha256_before']==review['source_sha256_after'],'review source stability')
+    require(receipt['test_cases']==68 and review['tests']==72,'captured test scope')
+    main_map=manifest(bytes_at(BUNDLE/'replay-supplements/main-machine.SHA256SUMS',MAIN_MANIFEST))
+    restored={};origins={}
+    def add(path,data,origin):
+        relative(path)
+        require(path not in restored or restored[path]==data,'conflicting duplicate restore path')
+        restored[path]=data;origins.setdefault(path,[]).append(origin)
+    require(set(receipt['snapshots'])==set(receipt['source_sha256_before']),'snapshot membership')
+    for path,item in receipt['snapshots'].items():
+        require(item['sha256']==receipt['source_sha256_before'][path],'snapshot identity')
+        add(path,bytes_at(BUNDLE/'capture'/relative(item['snapshot']),item['sha256']),'owned receipt snapshot')
+    for name in ('ledger-review.md','test_independent_ledger.py'):
+        path='target/parliament-lifetime-review/'+name
+        source=BUNDLE/'review'/(name+'.template' if name.endswith('.py') else name)
+        add(path,bytes_at(source,review['source_sha256_before'][path]),'selected final independent review input')
+    # New replay supplements, not retrospective additions to the review's77 pins.
+    for name in ('content_request.py','validated_request.py'):
+        path='target/parliament-ideal-machine-stage/'+name
+        member='capture/source/'+path+'.template'
+        add(path,bytes_at(BUNDLE/'replay-supplements'/(name+'.template'),main_map[member]),
+            'separate frozen main-machine import supplement')
+    require(len(restored)==82,'explicit78+2+2 restore inventory')
+    for path,h in review['source_sha256_before'].items():
+        require(path in restored and sha(restored[path])==h,'final selected review input absent or changed')
+    destination.mkdir(parents=True)
+    for path,data in restored.items():
+        out=destination/relative(path);out.parent.mkdir(parents=True,exist_ok=True);out.write_bytes(data)
+    before={p:sha(data) for p,data in restored.items()}
+    result=dict(scope='new isolated replay, not retroactive source/dependency attestation',
+        restored_sha256=before,origins=origins,commands=[],metadata_only=True,
+        complete_resource_vector=False,independent_cryptographic_review=False,profile_qualified=False,
+        production_gate_changed=False,runtime_dependencies='trusted installed Python, pytest and stdlib; not bundled')
+    env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1',PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',PYTEST_ADDOPTS='',PYTEST_PLUGINS='',PYTHONPATH='')
+    result['effective_environment']={name:env[name] for name in
+        ('PYTHONDONTWRITEBYTECODE','PYTEST_DISABLE_PLUGIN_AUTOLOAD','PYTEST_ADDOPTS','PYTEST_PLUGINS','PYTHONPATH')}
+    output=destination/'replay-results';output.mkdir()
+    def run(name,command,expected):
+        proc=subprocess.run(command,cwd=destination,env=env,capture_output=True)
+        (output/(name+'.stdout')).write_bytes(proc.stdout);(output/(name+'.stderr')).write_bytes(proc.stderr)
+        result['commands'].append(dict(name=name,command=command,exit_code=proc.returncode))
+        require(proc.returncode==expected,'unexpected replay exit: '+name)
+        return proc.stdout
+    def tests(name,path,count):
+        xml=output/(name+'.xml')
+        run(name,[args.pytest,'-q','-c','/dev/null','--noconftest','-p','no:cacheprovider','-k','','-m','',
+            '--maxfail=0','--basetemp',str(output/(name+'-temp')),'--junitxml',str(xml),str(destination/path)],0)
+        node=ET.parse(xml).getroot()
+        require(len(node.findall('.//testcase'))==count,'replay test count')
+        require(not any(x.tag in ('failure','error','skipped') for x in node.iter()),'replay non-passing test')
+    if args.run_owned:
+        tests('owned','target/parliament-lifetime-composition-stage/test_ledger.py',68)
+        base=[sys.executable,'-B',str(destination/'target/parliament-lifetime-composition-stage/ledger.py'),
+            '--root',str(destination),'--events',str(destination/'target/parliament-lifetime-composition-stage/example.json')]
+        normal=run('example',base,0);refusal=run('qualification-refusal',base+['--require-qualified'],2)
+        require(normal==refusal==bytes_at(BUNDLE/'capture/example.stdout'),'replayed conditional report differs')
+    if args.run_independent:
+        tests('independent','target/parliament-lifetime-review/test_independent_ledger.py',72)
+    after={p:sha((destination/relative(p)).read_bytes()) for p in restored}
+    require(before==after,'restored sources changed during replay')
+    result['source_sha256_after']=after
+    (output/'receipt.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+    print(json.dumps(dict(restored=len(restored),commands=len(result['commands']),destination=str(destination),
+                         complete_resource_vector=False,profile_qualified=False)))
+
+if __name__=='__main__':
+    try:main()
+    except (ValueError,KeyError,TypeError,OSError) as error:
+        print(str(error),file=sys.stderr);sys.exit(1)

@@ -439,9 +439,9 @@ pub(crate) fn recheck_progress_for_proposal(
             u64::try_from(assembly.proposed_time.as_millis())
                 .map_err(|_| PayloadError::TimeOverflow)?,
         );
-        #[cfg(not(all(test, sumeragi_core_mutation = "HC355")))]
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC363")))]
         let minimum = minimum.max(proposed);
-        #[cfg(all(test, sumeragi_core_mutation = "HC355"))]
+        #[cfg(all(test, sumeragi_core_mutation = "HC363"))]
         let _ = proposed;
         let time = crate::block::creation_time_after_inputs(
             minimum,

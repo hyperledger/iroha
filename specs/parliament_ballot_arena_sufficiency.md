@@ -217,6 +217,9 @@ unchanged component analyzers on the current captures. Its 49 controls and
 private-symbol spelling changes. The original ordinary-flow, ownership and
 native-call premises remain; these substitutions do not establish a complete
 workspace certificate.
+Later root-lock changes remain explicit post-capture drift. The recorded worker
+and correspondence results are not qualification of the later checkout, even
+though the changed dependency lists are outside the isolated package set.
 
 TODO: establish complete target-specific allocation correspondence and
 ordinary/exceptional path conditions; discharge the provider-target premises

@@ -9271,6 +9271,12 @@
           "serialize_hash": "4d2486344a862f2ba5d18fc58eb84549"
         },
         {
+          "deserialize_hash": "ffa7ae273b5b576ebbb712a526a8ebb0",
+          "nominal": "iroha_data_model::validation_fee::ValidationFeePolicyHistoryV1",
+          "root": "iroha_data_model::validation_fee::ValidationFeePolicyHistoryV1",
+          "serialize_hash": "ffa7ae273b5b576ebbb712a526a8ebb0"
+        },
+        {
           "deserialize_hash": "844b457c75b7d42f3de6d8aa4f699631",
           "nominal": "iroha_data_model::validation_fee::ValidationFeePolicySnapshotAvailableV1",
           "root": "iroha_data_model::validation_fee::ValidationFeePolicySnapshotAvailableV1",

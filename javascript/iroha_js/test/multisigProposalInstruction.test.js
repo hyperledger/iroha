@@ -36,6 +36,7 @@ test("multisig propose builder enforces TTL cap", () => {
   assert.throws(
     () =>
       buildProposeMultisigInstruction({
+    proposalNonce: "12".repeat(32),
         accountId: CONTROLLER_ID,
         instructions: [{ Log: { Level: "INFO", message: "hello" } }],
         spec,
@@ -48,6 +49,7 @@ test("multisig propose builder enforces TTL cap", () => {
 test("multisig propose builder accepts TTL at or below cap", () => {
   const spec = sampleSpec();
   const payload = buildProposeMultisigInstruction({
+    proposalNonce: "12".repeat(32),
     accountId: CONTROLLER_ID,
     instructions: [{ Log: { Level: "INFO", message: "hello" } }],
     spec,
@@ -59,6 +61,7 @@ test("multisig propose builder accepts TTL at or below cap", () => {
       payload: {
         Propose: {
           account: CONTROLLER_ID,
+          proposal_nonce: "12".repeat(32),
           instructions: [{ Log: { Level: "INFO", message: "hello" } }],
           transaction_ttl_ms: 30_000,
         },
@@ -72,6 +75,7 @@ test("multisig propose builder requires instructions", () => {
   assert.throws(
     () =>
       buildProposeMultisigInstruction({
+    proposalNonce: "12".repeat(32),
         accountId: CONTROLLER_ID,
         instructions: [],
         spec,
@@ -90,6 +94,7 @@ test("multisig propose builder propagates domain drift", () => {
   assert.throws(
     () =>
       buildProposeMultisigInstruction({
+    proposalNonce: "12".repeat(32),
         accountId: `${CONTROLLER_ID}@banka.dataspace`,
         instructions: [{ Log: { Level: "INFO", message: "hello" } }],
         spec,

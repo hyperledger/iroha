@@ -108,44 +108,41 @@ fn validate_registered_account_state<W: WorldReadOnly>(
 pub(crate) fn fee_proposal_key_is_unused<W: WorldReadOnly>(
     world: &W,
     account: &AccountId,
-    instructions_hash: &HashOf<Vec<InstructionBox>>,
+    proposal_id: &MultisigProposalId,
 ) -> bool {
     world
         .smart_contract_state()
-        .get(&multisig_proposal_state_key(account, instructions_hash))
+        .get(&multisig_proposal_state_key(account, proposal_id))
         .is_none()
         && world
             .smart_contract_state()
-            .get(&multisig_proposal_terminal_state_key(
-                account,
-                instructions_hash,
-            ))
+            .get(&multisig_proposal_terminal_state_key(account, proposal_id))
             .is_none()
 }
 
-/// Project only an exact, live, non-relayed pending proposal for admission.
+/// Project only an exact, live pending occurrence for admission.
 /// Terminal history cannot make a new approval eligible for sponsorship.
 pub(crate) fn read_pending_fee_proposal<W: WorldReadOnly>(
     world: &W,
     account: &AccountId,
+    proposal_id: &MultisigProposalId,
     instructions_hash: &HashOf<Vec<InstructionBox>>,
     observation_time_ms: u64,
 ) -> Result<Option<Vec<InstructionBox>>, Attempt<ValidationFail>> {
-    let Some(proposal) = read_proposal_state(world, account, instructions_hash)? else {
+    let Some(proposal) = read_proposal_state(world, account, proposal_id)? else {
         return Ok(None);
     };
     if world
         .smart_contract_state()
-        .get(&multisig_proposal_terminal_state_key(
-            account,
-            instructions_hash,
-        ))
+        .get(&multisig_proposal_terminal_state_key(account, proposal_id))
         .is_some()
     {
         return Err(invalid_proposal_binding().into());
     }
-    if proposal.is_relayed.is_some()
-        || observation_time_ms < proposal.proposed_at_ms
+    if proposal.instructions_hash != *instructions_hash {
+        return Err(invalid_proposal_binding().into());
+    }
+    if observation_time_ms < proposal.proposed_at_ms
         || observation_time_ms >= proposal.expires_at_ms
     {
         return Ok(None);
@@ -159,19 +156,20 @@ pub(crate) fn read_pending_fee_proposal<W: WorldReadOnly>(
 pub(crate) fn read_settled_fee_proposal<W: WorldReadOnly>(
     world: &W,
     account: &AccountId,
+    proposal_id: &MultisigProposalId,
     instructions_hash: &HashOf<Vec<InstructionBox>>,
     current_entrypoint_hash: [u8; Hash::LENGTH],
     current_block_height: u64,
 ) -> Result<Option<Vec<InstructionBox>>, Attempt<ValidationFail>> {
-    let terminal_key = multisig_proposal_terminal_state_key(account, instructions_hash);
+    let terminal_key = multisig_proposal_terminal_state_key(account, proposal_id);
     let Some(terminal_bytes) = world.smart_contract_state().get(&terminal_key) else {
         return Ok(None);
     };
-    // A canonical non-relayed proposal is removed before becoming terminal.
+    // A canonical occurrence is removed before becoming terminal.
     // Do not choose whichever of two contradictory versions grants authority.
     if world
         .smart_contract_state()
-        .get(&multisig_proposal_state_key(account, instructions_hash))
+        .get(&multisig_proposal_state_key(account, proposal_id))
         .is_some()
     {
         return Err(invalid_proposal_binding().into());
@@ -197,23 +195,28 @@ pub(crate) fn read_settled_fee_proposal<W: WorldReadOnly>(
         })
     })?;
     if terminal.multisig_account_id != *account
+        || terminal.proposal_id != *proposal_id
+        || terminal.proposal.proposal_id != *proposal_id
+        || MultisigProposalId::derive(
+            &terminal.proposal.network_id,
+            account,
+            &terminal.proposal.proposal_nonce,
+        ) != *proposal_id
         || terminal.instructions_hash != *instructions_hash
         || actual_hash != *instructions_hash
     {
         return Err(invalid_proposal_binding().into());
     }
-    if terminal.status != MultisigProposalTerminalStatus::Finalized
-        || terminal.proposal.is_relayed.is_some()
-    {
+    if terminal.status != MultisigProposalTerminalStatus::Finalized {
         return Ok(None);
     }
     let execution_key = multisig_proposal_terminal_execution_state_key(
         current_entrypoint_hash,
         account,
-        instructions_hash,
+        proposal_id,
     );
     let outcome_key =
-        multisig_approval_outcome_state_key(current_entrypoint_hash, account, instructions_hash);
+        multisig_approval_outcome_state_key(current_entrypoint_hash, account, proposal_id);
     let (Some(execution_bytes), Some(outcome_bytes)) = (
         world.smart_contract_state().get(&execution_key),
         world.smart_contract_state().get(&outcome_key),
@@ -243,6 +246,7 @@ pub(crate) fn read_settled_fee_proposal<W: WorldReadOnly>(
         || execution.terminal_block_height != current_block_height
         || outcome.entrypoint_account_id != *account
         || outcome.resolved_multisig_account_id != *account
+        || outcome.proposal_id != *proposal_id
         || outcome.instructions_hash != *instructions_hash
         || outcome.entrypoint_hash != current_entrypoint_hash
         || outcome.block_height != current_block_height
@@ -268,7 +272,11 @@ fn same_terminal_evidence(
         || left.proposal.proposed_at_ms != right.proposal.proposed_at_ms
         || left.proposal.expires_at_ms != right.proposal.expires_at_ms
         || left.proposal.approvals != right.proposal.approvals
-        || left.proposal.is_relayed != right.proposal.is_relayed
+        || left.proposal_id != right.proposal_id
+        || left.proposal.network_id != right.proposal.network_id
+        || left.proposal.proposal_nonce != right.proposal.proposal_nonce
+        || left.proposal.proposal_id != right.proposal.proposal_id
+        || left.proposal.transaction_ttl_ms != right.proposal.transaction_ttl_ms
     {
         return Ok(false);
     }
@@ -298,13 +306,12 @@ pub(crate) fn install_executed_fee_proposal_fixture(
     entrypoint_hash: [u8; Hash::LENGTH],
 ) -> Result<(), ValidationFail> {
     assert_eq!(terminal.status, MultisigProposalTerminalStatus::Finalized);
-    assert!(terminal.proposal.is_relayed.is_none());
     assert!(
         tx.world
             .smart_contract_state
             .get(&multisig_proposal_state_key(
                 &terminal.multisig_account_id,
-                &terminal.instructions_hash,
+                &terminal.proposal_id,
             ))
             .is_none()
     );
@@ -315,6 +322,7 @@ pub(crate) fn install_executed_fee_proposal_fixture(
         tx,
         &terminal.multisig_account_id,
         &terminal.multisig_account_id,
+        &terminal.proposal_id,
         &terminal.instructions_hash,
         MultisigApprovalOutcomeStatusV1::Executed,
     )

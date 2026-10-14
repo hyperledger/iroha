@@ -17,6 +17,9 @@ use super::*;
 /// A complete wallet source graph or one bounded active import was rejected.
 #[derive(Debug, thiserror::Error)]
 pub enum WalletSourcesErrorV1 {
+    /// The exact complete profile is absent, stale or inconsistent with this build.
+    #[error(transparent)]
+    Builtin(#[from] iroha_plonk::keys::BuiltinSourceErrorV1),
     /// Wrong installation, route, member or original content address.
     #[error(transparent)]
     Original(#[from] Error),
@@ -42,6 +45,7 @@ impl WalletSourcesErrorV1 {
     #[must_use]
     pub fn is_cancelled(&self) -> bool {
         match self {
+            Self::Builtin(error) => error.is_cancelled(),
             Self::Original(error) => error.is_cancelled(),
             Self::Sigma(error) => match error {
                 SigmaQualificationErrorV1::Original(error) => error.is_cancelled(),
@@ -129,11 +133,89 @@ fn require_installation(
 }
 
 impl AuthenticatedProducerInventoryV1 {
+    /// Qualify the exact finite graph checked by this build's strict generator.
+    ///
+    /// Every original, native plan, route and terminal closure is checked before
+    /// a complete owner returns. Unknown or stale profiles fail explicitly; this
+    /// method never starts an implicit strict reconstruction of another graph.
+    /// Independent signed installation and native-genesis checks remain required.
+    ///
+    /// # Errors
+    /// Unsupported/stale compiled profile, wrong installation/genesis, or any
+    /// bounded original, current plan, complete graph or cancellation failure.
+    pub fn qualify_wallet_builtin(
+        self,
+        installed: &InstalledVerifierPackV1,
+        native_finality: &SumeragiFinalityVerifier,
+        originals: &mut dyn OriginalSourceV1,
+        config: ReadConfig,
+    ) -> Result<QualifiedWalletSourcesV1, WalletSourcesErrorV1> {
+        require_installation(
+            self.installation(),
+            (
+                installed.verifier().scheme().scheme_id(),
+                installed.verifier().manifest_digest(),
+            ),
+        )?;
+        let finality = self.qualify_finality(installed, native_finality)?;
+        let profile = iroha_plonk::keys::BuiltinSourceProfileV1::match_actual(
+            &super::builtin::profile_bytes(self.inventory(), installed.verifier().scheme())?,
+            None,
+        )?;
+        let admission = super::builtin::Admission::Builtin(&profile);
+        let scope = SourceScopeV1::from_scheme(installed.verifier().scheme())?;
+        let sigma_parameters = [
+            Arc::clone(installed.verifier().vesta_parameters(12)?),
+            Arc::clone(installed.verifier().vesta_parameters(14)?),
+        ];
+        let q_parameters = Arc::clone(installed.verifier().pallas_parameters());
+        let sigmas = self.qualify_sigmas_with_admission(
+            originals,
+            config,
+            &sigma_parameters[0],
+            &sigma_parameters[1],
+            admission,
+        )?;
+        let q = self.qualify_q_programs_with_admission(
+            installed,
+            &sigmas,
+            originals,
+            config,
+            |_| {},
+            admission,
+        )?;
+        let routes = self.qualify_operation_routes_with_admission(
+            installed,
+            &q,
+            originals,
+            config,
+            |_| {},
+            admission,
+        )?;
+        let omega =
+            self.qualify_omega_with_admission(installed, &routes, originals, config, admission)?;
+        Ok(QualifiedWalletSourcesV1 {
+            authenticated: self,
+            scope,
+            sigmas,
+            finality,
+            q,
+            routes,
+            omega,
+            sigma_parameters,
+            q_parameters,
+        })
+    }
+
     /// Consume this authenticated inventory only after every compiled source has
     /// been reconstructed and every selected wallet PK strictly imported.
     /// Ordinary finality uses native BLS commit certificates and needs no circuit artifacts.
     /// The native finality verifier must be independently selected from signed genesis.
     /// All imports are sequential; only exact descriptor/VK metadata survives each.
+    /// Repeated signature-Q members share strict metadata within one Q batch only
+    /// after matching every ordered slot and rereading all exact signed originals.
+    /// Same-program Receive aliases share a strict source owner within the route
+    /// batch, with every alias rereading all exact signed originals.
     /// # Errors
     /// Another installation/native genesis, any incomplete route or source graph,
     /// changed source/context/key, unavailable original, or a resource bound failure.
@@ -161,30 +243,9 @@ impl AuthenticatedProducerInventoryV1 {
         let q_parameters = Arc::clone(installed.verifier().pallas_parameters());
         // Native genesis binding happens before any source-original read.
         let finality = self.qualify_finality(installed, native_finality)?;
-        let sigmas = self.qualify_sigmas(originals, config)?;
-        let mut q = Vec::with_capacity(self.inventory.operations.len());
-        for program in 0..self.inventory.operations.len() {
-            q.push(self.qualify_q_program(
-                installed,
-                &sigmas,
-                u32::try_from(program).map_err(|_| Error::Inventory)?,
-                originals,
-                config,
-            )?);
-        }
-        let mut routes = Vec::with_capacity(self.inventory.routes.len());
-        for (index, program) in self.inventory.routes.iter().enumerate() {
-            routes.push(
-                self.qualify_operation_route(
-                    installed,
-                    q.get(usize::try_from(*program).map_err(|_| Error::Inventory)?)
-                        .ok_or(Error::Inventory)?,
-                    u32::try_from(index).map_err(|_| Error::Inventory)?,
-                    originals,
-                    config,
-                )?,
-            );
-        }
+        let sigmas = self.qualify_sigmas_for_installation(installed, originals, config)?;
+        let q = self.qualify_q_programs(installed, &sigmas, originals, config, |_| {})?;
+        let routes = self.qualify_operation_routes(installed, &q, originals, config, |_| {})?;
         let omega = self.qualify_omega(installed, &routes, originals, config)?;
         Ok(QualifiedWalletSourcesV1 {
             authenticated: self,
@@ -201,6 +262,9 @@ impl AuthenticatedProducerInventoryV1 {
 }
 
 impl QualifiedWalletSourcesV1 {
+    pub(super) const fn authenticated_inventory(&self) -> &AuthenticatedProducerInventoryV1 {
+        &self.authenticated
+    }
     /// Exact scheme and manifest identities of this complete graph.
     pub const fn installation(&self) -> ([u8; 32], [u8; 32]) {
         self.authenticated.installation()

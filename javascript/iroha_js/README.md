@@ -1284,6 +1284,7 @@ console.log(preview.effectiveTtlMs, preview.expiresAtMs, preview.wasCapped);
 
 // Build a multisig proposal while enforcing the policy TTL cap client-side
 const propose = buildProposeMultisigInstruction({
+  proposalNonce: retainedProposalNonce, // generated once and durably retained before this request
   accountId: "sorauﾛ1Ni1A1mYｲzｳﾚﾊGﾆｲgｵ4ﾜｾﾒﾔzｺﾍz6ﾀFoVDﾇXzｹCkﾙ4CQVXL",
   spec,
   instructions: [{ Log: { Level: "INFO", message: "hello" } }],
@@ -1335,6 +1336,7 @@ const directNorito = buildExecuteTriggerNorito("staged_mint_request_hbl", args);
 
 // Wrap the same trigger call into a multisig proposal instruction.
 const proposalInstruction = buildProposeMultisigExecuteTriggerInstruction({
+  proposalNonce: retainedProposalNonce, // generated once and durably retained before this request
   accountId: "sorauﾛ1Ni1A1mYｲzｳﾚﾊGﾆｲgｵ4ﾜｾﾒﾔzｺﾍz6ﾀFoVDﾇXzｹCkﾙ4CQVXL",
   trigger: "staged_mint_request_hbl",
   args,
@@ -1346,6 +1348,7 @@ const proposalInstruction = buildProposeMultisigExecuteTriggerInstruction({
 
 // Build the normalized Torii request body for the multisig contract-call flow.
 const request = buildMultisigContractCallProposeRequest({
+  proposalNonce: retainedProposalNonce, // generated once and durably retained before this request
   multisigAccountAlias: "mintops@banka",
   signerAccountId: "sorauﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
   contractAddress: "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw",
@@ -3433,8 +3436,11 @@ trusted local builder or verified artifact/schema path; deriving its archives,
 resolved address, code hash, or payload digest from the response being checked
 defeats the trust boundary. The returned operation receipt is also checked
 against that intent and the request's alias, entrypoint, fee gas bound, and
-payload. Unsigned generic and contract-call multisig responses use the archive
-intent requirement whenever `signatureB64` is absent. For detached/local
+payload. Unsigned generic multisig responses require the archive intent when
+`signatureB64` is absent. Contract-call multisig proposals always require a local
+`MultisigContractCallDraftIntent`, including the native builder’s `instructionsHash`
+alongside `executableB64` and `metadataB64`; the response’s content commitment must
+match it independently of the occurrence ID. This intent stays off the wire. For detached/local
 signing paths, use the explicit `/v1/fees/quote` flow described above instead of
 the app-route convenience.
 
@@ -5113,3 +5119,33 @@ JavaScript preparation retains one cancellation deadline through dispatch,
 headers and success/error body reads, including responses arriving after the
 caller has stopped waiting. The deadline uses the configured timeout with a
 30-second maximum and does not restart when headers arrive.
+
+### Browser native account inspection
+
+Browsers cannot load the synchronous Rust account codec. Use
+`inspectAccountViaNativeTransport(input, transport, contract)` with an authenticated
+native inspection service. Supply the expected `NetworkId`, exact account and
+Ed25519 public-key hex, a fresh nonnil UUID and a fresh 32-byte lowercase-hex nonce.
+The transport receives `{requestId, body}`; send `body` unchanged as JSON and bind
+`requestId` to the `X-Request-Id` header. Configure the service's response and
+inspection schema identifiers through `contract`. The SDK checks the closed
+response, original-body and intent SHA-256 digests, nonce, account, key and network.
+The returned scope is only `canonical-syntax-and-key-binding-only`: ledger
+permissions, session authority, device enrollment and transaction verification
+remain separate checks. Private keys never enter this transport.
+
+### Multisig occurrence identity
+
+Each intentional proposal supplies a fresh nonzero 32-byte `proposalNonce` as
+64 lowercase hexadecimal characters. Persist that nonce with the exact reviewed
+request before calling Torii; retries reuse the same bytes. `proposal_id` identifies
+that occurrence, while `instructions_hash` commits to its instructions. Approvals
+require both values; proposal reads select only `proposal_id`. Identical payments
+use distinct nonces and therefore distinct occurrences.
+
+Node clients derive the occurrence through `deriveMultisigProposalId` using the
+native model, a caller-trusted `NetworkId` and an independently resolved account.
+The portable browser transport never derives an occurrence or encodes native
+instructions: its native admission transport binds the returned identity and exact
+prepared executable. Multisig HTTP helpers send strict JSON. Retired hand-written
+Norito request-DTO encoders are removed.

@@ -6,6 +6,145 @@ use crate::consensus::{
     GlobalThresholdBeaconChainAnchorV1, GlobalThresholdBeaconPulseContextV1,
 };
 
+#[test]
+fn decision_window_preserves_lagging_witness_across_pruning() {
+    let mut fixture = test_fixtures::NativeFinalityFixture::start("retained-window");
+    let mut verifier = fixture.verifier();
+    let mut proofs = vec![fixture.genesis_proof().clone()];
+    while fixture.latest().height() < 8 {
+        let block = fixture.block_with_submitted_work(fixture.next_header());
+        let proof = fixture.certify(block);
+        verifier.verify(&proof).unwrap();
+        if proof.height().is_multiple_of(4) {
+            verifier.retain_recent_decisions(5);
+            assert!(verifier.decisions.len() <= 5);
+        }
+        proofs.push(proof);
+    }
+
+    // A five-decision window at H8 must retain H4, the parent of the H5 witness.
+    verifier.verify_retained_decision(&proofs[4]).unwrap();
+    assert_eq!(
+        verifier.decisions.keys().copied().collect::<Vec<_>>(),
+        vec![4, 5, 6, 7, 8]
+    );
+    assert_eq!(
+        verifier
+            .verify_retained_decision(&proofs[3])
+            .map_err(invalid_read_error)
+            .unwrap_err(),
+        FinalityError("authenticated parent is missing".into())
+    );
+    assert_eq!(
+        verifier
+            .verify_retained_decision(&proofs[2])
+            .map_err(invalid_read_error)
+            .unwrap_err(),
+        FinalityError("decision is outside authenticated prefix".into())
+    );
+
+    let checkpoint = verifier.export_checkpoint(fixture.latest()).unwrap();
+    assert_eq!(
+        checkpoint.encode_canonical().unwrap(),
+        fixture.checkpoint().encode_canonical().unwrap()
+    );
+    // The canonical restart context is still three decisions, not the runtime window.
+    let compact = SumeragiFinalityVerifier::from_trusted_checkpoint(
+        &checkpoint,
+        &fixture.network_id(),
+        fixture.chain_id(),
+    )
+    .unwrap();
+    assert_eq!(compact.decisions.len(), 3);
+    assert_eq!(
+        compact
+            .verify_retained_decision(&proofs[4])
+            .map_err(invalid_read_error)
+            .unwrap_err(),
+        FinalityError("decision is outside authenticated prefix".into())
+    );
+
+    // Increasing the requested window cannot recover a discarded parent or decision.
+    verifier.retain_recent_decisions(usize::MAX);
+    assert_eq!(verifier.decisions.len(), 5);
+    assert!(verifier.verify_retained_decision(&proofs[3]).is_err());
+    assert!(verifier.verify_retained_decision(&proofs[2]).is_err());
+    assert!(verifier.verify(fixture.latest()).is_err());
+    let block = fixture.block_with_submitted_work(fixture.next_header());
+    let next = fixture.certify(block);
+    verifier.verify(&next).unwrap();
+    assert_eq!(
+        verifier.decisions.len(),
+        6,
+        "pruning is explicitly requested"
+    );
+    verifier.retain_recent_decisions(5);
+    assert_eq!(verifier.decisions.len(), 5);
+    verifier.verify_retained_decision(&proofs[5]).unwrap();
+    assert!(verifier.verify_retained_decision(&proofs[4]).is_err());
+}
+
+#[test]
+fn decision_window_preserves_genesis_and_checkpoint_floor() {
+    let mut fixture = test_fixtures::NativeFinalityFixture::start("retained-floor");
+    let mut verifier = SumeragiFinalityVerifier::new(
+        fixture.genesis(),
+        fixture.chain_id(),
+        fixture.genesis_proof().committee.clone(),
+    )
+    .unwrap();
+    verifier.retain_recent_decisions(0);
+    assert!(verifier.decisions.is_empty());
+    verifier.verify(fixture.genesis_proof()).unwrap();
+
+    loop {
+        let tip = fixture.latest();
+        let original = verifier
+            .export_checkpoint(tip)
+            .unwrap()
+            .encode_canonical()
+            .unwrap();
+        for count in 0..=3 {
+            verifier.retain_recent_decisions(count);
+            assert_eq!(verifier.decisions.len(), tip.height().min(3) as usize);
+            assert_eq!(verifier.genesis.hash(), fixture.genesis().hash());
+            assert_eq!(verifier.chain_id(), fixture.chain_id());
+            assert_eq!(verifier.instance(), fixture.verifier().instance());
+            assert_eq!(verifier.initial_epoch(), fixture.verifier().initial_epoch());
+            assert_eq!(verifier.root_scope(), fixture.verifier().root_scope());
+            assert_eq!(
+                verifier
+                    .export_checkpoint(tip)
+                    .unwrap()
+                    .encode_canonical()
+                    .unwrap(),
+                original
+            );
+        }
+        if tip.height() == 4 {
+            let checkpoint = SumeragiFinalityCheckpoint::decode_canonical(&original).unwrap();
+            verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(
+                &checkpoint,
+                &fixture.network_id(),
+                fixture.chain_id(),
+            )
+            .unwrap();
+            let block = fixture.block_with_submitted_work(fixture.next_header());
+            let next = fixture.certify(block);
+            verifier.verify(&next).unwrap();
+            verifier.retain_recent_decisions(0);
+            assert_eq!(
+                verifier.export_checkpoint(&next).unwrap(),
+                fixture.checkpoint()
+            );
+            break;
+        }
+        let block = fixture.block_with_submitted_work(fixture.next_header());
+        let next = fixture.certify(block);
+        verifier.verify(&next).unwrap();
+    }
+}
+
 // As in the existing certified-beacon tests, the nonzero G1 point isolates public pulse shape.
 // Only the genuine native CommitQC authenticates this synthetic execution result; this fixture
 // neither executes World nor claims threshold-beacon verification or deployment authority.

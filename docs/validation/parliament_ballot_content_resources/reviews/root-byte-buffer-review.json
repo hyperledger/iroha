@@ -1,0 +1,11 @@
+{
+  "accepted_observation_sha256": "81ffb1db693c94f73f41239da3cd8164893d9c84ddd805d873ec3ede974f4f4c",
+  "checker_sha256": "114f82d9ec10be00dd60338e76f9e1b74be41f8de5d6b46f7cfe1fbab1f59014",
+  "complete_resource_vector": false,
+  "exact_case_count": 4,
+  "observation_sha256": "c2f75e568d9b9192940fd53d4974ea71094d1ce7b48a69d194b7914a0857803e",
+  "original_manifest_sha256": "fd2862d191c99df21fe4327fcd52d11842974aeb76907e30929f0d468026717c",
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "scope": "Exact checked byte-buffer validation of frozen observation and accepted reference; not an atomic original execution attestation."
+}

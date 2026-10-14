@@ -1049,6 +1049,104 @@ async fn history_response_bytes_keep_query_custody_after_body_and_path_retire() 
     }
 }
 
+#[tokio::test]
+async fn history_errors_and_not_modified_retire_original_source_admission() {
+    use http_body_util::BodyExt as _;
+
+    let (state, ..) = seeded();
+    let cache_budget = iroha_allocation::AllocationBudget::new(1 << 20);
+    let mut cache = read::SccpHistoryNodeCache::new();
+    for (height, query, accept, status, code) in [
+        (
+            10,
+            HistoryQuery {
+                size: Some("invalid".into()),
+            },
+            norito_accept(),
+            StatusCode::BAD_REQUEST,
+            "sccp_invalid_query",
+        ),
+        (
+            99,
+            HistoryQuery::default(),
+            norito_accept(),
+            StatusCode::NOT_FOUND,
+            "sccp_not_found",
+        ),
+        (
+            10,
+            HistoryQuery::default(),
+            ExtractAccept(HeaderValue::from_static("image/png")),
+            StatusCode::NOT_ACCEPTABLE,
+            "response_not_acceptable",
+        ),
+    ] {
+        let (semaphore, owner) = history_owner();
+        let response = history_response(
+            &state.view(),
+            height,
+            &query,
+            Some(&accept),
+            &HeaderMap::new(),
+            (&mut cache, &cache_budget),
+            &owner,
+        );
+        drop(owner);
+        assert_eq!(
+            semaphore.available_permits(),
+            1,
+            "diagnostic bodies retain no projected history source"
+        );
+        assert_eq!(error_code(response).await, (status, code.to_owned()));
+    }
+
+    let (semaphore, owner) = history_owner();
+    let query = HistoryQuery {
+        size: Some("3".into()),
+    };
+    let accept = norito_accept();
+    let response = history_response(
+        &state.view(),
+        10,
+        &query,
+        Some(&accept),
+        &HeaderMap::new(),
+        (&mut cache, &cache_budget),
+        &owner,
+    );
+    assert_eq!(response.status(), StatusCode::OK);
+    let etag = response.headers()[header::ETAG].clone();
+    drop(response);
+    let mut headers = HeaderMap::new();
+    headers.insert(header::IF_NONE_MATCH, etag.clone());
+    let response = history_response(
+        &state.view(),
+        10,
+        &query,
+        Some(&accept),
+        &headers,
+        (&mut cache, &cache_budget),
+        &owner,
+    );
+    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(response.headers()[header::ETAG], etag);
+    drop(owner);
+    assert_eq!(
+        semaphore.available_permits(),
+        1,
+        "the bodyless validator response has no history bytes to retain"
+    );
+    assert!(
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .is_empty()
+    );
+}
+
 #[test]
 fn history_query_refuses_retired_or_unknown_fields() {
     assert!(norito::json::from_str::<HistoryQuery>(r#"{"size":"3","attestation":"own"}"#).is_err());

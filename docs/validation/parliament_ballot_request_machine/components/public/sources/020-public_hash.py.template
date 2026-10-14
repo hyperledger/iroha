@@ -1,0 +1,168 @@
+"""Authenticated concrete public SHA3 and separate fixed-byte SHAKE256 circuits.
+
+SHAKE here is a concrete circuit for profile table digests. It is never an
+implementation of the simulator's immutable ideal backend F interface.
+"""
+from dataclasses import dataclass
+import hashlib
+import importlib.util
+from pathlib import Path
+import sys
+
+from bit_ir import Cost, integer, require
+
+KECCAK_PATH = 'target/parliament-keccak-machine-stage/keccak1600.py'
+KECCAK_SHA256 = '412518945be5df7292607448aa71c2bad0d452a4c9c6a36f2622402dce587010'
+IR_SHA256 = 'f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64'
+
+
+def load_public_keccak(root):
+    """Load the frozen exact circuit; loaded Python/runtime integrity is a premise."""
+    root = Path(root).resolve()
+    path = root / KECCAK_PATH
+    ir = Path(sys.modules['bit_ir'].__file__).resolve()
+    require(ir == Path(__file__).resolve().parent / 'bit_ir.py', 'public hash IR location')
+    require(hashlib.sha256(ir.read_bytes()).hexdigest() == IR_SHA256, 'public hash IR changed')
+    require(hashlib.sha256(path.read_bytes()).hexdigest() == KECCAK_SHA256, 'public Keccak changed')
+    name = 'parliament_authenticated_public_keccak'
+    spec = importlib.util.spec_from_file_location(name, path)
+    require(spec is not None and spec.loader is not None, 'public Keccak loader')
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    require(hashlib.sha256(path.read_bytes()).hexdigest() == KECCAK_SHA256
+            and hashlib.sha256(ir.read_bytes()).hexdigest() == IR_SHA256, 'public hash load drift')
+    kernel = module.Keccak1600Kernel()
+    require((kernel.inputs, kernel.outputs, kernel.work, kernel.cost.x, kernel.cost.cx,
+             kernel.cost.ccx, kernel.cost.base_calls) == (1600, 1600, 192086, 76972, 539372, 76800, 0),
+            'public Keccak frozen interface changed')
+    return module
+
+
+@dataclass(frozen=True)
+class Shake256_64:
+    """Concrete fixed-byte SHAKE256 with exactly 64 response bytes.
+
+    The full input and all absorption states are retained. One clean Keccak
+    workspace is reused. There is no secret address lookup or ideal oracle.
+    This lazy emitter avoids expanding the public profile's large input into
+    millions of Python SSA objects merely to count or traverse its circuit.
+    """
+    message_bytes: int
+    permutation: object
+
+    def __post_init__(self):
+        integer(self.message_bytes, 0, 1 << 20, 'SHAKE message bytes')
+        require((self.permutation.inputs, self.permutation.outputs) == (1600, 1600),
+                'SHAKE permutation interface')
+        require(type(self.permutation.cost) is Cost and self.permutation.cost.base_calls == 0,
+                'SHAKE requires a concrete permutation')
+
+    @property
+    def name(self):
+        return f'concrete-public-shake256-64-{self.message_bytes}'
+
+    @property
+    def inputs(self):
+        return max(1, 8*self.message_bytes)
+
+    outputs = 512
+    rate = 136
+    suffix = (0, 1, 2, 3, 4)
+    padding_bits = 6
+
+    @property
+    def blocks(self):
+        return self.message_bytes // self.rate + 1
+
+    @property
+    def work(self):
+        return 1600 + 8*self.message_bytes + self.padding_bits + 1600*self.blocks + self.permutation.work
+
+    @property
+    def cost(self):
+        return self.permutation.cost.times(2*self.blocks) + Cost(x=2*self.padding_bits, cx=32*self.message_bytes+512+2*self.padding_bits)
+
+    def _regions(self, work):
+        initial = work[:1600]
+        absorbed = work[1600:1600+8*self.message_bytes]
+        padding = work[1600+8*self.message_bytes:1600+self.padding_bits+8*self.message_bytes]
+        state_start = 1600+self.padding_bits+8*self.message_bytes
+        states = work[state_start:state_start+1600*self.blocks]
+        scratch = work[state_start+1600*self.blocks:]
+        return initial, absorbed, padding, states, scratch
+
+    def emit(self, inputs, outputs, work):
+        """Clean joint XOR map on disjoint exact integer wire labels."""
+        require(type(inputs) is tuple and type(outputs) is tuple and type(work) is tuple,
+                'SHAKE immutable wire containers')
+        require((len(inputs), len(outputs), len(work)) == (self.inputs, self.outputs, self.work),
+                'SHAKE wire widths')
+        wires = inputs + work + outputs
+        require(all(type(w) is int and w >= 0 for w in wires)
+                and len(set(wires)) == len(wires), 'SHAKE wire aliases')
+        initial, absorbed, padding, states, scratch = self._regions(work)
+
+        def one(index, inverse):
+            start = self.rate*index
+            take = min(self.rate, self.message_bytes-start)
+            source = initial if index == 0 else states[1600*(index-1):1600*index]
+            mutable = list(source)
+            prep = []
+            for bit in range(8*take):
+                target = absorbed[8*start+bit]
+                prep.extend((('cx', source[bit], target), ('cx', inputs[8*start+bit], target)))
+                mutable[bit] = target
+            if take < self.rate:
+                # Delimited suffix low bits; final rate bit is distinct.
+                for i, bit in enumerate((*(8*take+b for b in self.suffix), self.rate*8-1)):
+                    target = padding[i]
+                    prep.extend((('x', target), ('cx', mutable[bit], target)))
+                    mutable[bit] = target
+            destination = states[1600*index:1600*(index+1)]
+            if not inverse:
+                yield from prep
+            # A clean response-XOR permutation kernel is its own inverse.
+            yield from self.permutation.emit(tuple(mutable), destination, scratch)
+            if inverse:
+                yield from reversed(prep)
+        for index in range(self.blocks):
+            yield from one(index, False)
+        final = states[-1600:]
+        for source, target in zip(final, outputs):
+            yield ('cx', source, target)
+        for index in reversed(range(self.blocks)):
+            yield from one(index, True)
+
+    def evaluate(self, values):
+        """Evaluate actual permutation calls; no hashlib shortcut in circuit evaluation."""
+        require(type(values) in (tuple, list) and len(values) == self.inputs
+                and all(type(v) is int and v in (0, 1) for v in values), 'SHAKE input bits')
+        state = (0,)*1600
+        for index in range(self.blocks):
+            start = self.rate*index
+            take = min(self.rate, self.message_bytes-start)
+            current = list(state)
+            for bit in range(8*take):
+                current[bit] ^= values[8*start+bit]
+            if take < self.rate:
+                for bit in (*(8*take+b for b in self.suffix), self.rate*8-1):
+                    current[bit] ^= 1
+            state = self.permutation.evaluate(tuple(current))
+        return state[:512]
+
+
+@dataclass(frozen=True)
+class Sha3_512_64(Shake256_64):
+    """Lazy fixed-byte SHA3-512 with the same concrete permutation and 0x06 suffix.
+
+    This keeps the maximum 128,000-byte public list circuit finite without
+    materializing millions of host SSA objects. No ideal call is introduced.
+    """
+    rate = 72
+    suffix = (1, 2)
+    padding_bits = 3
+
+    @property
+    def name(self):
+        return f'concrete-public-sha3-512-{self.message_bytes}'

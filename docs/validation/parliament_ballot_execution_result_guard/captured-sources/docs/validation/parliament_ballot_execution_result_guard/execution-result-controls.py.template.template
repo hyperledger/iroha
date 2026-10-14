@@ -1,0 +1,140 @@
+"""Capture focused repaired guard controls and their observed source reads.
+
+Run once with the explicit pytest -k expression supplied on the command line.
+This retains a local structural check, not a Rust/concurrency proof.
+"""
+from pathlib import Path
+import contextlib
+import datetime
+import hashlib
+import json
+import re
+import sys
+import os
+
+os.environ["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+
+root = Path.cwd()
+folder = root / "docs/validation/parliament_ballot_execution_result_guard"
+receipt = folder / "execution-result-controls.json"
+log = folder / "execution-result-controls.txt"
+if receipt.exists() or log.exists():
+    raise RuntimeError("refuse overwriting final guard controls")
+if len(sys.argv) != 2:
+    raise RuntimeError("supply one explicit focused pytest expression")
+before = {}
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def pin(name):
+    value = sha(root / name)
+    if name in before and before[name] != value:
+        raise RuntimeError("input changed during controls: " + name)
+    before[name] = value
+
+
+# Observe repository data/source reads, including import/config reads, before
+# Python consumes them. The installed interpreter/pytest are trusted runtime.
+# Bytecode caches and evidence outputs are not primary source inputs.
+audited_repository_reads = set()
+audit_active = False
+
+
+def audit_read(event, args):
+    global audit_active
+    if event != "open" or audit_active or not isinstance(args[0], (str, bytes)):
+        return
+    mode = args[1]
+    if mode is not None and not mode.startswith("r"):
+        return
+    if mode is None and args[2] & (os.O_WRONLY | os.O_RDWR):
+        return
+    audit_active = True
+    try:
+        path = Path(os.fsdecode(args[0])).resolve()
+        try:
+            relative = path.relative_to(root)
+        except ValueError:
+            return
+        if (not relative.parts or relative.parts[0].startswith(".")
+                or "__pycache__" in relative.parts
+                or path.is_relative_to(root / "docs/validation/parliament_ballot_execution_result_guard")
+                or not path.is_file()):
+            return
+        key = relative.as_posix()
+        audited_repository_reads.add(key)
+        pin(key)
+    finally:
+        audit_active = False
+
+
+sys.addaudithook(audit_read)
+
+
+tests = "scripts/tests/check_sora_parliament_source_contract_test.py"
+for name in ("scripts/formal/check_sora_parliament_source_contract.py",
+             "scripts/formal/rust_text.py", tests, "scripts/tests/conftest.py", "pytest.ini",
+             str(Path(__file__).resolve().relative_to(root))):
+    pin(name)
+sys.path.insert(0, str(root))
+import pytest
+from scripts.formal import check_sora_parliament_source_contract as guard
+
+original_read = guard.read
+
+
+def observed_read(name):
+    pin(name)
+    content = original_read(name)
+    pin(name)
+    return content
+
+
+guard.read = observed_read
+arguments = ["--import-mode=importlib", "-q", tests, "-k", sys.argv[1]]
+with log.open("x") as stream, contextlib.redirect_stdout(stream), contextlib.redirect_stderr(stream):
+    result = int(pytest.main(arguments))
+audit_active = True
+repository_imports = {}
+for module_name, module in tuple(sys.modules.items()):
+    module_file = getattr(module, "__file__", None)
+    if module_file is None:
+        continue
+    candidate = Path(module_file).resolve()
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError:
+        continue
+    if relative.parts and not relative.parts[0].startswith(".") and candidate.is_file():
+        name = relative.as_posix()
+        repository_imports[module_name] = name
+        pin(name)
+runtime = {"python_version": sys.version, "python_executable": sys.executable,
+           "python_executable_sha256": sha(Path(sys.executable).resolve()),
+           "installed_runtime_trusted": True}
+after = {name: sha(root / name) if (root / name).is_file() else None for name in before}
+summary = re.findall(r"\b(\d+) passed\b", log.read_text())
+passed = int(summary[-1]) if summary else 0
+value = {
+    "schema": "parliament-execution-result-controls-v1",
+    "observed_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "command": [sys.executable, str(Path(__file__).relative_to(root) if Path(__file__).is_absolute() else Path(__file__)), sys.argv[1]],
+    "pytest_arguments": arguments, "pytest_version": pytest.__version__,
+    "environment": {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    "exit": result, "passed": passed,
+    "log": str(log.relative_to(root)), "log_sha256": sha(log),
+    "repository_imports": repository_imports, "runtime": runtime,
+    "audited_repository_read_paths": sorted(audited_repository_reads),
+    "read_scope": "Repository source/data/config reads; Python bytecode caches and generated evidence outputs excluded. Installed interpreter/pytest runtime trusted.",
+    "source_before": before, "source_after": after, "source_unchanged": before == after,
+    "observed_read_count": len(before), "profile_qualified": False,
+    "scope": "Two hundred four focused Python pulse-isolation, restore module, HC224 gate/spec and execution-result controls, including sixty-eight new Result and borrowed-witness controls. This repairs three stale source expectation strings and preserves the existing assertion suite. Complete module-level invalid/HC224 item token pins with exact attributes reject dormant branch, closure, macro and loop variants. Explicit Ok(Some(Invalid)) and Ok(Some(Valid { .. })) patterns, certified false calls and actual borrowed pulse encoding remain mandatory. Surrounding helpers/fixtures, macro/type/name resolution, Result/Option pattern semantics, writer and compiler/runtime behavior remain premises. No Rust or production qualification follows.",
+}
+receipt.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+if result or before != after or passed != 204:
+    raise RuntimeError("controls failed, missing expected coverage, or input drift; evidence retained")
+print(json.dumps({"receipt_sha256": sha(receipt), "exit": result,
+                  "source_count": len(before), "passed": passed}))

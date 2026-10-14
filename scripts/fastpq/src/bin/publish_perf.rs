@@ -1,4 +1,8 @@
 #![allow(unexpected_cfgs)]
+use anyhow::{Context, Result};
+use clap::Parser;
+use norito::derive::{JsonSerialize, NoritoSerialize};
+use norito::json;
 use std::{
     env,
     fs::{self, File},
@@ -6,10 +10,6 @@ use std::{
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
-use anyhow::{Context, Result};
-use clap::Parser;
-use norito::json;
-use norito::derive::{JsonSerialize, NoritoSerialize};
 const LOG_PREFIX: &str = "fastpq_production_prover:";
 const DEFAULT_OUTPUT_EXTENSION: &str = "jsonl";
 #[derive(Parser)]
@@ -127,7 +127,7 @@ fn write_payload(path: &Path, body: &str) -> Result<()> {
     Ok(())
 }
 fn parse_latest_metrics(contents: &str) -> Option<PerfMetrics> {
-    contents.lines().filter_map(parse_metrics_line).last()
+    contents.lines().filter_map(parse_metrics_line).next_back()
 }
 fn parse_metrics_line(line: &str) -> Option<PerfMetrics> {
     let trimmed = line.trim();

@@ -40,8 +40,9 @@ largest Android app-policy frame (a 255-byte package and four signers) must fit 
 transcript sizes below do not establish that: the complete frame adds the Norito header,
 u32 discriminants and field and sequence length prefixes. The Model's tests encode both
 maximal policies with the actual Norito encoder and assert each complete frame is at most
-1024 bytes; until that test passes, the cap is unverified for them. The proposed Native
-roundtrip/byte-mutation controls must pass before adoption. Python consumes a private typed
+1024 bytes (`new_policy_maximal_norito_frames_fit_the_complete_frame_cap`). The
+canonical-frame and every-byte-substitution tests enforce Native roundtrip and
+mutation rejection. Python consumes a private typed
 projection and computes transcripts; it does not introduce another policy wire codec.
 
 Hash identity uses the existing wallet `H` construction:
@@ -249,14 +250,9 @@ source or the operator denylist is `Unavailable`, never a refusal or an admissio
 
 An admitted Android evidence record carries facts HARDWARE_BACKED_KEY, BOOTLOADER_LOCKED,
 VERIFIED_BOOT, APP_SIGNING_IDENTITY and REVOCATION_LIST_CLEAR, plus STRONGBOX for StrongBox and
-PATCH_POLICY_MET when the floor is met. The issuer never sets fact bit 9
-(PLAY_INTEGRITY_SIGNAL). Bit 9 is retired issuer output: newly generated evidence never sets
-bit 9, and renewals preserve historical enrollment evidence unchanged, including bit 9, as
-credential replacement validation requires. It stays defined in record validation and
-forbidden on Apple records, so a credential already issued with it, and each renewal of it,
-stays valid. Record validation and both masks are unchanged: removing bit 9 from the
-defined-facts mask would reject that historical Android evidence, and removing it from the
-Apple-forbidden mask would instead permit an invalid Apple fact (design §9.1).
+PATCH_POLICY_MET when the floor is met. Bit 9 is reserved zero in every evidence
+record. Native record validation and the credential proof relation reject it in
+both enrollment and renewal evidence; no historical-credential exception exists.
 
 Nothing else is an Android admission input: no Play Integrity token or verdict, Google
 account, Google Mobile Services, Huawei Mobile Services, app-store installation, exact

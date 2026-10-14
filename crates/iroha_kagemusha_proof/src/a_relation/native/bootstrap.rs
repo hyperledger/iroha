@@ -25,7 +25,7 @@ use iroha_pasta::{
     Ep, Eq, EqAffine, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain,
 };
 use iroha_plonk::{
-    DescriptorBinding, ProverConfig, ProverRandomness, ProvingKey, VerifyingKey,
+    DescriptorBinding, ProverConfig, ProverRandomness, VerifyingKey,
     cs::{
         Column, ConstraintSystem, CurveV1, Instance, InstanceModeV1, InstanceType, ProofSuffixV1,
         TranscriptV2,
@@ -489,7 +489,7 @@ impl Prover {
     }
 
     /// Import exactly one A1 original against the fixed unknown first-stage source.
-    /// The imported PK is dropped before returning its compact source-admission seal.
+    /// Strict admission returns its compact seal without constructing proving FFTs or masks.
     /// # Errors
     /// Original/domain cap, source/table/commitment or complete installed-key mismatch.
     pub fn import_first(
@@ -508,41 +508,75 @@ impl Prover {
         config: ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<SourceAdmissionSealV2<Eq>, Error> {
+        self.import_first_with_admission_cancellable(
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Strict,
+            cancellation,
+        )
+    }
+
+    /// Admit an exact original through an explicitly selected closed built-in source.
+    /// All typed plan, source-profile and installed-key checks remain mandatory.
+    /// The member attests only its pinned relation. The installation owner must
+    /// bind this supplied plan to the complete selected built-in profile; a
+    /// same-schema foreign plan is not certified by membership. Proof-time source
+    /// reconstruction remains mandatory and rejects a different actual source.
+    /// # Errors
+    /// The ordinary importer errors, closed-member mismatch, or cancellation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn import_first_builtin_cancellable(
+        &self,
+        original: &[u8],
+        config: ReadConfig,
+        member: iroha_plonk::keys::BuiltinSourceMemberV1,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceAdmissionSealV2<Eq>, Error> {
+        self.import_first_with_admission_cancellable(
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Builtin(member),
+            cancellation,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn import_first_with_admission_cancellable(
+        &self,
+        original: &[u8],
+        config: ReadConfig,
+        admission: crate::original_admission::OriginalAdmission,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceAdmissionSealV2<Eq>, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         original_bounds(original, self.first.binding().n(), config)?;
         let source = self.plan.source_circuit(0, None)?;
-        let key = ProvingKey::from_artifact_v2_cancellable(
-            original,
-            self.first.binding(),
-            &self.plan.vesta,
-            &source,
-            config,
-            cancellation,
-        )
-        .map_err(|error| {
-            if error.is_cancelled() {
-                Error::Cancelled
-            } else {
-                Error::Artifact
-            }
-        })?;
-        self.first
-            .require_prover(&key)
-            .map_err(|_| Error::Artifact)?;
-        let metadata =
-            SourceAdmissionSealV2::from_proving_key(&key, cancellation).map_err(|error| {
+        let key = admission
+            .admit(
+                original,
+                self.first.binding(),
+                self.first.key(),
+                &self.plan.vesta,
+                &source,
+                config,
+                cancellation,
+            )
+            .map_err(|error| {
                 if error.is_cancelled() {
                     Error::Cancelled
                 } else {
                     Error::Artifact
                 }
             })?;
-        drop(key);
-        Ok(metadata)
+        self.first
+            .require_source_bound(&key.view())
+            .map_err(|_| Error::Artifact)?;
+        let (_, _, seal) = key.into_parts();
+        Ok(seal)
     }
 
     /// Import exactly one W0 original bound to the complete installed A1 identity.
-    /// The imported PK is dropped before returning its compact source-admission seal.
+    /// Strict admission returns its compact seal without constructing proving FFTs or masks.
     /// # Errors
     /// Original/domain cap, source/table/commitment or complete installed-key mismatch.
     pub fn import_wrapper(
@@ -561,43 +595,77 @@ impl Prover {
         config: ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<SourceAdmissionSealV2<Ep>, Error> {
+        self.import_wrapper_with_admission_cancellable(
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Strict,
+            cancellation,
+        )
+    }
+
+    /// Admit an exact original through an explicitly selected closed built-in source.
+    /// All typed plan, source-profile and installed-key checks remain mandatory.
+    /// The member attests only its pinned relation. The installation owner must
+    /// bind this supplied plan to the complete selected built-in profile; a
+    /// same-schema foreign plan is not certified by membership. Proof-time source
+    /// reconstruction remains mandatory and rejects a different actual source.
+    /// # Errors
+    /// The ordinary importer errors, closed-member mismatch, or cancellation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn import_wrapper_builtin_cancellable(
+        &self,
+        original: &[u8],
+        config: ReadConfig,
+        member: iroha_plonk::keys::BuiltinSourceMemberV1,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceAdmissionSealV2<Ep>, Error> {
+        self.import_wrapper_with_admission_cancellable(
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Builtin(member),
+            cancellation,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn import_wrapper_with_admission_cancellable(
+        &self,
+        original: &[u8],
+        config: ReadConfig,
+        admission: crate::original_admission::OriginalAdmission,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceAdmissionSealV2<Ep>, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         original_bounds(original, self.wrapper.binding().n(), config)?;
         let source = self
             .plan
             .wrapper_source(0, self.first.binding(), self.first.key())?;
-        let key = ProvingKey::from_artifact_v2_cancellable(
-            original,
-            self.wrapper.binding(),
-            &self.plan.pallas,
-            &source,
-            config,
-            cancellation,
-        )
-        .map_err(|error| {
-            if error.is_cancelled() {
-                Error::Cancelled
-            } else {
-                Error::Artifact
-            }
-        })?;
-        self.wrapper
-            .require_prover(&key)
-            .map_err(|_| Error::Artifact)?;
-        let metadata =
-            SourceAdmissionSealV2::from_proving_key(&key, cancellation).map_err(|error| {
+        let key = admission
+            .admit(
+                original,
+                self.wrapper.binding(),
+                self.wrapper.key(),
+                &self.plan.pallas,
+                &source,
+                config,
+                cancellation,
+            )
+            .map_err(|error| {
                 if error.is_cancelled() {
                     Error::Cancelled
                 } else {
                     Error::Artifact
                 }
             })?;
-        drop(key);
-        Ok(metadata)
+        self.wrapper
+            .require_source_bound(&key.view())
+            .map_err(|_| Error::Artifact)?;
+        let (_, _, seal) = key.into_parts();
+        Ok(seal)
     }
 
     /// Import exactly one A2 original bound to the complete installed W0 identity.
-    /// The imported PK is dropped before returning its compact source-admission seal.
+    /// Strict admission returns its compact seal without constructing proving FFTs or masks.
     /// # Errors
     /// Original/domain cap, source/table/commitment or complete installed-key mismatch.
     pub fn import_terminal(
@@ -616,37 +684,71 @@ impl Prover {
         config: ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<SourceAdmissionSealV2<Eq>, Error> {
+        self.import_terminal_with_admission_cancellable(
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Strict,
+            cancellation,
+        )
+    }
+
+    /// Admit an exact original through an explicitly selected closed built-in source.
+    /// All typed plan, source-profile and installed-key checks remain mandatory.
+    /// The member attests only its pinned relation. The installation owner must
+    /// bind this supplied plan to the complete selected built-in profile; a
+    /// same-schema foreign plan is not certified by membership. Proof-time source
+    /// reconstruction remains mandatory and rejects a different actual source.
+    /// # Errors
+    /// The ordinary importer errors, closed-member mismatch, or cancellation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn import_terminal_builtin_cancellable(
+        &self,
+        original: &[u8],
+        config: ReadConfig,
+        member: iroha_plonk::keys::BuiltinSourceMemberV1,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceAdmissionSealV2<Eq>, Error> {
+        self.import_terminal_with_admission_cancellable(
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Builtin(member),
+            cancellation,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn import_terminal_with_admission_cancellable(
+        &self,
+        original: &[u8],
+        config: ReadConfig,
+        admission: crate::original_admission::OriginalAdmission,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceAdmissionSealV2<Eq>, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         original_bounds(original, self.terminal.binding().n(), config)?;
         let source = self.plan.source_circuit(1, Some(self.w.clone()))?;
-        let key = ProvingKey::from_artifact_v2_cancellable(
-            original,
-            self.terminal.binding(),
-            &self.plan.vesta,
-            &source,
-            config,
-            cancellation,
-        )
-        .map_err(|error| {
-            if error.is_cancelled() {
-                Error::Cancelled
-            } else {
-                Error::Artifact
-            }
-        })?;
-        self.terminal
-            .require_prover(&key)
-            .map_err(|_| Error::Artifact)?;
-        let metadata =
-            SourceAdmissionSealV2::from_proving_key(&key, cancellation).map_err(|error| {
+        let key = admission
+            .admit(
+                original,
+                self.terminal.binding(),
+                self.terminal.key(),
+                &self.plan.vesta,
+                &source,
+                config,
+                cancellation,
+            )
+            .map_err(|error| {
                 if error.is_cancelled() {
                     Error::Cancelled
                 } else {
                     Error::Artifact
                 }
             })?;
-        drop(key);
-        Ok(metadata)
+        self.terminal
+            .require_source_bound(&key.view())
+            .map_err(|_| Error::Artifact)?;
+        let (_, _, seal) = key.into_parts();
+        Ok(seal)
     }
 
     /// Verify source inputs and create a session using only these installed keys.

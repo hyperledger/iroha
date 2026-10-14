@@ -181,14 +181,18 @@ fn exercise(
         assert!(!hashes[..index].contains(digest), "distinct original roles");
     }
     let rows = selected.rows(qualified);
-    let extent = usize::try_from(roles.iter().map(|role| role.bytes).max().unwrap()).unwrap();
+    let pk_bytes = usize::try_from(original.proving_key.bytes).unwrap();
     assert!(rows > 0 && config.maximum_rows >= rows);
-    assert!(extent > 0 && config.maximum_bytes >= extent);
+    assert!(pk_bytes > 0 && config.maximum_bytes >= pk_bytes);
 
-    // Establish successful acquisition of these exact originals before faults.
+    // The caller's byte cap bounds the PK; descriptor/VK have independent protocol
+    // limits. A compact PK can be smaller than its descriptor (notably Omega).
+    // Admit at the exact PK limit, then refuse one byte below it before any I/O.
+    let mut exact_pk_cap = config;
+    exact_pk_cap.maximum_bytes = pk_bytes;
     let mut observed = Observed::new(source, None);
     selected
-        .acquire(qualified, &mut observed, config, None)
+        .acquire(qualified, &mut observed, exact_pk_cap, None)
         .unwrap();
     assert_eq!(observed.opens, hashes);
     assert!(!observed.flipped.get());
@@ -197,7 +201,7 @@ fn exercise(
     let mut row_cap = config;
     row_cap.maximum_rows = rows - 1;
     let mut byte_cap = config;
-    byte_cap.maximum_bytes = extent - 1;
+    byte_cap.maximum_bytes = pk_bytes - 1;
     for cap in [row_cap, byte_cap] {
         let mut observed = Observed::new(source, None);
         selected.require_inventory(

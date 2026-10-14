@@ -188,8 +188,9 @@ binding over that generated key and original evidence. Native retains E5 before
 returning network bytes, including the App Attest key identifier and first assertion.
 Enrollment begin returns native-retained issuer dispatch DATA for the selected request ID,
 account and asset. `acceptPermit` verifies the rooted signed pre-key permit before returning
-the existing-account challenge. Native checks the same-boot elapsed deadline again at actual
-key generation and preserves the original server attempt across retries.
+the existing-account challenge. Native checks the process-bound, suspend-inclusive elapsed
+deadline again at actual key generation. Restart discards live authorization while preserving
+the original server attempt for a fresh signed permit.
 The issuer still owns live-challenge, account eligibility and platform verification.
 Native authenticates and retains its exact E6 evidence and signed credential before
 selecting credential zero. `loadRuntime` qualifies the complete proof-source graph;
@@ -664,7 +665,7 @@ torii.listAttachments(canonicalAuth: canonicalAuth) { result in
 }
 
 // Build and submit a signed transfer.
-// `description` is not encoded yet; a non-empty one is rejected rather than dropped.
+// A non-empty `description` is preserved exactly in signed transaction metadata under `memo`.
 let transfer = TransferRequest(
     networkId: networkId,
     authority: accountId,
@@ -1160,14 +1161,20 @@ returned receipt and queued pipeline status match the draft exactly.
 pipeline lookup and returns only an applied, globally scoped, state-resolved
 status with a positive block height.
 
-Unsigned typed multisig writes follow the same trust boundary. Supply a
-`ToriiMultisigUnsignedTransactionIntent` containing the configured network, exact
-resolved multisig account and proposal hash, complete instruction executable,
-and exact transaction metadata. The intent stays off wire, and Swift rejects
-unsigned response bytes unless the payload matches it and the client's local
-signing network. The raw Norito `proposeMultisig(noritoBody:)` overload cannot
-independently interpret an opaque DTO, so it accepts submitted responses only;
-use the typed request APIs when external signing is required.
+Typed multisig writes use a required nonzero 32-byte `proposalNonce`, encoded as
+64 lowercase hexadecimal digits. Persist it before the first request and retain
+it across retries. `MultisigOccurrence.derive` calls the native owner to derive
+`proposalId` from the network, original concrete account and nonce. A new payment
+with identical contents uses a new nonce; its `instructionsHash` can remain the same.
+Approvals require both the exact occurrence ID and the reviewed content hash.
+
+For proposals and unsigned approvals, supply a `ToriiMultisigUnsignedTransactionIntent` containing
+the configured network, independently resolved account, occurrence ID, content
+hash, complete executable and exact metadata. Swift exposes signing bytes only
+when they match that intent and the client's local signing network. Alias-based
+preparation requires the caller to pin the resolved account in this independent
+intent. Submitted proposal responses also bind their occurrence and content hash
+to this intent. Proposal resolution accepts an occurrence ID and checks the returned ID.
 
 ### Explorer instruction history
 

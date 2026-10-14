@@ -896,6 +896,12 @@ fn native_global_query_requires_exact_direct_or_assigned_role_grant() {
         .expect_err("the account roster must not be public");
     world.account_permissions.insert(
         ALICE_ID.clone(),
+        BTreeSet::from([executor_permission::query::CanReadCertifiedOriginals.into()]),
+    );
+    validate_native_query_with_world(&executor, &world, &ALICE_ID, &query)
+        .expect_err("certified-original access must not authorize generic private queries");
+    world.account_permissions.insert(
+        ALICE_ID.clone(),
         BTreeSet::from([Permission::new(
             "CanReadAllLedgerData".to_owned(),
             Json::new("wrong-payload"),
@@ -936,6 +942,92 @@ fn native_global_query_requires_exact_direct_or_assigned_role_grant() {
     );
     validate_native_query_with_world(&executor, &world, &ALICE_ID, &query)
         .expect_err("revoking role membership must revoke global access");
+}
+
+#[test]
+fn certified_originals_permission_grant_and_revoke_require_current_global_root() {
+    let root = checked_account_id();
+    let reader = checked_account_id();
+    let stranger = checked_account_id();
+    let global: Permission = executor_permission::query::CanReadAllLedgerData.into();
+    let originals: Permission = executor_permission::query::CanReadCertifiedOriginals.into();
+    let mut world = World::with(
+        [],
+        [
+            Account::new(root.clone()).build(&root),
+            Account::new(reader.clone()).build(&reader),
+            Account::new(stranger.clone()).build(&stranger),
+        ],
+        [],
+    );
+    world
+        .account_permissions
+        .insert(root.clone(), BTreeSet::from([global.clone()]));
+    let state = state_after_genesis(world);
+    let mut block = state.block(BlockHeader::new(
+        nonzero!(2_u64),
+        Some(state.view().latest_block_hash().unwrap()),
+        None,
+        0,
+        0,
+    ));
+    let mut tx = block.transaction();
+    let executor = super::Executor::Initial;
+    for caller in [&reader, &stranger] {
+        executor
+            .execute_instruction(
+                &mut tx,
+                caller,
+                Grant::account_permission(originals.clone(), reader.clone()).into(),
+            )
+            .expect_err("an unprivileged signer cannot create original-read authority");
+    }
+    executor
+        .execute_instruction(
+            &mut tx,
+            &root,
+            Grant::account_permission(originals.clone(), reader.clone()).into(),
+        )
+        .expect("an existing global read root may grant narrower original reads");
+    assert!(authority_has_permission(&tx.world, &reader, &originals).unwrap());
+    executor
+        .execute_instruction(
+            &mut tx,
+            &reader,
+            Grant::account_permission(originals.clone(), stranger.clone()).into(),
+        )
+        .expect_err("a narrow reader cannot delegate its capability");
+    for caller in [&reader, &stranger] {
+        executor
+            .execute_instruction(
+                &mut tx,
+                caller,
+                Revoke::account_permission(originals.clone(), reader.clone()).into(),
+            )
+            .expect_err("only a current global read root can revoke");
+    }
+    executor
+        .execute_instruction(
+            &mut tx,
+            &root,
+            Grant::account_permission(global, reader.clone()).into(),
+        )
+        .expect_err("the global read root remains genesis-only and nondelegable");
+    executor
+        .execute_instruction(
+            &mut tx,
+            &reader,
+            Unregister::account(stranger.clone()).into(),
+        )
+        .expect_err("a certified-original reader gains no write permission");
+    executor
+        .execute_instruction(
+            &mut tx,
+            &root,
+            Revoke::account_permission(originals.clone(), reader.clone()).into(),
+        )
+        .expect("current global read root revokes its narrow grant");
+    assert!(!authority_has_permission(&tx.world, &reader, &originals).unwrap());
 }
 #[test]
 fn native_account_query_is_self_scoped_and_exact_payload_bound() {

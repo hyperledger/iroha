@@ -1,9 +1,9 @@
 """Disposable loopback HTTP owner for exact staking transport qualification."""
-from contextlib import contextmanager
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import socket
 import threading
 import time
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 @contextmanager

@@ -95,6 +95,10 @@ def create_torii_client_streaming_query_mixin(
 
     class ToriiClientStreamingQueryMixin:
         _base_url: str
+        _default_headers: Mapping[str, str]
+        _session: requests.Session
+        _request: Callable[..., requests.Response]
+        _expect_status: Callable[..., None]
 
         @staticmethod
         def _maybe_transaction_receipt(response: requests.Response) -> Optional[Any]:
@@ -222,8 +226,10 @@ def create_torii_client_streaming_query_mixin(
             )
             should_resume = allow_resume and (resume or last_event_id is not None or cursor is not None)
 
-            def iterator():
+            def iterator() -> Iterator[SseEvent]:
                 nonlocal active_last_id
+                attempt = 0
+                backoff = float(backoff_base)
 
                 def process_event(event: SseEvent) -> SseEvent:
                     nonlocal active_last_id, attempt, backoff
@@ -248,8 +254,6 @@ def create_torii_client_streaming_query_mixin(
                         time.sleep(backoff)
                         backoff = min(backoff * 2, _SSE_MAX_BACKOFF_SECONDS)
 
-                attempt = 0
-                backoff = float(backoff_base)
                 while True:
                     final_headers: Dict[str, str] = dict(self._default_headers)
                     _remove_header(final_headers, "Accept")

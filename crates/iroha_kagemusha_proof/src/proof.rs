@@ -26,7 +26,7 @@ use iroha_plonk::{
     VerifyError, VerifyingKey,
     cs::{CsError, DescriptorError, InstanceModeV1, InstanceType, ProofSuffixV1, TranscriptV2},
     frontend::Error,
-    keys::{KeygenConfigV2, VkError, keygen_pk_v2},
+    keys::{KeygenConfigV2, SourceBoundVerifyingKeyV2, VkError, keygen_pk_v2},
     pcs::ipa::{ParamsTrustError, PinnedParams},
     prove_circuit, verify_full,
 };
@@ -298,27 +298,14 @@ where
         config: iroha_plonk::keys::pk::artifact::ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Self, SigmaError> {
-        use iroha_plonk::keys::pk::artifact::Error as ArtifactError;
-        iroha_pasta::CancellationToken::checkpoint(cancellation)
-            .map_err(|_| SigmaError::Prover(iroha_plonk::ProverError::Cancelled))?;
-        if params.k() != shape.k {
-            return Err(SigmaError::ParamsK {
-                expected: shape.k,
-                found: params.k(),
-            });
-        }
-        let rows = 1_usize
-            .checked_shl(shape.k)
-            .ok_or(SigmaError::Artifact(ArtifactError::Length))?;
-        if original.len() > config.maximum_bytes || rows > config.maximum_rows {
-            return Err(SigmaError::Artifact(ArtifactError::Length));
-        }
-        // Move the pinned generator vectors; even a refused mount must not clone them.
-        let verifier = SigmaVerifier::from_bytes(
-            shape.params.relation().relation,
+        let verifier = Self::original_verifier(
+            &shape,
             params,
             descriptor,
             installed_vk,
+            original,
+            config,
+            cancellation,
         )?;
         let circuit = SigmaCircuit::<C::ScalarExt>::keygen(shape.params);
         let pk = ProvingKey::from_artifact_v2_cancellable(
@@ -335,6 +322,136 @@ where
         }
         let params = verifier.params;
         Ok(Self { shape, params, pk })
+    }
+
+    /// Strictly admit the fixed native sigma source and original commitments,
+    /// retaining only descriptor/VK metadata and its opaque source authority.
+    /// The installation owner authenticates the same original/catalog scope as
+    /// for [`Self::from_original_artifact`]. No proving FFTs or masks are built.
+    /// # Errors
+    /// The same profile, source, commitment or installed-key failures as full import,
+    /// or explicit cancellation without a partial source capability.
+    pub fn admit_original_artifact_cancellable(
+        shape: SigmaShape,
+        params: PinnedParams<C>,
+        descriptor: &[u8],
+        installed_vk: &[u8],
+        original: &[u8],
+        config: iroha_plonk::keys::pk::artifact::ReadConfig,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceBoundVerifyingKeyV2<C>, SigmaError> {
+        Self::admit_original_with_admission_cancellable(
+            shape,
+            params,
+            descriptor,
+            installed_vk,
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Strict,
+            cancellation,
+        )
+    }
+
+    /// Admit an exact original through an explicitly selected closed built-in source.
+    /// All typed plan, source-profile and installed-key checks remain mandatory.
+    /// The member attests only its pinned relation. The installation owner must
+    /// bind this supplied plan to the complete selected built-in profile; a
+    /// same-schema foreign plan is not certified by membership. Proof-time source
+    /// reconstruction remains mandatory and rejects a different actual source.
+    /// # Errors
+    /// The ordinary importer errors, closed-member mismatch, or cancellation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn admit_builtin_original_artifact_cancellable(
+        shape: SigmaShape,
+        params: PinnedParams<C>,
+        descriptor: &[u8],
+        installed_vk: &[u8],
+        original: &[u8],
+        config: iroha_plonk::keys::pk::artifact::ReadConfig,
+        member: iroha_plonk::keys::BuiltinSourceMemberV1,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceBoundVerifyingKeyV2<C>, SigmaError> {
+        Self::admit_original_with_admission_cancellable(
+            shape,
+            params,
+            descriptor,
+            installed_vk,
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Builtin(member),
+            cancellation,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn admit_original_with_admission_cancellable(
+        shape: SigmaShape,
+        params: PinnedParams<C>,
+        descriptor: &[u8],
+        installed_vk: &[u8],
+        original: &[u8],
+        config: iroha_plonk::keys::pk::artifact::ReadConfig,
+        admission: crate::original_admission::OriginalAdmission,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceBoundVerifyingKeyV2<C>, SigmaError> {
+        let verifier = Self::original_verifier(
+            &shape,
+            params,
+            descriptor,
+            installed_vk,
+            original,
+            config,
+            cancellation,
+        )?;
+        let circuit = SigmaCircuit::<C::ScalarExt>::keygen(shape.params);
+        let metadata = admission
+            .admit(
+                original,
+                verifier.binding(),
+                verifier.vk(),
+                &verifier.params,
+                &circuit,
+                config,
+                cancellation,
+            )
+            .map_err(SigmaError::Artifact)?;
+        if metadata.verifying_key().to_bytes() != installed_vk {
+            return Err(SigmaError::ArtifactKeyMismatch);
+        }
+        Ok(metadata)
+    }
+
+    fn original_verifier(
+        shape: &SigmaShape,
+        params: PinnedParams<C>,
+        descriptor: &[u8],
+        installed_vk: &[u8],
+        original: &[u8],
+        config: iroha_plonk::keys::pk::artifact::ReadConfig,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SigmaVerifier<C>, SigmaError> {
+        use iroha_plonk::keys::pk::artifact::Error as ArtifactError;
+        iroha_pasta::CancellationToken::checkpoint(cancellation)
+            .map_err(|_| SigmaError::Prover(iroha_plonk::ProverError::Cancelled))?;
+        if params.k() != shape.k {
+            return Err(SigmaError::ParamsK {
+                expected: shape.k,
+                found: params.k(),
+            });
+        }
+        let rows = 1_usize
+            .checked_shl(shape.k)
+            .ok_or(SigmaError::Artifact(ArtifactError::Length))?;
+        if original.len() > config.maximum_bytes || rows > config.maximum_rows {
+            return Err(SigmaError::Artifact(ArtifactError::Length));
+        }
+        // Move the pinned generator vectors; even a refused mount must not clone them.
+        SigmaVerifier::from_bytes(
+            shape.params.relation().relation,
+            params,
+            descriptor,
+            installed_vk,
+        )
     }
 
     /// The shape.

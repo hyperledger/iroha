@@ -6,9 +6,14 @@ mod archive_tests;
 #[cfg(test)]
 #[path = "exposure_budget_tests.rs"]
 mod budget_tests;
+#[path = "exposure_ranges.rs"]
+mod ranges;
 #[cfg(test)]
 #[path = "exposure_restart_tests.rs"]
 mod restart_tests;
+#[cfg(test)]
+#[path = "exposure_scale_tests.rs"]
+mod scale_tests;
 #[cfg(test)]
 #[path = "exposure_service_tests.rs"]
 mod service_tests;
@@ -47,44 +52,128 @@ pub(crate) type HistoricalStake = BTreeMap<(LaneId, AccountId), BTreeMap<Account
 /// Reconstruct the exact parent post-state, including positions removed or
 /// recovered by the block currently being executed. Pending unbonds are excluded:
 /// scheduling an unbond stops earning at that committed block's reward boundary.
+///
+/// Both original current and undo trees are sought by the exact serviced
+/// `(lane, validator)` prefix. Unrelated retained lanes, validators and block
+/// touches are never traversed. Undo entries from within-block creation churn
+/// are read but not retained: only the first preimage can have earned service.
 pub(crate) fn before_block(
     block: &StateBlock<'_>,
     validators: &BTreeMap<LaneId, BTreeSet<AccountId>>,
 ) -> Result<HistoricalStake, Error> {
-    if validators.is_empty() {
-        return Ok(HistoricalStake::new());
-    }
-    let keys: BTreeSet<_> = block
-        .world
-        .public_lane_stake_shares
-        .iter()
-        .map(|(key, _)| key)
-        .chain(block.world.public_lane_stake_shares.revert_map().keys())
-        .filter(|key| {
-            validators
-                .get(&key.0)
-                .is_some_and(|accounts| accounts.contains(&key.1))
-        })
-        .cloned()
-        .collect();
+    capture_stakes(&block.world.public_lane_stake_shares, validators, |_| {})
+}
+
+#[derive(Clone, Copy)]
+enum CaptureVisit {
+    Current,
+    Undo,
+    Parent,
+}
+
+type StakeKey = (LaneId, AccountId, AccountId);
+
+fn capture_stakes(
+    shares: &mv::storage::Block<'_, StakeKey, iroha_data_model::nexus::PublicLaneStakeShare>,
+    validators: &BTreeMap<LaneId, BTreeSet<AccountId>>,
+    mut visit: impl FnMut(CaptureVisit),
+) -> Result<HistoricalStake, Error> {
     let mut exposure = HistoricalStake::new();
-    for key in keys {
-        let Some(share) = block.world.public_lane_stake_shares.get_before_block(&key) else {
-            continue;
-        };
-        if share.lane_id != key.0 || share.validator != key.1 || share.staker != key.2 {
-            return Err(fail(
-                "historical reward stake share has a non-canonical identity",
-            ));
-        }
-        if !share.bonded.is_zero() {
-            exposure
-                .entry((key.0, key.1))
-                .or_default()
-                .insert(key.2, share.bonded.clone());
+    for (lane, accounts) in validators {
+        for validator in accounts {
+            let mut keys = BTreeSet::new();
+            for (key, _) in
+                shares.range::<dyn ranges::AsStakePrefix>(ranges::StakeBounds::new(lane, validator))
+            {
+                visit(CaptureVisit::Current);
+                // Valid state admits at most MAX_REWARD_RECIPIENTS positions per
+                // validator. Refuse malformed or transiently oversized blocks as
+                // soon as the bound is crossed instead of materializing an
+                // unbounded current-prefix set before checking the parent.
+                if keys.insert(key.clone()) && keys.len() > MAX_REWARD_RECIPIENTS {
+                    return Err(fail("historical reward stake recipient capacity exceeded"));
+                }
+            }
+            // A current replacement can fill a slot vacated by a parent position.
+            // Keep the current-prefix bound above, then remove positions whose
+            // original preimage is absent before bounding the parent union.
+            keys.retain(|key| !matches!(shares.revert_map().get(key), Some(None)));
+            // A removed parent position exists only in undo. Conversely, an undo
+            // None was created after the earning boundary and cannot contribute.
+            for (key, before) in shares
+                .revert_map()
+                .range::<_, dyn ranges::AsStakePrefix>(ranges::StakeBounds::new(lane, validator))
+            {
+                visit(CaptureVisit::Undo);
+                if before.is_some()
+                    && keys.insert(key.clone())
+                    && keys.len() > MAX_REWARD_RECIPIENTS
+                {
+                    return Err(fail("historical reward stake recipient capacity exceeded"));
+                }
+            }
+            let mut parent_count = 0_usize;
+            for key in keys {
+                let Some(share) = shares.get_before_block(&key) else {
+                    continue;
+                };
+                visit(CaptureVisit::Parent);
+                parent_count += 1;
+                if parent_count > MAX_REWARD_RECIPIENTS {
+                    return Err(fail("historical reward stake recipient capacity exceeded"));
+                }
+                if share.lane_id != key.0 || share.validator != key.1 || share.staker != key.2 {
+                    return Err(fail(
+                        "historical reward stake share has a non-canonical identity",
+                    ));
+                }
+                if !share.bonded.is_zero() {
+                    exposure
+                        .entry((key.0, key.1.clone()))
+                        .or_default()
+                        .insert(key.2.clone(), share.bonded.clone());
+                }
+            }
         }
     }
     Ok(exposure)
+}
+
+/// Resolve only retained validators in policy-owned lanes at the earning boundary.
+/// A current-block exit or account recovery cannot erase the parent record.
+pub(super) fn serviced_validators_before_block(
+    block: &StateBlock<'_>,
+    lanes: &BTreeSet<LaneId>,
+    parent: &crate::sumeragi::certified_chain::VerifiedParentService,
+) -> BTreeMap<LaneId, BTreeSet<AccountId>> {
+    let records = &block.world.public_lane_validators;
+    let mut selected = BTreeMap::<LaneId, BTreeSet<AccountId>>::new();
+    for lane in lanes {
+        let mut keys: BTreeSet<_> = records
+            .range::<dyn ranges::AsValidatorPrefix>(ranges::ValidatorBounds::new(lane))
+            .map(|(key, _)| key)
+            .collect();
+        keys.extend(
+            records
+                .revert_map()
+                .range::<_, dyn ranges::AsValidatorPrefix>(ranges::ValidatorBounds::new(lane))
+                .filter_map(|(key, before)| before.as_ref().map(|_| key)),
+        );
+        for key in keys {
+            if records.get_before_block(key).is_some_and(|record| {
+                record.validator == key.1
+                    && record.lane_id == key.0
+                    && parent.signers().contains(&record.peer_id)
+                    && record.activation_height <= parent.height()
+                    && record
+                        .deactivation_height
+                        .is_none_or(|end| parent.height() < end)
+            }) {
+                selected.entry(*lane).or_default().insert(key.1.clone());
+            }
+        }
+    }
+    selected
 }
 
 fn validator_digest(validator: &AccountId) -> String {
@@ -550,6 +639,7 @@ mod tests {
                 (0..members)
                     .map(|index| {
                         let bytes = [
+                            b"reward-exposure-multisig/".as_slice(),
                             seed.to_le_bytes().as_slice(),
                             index.to_le_bytes().as_slice(),
                         ]
@@ -812,8 +902,10 @@ mod tests {
     fn optional_validator_registration_cannot_overfill_historical_service_roster() {
         let accounts = (0..=MAX_REWARD_VALIDATORS)
             .map(|index| {
+                let mut material = b"reward-service-roster/".to_vec();
+                material.extend_from_slice(&index.to_le_bytes());
                 let key = iroha_crypto::KeyPair::try_from_seed(
-                    index.to_le_bytes().to_vec(),
+                    material,
                     iroha_crypto::Algorithm::Ed25519,
                 )
                 .unwrap();

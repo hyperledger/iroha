@@ -8,9 +8,8 @@ from typing import Callable, List, Tuple
 
 import pytest
 import requests
-from requests.adapters import HTTPAdapter
-
 from client_test_support import canonical_hash
+from requests.adapters import HTTPAdapter
 from sumeragi_exact_json_test_support import RecordingSession, StubResponse
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]

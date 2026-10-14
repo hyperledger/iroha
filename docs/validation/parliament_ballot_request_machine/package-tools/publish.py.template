@@ -1,0 +1,70 @@
+"""Publish only after the shared source-build freeze has explicitly ended."""
+from pathlib import Path
+import hashlib
+import json
+import shutil
+
+ROOT = Path(__file__).resolve().parents[2]
+STAGE = Path(__file__).resolve().parent
+PACKAGE = STAGE / "publication"
+DESTINATION = ROOT / "docs/validation/parliament_ballot_request_machine"
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def publish():
+    """Check exact scope and before identities before writing the package/docs."""
+    if DESTINATION.exists():
+        raise ValueError("publication destination already exists")
+    manifest = PACKAGE / "SHA256SUMS"
+    entries = {}
+    for line in manifest.read_text().splitlines():
+        value, name = line.split("  ", 1)
+        path = Path(name)
+        if path.is_absolute() or ".." in path.parts or name in entries:
+            raise ValueError("invalid manifest path")
+        if digest(PACKAGE / path) != value:
+            raise ValueError("package identity mismatch: " + name)
+        entries[name] = value
+    actual = {str(p.relative_to(PACKAGE)) for p in PACKAGE.rglob("*") if p.is_file() and p != manifest}
+    if actual != set(entries):
+        raise ValueError("package membership changed")
+    custody = json.loads((PACKAGE / "publication-custody.json").read_text())
+    expected_documents = set(json.loads((STAGE / "central-before-sha256.json").read_text()))
+    if set(custody["documents"]) != expected_documents:
+        raise ValueError("document scope changed")
+    updates = []
+    for name, values in custody["documents"].items():
+        path = ROOT / name
+        after = PACKAGE / "document-custody/after" / (name + ".template")
+        after_bytes = after.read_bytes()
+        if digest(path) != values["before_sha256"] or hashlib.sha256(after_bytes).hexdigest() != values["after_sha256"]:
+            raise ValueError("document guard failed: " + name)
+        updates.append((path, after_bytes))
+    shutil.copytree(PACKAGE, DESTINATION)
+    copied_members = {str(p.relative_to(DESTINATION)) for p in DESTINATION.rglob("*") if p.is_file()}
+    if copied_members != set(entries) | {"SHA256SUMS"} or digest(DESTINATION / "SHA256SUMS") != digest(manifest):
+        raise ValueError("published package membership or manifest mismatch")
+    for name, value in entries.items():
+        if digest(DESTINATION / name) != value:
+            raise ValueError("published byte mismatch: " + name)
+    for name, values in custody["documents"].items():
+        if digest(ROOT / name) != values["before_sha256"]:
+            raise ValueError("document changed during package copy: " + name)
+    for path, data in updates:
+        path.write_bytes(data)
+    for name, values in custody["documents"].items():
+        if digest(ROOT / name) != values["after_sha256"]:
+            raise ValueError("published document mismatch: " + name)
+    receipt = dict(package_manifest_sha256=digest(manifest),
+                   copied_files=len(entries) + 1,
+                   updated_documents=custody["documents"],
+                   production_gate_changed=False)
+    (STAGE / "published.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    print(json.dumps(receipt))
+
+
+if __name__ == "__main__":
+    publish()

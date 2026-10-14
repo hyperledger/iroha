@@ -616,6 +616,70 @@ fn native_authority_provider_carries_identifier_originals_and_refuses_cross_prog
     assert_eq!(snapshots.len(), 1);
 }
 
+#[test]
+fn native_authority_provider_carries_retail_originals_and_refuses_empty_rows() {
+    let client = configured();
+    let (request, original, scope) = account_fixture();
+    let mut request = request.clone();
+    request.selector = NativeAuthorityOriginalsSelectorV1::RetailPolicy {
+        asset: iroha_data_model::asset::AssetDefinitionId::derive_from_components(
+            iroha_model_base::domain::DomainId::try_new("retail", "universal").unwrap(),
+            "unit".parse().unwrap(),
+        ),
+        dataspace: DataSpaceId::new(41),
+    };
+    let mut value = original.clone();
+    let (digest, challenge) =
+        native_authority_originals_request_digests_v1(&request.canonical_wire().unwrap()).unwrap();
+    value.request_sha256 = digest;
+    value.selector = request.selector.clone();
+    value.attestation.body.challenge = challenge;
+    let node = KeyPair::from_seed(vec![1; 32], Algorithm::BlsNormal);
+    value.attestation.signature =
+        SignatureOf::try_from_hash(node.private_key(), value.attestation.body.signing_hash())
+            .unwrap();
+    value.originals = NativeAuthorityOriginalsFamilyV1::RetailPolicy(NativeRetailPolicyStateV1 {
+        policy_wire: vec![1, 3, 5],
+        activation_wire: vec![2, 4, 6],
+    });
+    // Native transport validates correlation only; the application independently
+    // verifies the selected originals' membership in its admitted current World.
+    let (result, snapshots) = capture_requests(successful(&value), |transport| {
+        client
+            .clone()
+            .with_test_http_transport(transport)
+            .read_native_authority_originals_wire(
+                request.selector.clone(),
+                request.challenge,
+                *scope,
+            )
+    });
+    let result = result.unwrap();
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(result.request_wire, request.canonical_wire().unwrap());
+    assert_eq!(
+        result.response_wire,
+        norito::encode_canonical(&value).unwrap()
+    );
+    assert_canonical_account_signed_request(&client, &snapshots[0]);
+    let NativeAuthorityOriginalsFamilyV1::RetailPolicy(state) = &mut value.originals else {
+        unreachable!()
+    };
+    state.activation_wire.clear();
+    let (result, snapshots) = capture_requests(successful(&value), |transport| {
+        client
+            .clone()
+            .with_test_http_transport(transport)
+            .read_native_authority_originals_wire(
+                request.selector.clone(),
+                request.challenge,
+                *scope,
+            )
+    });
+    assert!(result.is_err());
+    assert_eq!(snapshots.len(), 1);
+}
+
 fn active_genesis_statement(
     original: &iroha_data_model::sumeragi_finality::SumeragiFinalityAttestation,
     node: &iroha_crypto::KeyPair,

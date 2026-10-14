@@ -1,0 +1,57 @@
+"""Verify the new selected-scope component bundle and freeze exact membership."""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+import re
+
+root = Path.cwd().resolve()
+out = root / "docs/validation/parliament_ballot_admissibility_circuit"
+manifest, review = out / "SHA256SUMS", out / "freeze-review.json"
+assert not manifest.exists() and not review.exists(), "refuse frozen outputs"
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+receipt = json.loads((out / "receipt.json").read_text())
+assert receipt["status"] == "PASS" and receipt["error"] is None
+assert receipt["source_before"] == receipt["source_after"]
+assert len(receipt["source_after"]) == receipt["selected_input_count"] == 14
+for name, value in receipt["source_after"].items():
+    assert sha(root / name) == value, name
+for name, absent in receipt["absent_conftest_paths"].items():
+    assert absent and not (root / name).exists(), name
+for name, value in receipt["retained_file_sha256"].items():
+    assert sha(out / name) == value, name
+mapping = json.loads((out / "captured-sources.json").read_text())
+assert set(mapping) == set(receipt["source_before"])
+for name, row in mapping.items():
+    assert sha(out / row["snapshot"]) == row["sha256"] == receipt["source_before"][name]
+for target in re.findall(r"\]\(([^)]+)\)", (out / "README.md").read_text()):
+    if "://" not in target and out / target not in {manifest, review}:
+        assert (out / target).exists(), target
+expected = set(receipt["retained_file_sha256"]) | {"receipt.json"}
+actual = {str(p.relative_to(out)) for p in out.rglob("*") if p.is_file()}
+assert actual == expected, "unexpected bundle member"
+value = {"schema": "parliament-admissibility-circuit-freeze-v1",
+         "frozen_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+         "receipt_sha256": sha(out / "receipt.json"), "selected_input_count": 14,
+         "source_sha256_at_freeze": receipt["source_after"],
+         "all_selected_sources_snapshots_outputs_match": True,
+         "full_resource_vector": False, "physical_verification_workspace_certificate": False,
+         "independent_cryptographic_review": False, "production_qualified": False,
+         "scope": "Selected source-bound Python circuit checks; no native verifier, full dependency closure, physical resource or production qualification."}
+with review.open("x") as stream:
+    stream.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
+paths = sorted(p for p in out.rglob("*") if p.is_file())
+with manifest.open("x") as stream:
+    for path in paths:
+        stream.write(sha(path) + "  " + str(path.relative_to(root)) + "\n")
+assert {str(p.relative_to(root)) for p in paths} == {line.split("  ", 1)[1] for line in manifest.read_text().splitlines()}
+for line in manifest.read_text().splitlines():
+    expected, name = line.split("  ", 1)
+    assert sha(root / name) == expected
+print(json.dumps({"entries": len(paths), "manifest_sha256": sha(manifest),
+                  "freeze_review_sha256": sha(review)}))

@@ -4,48 +4,88 @@
 //! finality, every peer exposes the same genesis-bound certified SCCP result, and even an
 //! authorized proposer cannot substitute a missing qualified Parliament ballot.
 
-use std::{num::NonZeroU64, time::Duration};
+use std::{
+    num::NonZeroU64,
+    path::Path,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
 
 use eyre::{Result, ensure, eyre};
 use integration_tests::sandbox;
 use iroha::{
     client::sccp::SccpFinalityAt,
-    crypto::{Algorithm, KeyPair},
+    crypto::{
+        Algorithm, KeyPair,
+        bls::consensus::{ConsensusDigest, aggregate, sign},
+    },
     data_model::{
-        isi::{governance::ProposeSccpRouteGovernance, sccp::InitializeSccpV1},
+        block::consensus::EvidencePenaltyStatus,
+        isi::{
+            chain::Keepalive,
+            governance::ProposeSccpRouteGovernance,
+            sccp::{InitializeSccpV1, SubmitSccpForgeryEvidenceV1},
+        },
         parameter::{SumeragiParameter, system::SumeragiNposParameters},
         prelude::*,
         sccp::{
+            generation::SccpGenerationCauseV1,
             governance::{
                 SccpGovernanceActionV1, SccpGovernanceProposalV1, SccpGovernanceSubjectV1,
                 SccpSetParametersActionV1,
             },
-            params::SccpParametersV1,
+            params::{SCCP_MIN_HEARTBEAT_MS_V1, SccpParametersV1},
         },
         sumeragi_finality::authenticated_genesis,
         transaction::FeePaymentIntent,
     },
 };
 use iroha_executor_data_model::permission::sccp::CanProposeSccpRouteGovernance;
-use iroha_model_base::metadata::Metadata;
-use iroha_sccp::v1::{committee::committee_root, finality::verify_certificate};
-use iroha_test_network::{NetworkBuilder, init_instruction_registry};
+use iroha_model_base::{metadata::Metadata, name::Name, topology::LaneId};
+use iroha_sccp::{
+    api::{SccpCertificateV1, SccpGenerationV1},
+    v1::{
+        committee::committee_root,
+        evidence::forgery_evidence_id,
+        finality::{
+            QcFixedV1, SccpFinalityHeaderV1, commit_preimage, outer_result, verify_certificate,
+        },
+    },
+};
+use iroha_test_network::{Network, NetworkBuilder, init_instruction_registry};
 use iroha_test_samples::ALICE_ID;
 
 fn builder() -> NetworkBuilder {
-    let epoch = NonZeroU64::new(3_600).unwrap();
-    let npos = SumeragiNposParameters {
+    configured_builder(
+        SccpParametersV1::taira_default(),
+        None,
+        1,
+        Duration::from_secs(1),
+    )
+}
+
+fn configured_builder(
+    parameters: SccpParametersV1,
+    slashing_delay_blocks: Option<u64>,
+    max_slash_bps: i64,
+    cadence: Duration,
+) -> NetworkBuilder {
+    let cadence_ms = u64::try_from(cadence.as_millis()).expect("test cadence fits u64");
+    let epoch = NonZeroU64::new(SCCP_MIN_HEARTBEAT_MS_V1 / cadence_ms).expect("nonzero epoch");
+    let mut npos = SumeragiNposParameters {
         epoch_length_blocks: epoch,
         max_validators: 4,
         ..SumeragiNposParameters::default()
     };
+    if let Some(delay) = slashing_delay_blocks {
+        npos.slashing_delay_blocks = delay;
+    }
     let proposal_permission: Permission = CanProposeSccpRouteGovernance.into();
     NetworkBuilder::new()
         .with_peers(4)
         .with_auto_populated_trusted_peers()
         .with_npos_consensus()
         .with_npos_genesis_bootstrap(1_000_u64.into())
-        .with_block_cadence(Duration::from_secs(1))
+        .with_block_cadence(cadence)
         .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
             SumeragiParameter::EpochLengthBlocks(epoch),
         )))
@@ -54,13 +94,13 @@ fn builder() -> NetworkBuilder {
         )))
         .with_genesis_post_bootstrap_isi(vec![
             InitializeSccpV1 {
-                parameters: SccpParametersV1::taira_default(),
+                parameters,
                 reset_nonce: [0x59; 32],
             }
             .into(),
             Grant::account_permission(proposal_permission, ALICE_ID.clone()).into(),
         ])
-        .with_config_layer(|layer| {
+        .with_config_layer(move |layer| {
             layer
                 .write(
                     ["nexus", "storage", "local_budget_bytes"],
@@ -70,7 +110,7 @@ fn builder() -> NetworkBuilder {
                     ["nexus", "staking", "unbonding_delay_ms"],
                     1_814_400_000_i64,
                 )
-                .write(["nexus", "staking", "max_slash_bps"], 1_i64)
+                .write(["nexus", "staking", "max_slash_bps"], max_slash_bps)
                 .write(["nexus", "fees", "base_fee"], "0")
                 .write(["nexus", "fees", "per_byte_fee"], "0")
                 .write(["nexus", "fees", "per_instruction_fee"], "0")
@@ -247,4 +287,569 @@ fn four_validators_publish_native_sccp_finality_and_refuse_unqualified_launch() 
     })();
     runtime.block_on(network.shutdown());
     result
+}
+
+fn wall_time_ms() -> Result<u64> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_millis()
+        .try_into()?)
+}
+
+fn write_heartbeat_observation(directory: &Path, value: &norito::json::Value) -> Result<()> {
+    let bytes = norito::json::to_vec(value)?;
+    std::fs::write(
+        directory.join("live-fourpeer-sccp-heartbeat-progress.json.tmp"),
+        &bytes,
+    )?;
+    std::fs::rename(
+        directory.join("live-fourpeer-sccp-heartbeat-progress.json.tmp"),
+        directory.join("live-fourpeer-sccp-heartbeat-progress.json"),
+    )?;
+    eprintln!("SCCP_HEARTBEAT {}", String::from_utf8(bytes)?);
+    Ok(())
+}
+
+fn agreed_certificate(
+    network: &Network,
+    instance: &[u8; 32],
+    keys: &[[u8; 48]],
+    height: u64,
+    generation: u64,
+    rotation: bool,
+) -> Result<SccpCertificateV1> {
+    let mut first = None;
+    let mut original_result = None;
+    for peer in network.peers() {
+        let certificate = peer.client().sccp().finality(SccpFinalityAt::Height(
+            NonZeroU64::new(height).ok_or_else(|| eyre!("zero certificate height"))?,
+        ))?;
+        ensure!(certificate.height == height && certificate.committee == keys);
+        let verified = verify_certificate(
+            instance,
+            &certificate.qc,
+            &certificate.header,
+            &certificate.aggregate_signature,
+            keys,
+        )?;
+        ensure!(verified.header.is_active());
+        ensure!(verified.header.generation() == generation);
+        ensure!(verified.header.is_rotation() == rotation);
+        ensure!(verified.qc.signers.count_ones() == 3);
+        let result = (certificate.header, verified.qc.block_hash, verified.result);
+        if let Some(expected) = original_result {
+            ensure!(
+                result == expected,
+                "all four peers must agree on the certified result"
+            );
+        } else {
+            original_result = Some(result);
+            first = Some(certificate);
+        }
+    }
+    first.ok_or_else(|| eyre!("four original peer certificates required"))
+}
+
+fn agreed_generation(network: &Network, generation: u64) -> Result<SccpGenerationV1> {
+    let first = network.peers()[0].client().sccp().committee(generation)?;
+    for peer in &network.peers()[1..] {
+        ensure!(peer.client().sccp().committee(generation)? == first);
+    }
+    Ok(first)
+}
+
+fn register_successor(network: &Network, seed: u8) -> Result<u64> {
+    let client = network.peers()[0].client();
+    let before = client.client().get_sumeragi_status()?.committed_height;
+    let account = AccountId::new(
+        KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)?
+            .public_key()
+            .clone(),
+    );
+    client.submit(
+        Register::account(Account::new(account)),
+        FeePaymentIntent::authority(Vec::new(), None),
+    )?;
+    let after = client.client().get_sumeragi_status()?.committed_height;
+    ensure!(
+        after == before + 1,
+        "one ordinary transaction must commit one successor"
+    );
+    Ok(after)
+}
+
+fn bonded_stake(observation: &norito::json::Value) -> Result<u64> {
+    observation
+        .get("items")
+        .and_then(norito::json::Value::as_array)
+        .ok_or_else(|| eyre!("stake response must contain items"))?
+        .iter()
+        .try_fold(0_u64, |total, item| {
+            let bonded: u64 = item
+                .get("bonded")
+                .and_then(norito::json::Value::as_str)
+                .ok_or_else(|| eyre!("stake share must contain bonded amount"))?
+                .parse()?;
+            total
+                .checked_add(bonded)
+                .ok_or_else(|| eyre!("stake sum overflow"))
+        })
+}
+
+#[test]
+fn four_validators_rotate_after_real_idle_heartbeat_and_apply_prior_generation_forgery()
+-> Result<()> {
+    init_instruction_registry();
+    let mut parameters = SccpParametersV1::taira_default();
+    parameters.committee_heartbeat_ms = SCCP_MIN_HEARTBEAT_MS_V1;
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root")
+        .join("target/sccp-continuation");
+    std::fs::create_dir_all(&directory)?;
+    write_heartbeat_observation(
+        &directory,
+        &norito::json!({
+            "stage": "starting_four_validators", "wall_ms": (wall_time_ms()?),
+            "heartbeat_ms": (parameters.committee_heartbeat_ms),
+        }),
+    )?;
+    let (network, runtime) = sandbox::start_network_blocking_or_skip(
+        configured_builder(parameters, Some(2), 10_000, Duration::from_millis(100)),
+        stringify!(
+            four_validators_rotate_after_real_idle_heartbeat_and_apply_prior_generation_forgery
+        ),
+    )?
+    .ok_or_else(|| eyre!("heartbeat qualification requires four actual validator processes"))?;
+    let result = (|| -> Result<()> {
+        runtime.block_on(network.ensure_blocks(1))?;
+        ensure!(network.peers().len() == 4);
+        let genesis = network.genesis();
+        let (epoch, _) = authenticated_genesis(&genesis.0)?.into_parts();
+        let keys = epoch
+            .committee
+            .iter()
+            .map(|member| {
+                let (algorithm, bytes) = member.validator.public_key().try_to_bytes()?;
+                ensure!(algorithm == Algorithm::BlsNormal);
+                <[u8; 48]>::try_from(bytes).map_err(|_| eyre!("genesis key width"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let root = committee_root(&keys).ok_or_else(|| eyre!("invalid signed committee"))?;
+        let instance = iroha_sumeragi::preimage::instance_id(
+            &iroha_core::sumeragi::crypto::BlsCrypto::new(),
+            &iroha_sumeragi::types::Hash32(*epoch.network_id.as_bytes()),
+            network.chain_id().as_str().as_bytes(),
+            iroha_sumeragi::preimage::InstanceKind::Global,
+            0,
+        )
+        .0;
+        let initial_generation = agreed_generation(&network, 1)?;
+        ensure!(initial_generation.committee_root == root && initial_generation.keys == keys);
+        ensure!(
+            initial_generation.members.len() == 4
+                && initial_generation.members.iter().all(Option::is_some)
+        );
+        for peer in network.peers() {
+            let capabilities = peer.client().sccp().capabilities()?;
+            ensure!(capabilities.parameters == Some(parameters));
+            ensure!(!capabilities.parliament_binding_ballot_available);
+            ensure!(capabilities.coalition_slashable_floor == Some(2_000_u32.into()));
+        }
+        let normal_height = register_successor(&network, 0x81)?;
+        runtime.block_on(network.ensure_blocks(normal_height))?;
+        let normal = agreed_certificate(&network, &instance, &keys, normal_height, 1, false)?;
+        let idle_start_ms = wall_time_ms()?;
+        let idle_monotonic_start = Instant::now();
+        let deadline_ms = initial_generation
+            .start_timestamp_ms
+            .checked_add(parameters.committee_heartbeat_ms)
+            .ok_or_else(|| eyre!("heartbeat deadline"))?;
+        ensure!(
+            idle_start_ms < deadline_ms,
+            "start before the genuine heartbeat deadline"
+        );
+        let required_idle_ms = deadline_ms - idle_start_ms;
+        let mut observations = Vec::new();
+        let heartbeat_height = loop {
+            let heights = network
+                .peers()
+                .iter()
+                .map(|peer| {
+                    peer.client()
+                        .client()
+                        .get_sumeragi_status()
+                        .map(|status| status.committed_height)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let observed_ms = wall_time_ms()?;
+            let observation = norito::json!({
+                "stage": "awaiting_real_heartbeat", "wall_ms": observed_ms,
+                "idle_start_ms": idle_start_ms, "deadline_ms": deadline_ms,
+                "elapsed_monotonic_ms": (u64::try_from(idle_monotonic_start.elapsed().as_millis())?),
+                "committed_heights": heights,
+            });
+            write_heartbeat_observation(&directory, &observation)?;
+            observations.push(observation);
+            if heights.iter().any(|height| *height > normal_height) {
+                ensure!(
+                    observed_ms >= deadline_ms,
+                    "idle network produced an early block"
+                );
+                ensure!(
+                    idle_monotonic_start.elapsed() >= Duration::from_millis(required_idle_ms),
+                    "heartbeat requires actual elapsed time, not a forward wall-clock adjustment"
+                );
+                ensure!(heights.iter().all(|height| *height <= normal_height + 1));
+                break normal_height + 1;
+            }
+            ensure!(heights.iter().all(|height| *height == normal_height));
+            ensure!(
+                observed_ms <= deadline_ms.saturating_add(300_000),
+                "production keeper did not commit within five minutes of the admitted deadline"
+            );
+            let wait_ms = if observed_ms < deadline_ms {
+                (deadline_ms - observed_ms).min(30_000)
+            } else {
+                1_000
+            };
+            std::thread::sleep(Duration::from_millis(wait_ms));
+        };
+        runtime.block_on(network.ensure_blocks(heartbeat_height))?;
+        let idle_end_ms = wall_time_ms()?;
+        let heartbeat = agreed_certificate(&network, &instance, &keys, heartbeat_height, 1, true)?;
+        let heartbeat_header = SccpFinalityHeaderV1::parse(&heartbeat.header)?;
+        let heartbeat_qc = QcFixedV1::parse(&heartbeat.qc)?;
+        ensure!(heartbeat_header.timestamp_ms() >= deadline_ms);
+        ensure!(heartbeat_header.next_committee_root() == root);
+        let mut heartbeat_wire = None;
+        let mut keepalive_entrypoint = None;
+        for peer in network.peers() {
+            let client = peer.client();
+            let blocks = client.client().query(FindBlocks).execute_all()?;
+            let block = blocks
+                .iter()
+                .find(|block| block.header().height().get() == heartbeat_height)
+                .ok_or_else(|| eyre!("original committed heartbeat block missing"))?;
+            ensure!(*block.hash().as_ref() == heartbeat_qc.block_hash);
+            ensure!(block.external_entrypoint_count() == 1 && !block.is_empty());
+            let signed = block
+                .external_transactions()
+                .next()
+                .ok_or_else(|| eyre!("signed Keepalive missing"))?;
+            ensure!(
+                matches!(signed.instructions(), Executable::Instructions(instructions)
+                if matches!(instructions.as_ref(), [only] if only.as_any().is::<Keepalive>()))
+            );
+            let details = client
+                .client()
+                .get_transaction_details(signed.hash_as_entrypoint())?;
+            ensure!(details.transaction.result().0.is_ok());
+            ensure!(
+                matches!(details.transaction.entrypoint(), TransactionEntrypoint::External(original) if original == signed)
+            );
+            if let Some(expected) = keepalive_entrypoint {
+                ensure!(signed.hash_as_entrypoint() == expected);
+            } else {
+                keepalive_entrypoint = Some(signed.hash_as_entrypoint());
+                heartbeat_wire = Some(block.encode_wire()?);
+            }
+        }
+        let ended_generation = agreed_generation(&network, 1)?;
+        let next_generation = agreed_generation(&network, 2)?;
+        ensure!(ended_generation.liable && ended_generation.end.is_some());
+        ensure!(next_generation.cause == SccpGenerationCauseV1::Heartbeat);
+        ensure!(next_generation.keys == keys && next_generation.committee_root == root);
+        ensure!(next_generation.start_height == heartbeat_height + 1);
+        ensure!(next_generation.start_timestamp_ms == heartbeat_header.timestamp_ms());
+        let successor_height = register_successor(&network, 0x82)?;
+        runtime.block_on(network.ensure_blocks(successor_height))?;
+        ensure!(successor_height == next_generation.start_height);
+        let successor = agreed_certificate(&network, &instance, &keys, successor_height, 2, false)?;
+        write_heartbeat_observation(
+            &directory,
+            &norito::json!({
+                "stage": "heartbeat_and_successor_verified", "wall_ms": (wall_time_ms()?),
+                "heartbeat_height": heartbeat_height, "successor_height": successor_height,
+            }),
+        )?;
+
+        // Publish once, before the longer anchor sequence. Destination consumers
+        // replay these exact original bytes while the source network continues.
+        let export = norito::json!({
+            "version": 1, "chain_id": (network.chain_id().as_str()),
+            "network_id": (epoch.network_id.as_bytes()), "consensus_instance": instance,
+            "signed_genesis_wire": (genesis.0.encode_wire()?), "initial_generation": initial_generation,
+            "certificates": [normal, heartbeat, successor],
+            "certificate_roles": ["normal", "heartbeat", "successor"],
+            "generations": [ended_generation, next_generation],
+            "idle": {"start_ms": idle_start_ms, "end_ms": idle_end_ms, "deadline_ms": deadline_ms,
+                "required_elapsed_ms": required_idle_ms, "initial_height": normal_height, "observations": observations},
+            "heartbeat": {"height": heartbeat_height, "keepalive_entrypoint": keepalive_entrypoint,
+                "signed_block_wire": heartbeat_wire},
+        });
+        std::fs::write(
+            directory.join("live-fourpeer-sccp-heartbeat.json.tmp"),
+            norito::json::to_vec(&export)?,
+        )?;
+        std::fs::rename(
+            directory.join("live-fourpeer-sccp-heartbeat.json.tmp"),
+            directory.join("live-fourpeer-sccp-heartbeat.json"),
+        )?;
+
+        // A1 closes chunk zero only when height 4097 appends the anchor of 4096.
+        // Ordinary signed account-metadata updates drive the complete prefix;
+        // neither empty blocks nor a source-state/clock shortcut is involved.
+        let client = network.peers()[0].client();
+        let anchor_started_ms = wall_time_ms()?;
+        let anchor_metadata: Name = "sccp_anchor_sequence".parse()?;
+        let mut next_observation = Instant::now();
+        let mut anchor_height = successor_height;
+        let mut sequence = 0_u64;
+        let mut anchor_transactions = Vec::new();
+        while anchor_height < 4_097 {
+            sequence = sequence
+                .checked_add(1)
+                .ok_or_else(|| eyre!("anchor sequence overflow"))?;
+            let transaction = client.submit(
+                SetKeyValue::account(
+                    ALICE_ID.clone(),
+                    anchor_metadata.clone(),
+                    Json::new(sequence),
+                ),
+                FeePaymentIntent::authority(Vec::new(), None),
+            )?;
+            let height = client.client().get_sumeragi_status()?.committed_height;
+            ensure!(
+                height > anchor_height,
+                "ordinary signed metadata must advance the chain"
+            );
+            anchor_transactions.push(norito::json!({
+                "sequence": sequence, "transaction_hash": transaction, "observed_height": height,
+            }));
+            anchor_height = height;
+            if Instant::now() >= next_observation || height >= 4_097 {
+                runtime.block_on(network.ensure_blocks(height))?;
+                write_heartbeat_observation(
+                    &directory,
+                    &norito::json!({
+                        "stage": "sealing_anchor_chunk", "wall_ms": (wall_time_ms()?),
+                        "started_ms": anchor_started_ms, "height": height, "target_height": 4_097,
+                        "signed_metadata_transactions": sequence,
+                    }),
+                )?;
+                next_observation = Instant::now() + Duration::from_secs(30);
+            }
+        }
+        runtime.block_on(network.ensure_blocks(anchor_height))?;
+        let seal = client
+            .sccp()
+            .finality(SccpFinalityAt::Height(NonZeroU64::new(4_097).unwrap()))?;
+        let seal_header = SccpFinalityHeaderV1::parse(&seal.header)?;
+        let anchor_seal_certificate = agreed_certificate(
+            &network,
+            &instance,
+            &keys,
+            4_097,
+            seal_header.generation(),
+            seal_header.is_rotation(),
+        )?;
+        // Sign a false body under the original, still-liable generation. This is
+        // adversarial evidence submitted through the ordinary native ingress;
+        // no consensus process, state record or protocol clock is changed.
+        let client = network.peers()[0].client();
+        let anchor = client
+            .sccp()
+            .anchor_witness(NonZeroU64::new(normal_height).unwrap())?;
+        ensure!(anchor.height == normal_height && anchor.chunk == 0 && anchor.witness.is_some());
+        let witness = anchor
+            .witness
+            .expect("completed chunk has a twelve-sibling witness");
+        let authentic = verify_certificate(
+            &instance,
+            &normal.qc,
+            &normal.header,
+            &normal.aggregate_signature,
+            &keys,
+        )?;
+        ensure!(witness.core_hash == authentic.qc.block_hash && witness.result == authentic.result);
+        for peer in network.peers() {
+            ensure!(
+                peer.client()
+                    .sccp()
+                    .anchor_witness(NonZeroU64::new(normal_height).unwrap())?
+                    == anchor
+            );
+        }
+        let stake_before = client
+            .client()
+            .get_public_lane_stake(LaneId::SINGLE, None)?;
+        ensure!(bonded_stake(&stake_before)? == 4_000);
+        let mut qc = QcFixedV1::parse(&normal.qc)?;
+        qc.result_body[0] ^= 1;
+        let header = SccpFinalityHeaderV1::parse(&normal.header)?;
+        let preimage = commit_preimage(
+            &instance,
+            &qc,
+            header.height(),
+            &outer_result(&header, &qc.result_body).0,
+        );
+        let digest = ConsensusDigest::from_preimage(&preimage)
+            .ok_or_else(|| eyre!("canonical consensus preimage required"))?;
+        let shares = keys
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| qc.signers & (1_u32 << index) != 0)
+            .map(|(_, key)| {
+                let pair = network
+                    .peers()
+                    .iter()
+                    .filter_map(|peer| peer.bls_key_pair())
+                    .find(|pair| {
+                        pair.public_key()
+                            .try_to_bytes()
+                            .is_ok_and(|(_, bytes)| bytes == key.as_slice())
+                    })
+                    .ok_or_else(|| eyre!("original network signing key missing"))?;
+                Ok(sign(pair.private_key(), &digest)?)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let evidence = SubmitSccpForgeryEvidenceV1 {
+            qc: qc.encode(),
+            header: normal.header,
+            aggregate_signature: aggregate(shares)?,
+            anchor: anchor.witness,
+        };
+        let checked = verify_certificate(
+            &instance,
+            &evidence.qc,
+            &evidence.header,
+            &evidence.aggregate_signature,
+            &keys,
+        )?;
+        let evidence_id = forgery_evidence_id(1, &checked.message, checked.qc.signers);
+        let prepared = client.account_client().prepare_transaction(
+            iroha::client::AccountTransactionDraft::new(
+                vec![InstructionBox::from(evidence.clone())],
+                FeePaymentIntent::authority(Vec::new(), None),
+                Metadata::default(),
+            ),
+        )?;
+        let signed_evidence = client.account_client().sign_transaction(prepared)?;
+        client.submit_transaction_and_wait(&signed_evidence)?;
+        let evidence_height = client.client().get_sumeragi_status()?.committed_height;
+        runtime.block_on(network.ensure_blocks(evidence_height))?;
+        let pending = client.sccp().evidence(&evidence_id)?;
+        ensure!(
+            pending.generation == 1
+                && pending.rule == iroha::data_model::sccp::native::SccpForgeryRuleV1::E4
+                && pending.height == normal_height
+                && pending.offenders.len() == 3
+        );
+        ensure!(
+            pending.recorded_at_height == evidence_height
+                && pending.penalty_status == EvidencePenaltyStatus::Pending
+        );
+        for peer in network.peers() {
+            ensure!(peer.client().sccp().evidence(&evidence_id)? == pending);
+            let holds = peer
+                .client()
+                .sccp()
+                .forgery_hold(iroha_sccp::api::SccpForgeryHoldQuery::default())?;
+            ensure!(
+                holds.revisions.is_empty() && holds.next.is_none(),
+                "no routes were installed"
+            );
+        }
+        let before_due = register_successor(&network, 0x83)?;
+        runtime.block_on(network.ensure_blocks(before_due))?;
+        ensure!(before_due == evidence_height + 1);
+        ensure!(
+            client.sccp().evidence(&evidence_id)?.penalty_status == EvidencePenaltyStatus::Pending
+        );
+        ensure!(
+            bonded_stake(
+                &client
+                    .client()
+                    .get_public_lane_stake(LaneId::SINGLE, None)?
+            )? == 4_000
+        );
+        let penalty_height = register_successor(&network, 0x84)?;
+        runtime.block_on(network.ensure_blocks(penalty_height))?;
+        ensure!(penalty_height == evidence_height + 2);
+        let applied = client.sccp().evidence(&evidence_id)?;
+        ensure!(
+            applied.penalty_status
+                == EvidencePenaltyStatus::Applied {
+                    height: penalty_height
+                }
+        );
+        let stake_after = client
+            .client()
+            .get_public_lane_stake(LaneId::SINGLE, None)?;
+        ensure!(
+            bonded_stake(&stake_after)? == 1_000,
+            "three original 1,000-unit stakes must be slashed"
+        );
+        for peer in network.peers() {
+            ensure!(peer.client().sccp().evidence(&evidence_id)? == applied);
+            ensure!(
+                peer.client()
+                    .client()
+                    .get_public_lane_stake(LaneId::SINGLE, None)?
+                    == stake_after
+            );
+            ensure!(
+                !peer
+                    .client()
+                    .sccp()
+                    .capabilities()?
+                    .parliament_binding_ballot_available
+            );
+        }
+        let export = norito::json!({
+            "version": 1, "network_id": (epoch.network_id.as_bytes()),
+            "consensus_instance": instance, "evidence": evidence,
+            "evidence_id": evidence_id, "anchor": anchor,
+            "anchor_seal_certificate": anchor_seal_certificate,
+            "anchor_transactions": anchor_transactions,
+            "transaction": signed_evidence, "pending": pending, "applied": applied,
+            "stake_before": stake_before, "stake_after": stake_after, "route_holds": [],
+        });
+        std::fs::write(
+            directory.join("live-fourpeer-sccp-forgery.json.tmp"),
+            norito::json::to_vec(&export)?,
+        )?;
+        std::fs::rename(
+            directory.join("live-fourpeer-sccp-forgery.json.tmp"),
+            directory.join("live-fourpeer-sccp-forgery.json"),
+        )?;
+        write_heartbeat_observation(
+            &directory,
+            &norito::json!({
+                "stage": "complete", "wall_ms": (wall_time_ms()?), "penalty_height": penalty_height,
+            }),
+        )?;
+        Ok(())
+    })();
+    if let Err(error) = &result {
+        let _ = write_heartbeat_observation(
+            &directory,
+            &norito::json!({
+                "stage": "failed", "error": (format!("{error:#}")), "wall_ms": (wall_time_ms()?),
+            }),
+        );
+    }
+    runtime.block_on(network.shutdown());
+    result
+}
+
+#[test]
+fn heartbeat_stake_observation_requires_exact_integer_shares() -> Result<()> {
+    ensure!(
+        bonded_stake(&norito::json!({"items": [{"bonded": "1000"}, {"bonded": "3000"}]}))? == 4_000
+    );
+    ensure!(bonded_stake(&norito::json!({"items": [{"bonded": "1.1"}]})).is_err());
+    ensure!(bonded_stake(&norito::json!({"items": [{}]})).is_err());
+    Ok(())
 }

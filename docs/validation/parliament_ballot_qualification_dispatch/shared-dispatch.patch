@@ -1,0 +1,118 @@
+--- before/crates/iroha_parliament_ballot_proof/examples/QUALIFICATION.md
++++ after/crates/iroha_parliament_ballot_proof/examples/QUALIFICATION.md
+@@ -101,6 +101,10 @@
+ qualification::run(&arguments_without_argv0, &mut output)?;
+ ```
+ 
++The shared entry point dispatches a leading `malformed` argument to the bounded
++malformed-observation runner. The standalone `qualify` example uses this same
++dispatch; temporary hosts need only the existing `qualification::run` entry point.
++
+ It installs a global Rust counting allocator; the host must not install a second
+ one. The host needs the ballot/backend dependencies and workspace Norito with its
+ `json` feature. Its own `accel` feature must forward acceleration consistently so
+--- before/crates/iroha_parliament_ballot_proof/examples/qualification/mod.rs
++++ after/crates/iroha_parliament_ballot_proof/examples/qualification/mod.rs
+@@ -5,7 +5,7 @@
+ //! Calls must be serialized: the allocator counters are process-wide. Foreign
+ //! allocators, including Objective-C allocations, are outside these counters.
+ 
+-pub mod malformed;
++mod malformed;
+ 
+ use std::{
+     alloc::{GlobalAlloc, Layout, System},
+@@ -690,6 +690,7 @@
+ 
+ /// Run the selected cases, flushing a Norito JSON line after every sample and
+ /// case summary. Arguments exclude the executable name; `--help` writes text.
++/// A leading `malformed` selects the bounded malformed-observation runner.
+ ///
+ /// This entry point does not access environment variables or files. A temporary
+ /// device wrapper can call it off its UI thread with its own `Write` sink. Calls
+@@ -702,6 +703,9 @@
+ /// It emits an error record with the row/case/sample context before returning
+ /// a sample failure; previously flushed observations remain available.
+ pub fn run(arguments: &[String], output: &mut impl Write) -> Result<()> {
++    if arguments.first().is_some_and(|value| value == "malformed") {
++        return malformed::run(&arguments[1..], output);
++    }
+     let Some(options) = options(arguments)? else {
+         output.write_all(HELP.as_bytes())?;
+         output.flush()?;
+--- before/crates/iroha_parliament_ballot_proof/examples/qualification/tests.rs
++++ after/crates/iroha_parliament_ballot_proof/examples/qualification/tests.rs
+@@ -219,6 +219,60 @@
+ }
+ 
+ #[test]
++fn malformed_dispatch_preserves_help_and_rejects_invalid_options_before_work() {
++    let mut help = Sink::default();
++    run(&args(&["malformed", "--help"]), &mut help).expect("malformed help");
++    assert_eq!(
++        help.bytes,
++        [
++            b"Use: qualify malformed [the qualify options below]\n".as_slice(),
++            HELP.as_bytes()
++        ]
++        .concat()
++    );
++    assert_eq!(help.flushes, 1);
++    for (input, expected) in [
++        (
++            vec!["malformed", "--samples", "0"],
++            "--samples must be in 1..=1001",
++        ),
++        (
++            vec!["malformed", "--samples"],
++            "missing value for --samples",
++        ),
++        (
++            vec!["malformed", "malformed", "--help"],
++            "unknown option malformed",
++        ),
++        (
++            vec!["--row", "malformed"],
++            "--row must be all, candidate or comparator",
++        ),
++    ] {
++        let mut output = Sink::default();
++        let error = run(&args(&input), &mut output).expect_err("invalid options");
++        assert_eq!(error.to_string(), expected);
++        assert!(output.bytes.is_empty());
++        assert_eq!(output.flushes, 0);
++    }
++}
++
++#[test]
++fn malformed_dispatch_preserves_output_errors() {
++    let mut buffer = [0_u8; 0];
++    let mut output = std::io::Cursor::new(&mut buffer[..]);
++    let error = run(&args(&["malformed", "--help"]), &mut output)
++        .expect_err("the caller's full output buffer must fail");
++    assert_eq!(
++        error
++            .downcast_ref::<std::io::Error>()
++            .expect("output error")
++            .kind(),
++        std::io::ErrorKind::WriteZero
++    );
++}
++
++#[test]
+ fn summaries_keep_the_phase_and_retry_sample_counts() {
+     let metric = Metric {
+         elapsed_ns: 5,
+--- before/crates/iroha_parliament_ballot_proof/examples/qualify.rs
++++ after/crates/iroha_parliament_ballot_proof/examples/qualify.rs
+@@ -5,9 +5,5 @@
+ fn main() -> Result<(), Box<dyn std::error::Error>> {
+     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+     let mut output = std::io::stdout().lock();
+-    if arguments.first().is_some_and(|value| value == "malformed") {
+-        qualification::malformed::run(&arguments[1..], &mut output)
+-    } else {
+-        qualification::run(&arguments, &mut output)
+-    }
++    qualification::run(&arguments, &mut output)
+ }

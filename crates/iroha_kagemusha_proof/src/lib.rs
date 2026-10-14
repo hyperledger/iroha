@@ -94,6 +94,7 @@ mod control_circuit;
 pub mod controls;
 pub mod omega;
 pub mod operation_relation;
+mod original_admission;
 pub mod proof;
 pub mod q_sigma;
 pub mod q_signature;

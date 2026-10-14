@@ -1,0 +1,388 @@
+[package]
+name = "iroha_core"
+autotests = false
+autobins = false
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+description.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "fastpq_fixture_capture"
+path = "src/bin/fastpq_fixture_capture.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "validation_fee_rewards_evidence_verify"
+path = "src/bin/validation_fee_rewards_evidence_verify.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "privacy_exact12_action_driver"
+path = "src/bin/privacy_exact12_action_driver.rs"
+required-features = ["privacy-release-evidence"]
+
+[lints]
+workspace = true
+
+[features]
+# The node surface is selected explicitly by shipping leaves. `runtime` keeps
+# the mandatory first-release native proof policy intact; STARK support remains a
+# named proof aggregate rather than workspace-wide inheritance.
+# Portable node semantics are usable independently by integration and recovery
+# corridors; ordinary Core builds additionally select the optional accelerator.
+default = ["node", "simd"]
+dev-tools = []
+# Non-shipping named mutation hooks for production State/evidence regression gates.
+mutation-testing = []
+# Non-shipping, read-only private-settlement state commitments used only by
+# adversarial real-process release tests. Shipping/default feature graphs must
+# never expose the diagnostic surface that consumes this evidence.
+test-network-private-settlement-evidence = []
+# Non-shipping Parliament integration-test provider. The isolated test daemon
+# uses this to derive proof-valid beacon and TLE shares for its exact validator seat;
+# default/node/release feature sets never include it.
+test-network-parliament-signers = []
+runtime = ["json", "bls", "zk-ipa-native"]
+node = [
+    "runtime",
+    "proofs-stark",
+    "app_api",
+    "gost",
+    "sm",
+    "telemetry",
+    "zk-preverify",
+]
+proofs-stark = ["zk-stark"]
+proofs-full = ["proofs-stark", "zk-ipa-native"]
+# Enable QUIC transport helpers for Norito Streaming.
+quic = ["iroha_p2p/quic"]
+# Enable Norito-backed JSON helpers throughout the core crate.
+json = [
+    "iroha_crypto/json",
+    "iroha_primitives/json",
+]
+# Enable Chinese SM algorithm family plumbing in dependent crates.
+sm = [
+    "iroha_config/sm",
+    "iroha_crypto/sm",
+    "iroha_data_model/sm",
+]
+# Enable TC26 GOST algorithm family plumbing in dependent crates.
+gost = [
+    "iroha_config/gost",
+    "iroha_crypto/gost",
+    "iroha_data_model/gost",
+]
+# Optional OpenSSL/Tongsuo SM provider remains a separately qualified preview.
+sm-ffi-openssl = [
+    "sm",
+    "iroha_config/sm-ffi-openssl",
+    "iroha_crypto/sm-ffi-openssl",
+]
+# Enable app-facing convenience helpers (testing utilities shared with Torii).
+app_api = []
+# Support lightweight telemetry, including diagnostics
+telemetry = []
+# Support Prometheus metrics. See https://prometheus.io/.
+expensive-telemetry = ["telemetry", "iroha_telemetry/metric-instrumentation"]
+# Enable stable fixed-width Core kernels and primitives SIMD backends.
+simd = ["iroha_primitives/simd-accel", "iroha_core_privacy/simd"]
+profiling = []
+# Enable FASTPQ GPU helper paths used by the daemon feature of the same name.
+fastpq-gpu = ["fastpq_prover/fastpq-gpu"]
+# Non-shipping: compile the State commitment candidate adapters of ZK delivery
+# plan task G.2 into this crate's unit tests so the keyed-commitment conformance
+# suite runs on the prototypes of `fastpq_prover::state_commitment_prototypes`.
+# TODO(G.3): remove with the prototypes.
+state-commitment-prototypes = ["fastpq_prover/dev-tools"]
+# Enable benchmark-only helpers used by this crate's Criterion targets.
+bench = []
+# ZK verifier feature flags ship enabled by default.
+zk-stark = ["iroha_core_zk/zk-stark", "iroha_core_privacy/zk-stark"]
+# Non-shipping native privacy release evidence. This is deliberately not a
+# default feature and is forwarded only by explicit release runners and
+# integration gates; it enables only the exact-12 conformance generator and
+# sealed canonical-action builders, never the data model's general fixture
+# constructors or block-tampering helpers.
+privacy-release-evidence = [
+    "dep:orchard",
+    "dep:incrementalmerkletree",
+    "iroha_core_privacy/privacy-release-evidence",
+    "zk-stark",
+    "json",
+    "iroha_data_model/privacy-exact12-conformance",
+]
+# Native IPA polynomial-opening verifier (no external halo2 libs). Default-on.
+zk-ipa-native = []
+# Enable stateless advisory pre-verification, deduplication, and trace diagnostics.
+# Ledger execution still runs the authoritative guarded cryptographic verifier.
+zk-preverify = ["iroha_core_zk/zk-preverify"]
+# Gate zk-heavy tests; enable with `--features zk-tests` when needed
+zk-tests = ["iroha-core-tests", "iroha_core_zk/zk-tests"]
+cuda = ["ivm/cuda"]
+
+# Prototype: index ZK1 TLV tags per ProofId in WSV for future proof list/count filters.
+zk-proof-tags = []
+
+# Test/developer helper: scale Sumeragi timers inside tests to accelerate timeouts
+dev-tests = []
+
+# Enable internal test helpers (e.g., Topology and synthetic executor fixtures)
+# when building core tests. Production node builds must leave this disabled so
+# every user-provided executor path runs the admitted guest bytecode.
+iroha-core-tests = ["iroha_sccp/test-fixtures", "iroha_core_zk/test-utils", "iroha_core_privacy/test-utils", "iroha_core_timed_ovn/test-utils"]
+
+# Allow offline balance proof verification bypass + dummy backend in dev builds.
+
+# Enable BLS admission-time micro-batching (deterministic grouping + bisection path in block validation).
+# This forwards to `iroha_crypto/bls` and compiles the non-SCCP BLS paths in
+# `block.rs` guarded by `#[cfg(feature = "bls")]`. SCCP verification itself is
+# mandatory in every `iroha_sccp` build and is deliberately not feature-gated.
+bls = ["iroha_crypto/bls", "iroha_data_model/bls"]
+
+[badges]
+is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger-iroha/iroha" }
+is-it-maintained-open-issues = { repository = "https://github.com/hyperledger-iroha/iroha" }
+maintenance = { status = "actively-developed" }
+
+[dependencies]
+arrayvec = "0.7.6"
+iroha_core_privacy = { workspace = true, default-features = false }
+iroha_core_timed_ovn = { workspace = true }
+iroha_allocation = { workspace = true }
+iroha_model_base = { workspace = true }
+norito = { workspace = true, default-features = false, features = ["node-codec"] }
+iroha_data_model = { workspace = true, default-features = false, features = ["transparent_api", "governance", "http"] }
+iroha_macro = { workspace = true }
+iroha_p2p = { workspace = true }
+iroha_logger = { workspace = true }
+iroha_crypto = { workspace = true, default-features = false, features = ["consensus", "pqc"] }
+iroha_version = { workspace = true }
+iroha_config = { workspace = true }
+iroha_futures = { workspace = true }
+iroha_fs = { workspace = true }
+iroha_panic_hook = { workspace = true }
+iroha_core_zk = { workspace = true, default-features = false }
+iroha_telemetry = { workspace = true }
+time = { workspace = true }
+iroha_primitives = { workspace = true }
+iroha_genesis = { workspace = true }
+iroha_torii_shared = { workspace = true }
+iroha_executor_data_model = { workspace = true }
+ivm = { workspace = true }
+ivm_abi = { workspace = true }
+fastpq_prover = { path = "../fastpq_prover" }
+fastpq_isi = { path = "../fastpq_isi" }
+mv = { workspace = true }
+concread = { workspace = true, features = ["ebr", "maps"] }
+iroha_schema = { workspace = true }
+sorafs_manifest = { path = "../sorafs_manifest", features = ["pqc"] }
+settlement_router = { path = "../settlement_router" }
+iroha_sccp = { path = "../iroha_sccp" }
+iroha_sumeragi = { workspace = true }
+tracing = { workspace = true }
+sha2 = { version = "0.10.9", default-features = false, features = ["compress"] }
+soranet_pq = { workspace = true }
+rayon = { workspace = true }
+base64 = { workspace = true }
+http = "1.3.1"
+ff = "0.13.1"
+iroha_zkp_halo2 = { path = "../iroha_zkp_halo2" }
+kaigi_zk = { path = "../kaigi_zk" }
+orchard = { git = "https://github.com/zcash/orchard.git", rev = "9d07047d32c4787e1b7964b4cf4fa0286c93824c", default-features = false, features = ["circuit", "multicore", "std"], optional = true }
+incrementalmerkletree = { version = "=0.8.2", optional = true }
+
+dashmap = { workspace = true }
+eyre = { workspace = true }
+rand = { workspace = true }
+rand_core_06 = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs"] }
+crossbeam-queue = { workspace = true }
+thiserror = { workspace = true }
+displaydoc = { workspace = true }
+parking_lot = { workspace = true, features = ["deadlock_detection"] }
+derive_more = { workspace = true }
+nonzero_ext = { workspace = true }
+hex = { workspace = true }
+tempfile = { workspace = true }
+blake3 = "1.8.2"
+zstd = { workspace = true }
+blake2 = { workspace = true }
+iroha_file_mmap = { path = "../iroha_file_mmap" }
+p256 = { version = "0.13.2", default-features = false, features = ["std", "ecdsa", "pkcs8", "hash2curve", "expose-field"] }
+zeroize = { version = "1.8.2", default-features = false, features = ["alloc", "std"] }
+once_cell = { workspace = true }
+indexmap = "2.12.0"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["fs", "process"] }
+
+[dev-dependencies]
+# Actual native verification cancellation and scratch-budget ownership controls.
+iroha_plonk = { workspace = true }
+iroha_pasta = { workspace = true }
+mv = { workspace = true, features = ["test"] }
+iroha_core_privacy = { workspace = true, default-features = false, features = ["test-utils"] }
+iroha_core_timed_ovn = { workspace = true, features = ["test-utils"] }
+kotodama_lang = { workspace = true }
+iroha_core_zk = { workspace = true, default-features = false, features = ["test-utils"] }
+iroha_crypto = { workspace = true, default-features = false, features = ["bfv-test-fixtures"] }
+iroha_data_model = { workspace = true, default-features = false, features = ["transparent_api", "test-fixtures", "privacy-exact12-conformance"] }
+crossbeam-epoch = "=0.9.20"
+futures = { workspace = true, features = ["std", "async-await"] }
+x509-parser = { version = "0.18.0", default-features = false, features = ["verify"] }
+tokio = { workspace = true, features = ["test-util"] }
+criterion = { workspace = true }
+iroha_p2p = { workspace = true, features = ["test-fixtures"] }
+iroha_test_samples = { workspace = true }
+iroha_config_base = { workspace = true }
+iroha_sccp = { path = "../iroha_sccp", features = ["test-fixtures"] }
+hex = { workspace = true }
+expect-test = { workspace = true }
+rand_08 = { package = "rand", version = "=0.8.7" }
+# The simulator hosts the Sumeragi driver for its §13.5 conformance tests.
+iroha_sumeragi = { workspace = true, features = ["sim"] }
+
+[[bench]]
+name = "validation"
+harness = false
+required-features = ["bench", "iroha-core-tests"]
+
+[[bench]]
+name = "kura"
+harness = false
+required-features = ["bench", "iroha-core-tests"]
+
+[[bench]]
+name = "state"
+harness = false
+
+[[bench]]
+name = "apply_blocks"
+harness = false
+path = "benches/blocks/apply_blocks_benchmark.rs"
+required-features = ["iroha-core-tests"]
+
+[[bench]]
+name = "validate_blocks"
+harness = false
+path = "benches/blocks/validate_blocks_benchmark.rs"
+required-features = ["iroha-core-tests"]
+
+[[bench]]
+name = "crypto_hotpaths"
+harness = false
+required-features = ["zk-ipa-native"]
+
+[[bench]]
+name = "isi_gas_calibration"
+path = "benches/isi_gas_calibration.rs"
+harness = false
+required-features = ["bench"]
+
+[[bench]]
+name = "queries"
+harness = false
+required-features = ["bench"]
+
+[[bench]]
+name = "queries_client"
+harness = false
+
+[[bench]]
+name = "kotodama_runtime_cache"
+harness = false
+
+[[example]]
+name = "apply_blocks"
+harness = false
+path = "benches/blocks/apply_blocks_oneshot.rs"
+required-features = ["iroha-core-tests"]
+
+[[example]]
+name = "validate_blocks"
+harness = false
+path = "benches/blocks/validate_blocks_oneshot.rs"
+required-features = ["iroha-core-tests"]
+
+[[example]]
+name = "generate_parity_fixtures"
+required-features = ["iroha-core-tests"]
+
+[[example]]
+name = "gen_pin_snapshot"
+required-features = ["iroha-core-tests"]
+
+[package.metadata.cargo-all-features]
+denylist = [
+    "schema-endpoint",
+    "telemetry",
+]
+skip_optional_dependencies = true
+
+# Real native Kaigi proofs remain an explicit focused target under the ZK test feature.
+[[test]]
+name = "kaigi_privacy"
+path = "tests/kaigi_privacy.rs"
+required-features = ["zk-tests"]
+
+# Grouped integration-test harnesses keep `cargo test` from linking one binary per tests/*.rs file.
+
+# SCCP v1 core public-boundary tests (`specs/sccp.md` §4).
+[[test]]
+name = "sccp_public_boundary"
+path = "tests/sccp_public_boundary.rs"
+
+# Certified dynamic private-dataspace registration and native execution through public APIs.
+[[test]]
+name = "private_dataspace_runtime"
+path = "tests/private_dataspace_runtime.rs"
+required-features = ["iroha-core-tests"]
+
+[[test]]
+name = "iroha_core_group_01"
+path = "tests/grouped/group_01.rs"
+required-features = ["iroha-core-tests"]
+
+[[test]]
+name = "iroha_core_group_02"
+path = "tests/grouped/group_02.rs"
+required-features = ["iroha-core-tests"]
+
+[[test]]
+name = "iroha_core_group_03"
+path = "tests/grouped/group_03.rs"
+required-features = ["iroha-core-tests"]
+
+[[test]]
+name = "iroha_core_group_04"
+path = "tests/grouped/group_04.rs"
+required-features = ["iroha-core-tests"]
+
+[[test]]
+name = "iroha_core_group_05"
+path = "tests/grouped/group_05.rs"
+required-features = ["iroha-core-tests"]
+
+# Isolated allocator injection must not affect the grouped integration harnesses.
+[[test]]
+name = "world_original_shell"
+path = "tests/world_original_shell.rs"
+
+[[test]]
+name = "scalar_snapshot_allocation"
+path = "tests/scalar_snapshot_allocation.rs"
+
+[[test]]
+name = "musubi_projection_rejection_allocation"
+path = "tests/musubi_projection_rejection_allocation.rs"

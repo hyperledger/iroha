@@ -19,7 +19,7 @@ use iroha_pasta::{
     Ep, Eq, EqAffine, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain,
 };
 use iroha_plonk::{
-    DescriptorBinding, Protocol, ProverConfig, ProverRandomness, ProvingKey, VerifyingKey, Witness,
+    DescriptorBinding, Protocol, ProverConfig, ProverRandomness, VerifyingKey, Witness,
     create_proof_owned_with_claim,
     cs::{CurveV1, InstanceModeV1, ProofSuffixV1, TranscriptV2},
     frontend::Circuit,
@@ -294,6 +294,56 @@ impl Prover {
         config: ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Self, Error> {
+        Self::from_original_with_admission_cancellable(
+            program,
+            descriptor,
+            installed_vk,
+            original_pk,
+            config,
+            crate::original_admission::OriginalAdmission::Strict,
+            cancellation,
+        )
+    }
+
+    /// Admit an exact original through an explicitly selected closed built-in source.
+    /// All typed plan, source-profile and installed-key checks remain mandatory.
+    /// The member attests only its pinned relation. The installation owner must
+    /// bind this supplied plan to the complete selected built-in profile; a
+    /// same-schema foreign plan is not certified by membership. Proof-time source
+    /// reconstruction remains mandatory and rejects a different actual source.
+    /// # Errors
+    /// The ordinary importer errors, closed-member mismatch, or cancellation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_builtin_original_artifact_cancellable(
+        program: Program,
+        descriptor: &[u8],
+        installed_vk: &[u8],
+        original_pk: &[u8],
+        config: ReadConfig,
+        member: iroha_plonk::keys::BuiltinSourceMemberV1,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Self, Error> {
+        Self::from_original_with_admission_cancellable(
+            program,
+            descriptor,
+            installed_vk,
+            original_pk,
+            config,
+            crate::original_admission::OriginalAdmission::Builtin(member),
+            cancellation,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn from_original_with_admission_cancellable(
+        program: Program,
+        descriptor: &[u8],
+        installed_vk: &[u8],
+        original_pk: &[u8],
+        config: ReadConfig,
+        admission: crate::original_admission::OriginalAdmission,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Self, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         if descriptor.is_empty()
             || descriptor.len() > DESCRIPTOR_MAX_BYTES
@@ -317,35 +367,32 @@ impl Prover {
         {
             return Err(Error::Artifact);
         }
-        VerifyingKey::<Ep>::read(installed_vk, &binding).map_err(|_| Error::Artifact)?;
+        let validated_vk =
+            VerifyingKey::<Ep>::read(installed_vk, &binding).map_err(|_| Error::Artifact)?;
         let blank = program.source_circuit()?;
-        let key = ProvingKey::from_artifact_v2_cancellable(
-            original_pk,
-            &binding,
-            &program.pallas,
-            &blank,
-            config,
-            cancellation,
-        )
-        .map_err(|error| {
-            if error.is_cancelled() {
-                Error::Cancelled
-            } else {
-                Error::Artifact
-            }
-        })?;
-        if key.vk().to_bytes() != installed_vk {
+        let key = admission
+            .admit(
+                original_pk,
+                &binding,
+                &validated_vk,
+                &program.pallas,
+                &blank,
+                config,
+                cancellation,
+            )
+            .map_err(|error| {
+                if error.is_cancelled() {
+                    Error::Cancelled
+                } else {
+                    Error::Artifact
+                }
+            })?;
+        if key.verifying_key().to_bytes() != installed_vk {
             return Err(Error::Artifact);
         }
-        let identity = SourceBoundVerifyingKeyV2::from_proving_key(&key, cancellation)
-            .map_err(|error| rebuild_error(&error))?;
-        // Strict admission above remains the authority root. Do not retain its
-        // polynomial/coset buffers between subproofs or during restore.
-        drop(key);
-        Ok(Self {
-            program,
-            key: identity,
-        })
+        // Strict admission remains the authority root; proving-only buffers are
+        // constructed only when this admitted source is used to produce a proof.
+        Ok(Self { program, key })
     }
 
     /// Exact immutable outer descriptor bound by the installed key.

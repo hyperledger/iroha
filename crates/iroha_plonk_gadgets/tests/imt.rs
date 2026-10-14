@@ -639,6 +639,38 @@ fn insert_only_history_and_optional_structural_updates() {
 }
 
 #[test]
+fn depth32_disabled_insert_authenticates_empty_and_populated_roots_not_zero_dummy_paths() {
+    let mut tree = Tree::<Fp, 32>::empty();
+    for populated in [false, true] {
+        let slot = if populated {
+            tree.insert(0, 1, Fp::from(7), Fp::from(11));
+            1
+        } else {
+            0
+        };
+        let root = tree.root();
+        let mut inputs = vec![root, Fp::from(233), Fp::from(19), Fp::ZERO];
+        inputs.extend(tree.opening(slot));
+        inputs.extend(tree.path(slot));
+        let noop = circuit::<Fp, 32>(INSERT_IF, inputs);
+        let public = [root, Fp::from(233), Fp::from(19), Fp::ZERO, root];
+        assert_accept(&noop, 14, &public);
+        let mut dummy = noop.clone();
+        dummy.inputs[4..].fill(Fp::ZERO);
+        assert!(
+            !accepts(&dummy, 14, &public),
+            "the disabled branch still rejects the former all-zero depth32 adapter witness"
+        );
+        let mut different_path = noop;
+        *different_path.inputs.last_mut().unwrap() += Fp::ONE;
+        assert!(
+            !accepts(&different_path, 14, &public),
+            "both no-op paths must authenticate the same existing leaf"
+        );
+    }
+}
+
+#[test]
 fn every_advice_cell_of_record_and_noop_is_pinned() {
     let mut tree = Tree::<Fq, 1>::empty();
     tree.insert(0, 1, Fq::from(10), Fq::from(100));

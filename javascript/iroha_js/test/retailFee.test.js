@@ -2,7 +2,7 @@ import test from "node:test";
 import { crc64Xz } from "../src/crc64Xz.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { decodeRetailFeeAssessmentMarkerMessage, encodeRetailFeeQuoteRequestV1, retailFeePaymentIntentHash, encodeRetailFeeAssessmentV1, retailFeeAssessmentMarkerMessage, noritoEncodeMultisigProposeRequest, validateNoritoFrame } from "../src/norito.js";
+import { decodeRetailFeeAssessmentMarkerMessage, encodeRetailFeeQuoteRequestV1, retailFeePaymentIntentHash, encodeRetailFeeAssessmentV1, retailFeeAssessmentMarkerMessage, validateNoritoFrame } from "../src/norito.js";
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/retail_fee_codec_v1.json", import.meta.url), "utf8"));
 const hash = (request) => Buffer.from(retailFeePaymentIntentHash(request)).toString("hex");
 
@@ -20,21 +20,6 @@ test("retail frames bind the declared Rust schema and exact native header geomet
     assert.equal(frame.flags, 2);
     assert.equal(encoded.length, 40 + frame.payload.length);
     assert.equal(encoded.toString("hex"), nativeHex);
-  }
-});
-
-test("retail proposal codec has one versioned first-release schema and no retired fee fields", () => {
-  const codec = readFileSync(new URL("../src/norito.js", import.meta.url), "utf8");
-  assert.match(codec, /iroha_torii::routing::MultisigProposeDtoV1/u);
-  assert.doesNotMatch(codec, /iroha_torii::routing::MultisigProposeDto["']/u);
-  for (const field of [
-    "validation_fee_policy_version",
-    "validation_fee_policy_hash",
-    "validation_fee_hijiri_fee_quote_hash",
-    "validation_fee_instruction_index",
-    "validation_fee_transfer_entry_index",
-  ]) {
-    assert.equal(codec.includes(field), false, `${field} is retired from the proposal codec`);
   }
 });
 
@@ -65,7 +50,6 @@ test("fee codecs reject hidden overrides, malformed commitments and lossy quanti
   for (const amount of [-1, 0.1, Number.MAX_SAFE_INTEGER + 1, "18446744073709551616"]) {
     assert.throws(() => encodeRetailFeeQuoteRequestV1({ ...fixture.request, transfers: [{ ...fixture.request.transfers[0], amount_minor_units: amount }] }));
   }
-  assert.throws(() => noritoEncodeMultisigProposeRequest({ instructions: [], validation_fee_instruction_index: "1" }, 753), /unsupported fee field/);
 });
 
 test("review decodes exact marker and rejects trailing or noncanonical archives", () => {

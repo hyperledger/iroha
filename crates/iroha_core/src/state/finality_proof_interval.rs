@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::sumeragi::finality::{
-    NativeFinalityProofInterval, NativeFinalityProofIntervalError,
+    NativeFinalityProofBudget, NativeFinalityProofInterval, NativeFinalityProofIntervalError,
     NativeFinalityProofIntervalLimits, NativeFinalityProofSource, build_proof_interval,
 };
 use std::sync::atomic::AtomicBool;
@@ -29,14 +29,14 @@ impl State {
     /// raw-source join precede return; captured hashes alone never certify authority.
     ///
     /// The caller retains its actual admitted worker/response/codec owners. The
-    /// returned immutable response keeps all destination charges from that same pool;
-    /// nested verifier graphs remain the documented producer funding obligation.
+    /// returned immutable response keeps all destination charges from that same pool.
+    /// The native producer prepays its bounded live graph workspace before decoding.
     ///
     /// # Errors
     /// Preserves State Busy, exact original native/portable refusal and stop policy.
     pub fn read_finality_proof_interval(
         &self,
-        owner: &CanonicalHistoryReadBudget,
+        owner: &NativeFinalityProofBudget,
         limits: &NativeFinalityProofIntervalLimits,
         cancelled: &AtomicBool,
     ) -> Result<NativeFinalityProofInterval, FinalityProofIntervalReadError> {
@@ -45,7 +45,7 @@ impl State {
 
     fn read_finality_proof_interval_after_read(
         &self,
-        owner: &CanonicalHistoryReadBudget,
+        owner: &NativeFinalityProofBudget,
         limits: &NativeFinalityProofIntervalLimits,
         cancelled: &AtomicBool,
         after_read: impl FnOnce(),

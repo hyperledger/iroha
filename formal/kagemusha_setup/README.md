@@ -12,7 +12,9 @@ python3.12 -B -S -m formal.kagemusha_setup.check --output /absolute/new/output
 ```
 
 The owner checks exact source pins before importing the subjects, runs the
-maintained prime/group certificates, then one hundred and one controls. It refuses optimized
+maintained prime/group certificates, then 109 controls. Generated registry bytes are
+recorded as unqualified DATA before and after the run; they are not maintained
+source pins. Their producer and admission owners remain source-pinned. It refuses optimized
 Python, bytecode-writing invocations (use `-B`) and existing output directories. It retains setup bytes, raw-model
 tables, synthetic private logs, proofs and failures. Ordinary controls do not import or read a development output directory. Their
 dependencies are relative to this repository; no Cargo build, large parameter
@@ -37,6 +39,13 @@ source; it does not choose a new commitment blind or parameter family. These
 source checks do not execute reconstruction or qualify a native wallet. The
 commitment counter is test-only instrumentation; proof and transcript semantics
 remain covered by the existing exact-byte diagnostic controls.
+
+The [current source review](CURRENT_SOURCE.md) accounts for the compact original,
+packed selectors, public memos and separate compiled-profile authority. The
+historical dense-table controls keep their historical artifact scope. Seven
+additional compact-source controls require explicit small public rows, check the
+current fingerprint and each commitment, and preserve the same public polynomial
+view. They do not synthesize the current native circuit or add proof executions.
 
 ## Exact setup boundary
 
@@ -63,7 +72,7 @@ For every ordered pair of field inputs, one target scalar and inverse slot
 return it, so successful pairs are exactly uniform without a regularity loss.
 In the stated ideal-coin/raw-oracle experiment, the reviewed finite-pair, lift
 and reduction terms are less than 12292·2^-256 per distinct setup context.
-Both complete k≤16 families have 131076 contexts, giving local aggregate less
+Both complete k≤16 families have 131086 contexts, giving local aggregate less
 than 2^-224, plus the raw-query collision bound
 `2*Q_s*(Q+3*Q_s)/2^512`. This is a sampler bound, not a protocol security-level
 claim. The executable controls only construct k≤6 families; larger producer requests require an explicit resource opt-in.
@@ -122,7 +131,7 @@ python3.12 -B -S -m formal.kagemusha_setup.produce_parameters --output /absolute
 Defaults select both k6 curves,132 contexts,1024 raw calls,412 retained raw
 entries,8 requests,1MiB parameter wire output and32MiB allocation allowance.
 Every count has a finite absolute bound. k>6 additionally requires
-`--allow-large`; the maximum is k16 and131076 distinct contexts across both
+`--allow-large`; the maximum is k16 and131086 distinct contexts across both
 curves. Scheduling of other qualification or build work is not inferred
 from this flag. Larger execution must be deliberately scheduled by its owner.
 
@@ -263,7 +272,7 @@ custody, public-only values, two-product/two-lookup shapes, all point logs,
 mutations, authority refusal and bounded replay. Five further methods check
 interpolation/canonical-table rejection, query bounds, descriptor-derived
 entropy accounting and pre-I/O large-mode refusal. They generate six additional
-k6 proofs, for fourteen ordinary fixed-RP57 proofs across101 methods. The nine request-shape cases and fourteen
+k6 proofs, for fourteen total across108 methods. The nine request-shape cases and fourteen
 closed A1 constructor cases add no proofs. All prior60 assertions remain;
 the request binding control additionally mutates public preprocessing bytes.
 No k16 proof, large parameter family, timing qualification or C12 claim follows.
@@ -361,7 +370,6 @@ records. Exact namespace/hash/extent checks and a final allocation checkpoint
 precede success. Private logs, original read observations and partial failure
 DATA are retained; no crash-durability or performance claim is made.
 
-The101 controls retain the existing fourteen fixed-RP57 k6 proofs and count
-two test-adapted k6 proofs separately.
+Ordinary109 controls still produce only the existing fourteen small k6 proofs.
 Their success cannot establish a large A1 construction, any native16 adapter
 acceptance, the full joint sampler law, a coherent recursive setup, or C12.

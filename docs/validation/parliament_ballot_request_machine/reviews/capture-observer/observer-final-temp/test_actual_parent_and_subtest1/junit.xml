@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="3" time="0.025" timestamp="2026-10-14T04:13:13.938422+09:00" hostname="takemiyamakotonoMac-Studio.local"><testcase classname="target.parliament-machine-final-capture.observer-final-temp.test_actual_parent_and_subtest1.test_observed_case" name="test_parent" time="0.015"><failure message="assert not (True and 1 == 1)">subtests = &lt;_pytest.subtests.Subtests object at 0x10a0e8450&gt;
+
+    def test_parent(subtests):
+        for value in range(2):
+            with subtests.test(value=value):
+&gt;               assert not (True and value == 1)
+E               assert not (True and 1 == 1)
+
+test_observed_case.py:4: AssertionError</failure><failure message="contains 1 failed subtest">contains 1 failed subtest</failure></testcase></testsuite></testsuites>

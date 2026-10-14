@@ -106,9 +106,9 @@ All notable changes to `IrohaSwift` are documented in this file.
   error envelope.
 - `+` in query values is percent-encoded; `getStatusSnapshot()` no longer races
   on its sample state; `AccountId.make(publicKey:)` throws instead of trapping;
-  building a transfer with a non-empty `TransferRequest.description` throws
-  `TransactionInputError.transferDescriptionUnsupported` instead of silently
-  dropping the memo; the always-failing `deployContractInstance` and
+  building a transfer preserves non-empty `TransferRequest.description` exactly
+  in signed `memo` metadata; unsigned fee-quote payloads use the same native
+  instruction and payload encoder as signed transfers; the always-failing `deployContractInstance` and
   `activateContractInstance` were removed.
 - `ToriiCanonicalRequestAuth` is now only the account credential
   (`accountId`, `privateKey`); its `timestampMs`/`nonce` were removed because a

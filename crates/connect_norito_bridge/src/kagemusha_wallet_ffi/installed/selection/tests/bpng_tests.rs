@@ -86,6 +86,23 @@ impl BpngFixture {
             "enrollment_session",
             bpng_session_selection(),
         );
+        let (_, eligibility_key) = base.key.public_key().to_bytes();
+        let template = iroha_data_model::kagemusha::KagemushaEligibilityPolicyTemplateV1 {
+            version: 1,
+            network_id: base.scheme.network_id,
+            scheme_id: base.scheme.scheme_id(),
+            revision: 1,
+            authority: iroha_data_model::kagemusha::KagemushaEligibilityAuthorityV1::Bank {
+                fi_digest: [7; 32],
+            },
+            public_key: eligibility_key.try_into().unwrap(),
+            maximum_response_ms: 30_000,
+        };
+        mutate(
+            &mut base.runtime,
+            "eligibility_template_hex",
+            Value::String(hex::encode(template.encode_canonical().unwrap())),
+        );
         for (name, value) in [
             ("python_path", "/usr/bin/python3"),
             ("openssl_path", "/usr/bin/openssl"),
@@ -769,6 +786,44 @@ fn bpng_current_runtime_requires_exact_policy_originals_and_core_data_paths() {
         }
     }
 }
+#[test]
+fn bpng_eligibility_template_is_required_canonical_and_bound_to_selected_scheme() {
+    let mut missing = BpngFixture::new();
+    object_mut(&mut missing.0.runtime).remove("eligibility_template_hex");
+    assert!(missing.load().is_err());
+    for encoded in ["".to_owned(), "AA".repeat(64), "01".repeat(2049)] {
+        let mut fixture = BpngFixture::new();
+        mutate(
+            &mut fixture.0.runtime,
+            "eligibility_template_hex",
+            Value::String(encoded),
+        );
+        assert!(fixture.load().is_err());
+    }
+    for field in ["network", "scheme"] {
+        let mut fixture = BpngFixture::new();
+        let Value::String(encoded) = &fixture.0.runtime["eligibility_template_hex"] else {
+            panic!("eligibility template")
+        };
+        let mut template =
+            iroha_data_model::kagemusha::KagemushaEligibilityPolicyTemplateV1::decode_canonical(
+                &hex::decode(encoded).unwrap(),
+            )
+            .unwrap();
+        if field == "network" {
+            template.network_id = [37; 32];
+        } else {
+            template.scheme_id = [39; 32];
+        }
+        mutate(
+            &mut fixture.0.runtime,
+            "eligibility_template_hex",
+            Value::String(hex::encode(template.encode_canonical().unwrap())),
+        );
+        assert!(fixture.load().is_err());
+    }
+}
+
 #[test]
 fn bpng_checkpoint_all_null_or_exact_native_nonzero_context_is_required() {
     let mut fixture = BpngFixture::new();

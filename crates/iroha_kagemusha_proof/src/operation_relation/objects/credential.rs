@@ -88,14 +88,14 @@ impl CredentialCells {
         let android = uint.glue().assert_bool(region, &android_word)?;
         for (index, enrollment) in [(10, true), (16, false)] {
             let facts = bits32(uint, region, object.word(index)?)?;
-            let undefined = facts[12..]
-                .iter()
+            let undefined = core::iter::once(&facts[9])
+                .chain(facts[12..].iter())
                 .map(|bit| uint.glue().not(region, bit))
                 .collect::<Result<Vec<_>, _>>()?;
             checks.push(all(uint.glue(), region, &undefined)?);
             for (kind, forbidden) in [
                 (&android, &[6_usize, 7, 8][..]),
-                (&kinds[2], &[0_usize, 1, 2, 3, 4, 5, 9][..]),
+                (&kinds[2], &[0_usize, 1, 2, 3, 4, 5][..]),
             ] {
                 for index in forbidden {
                     let absent = uint.glue().not(region, &facts[*index])?;

@@ -5,7 +5,7 @@
 //! Calls must be serialized: the allocator counters are process-wide. Foreign
 //! allocators, including Objective-C allocations, are outside these counters.
 
-pub mod malformed;
+mod malformed;
 
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -690,6 +690,7 @@ struct Complete {
 
 /// Run the selected cases, flushing a Norito JSON line after every sample and
 /// case summary. Arguments exclude the executable name; `--help` writes text.
+/// A leading `malformed` selects the bounded malformed-observation runner.
 ///
 /// This entry point does not access environment variables or files. A temporary
 /// device wrapper can call it off its UI thread with its own `Write` sink. Calls
@@ -702,6 +703,9 @@ struct Complete {
 /// It emits an error record with the row/case/sample context before returning
 /// a sample failure; previously flushed observations remain available.
 pub fn run(arguments: &[String], output: &mut impl Write) -> Result<()> {
+    if arguments.first().is_some_and(|value| value == "malformed") {
+        return malformed::run(&arguments[1..], output);
+    }
     let Some(options) = options(arguments)? else {
         output.write_all(HELP.as_bytes())?;
         output.flush()?;

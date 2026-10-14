@@ -30,6 +30,20 @@ class NativeSignerBridge private constructor() {
             check(admitted.contentEquals(owned)) { "native account validation changed canonical bytes" }
         }
 
+        /** Native occurrence identity; the instruction commitment remains separate. */
+        @JvmStatic
+        fun deriveMultisigProposalId(networkId: NetworkId, accountId: String, proposalNonce: String): String {
+            require(Regex("[0-9a-f]{64}").matches(proposalNonce) && proposalNonce.any { it != '0' }) { "proposalNonce must be nonzero canonical 32-byte hex" }
+            check(nativeAvailable) { "$LIBRARY_NAME is not available in this runtime" }
+            val input = JsonEncoder.encode(linkedMapOf("network_id" to networkId.toString(), "account_id" to accountId, "proposal_nonce" to proposalNonce)).toByteArray(StandardCharsets.UTF_8)
+            require(input.size <= 4096) { "Multisig occurrence input exceeds bound" }
+            val output = checkNotNull(nativeDeriveMultisigProposalId(input)) { "Native multisig occurrence returned no identity" }
+            val literal = String(output, StandardCharsets.UTF_8)
+            check(Regex("[0-9a-f]{64}").matches(literal) && literal.any { it != '0' }) { "Invalid native multisig occurrence identity" }
+            return literal
+        }
+        @JvmStatic private external fun nativeDeriveMultisigProposalId(input: ByteArray): ByteArray?
+
         @JvmStatic
         fun publicKeyFromPrivate(algorithm: SigningAlgorithm, privateKey: ByteArray): ByteArray {
             require(privateKey.isNotEmpty()) { "privateKey must not be empty" }

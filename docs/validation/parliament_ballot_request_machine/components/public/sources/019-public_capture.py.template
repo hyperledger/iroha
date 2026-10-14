@@ -1,0 +1,99 @@
+"""Selected-source public component test capture; ignored scratch only."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+import xml.etree.ElementTree as ET
+
+sys.dont_write_bytecode=True
+from public_machine import SOURCE_PINS,TABLES
+
+ROOT=Path(__file__).resolve().parents[2]
+STAGE=Path(__file__).resolve().parent
+DEST=STAGE/'public-capture'
+PYTEST=Path('/opt/homebrew/bin/pytest')
+PYTHON=Path('/opt/homebrew/opt/python@3.11/bin/python3.11')
+TESTS=tuple(STAGE/name for name in ('test_public_hash.py','test_public_machine.py','test_public_programs.py'))
+EXPECTED_CASES=18
+
+def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()
+def write(name,value):
+    (DEST/name).write_text(json.dumps(value,indent=2,sort_keys=True)+'\n')
+
+def main():
+    if DEST.exists():raise SystemExit('refuse existing public-capture destination')
+    DEST.mkdir();(DEST/'sources').mkdir()
+    semantic=dict(SOURCE_PINS);semantic.update({path:value for path,value in TABLES.values()})
+    paths=sorted({ROOT/path for path in semantic}|set(TESTS)|{
+        STAGE/'public_hash.py',STAGE/'public_machine.py',STAGE/'PUBLIC.md',STAGE/'bit_ir.py',
+        STAGE/'hash_machine.py',ROOT/'target/parliament-keccak-machine-stage/keccak1600.py',
+        ROOT/'pytest.ini',Path(__file__).resolve()})
+    absent=(ROOT/'conftest.py',ROOT/'target/conftest.py',STAGE/'conftest.py')
+    before={str(path.relative_to(ROOT)):digest(path) for path in paths}
+    runtime={str(path):digest(path) for path in (PYTEST,PYTHON,Path(sys.executable).resolve())}
+    receipt=dict(status='RUNNING',selected_sources_before=before,runtime_before=runtime,
+        absent_conftests=[str(path.relative_to(ROOT)) for path in absent],expected_cases=EXPECTED_CASES,
+        full_dependency_closure_authenticated=False,bytecode_import_coherence_is_trusted=True,
+        subprocess_other_reads_traced=False,atomic_source_snapshot_claimed=False,
+        complete_public_framing=False,complete_machine=False,complete_resource_vector=False,
+        production_qualified=False,cryptographic_review_complete=False,physical_cost_calibrated=False,
+        commands=[],snapshots={})
+    error=None
+    try:
+        if any(p.exists() for p in absent):raise ValueError('unexpected conftest')
+        for path,expected in semantic.items():
+            if before[path]!=expected:raise ValueError('semantic source pin mismatch '+path)
+        for i,path in enumerate(paths):
+            rel=f'sources/{i:03d}-{path.name}.template';data=path.read_bytes()
+            if hashlib.sha256(data).hexdigest()!=before[str(path.relative_to(ROOT))]:raise ValueError('snapshot drift')
+            (DEST/rel).write_bytes(data);receipt['snapshots'][str(path.relative_to(ROOT))]=rel
+        env=os.environ.copy()
+        for key in ('PYTEST_ADDOPTS','PYTEST_PLUGINS','PYTHONPATH','PYTHONSTARTUP','PYTHONINSPECT'):
+            env.pop(key,None)
+        env.update(PYTHONDONTWRITEBYTECODE='1',PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',PYTHONPATH=str(STAGE))
+        base=[str(PYTEST),'-c',str(ROOT/'pytest.ini'),'--rootdir',str(ROOT),
+              '--confcutdir',str(ROOT),'--import-mode=importlib','-p','no:cacheprovider',
+              '-o','addopts=','--maxfail=0','-q']
+        def run(name,extra):
+            command=base+extra+list(map(str,TESTS));start=time.monotonic()
+            result=subprocess.run(command,cwd=ROOT,env=env,capture_output=True)
+            (DEST/(name+'.stdout')).write_bytes(result.stdout);(DEST/(name+'.stderr')).write_bytes(result.stderr)
+            receipt['commands'].append(dict(name=name,argv=command,exit_code=result.returncode,
+                elapsed_seconds=time.monotonic()-start,stdout=name+'.stdout',stderr=name+'.stderr'))
+            if result.returncode:raise ValueError(name+' failed: '+str(result.returncode))
+            return result.stdout.decode()
+        output=run('collect',['--collect-only'])
+        nodes=[line for line in output.splitlines() if '::' in line and not line.startswith(' ')]
+        if len(nodes)!=EXPECTED_CASES or len(set(nodes))!=EXPECTED_CASES:raise ValueError('unexpected collection')
+        write('nodes.json',nodes)
+        run('tests',['--junitxml',str(DEST/'junit.xml'),'--basetemp',str(DEST/'pytest-temp')])
+        xml=ET.parse(DEST/'junit.xml').getroot();cases=xml.findall('.//testcase')
+        expected={(Path(parts[0]).stem,parts[1],parts[2]) for node in nodes if len(parts:=node.split('::'))==3}
+        actual={(tuple(case.attrib['classname'].split('.')[-2:])+(case.attrib['name'],)) for case in cases}
+        if len(cases)!=EXPECTED_CASES or any(len(c) for c in cases) or expected!=actual:
+            raise ValueError('JUnit scope/outcome mismatch')
+        receipt['junit_cases']=len(cases);receipt['collected_node_count']=len(nodes)
+    except Exception as exc:
+        error=str(exc)
+    finally:
+        after={str(path.relative_to(ROOT)):digest(path) if path.is_file() else None for path in paths}
+        receipt['selected_sources_after']=after
+        receipt['runtime_after']={path:digest(Path(path)) for path in runtime}
+        receipt['absent_conftests_still_absent']=all(not p.exists() for p in absent)
+        if after!=before or receipt['runtime_after']!=runtime or not receipt['absent_conftests_still_absent']:
+            error=error or 'selected source/runtime drift'
+        receipt['status']='PASS' if error is None else 'FAIL';receipt['error']=error
+        # Test temp is not evidence; tests currently produce no such files.
+        receipt['retained_outputs']={str(p.relative_to(DEST)):digest(p) for p in sorted(DEST.rglob('*'))
+            if p.is_file() and 'pytest-temp' not in p.parts}
+        write('receipt.json',receipt)
+        files=[p for p in sorted(DEST.rglob('*')) if p.is_file() and 'pytest-temp' not in p.parts]
+        (DEST/'SHA256SUMS').write_text(''.join(f'{digest(p)}  {p.relative_to(DEST)}\n' for p in files))
+    print(json.dumps(dict(status=receipt['status'],cases=receipt.get('junit_cases'),sources=len(paths),
+        receipt_sha256=digest(DEST/'receipt.json'),manifest_sha256=digest(DEST/'SHA256SUMS'),error=error)))
+    return int(error is not None)
+
+if __name__=='__main__':raise SystemExit(main())

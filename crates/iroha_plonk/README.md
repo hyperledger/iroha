@@ -74,6 +74,17 @@ Stage ENGINE-2 (tasks T10, T11 and the PCS half of T13) provides:
   the same process-wide 64 MiB scratch ceiling as the Pasta prover MSMs.
   `msm_complete_with_shared_budget` additionally accepts a shared caller
   ceiling; contention takes a stack-only complete path without waiting.
+  Strict public-source admission keeps an owner-scoped 8,192-entry computed
+  column memo. On a miss, a separate 16,384-entry FIFO reuses exact unblinded
+  1,024-row MSMs keyed by native scalar bytes, row offset and length. Only
+  computed projective points persist; the column blind is added once and every
+  original VK commitment is still compared. Up to eight borrowed blocks run
+  together under the same scratch ceiling; every worker joins before ordered
+  cache insertion and summation. Native scalar encodings feed the unchanged
+  source and column hashes together; private immutable-slice handles retain
+  only column digests until the complete source fingerprint passes. Source
+  fingerprints, key/proof
+  bytes, cancellation and process-wide scratch limits remain unchanged.
 - `pcs::multiopen`: the halo2 multi-point opening with static query grouping:
   queries are grouped by slot (column kind and index), never by commitment
   value, and a repeated query must repeat its evaluation bit for bit.
@@ -169,21 +180,93 @@ Rules this crate enforces:
   a fixed value at or beyond the usable rows;
 - nothing panics on misuse: errors are typed.
 
+`PinnedParams::for_domain(k)` uses embedded canonical transparent parameters for
+Vesta k12/k14/k16 and Pallas k16. Every selection still passes the existing native
+SHA-256 pin and canonical point decoder, and its header must match the requested
+domain. Selected-byte corruption is an error, never a derivation retry. Other
+domains use the unchanged transparent `derive` constructor; explicit derivation
+remains available for independent parity checks. These four public assets total
+9,699,600 bytes per native architecture. They introduce no device file cache,
+parameter authority, proof-format change or expanded proving-key storage, and
+remain ordinary source-closure inputs for compiled-profile freshness.
+
 Offline compiler recovery can use `keys::source_fingerprint_v2` to identify
 exact witnessless public source tables before generating commitments. It runs the
 ordinary key preparation and hashes the complete descriptor, copy mapping digest,
 finalized fixed/permutation evaluations and selector bitmaps. Its matching
-`keys::pk::artifact::source_fingerprint_v2` checks bounded canonical originals
-and streams their scalar bytes without retaining a second set of tables or
-loading parameter arrays. Both return lookup DATA only. Cache/table/MSM resource
+`keys::pk::artifact::source_fingerprint_v2` checks bounded canonical compact
+originals and reads their claimed source fingerprint without synthesizing tables
+or loading parameter arrays. Both return lookup DATA only. Cache/table/MSM resource
 choices do not change the identity, and no global cache is introduced.
 
 A fingerprint match does not authenticate a VK or authorize its use. In
 particular, a different valid commitment can retain the same lookup fingerprint.
-The compiler must still call `ProvingKey::from_artifact_v2_cancellable` against
-the exact installed source and reject every source, copy, profile or commitment
-mismatch before publishing a reused key. These helpers do not change proof
-bytes, original-key encoding or source-qualified capability construction.
+The compiler must still call strict original admission against the exact
+installed source and reject every source, copy, profile or commitment mismatch
+before publishing a reused key. A compact original contains
+`PIPACPK1 || descriptor_digest32 || LE32(vk_bytes) || canonical_vk ||
+copy_digest32 || source_fingerprint32`. The native importer reconstructs the
+fixed and permutation tables from its witnessless circuit, checks the complete
+source fingerprint and every original VK commitment. Full `ProvingKey` import
+then builds proving buffers; `SourceBoundVerifyingKeyV2::from_artifact_v2` retains
+only the admitted public metadata and opaque source seal, avoiding FFT, mask and
+coset buffers that startup would immediately discard. Both share the complete
+admission checks. Actual proving reconstructs buffers through the existing
+source-bound path. Neither accepts a dense-format fallback or decodes a
+source-admission seal. Proof bytes are unchanged; signed packages must bind the
+new original bytes.
+
+`BuiltinSourceProfileV1` is an explicit additional source-authority boundary for
+a finite generated native registry. Exact complete profile DATA selects only a
+fresh compiled entry; exact role paths select only that entry's members. Each
+member checks complete descriptor/VK/compact-original identities, canonical
+framing, pinned parameters and current bounds before returning source-bound
+metadata. No runtime entry registration or digest-to-seal API exists. Missing,
+stale or unsupported profiles fail explicitly; ordinary strict imports and the
+independent strict exporter do not consult this registry. The owning wallet must
+still authenticate its installation and finish the complete source graph before
+granting a wallet capability. Proof-time source reconstruction remains unchanged.
+
+The build computes registry freshness from the actual tracked and unignored
+workspace regular files, including higher-level circuit code, assets, manifests,
+lockfile and build configuration. Native mathematical sources and assets belong
+under each crate's `src` or `build_support` tree. Those trees and root `.cargo` are
+also walked without Git ignore filtering, so an ignored module, binary constant
+or Cargo configuration cannot silently escape freshness. Generator/mobile compiler
+input containment checks must reject mathematical inputs outside the census;
+generated `OUT_DIR` inputs require their exact maintained generator relationship.
+Generated registry DATA is the sole regular-file
+exclusion. The existing Swift generated-framework symlink contributes its exact
+path and link text only; the optional `iroha-docs` gitlink contributes its recorded
+object identity. Other symlinks must resolve to an already included regular input
+inside the workspace. Missing tracked inputs, incomplete Git inventory or changing
+inputs disable built-in admission while allowing strict compilation/generation.
+This source identity is not an external dependency or toolchain attestation.
+
+Cargo recomputes membership and file contents on each invocation through an absent
+`OUT_DIR` rerun input. This detects newly added untracked sources or build config
+without recursively watching ignored native outputs. The identity module is only
+rewritten when its contents change; warm targets and compiler caches remain in use.
+Target architecture, width and byte order are checked separately from the shared
+mathematical source identity. Unsupported targets cannot select a built-in member.
+The support check does not replace cross-target correctness tests.
+
+Strict admission may reuse an already computed public column commitment within
+one immutable `PinnedParams` owner. Its clones share a private, bounded FIFO memo
+of at most 8,192 column digests and computed affine points. The digest covers the
+Lagrange/default-blind operation, blind, row count and canonical scalar bytes;
+the typed parameter owner fixes the curve and generator basis. Only the actual
+public commitment computation populates it. Original VK points and declared
+source fingerprints cannot seed this memo, and every original commitment is
+still compared. Independent parameter admission starts a fresh memo; it is
+neither global nor persisted and retains no column tables. Cancellation fails
+closed, and a poisoned memo causes recomputation. This optimization changes no
+source-admission authority or proof bytes.
+
+On ARM64 targets other than Windows, SHA-256 source and column hashing uses the
+existing `sha2` hardware backend with runtime CPU detection and portable fallback.
+The exact fingerprint bytes and all admission checks remain unchanged. Other
+architectures retain their existing hashing backend.
 
 Large polynomial evaluations use fixed Horner subtrees, and multiopen reconstruction
 walks the original slot order over disjoint coefficient blocks. Grand-product

@@ -7,8 +7,8 @@ import json
 from pathlib import Path
 
 import pytest
-
 from iroha_native import load_crypto_extension
+
 from iroha_python import (
     SORAFS_REPLICATION_ORDER_MAX_PAYLOAD_BYTES_V1,
     CompleteReplicationOrderInstruction,

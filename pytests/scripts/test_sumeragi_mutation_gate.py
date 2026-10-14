@@ -1250,7 +1250,7 @@ def test_retained_multisig_proposals_bind_exact_approved_body_and_physical_row()
     rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC68"]
     assert rule.tests == (
         'smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_body_binding_rolls_back_original_signed_xor_transfer',
-        'smartcontracts::isi::multisig::tests::proposal_attempt::proposal_migration_validates_original_physical_key_and_body_before_writes',
+        'smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_missing_malformed_and_rebound_state_are_not_deferrals',
         'queue::router::tests::persisted_multisig_body_binding_and_local_refusal_reach_signed_queue_admission',
         'state::deserialize::decode_tests::restored_multisig_proposals_require_exact_body_and_preserve_local_read_refusal',
     )
@@ -1259,6 +1259,16 @@ def test_retained_multisig_proposals_bind_exact_approved_body_and_physical_row()
     assert not gate.has_switch("HC68")
     source = gate.REPO / "crates/iroha_core/src/smartcontracts/isi/multisig.rs"
     assert 'sumeragi_core_mutation = "HC68"' in source.read_text()
+    # Decoder-capacity invalidation alone does not exercise HC68's disabled
+    # body/occurrence/physical-key guard. Keep its adversarial binding control.
+    attempts = source.parent / "multisig/tests/proposal_attempt.rs"
+    leaf = rule.tests[1].rsplit("::", 1)[-1]
+    body = attempts.read_text().split(f"fn {leaf}()", 1)[1].split("#[test]", 1)[0]
+    for coordinate in ("multisig_account_id", "instructions_hash", "proposal_nonce",
+                       "proposal_id", "network_id", "transaction_ttl_ms"):
+        assert f"altered.{coordinate} =" in body
+    assert "ExecutionAttemptError::Rejected" in body
+    assert "assert!(!tx.is_execution_deferred());" in body
 
 
 def test_multisig_cancellation_and_expiry_keep_original_custom_decode_refusal():
@@ -5024,7 +5034,7 @@ def test_private_root_home_mutations_have_isolated_native_guard_controls():
 
 def test_finite_finality_interval_mutations_have_original_native_owner_controls():
     cases = {'HC210': ('sumeragi::finality::proof_reader_tests::finite_finality_interval_under_original_codec_checks_each_real_quorum_once',
-               'sumeragi/certified_chain.rs',
+               'sumeragi/certified_chain/query_reader.rs',
                'sumeragi/finality/proof_reader_tests.rs'),
      'HC211': ('sumeragi::finality::interval::tests::finite_interval_rejects_earlier_real_qc_changed_after_verification_before_publication',
                'sumeragi/finality/interval.rs',
@@ -8229,8 +8239,9 @@ def test_native_history_refunds_preserve_original_scan_and_default_stack_reentry
     controls = (root / "sumeragi/runtime_availability/refund_tests.rs").read_text()
     for obligation in (
         "let budget = self.state.ivm_execution_budget();",
-        "budget.with_deferred_refund_notifications(|_| {",
-        "self.historical_record_with_scan(lane, incarnation)",
+        "budget.with_deferred_refund_notifications(|_| read())",
+        "let mut releases = StateViewReleases::new(&self.state);",
+        "self.historical_record_with_scan(lane, incarnation, &mut releases)",
         "#[inline(never)]\n    fn historical_record_with_scan(",
     ):
         assert obligation in owner
@@ -8304,3 +8315,177 @@ def test_private_root_role_removal_mutation_requires_paid_restart_regression():
         assert not gate.has_switch("HC343", **family)
     rows = re.findall(r"^\| HC343 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
     assert len(rows) == 1 and "native_private_read_role_removal_preserves_debit_and_survives_certified_restart" in rows[0]
+
+
+def test_native_history_physical_reader_notifications_retain_original_sources_outside_locks():
+    names = ['sumeragi::lanes::registry::tests::original_native_history_reader_success_reenters_after_scan_unlock', 'sumeragi::lanes::registry::tests::original_native_history_reader_absence_reenters_after_scan_unlock', 'sumeragi::lanes::registry::tests::original_native_history_reader_error_reenters_after_scan_unlock', 'sumeragi::lanes::registry::tests::original_native_history_reader_reentry_preserves_concurrent_ready_owner', 'sumeragi::lanes::registry::tests::original_native_history_partial_reader_refusal_retains_exact_source_after_unlock', 'sumeragi::lanes::registry::tests::original_authority_recheck_retains_reentrant_opening_and_historical_interest']
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC353"]
+    assert rule.tests == tuple(names)
+    assert rule.causes == tuple(gate.ExpectedFailure(
+        "original State reader notices must follow scan and registry unlock",
+        "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs") for _ in names)
+    assert not rule.scenarios
+    assert gate.has_switch("HC353", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}):
+        assert not gate.has_switch("HC353", **family)
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(root).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"HC353"', path.read_text())}
+    assert owners == {"sumeragi/runtime_availability/history.rs", "sumeragi/lanes/registry.rs"}
+    provider = (root / "sumeragi/runtime_availability.rs").read_text()
+    assert "let mut releases = StateViewReleases::new(&self.state);" in provider
+    assert "self.historical_record_with_scan(lane, incarnation, &mut releases)" in provider
+    assert "budget.with_deferred_refund_notifications(|_| read())" in provider
+    assert "HistoryScan::open_retaining(releases, lane, incarnation)?" in provider
+    history = (root / "sumeragi/runtime_availability/history.rs").read_text()
+    capture = history[history.index("pub(super) fn open_retaining("):history.index("pub(in crate::sumeragi) fn open_captured(")]
+    assert "let state = releases.state();" in capture
+    assert "releases.try_view_once().map_err(super::state_view_error)?" in capture
+    assert "state.view()" not in capture
+    registry = (root / "sumeragi/lanes/registry.rs").read_text()
+    lookup = registry[registry.index("fn store_with_runtime_owner("):registry.index("fn open_store_with_authority(")]
+    unlock = lookup.index("drop(stores)")
+    authority = lookup.index(".authority(lane, incarnation, instance)?")
+    reacquire = lookup.index("let mut stores = self.stores.lock();", authority)
+    ready = lookup.index("Some(StoreSlot::Ready(store))", reacquire)
+    opening = lookup.index("Self::resume_store_opening(&mut stores, key, runtime_owner)", ready)
+    begin = lookup.index("self.open_store_with_authority(", opening)
+    assert unlock < authority < reacquire < ready < opening < begin
+    controls = (root / "sumeragi/lanes/registry/tests.rs").read_text()
+    for obligation in (
+        "npos_fixed_lane_chain_at(4)", "state.lane_manifests.observe_release()",
+        "state.world.accounts.observe_reader_release()", "scan_unlocked_for_reader_test()",
+        "assert_original_state_readers_available_for_test()", "stores.stores.try_lock()",
+        "drop(state.da_pin_intents.read())", "Arc::ptr_eq(inner, &outer)",
+        "StateViewError::Busy(retained)", "assert_eq!(*retained, original_wait)",
+        "Some(StoreSlot::Opening(_, true))", "budget.reserved_bytes(), baseline + bytes.len()",
+    ):
+        assert obligation in controls
+    assert "stack_size" not in controls and "RUST_MIN_STACK" not in controls
+    selected = (ROOT / "scripts/taira_release_check.py").read_text()
+    for name in names:
+        assert "fn " + name.rsplit("::", 1)[-1] + "()" in controls
+        assert name in selected
+    rows = re.findall(r"^\| HC353 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and all(name.rsplit("::", 1)[-1] in rows[0] for name in names)
+
+
+def test_geometry_recovery_physical_notifications_keep_original_fences_through_every_exit():
+    names = ['kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_preflight_success_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_preflight_refusal_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_replay_success_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_replay_refusal_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_startup_success_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_startup_refusal_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_recovery_partial_refusals_keep_exact_errors_and_release_sources', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_recovery_unwind_notifies_after_every_acquired_fence']
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC354"]
+    assert rule.tests == tuple(names)
+    assert rule.causes == tuple(gate.ExpectedFailure(
+        "original geometry recovery notice must wait for every physical fence",
+        "crates/iroha_core/src/kura/lane_geometry_tests/09_recovery_releases.rs") for _ in names)
+    assert not rule.scenarios
+    assert gate.has_switch("HC354", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}):
+        assert not gate.has_switch("HC354", **family)
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(root).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"HC354"', path.read_text())}
+    assert owners == {"kura/lane_geometry.rs", "kura/lane_geometry/instance_recovery.rs"}
+    geometry = (root / "kura/lane_geometry.rs").read_text()
+    preflight = geometry[geometry.index("pub(crate) fn preflight_lane_geometry_recovery_floor_with_lineage_root("):geometry.index("fn recover_lane_geometry_journal_with_lineage_root_inner(")]
+    recovery = geometry[geometry.index("fn recover_lane_geometry_journal_with_lineage_root_inner("):geometry.index("fn reconcile_lane_geometry_history(")]
+    startup = (root / "kura/lane_geometry/instance_recovery.rs").read_text()
+    startup = startup[startup.index("fn recover_journal_owned_lane_instances_on_startup("):startup.index("fn authenticate_existing_lane_instance_on_startup(")]
+    for body, locks in ((preflight, ("prune", "canonical", "geometry")),
+                        (recovery, ("prune", "canonical", "geometry", "sidecar")),
+                        (startup, ("prune", "canonical", "geometry", "sidecar"))):
+        first_guard = body.index("let _prune_guard =")
+        for lock, field in zip(locks, ("prune_lock", "canonical_chain_lock", "lane_geometry_lock", "sidecar_lock")):
+            assert body.index("self." + field + ".defer_notifications()") < first_guard
+            assert lock + "_releases.lock()" in body
+        assert "sumeragi_core_mutation = \"HC354\"" in body
+    assert "self.ensure_prune_recovery_not_required()?" in preflight
+    assert "self.resolve_canonical_storage_before_mutation()?" in recovery
+    assert "self.raw_geometry_claim.ensure_unclaimed()?" in recovery
+    assert "self.durable_mutation_authorized()?" in startup
+    controls = (root / "kura/lane_geometry_tests/09_recovery_releases.rs").read_text()
+    for obligation in ("transaction_history_budget()", "observe_release()", "wait_for_release(&mut registration)",
+                       "publication_fences_for_test()", "try_publication_lease()", "native_observation_tree(&root)",
+                       "Error::PruneRecoveryRequired", "Error::CanonicalStoragePoisoned", "catch_unwind",
+                       "registration.belongs_to(&budget)", "reserved - charge"):
+        assert obligation in controls
+    assert "stack_size" not in controls and "RUST_MIN_STACK" not in controls
+    selected = (ROOT / "scripts/taira_release_check.py").read_text()
+    for name in names:
+        assert "fn " + name.rsplit("::", 1)[-1] + "()" in controls
+        assert name in selected
+    rows = re.findall(r"^\| HC354 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and all(name.rsplit("::", 1)[-1] in rows[0] for name in names)
+
+
+def test_native_frame_physical_notifications_outlive_all_original_storage_fences():
+    names = ['kura::native_frame_release_tests::original_native_frame_metadata_success_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_metadata_absence_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_metadata_refusal_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_body_success_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_body_refusal_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_partial_refusals_retain_exact_storage_errors', 'kura::native_frame_release_tests::original_native_frame_unwind_notifies_after_each_acquired_prefix']
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC355"]
+    assert rule.tests == tuple(names)
+    assert rule.causes == tuple(gate.ExpectedFailure(
+        'original native frame notice must wait for every storage fence', 'crates/iroha_core/src/kura/native_frame_release_tests.rs') for _ in names)
+    assert not rule.scenarios
+    assert gate.has_switch("HC355", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}):
+        assert not gate.has_switch("HC355", **family)
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(root).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"HC355"', path.read_text())}
+    assert owners == {"kura/native_execution_reads.rs"}
+    native = (ROOT / 'crates/iroha_core/src/kura/native_execution_reads.rs').read_text()
+    start = native.index("impl NativeFrameBinding {")
+    body = native[native.index("fn read_original(", start):native.index("impl Kura {", start)]
+    metadata = native[native.index("pub(crate) fn native_frame_read("):native.index("pub(crate) fn native_frame_read_owned(")]
+    assert "budget.with_deferred_refund_notifications" in body
+    for implementation, owner in ((body, "kura"), (metadata, "self")):
+        first_guard = implementation.index("let _prune =")
+        for field in ("prune_lock", "canonical_chain_lock"):
+            assert implementation.index(owner + "." + field + ".defer_notifications()") < first_guard
+        assert "prune_releases.lock()" in implementation
+        assert "canonical_releases.lock()" in implementation
+        assert "sumeragi_core_mutation = \"HC355\"" in implementation
+        assert "ensure_prune_recovery_not_required()?" in implementation
+        assert "ensure_canonical_storage_not_poisoned()?" in implementation
+    controls = (ROOT / 'crates/iroha_core/src/kura/native_frame_release_tests.rs').read_text()
+    for obligation in ("transaction_history_budget()", "observe_release()", "wait_for_release(&mut registration)",
+                       "publication_fences_for_test()", "try_publication_lease()", "block_store.try_lock()",
+                       "Error::PruneRecoveryRequired", "Error::CanonicalStoragePoisoned", "catch_unwind",
+                       "registration.belongs_to(&budget)", "bytes.belongs_to(&budget)", "reserved - charge",
+                       "unrelated physical release", "EVICTED_BLOCK_START"):
+        assert obligation in controls
+    assert "stack_size" not in controls and "RUST_MIN_STACK" not in controls
+    selected = (ROOT / "scripts/taira_release_check.py").read_text()
+    for name in names:
+        assert "fn " + name.rsplit("::", 1)[-1] + "()" in controls
+        assert name in selected
+    rows = re.findall(r"^\| HC355 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and all(name.rsplit("::", 1)[-1] in rows[0] for name in names)
+
+
+@pytest.mark.parametrize(
+    ("mutation_id", "owner", "test_name"),
+    [
+        ("HC361", "sumeragi/executor/prepare_admission.rs",
+         "ct1_native_first_prepare_rechecks_original_clock_after_execution"),
+        ("HC362", "sumeragi/lanes/executor.rs",
+         "native_lane_first_prepare_rechecks_pinned_clock_after_execution"),
+        ("HC363", "sumeragi/payload.rs",
+         "fresh_proposal_progress_recheck_uses_captured_time_with_original_signed_input"),
+    ],
+)
+def test_sccp_clock_mutation_ids_are_distinct_from_storage_controls(
+    mutation_id, owner, test_name
+):
+    rules = gate.index_mutations(gate.CORE_MUTATIONS)
+    rule = rules[mutation_id]
+    assert any(name.rsplit("::", 1)[-1] == test_name for name in rule.tests)
+    assert len(rule.causes) == len(rule.tests)
+    assert not rule.scenarios
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(root).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"' + mutation_id + '"', path.read_text())}
+    assert owners == {owner}
+    rows = re.findall(r"^\| " + mutation_id + r" \|.*$",
+                      (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and test_name in rows[0]
+    for storage_id in ("HC353", "HC354", "HC355"):
+        assert set(rule.tests).isdisjoint(rules[storage_id].tests)

@@ -13,6 +13,7 @@ pub mod collection_sources;
 mod contract_return_attempt;
 #[cfg(feature = "app_api")]
 mod public_lane_rewards;
+use iroha_executor_data_model::isi::multisig::{MultisigProposalId, MultisigProposalNonce};
 #[cfg(feature = "app_api")]
 use public_lane_rewards::collect_pending_public_lane_rewards;
 
@@ -21,6 +22,93 @@ use public_lane_rewards::collect_pending_public_lane_rewards;
 #[path = "manifest_signing_test_support.rs"]
 pub mod manifest_signing_test_support;
 
+#[cfg(test)]
+fn occurrence_fixture_network() -> iroha_data_model::NetworkId {
+    iroha_data_model::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+        b"torii-multisig-occurrence-fixture",
+    )))
+}
+#[cfg(test)]
+fn occurrence_fixture_nonce(hash: HashOf<Vec<InstructionBox>>) -> MultisigProposalNonce {
+    MultisigProposalNonce::new(*hash.as_ref()).expect("nonzero deterministic fixture nonce")
+}
+#[cfg(test)]
+fn occurrence_fixture_id(
+    account: &AccountId,
+    hash: HashOf<Vec<InstructionBox>>,
+) -> MultisigProposalId {
+    MultisigProposalId::derive(
+        &occurrence_fixture_network(),
+        account,
+        &occurrence_fixture_nonce(hash),
+    )
+}
+#[cfg(test)]
+fn occurrence_fixture_value(
+    instructions: Vec<InstructionBox>,
+    proposed: u64,
+    expires: u64,
+    approvals: BTreeSet<AccountId>,
+) -> iroha_executor_data_model::isi::multisig::MultisigProposalValue {
+    let hash = HashOf::new(&instructions);
+    let account = AccountId::new(
+        iroha_crypto::KeyPair::from_seed(vec![0x71; 32], iroha_crypto::Algorithm::Ed25519)
+            .public_key()
+            .clone(),
+    );
+    iroha_executor_data_model::isi::multisig::MultisigProposalValue {
+        network_id: occurrence_fixture_network(),
+        proposal_nonce: occurrence_fixture_nonce(hash),
+        proposal_id: occurrence_fixture_id(&account, hash),
+        transaction_ttl_ms: None,
+        instructions,
+        proposed_at_ms: proposed,
+        expires_at_ms: expires,
+        approvals,
+    }
+}
+#[cfg(test)]
+fn occurrence_fixture_state(
+    account: AccountId,
+    hash: HashOf<Vec<InstructionBox>>,
+    instructions: Vec<InstructionBox>,
+    proposed: u64,
+    expires: u64,
+    approvals: BTreeSet<AccountId>,
+) -> iroha_executor_data_model::isi::multisig::MultisigProposalState {
+    iroha_executor_data_model::isi::multisig::MultisigProposalState {
+        network_id: occurrence_fixture_network(),
+        multisig_account_id: account.clone(),
+        proposal_nonce: occurrence_fixture_nonce(hash),
+        proposal_id: occurrence_fixture_id(&account, hash),
+        instructions_hash: hash,
+        transaction_ttl_ms: None,
+        instructions,
+        proposed_at_ms: proposed,
+        expires_at_ms: expires,
+        approvals,
+    }
+}
+#[cfg(test)]
+fn occurrence_fixture_terminal(
+    account: AccountId,
+    hash: HashOf<Vec<InstructionBox>>,
+    mut proposal: iroha_executor_data_model::isi::multisig::MultisigProposalValue,
+    status: iroha_executor_data_model::isi::multisig::MultisigProposalTerminalStatus,
+    at: u64,
+) -> iroha_executor_data_model::isi::multisig::MultisigProposalTerminalState {
+    proposal.network_id = occurrence_fixture_network();
+    proposal.proposal_nonce = occurrence_fixture_nonce(hash);
+    proposal.proposal_id = occurrence_fixture_id(&account, hash);
+    iroha_executor_data_model::isi::multisig::MultisigProposalTerminalState::new(
+        account,
+        proposal.proposal_id,
+        hash,
+        proposal,
+        status,
+        at,
+    )
+}
 #[cfg(test)]
 #[allow(unused_macro_rules)]
 macro_rules! routing_test {
@@ -9222,20 +9310,6 @@ fn reject_direct_multisig_signing(
     if !state.has_account(tx.authority()) {
         return None;
     }
-    let only_custom_instruction_envelopes = matches!(
-        tx.instructions(),
-        Executable::Instructions(items)
-            if !items.is_empty()
-                && items.iter().all(|instruction| {
-                    instruction
-                        .as_any()
-                        .downcast_ref::<iroha_data_model::isi::CustomInstruction>()
-                        .is_some()
-                })
-    );
-    if only_custom_instruction_envelopes {
-        return None;
-    }
     let rejection = SignatureVerificationFail::new(
         tx.signature().clone(),
         SignatureRejectionCode::UnsupportedAuthority,
@@ -9282,7 +9356,8 @@ mod multisig_guard_tests {
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
         .with_executable(Executable::Instructions(Vec::new().into()))
-        .sign(signer_keypair.private_key());
+        .sign_multisig([signer_keypair.private_key()]);
+        tx.verify_signature().expect("valid native multisig witness");
         let rejection = reject_direct_multisig_signing(&state, &tx);
         match rejection {
             Some(AcceptTransactionFail::SignatureVerification(fail)) => {
@@ -9322,7 +9397,7 @@ mod multisig_guard_tests {
             "single-signature signatories with multisig role must pass admission guard"
         );
     }
-    routing_test! { sync multisig_authority_with_custom_instruction_envelope_is_not_rejected
+    routing_test! { sync custom_instruction_does_not_bypass_direct_multisig_admission
         let domain_id: DomainId = DomainId::try_new("wonderland", "universal").unwrap();
         let signer_keypair = super::checked_routing_fixture_keypair(
             0xe9,
@@ -9349,12 +9424,15 @@ mod multisig_guard_tests {
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
         .with_executable(Executable::Instructions(vec![custom].into()))
-        .sign(signer_keypair.private_key());
+        .sign_multisig([signer_keypair.private_key()]);
+        tx.verify_signature().expect("valid native multisig witness");
         let rejection = reject_direct_multisig_signing(&state, &tx);
-        assert!(
-            rejection.is_none(),
-            "multisig custom instruction envelopes must pass admission guard"
-        );
+        match rejection {
+            Some(AcceptTransactionFail::SignatureVerification(fail)) => {
+                assert_eq!(fail.code(), SignatureRejectionCode::UnsupportedAuthority);
+            }
+            other => panic!("custom envelope bypassed multisig admission: {other:?}"),
+        }
     }
 }
 /// Validate a transaction at Torii ingress and return the accepted form.
@@ -17095,12 +17173,12 @@ fn multisig_proposal_state_prefix(
 }
 fn multisig_proposal_state_contract_key(
     multisig_account_id: &iroha_data_model::account::AccountId,
-    instructions_hash: &HashOf<Vec<iroha_data_model::isi::InstructionBox>>,
+    proposal_id: &MultisigProposalId,
 ) -> StatePath {
     StatePath::from_str(&format!(
         "{}{}",
         multisig_proposal_state_prefix(multisig_account_id).as_ref(),
-        instructions_hash
+        proposal_id
     ))
     .expect("multisig proposal state contract key")
 }
@@ -17115,12 +17193,12 @@ fn multisig_proposal_terminal_state_prefix(
 }
 fn multisig_proposal_terminal_state_contract_key(
     multisig_account_id: &iroha_data_model::account::AccountId,
-    instructions_hash: &HashOf<Vec<iroha_data_model::isi::InstructionBox>>,
+    proposal_id: &MultisigProposalId,
 ) -> StatePath {
     StatePath::from_str(&format!(
         "{}{}",
         multisig_proposal_terminal_state_prefix(multisig_account_id).as_ref(),
-        instructions_hash
+        proposal_id
     ))
     .expect("multisig proposal terminal state contract key")
 }
@@ -17486,50 +17564,18 @@ fn resolve_multisig_proposal_read_account(
     Ok((account, None))
 }
 
-fn resolve_multisig_proposal_hash(
-    proposal_id: Option<String>,
-    instructions_hash: Option<String>,
-) -> Result<(String, HashOf<Vec<iroha_data_model::isi::InstructionBox>>)> {
-    let parse_literal = |field: &'static str, value: Option<String>| -> Result<Option<String>> {
-        let Some(value) = value else {
-            return Ok(None);
-        };
-        if value.is_empty() || value.trim() != value {
-            return Err(multisig_selector_validation_error(format!(
-                "{field} must be a non-empty canonical instruction hash"
-            )));
-        }
-        let parsed = value
-            .parse::<HashOf<Vec<iroha_data_model::isi::InstructionBox>>>()
-            .map_err(|err| multisig_selector_validation_error(format!("invalid {field}: {err}")))?;
-        if parsed.to_string() != value {
-            return Err(multisig_selector_validation_error(format!(
-                "{field} must use the canonical lowercase instruction-hash encoding"
-            )));
-        }
-        Ok(Some(value))
-    };
-    let proposal_id_literal = parse_literal("proposal_id", proposal_id)?;
-    let instructions_hash_literal = parse_literal("instructions_hash", instructions_hash)?;
-    if proposal_id_literal.is_some() && instructions_hash_literal.is_some() {
-        return Err(multisig_selector_validation_error(
-            "exactly one of proposal_id or instructions_hash must be set".to_owned(),
-        ));
+fn resolve_multisig_proposal_reference(
+    proposal_id: &str,
+    instructions_hash: &str,
+) -> Result<(MultisigProposalId, HashOf<Vec<iroha_data_model::isi::InstructionBox>>)> {
+    let id = proposal_id.parse::<MultisigProposalId>()
+        .map_err(|_| multisig_selector_validation_error("invalid canonical proposal_id"))?;
+    let hash = instructions_hash.parse::<HashOf<Vec<iroha_data_model::isi::InstructionBox>>>()
+        .map_err(|_| multisig_selector_validation_error("invalid canonical instructions_hash"))?;
+    if hash.to_string() != instructions_hash {
+        return Err(multisig_selector_validation_error("instructions_hash must be canonical lowercase hex"));
     }
-    let hash_literal = instructions_hash_literal
-        .clone()
-        .or_else(|| proposal_id_literal.clone())
-        .ok_or_else(|| {
-            multisig_selector_validation_error(
-                "proposal_id or instructions_hash is required".to_owned(),
-            )
-        })?;
-    let instructions_hash = hash_literal
-        .parse::<HashOf<Vec<iroha_data_model::isi::InstructionBox>>>()
-        .map_err(|err| {
-            multisig_selector_validation_error(format!("invalid instructions_hash: {err}"))
-        })?;
-    Ok((hash_literal, instructions_hash))
+    Ok((id, hash))
 }
 fn approvals_reach_quorum(
     spec: &iroha_executor_data_model::isi::multisig::MultisigSpec,
@@ -17596,33 +17642,37 @@ struct MultisigProposalRecord {
 fn proposal_value_from_state(
     proposal_state: iroha_executor_data_model::isi::multisig::MultisigProposalState,
 ) -> iroha_executor_data_model::isi::multisig::MultisigProposalValue {
-    iroha_executor_data_model::isi::multisig::MultisigProposalValue::new(
-        proposal_state.instructions,
-        proposal_state.proposed_at_ms,
-        proposal_state.expires_at_ms,
-        proposal_state.approvals,
-        proposal_state.is_relayed,
-    )
+    iroha_executor_data_model::isi::multisig::MultisigProposalValue {
+        network_id: proposal_state.network_id,
+        proposal_nonce: proposal_state.proposal_nonce,
+        proposal_id: proposal_state.proposal_id,
+        transaction_ttl_ms: proposal_state.transaction_ttl_ms,
+        instructions: proposal_state.instructions,
+        proposed_at_ms: proposal_state.proposed_at_ms,
+        expires_at_ms: proposal_state.expires_at_ms,
+        approvals: proposal_state.approvals,
+    }
 }
 fn validate_multisig_active_proposal_binding(
     multisig_account_id: &iroha_data_model::account::AccountId,
-    instructions_hash: &HashOf<Vec<iroha_data_model::isi::InstructionBox>>,
+    proposal_id: &MultisigProposalId,
     proposal_state: &iroha_executor_data_model::isi::multisig::MultisigProposalState,
 ) -> Result<()> {
     if proposal_state.multisig_account_id != *multisig_account_id
-        || proposal_state.instructions_hash != *instructions_hash
-        || HashOf::new(&proposal_state.instructions) != *instructions_hash
+        || proposal_state.proposal_id != *proposal_id
+        || MultisigProposalId::derive(&proposal_state.network_id, multisig_account_id, &proposal_state.proposal_nonce) != *proposal_id
+        || HashOf::new(&proposal_state.instructions) != proposal_state.instructions_hash
         || proposal_state.expires_at_ms <= proposal_state.proposed_at_ms
     {
         return Err(conversion_error(format!(
-            "multisig proposal state does not match account/hash/timestamp invariants for {multisig_account_id}/{instructions_hash}"
+            "multisig proposal state does not match account/hash/timestamp invariants for {multisig_account_id}/{proposal_id}"
         )));
     }
     Ok(())
 }
 fn validate_multisig_terminal_proposal_binding(
     multisig_account_id: &iroha_data_model::account::AccountId,
-    instructions_hash: &HashOf<Vec<iroha_data_model::isi::InstructionBox>>,
+    proposal_id: &MultisigProposalId,
     terminal_state: &iroha_executor_data_model::isi::multisig::MultisigProposalTerminalState,
 ) -> Result<()> {
     let valid_terminal_time = match terminal_state.status {
@@ -17635,14 +17685,16 @@ fn validate_multisig_terminal_proposal_binding(
         }
     };
     if terminal_state.multisig_account_id != *multisig_account_id
-        || terminal_state.instructions_hash != *instructions_hash
-        || HashOf::new(&terminal_state.proposal.instructions) != *instructions_hash
+        || terminal_state.proposal_id != *proposal_id
+        || terminal_state.proposal.proposal_id != *proposal_id
+        || MultisigProposalId::derive(&terminal_state.proposal.network_id, multisig_account_id, &terminal_state.proposal.proposal_nonce) != *proposal_id
+        || HashOf::new(&terminal_state.proposal.instructions) != terminal_state.instructions_hash
         || terminal_state.proposal.expires_at_ms <= terminal_state.proposal.proposed_at_ms
         || terminal_state.terminal_at_ms < terminal_state.proposal.proposed_at_ms
         || !valid_terminal_time
     {
         return Err(conversion_error(format!(
-            "terminal multisig proposal state does not match account/hash/timestamp invariants for {multisig_account_id}/{instructions_hash}"
+            "terminal multisig proposal state does not match account/hash/timestamp invariants for {multisig_account_id}/{proposal_id}"
         )));
     }
     Ok(())
@@ -17664,14 +17716,14 @@ fn classify_active_multisig_proposal_status(
 fn load_multisig_active_proposal_state_optional(
     state: &CoreState,
     multisig_account_id: &iroha_data_model::account::AccountId,
-    instructions_hash: &HashOf<Vec<iroha_data_model::isi::InstructionBox>>,
+    proposal_id: &MultisigProposalId,
 ) -> Result<Option<iroha_executor_data_model::isi::multisig::MultisigProposalState>> {
     let world = state.world_view();
     world.account(multisig_account_id).map_err(|_| {
         conversion_error(format!("multisig account not found: {multisig_account_id}"))
     })?;
     let storage = world.smart_contract_state();
-    let key = multisig_proposal_state_contract_key(multisig_account_id, instructions_hash);
+    let key = multisig_proposal_state_contract_key(multisig_account_id, proposal_id);
     let Some(bytes) = storage.get(key.as_ref()) else {
         return Ok(None);
     };
@@ -17681,7 +17733,7 @@ fn load_multisig_active_proposal_state_optional(
     .map_err(|err| conversion_error(format!("invalid multisig proposal state: {err}")))?;
     validate_multisig_active_proposal_binding(
         multisig_account_id,
-        instructions_hash,
+        proposal_id,
         &proposal_state,
     )?;
     Ok(Some(proposal_state))
@@ -17690,7 +17742,7 @@ fn load_multisig_proposal_record(
     state: &CoreState,
     multisig_account_id: &iroha_data_model::account::AccountId,
     spec: &iroha_executor_data_model::isi::multisig::MultisigSpec,
-    instructions_hash: &HashOf<Vec<iroha_data_model::isi::InstructionBox>>,
+    proposal_id: &MultisigProposalId,
 ) -> Result<Option<MultisigProposalRecord>> {
     let world = state.world_view();
     world.account(multisig_account_id).map_err(|_| {
@@ -17698,14 +17750,14 @@ fn load_multisig_proposal_record(
     })?;
     let storage = world.smart_contract_state();
     let now_ms = current_time_millis();
-    let active_key = multisig_proposal_state_contract_key(multisig_account_id, instructions_hash);
+    let active_key = multisig_proposal_state_contract_key(multisig_account_id, proposal_id);
     let terminal_key =
-        multisig_proposal_terminal_state_contract_key(multisig_account_id, instructions_hash);
+        multisig_proposal_terminal_state_contract_key(multisig_account_id, proposal_id);
     let active_bytes = storage.get(active_key.as_ref());
     let terminal_bytes = storage.get(terminal_key.as_ref());
     if active_bytes.is_some() && terminal_bytes.is_some() {
         return Err(conversion_error(format!(
-            "multisig proposal has conflicting active and terminal state for {multisig_account_id}/{instructions_hash}"
+            "multisig proposal has conflicting active and terminal state for {multisig_account_id}/{proposal_id}"
         )));
     }
     if let Some(bytes) = active_bytes {
@@ -17715,7 +17767,7 @@ fn load_multisig_proposal_record(
         .map_err(|err| conversion_error(format!("invalid multisig proposal state: {err}")))?;
         validate_multisig_active_proposal_binding(
             multisig_account_id,
-            instructions_hash,
+            proposal_id,
             &proposal_state,
         )?;
         let proposal = proposal_value_from_state(proposal_state);
@@ -17736,7 +17788,7 @@ fn load_multisig_proposal_record(
     .map_err(|err| conversion_error(format!("invalid multisig proposal terminal state: {err}")))?;
     validate_multisig_terminal_proposal_binding(
         multisig_account_id,
-        instructions_hash,
+        proposal_id,
         &terminal_state,
     )?;
     validate_multisig_proposal_approvals(spec, &terminal_state.proposal)?;
@@ -17760,7 +17812,7 @@ fn load_multisig_proposal_record(
 fn load_historical_multisig_terminal_record(
     state: &CoreState,
     account: &AccountId,
-    hash: &HashOf<Vec<iroha_data_model::isi::InstructionBox>>,
+    hash: &MultisigProposalId,
 ) -> Result<Option<MultisigProposalRecord>> {
     let world = state.world_view();
     let storage = world.smart_contract_state();
@@ -17787,12 +17839,12 @@ async fn wait_for_multisig_proposal_record_visibility(
     state: &CoreState,
     multisig_account_id: &iroha_data_model::account::AccountId,
     spec: &iroha_executor_data_model::isi::multisig::MultisigSpec,
-    instructions_hash: &HashOf<Vec<iroha_data_model::isi::InstructionBox>>,
+    proposal_id: &MultisigProposalId,
 ) -> Result<Option<MultisigProposalRecord>> {
     let started_at = std::time::Instant::now();
     loop {
         if let Some(record) =
-            load_multisig_proposal_record(state, multisig_account_id, spec, instructions_hash)?
+            load_multisig_proposal_record(state, multisig_account_id, spec, proposal_id)?
         {
             return Ok(Some(record));
         }
@@ -17821,11 +17873,6 @@ fn multisig_proposal_is_cancel_wrapper(
                 Ok(iroha_executor_data_model::isi::multisig::MultisigInstructionBox::Cancel(_))
             )
     )
-}
-fn multisig_proposal_is_user_visible(
-    proposal: &iroha_executor_data_model::isi::multisig::MultisigProposalValue,
-) -> bool {
-    proposal.is_relayed.is_none() && !multisig_proposal_is_cancel_wrapper(proposal)
 }
 fn requested_multisig_statuses(statuses: &[String]) -> Result<BTreeSet<String>> {
     const STATUS_COUNT: usize = 4;
@@ -17865,7 +17912,7 @@ pub const MULTISIG_PROPOSALS_MAX_PAGE_LIMIT: u64 = 100;
 struct MultisigProposalsCursor {
     multisig_account_fingerprint: String,
     proposed_at_ms: u64,
-    instructions_hash: String,
+    proposal_id: String,
     status_fingerprint: String,
 }
 pub fn multisig_account_fingerprint(
@@ -17883,7 +17930,7 @@ fn encode_multisig_proposals_cursor(cursor: &MultisigProposalsCursor) -> String 
         "v1|{}|{}|{}|{}",
         cursor.multisig_account_fingerprint,
         cursor.proposed_at_ms,
-        cursor.instructions_hash,
+        cursor.proposal_id,
         cursor.status_fingerprint
     ))
 }
@@ -17918,7 +17965,7 @@ fn decode_multisig_proposals_cursor(
     let proposed_at_literal = parts
         .next()
         .ok_or_else(|| multisig_cursor_validation_error("cursor payload is incomplete"))?;
-    let instructions_hash_literal = parts
+    let proposal_id_literal = parts
         .next()
         .ok_or_else(|| multisig_cursor_validation_error("cursor payload is incomplete"))?;
     let status_fingerprint = parts
@@ -17950,13 +17997,13 @@ fn decode_multisig_proposals_cursor(
             "cursor proposed_at_ms is not canonically encoded",
         ));
     }
-    let instructions_hash = instructions_hash_literal
-        .parse::<HashOf<Vec<iroha_data_model::isi::InstructionBox>>>()
-        .map_err(|_| multisig_cursor_validation_error("cursor instructions_hash is invalid"))?;
-    let canonical_instructions_hash = instructions_hash.to_string();
-    if canonical_instructions_hash != instructions_hash_literal {
+    let proposal_id = proposal_id_literal
+        .parse::<MultisigProposalId>()
+        .map_err(|_| multisig_cursor_validation_error("cursor proposal_id is invalid"))?;
+    let canonical_proposal_id = proposal_id.to_string();
+    if canonical_proposal_id != proposal_id_literal {
         return Err(multisig_cursor_validation_error(
-            "cursor instructions_hash is not canonically encoded",
+            "cursor proposal_id is not canonically encoded",
         ));
     }
     let expected_status_fingerprint = multisig_status_fingerprint(requested_statuses);
@@ -17968,7 +18015,7 @@ fn decode_multisig_proposals_cursor(
     let cursor = MultisigProposalsCursor {
         multisig_account_fingerprint: expected_account_fingerprint,
         proposed_at_ms,
-        instructions_hash: canonical_instructions_hash,
+        proposal_id: canonical_proposal_id,
         status_fingerprint: expected_status_fingerprint,
     };
     if encode_multisig_proposals_cursor(&cursor) != raw {
@@ -17980,13 +18027,13 @@ fn decode_multisig_proposals_cursor(
 }
 fn multisig_proposal_sort_order(
     left_proposed_at_ms: u64,
-    left_instructions_hash: &str,
+    left_proposal_id: &str,
     right_proposed_at_ms: u64,
-    right_instructions_hash: &str,
+    right_proposal_id: &str,
 ) -> Ordering {
     right_proposed_at_ms
         .cmp(&left_proposed_at_ms)
-        .then_with(|| left_instructions_hash.cmp(right_instructions_hash))
+        .then_with(|| left_proposal_id.cmp(right_proposal_id))
 }
 fn multisig_proposal_cursor_for(
     entry: &MultisigProposalEntryDto,
@@ -17996,7 +18043,7 @@ fn multisig_proposal_cursor_for(
     MultisigProposalsCursor {
         multisig_account_fingerprint: multisig_account_fingerprint(multisig_account_id),
         proposed_at_ms: entry.proposal.proposed_at_ms,
-        instructions_hash: entry.instructions_hash.clone(),
+        proposal_id: entry.proposal_id.clone(),
         status_fingerprint: multisig_status_fingerprint(requested_statuses),
     }
 }
@@ -18007,9 +18054,9 @@ fn multisig_proposal_is_after_cursor(
     matches!(
         multisig_proposal_sort_order(
             entry.proposal.proposed_at_ms,
-            &entry.instructions_hash,
+            &entry.proposal_id,
             cursor.proposed_at_ms,
-            &cursor.instructions_hash,
+            &cursor.proposal_id,
         ),
         Ordering::Greater
     )
@@ -18019,7 +18066,7 @@ fn multisig_proposal_matches_cursor(
     cursor: &MultisigProposalsCursor,
 ) -> bool {
     entry.proposal.proposed_at_ms == cursor.proposed_at_ms
-        && entry.instructions_hash == cursor.instructions_hash
+        && entry.proposal_id == cursor.proposal_id
 }
 fn multisig_metadata_string(metadata: &Metadata, key: &str) -> Option<String> {
     let name = Name::from_str(key).ok()?;
@@ -18577,11 +18624,46 @@ fn multisig_asset_transfer_control_operation(
     }
     None
 }
+fn multisig_cancellation_intent<W: iroha_core::state::WorldReadOnly>(
+    world: &W,
+    account: &AccountId,
+    proposal: &iroha_executor_data_model::isi::multisig::MultisigProposalValue,
+) -> Option<IrohaJson> {
+    use iroha_executor_data_model::isi::multisig::{MultisigInstructionBox, MultisigProposalState, MultisigProposalTerminalState};
+    let [instruction] = proposal.instructions.as_slice() else { return None; };
+    let MultisigInstructionBox::Cancel(cancel) = MultisigInstructionBox::try_from(instruction).ok()? else { return None; };
+    if cancel.account != *account { return None; }
+    let active_key = multisig_proposal_state_contract_key(account, &cancel.proposal_id);
+    let terminal_key = multisig_proposal_terminal_state_contract_key(account, &cancel.proposal_id);
+    let storage = world.smart_contract_state();
+    let target = match (storage.get(active_key.as_ref()), storage.get(terminal_key.as_ref())) {
+        (Some(bytes), None) => {
+            let row: MultisigProposalState = norito::decode_from_bytes(bytes).ok()?;
+            validate_multisig_active_proposal_binding(account, &cancel.proposal_id, &row).ok()?;
+            proposal_value_from_state(row)
+        }
+        (None, Some(bytes)) => {
+            let row: MultisigProposalTerminalState = norito::decode_from_bytes(bytes).ok()?;
+            validate_multisig_terminal_proposal_binding(account, &cancel.proposal_id, &row).ok()?;
+            row.proposal
+        }
+        _ => return None,
+    };
+    if target.network_id != proposal.network_id || HashOf::new(&target.instructions) != cancel.instructions_hash || multisig_proposal_is_cancel_wrapper(&target) { return None; }
+    let operation = multisig_proposal_intent(world, account, &target)?;
+    Some(IrohaJson::new(norito::json!({
+        "target_proposal_id": (cancel.proposal_id.to_string()),
+        "target_instructions_hash": (cancel.instructions_hash.to_string()),
+        "operation_type": (multisig_proposal_operation_type(world, account, &target)),
+        "operation": (operation.try_into_any_norito::<Value>().ok()?),
+    })))
+}
 fn multisig_proposal_operation_type<W: iroha_core::state::WorldReadOnly>(
     world: &W,
     multisig_account_id: &iroha_data_model::account::AccountId,
     proposal: &iroha_executor_data_model::isi::multisig::MultisigProposalValue,
 ) -> &'static str {
+    if multisig_cancellation_intent(world, multisig_account_id, proposal).is_some() { return "MULTISIG_CANCEL"; }
     if let Some(intent) =
         strict_multisig_contract_call_intent_with_world(world, multisig_account_id, proposal)
     {
@@ -18637,6 +18719,7 @@ fn multisig_proposal_intent<W: iroha_core::state::WorldReadOnly>(
     multisig_account_id: &iroha_data_model::account::AccountId,
     proposal: &iroha_executor_data_model::isi::multisig::MultisigProposalValue,
 ) -> Option<IrohaJson> {
+    if let Some(intent) = multisig_cancellation_intent(world, multisig_account_id, proposal) { return Some(intent); }
     strict_multisig_contract_call_intent_with_world(world, multisig_account_id, proposal)
         .map(|intent| intent.intent)
         .or_else(|| {
@@ -18674,6 +18757,25 @@ fn multisig_proposal_intent<W: iroha_core::state::WorldReadOnly>(
             Some(IrohaJson::new(Value::Object(payload)))
         })
         .or_else(|| {
+            // Display only the complete single native mint. Approval admission
+            // independently compares the reviewed intent with the batch hash.
+            let [instruction] = proposal.instructions.as_slice() else {
+                return None;
+            };
+            let iroha_data_model::isi::MintBox::Asset(mint) = instruction
+                .as_any()
+                .downcast_ref::<iroha_data_model::isi::MintBox>()?
+            else {
+                return None;
+            };
+            let mut payload = Map::new();
+            payload.insert("kind".into(), Value::from("MINT"));
+            payload.insert("asset_id".into(), Value::from(mint.destination().definition().to_string()));
+            payload.insert("amount".into(), Value::from(mint.object().to_string()));
+            payload.insert("to_account_id".into(), Value::from(mint.destination().account().to_string()));
+            Some(IrohaJson::new(Value::Object(payload)))
+        })
+        .or_else(|| {
             proposal.instructions.first().and_then(|instruction| {
                 let Ok(
                     iroha_executor_data_model::isi::multisig::MultisigInstructionBox::InvalidateOutstanding(invalidate),
@@ -18706,7 +18808,7 @@ fn query_multisig_proposals(
     }
     let storage = world.smart_contract_state();
     let mut proposals = Vec::new();
-    let mut seen_hashes = BTreeSet::new();
+    let mut seen_ids = BTreeSet::new();
     let now_ms = current_time_millis();
     let active_prefix = multisig_proposal_state_prefix(multisig_account_id);
     let active_prefix_literal = active_prefix.as_ref().to_owned();
@@ -18721,14 +18823,14 @@ fn query_multisig_proposals(
                 iroha_data_model::query::error::QueryExecutionFail::CapacityLimit,
             ))
         })?;
-        let instructions_hash = hash_literal
-            .parse::<HashOf<Vec<iroha_data_model::isi::InstructionBox>>>()
+        let proposal_id = hash_literal
+            .parse::<MultisigProposalId>()
             .map_err(|err| {
                 conversion_error(format!(
                     "invalid multisig proposal state-key instruction hash: {err}"
                 ))
             })?;
-        if instructions_hash.to_string() != hash_literal {
+        if proposal_id.to_string() != hash_literal {
             return Err(conversion_error(
                 "multisig proposal state-key instruction hash is not canonical".to_owned(),
             ));
@@ -18739,15 +18841,12 @@ fn query_multisig_proposals(
         .map_err(|err| conversion_error(format!("invalid multisig proposal state: {err}")))?;
         validate_multisig_active_proposal_binding(
             multisig_account_id,
-            &instructions_hash,
+            &proposal_id,
             &proposal_state,
         )?;
         let proposal = proposal_value_from_state(proposal_state);
         validate_multisig_proposal_approvals(spec, &proposal)?;
-        if !multisig_proposal_is_user_visible(&proposal) {
-            continue;
-        }
-        if !seen_hashes.insert(hash_literal.to_owned()) {
+        if !seen_ids.insert(hash_literal.to_owned()) {
             return Err(conversion_error(format!(
                 "duplicate multisig proposal state for instruction hash {hash_literal}"
             )));
@@ -18761,7 +18860,7 @@ fn query_multisig_proposals(
         let intent = multisig_proposal_intent(&world, multisig_account_id, &proposal);
         proposals.push(MultisigProposalEntryDto {
             proposal_id: hash_literal.to_owned(),
-            instructions_hash: hash_literal.to_owned(),
+            instructions_hash: HashOf::new(&proposal.instructions).to_string(),
             operation_type,
             intent,
             proposal,
@@ -18781,14 +18880,14 @@ fn query_multisig_proposals(
                 iroha_data_model::query::error::QueryExecutionFail::CapacityLimit,
             ))
         })?;
-        let instructions_hash = hash_literal
-            .parse::<HashOf<Vec<iroha_data_model::isi::InstructionBox>>>()
+        let proposal_id = hash_literal
+            .parse::<MultisigProposalId>()
             .map_err(|err| {
                 conversion_error(format!(
                     "invalid terminal multisig proposal state-key instruction hash: {err}"
                 ))
             })?;
-        if instructions_hash.to_string() != hash_literal {
+        if proposal_id.to_string() != hash_literal {
             return Err(conversion_error(
                 "terminal multisig proposal state-key instruction hash is not canonical".to_owned(),
             ));
@@ -18801,7 +18900,7 @@ fn query_multisig_proposals(
         })?;
         validate_multisig_terminal_proposal_binding(
             multisig_account_id,
-            &instructions_hash,
+            &proposal_id,
             &terminal_state,
         )?;
         if let Some(spec) = spec {
@@ -18809,10 +18908,7 @@ fn query_multisig_proposals(
         } else {
             validate_historical_multisig_proposal_approvals(multisig_account_id, &terminal_state.proposal)?;
         }
-        if !multisig_proposal_is_user_visible(&terminal_state.proposal) {
-            continue;
-        }
-        if !seen_hashes.insert(hash_literal.to_owned()) {
+        if !seen_ids.insert(hash_literal.to_owned()) {
             return Err(conversion_error(format!(
                 "active and terminal multisig proposal state overlap for instruction hash {hash_literal}"
             )));
@@ -18838,7 +18934,7 @@ fn query_multisig_proposals(
             multisig_proposal_intent(&world, multisig_account_id, &terminal_state.proposal);
         proposals.push(MultisigProposalEntryDto {
             proposal_id: hash_literal.to_owned(),
-            instructions_hash: hash_literal.to_owned(),
+            instructions_hash: terminal_state.instructions_hash.to_string(),
             operation_type,
             intent,
             proposal: terminal_state.proposal,
@@ -18849,9 +18945,9 @@ fn query_multisig_proposals(
     proposals.sort_by(|left, right| {
         multisig_proposal_sort_order(
             left.proposal.proposed_at_ms,
-            &left.instructions_hash,
+            &left.proposal_id,
             right.proposal.proposed_at_ms,
-            &right.instructions_hash,
+            &right.proposal_id,
         )
     });
     Ok(proposals)
@@ -19280,13 +19376,7 @@ NonZeroU64::new(1).expect("positive fixture attempt"),
             .0
         };
         let proposal = |instructions| {
-            iroha_executor_data_model::isi::multisig::MultisigProposalValue::new(
-                instructions,
-                1,
-                2,
-                BTreeSet::new(),
-                None,
-            )
+            occurrence_fixture_value(instructions, 1, 2, BTreeSet::new())
         };
         let canonical_instructions = build(&canonical_alias, "apply_freeze", &payload);
         let canonical_register = canonical_instructions[0]
@@ -20411,8 +20501,8 @@ mod multisig_selector_tests {
         query::error::QueryExecutionFail,
     };
     use iroha_executor_data_model::isi::multisig::{
-        MultisigAccountState, MultisigApprove, MultisigInvalidateOutstanding,
-        MultisigProposalValue, MultisigPropose, MultisigSpec,
+        MultisigAccountState, MultisigApprove, MultisigCancel, MultisigInvalidateOutstanding,
+        MultisigPropose, MultisigSpec,
     };
     use iroha_executor_data_model::permission::smart_contract::{
         CanManageSmartContractCode, CanUseContractPermission,
@@ -20568,25 +20658,16 @@ dataspace_catalog,
         proposed_at_ms: u64,
         expires_at_ms: u64,
         approvals: BTreeSet<dm::AccountId>,
-        is_relayed: Option<bool>,
     ) -> String {
         let instructions_hash = HashOf::new(&instructions);
         world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_contract_key(multisig_account_id, &instructions_hash),
+            multisig_proposal_state_contract_key(multisig_account_id, &occurrence_fixture_id(multisig_account_id, instructions_hash)),
             norito::to_bytes(
-                &iroha_executor_data_model::isi::multisig::MultisigProposalState::new(
-                    multisig_account_id.clone(),
-                    instructions_hash,
-                    instructions,
-                    proposed_at_ms,
-                    expires_at_ms,
-                    approvals,
-                    is_relayed,
-                ),
+                &occurrence_fixture_state(multisig_account_id.clone(), instructions_hash, instructions, proposed_at_ms, expires_at_ms, approvals),
             )
             .expect("encode active proposal state"),
         );
-        instructions_hash.to_string()
+        occurrence_fixture_id(multisig_account_id, instructions_hash).to_string()
     }
     fn insert_native_multisig_account_state(
         world: &mut World,
@@ -20646,9 +20727,6 @@ dataspace_catalog,
         );
         let active_instructions = vec![dm::Log::new(dm::Level::INFO, "active".to_owned()).into()];
         let active_hash = HashOf::new(&active_instructions);
-        let executed_instructions =
-            vec![dm::Log::new(dm::Level::INFO, "executed".to_owned()).into()];
-        let executed_hash = HashOf::new(&executed_instructions);
         let expired_instructions = vec![dm::Log::new(dm::Level::INFO, "expired".to_owned()).into()];
         let expired_hash = HashOf::new(&expired_instructions);
         let authority = signer_one_id.account().clone();
@@ -20675,47 +20753,16 @@ dataspace_catalog,
             &spec,
         );
         world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_contract_key(&multisig_account_id, &active_hash),
+            multisig_proposal_state_contract_key(&multisig_account_id, &occurrence_fixture_id(&multisig_account_id, active_hash)),
             norito::to_bytes(
-                &iroha_executor_data_model::isi::multisig::MultisigProposalState::new(
-                    multisig_account_id.clone(),
-                    active_hash,
-                    active_instructions,
-                    1_700_000_000_000,
-                    4_000_000_000_000,
-                    BTreeSet::from([signer_one_id.clone()]),
-                    None,
-                ),
+                &occurrence_fixture_state(multisig_account_id.clone(), active_hash, active_instructions, 1_700_000_000_000, 4_000_000_000_000, BTreeSet::from([signer_one_id.clone()])),
             )
             .expect("encode active proposal state"),
         );
         world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_contract_key(&multisig_account_id, &executed_hash),
+            multisig_proposal_state_contract_key(&multisig_account_id, &occurrence_fixture_id(&multisig_account_id, expired_hash)),
             norito::to_bytes(
-                &iroha_executor_data_model::isi::multisig::MultisigProposalState::new(
-                    multisig_account_id.clone(),
-                    executed_hash,
-                    executed_instructions,
-                    1_700_000_000_001,
-                    4_000_000_000_000,
-                    BTreeSet::from([signer_one_id.clone(), signer_two_id.clone()]),
-                    Some(true),
-                ),
-            )
-            .expect("encode executed proposal state"),
-        );
-        world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_contract_key(&multisig_account_id, &expired_hash),
-            norito::to_bytes(
-                &iroha_executor_data_model::isi::multisig::MultisigProposalState::new(
-                    multisig_account_id.clone(),
-                    expired_hash,
-                    expired_instructions,
-                    1_600_000_000_000,
-                    1_600_000_000_001,
-                    BTreeSet::new(),
-                    None,
-                ),
+                &occurrence_fixture_state(multisig_account_id.clone(), expired_hash, expired_instructions, 1_600_000_000_000, 1_600_000_000_001, BTreeSet::new()),
             )
             .expect("encode expired proposal state"),
         );
@@ -20728,11 +20775,11 @@ dataspace_catalog,
         }
         (
             world,
-            multisig_account_id,
+            multisig_account_id.clone(),
             signer_one_id,
             signer_two_id,
             alias_literal,
-            active_hash.to_string(),
+            occurrence_fixture_id(&multisig_account_id, active_hash).to_string(),
         )
     }
     fn quorum_one_multisig_world() -> (World, dm::AccountId, dm::AccountId, String, KeyPair) {
@@ -21039,13 +21086,17 @@ dataspace_catalog,
                 .find(|entry| entry.name == "kaizen")
                 .unwrap()
                 .clone();
-            let mut block = state.block(dm::BlockHeader::new(
+            let genesis_header = dm::BlockHeader::new(
+                NonZeroU64::new(1).unwrap(), None, None, 1_700_000_000_000, 0,
+            );
+            let upgrade_header = dm::BlockHeader::new(
                 NonZeroU64::new(2).unwrap(),
+                Some(genesis_header.hash()),
                 None,
-                None,
+                1_700_000_001_000,
                 0,
-                0,
-            ));
+            );
+            let mut block = state.block(upgrade_header.clone());
             let mut transaction = block.transaction();
             let code_hash = register_code_bytes(
                 &authority,
@@ -21071,6 +21122,11 @@ dataspace_catalog,
             ).execute(&authority, &mut transaction).unwrap();
             transaction.apply();
             block.commit_world_overlay_for_testing().unwrap();
+            // The isolated committed-world fixture also needs a matching
+            // authenticated ledger-time frontier for read-only simulation.
+            state.append_committed_block_header_for_tests(genesis_header);
+            state.append_committed_block_header_for_tests(upgrade_header);
+            assert_eq!(state.latest_block_creation_time_ms_fast(), Some(1_700_000_001_000));
             let before: BTreeMap<_, _> = state
                 .world_view()
                 .smart_contract_state()
@@ -21240,31 +21296,12 @@ None,
         let message = expect_app_validation(err, "multisig_selector_invalid");
         assert!(message.contains("exactly one of multisig_account_id or multisig_account_alias"));
     }
-    routing_test! { sync multisig_proposal_selector_requires_exactly_one_canonical_hash
-        let instructions: Vec<dm::InstructionBox> =
-            vec![dm::Log::new(dm::Level::INFO, "x".to_owned()).into()];
-        let canonical = HashOf::new(&instructions).to_string();
-        assert_eq!(
-            resolve_multisig_proposal_hash(Some(canonical.clone()), None)
-                .expect("canonical proposal id")
-                .0,
-            canonical
-        );
-        for (proposal_id, instructions_hash) in [
-            (None, None),
-            (Some(canonical.clone()), Some(canonical.clone())),
-            (Some(format!(" {canonical}")), None),
-            (Some("not-a-hash".to_owned()), None),
-        ] {
-            let error = resolve_multisig_proposal_hash(proposal_id, instructions_hash)
-                .expect_err("ambiguous or noncanonical selector must fail");
-            assert!(matches!(
-                error,
-                Error::AppQueryValidation {
-                    code: "multisig_selector_invalid",
-                    ..
-                }
-            ));
+    routing_test! { sync multisig_proposal_selector_requires_exact_occurrence_and_content
+        let id = "ab".repeat(32); let hash = "cd".repeat(32);
+        let (proposal, instructions) = resolve_multisig_proposal_reference(&id, &hash).unwrap();
+        assert_eq!(proposal.to_string(), id); assert_eq!(instructions.to_string(), hash);
+        for (bad_id, bad_hash) in [(format!(" {id}"),hash.clone()),(id.to_uppercase(),hash.clone()),(id.clone(),format!("{hash} ")),(id.clone(),String::new())] {
+            assert!(resolve_multisig_proposal_reference(&bad_id,&bad_hash).is_err());
         }
     }
     routing_test! { sync multisig_read_json_contracts_reject_unknown_top_level_fields
@@ -21337,15 +21374,18 @@ None,
         )
         .to_string();
         let propose = format!(
-            r#"{{"multisig_account_id":"{account}","signer_account_id":"{account}","contract_alias":"pkdeploy_issuance_swap_sbp::sbp","entrypoint":"swap","payload":{{"swap_id":"swap_1","pkr_amount":"7600","treasury_amount":"100"}},"fee_payment":{{"payer":"authority","value":{{"charge_limits":[],"gas_limit":10000}}}},"fee_sponsor":"{account}"}}"#,
+            r#"{{"proposal_nonce":"4141414141414141414141414141414141414141414141414141414141414141","multisig_account_id":"{account}","signer_account_id":"{account}","contract_alias":"pkdeploy_issuance_swap_sbp::sbp","entrypoint":"swap","payload":{{"swap_id":"swap_1","pkr_amount":"7600","treasury_amount":"100"}},"fee_payment":{{"payer":"authority","value":{{"charge_limits":[],"gas_limit":10000}}}},"fee_sponsor":"{account}"}}"#,
         );
         assert!(
             norito::json::from_str::<MultisigContractCallProposeDto>(&propose).is_err(),
             "contract-call propose must reject the retired fee_sponsor field",
         );
         let approve = format!(
-            r#"{{"multisig_account_id":"{account}","signer_account_id":"{account}","proposal_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","fee_payment":{{"payer":"authority","value":{{"charge_limits":[],"gas_limit":null}}}},"gas_asset_id":"xor#sora"}}"#,
+            r#"{{"multisig_account_id":"{account}","signer_account_id":"{account}","proposal_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","instructions_hash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","contract_alias":"pkdeploy_issuance_swap_sbp::sbp","entrypoint":"swap","payload":{{"swap_id":"swap_1"}},"fee_payment":{{"payer":"authority","value":{{"charge_limits":[],"gas_limit":null}}}},"gas_asset_id":"xor#sora"}}"#,
         );
+        let mut current: Value = norito::json::from_str(&approve).unwrap();
+        current.as_object_mut().unwrap().remove("gas_asset_id");
+        assert!(norito::json::from_value::<MultisigContractCallApproveDto>(current).is_ok());
         assert!(
             norito::json::from_str::<MultisigContractCallApproveDto>(&approve).is_err(),
             "contract-call approve must reject the retired gas_asset_id field",
@@ -21380,40 +21420,21 @@ None,
             assert!(message.contains("exact non-empty canonical literal"));
         }
     }
-    routing_test! { sync multisig_proposal_selector_requires_one_canonical_consistent_hash
-        let instructions: Vec<dm::InstructionBox> =
-            vec![dm::Log::new(dm::Level::INFO, "strict".to_owned()).into()];
-        let canonical = HashOf::new(&instructions).to_string();
-        let (_, parsed) = resolve_multisig_proposal_hash(None, Some(canonical.clone()))
-            .expect("one canonical selector");
-        assert_eq!(parsed.to_string(), canonical);
-        let other_instructions: Vec<dm::InstructionBox> =
-            vec![dm::Log::new(dm::Level::INFO, "other".to_owned()).into()];
-        let other = HashOf::new(&other_instructions).to_string();
-        for (proposal_id, instructions_hash, expected) in [
-            (
-                Some(canonical.clone()),
-                Some(canonical.clone()),
-                "exactly one",
-            ),
-            (Some(canonical.clone()), Some(other), "exactly one"),
-            (
-                Some(format!(" {canonical}")),
-                None,
-                "canonical instruction hash",
-            ),
-            (
-                None,
-                Some(format!("{canonical} ")),
-                "canonical instruction hash",
-            ),
-            (None, None, "is required"),
-        ] {
-            let err = resolve_multisig_proposal_hash(proposal_id, instructions_hash)
-                .expect_err("malformed or conflicting selectors must fail closed");
-            let message = expect_app_validation(err, "multisig_selector_invalid");
-            assert!(message.contains(expected), "unexpected message: {message}");
-        }
+    routing_test! { sync multisig_resolve_rejects_hash_alias_and_requires_occurrence
+        let id = "ab".repeat(32);
+        let account = checked_multisig_selector_account_id(0x61, "strict occurrence selector");
+        let good = norito::json!({"multisig_account_id": (account.to_string()), "proposal_id": id});
+        assert!(norito::json::from_value::<MultisigProposalsResolveRequestDto>(good.clone()).is_ok());
+        let mut old = good.clone();
+        let old_fields = old.as_object_mut().unwrap();
+        old_fields.remove("proposal_id");
+        old_fields.insert("instructions_hash".to_owned(), Value::from("ab".repeat(32)));
+        assert!(norito::json::from_value::<MultisigProposalsResolveRequestDto>(old).is_err());
+        let mut ambiguous = good;
+        ambiguous.as_object_mut().unwrap().insert(
+            "instructions_hash".to_owned(), Value::from("cd".repeat(32)),
+        );
+        assert!(norito::json::from_value::<MultisigProposalsResolveRequestDto>(ambiguous).is_err());
     }
     routing_test! { sync multisig_status_filters_require_exact_canonical_values
         assert_eq!(
@@ -21441,13 +21462,7 @@ None,
             quorum: NonZeroU16::new(2).expect("quorum"),
             transaction_ttl_ms: NonZeroU64::new(60_000).expect("ttl"),
         };
-        let proposal = MultisigProposalValue::new(
-            Vec::new(),
-            1,
-            10_000,
-            BTreeSet::from([signer_one, signer_two]),
-            None,
-        );
+        let proposal = occurrence_fixture_value(Vec::new(), 1, 10_000, BTreeSet::from([signer_one, signer_two]));
         assert_eq!(
             classify_active_multisig_proposal_status(&spec, &proposal, 2),
             MultisigProposalStatus::CollectingSignatures,
@@ -21467,7 +21482,7 @@ None,
         )
         .into();
         let mut proposal =
-            MultisigProposalValue::new(vec![instruction.clone()], 100, 200, BTreeSet::new(), None);
+            occurrence_fixture_value(vec![instruction.clone()], 100, 200, BTreeSet::new());
         let world = World::default();
         let world_view = world.view();
         assert_eq!(
@@ -21494,20 +21509,71 @@ None,
         assert!(multisig_proposal_intent(&world_view, &source, &proposal).is_none());
     }
     #[test]
+    fn single_asset_mint_has_exact_typed_intent_and_rejects_partial_projection() {
+        let destination = checked_multisig_selector_account_id(0x79, "derive mint intent destination");
+        let definition = test_asset_definition_id();
+        let instruction: dm::InstructionBox = dm::Mint::asset_quantity(
+            25_u32, dm::AssetId::new(definition.clone(), destination.clone()),
+        ).into();
+        let mut proposal = occurrence_fixture_value(vec![instruction.clone()], 100, 200, BTreeSet::new());
+        let world = World::default();
+        let world_view = world.view();
+        assert_eq!(multisig_proposal_operation_type(&world_view, &destination, &proposal), "MINT");
+        let intent = multisig_proposal_intent(&world_view, &destination, &proposal)
+            .expect("single mint intent").try_into_any_norito::<norito::json::Value>().expect("mint value");
+        assert_eq!(intent, norito::json!({
+            "kind": "MINT", "asset_id": (definition.to_string()), "amount": "25",
+            "to_account_id": (destination.to_string()),
+        }));
+        proposal.instructions.push(instruction);
+        assert!(multisig_proposal_intent(&world_view, &destination, &proposal).is_none());
+        proposal.instructions.clear();
+        assert!(multisig_proposal_intent(&world_view, &destination, &proposal).is_none());
+    }
+    #[test]
+    fn terminal_execution_candidate_is_bounded_exact_and_never_ambiguous() {
+        use iroha_core::smartcontracts::isi::multisig::multisig_proposal_terminal_execution_state_key;
+        use iroha_executor_data_model::isi::multisig::{MultisigProposalTerminalExecutionStateV1, MultisigProposalTerminalStatus};
+        let account = checked_multisig_selector_account_id(0x7a, "terminal candidate account");
+        let instructions = vec![dm::InstructionBox::from(dm::Log::new(dm::Level::INFO, "terminal candidate".into()))];
+        let hash = HashOf::new(&instructions);
+        let mut proposal = MultisigProposalRecord {proposal: occurrence_fixture_value(instructions, 100, 200, BTreeSet::new()),
+            status: MultisigProposalStatus::Finalized, terminal_at_ms: Some(150)};
+        let terminal = occurrence_fixture_terminal(account.clone(), hash, proposal.proposal.clone(), MultisigProposalTerminalStatus::Finalized, 150);
+        proposal.proposal = terminal.proposal.clone();
+        let id = terminal.proposal_id;
+        let mut world = World::default();
+        assert_eq!(multisig_terminal_execution_candidate(&world.view(), &account, &id, &proposal, 1).unwrap(), None);
+        let first = MultisigProposalTerminalExecutionStateV1::new(terminal.clone(), account.clone(), 1, [0x11; 32]);
+        let first_key = multisig_proposal_terminal_execution_state_key(first.terminal_entrypoint_hash, &account, &id);
+        world.smart_contract_state_mut_for_testing().insert(first_key.clone(), norito::to_bytes(&first).unwrap());
+        assert_eq!(multisig_terminal_execution_candidate(&world.view(), &account, &id, &proposal, 1).unwrap(), Some("11".repeat(32)));
+        assert!(multisig_terminal_execution_candidate(&world.view(), &account, &id, &proposal, 0).is_err());
+        let mut canceled = proposal.clone(); canceled.status = MultisigProposalStatus::Canceled;
+        assert_eq!(multisig_terminal_execution_candidate(&world.view(), &account, &id, &canceled, 1).unwrap(), None);
+        let mut canceled_execution = first.clone();
+        canceled_execution.terminal.status = MultisigProposalTerminalStatus::Canceled;
+        world.smart_contract_state_mut_for_testing().insert(first_key.clone(), norito::to_bytes(&canceled_execution).unwrap());
+        assert_eq!(multisig_terminal_execution_candidate(&world.view(), &account, &id, &canceled, 1).unwrap(), Some("11".repeat(32)));
+        assert_eq!(multisig_terminal_execution_candidate(&world.view(), &account, &id, &proposal, 1).unwrap(), None);
+        world.smart_contract_state_mut_for_testing().insert(first_key.clone(), norito::to_bytes(&first).unwrap());
+        let mut pending = proposal.clone(); pending.status = MultisigProposalStatus::CollectingSignatures;
+        assert_eq!(multisig_terminal_execution_candidate(&world.view(), &account, &id, &pending, 0).unwrap(), None);
+        let second = MultisigProposalTerminalExecutionStateV1::new(terminal, account.clone(), 2, [0x33; 32]);
+        world.smart_contract_state_mut_for_testing().insert(multisig_proposal_terminal_execution_state_key(second.terminal_entrypoint_hash, &account, &id), norito::to_bytes(&second).unwrap());
+        assert!(multisig_terminal_execution_candidate(&world.view(), &account, &id, &proposal, 2).is_err());
+        world.smart_contract_state_mut_for_testing().insert(first_key, norito::to_bytes(&second).unwrap());
+        assert!(multisig_terminal_execution_candidate(&world.view(), &account, &id, &proposal, 2).is_err());
+    }
+    #[test]
     fn policy_change_invalidation_has_explicit_operation_type_and_exact_account_intent() {
         let target = checked_multisig_selector_account_id(
             0x76,
             "derive policy-change invalidation target account",
         );
-        let proposal = MultisigProposalValue::new(
-            vec![dm::InstructionBox::from(
+        let proposal = occurrence_fixture_value(vec![dm::InstructionBox::from(
                 MultisigInvalidateOutstanding::new(target.clone()),
-            )],
-            100,
-            200,
-            BTreeSet::new(),
-            None,
-        );
+            )], 100, 200, BTreeSet::new());
         let world = World::default();
         let world_view = world.view();
         assert_eq!(
@@ -21525,51 +21591,25 @@ None,
     }
     routing_test! { sync terminal_proposal_projection_rejects_impossible_status_timestamps
         use iroha_executor_data_model::isi::multisig::{
-            MultisigProposalTerminalState, MultisigProposalTerminalStatus,
+            MultisigProposalTerminalStatus,
         };
         let account =
             checked_multisig_selector_account_id(0x75, "derive terminal-timestamp fixture account");
         let instructions = vec![dm::Log::new(dm::Level::INFO, "terminal".to_owned()).into()];
         let instructions_hash = HashOf::new(&instructions);
-        let proposal = MultisigProposalValue::new(instructions, 100, 200, BTreeSet::new(), None);
-        let finalized_after_expiry = MultisigProposalTerminalState::new(
-            account.clone(),
-            instructions_hash,
-            proposal.clone(),
-            MultisigProposalTerminalStatus::Finalized,
-            200,
-        );
+        let proposal = occurrence_fixture_value(instructions, 100, 200, BTreeSet::new());
+        let finalized_after_expiry = occurrence_fixture_terminal(account.clone(), instructions_hash, proposal.clone(), MultisigProposalTerminalStatus::Finalized, 200);
         assert!(
-            validate_multisig_terminal_proposal_binding(
-                &account,
-                &instructions_hash,
-                &finalized_after_expiry,
-            )
+            validate_multisig_terminal_proposal_binding(&account, &occurrence_fixture_id(&account, instructions_hash), &finalized_after_expiry)
             .is_err(),
         );
-        let expired_before_expiry = MultisigProposalTerminalState::new(
-            account.clone(),
-            instructions_hash,
-            proposal.clone(),
-            MultisigProposalTerminalStatus::Expired,
-            199,
-        );
+        let expired_before_expiry = occurrence_fixture_terminal(account.clone(), instructions_hash, proposal.clone(), MultisigProposalTerminalStatus::Expired, 199);
         assert!(
-            validate_multisig_terminal_proposal_binding(
-                &account,
-                &instructions_hash,
-                &expired_before_expiry,
-            )
+            validate_multisig_terminal_proposal_binding(&account, &occurrence_fixture_id(&account, instructions_hash), &expired_before_expiry)
             .is_err(),
         );
-        let canceled = MultisigProposalTerminalState::new(
-            account.clone(),
-            instructions_hash,
-            proposal,
-            MultisigProposalTerminalStatus::Canceled,
-            150,
-        );
-        validate_multisig_terminal_proposal_binding(&account, &instructions_hash, &canceled)
+        let canceled = occurrence_fixture_terminal(account.clone(), instructions_hash, proposal, MultisigProposalTerminalStatus::Canceled, 150);
+        validate_multisig_terminal_proposal_binding(&account, &occurrence_fixture_id(&account, instructions_hash), &canceled)
             .expect("a cancellation between proposal creation and expiry is coherent");
     }
     routing_test! { async multisig_spec_returns_not_found_for_unknown_alias
@@ -22032,6 +22072,7 @@ None,
             state,
             MaybeTelemetry::disabled(),
             NoritoJson(MultisigContractCallProposeDto {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                 selector: MultisigAccountSelectorDto {
                     multisig_account_id: Some(multisig_account_id.clone()),
                     multisig_account_alias: None,
@@ -22265,8 +22306,7 @@ None,
             state.clone(),
             MultisigProposalsResolveRequestDto {
                 selector: alias_selector(&alias_literal),
-                proposal_id: Some(active_hash.clone()),
-                instructions_hash: None,
+                proposal_id: (active_hash.clone()).parse().unwrap(),
             },
             signer_one_id,
         )
@@ -22276,8 +22316,7 @@ None,
             state,
             NoritoJson(MultisigProposalsResolveRequestDto {
                 selector: concrete_selector(multisig_account_id),
-                proposal_id: None,
-                instructions_hash: Some(active_hash.clone()),
+                proposal_id: active_hash.parse().unwrap(),
             }),
         )
         .await
@@ -22286,7 +22325,7 @@ None,
             alias_resolve.resolved_multisig_account_id,
             concrete_resolve.resolved_multisig_account_id
         );
-        assert_eq!(alias_resolve.instructions_hash, active_hash);
+        assert_eq!(alias_resolve.proposal_id, active_hash);
         assert_eq!(alias_resolve.proposal, concrete_resolve.proposal);
     }
     routing_test! { async multisig_proposals_query_is_bounded_and_cursor_is_context_bound
@@ -22307,7 +22346,7 @@ None,
         .await
         .expect("first bounded proposal page");
         assert_eq!(first.proposals.len(), 1);
-        assert_eq!(first.proposals[0].instructions_hash, active_hash);
+        assert_eq!(first.proposals[0].proposal_id, active_hash);
         let cursor = first.next_cursor.expect("second page cursor");
         assert!(cursor.len() <= MULTISIG_PROPOSALS_CURSOR_MAX_BYTES);
         let JsonBody(second) = handle_post_multisig_proposals_query(
@@ -22322,7 +22361,7 @@ None,
         .await
         .expect("second bounded proposal page");
         assert_eq!(second.proposals.len(), 1);
-        assert_ne!(second.proposals[0].instructions_hash, active_hash);
+        assert_ne!(second.proposals[0].proposal_id, active_hash);
         assert!(second.next_cursor.is_none());
         for (cursor, statuses) in [
             (format!("A{}", &cursor[1..]), Vec::new()),
@@ -22369,13 +22408,13 @@ None,
             MultisigProposalsCursor {
                 multisig_account_fingerprint: multisig_account_fingerprint(&multisig_account_id),
                 proposed_at_ms: 1_700_000_000_000,
-                instructions_hash: nonexistent_hash,
+                proposal_id: nonexistent_hash,
                 status_fingerprint: multisig_status_fingerprint(&BTreeSet::new()),
             },
             MultisigProposalsCursor {
                 multisig_account_fingerprint: multisig_account_fingerprint(&multisig_account_id),
                 proposed_at_ms: 1_700_000_000_001,
-                instructions_hash: active_hash.clone(),
+                proposal_id: active_hash.clone(),
                 status_fingerprint: multisig_status_fingerprint(&BTreeSet::new()),
             },
         ] {
@@ -22396,7 +22435,7 @@ None,
         let filter_rebound_cursor = encode_multisig_proposals_cursor(&MultisigProposalsCursor {
             multisig_account_fingerprint: multisig_account_fingerprint(&multisig_account_id),
             proposed_at_ms: 1_700_000_000_000,
-            instructions_hash: active_hash,
+            proposal_id: active_hash,
             status_fingerprint: multisig_status_fingerprint(&expired_statuses),
         });
         let error = handle_post_multisig_proposals_query(
@@ -22439,26 +22478,16 @@ None,
         let (mut world, multisig_account_id, _signer_one, _signer_two, _alias, active_hash) =
             multisig_test_world();
         let instructions = vec![dm::Log::new(dm::Level::INFO, "active".to_owned()).into()];
-        let instructions_hash = active_hash
-            .parse::<HashOf<Vec<dm::InstructionBox>>>()
-            .expect("active hash");
+        let instructions_hash = HashOf::new(&instructions);
         assert_eq!(HashOf::new(&instructions), instructions_hash);
         let foreign_account = checked_multisig_selector_account_id(
             0x6f,
             "derive cross-account proposal tamper fixture key",
         );
         world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_contract_key(&multisig_account_id, &instructions_hash),
+            multisig_proposal_state_contract_key(&multisig_account_id, &occurrence_fixture_id(&multisig_account_id, instructions_hash)),
             norito::to_bytes(
-                &iroha_executor_data_model::isi::multisig::MultisigProposalState::new(
-                    foreign_account,
-                    instructions_hash,
-                    instructions,
-                    1_700_000_000_000,
-                    4_000_000_000_000,
-                    BTreeSet::new(),
-                    None,
-                ),
+                &occurrence_fixture_state(foreign_account, instructions_hash, instructions, 1_700_000_000_000, 4_000_000_000_000, BTreeSet::new()),
             )
             .expect("encode tampered proposal state"),
         );
@@ -22466,8 +22495,7 @@ None,
             build_state(world),
             NoritoJson(MultisigProposalsResolveRequestDto {
                 selector: concrete_selector(multisig_account_id),
-                proposal_id: Some(active_hash),
-                instructions_hash: None,
+                proposal_id: (active_hash).parse().unwrap(),
             }),
         )
         .await
@@ -22481,38 +22509,23 @@ None,
     }
     routing_test! { async multisig_get_fails_closed_on_conflicting_active_and_terminal_state
         use iroha_executor_data_model::isi::multisig::{
-            MultisigProposalTerminalState, MultisigProposalTerminalStatus,
+            MultisigProposalTerminalStatus,
         };
         let (mut world, multisig_account_id, signer_one, _signer_two, _alias, active_hash) =
             multisig_test_world();
         let instructions = vec![dm::Log::new(dm::Level::INFO, "active".to_owned()).into()];
-        let instructions_hash = active_hash
-            .parse::<HashOf<Vec<dm::InstructionBox>>>()
-            .expect("active hash");
+        let instructions_hash = HashOf::new(&instructions);
         assert_eq!(HashOf::new(&instructions), instructions_hash);
-        let terminal = MultisigProposalTerminalState::new(
-            multisig_account_id.clone(),
-            instructions_hash,
-            MultisigProposalValue::new(
-                instructions,
-                1_700_000_000_000,
-                4_000_000_000_000,
-                BTreeSet::from([signer_one]),
-                None,
-            ),
-            MultisigProposalTerminalStatus::Canceled,
-            1_700_000_000_010,
-        );
+        let terminal = occurrence_fixture_terminal(multisig_account_id.clone(), instructions_hash, occurrence_fixture_value(instructions, 1_700_000_000_000, 4_000_000_000_000, BTreeSet::from([signer_one])), MultisigProposalTerminalStatus::Canceled, 1_700_000_000_010);
         world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_terminal_state_contract_key(&multisig_account_id, &instructions_hash),
+            multisig_proposal_terminal_state_contract_key(&multisig_account_id, &occurrence_fixture_id(&multisig_account_id, instructions_hash)),
             norito::to_bytes(&terminal).expect("encode conflicting terminal state"),
         );
         let error = handle_post_multisig_proposals_resolve(
             build_state(world),
             NoritoJson(MultisigProposalsResolveRequestDto {
                 selector: concrete_selector(multisig_account_id),
-                proposal_id: Some(active_hash),
-                instructions_hash: None,
+                proposal_id: (active_hash).parse().unwrap(),
             }),
         )
         .await
@@ -22531,31 +22544,17 @@ None,
         ) = multisig_test_world();
         let canceled_instructions =
             vec![dm::Log::new(dm::Level::INFO, "canceled".to_owned()).into()];
-        let canceled_hash = HashOf::new(&canceled_instructions).to_string();
-        let canceled_value = iroha_executor_data_model::isi::multisig::MultisigProposalValue::new(
-            canceled_instructions,
-            1_700_000_000_222,
-            4_000_000_000_000,
-            BTreeSet::from([signer_one_id.clone()]),
-            None,
-        );
+        let canceled_hash = HashOf::new(&canceled_instructions);
+        let canceled_id = occurrence_fixture_id(&multisig_account_id, canceled_hash);
+        let mut canceled_value = occurrence_fixture_value(canceled_instructions, 1_700_000_000_222, 4_000_000_000_000, BTreeSet::from([signer_one_id.clone()]));
+        canceled_value.proposal_id = canceled_id;
         world.smart_contract_state_mut_for_testing().insert(
             multisig_proposal_terminal_state_contract_key(
                 &multisig_account_id,
-                &canceled_hash
-                    .parse::<HashOf<Vec<dm::InstructionBox>>>()
-                    .expect("hash"),
+                &canceled_id,
             ),
             norito::to_bytes(
-                &iroha_executor_data_model::isi::multisig::MultisigProposalTerminalState::new(
-                    multisig_account_id.clone(),
-                    canceled_hash
-                        .parse::<HashOf<Vec<dm::InstructionBox>>>()
-                        .expect("hash"),
-                    canceled_value.clone(),
-                    iroha_executor_data_model::isi::multisig::MultisigProposalTerminalStatus::Canceled,
-                    1_700_000_000_333,
-                ),
+                &occurrence_fixture_terminal(multisig_account_id.clone(), canceled_hash, canceled_value.clone(), iroha_executor_data_model::isi::multisig::MultisigProposalTerminalStatus::Canceled, 1_700_000_000_333),
             )
             .expect("encode canceled terminal state"),
         );
@@ -22574,7 +22573,7 @@ None,
         .await
         .expect("query canceled");
         assert_eq!(query_response.proposals.len(), 1);
-        assert_eq!(query_response.proposals[0].proposal_id, canceled_hash);
+        assert_eq!(query_response.proposals[0].proposal_id, canceled_id.to_string());
         assert_eq!(query_response.proposals[0].status, "CANCELED");
         assert_eq!(
             query_response.proposals[0].terminal_at_ms,
@@ -22584,14 +22583,13 @@ None,
             state,
             MultisigProposalsResolveRequestDto {
                 selector: alias_selector(&alias_literal),
-                proposal_id: Some(canceled_hash.clone()),
-                instructions_hash: None,
+                proposal_id: canceled_id,
             },
             signer_one_id,
         )
         .await
         .expect("resolve canceled");
-        assert_eq!(resolve_response.proposal_id, canceled_hash);
+        assert_eq!(resolve_response.proposal_id, canceled_id.to_string());
         assert_eq!(resolve_response.status, "CANCELED");
         assert_eq!(resolve_response.terminal_at_ms, Some(1_700_000_000_333));
         assert_eq!(resolve_response.proposal, canceled_value);
@@ -22601,19 +22599,12 @@ None,
         assert!(old_account.multisig_policy().is_some());
         let instructions = vec![dm::Log::new(dm::Level::INFO, "retired canceled quote".into()).into()];
         let hash = HashOf::new(&instructions);
-        let terminal = iroha_executor_data_model::isi::multisig::MultisigProposalTerminalState::new(
-            old_account.clone(), hash,
-            iroha_executor_data_model::isi::multisig::MultisigProposalValue::new(
-                instructions.clone(), 1_700_000_000_222, 4_000_000_000_000,
-                BTreeSet::from([old_signer]), None,
-            ),
-            iroha_executor_data_model::isi::multisig::MultisigProposalTerminalStatus::Canceled,
-            1_700_000_000_333,
-        );
+        let terminal = occurrence_fixture_terminal(old_account.clone(), hash, occurrence_fixture_value(instructions.clone(), 1_700_000_000_222, 4_000_000_000_000, BTreeSet::from([old_signer])), iroha_executor_data_model::isi::multisig::MultisigProposalTerminalStatus::Canceled, 1_700_000_000_333);
+        let id = terminal.proposal_id;
         let history_world = || {
             let mut world = World::new();
             world.smart_contract_state_mut_for_testing().insert(
-                multisig_proposal_terminal_state_contract_key(&old_account, &hash),
+                multisig_proposal_terminal_state_contract_key(&old_account, &id),
                 norito::to_bytes(&terminal).expect("original terminal evidence"),
             );
             world
@@ -22629,7 +22620,7 @@ None,
         assert_eq!(query.proposals[0].proposal, terminal.proposal);
         let JsonBody(resolved) = handle_post_multisig_proposals_resolve(state.clone(),
             NoritoJson(MultisigProposalsResolveRequestDto { selector: selector.clone(),
-                proposal_id: Some(hash.to_string()), instructions_hash: None }),
+                proposal_id: id }),
         ).await.expect("exact original terminal record");
         assert_eq!(resolved.resolved_multisig_account_id, old_account);
         assert_eq!(resolved.status, "CANCELED");
@@ -22644,11 +22635,8 @@ None,
             "an intrinsic policy without authenticated history is not a known retired account");
         let mut invalid = history_world();
         invalid.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_contract_key(&old_account, &hash),
-            norito::to_bytes(&iroha_executor_data_model::isi::multisig::MultisigProposalState::new(
-                old_account.clone(), hash, instructions, 1_700_000_000_222, 4_000_000_000_000,
-                BTreeSet::new(), None,
-            )).unwrap(),
+            multisig_proposal_state_contract_key(&old_account, &id),
+            norito::to_bytes(&occurrence_fixture_state(old_account.clone(), hash, instructions, 1_700_000_000_222, 4_000_000_000_000, BTreeSet::new())).unwrap(),
         );
         assert!(resolve_multisig_proposal_read_account(&build_state(invalid), &selector, None).is_err(),
             "a retired controller cannot retain actionable proposal state");
@@ -22663,10 +22651,7 @@ None,
             _active_hash,
         ) = multisig_test_world();
         let asset_definition_id = test_asset_definition_id();
-        let freeze_hash = insert_active_multisig_proposal(
-            &mut world,
-            &multisig_account_id,
-            vec![
+        let freeze_hash = insert_active_multisig_proposal(&mut world, &multisig_account_id, vec![
                 dm::SetAssetTransferAvailability::new(
                     signer_two_id.clone(),
                     asset_definition_id.clone(),
@@ -22676,12 +22661,7 @@ None,
                     Some("risk review".to_owned()),
                 )
                 .into(),
-            ],
-            1_700_000_000_190,
-            4_000_000_000_000,
-            BTreeSet::new(),
-            None,
-        );
+            ], 1_700_000_000_190, 4_000_000_000_000, BTreeSet::new());
         let state = build_state(world);
         let JsonBody(query_response) = handle_post_multisig_proposals_query(
             state.clone(),
@@ -22697,7 +22677,7 @@ None,
         let query_item = query_response
             .proposals
             .iter()
-            .find(|item| item.instructions_hash == freeze_hash)
+            .find(|item| item.proposal_id == freeze_hash)
             .expect("availability proposal in query");
         assert_eq!(query_item.operation_type, "ASSET_TRANSFER_AVAILABILITY");
         let query_intent = query_item
@@ -22718,8 +22698,7 @@ None,
             state,
             NoritoJson(MultisigProposalsResolveRequestDto {
                 selector: concrete_selector(multisig_account_id),
-                proposal_id: Some(freeze_hash),
-                instructions_hash: None,
+                proposal_id: (freeze_hash).parse().unwrap(),
             }),
         )
         .await
@@ -22758,22 +22737,14 @@ None,
             "mint_intent": "pacs009",
         }))
         .expect("pacs009 marker payload");
-        let pacs009_hash = insert_active_multisig_proposal(
-            &mut world,
-            &multisig_account_id,
-            vec![
+        let pacs009_hash = insert_active_multisig_proposal(&mut world, &multisig_account_id, vec![
                 dm::Mint::asset_quantity(25_u32, test_asset_id_for(&multisig_account_id)).into(),
                 dm::Log::new(
                     dm::Level::INFO,
                     format!("PAYNET_PACS009_MINT_V1:{pacs009_marker_payload}"),
                 )
                 .into(),
-            ],
-            1_700_000_000_195,
-            4_000_000_000_000,
-            BTreeSet::new(),
-            None,
-        );
+            ], 1_700_000_000_195, 4_000_000_000_000, BTreeSet::new());
         let state = build_state(world);
         let JsonBody(query_response) = handle_post_multisig_proposals_query(
             state.clone(),
@@ -22789,7 +22760,7 @@ None,
         let query_item = query_response
             .proposals
             .iter()
-            .find(|item| item.instructions_hash == pacs009_hash)
+            .find(|item| item.proposal_id == pacs009_hash)
             .expect("pacs009 proposal in query");
         assert_eq!(query_item.operation_type, "MINT");
         assert!(
@@ -22800,8 +22771,7 @@ None,
             state,
             NoritoJson(MultisigProposalsResolveRequestDto {
                 selector: concrete_selector(multisig_account_id.clone()),
-                proposal_id: Some(pacs009_hash),
-                instructions_hash: None,
+                proposal_id: (pacs009_hash).parse().unwrap(),
             }),
         )
         .await
@@ -22827,10 +22797,7 @@ None,
             "mint_intent": "pacs009",
         }))
         .expect("pacs009 marker payload");
-        let transfer_hash = insert_active_multisig_proposal(
-            &mut world,
-            &multisig_account_id,
-            vec![
+        let transfer_hash = insert_active_multisig_proposal(&mut world, &multisig_account_id, vec![
                 dm::Transfer::asset_quantity(
                     test_asset_id_for(&multisig_account_id),
                     25_u32,
@@ -22842,16 +22809,8 @@ None,
                     format!("PAYNET_PACS009_MINT_V1:{pacs009_marker_payload}"),
                 )
                 .into(),
-            ],
-            1_700_000_000_210,
-            4_000_000_000_000,
-            BTreeSet::new(),
-            None,
-        );
-        let execute_trigger_hash = insert_active_multisig_proposal(
-            &mut world,
-            &multisig_account_id,
-            vec![
+            ], 1_700_000_000_210, 4_000_000_000_000, BTreeSet::new());
+        let execute_trigger_hash = insert_active_multisig_proposal(&mut world, &multisig_account_id, vec![
                 execute_trigger_instruction(
                     "custom_portal_job",
                     norito::json!({ "kind": "SOMETHING_ELSE", "job_id": "job-with-marker" }),
@@ -22861,12 +22820,7 @@ None,
                     format!("PAYNET_PACS009_MINT_V1:{pacs009_marker_payload}"),
                 )
                 .into(),
-            ],
-            1_700_000_000_220,
-            4_000_000_000_000,
-            BTreeSet::new(),
-            None,
-        );
+            ], 1_700_000_000_220, 4_000_000_000_000, BTreeSet::new());
         let state = build_state(world);
         let JsonBody(query_response) = handle_post_multisig_proposals_query(
             state.clone(),
@@ -22882,14 +22836,14 @@ None,
         let transfer_item = query_response
             .proposals
             .iter()
-            .find(|item| item.instructions_hash == transfer_hash)
+            .find(|item| item.proposal_id == transfer_hash)
             .expect("transfer proposal in query");
         assert_eq!(transfer_item.operation_type, "TRANSFER");
         assert!(transfer_item.intent.is_none());
         let execute_trigger_item = query_response
             .proposals
             .iter()
-            .find(|item| item.instructions_hash == execute_trigger_hash)
+            .find(|item| item.proposal_id == execute_trigger_hash)
             .expect("execute trigger proposal in query");
         assert_eq!(execute_trigger_item.operation_type, "EXECUTE_TRIGGER");
         assert!(execute_trigger_item.intent.is_none());
@@ -22897,8 +22851,7 @@ None,
             state.clone(),
             NoritoJson(MultisigProposalsResolveRequestDto {
                 selector: concrete_selector(multisig_account_id.clone()),
-                proposal_id: Some(transfer_hash),
-                instructions_hash: None,
+                proposal_id: (transfer_hash).parse().unwrap(),
             }),
         )
         .await
@@ -22909,8 +22862,7 @@ None,
             state,
             NoritoJson(MultisigProposalsResolveRequestDto {
                 selector: concrete_selector(multisig_account_id.clone()),
-                proposal_id: Some(execute_trigger_hash),
-                instructions_hash: None,
+                proposal_id: (execute_trigger_hash).parse().unwrap(),
             }),
         )
         .await
@@ -22931,22 +22883,14 @@ None,
             _alias_literal,
             _active_hash,
         ) = multisig_test_world();
-        let malformed_hash = insert_active_multisig_proposal(
-            &mut world,
-            &multisig_account_id,
-            vec![
+        let malformed_hash = insert_active_multisig_proposal(&mut world, &multisig_account_id, vec![
                 dm::Mint::asset_quantity(25_u32, test_asset_id_for(&multisig_account_id)).into(),
                 dm::Log::new(
                     dm::Level::INFO,
                     "PAYNET_PACS009_MINT_V1:{not-json".to_owned(),
                 )
                 .into(),
-            ],
-            1_700_000_000_230,
-            4_000_000_000_000,
-            BTreeSet::new(),
-            None,
-        );
+            ], 1_700_000_000_230, 4_000_000_000_000, BTreeSet::new());
         let state = build_state(world);
         let JsonBody(query_response) = handle_post_multisig_proposals_query(
             state.clone(),
@@ -22962,7 +22906,7 @@ None,
         let query_item = query_response
             .proposals
             .iter()
-            .find(|item| item.instructions_hash == malformed_hash)
+            .find(|item| item.proposal_id == malformed_hash)
             .expect("malformed mint proposal in query");
         assert_eq!(query_item.operation_type, "MINT");
         assert!(query_item.intent.is_none());
@@ -22970,8 +22914,7 @@ None,
             state,
             NoritoJson(MultisigProposalsResolveRequestDto {
                 selector: concrete_selector(multisig_account_id.clone()),
-                proposal_id: Some(malformed_hash),
-                instructions_hash: None,
+                proposal_id: (malformed_hash).parse().unwrap(),
             }),
         )
         .await
@@ -23104,8 +23047,8 @@ None,
                 signature_b64: None,
                 creation_time_ms: Some(1_700_000_000_123),
                 fee_payment: dm::FeePaymentIntent::authority(Vec::new(), None),
-                proposal_id: Some(active_hash.clone()),
-                instructions_hash: None,
+                proposal_id: active_hash.clone(),
+                instructions_hash: HashOf::new(&vec![InstructionBox::from(iroha_data_model::isi::Log::new(iroha_data_model::Level::INFO, "active".to_owned()))]).to_string(),
                 contract_alias: "apps_mint_request::cbsi".parse().expect("contract alias"),
                 entrypoint: "finalize_mint_request".to_owned(),
                 payload: IrohaJson::new(norito::json!({ "proposal_id": "mr00000001" })),
@@ -23137,14 +23080,15 @@ None,
             state,
             MaybeTelemetry::disabled(),
             NoritoJson(MultisigCancelRequestDto {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                 selector: concrete_selector(multisig_account_id.clone()),
                 signer_account_id: signer_two_id.clone(),
                 public_key_hex: None,
                 signature_b64: None,
                 creation_time_ms: Some(1_700_000_000_124),
                 fee_payment: dm::FeePaymentIntent::authority(Vec::new(), None),
-                proposal_id: Some(active_hash.clone()),
-                instructions_hash: None,
+                target_proposal_id: active_hash.clone(),
+                target_instructions_hash: HashOf::new(&vec![InstructionBox::from(iroha_data_model::isi::Log::new(iroha_data_model::Level::INFO, "active".to_owned()))]).to_string(),
             }),
         )
         .await
@@ -23152,7 +23096,7 @@ None,
         let payload = decode_json_response(response).await;
         assert_eq!(payload["ok"].as_bool(), Some(true));
         assert_eq!(payload["submitted"].as_bool(), Some(false));
-        assert_eq!(payload["action"].as_str(), Some("PROPOSE"));
+        assert!(payload.get("action").is_none());
         assert_eq!(
             payload["resolved_multisig_account_id"].as_str(),
             Some(multisig_account_id.to_string().as_str())
@@ -23163,13 +23107,13 @@ None,
         );
         assert_eq!(
             payload["target_instructions_hash"].as_str(),
-            Some(active_hash.as_str())
+            Some(HashOf::new(&vec![InstructionBox::from(dm::Log::new(dm::Level::INFO, "active".to_owned()))]).to_string().as_str())
         );
         assert!(payload["cancel_proposal_id"].as_str().is_some());
         assert!(payload["cancel_instructions_hash"].as_str().is_some());
         assert_exact_unsigned_transaction_draft(&payload);
     }
-    routing_test! { async multisig_cancel_approves_existing_cancel_proposal
+    routing_test! { async multisig_cancel_creates_distinct_occurrence_even_when_equal_cancel_content_exists
         let (
             mut world,
             multisig_account_id,
@@ -23178,56 +23122,45 @@ None,
             _alias_literal,
             active_hash,
         ) = multisig_test_world();
-        let target_hash = active_hash
-            .parse::<HashOf<Vec<dm::InstructionBox>>>()
-            .expect("hash");
+        let target_hash = HashOf::new(&vec![InstructionBox::from(dm::Log::new(dm::Level::INFO, "active".to_owned()))]);
         let cancel_instructions = vec![dm::InstructionBox::from(
-            iroha_executor_data_model::isi::multisig::MultisigCancel::new(
-                multisig_account_id.clone(),
-                target_hash,
-            ),
+            MultisigCancel::new(multisig_account_id.clone(), active_hash.parse().unwrap(), target_hash),
         )];
         let cancel_hash = HashOf::new(&cancel_instructions);
         world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_contract_key(&multisig_account_id, &cancel_hash),
+            multisig_proposal_state_contract_key(&multisig_account_id, &occurrence_fixture_id(&multisig_account_id, cancel_hash)),
             norito::to_bytes(
-                &iroha_executor_data_model::isi::multisig::MultisigProposalState::new(
-                    multisig_account_id.clone(),
-                    cancel_hash,
-                    cancel_instructions,
-                    1_700_000_000_100,
-                    4_000_000_000_000,
-                    BTreeSet::from([signer_one_id]),
-                    None,
-                ),
+                &occurrence_fixture_state(multisig_account_id.clone(), cancel_hash, cancel_instructions, 1_700_000_000_100, 4_000_000_000_000, BTreeSet::from([signer_one_id])),
             )
             .expect("encode cancel proposal state"),
         );
         let state = build_state(world);
+        let network = *state.network_id_ref();
         let response = handle_post_multisig_cancel(
             build_queue(),
             state,
             MaybeTelemetry::disabled(),
             NoritoJson(MultisigCancelRequestDto {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                 selector: concrete_selector(multisig_account_id.clone()),
                 signer_account_id: signer_two_id,
                 public_key_hex: None,
                 signature_b64: None,
                 creation_time_ms: Some(1_700_000_000_125),
                 fee_payment: dm::FeePaymentIntent::authority(Vec::new(), None),
-                proposal_id: Some(active_hash),
-                instructions_hash: None,
+                target_proposal_id: active_hash,
+                target_instructions_hash: HashOf::new(&vec![InstructionBox::from(iroha_data_model::isi::Log::new(iroha_data_model::Level::INFO, "active".to_owned()))]).to_string(),
             }),
         )
         .await
-        .expect("cancel approve response");
+        .expect("new cancellation proposal response");
         let payload = decode_json_response(response).await;
         assert_eq!(payload["ok"].as_bool(), Some(true));
         assert_eq!(payload["submitted"].as_bool(), Some(false));
-        assert_eq!(payload["action"].as_str(), Some("APPROVE"));
+        assert!(payload.get("action").is_none());
         assert_eq!(
             payload["cancel_proposal_id"].as_str(),
-            Some(cancel_hash.to_string().as_str())
+            Some(MultisigProposalId::derive(&network, &multisig_account_id, &MultisigProposalNonce::new([0x41;32]).unwrap()).to_string().as_str())
         );
         assert_eq!(
             payload["cancel_instructions_hash"].as_str(),
@@ -23241,7 +23174,7 @@ None,
             "derive strict contract-call DTO fixture account",
         );
         let valid = format!(
-            r#"{{"multisig_account_id":"{account}","signer_account_id":"{account}","contract_alias":"review_zero_param::universal","entrypoint":"main","payload":{{}},"fee_payment":{{"payer":"authority","value":{{"charge_limits":[],"gas_limit":10000}}}}}}"#,
+            r#"{{"proposal_nonce":"4141414141414141414141414141414141414141414141414141414141414141","multisig_account_id":"{account}","signer_account_id":"{account}","contract_alias":"review_zero_param::universal","entrypoint":"main","payload":{{}},"fee_payment":{{"payer":"authority","value":{{"charge_limits":[],"gas_limit":10000}}}}}}"#,
         );
         assert!(norito::json::from_str::<MultisigContractCallProposeDto>(&valid).is_ok());
         for (label, malformed) in [
@@ -23304,6 +23237,7 @@ seiyaku BytesPayloadNormalizeTest { permission CanEnactGovernance;
             Arc::clone(&state),
             MaybeTelemetry::disabled(),
             NoritoJson(MultisigContractCallProposeDto {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                 selector: concrete_selector(multisig_account_id.clone()),
                 signer_account_id: signer_two_id,
                 public_key_hex: None,
@@ -23351,7 +23285,15 @@ NonZeroU64::new(1_700_000_000_345).expect("frozen proposer attempt"),
 )
         .expect("normalized instructions");
         let expected_hash = expected_hash.to_string();
-        assert_eq!(proposal_id, expected_hash);
+        assert_eq!(
+            proposal_id,
+            MultisigProposalId::derive(
+                state.network_id_ref(),
+                &multisig_account_id,
+                &MultisigProposalNonce::new([0x41; 32]).unwrap(),
+            ).to_string(),
+        );
+        assert_ne!(proposal_id, expected_hash);
         assert_eq!(
             response_payload["instructions_hash"].as_str(),
             Some(expected_hash.as_str())
@@ -23378,6 +23320,7 @@ NonZeroU64::new(1_700_000_000_345).expect("frozen proposer attempt"),
         let response = handle_post_multisig_propose(
             build_queue(), state, MaybeTelemetry::disabled(),
             NoritoJson(MultisigProposeDtoV1 {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                 selector: concrete_selector(multisig_account_id.clone()),
                 signer_account_id: signer_id,
                 public_key_hex: None, signature_b64: None,
@@ -23394,7 +23337,7 @@ NonZeroU64::new(1_700_000_000_345).expect("frozen proposer attempt"),
         let builder = dm::TransactionBuilder::decode_payload(&bytes).unwrap();
         assert!(builder.payload().metadata.get(RETAIL_FEE_ASSESSMENT_METADATA_KEY).is_none());
         assert_eq!(builder.payload().metadata.get("memo").unwrap().try_into_any_norito::<String>().unwrap(), "reviewed transfer");
-        assert_eq!(builder.payload().instructions, dm::Executable::Instructions(vec![dm::InstructionBox::from(MultisigPropose::new(multisig_account_id, expected_proposal.clone(), None))].into()));
+        assert_eq!(builder.payload().instructions, dm::Executable::Instructions(vec![dm::InstructionBox::from(MultisigPropose::new(multisig_account_id, MultisigProposalNonce::new([0x41;32]).unwrap(), expected_proposal.clone(), None))].into()));
         assert_eq!(payload["instructions_hash"].as_str(), Some(hex::encode(HashOf::new(&expected_proposal).as_ref()).as_str()));
     }
     routing_test! { async multisig_generic_propose_prepares_with_concrete_selector
@@ -23408,11 +23351,18 @@ NonZeroU64::new(1_700_000_000_345).expect("frozen proposer attempt"),
         ) = multisig_contract_test_fixture();
         let instruction: dm::InstructionBox =
             dm::Log::new(dm::Level::INFO, "multisig propose".to_owned()).into();
+        let expected_hash = HashOf::new(&vec![instruction.clone()]).to_string();
+        let expected_id = MultisigProposalId::derive(
+            state.network_id_ref(),
+            &multisig_account_id,
+            &MultisigProposalNonce::new([0x41; 32]).unwrap(),
+        ).to_string();
         let response = handle_post_multisig_propose(
             build_queue(),
             state,
             MaybeTelemetry::disabled(),
             NoritoJson(MultisigProposeDtoV1 {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                 selector: concrete_selector(multisig_account_id.clone()),
                 signer_account_id: signer_two_id,
                 public_key_hex: None,
@@ -23437,10 +23387,12 @@ NonZeroU64::new(1_700_000_000_345).expect("frozen proposer attempt"),
             .as_str()
             .expect("proposal id")
             .to_owned();
+        assert_eq!(proposal_id, expected_id);
         assert_eq!(
             payload["instructions_hash"].as_str(),
-            Some(proposal_id.as_str())
+            Some(expected_hash.as_str())
         );
+        assert_ne!(proposal_id, expected_hash);
         assert_exact_unsigned_transaction_draft(&payload);
     }
     routing_test! { async multisig_generic_propose_rejects_incomplete_detached_signature_fields
@@ -23453,6 +23405,7 @@ NonZeroU64::new(1_700_000_000_345).expect("frozen proposer attempt"),
             state.clone(),
             MaybeTelemetry::disabled(),
             NoritoJson(MultisigProposeDtoV1 {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                 selector: concrete_selector(multisig_account_id.clone()),
                 signer_account_id: signer_two_id.clone(),
                 public_key_hex: None,
@@ -23472,6 +23425,7 @@ NonZeroU64::new(1_700_000_000_345).expect("frozen proposer attempt"),
             state.clone(),
             MaybeTelemetry::disabled(),
             NoritoJson(MultisigProposeDtoV1 {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                 selector: concrete_selector(multisig_account_id.clone()),
                 signer_account_id: signer_two_id.clone(),
                 public_key_hex: Some("00".repeat(32)),
@@ -23491,6 +23445,7 @@ NonZeroU64::new(1_700_000_000_345).expect("frozen proposer attempt"),
             state.clone(),
             MaybeTelemetry::disabled(),
             NoritoJson(MultisigProposeDtoV1 {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                 selector: concrete_selector(multisig_account_id),
                 signer_account_id: signer_two_id.clone(),
                 public_key_hex: Some("  ".to_owned()),
@@ -23526,6 +23481,7 @@ NonZeroU64::new(1_700_000_000_345).expect("frozen proposer attempt"),
             state.clone(),
             MaybeTelemetry::disabled(),
             NoritoJson(MultisigProposeDtoV1 {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                 selector: concrete_selector(multisig_account_id.clone()),
                 signer_account_id: signer_two_id.clone(),
                 public_key_hex: Some("not hex".to_owned()),
@@ -23550,6 +23506,7 @@ NonZeroU64::new(1_700_000_000_345).expect("frozen proposer attempt"),
                 state.clone(),
                 MaybeTelemetry::disabled(),
                 NoritoJson(MultisigProposeDtoV1 {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                     selector: concrete_selector(multisig_account_id.clone()),
                     signer_account_id: signer_two_id.clone(),
                     public_key_hex: Some(hex::encode(public_key)),
@@ -23582,6 +23539,7 @@ NonZeroU64::new(1_700_000_000_345).expect("frozen proposer attempt"),
             state.clone(),
             MaybeTelemetry::disabled(),
             NoritoJson(MultisigProposeDtoV1 {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                 selector: concrete_selector(multisig_account_id.clone()),
                 signer_account_id: signer_two_id.clone(),
                 public_key_hex: Some(other_public_key_hex),
@@ -23606,6 +23564,7 @@ NonZeroU64::new(1_700_000_000_345).expect("frozen proposer attempt"),
             state.clone(),
             MaybeTelemetry::disabled(),
             NoritoJson(MultisigProposeDtoV1 {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                 selector: concrete_selector(multisig_account_id.clone()),
                 signer_account_id: signer_two_id.clone(),
                 public_key_hex: Some(signer_public_key_hex.clone()),
@@ -23626,6 +23585,7 @@ NonZeroU64::new(1_700_000_000_345).expect("frozen proposer attempt"),
             state,
             MaybeTelemetry::disabled(),
             NoritoJson(MultisigProposeDtoV1 {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                 selector: concrete_selector(multisig_account_id),
                 signer_account_id: signer_two_id,
                 public_key_hex: Some(signer_public_key_hex),
@@ -23652,15 +23612,7 @@ NonZeroU64::new(1_700_000_000_345).expect("frozen proposer attempt"),
             dm::Domain::new(DomainId::try_new("merchant", "paynet").expect("paynet domain")),
         ))];
         let proposal_hash = HashOf::new(&inner_instructions);
-        insert_active_multisig_proposal(
-            &mut world,
-            &multisig_account_id,
-            inner_instructions.clone(),
-            creation_time_ms,
-            creation_time_ms + 60_000,
-            BTreeSet::new(),
-            None,
-        );
+        insert_active_multisig_proposal(&mut world, &multisig_account_id, inner_instructions.clone(), creation_time_ms, creation_time_ms + 60_000, BTreeSet::new());
         let state = build_paynet_routing_state(world);
         let (queue, mut event_receiver) = build_paynet_routing_queue();
         let fee_payment = dm::FeePaymentIntent::authority(Vec::new(), None);
@@ -23677,15 +23629,8 @@ ENDPOINT_MULTISIG_PROPOSE,
             RoutingDecision::new(paynet_lane_id, paynet_dataspace_id),
             "route probe should resolve the inner instruction route",
         );
-        let mut transaction_instructions = vec![dm::InstructionBox::from(MultisigPropose::new(
-            multisig_account_id.clone(),
-            inner_instructions.clone(),
-            None,
-        ))];
-        transaction_instructions.push(dm::InstructionBox::from(MultisigApprove::new(
-            multisig_account_id.clone(),
-            proposal_hash,
-        )));
+        let mut transaction_instructions = vec![dm::InstructionBox::from(MultisigPropose::new(multisig_account_id.clone(), MultisigProposalNonce::new([0x41;32]).unwrap(), inner_instructions.clone(), None))];
+        transaction_instructions.push(dm::InstructionBox::from(MultisigApprove::new(multisig_account_id.clone(), MultisigProposalId::derive(state.network_id_ref(), &multisig_account_id, &MultisigProposalNonce::new([0x41;32]).unwrap()), proposal_hash)));
         let mut builder = dm::TransactionBuilder::new(
             *state.network_id_ref(),
             signer_account_id.clone(),
@@ -23710,6 +23655,7 @@ ENDPOINT_MULTISIG_PROPOSE,
             Arc::clone(&state),
             MaybeTelemetry::disabled(),
             NoritoJson(MultisigProposeDtoV1 {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                 selector: concrete_selector(multisig_account_id.clone()),
                 signer_account_id,
                 public_key_hex: Some(public_key_hex),
@@ -23772,15 +23718,7 @@ ENDPOINT_MULTISIG_PROPOSE,
             dm::Level::INFO,
             "proposal requires another signature".to_owned(),
         ))];
-        insert_active_multisig_proposal(
-            &mut world,
-            &multisig_account_id,
-            instructions.clone(),
-            creation_time_ms,
-            creation_time_ms + 60_000,
-            BTreeSet::new(),
-            None,
-        );
+        insert_active_multisig_proposal(&mut world, &multisig_account_id, instructions.clone(), creation_time_ms, creation_time_ms + 60_000, BTreeSet::new());
         let state = build_state(world);
         let fee_payment = dm::FeePaymentIntent::authority(Vec::new(), None);
         let mut builder = dm::TransactionBuilder::new(
@@ -23793,11 +23731,7 @@ ENDPOINT_MULTISIG_PROPOSE,
             builder
                 .with_fee_payment_intent(fee_payment.clone())
                 .with_metadata(build_multisig_propose_metadata(None))
-                .with_instructions([dm::InstructionBox::from(MultisigPropose::new(
-                    multisig_account_id.clone(),
-                    instructions.clone(),
-                    None,
-                ))]),
+                .with_instructions([dm::InstructionBox::from(MultisigPropose::new(multisig_account_id.clone(), MultisigProposalNonce::new([0x41;32]).unwrap(), instructions.clone(), None))]),
             signer_keypair.private_key(),
             ENDPOINT_MULTISIG_PROPOSE,
         )
@@ -23811,6 +23745,7 @@ ENDPOINT_MULTISIG_PROPOSE,
             state,
             MaybeTelemetry::disabled(),
             NoritoJson(MultisigProposeDtoV1 {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
                 selector: concrete_selector(multisig_account_id.clone()),
                 signer_account_id: signer_one_id,
                 public_key_hex: Some(public_key_hex),
@@ -23887,6 +23822,7 @@ ENDPOINT_CONTRACTS_CALL_MULTISIG_PROPOSE,
         let instruction: dm::InstructionBox =
             dm::Log::new(dm::Level::INFO, "native norito instruction".to_owned()).into();
         let request = MultisigProposeDtoV1 {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
             selector: alias_selector(&alias_literal),
             signer_account_id: signer_two_id,
             public_key_hex: None,
@@ -23922,7 +23858,7 @@ ENDPOINT_CONTRACTS_CALL_MULTISIG_PROPOSE,
             _authority_keypair,
         ) = multisig_contract_test_fixture();
         let raw = format!(
-            "{{\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[\"not base64!!\"]}}"
+            "{{\"proposal_nonce\":\"4141414141414141414141414141414141414141414141414141414141414141\",\"fee_payment\":{{\"payer\":\"authority\",\"value\":{{\"charge_limits\":[],\"gas_limit\":null}}}},\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[\"not base64!!\"]}}"
         );
         let err =
             norito::json::from_str::<MultisigProposeDtoV1>(&raw).expect_err("invalid instruction");
@@ -23942,7 +23878,7 @@ ENDPOINT_CONTRACTS_CALL_MULTISIG_PROPOSE,
             _authority_keypair,
         ) = multisig_contract_test_fixture();
         let raw = format!(
-            "{{\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[{{\"unknown_instruction\":true}}]}}"
+            "{{\"proposal_nonce\":\"4141414141414141414141414141414141414141414141414141414141414141\",\"fee_payment\":{{\"payer\":\"authority\",\"value\":{{\"charge_limits\":[],\"gas_limit\":null}}}},\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[{{\"unknown_instruction\":true}}]}}"
         );
         let err = norito::json::from_str::<MultisigProposeDtoV1>(&raw)
             .expect_err("unknown instruction object");
@@ -23967,7 +23903,7 @@ ENDPOINT_CONTRACTS_CALL_MULTISIG_PROPOSE,
             _authority_keypair,
         ) = multisig_contract_test_fixture();
         let raw = format!(
-            "{{\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"creation_time_ms\":-1,\"instructions\":[\"AQID\"]}}"
+            "{{\"proposal_nonce\":\"4141414141414141414141414141414141414141414141414141414141414141\",\"fee_payment\":{{\"payer\":\"authority\",\"value\":{{\"charge_limits\":[],\"gas_limit\":null}}}},\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"creation_time_ms\":-1,\"instructions\":[\"AQID\"]}}"
         );
         let err = norito::json::from_str::<MultisigProposeDtoV1>(&raw)
             .expect_err("negative creation time must be rejected");
@@ -23982,7 +23918,7 @@ ENDPOINT_CONTRACTS_CALL_MULTISIG_PROPOSE,
             "unexpected error: {message}"
         );
         let raw = format!(
-            "{{\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[null]}}"
+            "{{\"proposal_nonce\":\"4141414141414141414141414141414141414141414141414141414141414141\",\"fee_payment\":{{\"payer\":\"authority\",\"value\":{{\"charge_limits\":[],\"gas_limit\":null}}}},\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[null]}}"
         );
         let err = norito::json::from_str::<MultisigProposeDtoV1>(&raw)
             .expect_err("null instruction must be rejected");
@@ -24009,6 +23945,7 @@ ENDPOINT_CONTRACTS_CALL_MULTISIG_PROPOSE,
         let instruction: dm::InstructionBox =
             dm::Log::new(dm::Level::INFO, "valid instruction".to_owned()).into();
         let request = MultisigProposeDtoV1 {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
             selector: alias_selector(&alias_literal),
             signer_account_id: signer_two_id.clone(),
             public_key_hex: None,
@@ -24028,7 +23965,7 @@ ENDPOINT_CONTRACTS_CALL_MULTISIG_PROPOSE,
         let malformed_frame =
             base64::engine::general_purpose::STANDARD.encode([b'N', b'R', b'T', b'0', 0, 0]);
         let raw = format!(
-            "{{\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[\"{valid_instruction}\",\"{malformed_frame}\"]}}"
+            "{{\"proposal_nonce\":\"4141414141414141414141414141414141414141414141414141414141414141\",\"fee_payment\":{{\"payer\":\"authority\",\"value\":{{\"charge_limits\":[],\"gas_limit\":null}}}},\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[\"{valid_instruction}\",\"{malformed_frame}\"]}}"
         );
         let err = norito::json::from_str::<MultisigProposeDtoV1>(&raw)
             .expect_err("malformed native instruction frame");
@@ -24062,8 +23999,8 @@ ENDPOINT_CONTRACTS_CALL_MULTISIG_PROPOSE,
                 signature_b64: None,
                 creation_time_ms: Some(1_700_000_000_456),
                 fee_payment: dm::FeePaymentIntent::authority(Vec::new(), None),
-                proposal_id: Some(active_hash.clone()),
-                instructions_hash: None,
+                proposal_id: active_hash.clone(),
+                instructions_hash: HashOf::new(&vec![InstructionBox::from(iroha_data_model::isi::Log::new(iroha_data_model::Level::INFO, "active".to_owned()))]).to_string(),
             }),
         )
         .await
@@ -24078,8 +24015,9 @@ ENDPOINT_CONTRACTS_CALL_MULTISIG_PROPOSE,
         assert_eq!(payload["proposal_id"].as_str(), Some(active_hash.as_str()));
         assert_eq!(
             payload["instructions_hash"].as_str(),
-            Some(active_hash.as_str())
+            Some(HashOf::new(&vec![InstructionBox::from(dm::Log::new(dm::Level::INFO, "active".to_owned()))]).to_string().as_str())
         );
+        assert_ne!(payload["proposal_id"], payload["instructions_hash"]);
         assert_exact_unsigned_transaction_draft(&payload);
     }
 }
@@ -24096,6 +24034,7 @@ pub async fn handle_post_contract_call_multisig_propose(
     use iroha_executor_data_model::isi::multisig::{MultisigApprove, MultisigPropose};
     let MultisigContractCallProposeDto {
         selector,
+        proposal_nonce,
         signer_account_id,
         public_key_hex,
         signature_b64,
@@ -24249,18 +24188,19 @@ pub async fn handle_post_contract_call_multisig_propose(
         IrohaJson::new(attempt_created_at_ms.get()),
     );
     let (proposal_instructions, proposal_hash) = build_multisig_contract_call_instructions(
-&multisig_account_id,
-(&contract_address, contract_alias.as_ref()),
-&entrypoint,
-(normalized_payload.as_ref(), arguments.as_deref()),
-&manifest,
-&code_hash,
-attempt_created_at_ms,
-)?;
-    let proposal_id = hex::encode(proposal_hash.as_ref());
-    let instructions_hash = proposal_id.clone();
+        &multisig_account_id,
+        (&contract_address, contract_alias.as_ref()),
+        &entrypoint,
+        (normalized_payload.as_ref(), arguments.as_deref()),
+        &manifest,
+        &code_hash,
+        attempt_created_at_ms,
+    )?;
+    let occurrence_id = MultisigProposalId::derive(state.network_id_ref(), &multisig_account_id, &proposal_nonce);
+    let proposal_id = occurrence_id.to_string();
+    let instructions_hash = proposal_hash.to_string();
     let propose_instruction =
-        MultisigPropose::new(multisig_account_id.clone(), proposal_instructions, None);
+        MultisigPropose::new(multisig_account_id.clone(), proposal_nonce, proposal_instructions, None);
     let will_execute = {
         let mut approvals = BTreeSet::new();
         approvals.insert(signer_account_id.clone());
@@ -24270,6 +24210,7 @@ attempt_created_at_ms,
     if will_execute {
         transaction_instructions.push(dm::InstructionBox::from(MultisigApprove::new(
             multisig_account_id.clone(),
+            occurrence_id,
             proposal_hash.clone(),
         )));
     }
@@ -24335,7 +24276,7 @@ ENDPOINT_CONTRACTS_CALL_MULTISIG_PROPOSE,
             state.as_ref(),
             &multisig_account_id,
             &spec,
-            &proposal_hash,
+            &occurrence_id,
         )
         .await?
         .is_none()
@@ -24350,8 +24291,8 @@ ENDPOINT_CONTRACTS_CALL_MULTISIG_PROPOSE,
             ok: true,
             resolved_multisig_account_id: multisig_account_id.clone(),
             submitted: true,
-            proposal_id: Some(proposal_id),
-            instructions_hash: Some(instructions_hash),
+            proposal_id,
+            instructions_hash,
             tx_hash_hex: Some(tx_hash_hex.clone()),
             // A quorum-reaching proposal carries MultisigPropose and
             // MultisigApprove in this same transaction. The nested contract
@@ -24369,8 +24310,8 @@ ENDPOINT_CONTRACTS_CALL_MULTISIG_PROPOSE,
             ok: true,
             resolved_multisig_account_id: multisig_account_id,
             submitted: false,
-            proposal_id: Some(proposal_id),
-            instructions_hash: Some(instructions_hash),
+            proposal_id,
+            instructions_hash,
             tx_hash_hex: None,
             executed_tx_hash_hex: None,
             creation_time_ms: Some(creation_time_ms),
@@ -24409,24 +24350,21 @@ pub async fn handle_post_contract_call_multisig_approve(
     reject_unverified_multisig_alias_selector(&selector)?;
     let (multisig_account_id, _spec) =
         resolve_multisig_account_and_spec(&state, &selector, Some(&signer_account_id))?;
-    let (hash_literal, instructions_hash) =
-        resolve_multisig_proposal_hash(proposal_id.clone(), instructions_hash)?;
-    let proposal_id_literal = proposal_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned);
+    let (occurrence_id, instructions_hash) = resolve_multisig_proposal_reference(&proposal_id, &instructions_hash)?;
+    let hash_literal = instructions_hash.to_string();
+    let proposal_id_literal = occurrence_id.to_string();
     let proposal_state = load_multisig_active_proposal_state_optional(
         state.as_ref(),
         &multisig_account_id,
-        &instructions_hash,
+        &occurrence_id,
     )?
     .ok_or_else(multisig_not_found_error)?;
     validate_multisig_active_proposal_binding(
         &multisig_account_id,
-        &instructions_hash,
+        &occurrence_id,
         &proposal_state,
     )?;
+    if proposal_state.instructions_hash != instructions_hash { return Err(multisig_selector_validation_error("proposal content differs from reviewed instructions_hash")); }
     let proposal = proposal_value_from_state(proposal_state);
     let exact_target = {
         let world = state.world_view();
@@ -24451,7 +24389,7 @@ pub async fn handle_post_contract_call_multisig_approve(
             "the selected proposal does not match the required contract alias, entrypoint, and payload",
         ));
     }
-    let approve_instruction = MultisigApprove::new(multisig_account_id.clone(), instructions_hash);
+    let approve_instruction = MultisigApprove::new(multisig_account_id.clone(), occurrence_id, instructions_hash);
     let creation_time_ms = creation_time_ms.unwrap_or_else(current_time_millis);
     let mut builder = dm::TransactionBuilder::new(
         *state.network_id_ref(),
@@ -24496,7 +24434,7 @@ pub async fn handle_post_contract_call_multisig_approve(
             resolved_multisig_account_id: multisig_account_id.clone(),
             submitted: true,
             proposal_id: proposal_id_literal,
-            instructions_hash: Some(hash_literal),
+            instructions_hash: hash_literal,
             tx_hash_hex: Some(tx_hash_hex.clone()),
             executed_tx_hash_hex: None,
             creation_time_ms: Some(creation_time_ms),
@@ -24511,7 +24449,7 @@ pub async fn handle_post_contract_call_multisig_approve(
             resolved_multisig_account_id: multisig_account_id,
             submitted: false,
             proposal_id: proposal_id_literal,
-            instructions_hash: Some(hash_literal),
+            instructions_hash: hash_literal,
             tx_hash_hex: None,
             executed_tx_hash_hex: None,
             creation_time_ms: Some(creation_time_ms),
@@ -24541,72 +24479,33 @@ pub async fn handle_post_multisig_cancel(
         signature_b64,
         creation_time_ms,
         fee_payment,
-        proposal_id,
-        instructions_hash,
+        proposal_nonce,
+        target_proposal_id,
+        target_instructions_hash,
     } = req;
     validate_app_api_fee_payment(&fee_payment, false)?;
     reject_unverified_multisig_alias_selector(&selector)?;
     let (multisig_account_id, spec) =
         resolve_multisig_account_and_spec(&state, &selector, Some(&signer_account_id))?;
-    let (target_hash_literal, target_instructions_hash) =
-        resolve_multisig_proposal_hash(proposal_id, instructions_hash)?;
-    let target_record = load_multisig_proposal_record(
-        &state,
-        &multisig_account_id,
-        &spec,
-        &target_instructions_hash,
-    )?
-    .ok_or_else(multisig_not_found_error)?;
-    if !matches!(
-        target_record.status,
-        MultisigProposalStatus::CollectingSignatures
-    ) {
-        return Err(conversion_error(format!(
-            "target proposal is not cancelable in status {}",
-            target_record.status.as_str()
-        )));
+    let (target_id, target_instructions_hash) = resolve_multisig_proposal_reference(&target_proposal_id, &target_instructions_hash)?;
+    let target_record = load_multisig_proposal_record(&state, &multisig_account_id, &spec, &target_id)?.ok_or_else(multisig_not_found_error)?;
+    if HashOf::new(&target_record.proposal.instructions) != target_instructions_hash {
+        return Err(multisig_selector_validation_error("target content differs from reviewed instructions_hash"));
     }
-    let cancel_instruction =
-        MultisigCancel::new(multisig_account_id.clone(), target_instructions_hash);
-    let cancel_instructions = vec![dm::InstructionBox::from(cancel_instruction)];
+    if !matches!(target_record.status, MultisigProposalStatus::CollectingSignatures) {
+        return Err(conversion_error("target proposal is not cancelable".into()));
+    }
+    let cancel_instructions = vec![dm::InstructionBox::from(MultisigCancel::new(multisig_account_id.clone(), target_id, target_instructions_hash))];
     let cancel_hash = HashOf::new(&cancel_instructions);
-    let cancel_hash_literal = cancel_hash.to_string();
-    let existing_cancel_state =
-        load_multisig_active_proposal_state_optional(&state, &multisig_account_id, &cancel_hash)?;
-    let (action, creation_time_ms, builder) = if existing_cancel_state.is_some() {
-        let approve_instruction = MultisigApprove::new(multisig_account_id.clone(), cancel_hash);
-        let creation_time_ms = creation_time_ms.unwrap_or_else(current_time_millis);
-        let mut builder = dm::TransactionBuilder::new(
-            *state.network_id_ref(),
-            signer_account_id.clone(),
-            iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
-        );
-        builder.set_creation_time(Duration::from_millis(creation_time_ms));
-        (
-            "APPROVE".to_owned(),
-            creation_time_ms,
-            builder
-                .with_fee_payment_intent(fee_payment.clone())
-                .with_instructions([dm::InstructionBox::from(approve_instruction)]),
-        )
-    } else {
-        let propose_instruction =
-            MultisigPropose::new(multisig_account_id.clone(), cancel_instructions, None);
-        let creation_time_ms = creation_time_ms.unwrap_or_else(current_time_millis);
-        let mut builder = dm::TransactionBuilder::new(
-            *state.network_id_ref(),
-            signer_account_id.clone(),
-            iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
-        );
-        builder.set_creation_time(Duration::from_millis(creation_time_ms));
-        (
-            "PROPOSE".to_owned(),
-            creation_time_ms,
-            builder
-                .with_fee_payment_intent(fee_payment)
-                .with_instructions([dm::InstructionBox::from(propose_instruction)]),
-        )
-    };
+    let cancel_id = MultisigProposalId::derive(state.network_id_ref(), &multisig_account_id, &proposal_nonce);
+    let mut instructions = vec![dm::InstructionBox::from(MultisigPropose::new(multisig_account_id.clone(), proposal_nonce, cancel_instructions, None))];
+    if approvals_reach_quorum(&spec, &BTreeSet::from([signer_account_id.clone()])) {
+        instructions.push(MultisigApprove::new(multisig_account_id.clone(), cancel_id, cancel_hash).into());
+    }
+    let creation_time_ms = creation_time_ms.unwrap_or_else(current_time_millis);
+    let mut builder = dm::TransactionBuilder::new(*state.network_id_ref(), signer_account_id.clone(), fee_payment.clone());
+    builder.set_creation_time(Duration::from_millis(creation_time_ms));
+    let builder = builder.with_instructions(instructions);
     let builder = quote_app_api_transaction_builder(
         builder,
         queue.as_ref(),
@@ -24636,19 +24535,18 @@ pub async fn handle_post_multisig_cancel(
             ENDPOINT_MULTISIG_CANCEL,
         )
         .await?;
-        if action == "PROPOSE"
-            && wait_for_multisig_proposal_record_visibility(
+        if wait_for_multisig_proposal_record_visibility(
                 state.as_ref(),
                 &multisig_account_id,
                 &spec,
-                &cancel_hash,
+                &cancel_id,
             )
             .await?
             .is_none()
         {
             iroha_logger::warn!(
                 multisig_account_id = %multisig_account_id,
-                proposal_id = %cancel_hash_literal,
+                proposal_id = %cancel_id,
                 "submitted multisig cancel proposal did not become visible within the wait window"
             );
         }
@@ -24656,11 +24554,10 @@ pub async fn handle_post_multisig_cancel(
             ok: true,
             resolved_multisig_account_id: multisig_account_id.clone(),
             submitted: true,
-            action: action.clone(),
-            target_proposal_id: target_hash_literal.clone(),
-            target_instructions_hash: target_hash_literal.clone(),
-            cancel_proposal_id: cancel_hash_literal.clone(),
-            cancel_instructions_hash: cancel_hash_literal.clone(),
+            target_proposal_id: target_id.to_string(),
+            target_instructions_hash: target_instructions_hash.to_string(),
+            cancel_proposal_id: cancel_id.to_string(),
+            cancel_instructions_hash: cancel_hash.to_string(),
             tx_hash_hex: Some(tx_hash_hex),
             executed_tx_hash_hex: None,
             creation_time_ms: Some(creation_time_ms),
@@ -24674,11 +24571,10 @@ pub async fn handle_post_multisig_cancel(
             ok: true,
             resolved_multisig_account_id: multisig_account_id,
             submitted: false,
-            action,
-            target_proposal_id: target_hash_literal.clone(),
-            target_instructions_hash: target_hash_literal,
-            cancel_proposal_id: cancel_hash_literal.clone(),
-            cancel_instructions_hash: cancel_hash_literal,
+            target_proposal_id: target_id.to_string(),
+            target_instructions_hash: target_instructions_hash.to_string(),
+            cancel_proposal_id: cancel_id.to_string(),
+            cancel_instructions_hash: cancel_hash.to_string(),
             tx_hash_hex: None,
             executed_tx_hash_hex: None,
             creation_time_ms: Some(creation_time_ms),
@@ -24702,6 +24598,7 @@ pub async fn handle_post_multisig_propose(
     use iroha_primitives::const_vec::ConstVec;
     let MultisigProposeDtoV1 {
         selector,
+        proposal_nonce,
         signer_account_id,
         public_key_hex,
         signature_b64,
@@ -24751,10 +24648,12 @@ pub async fn handle_post_multisig_propose(
         );
     }
     let proposal_hash = HashOf::new(&proposal_instructions);
-    let proposal_id = hex::encode(proposal_hash.as_ref());
-    let instructions_hash = proposal_id.clone();
+    let occurrence_id = MultisigProposalId::derive(state.network_id_ref(), &multisig_account_id, &proposal_nonce);
+    let proposal_id = occurrence_id.to_string();
+    let instructions_hash = proposal_hash.to_string();
     let propose_instruction = MultisigPropose::new(
         multisig_account_id.clone(),
+        proposal_nonce,
         proposal_instructions.clone(),
         None,
     );
@@ -24767,6 +24666,7 @@ pub async fn handle_post_multisig_propose(
     if will_execute {
         transaction_instructions.push(dm::InstructionBox::from(MultisigApprove::new(
             multisig_account_id.clone(),
+            occurrence_id,
             proposal_hash.clone(),
         )));
     }
@@ -24829,7 +24729,7 @@ ENDPOINT_MULTISIG_PROPOSE,
             state.as_ref(),
             &multisig_account_id,
             &spec,
-            &proposal_hash,
+            &occurrence_id,
         )
         .await?
         .is_none()
@@ -24844,8 +24744,8 @@ ENDPOINT_MULTISIG_PROPOSE,
             ok: true,
             resolved_multisig_account_id: multisig_account_id.clone(),
             submitted: true,
-            proposal_id: Some(proposal_id),
-            instructions_hash: Some(instructions_hash),
+            proposal_id,
+            instructions_hash,
             tx_hash_hex: Some(tx_hash_hex.clone()),
             // The quorum-one fast path executes the proposed instruction
             // batch atomically in this same transaction. Returning its
@@ -24863,8 +24763,8 @@ ENDPOINT_MULTISIG_PROPOSE,
             ok: true,
             resolved_multisig_account_id: multisig_account_id,
             submitted: false,
-            proposal_id: Some(proposal_id),
-            instructions_hash: Some(instructions_hash),
+            proposal_id,
+            instructions_hash,
             tx_hash_hex: None,
             executed_tx_hash_hex: None,
             creation_time_ms: Some(creation_time_ms),
@@ -24899,14 +24799,10 @@ pub async fn handle_post_multisig_approve(
     reject_unverified_multisig_alias_selector(&selector)?;
     let (multisig_account_id, _spec) =
         resolve_multisig_account_and_spec(&state, &selector, Some(&signer_account_id))?;
-    let (hash_literal, instructions_hash) =
-        resolve_multisig_proposal_hash(proposal_id.clone(), instructions_hash)?;
-    let proposal_id_literal = proposal_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned);
-    let approve_instruction = MultisigApprove::new(multisig_account_id.clone(), instructions_hash);
+    let (occurrence_id, instructions_hash) = resolve_multisig_proposal_reference(&proposal_id, &instructions_hash)?;
+    let hash_literal = instructions_hash.to_string();
+    let proposal_id_literal = occurrence_id.to_string();
+    let approve_instruction = MultisigApprove::new(multisig_account_id.clone(), occurrence_id, instructions_hash);
     let creation_time_ms = creation_time_ms.unwrap_or_else(current_time_millis);
     let mut builder = dm::TransactionBuilder::new(
         *state.network_id_ref(),
@@ -24945,7 +24841,7 @@ pub async fn handle_post_multisig_approve(
             resolved_multisig_account_id: multisig_account_id.clone(),
             submitted: true,
             proposal_id: proposal_id_literal,
-            instructions_hash: Some(hash_literal),
+            instructions_hash: hash_literal,
             tx_hash_hex: Some(tx_hash_hex.clone()),
             executed_tx_hash_hex: None,
             creation_time_ms: Some(creation_time_ms),
@@ -24960,7 +24856,7 @@ pub async fn handle_post_multisig_approve(
             resolved_multisig_account_id: multisig_account_id,
             submitted: false,
             proposal_id: proposal_id_literal,
-            instructions_hash: Some(hash_literal),
+            instructions_hash: hash_literal,
             tx_hash_hex: None,
             executed_tx_hash_hex: None,
             creation_time_ms: Some(creation_time_ms),
@@ -25616,9 +25512,11 @@ fn account_recovery_invalidation_evidence(
     }
     let world = state.world_view();
     let storage = world.smart_contract_state();
-    let mut evidence = Vec::with_capacity(request.invalidated_multisig_proposal_hashes.len());
+    let mut evidence = Vec::with_capacity(request.invalidated_multisig_proposal_ids.len());
     let mut proposal_hashes = std::collections::BTreeSet::new();
-    for proposal_hash in &request.invalidated_multisig_proposal_hashes {
+    for raw_id in &request.invalidated_multisig_proposal_ids {
+        let proposal_id: MultisigProposalId = hex::encode(raw_id).parse().map_err(|_| conversion_error("invalid retained occurrence id".into()))?;
+        let proposal_hash = &proposal_id;
         if !proposal_hashes.insert(*proposal_hash) {
             return Err(conversion_error(format!(
                 "recovery request contains duplicate invalidated proposal `{proposal_hash}`"
@@ -25676,6 +25574,7 @@ fn account_recovery_invalidation_evidence(
         };
         evidence.push(AccountRecoveryInvalidatedProposalEvidenceDto {
             proposal_id: proposal_hash.to_string(),
+            instructions_hash: terminal.instructions_hash.to_string(),
             status: status.to_owned(),
             terminal_at_ms: terminal.terminal_at_ms,
         });
@@ -26136,14 +26035,12 @@ fn multisig_proposals_resolve_response(
 ) -> Result<MultisigProposalResolveResponseDto> {
     let (resolved_multisig_account_id, spec) =
         resolve_multisig_proposal_read_account(state, &req.selector, resolve_authority)?;
-    let (hash_literal, instructions_hash) =
-        resolve_multisig_proposal_hash(req.proposal_id.clone(), req.instructions_hash.clone())?;
+    let proposal_id = req.proposal_id;
     let proposal_record = if let Some(spec) = spec.as_ref() {
-        load_multisig_proposal_record(state, &resolved_multisig_account_id, spec, &instructions_hash)?
+        load_multisig_proposal_record(state, &resolved_multisig_account_id, spec, &proposal_id)?
     } else {
-        load_historical_multisig_terminal_record(state, &resolved_multisig_account_id, &instructions_hash)?
+        load_historical_multisig_terminal_record(state, &resolved_multisig_account_id, &proposal_id)?
     }
-    .filter(|record| multisig_proposal_is_user_visible(&record.proposal))
     .ok_or_else(multisig_not_found_error)?;
     let world = state.world_view();
     let operation_type = multisig_proposal_operation_type(
@@ -26157,16 +26054,66 @@ fn multisig_proposals_resolve_response(
         &resolved_multisig_account_id,
         &proposal_record.proposal,
     );
+    let terminal_entrypoint_hash = multisig_terminal_execution_candidate(
+        &world, &resolved_multisig_account_id, &proposal_id, &proposal_record,
+        usize::try_from(app_query_limits().max_fetch_size)
+            .map_err(|_| multisig_selector_validation_error("terminal lookup scan limit exceeds usize"))?,
+    )?;
     Ok(MultisigProposalResolveResponseDto {
         resolved_multisig_account_id,
-        proposal_id: hash_literal.clone(),
-        instructions_hash: hash_literal,
+        proposal_id: proposal_id.to_string(),
+        instructions_hash: HashOf::new(&proposal_record.proposal.instructions).to_string(),
         operation_type,
         intent,
         proposal: proposal_record.proposal,
         status: proposal_record.status.as_str().to_owned(),
         terminal_at_ms: proposal_record.terminal_at_ms,
+        terminal_entrypoint_hash,
     })
+}
+
+// Candidate discovery only. Consumers authenticate the corresponding complete
+// native execution evidence against an independently verified checkpoint root.
+fn multisig_terminal_execution_candidate<W: iroha_core::state::WorldReadOnly>(
+    world: &W,
+    account: &AccountId,
+    proposal_id: &MultisigProposalId,
+    proposal: &MultisigProposalRecord,
+    mut remaining: usize,
+) -> Result<Option<String>> {
+    use iroha_core::smartcontracts::isi::multisig::multisig_proposal_terminal_execution_state_key;
+    use iroha_executor_data_model::isi::multisig::{MultisigProposalTerminalExecutionStateV1, MultisigProposalTerminalStatus};
+    let expected_status = match proposal.status {
+        MultisigProposalStatus::Finalized => MultisigProposalTerminalStatus::Finalized,
+        MultisigProposalStatus::Canceled => MultisigProposalTerminalStatus::Canceled,
+        _ => return Ok(None),
+    };
+    let prefix = StatePath::from_str("multisig/proposal-terminal-execution/")
+        .expect("static terminal execution prefix");
+    let suffix = format!("/{}/{}", HashOf::new(account), proposal_id);
+    let mut candidate = None;
+    for (key, bytes) in world.smart_contract_state().range(prefix.clone()..) {
+        if !key.as_ref().starts_with(prefix.as_ref()) { break; }
+        remaining = remaining.checked_sub(1).ok_or_else(|| multisig_selector_validation_error("terminal execution candidate scan exceeds configured limit"))?;
+        if !key.as_ref().ends_with(&suffix) { continue; }
+        let execution: MultisigProposalTerminalExecutionStateV1 = norito::decode_from_bytes(bytes)
+            .map_err(|error| conversion_error(format!("invalid native terminal execution record: {error}")))?;
+        let canonical = norito::to_bytes(&execution).map_err(|error| conversion_error(error.to_string()))?;
+        if canonical.as_slice() != bytes.as_slice() || execution.entrypoint_account_id != *account
+            || execution.terminal.multisig_account_id != *account
+            || execution.terminal.proposal_id != *proposal_id
+            || execution.terminal.proposal.proposal_id != *proposal_id
+            || execution.terminal.instructions_hash != HashOf::new(&proposal.proposal.instructions)
+            || multisig_proposal_terminal_execution_state_key(execution.terminal_entrypoint_hash, account, proposal_id) != *key {
+            return Err(conversion_error("native terminal execution record has a substituted key or account".into()));
+        }
+        if execution.terminal.proposal != proposal.proposal
+            || Some(execution.terminal.terminal_at_ms) != proposal.terminal_at_ms
+            || execution.terminal.status != expected_status { continue; }
+        if candidate.is_some() { return Err(conversion_error("native terminal execution candidate is ambiguous".into())); }
+        candidate = Some(hex::encode(execution.terminal_entrypoint_hash));
+    }
+    Ok(candidate)
 }
 fn format_unix_timestamp_ms_rfc3339(value: u64) -> Result<String> {
     let timestamp = OffsetDateTime::from_unix_timestamp_nanos(i128::from(value) * 1_000_000)
@@ -28020,6 +27967,8 @@ pub struct MultisigProposeDtoV1 {
     /// Alias-aware selector for the multisig authority controlling the action.
     #[norito(flatten)]
     pub selector: MultisigAccountSelectorDto,
+    /// Caller-retained identity of this proposal occurrence.
+    pub proposal_nonce: MultisigProposalNonce,
     /// Signer account submitting this proposal participation.
     pub signer_account_id: iroha_data_model::account::AccountId,
     /// Optional Ed25519 public key (hex) used for detached submit.
@@ -28064,12 +28013,10 @@ pub struct MultisigApproveDto {
     pub creation_time_ms: Option<u64>,
     /// Explicit signature-bound payer, sponsor revision, fee limits, and gas bound.
     pub fee_payment: iroha_data_model::transaction::FeePaymentIntent,
-    /// Optional proposal identifier.
-    #[norito(default)]
-    pub proposal_id: Option<String>,
-    /// Optional deterministic hash of the proposal instructions.
-    #[norito(default)]
-    pub instructions_hash: Option<String>,
+    /// Exact proposal occurrence.
+    pub proposal_id: String,
+    /// Exact reviewed instruction commitment.
+    pub instructions_hash: String,
 }
 ( Debug, crate::json_macros::JsonDeserialize, norito::derive::NoritoDeserialize, crate::json_macros::JsonSerialize, norito::derive::NoritoSerialize,)
 #[derive(norito::NoritoSchema)]
@@ -28080,6 +28027,8 @@ pub struct MultisigContractCallProposeDto {
     /// Alias-aware selector for the multisig authority controlling the action.
     #[norito(flatten)]
     pub selector: MultisigAccountSelectorDto,
+    /// Caller-retained identity of this proposal occurrence.
+    pub proposal_nonce: MultisigProposalNonce,
     /// Signer account submitting this proposal participation.
     pub signer_account_id: iroha_data_model::account::AccountId,
     /// Optional Ed25519 public key (hex) used for detached submit.
@@ -28122,12 +28071,10 @@ pub struct MultisigContractCallApproveDto {
     pub creation_time_ms: Option<u64>,
     /// Explicit signature-bound payer, sponsor revision, fee limits, and gas bound.
     pub fee_payment: iroha_data_model::transaction::FeePaymentIntent,
-    /// Optional proposal identifier.
-    #[norito(default)]
-    pub proposal_id: Option<String>,
-    /// Optional deterministic hash of the proposal instructions.
-    #[norito(default)]
-    pub instructions_hash: Option<String>,
+    /// Exact proposal occurrence.
+    pub proposal_id: String,
+    /// Exact reviewed instruction commitment.
+    pub instructions_hash: String,
     /// Exact deployed contract alias expected in the selected proposal.
     pub contract_alias: iroha_data_model::smart_contract::ContractAlias,
     /// Exact contract entrypoint expected in the selected proposal.
@@ -28139,7 +28086,7 @@ pub struct MultisigContractCallApproveDto {
 #[cfg(all(test, feature = "app_api"))]
 mod multisig_native_norito_dto_tests {
     use super::{
-        IrohaJson, MultisigAccountSelectorDto, MultisigContractCallProposeDto, MultisigProposeDtoV1,
+        IrohaJson, MultisigAccountSelectorDto, MultisigContractCallProposeDto, MultisigProposeDtoV1, MultisigProposalNonce,
     };
     use iroha_data_model::{account::AccountId, smart_contract::ContractAlias};
     use norito::SerializePayload;
@@ -28163,6 +28110,7 @@ mod multisig_native_norito_dto_tests {
             .clone(),
         );
         MultisigProposeDtoV1 {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
             selector: MultisigAccountSelectorDto {
                 multisig_account_id: None,
                 multisig_account_alias: Some("cbdc@hbl.sbp".to_owned()),
@@ -28254,6 +28202,7 @@ mod multisig_native_norito_dto_tests {
             .clone(),
         );
         let request = MultisigContractCallProposeDto {
+                proposal_nonce: MultisigProposalNonce::new([0x41;32]).unwrap(),
             selector: MultisigAccountSelectorDto {
                 multisig_account_id: None,
                 multisig_account_alias: Some("cbdc@hbl.sbp".to_owned()),
@@ -28351,12 +28300,12 @@ pub struct MultisigCancelRequestDto {
     pub creation_time_ms: Option<u64>,
     /// Explicit signature-bound payer, sponsor revision, fee limits, and gas bound.
     pub fee_payment: iroha_data_model::transaction::FeePaymentIntent,
-    /// Optional target proposal identifier.
-    #[norito(default)]
-    pub proposal_id: Option<String>,
-    /// Optional deterministic hash of the target proposal instructions.
-    #[norito(default)]
-    pub instructions_hash: Option<String>,
+    /// Caller-retained nonce of the separate cancellation occurrence.
+    pub proposal_nonce: MultisigProposalNonce,
+    /// Exact occurrence being canceled.
+    pub target_proposal_id: String,
+    /// Exact reviewed content of that occurrence.
+    pub target_instructions_hash: String,
 }
 (Debug, crate::json_macros::JsonSerialize, norito::derive::NoritoSerialize)
 /// Response payload for multisig participation endpoints.
@@ -28367,12 +28316,10 @@ pub struct MultisigContractCallResponseDto {
     pub resolved_multisig_account_id: iroha_data_model::account::AccountId,
     /// Whether a transaction was submitted.
     pub submitted: bool,
-    /// Stable proposal id when available.
-    #[norito(default)]
-    pub proposal_id: Option<String>,
-    /// Deterministic instructions hash when available.
-    #[norito(default)]
-    pub instructions_hash: Option<String>,
+    /// Exact proposal occurrence.
+    pub proposal_id: String,
+    /// Exact proposed instruction commitment.
+    pub instructions_hash: String,
     /// Submitted participation transaction hash when available.
     #[norito(default)]
     pub tx_hash_hex: Option<String>,
@@ -28400,8 +28347,6 @@ pub struct MultisigCancelResponseDto {
     pub resolved_multisig_account_id: iroha_data_model::account::AccountId,
     /// Whether a transaction was submitted.
     pub submitted: bool,
-    /// Whether the cancel route created or approved the cancel proposal.
-    pub action: String,
     /// Stable target proposal id.
     pub target_proposal_id: String,
     /// Deterministic hash of the target proposal instructions.
@@ -28461,12 +28406,8 @@ pub struct MultisigProposalsResolveRequestDto {
     /// Alias-aware selector for the multisig authority that owns the proposal.
     #[norito(flatten)]
     pub selector: MultisigAccountSelectorDto,
-    /// Optional stable proposal identifier used to select the proposal directly.
-    #[norito(default)]
-    pub proposal_id: Option<String>,
-    /// Optional deterministic hash of the proposal instructions.
-    #[norito(default)]
-    pub instructions_hash: Option<String>,
+    /// Exact proposal occurrence, never an instruction hash alias.
+    pub proposal_id: MultisigProposalId,
 }
 (Debug, crate::json_macros::JsonSerialize, norito::derive::NoritoSerialize)
 /// Response payload for a selector-explicit multisig proposal read.
@@ -28481,6 +28422,8 @@ pub struct MultisigProposalResolveResponseDto {
     pub status: String,
     #[norito(default)]
     pub terminal_at_ms: Option<u64>,
+    /// Untrusted lookup candidate, requiring separately rooted execution evidence.
+    pub terminal_entrypoint_hash: Option<String>,
 }
 ( Debug, crate::json_macros::JsonDeserialize, norito::derive::NoritoDeserialize, crate::json_macros::JsonSerialize, norito::derive::NoritoSerialize,)
 #[derive(norito::NoritoSchema)]
@@ -28642,6 +28585,8 @@ pub struct AccountRecoveryMutationResponseDto {
 /// Terminal native multisig proposal evidence retained by recovery finalization.
 pub struct AccountRecoveryInvalidatedProposalEvidenceDto {
     pub proposal_id: String,
+    /// Exact content of the invalidated occurrence.
+    pub instructions_hash: String,
     pub status: String,
     pub terminal_at_ms: u64,
 }
@@ -34605,7 +34550,7 @@ mod tx_query_filter_tests {
         let asset_id = dm::AssetId::new(def.clone(), holder.clone());
         let other_asset_id = dm::AssetId::new(def, other_holder);
         let nested: dm::InstructionBox = dm::Mint::asset_quantity(1_u32, asset_id.clone()).into();
-        let propose = MultisigPropose::new(controller, vec![nested], None);
+        let propose = MultisigPropose::new(controller, MultisigProposalNonce::new([0x41;32]).unwrap(), vec![nested], None);
         let instruction: dm::InstructionBox = propose.into();
         assert!(instruction_matches_asset_id(&instruction, &asset_id));
         assert!(!instruction_matches_asset_id(&instruction, &other_asset_id));
@@ -34697,7 +34642,7 @@ mod tx_query_filter_tests {
     routing_test! { sync instruction_matches_account_id_matches_multisig_custom_propose_account
         let (multisig, _) = account_with_key();
         let (other, _) = account_with_key();
-        let propose = MultisigPropose::new(multisig.clone(), Vec::new(), None);
+        let propose = MultisigPropose::new(multisig.clone(), MultisigProposalNonce::new([0x41;32]).unwrap(), Vec::new(), None);
         let instruction: dm::InstructionBox = propose.into();
         assert!(instruction_matches_account_id(&instruction, &multisig));
         assert!(!instruction_matches_account_id(&instruction, &other));
@@ -34709,7 +34654,7 @@ mod tx_query_filter_tests {
         let (other, _) = account_with_key();
         let nested_asset = dm::AssetId::new(test_asset_definition_id(), nested_account.clone());
         let nested: dm::InstructionBox = dm::Mint::asset_quantity(1_u32, nested_asset).into();
-        let propose = MultisigPropose::new(multisig.clone(), vec![nested], None);
+        let propose = MultisigPropose::new(multisig.clone(), MultisigProposalNonce::new([0x41;32]).unwrap(), vec![nested], None);
         let instruction: dm::InstructionBox = propose.into();
         assert!(instruction_matches_account_id(&instruction, &multisig));
         assert!(instruction_matches_account_id(
@@ -34886,10 +34831,7 @@ mod tx_query_filter_tests {
     routing_test! { sync instruction_matches_account_id_matches_multisig_custom_cancel_account
         let (multisig, _) = account_with_key();
         let (other, _) = account_with_key();
-        let cancel = MultisigCancel::new(
-            multisig.clone(),
-            GenericHashOf::new(&Vec::<dm::InstructionBox>::new()),
-        );
+        let cancel = MultisigCancel::new(multisig.clone(), occurrence_fixture_id(&multisig.clone(), GenericHashOf::new(&Vec::<dm::InstructionBox>::new())), GenericHashOf::new(&Vec::<dm::InstructionBox>::new()));
         let instruction: dm::InstructionBox = cancel.into();
         assert!(instruction_matches_account_id(&instruction, &multisig));
         assert!(!instruction_matches_account_id(&instruction, &other));
@@ -37841,7 +37783,7 @@ mod explorer_lookup_tests {
             "derive explorer instructions multisig fixture key",
         );
         let custom: dm::InstructionBox =
-            MultisigPropose::new(multisig.clone(), Vec::new(), None).into();
+            MultisigPropose::new(multisig.clone(), MultisigProposalNonce::new([0x41;32]).unwrap(), Vec::new(), None).into();
         let (state, tx_hash) = build_state_with_single_transaction(vec![custom]);
         let app = Router::new().route(
             ENDPOINT_EXPLORER_INSTRUCTIONS,
@@ -37894,10 +37836,10 @@ mod explorer_lookup_tests {
         let items = payload["items"].as_array().expect("items array");
         assert_eq!(items.len(), 1);
         assert_eq!(
-            items[0]["transaction_hash"].as_str(),
-            Some(tx_hash.to_string().as_str())
+            items[0]["transaction_hash"],
+            norito::json::to_value(&tx_hash).expect("canonical native transaction hash literal")
         );
-        assert_eq!(items[0]["kind"].as_str(), Some("Custom"));
+        assert_eq!(items[0]["kind"].as_str(), Some(dm::CustomInstruction::WIRE_ID));
     }
     routing_test! { sync explorer_detail_lookup_returns_transaction_and_instruction
         let instructions = vec![
@@ -42204,7 +42146,8 @@ mod cursor_mode_tests {
 }
 include!("routing/transaction_ingress_overload_tests.rs");
 #[cfg(test)]
-mod validation_fee_torii_ingress_tests {
+/// Native validation-fee admission fixtures and HTTP ingress regressions.
+pub mod validation_fee_torii_ingress_tests {
     use super::*;
     use iroha_config::parameters::actual::ParliamentTimedOvn;
     use iroha_core::{
@@ -42477,7 +42420,8 @@ mod validation_fee_torii_ingress_tests {
             ivm::verify_contract_artifact(&artifact).expect("valid pool contract artifact");
         (artifact, verified.manifest)
     }
-    fn payout_binding(
+    /// Bind the fixture payout contracts and accounts to the original network.
+    pub fn payout_binding(
         state: &State,
         user: &AccountId,
         fee_asset: &AssetDefinitionId,
@@ -42568,7 +42512,8 @@ mod validation_fee_torii_ingress_tests {
         initial.commit();
         world
     }
-    fn native_fee_fixture() -> (
+    /// Execute signed fixture genesis and deploy the native payout and pool contracts.
+    pub fn native_fee_fixture() -> (
         CertifiedTestChain,
         KeyPair,
         AccountId,
@@ -43174,6 +43119,7 @@ mod validation_fee_torii_ingress_tests {
         )
         .expect("validation-fee registry entry");
         let registry = ValidationFeePolicyRegistryV1 {
+            history: None,
             registered_policies: vec![entry],
             payout_policies: ValidationFeePayoutPolicyRegistryV1 {
                 entries: vec![ValidationFeePayoutPolicyEntryV1 {
@@ -43188,7 +43134,10 @@ mod validation_fee_torii_ingress_tests {
         registry
             .validate()
             .expect("Torii validation-fee fixture registry must validate before persistence");
-        let custom_registry = registry.clone().into_custom_parameter();
+        let custom_registry = registry
+            .clone()
+            .into_custom_parameter()
+            .expect("Torii validation-fee fixture registry fits the canonical JSON parameter");
         let decoded_registry =
             ValidationFeePolicyRegistryV1::from_custom_parameter(&custom_registry)
                 .expect("Torii validation-fee fixture registry must decode after persistence");

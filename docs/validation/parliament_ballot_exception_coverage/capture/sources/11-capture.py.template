@@ -1,0 +1,195 @@
+"""Capture selected exception metadata checks in ignored scratch; never run workers."""
+import argparse
+from collections import Counter
+import datetime
+import gzip
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+import xml.etree.ElementTree as ET
+
+ROOT = Path.cwd().resolve()
+STAGE = ROOT / "target/parliament-exception-coverage-stage"
+REVIEW = ROOT / "target/parliament-exception-graph-review"
+REFERENCE = ROOT / "target/parliament-exception-reference-review"
+OUT, WORK = STAGE / "capture", STAGE / "capture-work"
+PYTEST = Path("/opt/homebrew/bin/pytest")
+CODE = {
+    "helper": STAGE / "scripts/parliament_ballot_exception_coverage.py",
+    "tests": STAGE / "scripts/tests/parliament_ballot_exception_coverage_test.py",
+    "independent_tests": STAGE / "scripts/tests/parliament_ballot_exception_coverage_independent_test.py",
+    "readme": STAGE / "README.md",
+    "graph_tests": REVIEW / "graph_review_test.py",
+    "reference_tests": REVIEW / "all_body_reference_test.py",
+    "reference_helper": REVIEW / "all_body_reference.py",
+    "comparison_helper": REVIEW / "compare_dwarf_dump.py",
+}
+TESTS = [CODE[k] for k in ("tests", "independent_tests", "graph_tests", "reference_tests")]
+INVENTORIES = {"input-inventory.json": "578292d845726e3149b8da68f3350efd9e9739816744e1b664e165475361929e",
+               "input-inventory-fde.json": "36e4aa2a8cc83c6650cf22089fe8d74dc743c114bc506c8860a3f66363a5a587"}
+FLAGS = ("complete_exception_semantics", "dwarf_fde_cfi_verified", "complete_native_cost_certificate",
+         "complete_stack_certificate", "complete_workspace_certificate", "physical_cost_calibrated",
+         "applies_to_current_checkout", "profile_qualified", "production_gate_changed", "worker_executed")
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def need(value, reason):
+    if not value:
+        raise RuntimeError(reason)
+
+
+def save(name, value):
+    with (OUT / name).open("x") as stream:
+        stream.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
+def observe(paths):
+    return {str(p): sha(p) if p.is_file() else None for p in paths}
+
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--reviewed-hashes", type=Path, required=True)
+parser.add_argument("--reviewed-hashes-sha", required=True)
+parser.add_argument("--expected-test-cases", type=int, required=True)
+args = parser.parse_args()
+need(args.expected_test_cases > 0, "expected testcase count must be positive")
+need(not OUT.exists() and not WORK.exists(), "refuse existing capture or work directory")
+need(sha(args.reviewed_hashes) == args.reviewed_hashes_sha, "reviewed identity map changed")
+reviewed = json.loads(args.reviewed_hashes.read_text())
+need(set(reviewed) == set(CODE), "reviewed identity membership differs")
+need(all(sha(path) == reviewed[key] for key, path in CODE.items()), "reviewed candidate changed")
+selected = {}
+for name, expected in INVENTORIES.items():
+    need(sha(STAGE / name) == expected, "input inventory changed")
+    entries = json.loads((STAGE / name).read_text())["inputs"]
+    need(not selected.keys() & entries.keys(), "duplicate selected input")
+    selected.update(entries)
+need(len(selected) == 21, "selected input count differs")
+input_paths = []
+for key, item in selected.items():
+    source, snapshot = Path(item["source_path"]), STAGE / item["snapshot"]
+    need(source.read_bytes() == snapshot.read_bytes() and sha(source) == item["sha256"]
+         and source.stat().st_size == item["bytes"], "selected source/snapshot changed: " + key)
+    input_paths += [source, snapshot]
+# Retain small reference sources, independent byte census/notes and the already
+# captured LLVM text cross-check. Do not duplicate input binaries/disassemblies.
+reference_files = sorted(p for p in REFERENCE.iterdir() if p.is_file())
+tool_files = sorted(p for p in (REVIEW / "dwarf-tool-reference").iterdir() if p.is_file())
+need(reference_files and tool_files and not any(p.is_symlink() for p in reference_files + tool_files), "invalid reference inventory")
+small = list(CODE.values()) + [STAGE / name for name in INVENTORIES] + [ROOT / "pytest.ini", Path(__file__).resolve(), args.reviewed_hashes.resolve()] + reference_files + tool_files
+conftests = set()
+for test in TESTS:
+    conftests.add(test.parent / "conftest.py")
+    conftests.update(p / "conftest.py" for p in test.parent.parents if p == ROOT or p.is_relative_to(ROOT))
+need(not any(p.exists() and not p.is_file() for p in conftests), "conftest is not a file")
+small += sorted(p for p in conftests if p.is_file())
+small = list(dict.fromkeys(small))
+absent = sorted(str(p) for p in conftests if not p.exists())
+paths = list(dict.fromkeys(small + input_paths))
+before = observe(paths)
+runtime_paths = [PYTEST, Path(PYTEST.read_text().splitlines()[0][2:]).resolve(), Path(sys.executable).resolve()]
+runtime = observe(runtime_paths)
+need(all(before.values()) and all(runtime.values()), "missing watched input/runtime")
+env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
+           PYTEST_ADDOPTS="", PYTEST_PLUGINS="", PYTHONPATH="", PYTHONOPTIMIZE="0")
+base = [str(PYTEST), "-c", str(ROOT / "pytest.ini"), "-o", "addopts=", "--confcutdir=" + str(ROOT),
+        "--import-mode=importlib", "-p", "no:cacheprovider", "--maxfail=0", "--tb=short", "-q"]
+commands = [
+    ("collection", base + ["--collect-only"] + [str(p) for p in TESTS], 0),
+    ("tests", base + ["--basetemp=" + str(WORK / "pytest-tmp")] + [str(p) for p in TESTS] + ["--junitxml=" + str(OUT / "tests.xml")], 0),
+    ("analysis", [sys.executable, "-B", str(CODE["helper"]), "--stage", str(STAGE), "--out", str(WORK / "analysis.json")], 0),
+    ("decoder-comparison", [sys.executable, "-B", str(CODE["comparison_helper"]), "--report", str(WORK / "analysis.json"), "--out", str(OUT / "decoder-comparison.json")], 0),
+    ("require-qualified", [sys.executable, "-B", str(CODE["helper"]), "--stage", str(STAGE), "--out", str(WORK / "refusal.json"), "--require-qualified"], 2),
+]
+OUT.mkdir()
+WORK.mkdir()
+(OUT / "sources").mkdir()
+records, snapshots, compressed, nodeids, error = [], {}, {}, [], None
+try:
+    for index, path in enumerate(small):
+        data = path.read_bytes()
+        need(hashlib.sha256(data).hexdigest() == before[str(path)], "source changed while snapshotting")
+        name = f"sources/{index:02}-{path.name}.template"
+        with (OUT / name).open("xb") as stream:
+            stream.write(data)
+        snapshots[str(path)] = dict(path=name, sha256=before[str(path)])
+    for name, command, expected in commands:
+        started = time.monotonic()
+        with (OUT / (name + ".stdout.txt")).open("x") as stdout, (OUT / (name + ".stderr.txt")).open("x") as stderr:
+            result = subprocess.run(command, cwd=ROOT, env=env, stdout=stdout, stderr=stderr)
+        after = observe(paths)
+        record = dict(name=name, command=command, exit_code=result.returncode, expected_exit_code=expected,
+                      seconds=time.monotonic() - started, source_after=after)
+        records.append(record)
+        save(name + ".command.json", record)
+        if name in ("analysis", "require-qualified"):
+            raw_path = WORK / ("analysis.json" if name == "analysis" else "refusal.json")
+            if raw_path.is_file():
+                raw = raw_path.read_bytes()
+                filename = raw_path.name + ".gz"
+                with (OUT / filename).open("xb") as stream:
+                    with gzip.GzipFile(filename="", mode="wb", fileobj=stream, mtime=0, compresslevel=9) as zipper:
+                        zipper.write(raw)
+                need(gzip.decompress((OUT / filename).read_bytes()) == raw, "gzip roundtrip differs")
+                compressed[name] = dict(raw_path=str(raw_path), raw_bytes=len(raw), raw_sha256=hashlib.sha256(raw).hexdigest(),
+                                        gzip_path=filename, gzip_bytes=(OUT / filename).stat().st_size,
+                                        gzip_sha256=sha(OUT / filename), decompressed_sha256=hashlib.sha256(raw).hexdigest())
+        need(after == before and not any(Path(p).exists() for p in absent), "source/config drift; actual outputs retained")
+        need(result.returncode == expected, "unexpected command exit; actual outputs retained")
+        if name == "collection":
+            prefixes = {str(p.relative_to(ROOT)) + "::" for p in TESTS}
+            nodeids = [line for line in (OUT / "collection.stdout.txt").read_text().splitlines() if any(line.startswith(prefix) for prefix in prefixes)]
+            need(len(nodeids) == len(set(nodeids)) == args.expected_test_cases, "collected testcase membership/count differs")
+            need({line.split("::", 1)[0] for line in nodeids} == {str(p.relative_to(ROOT)) for p in TESTS}, "selected test module missing")
+            save("collected-nodeids.json", nodeids)
+        if name == "tests":
+            cases = list(ET.parse(OUT / "tests.xml").getroot().iter("testcase"))
+            actual = [(c.get("classname"), c.get("name")) for c in cases]
+            expected_ids = [(path[:-3].replace("/", "."), name) for path, name in (node.split("::", 1) for node in nodeids)]
+            need(actual == expected_ids and len(cases) == args.expected_test_cases, "JUnit differs from exact collected membership/order")
+            need(not any(c.find(tag) is not None for c in cases for tag in ("failure", "error", "skipped")), "JUnit contains failure/error/skip")
+    normal, refusal = (WORK / "analysis.json").read_bytes(), (WORK / "refusal.json").read_bytes()
+    need(normal == refusal, "qualification refusal changed raw report")
+    report = json.loads(normal)
+    need(report["verdict"] == "PASS_UNDER_STATED_PREMISES" and report["checked_metadata_and_coverage"] is True, "conditional report did not pass")
+    expected_inputs = {key: item["sha256"] for key, item in selected.items()}
+    need(report["input_sha256_before"] == report["input_sha256_after"] == expected_inputs and report["selected_input_count"] == 21, "report input map differs")
+    need(all(report[key] is False for key in FLAGS), "unexpected qualification promotion")
+    comparison = json.loads((OUT / "decoder-comparison.json").read_text())
+    need(comparison["status"] == "PASS" and comparison["draft_report_sha256"] == hashlib.sha256(normal).hexdigest(), "decoder comparison did not match exact report")
+    summary = dict(status="PASS", raw_report_sha256=hashlib.sha256(normal).hexdigest(), selected_input_count=21,
+                   focused_tests_passed=len(nodeids), test_module_counts=dict(Counter(node.split("::", 1)[0] for node in nodeids)),
+                   modes={mode: dict(cies=len(value["eh_frame"]["cies"]), fdes=len(value["eh_frame"]["fdes"]),
+                                    lsda_tables=len(value["lsda_tables"]), new_instructions=value["new_instruction_count"],
+                                    new_functions=value["new_function_count"], frontier_counts=value["exception_augmented"]["frontier_counts"])
+                          for mode, value in report["modes"].items()}, **{flag: False for flag in FLAGS})
+    save("summary.json", summary)
+except Exception as exc:
+    error = f"{type(exc).__name__}: {exc}"
+after, runtime_after = observe(paths), observe(runtime_paths)
+if after != before or runtime_after != runtime or any(Path(p).exists() for p in absent):
+    error = error or "late input/runtime/config drift"
+outputs = {str(p.relative_to(OUT)): sha(p) for p in sorted(OUT.rglob("*")) if p.is_file() and not p.is_symlink()}
+receipt = dict(schema="parliament-exception-stage-capture-v1", status="PASS" if error is None else "FAIL", error=error,
+               recorded_at_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(), command_line=sys.argv,
+               source_before=before, source_after=after, source_snapshots=snapshots, absent_conftests=absent,
+               runtime_before=runtime, runtime_after=runtime_after, capture_python_version=sys.version,
+               selected_inputs=selected, input_inventory_sha256=INVENTORIES, commands=records, compressed_reports=compressed,
+               expected_test_cases=args.expected_test_cases, collected_test_cases=len(nodeids), output_sha256=outputs,
+               environment_overrides={key:env[key] for key in ("PYTHONDONTWRITEBYTECODE", "PYTEST_DISABLE_PLUGIN_AUTOLOAD", "PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTHONPATH", "PYTHONOPTIMIZE")},
+               scope="Selected staged metadata/parser tests and retained-image static analysis only. Original21 source+snapshot identities observed, without duplicating their binary/disassembly payload. Primary reference/census notes and previous LLVM text decoding retained; no fresh LLVM invocation. Gzip files preserve exact raw reports by decompressed SHA; raw files and pytest temporary files remain separate ignored scratch. Observations are non-atomic; Python/pytest dependencies, cache coherence and unobserved child reads remain trusted. No worker, loaded unwinder, CFI execution, whole-resource or current-checkout qualification.",
+               **{flag: False for flag in FLAGS})
+save("receipt.json", receipt)
+with (OUT / "SHA256SUMS").open("x") as stream:
+    for path in sorted(p for p in OUT.rglob("*") if p.is_file() and not p.is_symlink() and p.name != "SHA256SUMS"):
+        stream.write(sha(path) + "  " + str(path.relative_to(ROOT)) + "\n")
+print(json.dumps(dict(status=receipt["status"], error=error, receipt_sha256=sha(OUT / "receipt.json"), manifest_sha256=sha(OUT / "SHA256SUMS"))))
+if error is not None:
+    raise SystemExit(1)

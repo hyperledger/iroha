@@ -134,8 +134,7 @@ impl SettlementLedger {
                 (super::identity(transaction) == *identity).then_some(index)
             })
             .ok_or(PrivateSettlementError::Binding)?;
-        let index = u32::try_from(index).map_err(|_| PrivateSettlementError::Binding)?;
-        let evidence = evidence(block.block(), index)?;
+        let evidence = evidence(block.block(), network_index(index)?)?;
         block.verify_transaction_execution(&self.request.manifest().network_id, &evidence)?;
         Ok(Some((block, evidence)))
     }
@@ -241,7 +240,6 @@ impl SettlementLedger {
         };
         let block = self.block(receipt.finalized_height).await?;
         for (index, entry) in block.block().network_entrypoints().enumerate() {
-            let index = u32::try_from(index).map_err(|_| PrivateSettlementError::Binding)?;
             let TransactionEntrypoint::External(transaction) = entry else {
                 continue;
             };
@@ -254,11 +252,15 @@ impl SettlementLedger {
             if instruction
                 .as_any()
                 .downcast_ref::<FinalizeAtomicPrivateSettlementV1>()
-                .is_some_and(|i| i.commit_bundle.manifest.bundle_id == bundle_id)
-                && block
-                    .block()
-                    .network_output_at(index)
-                    .is_some_and(|(_, output)| output.result.is_ok())
+                .is_none_or(|i| i.commit_bundle.manifest.bundle_id != bundle_id)
+            {
+                continue;
+            }
+            let index = network_index(index)?;
+            if block
+                .block()
+                .network_output_at(index)
+                .is_some_and(|(_, output)| output.result.is_ok())
             {
                 return Ok(Some(VerifiedPrivateSettlementReceipt::verify_recovered(
                     &block,
@@ -399,6 +401,11 @@ impl WorkflowLedger for SettlementLedger {
         })
     }
 }
+// Out-of-range authenticated locators are binding failures, never truncated indices.
+pub(super) fn network_index(index: usize) -> std::result::Result<u32, PrivateSettlementError> {
+    u32::try_from(index).map_err(|_| PrivateSettlementError::Binding)
+}
+
 pub(super) fn evidence(
     block: &SignedBlock,
     index: u32,

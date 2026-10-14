@@ -13,9 +13,10 @@ use iroha_data_model::{
 use iroha_model_base::state_path::StatePath;
 use iroha_primitives::numeric::Quantity;
 use mv::storage::StorageReadOnly;
+pub use reward_history::validate_reward_history_frontier;
 pub(crate) use reward_history::{
-    ensure_reward_history_open, reward_history_closed_through, reward_history_is_closed,
-    validate_reward_history_frontier,
+    ensure_reward_history_open, oldest_unsettled_policy_month, reward_history_closed_through,
+    reward_history_is_closed,
 };
 
 const STATE_PREFIX: &str = "retail_fee_v1/";
@@ -220,7 +221,14 @@ pub fn account_state(
         .transpose()
 }
 /// Write authoritative wallet state and its exact unsettled-month frontier together.
-pub(crate) fn write_account(
+///
+/// The caller must authorize the transition and discard the transaction on error.
+/// This storage operation does not grant enrollment or payment authority.
+///
+/// # Errors
+/// Rejects malformed or permanently closed earning history and preserves local
+/// read or encoding refusals through the transaction's execution owner.
+pub fn write_account(
     world: &mut WorldTransaction<'_, '_>,
     record: &RetailFeeAccountStateV1,
 ) -> Result<(), InstructionExecutionError> {
@@ -402,6 +410,7 @@ fn retail_registry_preserves_original_json_scope_and_completed_malformed_diagnos
         // A zero archive field bound does not refuse this typed JSON decode. Exercise
         // the completed empty registry separately; it is not local-refusal evidence.
         let empty = ValidationFeePolicyRegistryV1 {
+            history: None,
             registered_policies: Vec::new(),
             payout_policies: ValidationFeePayoutPolicyRegistryV1 {
                 entries: Vec::new(),
@@ -411,7 +420,12 @@ fn retail_registry_preserves_original_json_scope_and_completed_malformed_diagnos
             .world
             .parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(empty.clone().into_custom_parameter()))
+            .set_parameter(Parameter::Custom(
+                empty
+                    .clone()
+                    .into_custom_parameter()
+                    .expect("empty registry fits the canonical JSON parameter"),
+            ))
             .unwrap();
         assert_eq!(
             norito::with_decode_limits_scope(

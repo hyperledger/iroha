@@ -1,0 +1,20 @@
+{
+  "schema": "parliament-source-framing-preflight-v1",
+  "recorded_at_utc": "2026-10-13T15:34:59.893900+00:00",
+  "capture_kind": "Transcription of the exec tool result; no separate program log was written before this preflight failure.",
+  "command": [
+    "python3",
+    "docs/validation/parliament_ballot_b6/source-framing-coherence.py.template"
+  ],
+  "exit": 1,
+  "recipe_archive": "docs/validation/parliament_ballot_b6/source-framing-preflight.recipe.py.template",
+  "recipe_sha256": "cd9f9f5c31831a4a83bc348b3f8846f2f49200f8b0f9179c107d5527bc8d7bdb",
+  "error": "unreviewed child-capture drift",
+  "newly_identified_historical_drift": {
+    "path": "crates/iroha_torii/src/routing.rs",
+    "before": "68de231f0479242792fb9590bf566460084315cde6527c4be96fb6e62327ae70",
+    "after": "aca67cde18a19d01eddcd1c21ca2154644ab912727b4b82dde9bc8503306bc8c"
+  },
+  "publication_occurred": false,
+  "recovery": "Authenticate and retain the exact older routing bytes; register only the reviewed before/after pair and preserve historical applicability. Current captures already bind the later source. Also classify node-ID JSON arrays separately from object-shaped capture receipts; final inventories remain explicitly validated."
+}

@@ -1,0 +1,31 @@
+{
+  "independent_controls_reported": {
+    "deselected": 1687,
+    "evidence_kind": "Reviewer-reported tool result via agent message; not run by capture recipe; raw tool log not separately retained",
+    "passed": 68,
+    "scope": "execution_result_guard controls against an injected staged module",
+    "seconds": 1.96,
+    "staged_paths": [
+      "target/parliament-execution-result-guard-stage/check_sora_parliament_source_contract.py",
+      "target/parliament-execution-result-guard-stage/check_sora_parliament_source_contract_test.py"
+    ],
+    "staged_rust_text_matches_repository": true,
+    "staged_source_hashes_checked_before_after": true
+  },
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "remaining_findings_under_stated_premises": [],
+  "review_kind": "Independent local agent staged-source review; not external cryptographic or unsafe implementation review",
+  "review_scope": "Exact module-level invalid/HC224 owners with expected attributes and complete literal-preserving body pins close the independently found dormant if-false assertion. Reviewed actual complete items and original three API corrections with preserved detailed assertions. Surrounding helpers/fixtures, macro/type/name resolution and compiler/runtime behavior remain premises.",
+  "reviewed_checker_sha256": "4b160bff09631da0fef6ae61fe94b8e037e281fd2fa358a6b544588df7a5a2ec",
+  "reviewed_tests_sha256": "e35855cc059afa7be471dc5678338a06b78d0c6560a282085370d391bdb3a3af",
+  "reviewer": "/root/security_obligations",
+  "runtime_qualification": false,
+  "schema": "parliament-execution-result-peer-review-v1",
+  "upstream_premises": [
+    "Surrounding helpers and fixtures",
+    "Macro, type and name resolution",
+    "Result/Option pattern semantics",
+    "Compiler, serializer and runtime behavior"
+  ]
+}

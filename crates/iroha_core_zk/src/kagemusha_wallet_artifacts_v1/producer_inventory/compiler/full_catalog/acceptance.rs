@@ -9,6 +9,10 @@ use p256::ecdsa::{Signature, signature::Signer};
 
 #[path = "acquisition_tests.rs"]
 mod acquisition_tests;
+#[path = "builtin_batch_tests.rs"]
+mod builtin_batch_tests;
+#[path = "builtin_wrapper_tests.rs"]
+mod builtin_wrapper_tests;
 
 struct Counted<'a> {
     source: &'a mut dyn OriginalSourceV1,
@@ -252,6 +256,10 @@ fn qualify_authenticated(
     }
     let (sigma_imports, q_imports) = active_imports(&qualified, &mut originals, config);
     let acquisition_cases = acquisition_tests::run(&qualified, &mut originals, config);
+    let receive_alias_cases =
+        operation::assert_receive_alias_controls(&qualified, &installed, &mut originals, config);
+    let signature_reuse_cases =
+        q::assert_signature_reuse_controls(&qualified, &installed, &mut originals, config);
     let inventory = qualified.inventory();
     publish(
         &output.join("qualified-source-membership.json"),
@@ -274,12 +282,14 @@ fn qualify_authenticated(
     )
     .unwrap();
     eprintln!(
-        "WALLET_SOURCE_ACCEPTED engineering=true deployment_authority=false complete_routes={} strict_original_reads={} active_sigma_imports={} active_q_imports={} cancelled_import_opens=0 unavailable_retry=true active_seal_acquisition_cases={} scheme={} manifest={} genuine_receipt=false native_wallet_open=false",
+        "WALLET_SOURCE_ACCEPTED engineering=true deployment_authority=false complete_routes={} strict_original_reads={} active_sigma_imports={} active_q_imports={} cancelled_import_opens=0 unavailable_retry=true active_seal_acquisition_cases={} receive_alias_cases={} signature_reuse_cases={} scheme={} manifest={} genuine_receipt=false native_wallet_open=false",
         inventory.routes.len(),
         originals.reads,
         sigma_imports,
         q_imports,
         acquisition_cases,
+        receive_alias_cases,
+        signature_reuse_cases,
         hex::encode(installation.scheme_id),
         hex::encode(installation.manifest_digest),
     );

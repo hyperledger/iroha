@@ -1,0 +1,55 @@
+"""Capture the exact synthetic-only module in an isolated repository-shaped tree."""
+from pathlib import Path
+import hashlib,json,os,subprocess,sys,time,xml.etree.ElementTree as ET
+ROOT=Path.cwd().resolve(); STAGE=ROOT/'target/parliament-exception-coverage-stage'
+CANDIDATE=STAGE/'install-candidate'; OUT=STAGE/'install-capture'; PYTEST=Path('/opt/homebrew/bin/pytest')
+sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+def need(ok,why):
+ if not ok: raise RuntimeError(why)
+def save(name,value):
+ with (OUT/name).open('x') as f:f.write(json.dumps(value,indent=2,sort_keys=True)+'\n')
+extraction=json.loads((STAGE/'install-extraction.json').read_text())
+helper=CANDIDATE/'scripts/parliament_ballot_exception_coverage.py'; tests=CANDIDATE/'scripts/tests/parliament_ballot_exception_coverage_independent_test.py'
+need(sha(helper)==extraction['helper_sha256'] and sha(tests)==extraction['derived_sha256'],'candidate changed')
+watched=[helper,tests,CANDIDATE/'pytest.ini',ROOT/'pytest.ini',STAGE/'prepare-install-test.py',STAGE/'install-extraction.json',STAGE/'install-extraction.diff',Path(__file__).resolve()]
+before={str(p):sha(p) for p in watched}
+runtime=[PYTEST,Path(PYTEST.read_text().splitlines()[0][2:]).resolve(),Path(sys.executable).resolve()]
+runtime_before={str(p):sha(p) for p in runtime}
+absent=[CANDIDATE/'conftest.py',CANDIDATE/'scripts/conftest.py',CANDIDATE/'scripts/tests/conftest.py']
+need(not any(p.exists() for p in absent),'unexpected conftest')
+OUT.mkdir(); (OUT/'sources').mkdir()
+snapshots={}
+for i,p in enumerate(watched):
+ name=f'sources/{i:02}-{p.name}.template'; data=p.read_bytes(); need(hashlib.sha256(data).hexdigest()==before[str(p)],'snapshot drift'); (OUT/name).write_bytes(data); snapshots[str(p)]=name
+env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1',PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',PYTEST_ADDOPTS='',PYTEST_PLUGINS='',PYTHONPATH='',PYTHONOPTIMIZE='0')
+relative=str(tests.relative_to(CANDIDATE))
+base=[str(PYTEST),'-c',str(CANDIDATE/'pytest.ini'),'-o','addopts=','--confcutdir='+str(CANDIDATE),'--import-mode=importlib','-p','no:cacheprovider','--maxfail=0','--tb=short','-q']
+commands=[('collection',base+['--collect-only',relative]),('tests',base+[relative,'--basetemp='+str(STAGE/'install-pytest-tmp'),'--junitxml='+str(OUT/'tests.xml')])]
+records=[]; nodeids=[]; error=None
+try:
+ for name,argv in commands:
+  start=time.monotonic()
+  with (OUT/(name+'.stdout.txt')).open('x') as stdout,(OUT/(name+'.stderr.txt')).open('x') as stderr:
+   result=subprocess.run(argv,cwd=CANDIDATE,env=env,stdout=stdout,stderr=stderr)
+  row=dict(name=name,command=argv,cwd=str(CANDIDATE),exit_code=result.returncode,seconds=time.monotonic()-start)
+  records.append(row);save(name+'.command.json',row)
+  need(result.returncode==0,'command failed; artifacts retained')
+  need({str(p):sha(p) for p in watched}==before and not any(p.exists() for p in absent),'source/config drift')
+  if name=='collection':
+   nodeids=[line for line in (OUT/'collection.stdout.txt').read_text().splitlines() if line.startswith(relative+'::')]
+   need(len(nodeids)==len(set(nodeids))==113,'collection scope differs');save('collected-nodeids.json',nodeids)
+  else:
+   cases=list(ET.parse(OUT/'tests.xml').getroot().iter('testcase'))
+   expected=[(path[:-3].replace('/','.'),name) for path,name in (n.split('::',1) for n in nodeids)]
+   need([(c.get('classname'),c.get('name')) for c in cases]==expected,'JUnit scope differs')
+   need(not any(c.find(tag) is not None for c in cases for tag in ('failure','error','skipped')),'JUnit failure/error/skip')
+except Exception as exc:error=f'{type(exc).__name__}: {exc}'
+after={str(p):sha(p) for p in watched};runtime_after={str(p):sha(p) for p in runtime}
+if after!=before or runtime_after!=runtime_before or any(p.exists() for p in absent):error=error or 'late source/runtime/config drift'
+receipt=dict(schema='exception-relocated-synthetic-capture-v1',status='PASS' if error is None else 'FAIL',error=error,commands=records,source_before=before,source_after=after,source_snapshots=snapshots,runtime_before=runtime_before,runtime_after=runtime_after,absent_conftests=[str(p) for p in absent],tests=len(nodeids),extraction=extraction,output_sha256={str(p.relative_to(OUT)):sha(p) for p in OUT.rglob('*') if p.is_file()},environment_overrides={k:env[k] for k in ('PYTHONDONTWRITEBYTECODE','PYTEST_DISABLE_PLUGIN_AUTOLOAD','PYTEST_ADDOPTS','PYTEST_PLUGINS','PYTHONPATH','PYTHONOPTIMIZE')},scope='Relocated repository-shaped synthetic parser tests only. No original images or host references are used by this partition. Observations are non-atomic; Python/pytest dependencies and import/cache coherence remain trusted. This is not a tracked-source rerun, worker execution or whole-resource qualification.',tracked_source_tests_rerun=False,worker_executed=False,profile_qualified=False,production_gate_changed=False)
+save('receipt.json',receipt)
+with (OUT/'SHA256SUMS').open('x') as f:
+ for p in sorted(OUT.rglob('*')):
+  if p.is_file() and p.name!='SHA256SUMS':f.write(sha(p)+'  '+str(p.relative_to(OUT))+'\n')
+print(json.dumps(dict(status=receipt['status'],error=error,receipt_sha256=sha(OUT/'receipt.json'),manifest_sha256=sha(OUT/'SHA256SUMS'))))
+if error:raise SystemExit(1)

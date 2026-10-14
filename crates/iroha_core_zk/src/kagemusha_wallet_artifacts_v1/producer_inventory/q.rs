@@ -1,5 +1,13 @@
 //! Exact Q-source qualification under a source-qualified sigma catalog.
 
+#[path = "q/session.rs"]
+mod session;
+pub use session::QQualificationProgressV1;
+#[cfg(test)]
+pub(crate) use session::{
+    assert_builtin_signature_reuse_controls, assert_signature_reuse_controls,
+};
+
 use iroha_kagemusha_proof::{
     a_relation::native::artifact::{ArtifactError, KeyArtifact},
     a_relation::{
@@ -202,13 +210,17 @@ fn signature_plans(
 fn sigma_class(
     selectors: &[u8],
     sigmas: &[KeyArtifact<Eq>; 16],
+    parameters: &impl Fn(u32) -> Result<PinnedParams<Eq>, QQualificationErrorV1>,
 ) -> Result<(SigmaClass, VerifyingKey<Eq>), QQualificationErrorV1> {
     let first = selectors
         .first()
         .and_then(|selector| sigmas.get(usize::from(*selector)))
         .ok_or(QQualificationErrorV1::Source)?;
-    let params = PinnedParams::derive(u32::from(first.binding().descriptor().k))
-        .map_err(|_| QQualificationErrorV1::Source)?;
+    let k = u32::from(first.binding().descriptor().k);
+    let params = parameters(k)?;
+    if params.k() != k {
+        return Err(QQualificationErrorV1::Source);
+    }
     let verifier = VerifierPlan::new(first.binding().clone(), params)
         .map_err(|_| QQualificationErrorV1::Source)?;
     let mut entries = Vec::with_capacity(selectors.len());
@@ -243,6 +255,19 @@ pub fn q_source_recipe(
     incoming_class: &[u8],
     sigmas: &[KeyArtifact<Eq>; 16],
 ) -> Result<(QSigmaSource, Vec<QSignaturePlan>), QQualificationErrorV1> {
+    q_source_recipe_with_parameters(scope, variant, own_class, incoming_class, sigmas, &|k| {
+        PinnedParams::derive(k).map_err(|_| QQualificationErrorV1::Source)
+    })
+}
+
+pub(super) fn q_source_recipe_with_parameters(
+    scope: SourceScopeV1,
+    variant: Variant,
+    own_class: &[u8],
+    incoming_class: &[u8],
+    sigmas: &[KeyArtifact<Eq>; 16],
+    parameters: &impl Fn(u32) -> Result<PinnedParams<Eq>, QQualificationErrorV1>,
+) -> Result<(QSigmaSource, Vec<QSignaturePlan>), QQualificationErrorV1> {
     selectors(own_class, false)?;
     selectors(incoming_class, true)?;
     let allowed: Vec<_> = compiled_routes()
@@ -261,17 +286,20 @@ pub fn q_source_recipe(
     }
     let signatures = signature_plans(variant, scope.own()?, scope.root())
         .map_err(|_| QQualificationErrorV1::Source)?;
-    let (own, own_key) = sigma_class(own_class, sigmas)?;
+    let (own, own_key) = sigma_class(own_class, sigmas, parameters)?;
     let incoming = if incoming_class.is_empty() {
         None
     } else {
-        Some(sigma_class(incoming_class, sigmas)?)
+        Some(sigma_class(incoming_class, sigmas, parameters)?)
     };
     let (incoming, incoming_key) = match incoming {
         Some((class, key)) => (Some(class), Some(key)),
         None => (None, None),
     };
-    let vesta = PinnedParams::derive(16).map_err(|_| QQualificationErrorV1::Source)?;
+    let vesta = parameters(16)?;
+    if vesta.k() != 16 {
+        return Err(QQualificationErrorV1::Source);
+    }
     let sigma =
         QSigmaPlan::new(own, incoming, &vesta).map_err(|_| QQualificationErrorV1::Source)?;
     Ok((QSigmaSource::new(sigma, own_key, incoming_key)?, signatures))
@@ -282,13 +310,15 @@ pub(super) fn source(
     record: &OperationV1,
     scheme: &KagemushaWalletSchemeV1,
     sigmas: &[KeyArtifact<Eq>; 16],
+    parameters: &impl Fn(u32) -> Result<PinnedParams<Eq>, QQualificationErrorV1>,
 ) -> Result<(QSigmaSource, Vec<QSignaturePlan>), QQualificationErrorV1> {
-    let result = q_source_recipe(
+    let result = q_source_recipe_with_parameters(
         SourceScopeV1::from_scheme(scheme)?,
         variant(record.variant)?,
         &record.own_class,
         &record.incoming_class,
         sigmas,
+        parameters,
     )?;
     if record.q.len() != result.1.len() + 1 {
         return Err(Error::Inventory.into());
@@ -313,7 +343,7 @@ impl ImportedQV1<'_> {
     }
 }
 
-// Temporary standalone owners exist only during complete strict qualification.
+// Temporary standalone owners exist only during complete typed qualification.
 enum StrictImportedQ {
     Sigma(Box<QSigmaProver>),
     Signature(Box<QSignatureProver>),
@@ -327,19 +357,33 @@ impl StrictImportedQ {
     }
 }
 
-fn import(
+fn import_with_admission(
     index: usize,
     source: &QSigmaSource,
     signatures: &[QSignaturePlan],
     bytes: &OriginalBytesV1,
     pallas: &PinnedParams<Ep>,
     config: ReadConfig,
+    member: Option<iroha_plonk::keys::BuiltinSourceMemberV1>,
     cancellation: Option<&iroha_pasta::CancellationToken>,
 ) -> Result<StrictImportedQ, QQualificationErrorV1> {
     iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
     Ok(if index == 0 {
-        StrictImportedQ::Sigma(Box::new(
-            QSigmaProver::from_original_artifact_serialized_foreign_cancellable(
+        StrictImportedQ::Sigma(Box::new(match member {
+            Some(member) => {
+                QSigmaProver::from_builtin_original_artifact_serialized_foreign_cancellable(
+                    source,
+                    pallas.clone(),
+                    &bytes.descriptor,
+                    &bytes.verifying_key,
+                    &bytes.proving_key,
+                    config,
+                    2,
+                    member,
+                    cancellation,
+                )?
+            }
+            None => QSigmaProver::from_original_artifact_serialized_foreign_cancellable(
                 source,
                 pallas.clone(),
                 &bytes.descriptor,
@@ -349,11 +393,21 @@ fn import(
                 2,
                 cancellation,
             )?,
-        ))
+        }))
     } else {
         let plan = signatures.get(index - 1).ok_or(Error::Inventory)?.clone();
-        StrictImportedQ::Signature(Box::new(
-            QSignatureProver::from_original_artifact_cancellable(
+        StrictImportedQ::Signature(Box::new(match member {
+            Some(member) => QSignatureProver::from_builtin_original_artifact_cancellable(
+                plan,
+                pallas.clone(),
+                &bytes.descriptor,
+                &bytes.verifying_key,
+                &bytes.proving_key,
+                config,
+                member,
+                cancellation,
+            )?,
+            None => QSignatureProver::from_original_artifact_cancellable(
                 plan,
                 pallas.clone(),
                 &bytes.descriptor,
@@ -362,7 +416,7 @@ fn import(
                 config,
                 cancellation,
             )?,
-        ))
+        }))
     })
 }
 
@@ -381,6 +435,25 @@ impl AuthenticatedProducerInventoryV1 {
         originals: &mut dyn OriginalSourceV1,
         config: ReadConfig,
     ) -> Result<QualifiedQProgramV1, QQualificationErrorV1> {
+        self.qualify_q_program_with_admission(
+            installed,
+            sigmas,
+            program,
+            originals,
+            config,
+            super::builtin::Admission::Strict,
+        )
+    }
+
+    pub(super) fn qualify_q_program_with_admission(
+        &self,
+        installed: &InstalledVerifierPackV1,
+        sigmas: &QualifiedSigmasV1,
+        program: u32,
+        originals: &mut dyn OriginalSourceV1,
+        config: ReadConfig,
+        admission: super::builtin::Admission<'_>,
+    ) -> Result<QualifiedQProgramV1, QQualificationErrorV1> {
         let scheme = installed.verifier().scheme();
         let identity = (scheme.scheme_id(), installed.verifier().manifest_digest());
         if identity != self.installation() || identity != sigmas.installation() {
@@ -391,14 +464,29 @@ impl AuthenticatedProducerInventoryV1 {
             .operations
             .get(usize::try_from(program).map_err(|_| Error::Inventory)?)
             .ok_or(Error::Inventory)?;
-        let (source, signatures) = source(record, scheme, sigmas.metadata())?;
-        let pallas = PinnedParams::derive(16).map_err(|_| QQualificationErrorV1::Source)?;
+        let (source, signatures) = source(record, scheme, sigmas.metadata(), &|k| {
+            Ok(installed.verifier().vesta_parameters(k)?.as_ref().clone())
+        })?;
+        let pallas = installed.verifier().pallas_parameters().as_ref().clone();
         let mut keys = Vec::with_capacity(record.q.len());
         let mut seals = Vec::with_capacity(record.q.len());
         for (index, original) in record.q.iter().copied().enumerate() {
             let bytes = self.read_original(original, originals, config.maximum_bytes)?;
-            let metadata =
-                import(index, &source, &signatures, &bytes, &pallas, config, None)?.into_metadata();
+            let metadata = import_with_admission(
+                index,
+                &source,
+                &signatures,
+                &bytes,
+                &pallas,
+                config,
+                admission.member(&[
+                    2,
+                    program,
+                    u32::try_from(index).map_err(|_| Error::Inventory)?,
+                ])?,
+                None,
+            )?
+            .into_metadata();
             let (binding, key, seal) = metadata.into_parts();
             drop(bytes);
             keys.push(KeyArtifact::new(binding, key)?);

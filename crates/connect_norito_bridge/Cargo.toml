@@ -52,6 +52,7 @@ iroha_crypto = { workspace = true, default-features = false, features = ["consen
 # data model's general fixture constructors or block-tampering helpers.
 iroha_data_model = { workspace = true, features = ["application-model", "sm", "privacy-exact12-conformance"], default-features = false }
 iroha_executor_data_model = { workspace = true }
+iroha_js_codec = { workspace = true }
 iroha_primitives = { workspace = true }
 iroha_version = { workspace = true }
 ivm = { workspace = true }

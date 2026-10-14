@@ -1,0 +1,39 @@
+"""Capture one new independent comparison against the frozen final report."""
+import hashlib,json,os,subprocess,sys,time
+from pathlib import Path
+ROOT=Path.cwd().resolve();STAGE=ROOT/'target/parliament-exception-coverage-stage';REVIEW=ROOT/'target/parliament-exception-graph-review';OUT=STAGE/'all-body-capture'
+sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+def need(ok,why):
+ if not ok:raise RuntimeError(why)
+need(sha(STAGE/'capture/receipt.json')=='e1fc5f8456793e4b02b4ebe8a5adc8399c261ccdf2ec7bdb1e4fcec95ef1170f','frozen receipt changed')
+captured=json.loads((STAGE/'capture/receipt.json').read_text())
+small=[STAGE/'compare-all-body.py',REVIEW/'all_body_reference.py',Path(__file__).resolve()]
+paths=small+[STAGE/'capture/receipt.json',STAGE/'capture/analysis.json.gz']
+for mode in ('portable','accel'):
+ for name in ('disassembly.txt','starts.txt','stubs.txt'):
+  p=ROOT/'docs/validation/parliament_ballot_current_candidate/stack'/mode/name
+  need(sha(p)==captured['source_after'][str(p)],'historical captured input changed')
+  paths.append(p)
+before={str(p):sha(p) for p in paths};runtime={str(Path(sys.executable).resolve()):sha(Path(sys.executable).resolve())}
+OUT.mkdir();(OUT/'sources').mkdir();snapshots={}
+for i,p in enumerate(small):
+ name=f'sources/{i:02}-{p.name}.template';data=p.read_bytes();need(hashlib.sha256(data).hexdigest()==before[str(p)],'source snapshot drift');(OUT/name).write_bytes(data);snapshots[str(p)]=name
+command=[sys.executable,'-B',str(STAGE/'compare-all-body.py'),'--out',str(OUT/'comparison.json')]
+env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1',PYTHONOPTIMIZE='0',PYTHONPATH='')
+start=time.monotonic()
+with (OUT/'stdout.txt').open('x') as stdout,(OUT/'stderr.txt').open('x') as stderr:
+ result=subprocess.run(command,cwd=ROOT,env=env,stdout=stdout,stderr=stderr)
+after={str(p):sha(p) for p in paths};runtime_after={str(Path(sys.executable).resolve()):sha(Path(sys.executable).resolve())}
+error=None
+if result.returncode!=0:error='comparison returned '+str(result.returncode)
+if before!=after or runtime!=runtime_after:error=error or 'input/runtime drift'
+if error is None:
+ report=json.loads((OUT/'comparison.json').read_text())
+ if report['status']!='PASS' or report['final_raw_report_sha256']!='9460da92323a358a6bdf13cb27ad286bb6ee5799ab88189b1db05bcd3c1dce70':error='unexpected result'
+receipt=dict(schema='parliament-final-exception-whole-body-capture-v1',status='PASS' if error is None else 'FAIL',error=error,command=command,cwd=str(ROOT),exit_code=result.returncode,seconds=time.monotonic()-start,source_before=before,source_after=after,source_snapshots=snapshots,runtime_before=runtime,runtime_after=runtime_after,environment_overrides={k:env[k] for k in ('PYTHONDONTWRITEBYTECODE','PYTHONOPTIMIZE','PYTHONPATH')},output_sha256={str(p.relative_to(OUT)):sha(p) for p in OUT.rglob('*') if p.is_file()},scope='New independent static comparison against exact frozen final report; no historical tests, workers or LLVM command rerun. Selected source observations are non-atomic; Python dependencies, cache coherence and original text instruction decoding remain trusted.',complete_exception_semantics=False,complete_workspace_certificate=False,applies_to_current_checkout=False,profile_qualified=False,production_gate_changed=False,worker_executed=False)
+(OUT/'receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+with (OUT/'SHA256SUMS').open('x') as f:
+ for p in sorted(OUT.rglob('*')):
+  if p.is_file() and p.name!='SHA256SUMS':f.write(sha(p)+'  '+str(p.relative_to(OUT))+'\n')
+print(json.dumps(dict(status=receipt['status'],error=error,receipt_sha256=sha(OUT/'receipt.json'),manifest_sha256=sha(OUT/'SHA256SUMS'))))
+if error:raise SystemExit(1)

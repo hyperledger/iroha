@@ -32,6 +32,9 @@ pub use amx_approval::native_amx_approval_route_fixture;
 #[path = "test_chain/retail_multisig.rs"]
 mod retail_multisig;
 #[cfg(test)]
+#[path = "test_chain/reward_crash_recovery.rs"]
+mod reward_crash_recovery;
+#[cfg(test)]
 pub(crate) use genesis_policy::{signed_genesis_fixture_for_state, staged_genesis_policies};
 /// Genuine monthly-fee multisig transfer evidence for downstream integration tests.
 pub use retail_multisig::{

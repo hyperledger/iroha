@@ -1,0 +1,224 @@
+"""Independent lane-orbit and clean-state controls for the ignored circuit."""
+from collections import Counter
+from dataclasses import replace
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import random
+import sys
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+STAGE = ROOT / "target/parliament-keccak-machine-stage"
+sys.path.insert(0, str(ROOT / "target/parliament-ideal-machine-stage"))
+sys.path.insert(0, str(STAGE))
+from bit_ir import Builder, bits, unpack, Block
+from keccak1600 import Keccak1600Kernel, SHA3_512Kernel, keccak1600_block, round_bits, round_constant, sha3_512_block, sha3_512_cost
+
+MASK = 2**64 - 1
+
+
+def constants():
+    """One continuous seven-step LFSR, independent of per-index restart logic."""
+    state, values = 1, []
+    for _ in range(24):
+        value = 0
+        for j in range(7):
+            if state & 1:
+                value ^= 1 << ((1 << j) - 1)
+            state = ((state << 1) ^ (0x71 if state & 0x80 else 0)) & 255
+        values.append(value)
+    return tuple(values)
+
+
+RC = constants()
+
+
+def rotate(word, count):
+    count %= 64
+    return ((word << count) | (word >> ((64-count) % 64))) & MASK
+
+
+def lane_round(words, constant):
+    """In-place 24-lane orbit rho/pi, unlike the implementation's bit scatter."""
+    a = list(words)
+    c = [0]*5
+    for index, lane in enumerate(a):
+        c[index % 5] ^= lane
+    for index in range(25):
+        x = index % 5
+        a[index] ^= c[(x-1) % 5] ^ rotate(c[(x+1) % 5], 1)
+    x, y, saved = 1, 0, a[1]
+    for t in range(24):
+        x, y = y, (2*x+3*y) % 5
+        dest = x + 5*y
+        a[dest], saved = rotate(saved, (t+1)*(t+2)//2), a[dest]
+    for row in range(5):
+        old = a[5*row:5*row+5]
+        for col in range(5):
+            a[5*row+col] = old[col] ^ ((old[(col+1) % 5] ^ MASK) & old[(col+2) % 5])
+    a[0] ^= constant
+    return tuple(a)
+
+
+def reference(words):
+    for constant in RC:
+        words = lane_round(words, constant)
+    return tuple(words)
+
+
+def packed(block, samples, expected, *, clean=True):
+    """Run real elementary gates on simultaneous lanes and inspect all wires."""
+    lanes = len(samples)
+    mask = 2**lanes - 1
+    memory = [sum(((sample >> i) & 1) << lane for lane, sample in enumerate(samples))
+              for i in range(block.inputs)]
+    memory += [0] * (block.derived + block.work)
+    # Arbitrary targets correlated with input and external guards.
+    z = [((mask >> (i % 7)) ^ (1 << (i % lanes))) & mask for i in range(len(block.outputs))]
+    memory += z + [mask, mask // 3, 1]
+    before = tuple(memory)
+    output_start = block.inputs + block.derived + block.work
+    if clean:
+        stream = block.emit_clean()
+    else:
+        from itertools import chain
+        stream = chain(block.emit(), (("cx", source, output_start+i) for i, source in enumerate(block.outputs)))
+    census = Counter()
+    for gate in stream:
+        kind, *wires = gate
+        assert kind in ("x", "cx", "ccx")
+        assert len(wires) == {"x": 1, "cx": 2, "ccx": 3}[kind]
+        assert len(set(wires)) == len(wires)
+        assert all(type(w) is int and 0 <= w < len(memory)-3 for w in wires)
+        controls = mask
+        for wire in wires[:-1]:
+            controls &= memory[wire]
+        memory[wires[-1]] ^= controls
+        census[kind] += 1
+    assert memory[:block.inputs] == list(before[:block.inputs])
+    assert memory[-3:] == list(before[-3:])
+    for i in range(len(block.outputs)):
+        wanted = sum(((sample >> i) & 1) << lane for lane, sample in enumerate(expected))
+        assert memory[output_start+i] == z[i] ^ wanted
+    if clean:
+        assert not any(memory[block.inputs:output_start])
+        cost = block.clean_resources()["gates"]
+        assert all(census[k] == cost[k] for k in ("x", "cx", "ccx"))
+    return memory, output_start
+
+
+def test_continuous_round_constant_generation():
+    assert tuple(round_constant(i) for i in range(24)) == RC
+    assert sum(x.bit_count() for x in RC) == 86
+
+
+@pytest.mark.parametrize("index", [0, 12, 23])
+def test_one_round_every_basis_bit_and_complement_via_independent_orbit(index):
+    # Both sparse and complemented inputs expose NOT/AND and all bit rotations.
+    samples = [0, 2**1600-1] + [1 << i for i in range(1600)] + [(2**1600-1) ^ (1 << i) for i in range(1600)]
+    expected = [sum(v << (64*j) for j, v in enumerate(lane_round([(x >> (64*i)) & MASK for i in range(25)], RC[index])))
+                for x in samples]
+    builder = Builder(1600)
+    block = builder.finish(round_bits(builder, tuple(range(1600)), index))
+    packed(block, samples, expected)
+
+
+def test_full_permutation_reference_and_missing_inverse_control():
+    samples = [0, 2**1600-1, sum(1 << (64*i + i) for i in range(25))]
+    wanted = [sum(v << (64*i) for i, v in enumerate(reference([(x >> (64*j)) & MASK for j in range(25)])))
+              for x in samples]
+    block = keccak1600_block()
+    memory, output = packed(block, samples, wanted, clean=False)
+    assert any(memory[1600:output])  # Output equality alone leaves correlated history.
+
+
+def test_empty_sponge_dummy_input_both_values_full_clean_map():
+    expected = int.from_bytes(hashlib.sha3_512(b"").digest(), "little")
+    block = sha3_512_block(0)
+    packed(block, [0, 1], [expected, expected])
+    assert block.inputs == 1
+
+
+@pytest.mark.parametrize("size", [71, 72])
+@pytest.mark.parametrize("which", [0, 2])
+def test_each_padding_boundary_refuses_removed_suffix_or_final_pad(size, which):
+    block = sha3_512_block(size)
+    raw = bytes((19*i + 83) % 256 for i in range(size))
+    value = bits(int.from_bytes(raw, "little"), 8*size)
+    pads = [i for i, n in enumerate(block.nodes) if n.kind == "not"]
+    assert len(pads) == 3
+    # Change exactly one required padding NOT to COPY, without editing source.
+    nodes = list(block.nodes)
+    nodes[pads[which]] = replace(nodes[pads[which]], kind="copy")
+    mutant = Block(block.inputs, tuple(nodes), block.outputs, block.kernels)
+    expected = hashlib.sha3_512(raw).digest()
+    assert unpack(block.evaluate(value)).to_bytes(64, "little") == expected
+    assert unpack(mutant.evaluate(value)).to_bytes(64, "little") != expected
+
+
+def test_exact_rate_requires_separate_final_padding_permutation():
+    block = sha3_512_block(72)
+    first = next(i for i, n in enumerate(block.nodes) if n.kind == "kernel")
+    start = block.inputs + sum(n.width for n in block.nodes[:first])
+    mutant = Block(block.inputs, block.nodes[:first+1], tuple(range(start,start+512)), block.kernels)
+    raw = bytes(range(72))
+    wanted = hashlib.sha3_512(raw).digest()
+    assert unpack(mutant.evaluate(bits(int.from_bytes(raw,"little"),576))).to_bytes(64,"little") != wanted
+
+
+@pytest.mark.parametrize("region,bad", [("input", False), ("output", -1), ("work", 0.5), ("work", "0")])
+def test_relocated_noncanonical_wire_refused_before_first_gate(region, bad):
+    kernel = Keccak1600Kernel()
+    registers = dict(input=tuple(range(1600)), work=tuple(range(1600, 1600+kernel.work)),
+                     output=tuple(range(1600+kernel.work,3200+kernel.work)))
+    registers[region] = (bad,) + registers[region][1:]
+    with pytest.raises(ValueError):
+        next(kernel.emit(registers["input"], registers["output"], registers["work"]))
+
+
+def load_report():
+    spec = importlib.util.spec_from_file_location("keccak_independent_report_review", STAGE / "report.py")
+    report = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(report)
+    return report
+
+
+def test_mid_report_drift_refuses_publication_and_preserves_false_flags(tmp_path, monkeypatch):
+    report = load_report()
+    original = report.observed
+    calls = []
+    def changed():
+        value = original()
+        calls.append(1)
+        if len(calls) == 2:
+            key = next(iter(value))
+            value[key] = "0"*64
+        return value
+    monkeypatch.setattr(report, "observed", changed)
+    path = tmp_path / "mid-report-drift.json"
+    assert report.main(["--out", str(path), "--require-qualified"]) == 1
+    value = json.loads(path.read_text())
+    assert "source changed during report" in value["error"]
+    assert not value["checked_component_construction"]
+    assert all(value[name] is False for name in report.FLAGS)
+
+
+def test_loaded_ir_path_is_authenticated(monkeypatch):
+    report = load_report()
+    monkeypatch.setattr(report.bit_ir, "__file__", "/nonexistent/bit_ir.py")
+    with pytest.raises(ValueError, match="loaded IR path differs"):
+        report.observed()
+
+
+@pytest.mark.parametrize("function", [sha3_512_block, sha3_512_cost])
+@pytest.mark.parametrize("valid,invalid", [(0, False), (0, 0.0), (1, True), (1, 1.0)])
+def test_cached_keyword_length_cannot_skip_exact_integer_validation(function, valid, invalid):
+    # Keyword-key tuples compare bool/float numerically equal unless typed=True.
+    function.cache_clear()
+    good = function(message_bytes=valid)
+    assert function(message_bytes=valid) is good
+    with pytest.raises(ValueError):
+        function(message_bytes=invalid)

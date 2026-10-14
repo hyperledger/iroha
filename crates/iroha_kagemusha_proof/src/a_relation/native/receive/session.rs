@@ -64,7 +64,7 @@ use crate::{
     },
     omega::OmegaWitness,
 };
-use iroha_plonk::{ProverConfig, ProverRandomness, ProvingKey};
+use iroha_plonk::{ProverConfig, ProverRandomness};
 
 /// Installed A1–A10 and W0–W8 artifacts for the complete Receive owner schedule.
 /// Only verifier metadata is retained. Each proving call reconstructs one exact

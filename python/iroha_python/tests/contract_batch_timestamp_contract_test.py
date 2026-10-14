@@ -7,10 +7,10 @@ These checks do not qualify the native encoder, cryptography, or a live transact
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
-from pathlib import Path
 import sys
 import types
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Mapping
 
 import pytest

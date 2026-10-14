@@ -9,6 +9,7 @@ use iroha_core::{
 };
 use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::{account::AccountId, isi::InstructionBox};
+use iroha_executor_data_model::isi::multisig::MultisigProposalId;
 use iroha_torii_shared::multisig_execution_evidence::{
     MULTISIG_EXECUTION_EVIDENCE_MAX_BYTES_V1, MultisigExecutionEvidenceRefV1,
 };
@@ -19,7 +20,8 @@ const ROUTE: &str =
 
 pub async fn handler(
     State(app): State<SharedAppState>,
-    axum::extract::Path((account, entrypoint, instructions)): axum::extract::Path<(
+    axum::extract::Path((account, entrypoint, proposal, instructions)): axum::extract::Path<(
+        String,
         String,
         String,
         String,
@@ -28,7 +30,8 @@ pub async fn handler(
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
 ) -> Result<AxResponse, Error> {
     let principal = validate_api_token(app.as_ref(), &headers)?.authenticated_principal();
-    let (account, entrypoint, instructions) = selectors(&account, &entrypoint, &instructions)?;
+    let (account, entrypoint, proposal, instructions) =
+        selectors(&account, &entrypoint, &proposal, &instructions)?;
     let format = match negotiate_heavy_query_response_format(&headers) {
         Ok(format) => format,
         Err(response) => return Ok(response),
@@ -67,24 +70,26 @@ pub async fn handler(
             drop(chain);
             drop(view);
             let keys = [
-                multisig_approval_outcome_state_key(entrypoint, &account, &instructions),
-                multisig_proposal_terminal_execution_state_key(entrypoint, &account, &instructions),
+                multisig_approval_outcome_state_key(entrypoint, &account, &proposal),
+                multisig_proposal_terminal_execution_state_key(entrypoint, &account, &proposal),
             ];
             let mut body = state
-                .with_native_execution_records_snapshot_v1(
+                .with_native_multisig_execution_snapshot_v1(
                     &tip,
                     &keys,
                     &budget,
-                    |snapshot, outcome, terminal| {
+                    |snapshot, outcome, terminal, target| {
                         let payload = MultisigExecutionEvidenceRefV1::new(
                             &height,
                             &context_id,
                             &account,
                             &entrypoint,
+                            &proposal,
                             &instructions,
                             snapshot,
                             outcome,
                             terminal,
+                            target,
                         );
                         encode(&payload, format, max_response, &budget)
                             .map_err(|_| "multisig execution evidence serialization refused".into())
@@ -121,11 +126,20 @@ pub async fn handler(
 fn selectors(
     account: &str,
     entrypoint: &str,
+    proposal: &str,
     instructions: &str,
-) -> Result<(AccountId, [u8; 32], HashOf<Vec<InstructionBox>>), Error> {
+) -> Result<
+    (
+        AccountId,
+        [u8; 32],
+        MultisigProposalId,
+        HashOf<Vec<InstructionBox>>,
+    ),
+    Error,
+> {
     if account.is_empty()
         || account.len() > 1024
-        || [entrypoint, instructions].iter().any(|s| {
+        || [entrypoint, proposal, instructions].iter().any(|s| {
             s.len() != 64
                 || !s
                     .bytes()
@@ -147,7 +161,10 @@ fn selectors(
         .map_err(|_| conversion_error("invalid native entrypoint hash".into()))?;
     let instructions = HashOf::<Vec<InstructionBox>>::from_str(instructions)
         .map_err(|_| conversion_error("invalid native instructions hash".into()))?;
-    Ok((native, *entrypoint.as_ref(), instructions))
+    let proposal = proposal
+        .parse()
+        .map_err(|_| conversion_error("invalid proposal occurrence".into()))?;
+    Ok((native, *entrypoint.as_ref(), proposal, instructions))
 }
 fn unavailable() -> Error {
     Error::AppServiceUnavailable {code: "multisig_execution_evidence_unavailable", message: "Both immutable execution records are not yet available in the current certified native cut.".into()}
@@ -282,7 +299,10 @@ mod tests {
         let instructions = HashOf::new(&Vec::<InstructionBox>::new())
             .to_string()
             .to_ascii_lowercase();
-        let (selected, hash, proposal) = selectors(&account, &entrypoint, &instructions).unwrap();
+        let occurrence = "11".repeat(32);
+        let (selected, hash, id, proposal) =
+            selectors(&account, &entrypoint, &occurrence, &instructions).unwrap();
+        assert_eq!(id.to_string(), occurrence);
         assert_eq!(selected.to_string(), account);
         assert_eq!(hash, *Hash::from_str(&entrypoint).unwrap().as_ref());
         assert_eq!(proposal.to_string().to_ascii_lowercase(), instructions);
@@ -291,10 +311,18 @@ mod tests {
             format!(" {entrypoint}"),
             format!("{entrypoint}00"),
         ] {
-            assert!(selectors(&account, &wrong, &instructions).is_err());
+            assert!(selectors(&account, &wrong, &occurrence, &instructions).is_err());
         }
-        assert!(selectors(&format!(" {account}"), &entrypoint, &instructions).is_err());
-        assert!(selectors(&account, &entrypoint, "1").is_err());
+        assert!(
+            selectors(
+                &format!(" {account}"),
+                &entrypoint,
+                &occurrence,
+                &instructions
+            )
+            .is_err()
+        );
+        assert!(selectors(&account, &entrypoint, &occurrence, "1").is_err());
     }
     #[test]
     fn bounded_native_body_never_allocates_a_replacement_pool_on_growth() {

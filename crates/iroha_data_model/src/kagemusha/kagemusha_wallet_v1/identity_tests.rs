@@ -134,9 +134,7 @@ pub(in crate::kagemusha::kagemusha_wallet_v1) fn test_evidence(
         ),
         KagemushaWalletEvidenceKindV1::AndroidKeyMintStrongBox => (
             &[b"strongbox-leaf-der", b"strongbox-intermediate-der"],
-            KAGEMUSHA_WALLET_ANDROID_REQUIRED_FACTS_V1
-                | KAGEMUSHA_WALLET_FACT_STRONGBOX_V1
-                | KAGEMUSHA_WALLET_FACT_PLAY_INTEGRITY_SIGNAL_V1,
+            KAGEMUSHA_WALLET_ANDROID_REQUIRED_FACTS_V1 | KAGEMUSHA_WALLET_FACT_STRONGBOX_V1,
             202_608,
         ),
         KagemushaWalletEvidenceKindV1::AppleAppAttest => (
@@ -977,9 +975,9 @@ fn kagemusha_wallet_v1_evidence_fact_rules() {
     use KagemushaWalletEvidenceKindV1::{
         AndroidKeyMintStrongBox, AndroidKeyMintTee, AppleAppAttest,
     };
-    assert_eq!(KAGEMUSHA_WALLET_FACTS_DEFINED_MASK_V1, 0x0fff);
+    assert_eq!(KAGEMUSHA_WALLET_FACTS_DEFINED_MASK_V1, 0x0dff);
     assert_eq!(KAGEMUSHA_WALLET_ANDROID_FORBIDDEN_FACTS_V1, 0x01c0);
-    assert_eq!(KAGEMUSHA_WALLET_APPLE_FORBIDDEN_FACTS_V1, 0x023f);
+    assert_eq!(KAGEMUSHA_WALLET_APPLE_FORBIDDEN_FACTS_V1, 0x003f);
     assert_eq!(KAGEMUSHA_WALLET_ANDROID_REQUIRED_FACTS_V1, 0x002d);
     assert_eq!(KAGEMUSHA_WALLET_APPLE_REQUIRED_FACTS_V1, 0x00c0);
     assert!(AndroidKeyMintTee.is_android() && AndroidKeyMintStrongBox.is_android());
@@ -991,12 +989,18 @@ fn kagemusha_wallet_v1_evidence_fact_rules() {
     for kind in KagemushaWalletEvidenceKindV1::ALL {
         let evidence = test_evidence(kind);
         evidence.validate_enrollment_for_kind(kind).expect("valid");
-        let mut undefined = evidence;
-        undefined.facts |= 1 << 12;
-        assert!(is_invalid(
-            undefined.validate_for_kind(kind),
-            "evidence.facts"
-        ));
+        for bit in [9, 12, 31] {
+            let mut undefined = evidence;
+            undefined.facts |= 1 << bit;
+            assert!(is_invalid(
+                undefined.validate_for_kind(kind),
+                "evidence.facts"
+            ));
+            assert!(is_invalid(
+                undefined.validate_enrollment_for_kind(kind),
+                "evidence.facts"
+            ));
+        }
         let mut zero = evidence;
         zero.digest = [0; 32];
         assert!(is_invalid(zero.validate_for_kind(kind), "evidence.digest"));

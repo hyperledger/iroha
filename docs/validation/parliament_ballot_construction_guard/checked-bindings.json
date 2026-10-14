@@ -1,0 +1,197 @@
+{
+  "checker_sha256": "c180d0fed3c37bcc1cc85f32ffdc839e683e4dd6fc9045d79eaa5012836b05fb",
+  "complete_defining_modules": [
+    {
+      "literal_preserving_token_sha256": "d324460a8058557da656cf365a2ef0218c05a3cf5beb6c94811178c5335cdb7f",
+      "path": "crates/iroha_core/src/state/state_block_construction.rs"
+    },
+    {
+      "literal_preserving_token_sha256": "7a2d8cdd6a1a1e0d9aa5c0c18feb4e99aa08142c5644f68996e6a8c9f6ed6114",
+      "path": "crates/iroha_core/src/state/canonical_runtime.rs"
+    },
+    {
+      "literal_preserving_token_sha256": "876c3b13faf12679ac157b5dd030780f30dbdfd74686fb0ef7874d279ede035a",
+      "path": "crates/iroha_core/src/state/canonical_runtime/acquisition.rs"
+    },
+    {
+      "literal_preserving_token_sha256": "da39434761a9214486ebf0d5b65e697e763bf247358d784a9eeeafac55c06755",
+      "path": "crates/iroha_core/src/state/da_hydration.rs"
+    }
+  ],
+  "complete_items": [
+    {
+      "attributes": [
+        "#[expect(clippy::large_types_passed_by_value,\n        reason = \"the acquired block owns the supplied header independently of its caller\")]"
+      ],
+      "declaration": "pub(super) fn construct_acquired_block<'state, R>(",
+      "literal_preserving_token_sha256": "7545fc82741ac8b26c72c5417690613736c6f5caca82dccc54180742b26e8ab2",
+      "obligation": "original writers and armed continuation",
+      "owner": "impl State",
+      "path": "crates/iroha_core/src/state/state_block_construction.rs"
+    },
+    {
+      "attributes": [
+        "#[inline(never)]"
+      ],
+      "declaration": "fn finish_state_block_construction<R>(",
+      "literal_preserving_token_sha256": "aa4f6e7dd39969dd98751ac40f7f1b87bd4664a960a937cd8ccadc99487831b1",
+      "obligation": "bounded borrowed finish",
+      "owner": null,
+      "path": "crates/iroha_core/src/state/state_block_construction.rs"
+    },
+    {
+      "attributes": [],
+      "declaration": "macro_rules! runtime_cells",
+      "literal_preserving_token_sha256": "9cb2d3ab7b464383a53bd8cef93cb1a9a955a4c02fc4101bb5f6481b7126745c",
+      "obligation": "original acquisition field and release inventory",
+      "owner": null,
+      "path": "crates/iroha_core/src/state/canonical_runtime/acquisition.rs"
+    },
+    {
+      "attributes": [],
+      "declaration": "runtime_cells! {",
+      "literal_preserving_token_sha256": "f9ba176bbbc91b965a3d867296e37fcc62c3ccf5479e507fe5b20919b565821d",
+      "obligation": "original four Cell sources",
+      "owner": null,
+      "path": "crates/iroha_core/src/state/canonical_runtime/acquisition.rs"
+    },
+    {
+      "attributes": [],
+      "declaration": "pub(in crate::state) struct AcquiredRuntimeBlock<'state>",
+      "literal_preserving_token_sha256": "b34075a2f01296fb6cf8270ae66fba518214d00650e3c4873d86f417cd9329ad",
+      "obligation": "original acquisition target and field custody",
+      "owner": null,
+      "path": "crates/iroha_core/src/state/canonical_runtime/acquisition.rs"
+    },
+    {
+      "attributes": [],
+      "declaration": "impl<'state> AcquiredRuntimeBlock<'state>",
+      "literal_preserving_token_sha256": "5204fed5625dcfe0161bc6af8807f595270a8730383a9a0426d32e39b000207c",
+      "obligation": "same-State rewind owner and one-shot field transfer",
+      "owner": null,
+      "path": "crates/iroha_core/src/state/canonical_runtime/acquisition.rs"
+    },
+    {
+      "attributes": [],
+      "declaration": "impl Drop for AcquiredRuntimeBlock<'_>",
+      "literal_preserving_token_sha256": "8b8b13aa7aa4be8c2b2468e72e3a946b2912dc4215e4937f20bcfbe741c1ba0b",
+      "obligation": "original acquisition retirement",
+      "owner": null,
+      "path": "crates/iroha_core/src/state/canonical_runtime/acquisition.rs"
+    },
+    {
+      "attributes": [
+        "#[cfg(any(test, feature = \"iroha-core-tests\", feature = \"bench\"))]"
+      ],
+      "declaration": "pub(super) struct DaRewindReleases<'state>",
+      "literal_preserving_token_sha256": "d7723d392ad6aabb7360677f49a52d598c2f5b753fec29d0dcf1fce13cf4df85",
+      "obligation": "conditional original rewind owner",
+      "owner": null,
+      "path": "crates/iroha_core/src/state/da_hydration.rs"
+    },
+    {
+      "attributes": [
+        "#[cfg(any(test, feature = \"iroha-core-tests\", feature = \"bench\"))]"
+      ],
+      "declaration": "impl<'state> DaRewindReleases<'state>",
+      "literal_preserving_token_sha256": "2154aecc0c638b4f0fdf7d8ae636cd20746dd373a1360d6b30355df3dd683ac1",
+      "obligation": "conditional original rewind sources",
+      "owner": null,
+      "path": "crates/iroha_core/src/state/da_hydration.rs"
+    },
+    {
+      "attributes": [
+        "#[cfg(any(test, feature = \"iroha-core-tests\", feature = \"bench\"))]"
+      ],
+      "declaration": "pub(super) fn rewind_da_indexes_to_height_with_releases(",
+      "literal_preserving_token_sha256": "4da09f62d000c110745209e8993f4c3fa669d8c5bf640fe7eec2a8aceaf9b3a8",
+      "obligation": "borrowed original rewind kernel",
+      "owner": "impl State",
+      "path": "crates/iroha_core/src/state/da_hydration.rs"
+    },
+    {
+      "attributes": [],
+      "declaration": "pub struct StateBlock<'state>",
+      "literal_preserving_token_sha256": "7e13644044a601096aaeb2925833a17155627e291f47483344d61dd793e0397b",
+      "obligation": "original armed State owner",
+      "owner": null,
+      "path": "crates/iroha_core/src/state.rs"
+    },
+    {
+      "attributes": [],
+      "declaration": "pub struct StateBlockFields<'state>",
+      "literal_preserving_token_sha256": "7df6bd7f2d33ab7336fd8d0d153fcab3d2edf32bd244b45283863ca1ca6416d6",
+      "obligation": "original armed State owner fields and paired cfg",
+      "owner": null,
+      "path": "crates/iroha_core/src/state.rs"
+    },
+    {
+      "attributes": [],
+      "declaration": "fn from_fields(",
+      "literal_preserving_token_sha256": "a946ab2482fdd67135614e20b672dba30bfd09176105b2d94838ba89ef09eac9",
+      "obligation": "original armed State owner",
+      "owner": "impl<'state> StateBlock<'state>",
+      "path": "crates/iroha_core/src/state.rs"
+    },
+    {
+      "attributes": [],
+      "declaration": "impl mv::BlockRetirement for StateBlock<'_>",
+      "literal_preserving_token_sha256": "2e13183a5b1d2bf71b0e24ebe42df5cecc2f97025d4930b9a9c8f0be410b53e1",
+      "obligation": "original armed State owner writer retirement",
+      "owner": null,
+      "path": "crates/iroha_core/src/state.rs"
+    },
+    {
+      "attributes": [],
+      "declaration": "impl Drop for StateBlock<'_>",
+      "literal_preserving_token_sha256": "777282508d62d77ce46bdcf1b6bd52824be655d44dab69a9b92940e3e89866ba",
+      "obligation": "original armed State owner refund and notice order",
+      "owner": null,
+      "path": "crates/iroha_core/src/state.rs"
+    },
+    {
+      "attributes": [
+        "#[expect(clippy::large_types_passed_by_value,\n        reason = \"the replacement block owns the supplied header independently of its caller\")]",
+        "#[cfg(any(test, feature = \"iroha-core-tests\", feature = \"bench\"))]"
+      ],
+      "declaration": "fn block_and_revert_with_pristine_carrier_stage_inner<E: std::fmt::Debug>(",
+      "literal_preserving_token_sha256": "27a546fa940d1e6df8228b71f3580e85065c555fb8f75eb6b3aaacc3ea7f6961",
+      "obligation": "conditional replacement acquisition and handoff",
+      "owner": "impl State",
+      "path": "crates/iroha_core/src/state.rs"
+    }
+  ],
+  "live_defining_routes": [
+    {
+      "attributes": [
+        "#[path = \"state/state_block_construction.rs\"]"
+      ],
+      "declaration": "mod state_block_construction;",
+      "path": "crates/iroha_core/src/state.rs"
+    },
+    {
+      "attributes": [],
+      "declaration": "mod canonical_runtime;",
+      "path": "crates/iroha_core/src/state.rs"
+    },
+    {
+      "attributes": [],
+      "declaration": "mod da_hydration;",
+      "path": "crates/iroha_core/src/state.rs"
+    },
+    {
+      "attributes": [
+        "#[path = \"canonical_runtime/acquisition.rs\"]"
+      ],
+      "declaration": "mod acquisition;",
+      "path": "crates/iroha_core/src/state/canonical_runtime.rs"
+    },
+    {
+      "attributes": [],
+      "declaration": "pub(super) use acquisition::{AcquiredRuntimeBlock, AcquiredRuntimeBlockFields};",
+      "path": "crates/iroha_core/src/state/canonical_runtime.rs"
+    }
+  ],
+  "schema": "parliament-construction-checked-bindings-v1",
+  "trusted_boundary": "Surrounding Rust crate, dependency name resolution, compiler and runtime semantics remain trusted; token equality and structural controls are not a Rust semantic or concurrency proof."
+}

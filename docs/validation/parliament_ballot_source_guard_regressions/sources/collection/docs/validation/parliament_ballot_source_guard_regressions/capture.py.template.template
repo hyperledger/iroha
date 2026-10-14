@@ -1,0 +1,207 @@
+"""Retain complete source-contract collection or regressions and observed inputs.
+
+Call in a fresh process for each phase after the editing owner freezes the
+checker/test pair. Failures are retained, never repaired or relabeled here.
+"""
+from pathlib import Path
+import argparse
+import contextlib
+import datetime
+import hashlib
+import json
+import os
+import sys
+import time
+
+os.environ["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+root = Path.cwd()
+out = root / "docs/validation/parliament_ballot_source_guard_regressions"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("phase", choices=("collection", "full"))
+parser.add_argument("--checker-sha256", required=True)
+parser.add_argument("--tests-sha256", required=True)
+args = parser.parse_args()
+receipt = out / (args.phase+".json")
+log = out / (args.phase+".txt")
+if receipt.exists() or log.exists():
+    raise RuntimeError("refuse overwriting prior regression evidence")
+checker = "scripts/formal/check_sora_parliament_source_contract.py"
+tests = "scripts/tests/check_sora_parliament_source_contract_test.py"
+recipe = Path(__file__).resolve().relative_to(root).as_posix()
+before = {}
+snapshots = {}
+audit_busy = False
+audited_reads = set()
+absent_before = {}
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def pin(name):
+    data = (root/name).read_bytes()
+    value = digest(data)
+    if name in before:
+        if before[name] != value:
+            raise RuntimeError("repository input changed during execution: "+name)
+        return
+    before[name] = value
+    destination = out / "sources" / args.phase / (name+".template")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("xb") as stream:
+        stream.write(data)
+    snapshots[name] = destination.relative_to(out).as_posix()
+
+
+def audit_read(event, values):
+    global audit_busy
+    if event != "open" or audit_busy or not isinstance(values[0], (str, bytes)):
+        return
+    mode = values[1]
+    if mode is not None and not mode.startswith("r"):
+        return
+    if mode is None and values[2] & (os.O_WRONLY | os.O_RDWR):
+        return
+    audit_busy = True
+    try:
+        path = Path(os.fsdecode(values[0])).resolve()
+        try:
+            relative = path.relative_to(root)
+        except ValueError:
+            return
+        if (not relative.parts or relative.parts[0] in {".git", ".venv", ".pytest_cache"}
+                or "__pycache__" in relative.parts or path.is_relative_to(out)
+                or not path.is_file()):
+            return
+        name = relative.as_posix()
+        audited_reads.add(name)
+        pin(name)
+    finally:
+        audit_busy = False
+
+
+for name in (checker, tests, "scripts/formal/rust_text.py", "scripts/tests/conftest.py", "pytest.ini", recipe):
+    pin(name)
+if (before[checker] != args.checker_sha256 or before[tests] != args.tests_sha256):
+    raise RuntimeError("editing owner's frozen checker/test identity does not match")
+sys.addaudithook(audit_read)
+sys.path.insert(0, str(root))
+import pytest
+from scripts.formal import check_sora_parliament_source_contract as guard
+original_read = guard.read
+original_absent = guard.require_path_absent
+
+
+def observed_read(name):
+    global audit_busy
+    prior = audit_busy
+    audit_busy = True
+    try:
+        existed = (root/name).is_file()
+        if existed:
+            pin(name)
+        else:
+            absent_before.setdefault(name, (root/name).exists())
+        result = original_read(name)
+        if existed:
+            pin(name)
+        return result
+    finally:
+        audit_busy = prior
+
+
+def observed_absent(name):
+    absent_before.setdefault(name, (root/name).exists())
+    return original_absent(name)
+
+
+guard.read = observed_read
+guard.require_path_absent = observed_absent
+
+
+class Capture:
+    """Retain collection identities and actual pytest outcomes without selection."""
+    def __init__(self):
+        self.nodeids = []
+        self.outcomes = []
+        self.collection_errors = []
+
+    def pytest_collection_modifyitems(self, items):
+        self.nodeids = [item.nodeid for item in items]
+
+    def pytest_collectreport(self, report):
+        if report.failed:
+            self.collection_errors.append({"nodeid": report.nodeid, "longrepr": str(report.longrepr)})
+
+    def pytest_runtest_logreport(self, report):
+        self.outcomes.append({"nodeid": report.nodeid, "when": report.when,
+                              "outcome": report.outcome, "duration_seconds": report.duration})
+
+
+capture = Capture()
+arguments = ["-q", tests]
+if args.phase == "collection":
+    arguments.insert(0, "--collect-only")
+started = time.monotonic()
+with log.open("x") as stream, contextlib.redirect_stdout(stream), contextlib.redirect_stderr(stream):
+    result = int(pytest.main(arguments, plugins=[capture]))
+elapsed = time.monotonic()-started
+audit_busy = True
+repository_imports = {}
+for module_name, module in tuple(sys.modules.items()):
+    module_file = getattr(module, "__file__", None)
+    if module_file is None:
+        continue
+    path = Path(module_file).resolve()
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        continue
+    if relative.parts and not relative.parts[0].startswith(".") and path.is_file():
+        name = relative.as_posix()
+        repository_imports[module_name] = name
+        pin(name)
+after = {name: digest((root/name).read_bytes()) if (root/name).is_file() else None for name in before}
+changes = {name: {"before": value, "after": after[name]} for name, value in before.items() if value != after[name]}
+absence_changes = {name: {"before_exists": value, "after_exists": (root/name).exists()}
+                   for name, value in absent_before.items() if value != (root/name).exists()}
+nodeids_data = (json.dumps(capture.nodeids, indent=2)+"\n").encode()
+nodeids_path = out / (args.phase+"-nodeids.json")
+with nodeids_path.open("xb") as stream:
+    stream.write(nodeids_data)
+counts = {outcome: sum(row["when"] == "call" and row["outcome"] == outcome for row in capture.outcomes)
+          for outcome in ("passed", "failed", "skipped")}
+setup_teardown_errors = [row for row in capture.outcomes if row["when"] != "call" and row["outcome"] == "failed"]
+value = {
+    "schema": "parliament-source-guard-regressions-v1", "phase": args.phase,
+    "observed_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "command": [sys.executable, recipe, *sys.argv[1:]], "effective_pytest_arguments": arguments,
+    "environment": {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    "exit": result, "elapsed_seconds": elapsed, "collected_count": len(capture.nodeids),
+    "call_outcomes": counts, "setup_teardown_errors": setup_teardown_errors,
+    "collection_errors": capture.collection_errors, "test_reports": capture.outcomes,
+    "nodeids": nodeids_path.relative_to(root).as_posix(), "nodeids_sha256": digest(nodeids_data),
+    "log": log.relative_to(root).as_posix(), "log_sha256": digest(log.read_bytes()),
+    "expected_checker_sha256": args.checker_sha256, "expected_tests_sha256": args.tests_sha256,
+    "source_before": before, "source_after": after, "source_changes": changes,
+    "guarded_path_existence_before": absent_before, "path_existence_changes": absence_changes,
+    "source_count": len(before), "snapshots": snapshots,
+    "audited_repository_reads": sorted(audited_reads), "repository_imports": repository_imports,
+    "runtime": {"python_version": sys.version, "pytest_version": pytest.__version__,
+                "python_executable": sys.executable,
+                "python_executable_sha256": digest(Path(sys.executable).resolve().read_bytes()),
+                "installed_python_pytest_standard_library_trusted": True},
+    "read_scope": "Observed repository source/data/config reads plus explicit tool/config pins and repository imports. Python bytecode caches, the .git/.venv/.pytest_cache directories and generated bundle outputs excluded. Child subprocess read sets are not independently traced; before/after custody is not atomic.",
+    "scope": "Complete Python source-contract test module, with no keyword selection or fail-fast stop. Structural checker/regression consistency only; no Rust build, native runtime, cryptographic, hardware or production qualification.",
+    "profile_qualified": False, "production_qualified": False,
+}
+with receipt.open("x") as stream:
+    stream.write(json.dumps(value, indent=2, sort_keys=True)+"\n")
+print(json.dumps({"receipt": receipt.relative_to(root).as_posix(), "receipt_sha256": digest(receipt.read_bytes()),
+                  "exit": result, "collected": len(capture.nodeids), "call_outcomes": counts,
+                  "source_count": len(before), "source_changes": changes,
+                  "elapsed_seconds": elapsed}))
+if changes or absence_changes:
+    raise SystemExit(3)
+raise SystemExit(result)

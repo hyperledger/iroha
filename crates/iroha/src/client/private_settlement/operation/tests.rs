@@ -425,6 +425,71 @@ fn private_settlement_verified_receipt_requires_successful_exact_final_tip_execu
     }
 }
 
+#[tokio::test]
+async fn private_settlement_receipt_locator_recovers_only_successful_matching_finalization() {
+    use crate::{client::evidence_http_tests::with_mock_http, http::Response};
+
+    for rejected in [false, true] {
+        let mut native = NativeFinalityFixture::start("private-settlement-receipt-locator");
+        let verifier = native.verifier();
+        let mut client = client_with_base_url(base_url());
+        client.network_id = native.network_id();
+        let (request, certificates) = prepared(&client);
+        let journal = checkpoint(&request, &certificates);
+        let (barrier, bundle) = bundle(&request, &journal);
+        let (block, _) = certified(&mut native, &client, bundle.clone(), rejected);
+        // The public locator claims success in both cases. Only authenticated execution
+        // of the exact matching finalization may establish a successful receipt.
+        let receipt = PrivateSettlementBundleReceiptResponseV1::Finalized(
+            bundle.into_receipt(block.height()),
+        );
+        let proofs = BTreeMap::from([
+            (1, native.genesis_proof().clone()),
+            (block.height(), native.latest().clone()),
+        ]);
+        let transport = with_mock_http(
+            move |http| {
+                let path = http.url.path();
+                let (content_type, body) = if path.ends_with("/receipt") {
+                    ("application/json", norito::json::to_vec(&receipt)?)
+                } else {
+                    let height = path.rsplit('/').next().unwrap().parse::<u64>()?;
+                    (
+                        "application/x-norito",
+                        norito::encode_canonical(&proofs[&height])?,
+                    )
+                };
+                Ok(Response::builder()
+                    .status(200)
+                    .header("content-type", content_type)
+                    .body(body)?)
+            },
+            |transport| transport,
+        );
+        let client = client.with_test_http_transport(transport);
+        crate::client::evidence_http_tests::mark_data_model_compatible(&client);
+        let ledger = SettlementLedger::new(
+            client.account_client().unwrap(),
+            request,
+            Arc::new(Mutex::new(Some(PublicContext {
+                barrier: barrier.clone(),
+                phase: FINALIZE,
+            }))),
+            verifier,
+            Arc::new(tokio::sync::Semaphore::new(1)),
+        );
+        ledger.begin_call(2).unwrap();
+        let recovered = ledger.recover_business(&journal).await;
+        if rejected {
+            assert!(matches!(recovered, Err(PrivateSettlementError::Binding)));
+        } else {
+            let recovered = recovered.unwrap().unwrap();
+            assert_eq!(recovered.receipt().manifest, barrier.manifest);
+            assert_eq!(recovered.receipt().finalized_height, block.height());
+        }
+    }
+}
+
 struct CountingSigner {
     context: AccountWorkflowContext,
     calls: AtomicUsize,
@@ -879,4 +944,43 @@ fn private_settlement_promotion_counts_only_three_exact_acknowledgements_after_o
         snapshots.lock().unwrap().len(),
         n * request.0.materials.len()
     );
+}
+
+#[test]
+fn private_settlement_network_indices_preserve_binding_error_classification() {
+    assert_eq!(observation::network_index(0).unwrap(), 0);
+    let maximum = usize::try_from(u32::MAX).expect("supported pointer width represents u32");
+    assert_eq!(observation::network_index(maximum).unwrap(), u32::MAX);
+    if let Some(overflow) = maximum.checked_add(1) {
+        assert!(matches!(
+            observation::network_index(overflow),
+            Err(PrivateSettlementError::Binding)
+        ));
+        assert!(matches!(
+            observation::network_index(usize::MAX),
+            Err(PrivateSettlementError::Binding)
+        ));
+    }
+}
+
+#[test]
+fn private_settlement_step_failure_keeps_binding_and_local_resource_codes() {
+    for (error, code) in [
+        (
+            PrivateSettlementError::Binding,
+            WorkflowErrorCode::BindingMismatch,
+        ),
+        (
+            PrivateSettlementError::Worker,
+            WorkflowErrorCode::LocalResourceUnavailable,
+        ),
+        (
+            PrivateSettlementError::ReadBudget,
+            WorkflowErrorCode::LocalResourceUnavailable,
+        ),
+    ] {
+        let converted = failure(&error);
+        assert_eq!(converted.code, code);
+        assert_eq!(converted.detail, error.to_string());
+    }
 }

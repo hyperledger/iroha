@@ -1,0 +1,31 @@
+{
+  "evidence_kind": "Reviewer-reported read-only tool inspection via agent message; not capture-recipe output",
+  "freeze_recipe_review": {
+    "remaining_findings_under_stated_premises": [],
+    "review_kind": "Reviewer-reported independent read-only recipe and README review via agent message",
+    "reviewed_freeze_recipe_sha256": "961364e896b1effdeaf8d3a63342cdae9c03fed243a2c7bde9ae9a287b4a5acd",
+    "reviewed_readme_sha256": "4c63f7155a50932c85d72a560d0fe5ba25698b9c515b7e6618a3418025c2d498",
+    "reviewed_source_recipe_sha256": "0c5fa34f8a8bfb9f3d5be922d0e7ff830f7ad6006716096ba15915554e273eb1",
+    "scope": "Prior original manifest/receipt, normalized common read-set membership, exactly two deltas, unchanged guard/parser/test, exit/stdout/stderr agreement, snapshot identity and late source/absence checks reviewed. Historical 1755 results remain untransferred; archived test source is unexecuted; production flags remain false."
+  },
+  "full_regression_rerun": false,
+  "native_tests_run": false,
+  "production_qualified": false,
+  "regression_evidence_transferred": false,
+  "remaining_findings_under_stated_premises": [],
+  "review_kind": "Independent local agent exact two-file source-delta review, not external cryptographic or runtime review",
+  "review_scope": "One restore-test State constructor, two cfg(test) routing fixture constructors and one production proposal_value_from_state constructor become named field literals. Same source expressions/order map to the declared State/Value fields; no other bytes differ in these two sources. Reviewer independently confirmed these are the only two changes in prior 402 source-check and full 411 regression input maps.",
+  "reviewed_changed_sources": {
+    "crates/iroha_core/src/state/deserialize_world.rs": {
+      "after": "32e29395814b249e0c009526b263aa63e5d8ceef23d4a3f6568c013d7392703a",
+      "before": "8f15d08f8380fe5b42688de2313ef139ca6cfe378a5b4e8abf4205463adfa843"
+    },
+    "crates/iroha_torii/src/routing.rs": {
+      "after": "dcd5af8532819562e99e3f0b6b9a67a13c6ec4dde431b9de8228ae0e2d126db1",
+      "before": "aca67cde18a19d01eddcd1c21ca2154644ab912727b4b82dde9bc8503306bc8c"
+    }
+  },
+  "reviewer": "/root/security_obligations",
+  "schema": "parliament-post-merge-source-peer-review-v1",
+  "scope": "Source correspondence only. Constructor/type resolution, compiler and runtime semantics remain premises. Historical full regression remains its original source scope."
+}

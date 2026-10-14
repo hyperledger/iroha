@@ -1,3 +1,5 @@
+//! Fuzzing for bounded Kotodama parsing, analysis, and IR lowering.
+
 #![no_main]
 use kotodama_lang::{ir, parser, semantic};
 use libfuzzer_sys::fuzz_target;
@@ -7,11 +9,10 @@ fuzz_target!(|data: &[u8]| {
     if len == 0 {
         return;
     }
-    if let Ok(src) = std::str::from_utf8(&data[..len]) {
-        if let Ok(program) = parser::parse(src) {
-            if let Ok(typed) = semantic::analyze(&program) {
-                let _ = ir::lower(&typed);
-            }
-        }
+    if let Ok(src) = std::str::from_utf8(&data[..len])
+        && let Ok(program) = parser::parse(src)
+        && let Ok(typed) = semantic::analyze(&program)
+    {
+        let _ = ir::lower(&typed);
     }
 });

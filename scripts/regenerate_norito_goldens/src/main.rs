@@ -239,10 +239,10 @@ fn main() -> Result<()> {
         all.push(("ncb_enum_offsets_nested_window".to_string(), bytes));
     }
     for (name, bytes) in &all {
-        if let Some(f) = &args.filter {
-            if !name.contains(f) {
-                continue;
-            }
+        if let Some(f) = &args.filter
+            && !name.contains(f)
+        {
+            continue;
         }
         println!("{}: {}", name, to_hex(bytes));
     }

@@ -149,7 +149,7 @@ impl PrepareAdmission for NativePrepareAdmission {
         let observed_ms = u64::try_from(self.time_source.now().as_millis())
             .map_err(|_| SigningError::InvalidInput)?;
         if self.height > 1
-            && !cfg!(all(test, sumeragi_core_mutation = "HC353"))
+            && !cfg!(all(test, sumeragi_core_mutation = "HC361"))
             && self.block_time_ms.saturating_sub(observed_ms) > self.max_clock_drift_ms
         {
             return Err(SigningError::ClockAhead {

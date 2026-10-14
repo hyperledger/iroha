@@ -101,6 +101,10 @@ mod qualification;
 qualification::run(&arguments_without_argv0, &mut output)?;
 ```
 
+The shared entry point dispatches a leading `malformed` argument to the bounded
+malformed-observation runner. The standalone `qualify` example uses this same
+dispatch; temporary hosts need only the existing `qualification::run` entry point.
+
 It installs a global Rust counting allocator; the host must not install a second
 one. The host needs the ballot/backend dependencies and workspace Norito with its
 `json` feature. Its own `accel` feature must forward acceleration consistently so

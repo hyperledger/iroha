@@ -5,6 +5,7 @@ use crate::{
     state::{StateReadOnly, World},
     sumeragi::{
         certified_chain::relation_counts,
+        finality::ProofError,
         test_chain::{CertifiedTestChain, Signers, TestChainConfig},
     },
 };
@@ -20,14 +21,21 @@ fn limits(from: u64, to: u64) -> NativeFinalityProofIntervalLimits {
     )
     .unwrap()
 }
-fn context() -> DecodeBudgetContext {
-    DecodeBudgetContext::new(norito::DecodeLimits::new(
+fn codec_limits() -> norito::DecodeLimits {
+    norito::DecodeLimits::new(
         1024 * 1024,
         MAX_FINALITY_BLOCK_BYTES,
         8 * 1024 * 1024,
         usize::MAX,
         128,
-    ))
+    )
+}
+fn test_budget(frames: iroha_allocation::AllocationBudget) -> NativeFinalityProofBudget {
+    NativeFinalityProofBudget::new(
+        frames,
+        iroha_allocation::AllocationBudget::new(33_312_848),
+        codec_limits(),
+    )
 }
 #[inline(never)]
 fn with_chain(check: fn(&CertifiedTestChain)) {
@@ -52,7 +60,7 @@ fn check_late_qc_change(chain: &CertifiedTestChain) {
         view.kura(),
     );
     let budget = view.execution_budget();
-    let owner = CanonicalHistoryReadBudget::new(budget.clone(), context());
+    let owner = test_budget(budget.clone());
     let qc = chain
         .committed(2)
         .block()
@@ -119,7 +127,7 @@ fn check_late_source_replacement(chain: &CertifiedTestChain) {
         view.kura(),
     );
     let budget = view.execution_budget();
-    let owner = CanonicalHistoryReadBudget::new(budget.clone(), context());
+    let owner = test_budget(budget.clone());
     let reserved = budget.reserved_bytes();
     let path = Kura::canonical_storage_path(&chain.kura().store_root()).join("blocks.data");
     let saved = path.with_extension("finite-proof-original");
@@ -141,9 +149,9 @@ fn check_late_source_replacement(chain: &CertifiedTestChain) {
         matches!(
             result,
             Err(NativeFinalityProofIntervalError::Source { .. }
-                | NativeFinalityProofIntervalError::Proof(ProofError::Chain(
-                    ChainReadError::NotInView { .. }
-                )))
+                | NativeFinalityProofIntervalError::Native(
+                    NativeFinalityProofRefusal::NotInView { .. }
+                ))
         ),
         "same bytes in a replacement namespace are not the original journal"
     );
@@ -166,7 +174,7 @@ fn check_first_target_order(chain: &CertifiedTestChain) {
         view.block_hashes(),
         view.kura(),
     );
-    let owner = CanonicalHistoryReadBudget::new(view.execution_budget(), context());
+    let owner = test_budget(view.execution_budget());
     // Preserve the genuine current fixed header and corrupt only its Norito body.
     // A one-byte whole preimage is an earlier ResultMismatch, not a body decode error.
     let mut malformed = chain
@@ -188,6 +196,10 @@ fn check_first_target_order(chain: &CertifiedTestChain) {
         &expected,
         ProofError::Chain(ChainReadError::Malformed { height: 4, .. })
     ));
+    let ProofError::Chain(expected) = expected else {
+        unreachable!("matched original chain refusal")
+    };
+    let expected = NativeFinalityProofRefusal::from(expected);
     let (actual, counts) = relation_counts::measure(|| {
         build_proof_interval(&source, &owner, &limits(4, 4), &AtomicBool::new(false))
     });
@@ -196,9 +208,9 @@ fn check_first_target_order(chain: &CertifiedTestChain) {
     assert!(
         matches!(
             &actual,
-            Err(NativeFinalityProofIntervalError::Proof(ProofError::Chain(
-                ChainReadError::Malformed { height: 4, .. }
-            )))
+            Err(NativeFinalityProofIntervalError::Native(
+                NativeFinalityProofRefusal::Malformed { height: 4 }
+            ))
         ),
         "original malformed target must precede the bad gap: actual={:?}, expected={expected:?}",
         actual.as_ref().err()
@@ -219,7 +231,7 @@ fn check_first_target_header_order(chain: &CertifiedTestChain) {
         view.block_hashes(),
         view.kura(),
     );
-    let owner = CanonicalHistoryReadBudget::new(view.execution_budget(), context());
+    let owner = test_budget(view.execution_budget());
     chain.corrupt_local_quorum_for_test(2, Signers::BelowQuorum);
     chain
         .kura()
@@ -235,9 +247,9 @@ fn check_first_target_header_order(chain: &CertifiedTestChain) {
     });
     assert!(matches!(
         &actual,
-        Err(NativeFinalityProofIntervalError::Proof(ProofError::Chain(
-            ChainReadError::ResultMismatch { height: 4 }
-        )))
+        Err(NativeFinalityProofIntervalError::Native(
+            NativeFinalityProofRefusal::ResultMismatch { height: 4 }
+        ))
     ));
     assert_eq!(counts.frames, [1, 4]);
     assert!(counts.qcs.is_empty());
@@ -258,12 +270,12 @@ fn check_stop(chain: &CertifiedTestChain) {
         view.kura(),
     );
     let budget = view.execution_budget();
-    let original = context();
-    let owner = CanonicalHistoryReadBudget::new(budget.clone(), original.clone());
+    let original = DecodeBudgetContext::new(codec_limits());
+    let owner = test_budget(budget.clone());
     let reserved = budget.reserved_bytes();
     chain.kura().reset_canonical_query_reads_for_test();
     let cancelled = AtomicBool::new(true);
-    let result = build_proof_interval(&source, &owner, &limits(3, 4), &cancelled);
+    let result = original.with(|| build_proof_interval(&source, &owner, &limits(3, 4), &cancelled));
     assert!(
         matches!(result, Err(NativeFinalityProofIntervalError::Cancelled)),
         "finite interval must stop before any native read under original cancellation"
@@ -274,12 +286,14 @@ fn check_stop(chain: &CertifiedTestChain) {
     let mut expired = limits(3, 4);
     expired.deadline = Instant::now();
     assert!(matches!(
-        build_proof_interval(&source, &owner, &expired, &cancelled),
+        original.with(|| build_proof_interval(&source, &owner, &expired, &cancelled)),
         Err(NativeFinalityProofIntervalError::Deadline)
     ));
     assert_eq!(chain.kura().canonical_query_reads_for_test(), (0, 0));
-    let result = build_interval(&source, &owner, &limits(3, 4), &cancelled, || {
-        cancelled.store(true, Ordering::Release)
+    let result = original.with(|| {
+        build_interval(&source, &owner, &limits(3, 4), &cancelled, || {
+            cancelled.store(true, Ordering::Release)
+        })
     });
     assert!(matches!(
         result,
@@ -290,7 +304,7 @@ fn check_stop(chain: &CertifiedTestChain) {
     assert!(consumed > 0);
     cancelled.store(false, Ordering::Release);
     let (retained, counts) = relation_counts::measure(|| {
-        build_proof_interval(&source, &owner, &limits(3, 4), &cancelled)
+        original.with(|| build_proof_interval(&source, &owner, &limits(3, 4), &cancelled))
     });
     let retained = retained.unwrap();
     assert_eq!(counts.qcs, [2, 3, 4]);

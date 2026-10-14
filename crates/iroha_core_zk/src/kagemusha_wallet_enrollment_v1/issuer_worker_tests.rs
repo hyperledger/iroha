@@ -602,11 +602,11 @@ fn refusals_carry_exactly_one_closed_platform_code_for_the_configured_platform()
 }
 
 #[test]
-fn new_android_evidence_never_carries_the_retired_bit_9_fact() {
+fn android_evidence_refuses_reserved_and_unverified_facts() {
     let request = fixture(false);
     let baseline = projection(&request);
     for extra in [
-        KAGEMUSHA_WALLET_FACT_PLAY_INTEGRITY_SIGNAL_V1,
+        1 << 9, // Reserved zero for every evidence record, including renewals.
         KAGEMUSHA_WALLET_FACT_LOCAL_COMPROMISE_CHECKS_CLEAR_V1,
         KAGEMUSHA_WALLET_FACT_STRONGBOX_V1,
     ] {

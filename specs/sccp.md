@@ -505,7 +505,7 @@ them, and a wrong length, as `BadHeader` (§5.1.3).
 
 **Inactive form.** `X = magic ‖ network_id ‖ be64(h) ‖ be64(t(h)) ‖ 0x00 ‖
 0^156`. It is used by every non-global root that uses
-`ExecutionResultCommitment` (dataspace roots, private developer anchors), by
+`ExecutionResultCommitment` (data space roots, private developer anchors), by
 Taira before SCCP is initialized, and by Taira blocks whose inputs are missing
 (§4.6). Lane instances keep their own `LANE_RESULT_TAG` result and carry no
 `X`. Destinations reject an inactive `X`.
@@ -917,7 +917,7 @@ start; G1–G7 and A1 run in the post-execution hook (§4.5).
 | G3 | **No other trigger** besides G7: no forced rotation, no fault rotation and no inertness. |
 | G4 | **Inputs (fail-closed in SCCP only).** Every block checks that the authenticated inputs of `h` are present. On failure, §4.6 applies: inactive `X`, `sccp_degraded_run` incremented, an event, and no G2 or G7. Otherwise `sccp_degraded_run` is reset to 0. It is never `Invalid`. |
 | G5 | **`X` fields.** `X.generation` is the generation current before G2 runs at `h`, after any G7 at `h`; at a rotation that is the outgoing generation. `X.committee_root = committee_root(C_h)` from the authenticated inputs. `ROTATION` is set iff G2 fired at `h`; then `X.next_committee_root = committee_root(C_{h+1})` and `X.validity_ms = (g + 1).validity_ms`, otherwise both are zero. |
-| G6 | **Member resolution.** For each key of a new generation, Core reads the original NPoS registrations at executing height `h`, restricts them to the canonical global election owner (`LaneId::SINGLE`), then resolves `(lane_id, validator, activation_height)` by immutable consensus-peer binding and tenure. Fresh mutable consensus-key registrations cannot replace that original binding. Duplicate qualifying registrations within that owner are unresolved; participant-dataspace registrations cannot shadow a global signer. Tenure is checked at `start_height(g)`: inclusive activation and exclusive deactivation at `h + 1` for G2, at `h` for G7, and at the genesis height for G1. Thus a newly elected member activating at `h + 1` backs the handoff generation, while a member deactivated at that height does not. The stored binding, not a later lookup, is what liability and penalties use (§4.9). A key cannot be rebound after activation. An unresolvable key is stored as `None` and emits `SccpGenerationMemberUnslashable { generation, index }`; under NPoS every elected member has a record, so `None` signals a misconfiguration. Genesis initialization refuses unless every original signer resolves to exactly one global staking binding before generation 1 is published. |
+| G6 | **Member resolution.** For each key of a new generation, Core reads the original NPoS registrations at executing height `h`, restricts them to the canonical global election owner (`LaneId::SINGLE`), then resolves `(lane_id, validator, activation_height)` by immutable consensus-peer binding and tenure. Fresh mutable consensus-key registrations cannot replace that original binding. Duplicate qualifying registrations within that owner are unresolved; participant data space registrations cannot shadow a global signer. Tenure is checked at `start_height(g)`: inclusive activation and exclusive deactivation at `h + 1` for G2, at `h` for G7, and at the genesis height for G1. Thus a newly elected member activating at `h + 1` backs the handoff generation, while a member deactivated at that height does not. The stored binding, not a later lookup, is what liability and penalties use (§4.9). A key cannot be rebound after activation. An unresolvable key is stored as `None` and emits `SccpGenerationMemberUnslashable { generation, index }`; under NPoS every elected member has a record, so `None` signals a misconfiguration. Genesis initialization refuses unless every original signer resolves to exactly one global staking binding before generation 1 is published. |
 | G7 | **Resync.** It applies when G4 passes but `committee_root(current) ≠ committee_root(C_h)`, which happens only when a key change was missed at a degraded boundary. Before G5: (1) set `current.end = {h − 1, t(h − 1), committee_root(C_h), committee_validity_ms}`, taking `t(h − 1)` from the parent tip; (2) insert `g + 1` with `keys(C_h)`, members (G6), `cause = Resync`, `start_height = h`, `start_timestamp_ms = t(h)`, `start_lc = lc(h)` and the other fields as in G2; (3) set the current generation; (4) emit `SccpCommitteeResync { generation, committee_root, start_height }`. `X_h` is then certified by `g + 1`, and G2 runs normally afterwards. No certificate of `g` names `g + 1`, so destinations still at `g` freeze at `deadline_ms(g)` and new deployments pin `g + 1` or later. |
 
 **Rate.** G2 fires at most once per block. `KEY` needs an epoch boundary, and
@@ -1121,7 +1121,7 @@ The block header carries no SCCP root: a block's commitment root exists in its
 post-execution world state and in its finality header `X`, which the certified
 result binds (§3.6).
 
-All SCCP instructions are routed to the universal dataspace and execute
+All SCCP instructions are routed to the universal data space and execute
 serially in one execution context, so nonce assignment and `commitment_index`
 allocation are deterministic. The governance block-start pass (§4.7), including
 Parliament and fast-pause enactments, runs before the block's transactions, so
@@ -1741,7 +1741,7 @@ external inputs required to close windows; combined qualification remains open.
 | `sccp_block_commitments`, history leaves and peaks | permanent (~48 B per SCCP block) |
 | `sccp_inbound_messages` | permanent (one record per inbound message) |
 | `sccp_committee_generations` | pruned (below) |
-| `sccp_anchor_open` / `sccp_anchor_chunks` | the open chunk (≤ 256 KiB) / pruned chunk roots (below) |
+| `sccp_anchor_open` / `sccp_anchor_chunks` | the open chunk (at most 4,095 stored anchors; 4,096 transiently at rollover) / pruned chunk roots (below) |
 | `sccp_forgery_offences`, SCCP forgery evidence records | permanent |
 | fast-pause panel, rounds, pauses and suspensions | current values only (§4.14.7) |
 | `sccp_reconciliations` | permanent (one per reconciled revision) |
@@ -1761,13 +1761,48 @@ or unavailable owner is never an empty pending set.
   below the smallest `start_height` of the retained generations. The open chunk
   is never deleted.
 
-**Size.** A generation record is about 4 KB at `n = 31`. With the defaults,
-generations are created at most 25 times a day and the retained window is about
-21 days, so about 525 records are retained. The longest window the parameter
-caps allow is 90 days (30 d validity, 30 d grace and the 30 d progress cap,
-which applies only while a destination light client stalls), at most 4 320
-records or about 17 MB at 48 rotations a day. Anchor chunk roots add about 21
-entries a day at a 1 s cadence.
+**Measured storage profiles.** The native
+`native_maximal_churn_storage_measurement` test populates admitted generation
+and anchor maps for a 1 s cadence, 31 distinct single-key Ed25519 validator
+accounts and the sum of the epoch/heartbeat rate ceilings. This conservative
+population is not a claim that a heartbeat every half hour is an admitted
+execution trace. With the default heartbeat and a 1 h epoch floor, the 25/day
+ceiling gives 526 rows over the ordinary 21-day window, 1,276 over the 51-day
+no-clearance window, and 1,451 when clearance at that window's inclusive
+boundary retains a further 7 days.
+
+At the parameter caps, the corresponding no-clearance profile is 90 days and
+4,321 rows, including the current generation and the oldest inclusive boundary.
+A generation cleared at that boundary remains liable under `cleared_lc +
+grace_ms`, so the late-clearance profile is 120 days and 5,761 rows. The latter
+follows the existing liability predicate; there is no 90-day clamp on its
+cleared branch. The measured profiles are:
+
+| Profile | Generation rows | Canonical record payload total | Current/undo map and body custody | Additional custody from one previous snapshot | Completed anchor roots | Anchor-map custody |
+|---|---:|---:|---:|---:|---:|---:|
+| No clearance, 90 d | 4,321 | 27,001,868 B | 22,622,703 B | 6,256 B | 1,899 | 117,840 B |
+| Late clearance, 120 d | 5,761 | 36,013,397 B | 30,160,207 B | 6,256 B | 2,532 | 156,240 B |
+
+The final rotation ends the prior current generation and inserts its successor
+in one publication, retaining exactly two undo entries and sharing each
+immutable generation body. A current record encodes to 6,188 B and an ended,
+destination-cleared record to 6,258 B for this identity profile. Each
+constructed body retains 5,119 B in its original allocation pool. The open chunk
+stores at most 4,095 anchors (262,080 raw B), with 274,373 B of Norito payload
+and 262,168 B of funded custody. Its transient 4,096-anchor completion is
+262,144 raw B, 274,440 B encoded and 262,232 B funded; retaining one original
+open-chunk reader across completion retains 524,400 B in total. The test checks
+exact refunds when the final owners retire.
+
+These are operational profiles, not universal retention or memory caps. Larger
+supported account policies, Pending forgery penalties, pruning backlog and a
+liability clock lagging wall time can exceed the stated population or bytes.
+Norito payload totals exclude map/snapshot envelopes. Funded custody is measured
+on aarch64 macOS with Rust 1.93.1 and includes native map/body/control
+allocations, but not allocator metadata or RSS; permanent SCCP histories,
+surrounding snapshots and node-local archives are separate. Completed roots use
+a conservative chunk-alignment count; the largest open chunk is measured
+separately.
 
 **Node-local.** The rotation archive and anchor witnesses are node-local (§6).
 Old messages remain finalizable through the history root of any later
@@ -3579,7 +3614,7 @@ also drops keepalives that a newer tip makes not due), forgery evidence
 deduplicated by `(g, m, signers)` and against recorded offences (§4.9), one
 keeper advance per authority and network, and one self-claim per authority and
 per `message_id` (§4.12.4). Ingress MUST rate-limit unverifiable advances per
-peer connection. Every SCCP instruction routes to the universal dataspace.
+peer connection. Every SCCP instruction routes to the universal data space.
 
 The only SCCP permission token is `CanProposeSccpRouteGovernance`, which only
 allows proposing. Its grant and revoke rule is `OnlyGenesis`
@@ -4829,6 +4864,23 @@ maximum graphs into enforceable custody bounds. Ten thousand rotations retain
 the same layout. StateInit hashes and Rust/Python cell mirrors change in lockstep
 with compiled code and the mandatory empty recovery references.
 
+**Three-slot relayer races (measured).**
+`contracts/ton/sccp/tests/unit/sccp-relayer-races.test.tolk` holds an actual
+checkpoint-reference finalize message while zero through four higher,
+genuinely signed checkpoints overtake it, for committees of 4, 7 and 31.
+Zero through two overtakes finalize once; three or four return
+`UnknownCheckpoint` without changing minter state or allocating child custody.
+One funded inline retry then finalizes once. The measured minter gas is
+50,170–50,455 for the retained reference, 18,749 for eviction refusal, and
+127,265 / 134,369 / 191,345 for inline recovery at `n = 4 / 7 / 31`.
+After the original generation retires, its inline certificate is refused
+(20,974 gas); a current-generation signed history proof recovers the message
+(200,067 gas at `n = 31`). Duplicate recovery cannot mint again. Each row
+records the full trace's gas, transaction fees and returned value; durable
+contract reserves are not transaction fees. These deterministic orderings
+measure the two/three-overtake boundary and recovery cost. They establish no
+wall-clock retention interval or live-network eviction rate.
+
 A certificate is 4 cells; a key-changing rotation adds at most 16. Stack depth
 is at most `q + 3`. The `sccp_certificate` external message re-references the
 certificate cells and adds one forward fee.
@@ -5582,7 +5634,7 @@ accepted by the new Taira. The stranded value is the documented cost (§4.18).
 | Destination nobody maintains | Trusted until `deadline_ms(cur)` ≤ certified start + validity (14 d by default, 30 d at most), then frozen and drained through voids |
 | Replay of a certified `X`; future-dated `X` | No extension; `t_eff` caps a rotation's start at `now_ms` (§5.1.2) |
 | A departed quorum forges within its deadline | Out-of-tenure checkpoints lead to a V3 latch on the genuine handoff; an in-tenure false `X` that is not a handoff leads to V1 if the genuine one is stored or is submitted while `g` is current, and otherwise stops being usable when the genuine handoff of `g` is installed or at `deadline_ms(g)`; a forged handoff captures the destination and stays usable until the next rotation (§5.1.2 property 4). In every case the signers are slashable while `g` is liable, and every revision that can be at `g` is held (§4.9–§4.10) |
-| Destination halts, then resumes with backdated blocks | `g` stays liable until the destination's light client finalizes a header past `deadline_ms(g)`, plus `grace_ms`, up to `progress_cap_ms` (§4.8 L5) |
+| Destination halts, then resumes with backdated blocks | An ended `g` without destination clearance stays liable through `liable_until_lc + progress_cap_ms`; after clearance at `c`, through `max(liable_until_lc, c + grace_ms)`, with inclusive boundaries. The cleared branch has no progress-cap clamp. Current generations remain liable, and Pending penalties separately prevent pruning and stake release (§4.8 L5, §4.11) |
 | Taira halts, then resumes with a time jump | The liability clock advances by at most one step across the halt, so no liability window is consumed (§4.8) |
 | Keys compromised after `g` stops being liable | Every destination's finalized time is past the deadline, or the cap has expired; no destination accepts them, stake may be released, and nothing needs slashing |
 | Idle Taira | Heartbeat keepalive (§4.7) |
@@ -6338,7 +6390,7 @@ resource and process failures are errors, never killed mutations.
 | SC1: `R` binds `X` (§3.6) | HC308 omits `X` from ordinary result publication; MS17 binds the vote to `R` | Current-candidate causal qualification required |
 | SC2/SC3: outgoing boundary identity and `ROTATION` (§4.2.2) | HC226 changes the outgoing generation; HC325 substitutes the successor committee root; HC309 omits a pre-heartbeat key-change rotation | Current-candidate causal qualification required |
 | SC4: dedicated consensus signing API (§3.8) | SC4, with actual single/aggregate cross-suite refusal controls | None for the registered suite fault |
-| SC5/SC6: CT1 and CT3 (§4.3) | HC257, HC259, HC260, HC264, HC268, HC269, HC327–HC329, HC353–HC360; MS52 and MS66 cover the clock allowance, MS68 removes the simulator's retained-work canonical-floor wait, MS69 removes its completed-payload clock recheck, MS70 removes the final fresh-proposal clock recheck, MS74 removes first-Prepare rewind admission, MS75–MS79 cover delayed first proposal signing, authenticated signature persistence/recovery and stable pending recovery identity; DM36 bounds committed drift | Run the controls under their respective owners, including original Queue retirement, fresh-view proposal time, authenticated time above the immutable input floor, captured-time progress, first-signature resampling against the original drift and source-bound proposal-admission recovery, including retryable input withdrawal and matching discarded-waiter retirement |
+| SC5/SC6: CT1 and CT3 (§4.3) | HC257, HC259, HC260, HC264, HC268, HC269, HC327–HC329, HC356–HC363; MS52 and MS66 cover the clock allowance, MS68 removes the simulator's retained-work canonical-floor wait, MS69 removes its completed-payload clock recheck, MS70 removes the final fresh-proposal clock recheck, MS74 removes first-Prepare rewind admission, MS75–MS79 cover delayed first proposal signing, authenticated signature persistence/recovery and stable pending recovery identity; DM36 bounds committed drift | Run the controls under their respective owners, including original Queue retirement, fresh-view proposal time, authenticated time above the immutable input floor, captured-time progress, first-signature resampling against the original drift and source-bound proposal-admission recovery, including retryable input withdrawal and matching discarded-waiter retirement |
 | SC12/SC17: CT5, certified exemption and first-Prepare boundary | HC258, HC281, HC282, HC333–HC337; MS51, MS65, MS67, MS71–MS73; DM37 bounds the committed due-work margin | Run the production and simulator controls independently, including cached execution, exact-source admission, authenticated restart of a successful Prepare signature and checked drift/cadence arithmetic |
 | SC7/SC8/SC22: heartbeat/governance due predicate and degraded run | HC278 bounds degraded heartbeat retries; HC302 preserves the original parent pause-due set; HC312 omits the heartbeat deadline; HC313 omits the pause-due leg | Current consumer controls require qualification; full cross-owner Parliament scheduling still needs its authoritative producer |
 | SC9/SC16: K1 and K2 (§4.7.4) | HC277 rejects a second carrier; HC279 and HC280 cover canonical shape and stale-carrier selection; HC314 admits without established due work | Current-candidate causal qualification required |
@@ -6463,10 +6515,15 @@ version, since no backward compatibility is required).
    The `iroha_data_model` test
    `maximal_31_seat_boundary_with_frozen_preparation_fits_the_result_body_bound`
    pins the number.
-6. **Measurements.** Gas and TON costs of §5.4, including `SccpCertificate`,
-   and the CI baselines; TON's three checkpoint slots after measuring relayer
-   races; generation, anchor and open-chunk storage on a 1 s-cadence chain with
-   maximal churn (§4.11).
+6. **Measurements.** Gas and TON costs, including `SccpCertificate`, are
+   recorded in §5.4 and the CI baselines. The three-slot relayer matrix in §5.4
+   measures the two/three-overtake boundary, refusal and one-mint recovery for
+   committees of 4, 7 and 31; it does not promise a wall-clock retention window.
+   The native measurement in §4.11 records canonical payloads and funded
+   allocations for 31-seat generation and anchor populations at a 1 s cadence,
+   including the 90-day no-clearance and 120-day late-clearance profiles and
+   open-chunk rollover. These engineering measurements do not qualify live
+   deployment or monetary settlement.
 7. **Attribution under strict liability.** Cross-view equivocation forensics,
    and finer attribution when more than `f` members are Byzantine or honest
    stray Commit votes are reused (§9.12). Evidence ingestion carries a `TODO:`
@@ -6497,10 +6554,23 @@ version, since no backward compatibility is required).
     mainnet and real burns. Until then, inbound verification is tested with
     captured mainnet blocks plus unit-level event binding. Who funds and
     performs the first mainnet deployments?
-15. **Public RPC coverage of the default lists** (beacon light-client routes,
-    `eth_getBlockReceipts` on BSC, the destination readers of the watch,
-    liteserver reliability and retention) is still unverified, and the chosen
-    endpoints' terms of use need a check before the lists are compiled in.
+15. **Public RPC coverage of the default lists.** Read-only samples on
+    2026-10-13 returned the bootstrap, update, finality and optimistic beacon
+    routes from both compiled Ethereum beacon providers. PublicNode also
+    returned a finalized execution block, its receipts and logs, one individual
+    transaction receipt, and nearby numbered, hash-addressed and batched
+    headers. Its finalized-state `eth_getProof` request refused the proof
+    window; the builder can fall back from EIP-2935 ancestry proofs to bounded
+    parent-header walks and checkpoint backfill (§8). Llama returned HTTP 525,
+    and Cloudflare refused or returned null for the sampled execution reads;
+    adding `/v1/mainnet` did not fix the finalized-block refusal. These are
+    point-in-time route observations, not cryptographic proof validation,
+    complete receipt reconstruction, historical-retention or uptime evidence.
+    Destination watch reads, full Ethereum workflows, BSC
+    `eth_getBlockReceipts`, and TON liteserver reliability and retention still
+    need live qualification. [PublicNode's terms](https://www.publicnode.com/terms)
+    describe revocable RPC access without an availability guarantee; provider
+    terms and deployment suitability require rechecking before launch.
 16. **Hard-fork cadence.** Ethereum Glamsterdam/Gloas and frequent BSC forks
     each require a release that appends a profile version and a Parliament
     `ActivateLightClientProfile` enacted before the active version's

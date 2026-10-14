@@ -1,0 +1,27 @@
+{
+  "command": [
+    "/opt/homebrew/opt/python@3.15/bin/python3.15",
+    "-B",
+    "/Users/mtakemiya/dev/iroha/target/parliament-gf-circuit-stage/scripts/parliament_ballot_gf_circuit.py",
+    "--root",
+    "/Users/mtakemiya/dev/iroha",
+    "--out",
+    "/Users/mtakemiya/dev/iroha/target/parliament-gf-circuit-stage/capture/refusal.json",
+    "--require-qualified"
+  ],
+  "exit_code": 2,
+  "expected_exit_code": 2,
+  "name": "require-qualified",
+  "seconds": 0.04317554086446762,
+  "source_after": {
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_ideal_sampler_accounting/report.json": "32f13e842ac39f7f3c3d08ae2135a8ebdffd442acc776002e2229c36610ad043",
+    "/Users/mtakemiya/dev/iroha/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "/Users/mtakemiya/dev/iroha/specs/parliament_ballot_b6_ideal_sampler_accounting.md": "c022d1f76360dfe4bdd6934fe352d5d87e7b9f63df3828608230f759cb1e22c5",
+    "/Users/mtakemiya/dev/iroha/specs/parliament_ballot_b6_oracle_log_circuit.md": "de33b603bfc281238b348f082a2316a645f1d236894e7837ee95078ddbc1d673",
+    "/Users/mtakemiya/dev/iroha/target/parliament-gf-circuit-stage/README.md": "54432fb1dfef7f406ee8e3ca0583aec324d0bbcae7a7a11328995a637267aa14",
+    "/Users/mtakemiya/dev/iroha/target/parliament-gf-circuit-stage/capture.py": "afd7911cc74f800deee8b1ed1c8f3accfdf5a14a12566f125fdeb1d745bad3be",
+    "/Users/mtakemiya/dev/iroha/target/parliament-gf-circuit-stage/scripts/parliament_ballot_gf_circuit.py": "c23d09a06a7f78ba16753409f695f4d03048a14bb19e1a55748e245272da564a",
+    "/Users/mtakemiya/dev/iroha/target/parliament-gf-circuit-stage/scripts/tests/parliament_ballot_gf_circuit_test.py": "c6b4f4bfc23932e3ff48ac7eff09d6eac00f9b0e3364cf7caa825667723a0181"
+  }
+}

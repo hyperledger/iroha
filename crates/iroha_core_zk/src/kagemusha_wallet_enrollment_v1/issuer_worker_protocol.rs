@@ -162,6 +162,7 @@ enum Kind {
     Complete,
     Recover,
     Inspect,
+    RecheckRevocation,
 }
 
 #[derive(Default)]
@@ -208,6 +209,7 @@ impl VerifierExchangeV1 {
             Kind::Complete => "complete",
             Kind::Recover => "recover",
             Kind::Inspect => "inspect",
+            Kind::RecheckRevocation => "recheck_revocation",
         };
         let bytes = encode(
             &norito::json!({
@@ -274,6 +276,7 @@ impl VerifierExchangeV1 {
             Kind::Complete => Some(ActionV1::Complete),
             Kind::Recover => Some(ActionV1::Recover),
             Kind::Inspect => Some(ActionV1::Inspect),
+            Kind::RecheckRevocation => Some(ActionV1::RecheckRevocation),
             Kind::Journal | Kind::Prepare => None,
         }
     }
@@ -350,8 +353,10 @@ impl VerifierExchangeV1 {
         request: &VerifierRequestV1,
         frame: &[u8],
     ) -> Result<(Value, u64), Error> {
-        if !matches!(self.kind, Kind::Complete | Kind::Recover | Kind::Inspect)
-            || self.configuration != request.configuration
+        if !matches!(
+            self.kind,
+            Kind::Complete | Kind::Recover | Kind::Inspect | Kind::RecheckRevocation
+        ) || self.configuration != request.configuration
             || self.request_binding != Some(request_binding(request))
         {
             return Err(Error("exchange request binding"));
@@ -394,6 +399,7 @@ pub(super) fn request_exchange(
             ActionV1::Complete => Kind::Complete,
             ActionV1::Recover => Kind::Recover,
             ActionV1::Inspect => Kind::Inspect,
+            ActionV1::RecheckRevocation => Kind::RecheckRevocation,
         },
         Contents {
             preparation: Some(&request.preparation.original),

@@ -1,0 +1,82 @@
+"""Independent W0 conditional chronology and preflight controls."""
+from collections import Counter
+from pathlib import Path
+import sys
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'target/parliament-ideal-machine-stage'))
+import write_machine as w
+
+
+def toy():
+    return w.ProgrammedWrites((w.Frame(b'', (('a', 1),), 9, 1),
+                               w.Frame(b'', (('challenge_1', 1),), 10, 1),
+                               w.Frame(b'', (('counter_u32_le', 4),), 11, 1)),
+                              4, 6, 3, 5, 1)
+
+
+def apply(state, gates):
+    seen = Counter()
+    for name, *wires in gates:
+        assert len(set(wires)) == len(wires)
+        assert all(type(i) is int and 0 <= i < len(state) for i in wires)
+        seen[name] += 1
+        state[wires[-1]] ^= int(all(state[x] for x in wires[:-1]))
+    return seen
+
+
+def put(state, start, n, value):
+    state[start:start+n] = [(value >> j) & 1 for j in range(n)]
+
+
+@pytest.mark.parametrize('flags', [(0, 0, 0, 0), (0, 1, 0, 1), (1, 0, 1, 0), (1, 1, 1, 1)])
+def test_fixed_scan_handles_holes_without_reusing_trial_number_and_is_clean(flags):
+    machine = toy()
+    p, state = machine.layout(), [0] * machine.layout()['size']
+    for name, (start, width) in p['fields'].items():
+        put(state, start, width, {'a': 17, 'challenge_1': 91, 'challenge_2': 143}[name])
+    for i in range(4): put(state, p['primary'] + i * 8, 8, 210 + i)
+    state[p['flags']:p['input_bits']] = flags
+    before = state[:]
+    seen = apply(state, machine.emit())
+    expected_records = [(bytes([17, 9]), 91), (bytes([91, 10]), 143)]
+    expected_records += [(i.to_bytes(4, 'little') + b'\x0b', 210 + i)
+                         for i, active in enumerate(flags) if active]
+    wanted = before[:]
+    record_width = 1 + machine.append().record_bits
+    for i, (key, value) in enumerate(expected_records):
+        start = p['log'] + i * record_width
+        wanted[start] = 1
+        put(wanted, start + 1, 3, len(key))
+        put(wanted, start + 4, 40, int.from_bytes(key, 'little'))
+        put(wanted, start + 44, 8, value)
+    put(wanted, p['counter'], machine.append().counter_bits, len(expected_records))
+    assert state == wanted
+    assert seen == {k: machine.resources()['gates'][k] for k in ('x', 'cx', 'ccx')}
+    assert apply(state, machine.emit(inverse=True)) == seen
+    assert state == before
+
+
+@pytest.mark.parametrize('value', [True, 1.5, '64', -1, 0, 22, 4097, 1 << 24])
+def test_length_refusal_before_source_loading(monkeypatch, value):
+    def should_not_load(*args): raise AssertionError('invalid factory reached source loader')
+    monkeypatch.setattr(w, 'actual_frames', should_not_load)
+    with pytest.raises(ValueError): w.actual_writes(ROOT, 'candidate', 'vote', 1, value)
+
+
+@pytest.mark.parametrize('row,role', [([], 'vote'), ('candidate', {}), (True, 'vote')])
+def test_name_type_refusal_precedes_path_io(row, role):
+    with pytest.raises(ValueError, match='row and role'):
+        w.actual_frames(ROOT/'does-not-exist', row, role)
+
+
+def test_remove_final_uncompute_exposes_dirty_trial_or_enable():
+    machine = toy()
+    p, state = machine.layout(), [0] * machine.layout()['size']
+    state[p['flags']+3] = 1
+    gates = list(machine.emit_record(3, 3))
+    # The final two trial-X gates and enable-copy clear the retained controls.
+    apply(state, gates[:-3])
+    assert state[p['enable']] == 1 and state[p['trial']:p['trial']+2] == [1, 1]

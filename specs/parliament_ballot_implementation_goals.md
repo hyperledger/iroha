@@ -111,6 +111,12 @@ guarded copy/split requests and partial cleanup, with 18/24 checker tests.
 Remaining terms include CRT serialization, bounded constructors/public validation,
 hashes and allocation/native/exceptional costs; the retained registration trap
 is not relabeled a return or discharged by the local instruction bound.
+The [opaque-field constructor](../docs/validation/parliament_ballot_opaque_field_bound/README.md)
+now has derived returning-path local bounds of 20/23/29 instructions and a
+48-byte frame in both retained images. Its 18-instruction allocation-failure
+prefix retains the error callee and outside-body continuation as unknown.
+Allocation/copy requests are at most 256 bytes; lower native work, provenance
+premises and complete resource certificates remain open.
 The separate [current-source worker](../docs/validation/parliament_ballot_current_candidate/README.md)
 passes both-mode builds/tests/Clippy, 122 observations, four output controls and
 fresh stack diagnostics. A test/comment-only waker correction passes 28 shared
@@ -120,6 +126,9 @@ binds 24 code ranges and seven source deltas, with 49 controls and 2,123 stable
 input guards. It reruns the four unchanged component analyzers on current
 captures under their original premises. TODO: discharge the remaining lower
 callee, native and complete workspace obligations.
+Later root-lock changes are recorded separately; these build and correspondence
+results apply to their captured sources. A package-membership comparison does
+not qualify the later dependency graph or current checkout.
 The [normal-return analysis](../docs/validation/parliament_ballot_noreturn_frontiers/README.md)
 justifies conditional ordinary-flow cuts while retaining native unwind and every
 original unconditional resource obligation. Next local B6.4 work includes universal target-specific
@@ -130,15 +139,58 @@ intervals; hidden paths and a complete native-byte bound remain unresolved.
 Finite replay and resolved stack regions do not close runtime coverage or
 physical calibration.
 
+The [retained-image exception audit](../docs/validation/parliament_ballot_exception_coverage/README.md)
+checks compact/CIE/FDE/LSDA correspondence and conservatively expands landing-pad
+control coverage, with 182 staged tests and an independent LLVM header comparison.
+The whole-function census retains 46 additional instructions per image behind
+unresolved indirect control. TODO: resolve those targets and establish CFI,
+loaded personality and exceptional stack/register/native-cost semantics before
+claiming complete exception coverage or a full resource certificate. All
+qualification and current-checkout applicability flags remain false.
+
 The [direct sampler accounting](parliament_ballot_b6_ideal_sampler_accounting.md)
 now inventories bounded logical request/lifetime work and persistent programming
 records, with 30 controls. The separate [reversible log construction](parliament_ballot_b6_oracle_log_circuit.md)
 now gives explicit coherent lookup/append costs and passes 21 controls.
+The separate [write-frame construction](parliament_ballot_b6_write_framing.md)
+prices preparation and cleanup of supplied canonical field registers, with
+11 controls. It reuses append staging and adds no oracle calls. Its supplied-field
+boundary excludes generation, validation and trial selection; the atomic
+request-machine implementation below now joins those stages.
 TODO: compose its two base calls per lookup and explicit gate/wire vector with
 the remaining reduction/primitive resources. This conditional upper bound and
 partial payload sums do not establish the verifier's 64 MiB physical workspace.
 
-TODO: reconcile the current integration source contract with concurrent
+The [clean admissibility circuit](parliament_ballot_b6_admissibility_circuit.md)
+now prices the supplied-challenge grinding and opening-size predicate, including
+fixed-address tree marks, frontier counting and full uncomputation. Both actual
+row circuits are checked against an independent ancestor/frontier model.
+Its per-trial gate and scratch counts close that component of the `2M`-trial
+schedule. The request machine below adds trial control, selected-value access
+and reconstruction; complete reductions and primitive entry remain open. The
+separate component
+capture preserves prior document identities without repinning old execution
+evidence. Production remains gated.
+The [clean field-product kernels](../docs/validation/parliament_ballot_gf_circuit/README.md)
+now give explicit reversible implementations and exact gate/work-wire counts
+for three inventoried field APIs. The full and low-scalar products use the
+256-bit modulus; the wide product uses the source's 768-bit modulus. Disjoint
+registers and zero initial work are premises. These component counts alone
+do not establish a complete simulator or physical-workspace bound.
+
+The [mathematical request machine](../docs/validation/parliament_ballot_request_machine/README.md)
+now joins public preparation, sampling, opening/VOLE, responses, chronological
+programming, return and cleanup, including content and full-width length
+rejection families. Exact accepted-request observations and local reviews
+retain explicit oracle and input premises. The [conditional lifetime ledger](../docs/validation/parliament_ballot_lifetime_ledger/README.md)
+now checks shared-log capacity, known event costs and logical register ownership
+for four accepted shapes, rejected-size VOTE and L0. Separate [full-cap content observations](../docs/validation/parliament_ballot_content_resources/README.md)
+cover four bounded-content cases without changing that ledger's supported inputs.
+TODO: finish the adaptive T/Q driver and theorem, preparation/purification
+resources, family-wide bounds and the primitive-entry assessment. Physical verifier
+and independent qualification requirements remain separate; production stays gated.
+
+The current integration source contract is reconciled with the captured
 changes. Scoped queue/Kura checks now bind signed gas, complete pre-quote
 structure, unconditional owners and original deferred release custody. The
 initial queue guard's 36 controls were insufficient; its counterexample and
@@ -147,8 +199,20 @@ binds all seven same-block calls and the original returned batch with 74 control
 The separate [construction guard](../docs/validation/parliament_ballot_construction_guard/README.md)
 binds original acquisition, exact conditional DA custody, handoff and retirement.
 Import-substitution and raw-macro shadowing counterexamples found in review are
-now refused. The full recheck first refuses the untouched Torii
-`request_local_partial_release_v1` binding.
-Earlier queue/Kura failures and the combined run's 92 start-order failures
-retain their historical source scope; subsequent assertions remain unexecuted.
+now refused; 121 focused controls passed on the captured sources. After six
+source-check inputs changed, those results retain their original source scope.
+The subsequent [Torii release guard](../docs/validation/parliament_ballot_torii_release_guard/README.md)
+passes 136 controls for private service routing, physical permit custody and
+closed recovery; the [boxed daemon entry](../docs/validation/parliament_ballot_daemon_startup_guard/README.md)
+passes 181 controls with the original prepared handoff and awaited preflight.
+The [borrowed beacon-witness guard](../docs/validation/parliament_ballot_beacon_borrow_guard/README.md)
+passes 182 controls; the [execution-result guard](../docs/validation/parliament_ballot_execution_result_guard/README.md)
+passes 204 and binds complete original assertion owners. The captured source
+check and all 1,755 matching Python regressions passed. Two observed Rust files
+then changed in a constructor migration; the [post-merge source check](../docs/validation/parliament_ballot_post_merge_source_check/README.md)
+passes on those inputs, while the full regression result retains its original
+source scope. The shared qualification dispatch repair separately passes both
+host feature modes' strict lint and 17 shared/bridge tests. No runtime or
+physical-device qualification follows from these checks. Earlier source-check failures
+and the combined run's 92 start-order failures retain their historical scope.
 See the B6 record for exact evidence and remaining owner/hardware actions.

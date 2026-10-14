@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 import re
 import types
+from pathlib import Path
 
 import pytest
 

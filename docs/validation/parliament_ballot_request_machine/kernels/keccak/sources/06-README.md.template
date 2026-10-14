@@ -1,0 +1,68 @@
+# Independent executable Keccak / SHA3 review
+
+The final repaired component passes **60 tests**: 25 independent controls in
+`test_independent_keccak.py` and 35 owner controls. The final JUnit, log and
+receipt record the exact command and ten selected source hashes before/after;
+all were stable. This remains an ignored source-level component diagnostic.
+No tracked source, Cargo job or native worker was changed or executed.
+Production and all full qualification flags remain false.
+
+One concrete API validation defect was found after the first 50 tests passed.
+With default `lru_cache` key typing, after
+`sha3_512_block(message_bytes=0)`, keyword calls with `False` and `0.0` returned
+the cached block without reaching exact-integer validation. The cost function
+had the same behavior. `cache-validation-counterexample.json` binds the
+original helper identity and observed reproduction; `pre-cache-fix-*` keeps
+the first 50-test result at that old candidate. The owner set `typed=True` on
+both caches. Eight independent cases now warm 0/1 cache entries and refuse
+their boolean/float equivalents for both block and cost functions. Two owner
+cases cover the same defect. The repair does not change canonical integer
+maps, gate counts, source byte semantics or the current validated kernel path.
+
+The independent lane reference computes theta on whole 64-bit words and
+performs rho/pi through an in-place 24-lane orbit, rather than the circuit's
+bit scatter or the owner's inverse-coordinate word model. A continuous LFSR
+derives all 24 round constants without restarting per-index. For rounds 0,
+12 and 23 the actual clean emitted gates are interpreted simultaneously on
+all 1,600 one-bit states and their complements, plus zero/all-ones. Every
+input, arbitrary correlated target, external guard and workspace bit is
+checked, and emitted X/CNOT/Toffoli counts are compared with the block count.
+These finite samples are broad orientation and nonlinearity controls, not an
+exhaustive 1,600-bit-domain proof.
+
+A complete 24-round forward/copy circuit is checked against the independent
+orbit model; deliberately omitting its inverse leaves correlated work despite
+the correct permutation output. This distinguishes output equality from the
+required clean joint-state map. The complete empty-message SHA3 clean circuit
+is executed for both dummy-input values, with arbitrary targets and untouched
+guards. The empty input bit is retained and does not affect the digest.
+
+Padding controls remove the required suffix or final pad NOT at the 71-byte
+and 72-byte boundaries, preserving all other nodes; every altered digest
+differs from Python's independent SHA3-512 implementation. A separate mutant
+omits the fresh final padding permutation after an exact rate block and also
+fails. These controls exercise the distinction between SHA3 domain/padding,
+full-block absorption and a generic unpadded Keccak computation. They do not
+introduce another backend oracle.
+
+Additional controls require malformed input/output/work wire labels to fail
+before the first gate, authenticate the loaded IR path, and inject a change
+only at the report's final source observation. The latter exits 1, publishes
+the error diagnostic and keeps every qualification flag false. It does not
+publish a successful construction after late drift.
+
+The separate `construction-review.md` records the source/FIPS/count review.
+The mathematical clean construction uses disjoint registers, fresh Boolean
+history, output XOR and a reverse traversal. Its X/CNOT/Toffoli maps extend
+linearly to coherent joint states under the clean-work interface. This does
+not promise that an input's reduced state remains unchanged after it becomes
+entangled with the output, and it does not support discarding dirty history.
+Python/runtime integrity, compiler correspondence and complete dependency
+closure remain outside these selected-source diagnostics.
+
+No remaining blocking finding within the reviewed component scope. Static
+message length, actual public framing/typing, coherent length selection,
+whole-machine state/cleanup, physical resources, primitive advantages and
+independent cryptographic acceptance remain separate obligations. The
+concrete SHA3 implementation neither implements nor qualifies the simulator's
+named immutable ideal base F.

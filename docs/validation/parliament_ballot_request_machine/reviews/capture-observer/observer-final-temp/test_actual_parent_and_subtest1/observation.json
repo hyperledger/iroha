@@ -1,0 +1,32 @@
+{
+  "calls": [
+    {
+      "is_subtest": true,
+      "nodeid": "target/parliament-machine-final-capture/observer-final-temp/test_actual_parent_and_subtest1/test_observed_case.py::test_parent",
+      "outcome": "passed"
+    },
+    {
+      "is_subtest": true,
+      "nodeid": "target/parliament-machine-final-capture/observer-final-temp/test_actual_parent_and_subtest1/test_observed_case.py::test_parent",
+      "outcome": "failed"
+    },
+    {
+      "is_subtest": false,
+      "nodeid": "target/parliament-machine-final-capture/observer-final-temp/test_actual_parent_and_subtest1/test_observed_case.py::test_parent",
+      "outcome": "failed"
+    }
+  ],
+  "collected": [
+    "target/parliament-machine-final-capture/observer-final-temp/test_actual_parent_and_subtest1/test_observed_case.py::test_parent"
+  ],
+  "effective_options": {
+    "collectonly": false,
+    "deselect": null,
+    "ignore": null,
+    "ignore_glob": null,
+    "keyword": "",
+    "markexpr": "",
+    "maxfail": 0
+  },
+  "exitstatus": 1
+}

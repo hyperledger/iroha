@@ -1,0 +1,273 @@
+"""Actual-image, provenance, malformed-container and CLI refusal controls.
+
+LSDA semantics and graph behavior have separately owned independent test modules.
+No native image is executed by this suite.
+"""
+from __future__ import annotations
+
+from collections import Counter
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import struct
+import sys
+
+import pytest
+
+STAGE = Path(__file__).resolve().parents[2]
+HELPER = STAGE / "scripts/parliament_ballot_exception_coverage.py"
+SPEC = importlib.util.spec_from_file_location("exception_coverage_under_test", HELPER)
+M = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = M
+SPEC.loader.exec_module(M)
+
+
+@pytest.fixture(scope="module")
+def inputs():
+    return M.load_inputs(STAGE)[0]
+
+
+@pytest.fixture(scope="module")
+def result():
+    return M.report(STAGE)
+
+
+@pytest.mark.parametrize("mode,rows,nonzero,zero,ordinary,augmented,native,extra", [
+    ("portable", 1202, 727, 475, (275, 31408), (284, 32952), 248, 127),
+    ("accel", 1208, 730, 478, (278, 29774), (288, 31253), 244, 126),
+])
+def test_actual_images_match_independent_lsda_census_and_keep_all_frontiers(result, mode, rows, nonzero, zero, ordinary, augmented, native, extra):
+    """LSDA totals come from the independent reference reviewer, not this parser."""
+    report = result["modes"][mode]
+    tables = list(report["lsda_tables"].values())
+    all_rows = [row for table in tables for row in table["rows"]]
+    assert len(tables) == 228 and len(all_rows) == rows
+    assert sum(row["landing_pad"] is not None for row in all_rows) == nonzero
+    assert sum(row["landing_pad"] is None for row in all_rows) == zero
+    assert Counter(table["type_encoding"] for table in tables) == {255: 143, 0x9B: 85}
+    assert Counter(row["rust_action"] for row in all_rows)["catch"] == 8
+    assert sum(row["rust_action"] == "filter" for row in all_rows) == (118 if mode == "portable" else 120)
+    assert {row["action_offset"] for row in all_rows} == {0, 1, 5, 7}
+    base, graph = report["ordinary"], report["exception_augmented"]
+    assert (len(base["reachable_functions"]), len(base["reachable_instructions"])) == ordinary
+    assert (len(graph["reachable_functions"]), len(graph["reachable_instructions"])) == augmented
+    assert set(base["reachable_instructions"]) <= set(graph["reachable_instructions"])
+    assert len(report["newly_exposed_frontiers"]) == extra
+    assert graph["frontier_counts"] == {
+        "function_fallthrough": 167, "indirect_branch": 4, "indirect_call": 41,
+        "native_edge": native, "trap_or_system_control": 39,
+    }
+    assert any("Unwind_Resume" in item["detail"] for item in graph["frontiers"])
+    assert any("free" in item["detail"] for item in graph["frontiers"])
+    assert graph["landing_pad_register_state_known"] is False
+    assert all(report[name] is False for name in M.FALSE_FLAGS)
+
+
+def test_selected_input_hashes_and_original_build_binary_binding(result, inputs):
+    assert result["selected_input_count"] == 21
+    independent = {name: hashlib.sha256(value).hexdigest() for name, value in inputs.items()}
+    assert result["input_sha256_before"] == result["input_sha256_after"] == independent
+    build = json.loads(inputs["build_receipt"])
+    for mode in ("portable", "accel"):
+        assert independent[mode + "_binary"] == build["binaries"][mode]["sha256"]
+    assert result["checked_metadata_and_coverage"] is True
+    assert all(result[name] is False for name in M.FALSE_FLAGS)
+    assert any("DWARF fallback" in item for item in result["scope"])
+    assert any("Landing-pad SP/FP/register" in item for item in result["scope"])
+    assert any("not a full historical build closure" in item for item in result["scope"])
+
+
+@pytest.mark.parametrize("mode,count,slot", [("portable", 606, 0x1000D74B0), ("accel", 598, 0x1000D3468)])
+def test_every_actual_fde_hint_mapping_and_cie_shape_matches_independent_census(result, mode, count, slot):
+    report = result["modes"][mode]
+    eh, resolved = report["eh_frame"], report["resolved_unwind"]
+    assert len(eh["cies"]) == 71 and len(eh["fdes"]) == count
+    assert Counter(cie["augmentation"] for cie in eh["cies"].values()) == {"zR": 39, "zPLR": 32}
+    assert {fde["personality_slot"] for fde in eh["fdes"].values()} == {None, slot}
+    assert sum(fde["lsda"] is not None for fde in eh["fdes"].values()) == 228
+    assert resolved["checked_fde_mapping"] is True and resolved["checked_fde_count"] == count
+    assert resolved["loaded_personality_targets_authenticated"] is False
+    assert resolved["cfi_instructions_interpreted"] is False
+    assert all(table["mapping_source"] == "fde_augmentation" for table in report["lsda_tables"].values())
+    assert all(table["region_end"] <= table["owner_end"] for table in report["lsda_tables"].values())
+
+
+@pytest.mark.parametrize("mode", ("portable", "accel"))
+def test_raw_compact_ranges_include_folding_and_dwarf_fallback_without_claiming_cfi(inputs, mode):
+    image = M.parse_macho(inputs[mode + "_binary"])
+    compact = M.parse_unwind(inputs[mode + "_binary"], image)
+    starts = image["function_starts"]
+    assert [page["kind"] for page in compact["pages"]] == [2, 3]
+    assert compact["pages"][0]["count"] == 511
+    assert len(compact["descriptors"]) == 228
+    assert len(compact["personalities"]) == 1
+    assert sum(row["mode"] == "dwarf_fallback" for row in compact["entries"]) > 500
+    assert any(sum(row["start"] <= start < row["end"] for start in starts) > 1 for row in compact["entries"])
+    assert compact["dwarf_fde_cfi_verified"] is False
+
+
+@pytest.mark.parametrize("offset,value", [(0, 0), (4, 0x01000007), (8, 2), (12, 1), (16, 0), (20, 0xFFFFFFFF), (28, 1)])
+def test_malformed_actual_macho_header_is_rejected(inputs, offset, value):
+    changed = bytearray(inputs["portable_binary"])
+    struct.pack_into("<I", changed, offset, value)
+    with pytest.raises((ValueError, struct.error)):
+        M.parse_macho(bytes(changed))
+
+
+@pytest.mark.parametrize("length", (0, 4, 31, 32, 39, 1024))
+def test_truncated_macho_refuses(inputs, length):
+    with pytest.raises((ValueError, struct.error)):
+        M.parse_macho(inputs["portable_binary"][:length])
+
+
+def command_offsets(data):
+    cursor = 32
+    for _ in range(struct.unpack_from("<I", data, 16)[0]):
+        command, size = struct.unpack_from("<II", data, cursor)
+        yield cursor, command, size
+        cursor += size
+
+
+@pytest.mark.parametrize("change", ("zero_command", "unaligned_command", "oversized_command", "bad_segment_size", "missing_starts", "unterminated_starts"))
+def test_actual_load_command_and_function_start_mutations_refuse(inputs, change):
+    data = bytearray(inputs["portable_binary"])
+    commands = list(command_offsets(data))
+    if change in {"zero_command", "unaligned_command", "oversized_command"}:
+        struct.pack_into("<I", data, 36, {"zero_command": 0, "unaligned_command": 9, "oversized_command": 1 << 30}[change])
+    elif change == "bad_segment_size":
+        offset = next(offset for offset, command, _ in commands if command == 0x19)
+        struct.pack_into("<I", data, offset + 64, 100000)
+    else:
+        offset = next(offset for offset, command, _ in commands if command == 0x26)
+        if change == "missing_starts":
+            struct.pack_into("<I", data, offset, 0x77777777)
+        else:
+            start, size = struct.unpack_from("<II", data, offset + 8)
+            data[start:start + size] = bytes([0x80]) * size
+    with pytest.raises((ValueError, struct.error)):
+        M.parse_macho(bytes(data))
+
+
+@pytest.mark.parametrize("mode", ("portable", "accel"))
+def test_text_and_raw_function_membership_must_agree(inputs, mode):
+    image = M.parse_macho(inputs[mode + "_binary"])
+    text, starts, stubs = [inputs[mode + "_" + key].decode() for key in ("disassembly", "starts", "stubs")]
+    instructions, functions, _ = M.parse_text(text, starts, stubs, image)
+    assert set(functions) == set(image["function_starts"])
+    assert any("parliament_memory_entry::workspace::worker::" in function["name"] for function in functions.values())
+    first = f"{image['function_starts'][0]:016x}"
+    with pytest.raises(ValueError, match="function-start mismatch"):
+        M.parse_text(text, starts.replace(first, "0" * 16, 1), stubs, image)
+    # Delete a real instruction, without changing the separately checked binary.
+    lines = text.splitlines()
+    del lines[next(i for i, line in enumerate(lines) if line.startswith(f"{min(instructions):x}:"))]
+    with pytest.raises(ValueError, match="incomplete text"):
+        M.parse_text("\n".join(lines), starts, stubs, image)
+
+
+@pytest.mark.parametrize("kind", ("unwind_descriptor", "unwind_missing", "duplicate_descriptor", "duplicate_instruction", "duplicate_label"))
+def test_actual_capture_transcription_mismatch_refuses(inputs, kind):
+    binary = inputs["portable_binary"]
+    text, starts, stubs, unwind = [inputs["portable_" + key].decode() for key in ("disassembly", "starts", "stubs", "unwind")]
+    if kind == "unwind_descriptor":
+        unwind = unwind.replace("LSDA offset=0x000bfe04", "LSDA offset=0x000bfe05", 1)
+    elif kind == "unwind_missing":
+        unwind = unwind.replace("LSDA descriptors:", "", 1)
+        unwind = "\n".join(line for line in unwind.splitlines() if "LSDA offset=" not in line)
+    elif kind == "duplicate_descriptor":
+        first = next(line for line in unwind.splitlines() if "function offset=0x00000f04, LSDA offset=" in line)
+        unwind += "\n" + first + "\n"
+    elif kind == "duplicate_instruction":
+        first = next(line for line in text.splitlines() if line.startswith("1000008c0:"))
+        text = text.replace(first, first + "\n" + first, 1)
+    else:
+        first = next(line for line in text.splitlines() if line.startswith("00000001000008c0 <"))
+        text = text.replace(first, first + "\n" + first, 1)
+    with pytest.raises(ValueError):
+        M.analyze_image(binary, text, starts, stubs, unwind)
+
+
+@pytest.mark.parametrize("page_index", (0, 1))
+def test_unwind_page_entry_array_must_fit_4096_bytes(inputs, page_index):
+    data = bytearray(inputs["portable_binary"])
+    image = M.parse_macho(bytes(data))
+    section = image["sections"][("__TEXT", "__unwind_info")]["offset"]
+    index_offset = struct.unpack_from("<I", data, section + 20)[0]
+    page_offset = struct.unpack_from("<I", data, section + index_offset + 12 * page_index + 4)[0]
+    # The file has bytes after the page, so generic whole-section bounds alone
+    # cannot reject this spill into a different page's storage.
+    struct.pack_into("<H", data, section + page_offset + 4, 4092)
+    with pytest.raises(ValueError, match="invalid (regular|compressed) page"):
+        M.parse_unwind(bytes(data), image)
+
+
+@pytest.mark.parametrize("key", ("portable_binary", "accel_binary", "build_receipt", "portable_unwind", "rust_eh", "compact_header"))
+def test_live_input_drift_cannot_be_adopted(key, monkeypatch):
+    inventory = json.loads((STAGE / "input-inventory.json").read_text())
+    target = Path(inventory["inputs"][key]["source_path"])
+    original = Path.read_bytes
+    def modified(path):
+        raw = original(path)
+        return raw + b" changed" if path == target else raw
+    monkeypatch.setattr(Path, "read_bytes", modified)
+    with pytest.raises(ValueError, match="selected input drift"):
+        M.load_inputs(STAGE)
+
+
+def test_archived_snapshot_drift_and_inventory_repin_are_rejected(monkeypatch):
+    original = Path.read_bytes
+    snapshot = STAGE / "inputs/portable_binary"
+    def modified(path):
+        raw = original(path)
+        return raw[:-1] if path == snapshot else raw
+    monkeypatch.setattr(Path, "read_bytes", modified)
+    with pytest.raises(ValueError, match="selected input drift"):
+        M.load_inputs(STAGE)
+    def repinned(path):
+        raw = original(path)
+        return raw + b" " if path == STAGE / "input-inventory.json" else raw
+    monkeypatch.setattr(Path, "read_bytes", repinned)
+    with pytest.raises(ValueError, match="input inventory changed"):
+        M.load_inputs(STAGE)
+
+
+def test_post_analysis_input_drift_refuses_successful_publication(monkeypatch):
+    original, counts = Path.read_bytes, Counter()
+    inventory = json.loads((STAGE / "input-inventory.json").read_text())
+    target = Path(inventory["inputs"]["portable_binary"]["source_path"])
+    def modified(path):
+        raw = original(path)
+        counts[path] += 1
+        return raw + b" changed late" if path == target and counts[path] == 2 else raw
+    monkeypatch.setattr(Path, "read_bytes", modified)
+    with pytest.raises(ValueError, match="selected input drift"):
+        M.report(STAGE)
+    assert counts[target] == 2
+
+
+@pytest.mark.parametrize("qualified,expected", [(False, 0), (True, 2)])
+def test_cli_scoped_success_and_qualification_refusal(tmp_path, qualified, expected):
+    destination = tmp_path / "report.json"
+    arguments = ["--stage", str(STAGE), "--out", str(destination)]
+    if qualified:
+        arguments.append("--require-qualified")
+    assert M.main(arguments) == expected
+    value = json.loads(destination.read_text())
+    assert value["verdict"] == "PASS_UNDER_STATED_PREMISES"
+    assert all(value[name] is False for name in M.FALSE_FLAGS)
+
+
+def test_cli_unknown_and_existing_output_refusal(tmp_path, monkeypatch):
+    destination = tmp_path / "unknown.json"
+    assert M.main(["--stage", str(tmp_path / "absent"), "--out", str(destination)]) == 1
+    value = json.loads(destination.read_text())
+    assert value["verdict"] == "UNKNOWN" and value["checked_metadata_and_coverage"] is False
+    assert all(value[name] is False for name in M.FALSE_FLAGS)
+    before = destination.read_bytes()
+    def forbidden(_):
+        pytest.fail("must refuse overwrite before report")
+    monkeypatch.setattr(M, "report", forbidden)
+    with pytest.raises(SystemExit) as error:
+        M.main(["--out", str(destination)])
+    assert error.value.code == 2 and destination.read_bytes() == before

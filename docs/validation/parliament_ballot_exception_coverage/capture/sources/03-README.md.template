@@ -1,0 +1,224 @@
+# Retained ARM64 exception-table coverage: staged proposal
+
+This static diagnostic expands B6.4's compiled-path coverage across the two
+retained standalone worker images. It reads compact-unwind metadata and Rust
+LSDA tables, then follows ordinary control from both function entries and all
+table-listed landing pads of reached owners. It never executes a worker or
+changes the Rust implementation, resource contract, historical evidence or
+production gate.
+
+The result is **conditional metadata and control coverage**, not an exception
+semantics proof, panic-freedom argument, termination proof or resource bound.
+Every complete native, stack, workspace, physical-calibration and qualification
+flag remains false. The selected images remain historical: the later checkout
+and dependency graph do not inherit their build or observation results.
+
+## Inputs and reference boundary
+
+`input-inventory.json` freezes the original 19 selected inputs, with original paths, exact
+SHA-256 identities and local snapshots under `inputs/`. Its own SHA-256 is
+`578292d845726e3149b8da68f3350efd9e9739816744e1b664e165475361929e`.
+It includes the original build and stack receipts, both actual binaries, their
+four captured text outputs and stack reports, the prior analyzer, and three
+local primary-reference files. The original candidate manifest is itself
+authenticated at
+`40b01704bcad1551c5a44cf8b5b8311f64d3f751a19caf36fb2ec1641611c7ba`;
+selected original artifacts were checked against its membership before copying.
+The two executable hashes also match the original build receipt:
+
+| Mode | Binary SHA-256 |
+| --- | --- |
+| Portable | `3f658228a903c50c9a549baedd0b822e14fca03f654659720cb434b83d9bb9dc` |
+| Accelerated | `40219e559636f092c3b4197f6e65eb1ab083f25444fcafd2b635221b4f7e18e7` |
+
+The supplemental `input-inventory-fde.json`, SHA-256
+`36e4aa2a8cc83c6650cf22089fe8d74dc743c114bc506c8860a3f66363a5a587`,
+adds two LLVM 21.1.0 primary format references (`DwarfParser.hpp` and
+`AddressSpace.hpp`). The original 19-input map is unchanged. The resulting
+21-input inventory supplies exact retained-image bytes and reference sources;
+LLVM source is not asserted to be the installed Apple libunwind implementation.
+
+The helper reads both the original selected bytes and their snapshots before
+and after analysis. Missing or changed bytes produce `UNKNOWN`; changing the
+inventory to adopt new bytes also refuses. This selected inventory is not a
+revalidation of the original full build closure, an attestation of standard
+library/compiler correspondence, or a current-source qualification record.
+
+The local references are installed Rust **1.93.1** rustdoc source for
+`std/sys/personality/dwarf/eh.rs` and `std/sys/personality/gcc.rs`, plus Xcode's
+MacOS SDK `mach-o/compact_unwind_encoding.h`. The independent reference review
+under `target/parliament-exception-reference-review/` supplies exact source
+identities, extracts and the interpretation limits. The imported symbol or
+personality slot is not independently proven to execute those source bytes.
+Current LLVM implementation links in that review explain format pitfalls; they
+are not a historical compiler or installed Apple runtime attestation.
+
+## Checked byte structures
+
+The parser accepts thin little-endian ARM64 Mach-O executables. It bounds the
+load-command array, segment and file-backed section extents, raw
+`LC_FUNCTION_STARTS` deltas, and the text section. It rejects duplicate sections,
+overlapping file-backed sections, malformed command sizes, bad addresses,
+unsupported CPU/subtype headers and truncated/overflowing/noncanonical LEBs.
+Captured function-start membership must match the raw binary, and disassembly
+must cover each four-byte text position. Authenticated LLVM text remains the
+instruction-decoding premise; this Python parser is not a second ISA decoder.
+
+The compact-unwind parser supports version 1 regular and compressed pages. It
+checks ordered top-level and second-level ranges, bounded nonoverlapping arrays,
+the 4,096-byte page limit, common/local encoding indexes, signed image-relative
+personality **slot** addresses, LSDA descriptor membership and flags, and the
+terminal text boundary. Descriptors must agree with the captured unwind dump.
+Ranges may cover multiple function starts; the tool does not silently split one
+compact range into independently authenticated unwind recipes.
+
+ARM64 DWARF fallback encodings are resolved through the actual `__eh_frame`
+records. The parser checks 32-bit record lengths, prior CIE-boundary references,
+CIE version 1, the observed `zR` and `zPLR` augmentation strings, exact bounded
+augmentation lengths, code/data alignment, ARM64 return register, and the
+observed pointer encodings. Unsupported variants refuse. The FDE's backward CIE
+displacement is relative to its pointer field. Its region start uses the CIE's
+PC-relative native-width `R` encoding, while the region length uses only the
+unsigned native-width format. The `P` value supplies an indirect PC-relative
+signed-32 **slot** address. The `L` value supplies an FDE LSDA pointer; an encoded
+scalar zero means no LSDA before applying PC-relative adjustment.
+
+Every compact fallback hint must name exactly one actual FDE boundary, and every
+raw FDE must be covered by a hint in this observed subset. The FDE start must
+match the compact start and an actual function start; the FDE end must stay
+inside both the compact range and the function. Resolved LSDA pointers must
+agree with compact descriptors, and nonzero compact personality indexes must
+agree with the CIE's slot. A zero compact index never erases a CIE personality.
+Any discordance refuses the analysis rather than selecting whichever source
+would give fewer paths. Every selected LSDA is parsed using its actual FDE
+region boundary; enclosing function-end padding is tracked separately.
+
+Both images contain 71 CIEs (39 `zR`, 32 `zPLR`), with 606 portable / 598
+accelerated FDEs. All 228 LSDAs per mode resolve through FDE augmentations and
+agree with the compact descriptors. The independent raw decoder agrees on this
+census. A separately recorded `llvm-dwarfdump --eh-frame` comparison checks
+individual CIE/FDE record offsets and lengths, CIE links and parameters, code
+regions, LSDA addresses and personality slots. It is static decoding, not
+execution of either worker.
+
+CFI instruction ranges and exact byte hashes are retained but **not interpreted**.
+The tool does not prove unwinder selection, loaded personality targets or any
+restored stack/register state. A table with no LSDA is not a general no-unwind
+claim. Non-Rust personalities, asynchronous/foreign exceptions and native
+runtime behavior retain their unknown scope. `checked_fde_mapping` is separate
+from the false complete exception/stack/workspace flags.
+
+LSDA spans are bounded by the next **sorted unique LSDA address**, or by the end
+of `__gcc_except_tab`; descriptor order is not assumed to be table-address order.
+Each descriptor must identify an actual function entry. The accepted observed
+encoding subset is omitted `LPStart` (`ff`), omitted or indirect PC-relative
+32-bit type metadata (`ff` or `9b`), and ULEB call-site offsets (`01`). Other
+encodings refuse instead of guessing. Both protected intervals and landing-pad
+offsets use the supplied function start in this omitted-LPStart subset.
+Protected intervals are ordered, nonoverlapping, nonempty and within the owner;
+nonzero landing pads must be aligned text instructions inside that owner.
+
+The helper records generic action links structurally and rejects cycles,
+out-of-span or overlapping records and action/type overlap. This is distinct
+from Rust's action decision: Rust 1.93.1 reads only the **first** signed type index
+of a nonzero action entry. Zero means cleanup, positive means catch, negative
+means filter. It does not traverse a C++ action chain for matching. Action offset
+zero with a nonzero pad is cleanup; a zero pad is no local action. An IP absent
+from a present table means terminate under the reviewed Rust source, while no
+LSDA means no local action. Type targets and filter matching remain unresolved.
+
+The descriptive direct-call lookup uses the return IP `PC+4`, minus **one byte**,
+thus `PC+3`. The independent tests also cover `_Unwind_GetIPInfo`'s
+before-instruction alternative and half-open boundaries. These lookup labels
+do not establish that a call throws, returns, catches or terminates in practice.
+
+## Conservative control coverage
+
+The ordinary comparison starts at the worker entry. The augmented graph starts
+at the same entry, but reaching any instruction in a function also seeds **all**
+its nonzero table-listed pads. The protected call or branch need not have been
+reached. Cleanup, catch and filter entries are all included. When those paths
+reach another function, its pads are seeded too; a finite worklist reaches the
+fixed point. This avoids claiming that only known `BL` sites can unwind, and
+overapproximates the selected table-defined entry possibilities.
+
+The traversal keeps both outcomes of every conditional branch, direct calls
+and tails to known function entries, and ordinary continuations after every
+call. A callee named panic, allocation error, `_exit` or `__Unwind_Resume` is not
+treated as proof of no return. Trap/system-control instructions retain an
+unknown frontier and a possible next-instruction continuation. Indirect calls
+retain their normal continuation plus an unknown target; indirect branches stop
+at an explicit unknown frontier. Unsupported instructions retain an unknown
+frontier and a possible fallthrough. Function-end fallthrough, missing targets
+and cross-owner nonentry transfers remain explicit gaps.
+
+No arithmetic condition, panic unreachability, pointer provenance, destructor
+correctness or restored `SP`/`FP` is assumed to narrow the new graph. Even an
+ordinary `RET` reached from a cleanup seed does not imply that an exceptional
+execution can actually return that way. Counts describe this conservative
+syntactic reachability model only.
+
+## Recorded draft observations
+
+The two images each contain **228** unique compact-descriptor LSDAs. An
+independent raw-image decoder agrees with the table totals below. Both modes
+have 143 omitted-type headers and 85 `9b` type headers.
+
+| Observation | Portable | Accelerated |
+| --- | ---: | ---: |
+| LSDA call-site rows | 1,202 | 1,208 |
+| Nonzero landing-pad rows | 727 | 730 |
+| Zero-pad rows | 475 | 478 |
+| Ordinary graph functions / instructions | 275 / 31,408 | 278 / 29,774 |
+| Augmented graph functions / instructions | 284 / 32,952 | 288 / 31,253 |
+| Newly exposed frontier sites | 127 | 126 |
+| Native direct frontier sites | 248 | 244 |
+| Indirect calls / branches | 41 / 4 | 41 / 4 |
+| Function-fallthrough frontiers | 167 | 167 |
+| Trap/system-control frontiers | 39 | 39 |
+
+These ordinary counts differ from the older stack analyzer because this new
+coverage model deliberately retains possible trap resumption and other
+uncertain continuations. It does not overwrite or reinterpret the prior result.
+
+The parent's independent whole-function-body direct-call census is an upper
+comparison universe for this graph: 287 / 291 functions and 32,998 / 31,299
+instructions. The augmented membership is a subset in both modes. The remaining
+46 instructions per image lie behind an unresolved byte-table indirect branch
+in `std::panicking::default_hook`, including three outlined helpers. The branch
+is at portable `0x100032348` or accelerated `0x1000300b0`. They are **unresolved,
+not proven dead**. Their gap is retained by the indirect-branch frontier; two
+additional indirect sites in the whole-body census are not silently discharged.
+The two independent native direct-site totals agree exactly.
+
+## Validation and freeze plan
+
+The helper's own tests cover both exact images, independent table census
+constants, raw/text agreement, header/load-command/function-start mutations,
+page-boundary and duplicate-descriptor refusals, selected input/archive/late
+drift, and CLI success/unknown/overwrite/qualification behavior. The separate
+independent test module builds LSDA, compact-unwind and CIE/FDE bytes itself,
+covering signed slots, folded ranges, regular/compressed pages, first-action
+semantics, linked actions, half-open IP intervals, field-relative pointer bases,
+raw-zero LSDA handling, mapping discordance and malformed structures. The parent's
+synthetic graph tests cover transitive pad seeding, both branches, loops,
+ordinary continuation after native/error calls and retained unknown frontiers.
+
+The final isolated capture will retain exact helper/test/reference identities,
+full pytest collection and JUnit results, normal and qualification-refusal CLI
+outputs, and before/after source stability. Full reports may be stored with
+deterministic gzip (`mtime=0`) and an explicit decompressed SHA-256, so audit
+detail is preserved without duplicating large pretty-printed JSON. Exploratory
+attempts remain separate: the initial root-label and operand-annotation failures
+were not successful analyses, and an intermediate draft used less precise
+vector-op/fallthrough classifications.
+
+TODO: complete the separate reviewed capture before publication. Remaining
+technical obligations include CFI execution and loaded personality correspondence,
+native and foreign exception semantics, callback/indirect targets, cleanup
+allocation/provenance, memory-safety/noninterference, full native/TLS costs,
+stack/workspace sufficiency and independent unsafe review. This audit provides
+coverage for further work; it supplies no new complete numeric bound.
+
+All commands must use bytecode/cache-disabled Python and ignored output paths
+during the active source-freeze window. No Cargo job or worker is needed.

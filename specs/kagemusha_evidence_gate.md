@@ -356,6 +356,25 @@ require old wallets to update or reconnect to keep using their existing value.
 
 ## 6. Complete device exchanges
 
+The initial measurement population selected on 2026-10-13 is Pixel 6 running
+Android 17 (security patch 2026-07-05) and iPhone 17 Pro Max running iOS 26.7
+(23H24). These are measurement subjects, not a runtime device allowlist. Record
+fresh OS/build and app/native/catalog identities for each run; expansion to other
+phones remains separate work. Report Android → iPhone and iPhone → Android
+individually for every actually supported carrier. Do not pool different
+directions, carriers, cold starts or enabled-control profiles into one percentile.
+
+For each qualified timing cell, retain 200 ordered attempts and use the
+nearest-rank empirical p95 (the 190th ordered duration). Retain failed,
+cancelled and interrupted attempts in their original positions; report their
+counts and reasons rather than silently replacing them with successes. A cell
+with failures does not establish the completion target from successful timings
+alone. Preliminary diagnostic runs may use fewer attempts, clearly labeled,
+to identify bottlenecks before the full evaluation. Durable-completion time and
+the later local-fold time until received value is spendable remain separate
+measurements. No timing or durability success is established by selecting this
+population or procedure.
+
 Run real proofs and the software provider on stock phones for each claimed
 device and ordered sender/receiver/carrier combination. Label runs with
 padded proofs so their timings are not attributed to a real prover. Record

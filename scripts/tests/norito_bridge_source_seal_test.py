@@ -477,7 +477,7 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
                 if line and not line.startswith("#")]
         expected = frozenset(row[2] for row in rows if row[2].startswith((
             "crates/iroha/", "crates/ivm/", "crates/kotodama_lang/")))
-        self.assertEqual(len(expected), 45)
+        self.assertEqual(len(expected), 46)
         self.assertEqual(expected, seal._REVIEWED_PUBLIC_IVM_ARTIFACT_INPUTS)
         self.assertNotIn(".to", seal._PUBLIC_SOURCE_SUFFIXES)
         self.assertNotIn(".to", seal._CODE_SUFFIXES)
@@ -488,7 +488,7 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
                     self.assertTrue(self.public_role_original(source))
 
     def test_public_required_roles_are_exact_without_suffix_widening(self) -> None:
-        self.assertEqual(len(self.public_role_inputs()), 76)
+        self.assertEqual(len(self.public_role_inputs()), 77)
         self.assertEqual(len(seal._REVIEWED_PUBLIC_SOURCE_FOLDER_INPUTS), 6)
         self.assertEqual(len(seal._REVIEWED_PUBLIC_FIXTURE_INPUTS), 23)
         self.assertEqual(len(seal._REVIEWED_PUBLIC_NONOPERATIONAL_FIXTURE_PINS), 4)

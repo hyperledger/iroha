@@ -178,8 +178,10 @@ impl LaneStores {
             if stores.contains_key(&key) {
                 return Self::resume_store_opening(&mut stores, key, runtime_owner);
             }
-            // The absent-key removal originally had no owner to move. Keep the map locked
-            // while acquiring the same authority, before entering either large opening stage.
+            // Native authority acquisition may synchronously notify original State readers.
+            // Release the registry before entering that owner, including on partial refusal.
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC353")))]
+            drop(stores);
             let instance = self.instance(lane, incarnation);
             let authority = self
                 .authorities
@@ -197,12 +199,23 @@ impl LaneStores {
                 )
                 .into());
             }
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC353")))]
+            let mut stores = self.stores.lock();
+            // A concurrent caller or synchronous reader callback may have acquired this key.
+            // Join its exact Ready/Opening owner before constructing any new opening. A
+            // historical join still records its independent interest in unfinished recovery.
+            if let Some(StoreSlot::Ready(store)) = stores.get(&key) {
+                return Ok(Arc::clone(store));
+            }
+            if stores.contains_key(&key) {
+                return Self::resume_store_opening(&mut stores, key, runtime_owner);
+            }
             self.open_store_with_authority(&mut stores, key, instance, authority, runtime_owner)
         })
     }
 
-    // Only this post-authority stage constructs the large opening owner. The original
-    // registry lock and finite pool remain the same through acquisition and completion.
+    // Only this post-authority stage constructs the large opening owner. The reacquired
+    // registry lock and original finite pool enclose its construction and completion.
     fn open_store_with_authority(
         &self,
         stores: &mut BTreeMap<(LaneId, [u8; 32]), StoreSlot>,

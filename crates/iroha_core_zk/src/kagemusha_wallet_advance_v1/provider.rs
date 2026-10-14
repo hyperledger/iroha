@@ -418,6 +418,17 @@ where
         self.require_storage().and(answer)
     }
 
+    /// Read only the live E1 process clock inside both protected-storage checks.
+    /// This grants no boot identity, persisted anchor or cross-process freshness authority.
+    pub(crate) fn live_enrollment_reading(
+        &self,
+    ) -> Result<super::LiveEnrollmentReadingV1, KagemushaWalletProviderErrorV1> {
+        self.require_storage()?;
+        let answer = super::live_enrollment_clock::read(&self.platform)
+            .map_err(KagemushaWalletProviderErrorV1::Unavailable);
+        self.require_storage().and(answer)
+    }
+
     pub(crate) fn prekey_root_identity(&self) -> [u8; 32] {
         self.sentinel.root_nonce
     }

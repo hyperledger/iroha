@@ -27,7 +27,7 @@ fn esc_str(data: &[u8]) -> String {
 // Simple recursive generator for nested JSON from bytes; depth and size limited.
 fn derive_limits(data: &[u8]) -> (usize, usize) {
     // Derive max depth in [4..12] and a token budget in [256..4096]
-    let b0 = *data.get(0).unwrap_or(&7);
+    let b0 = *data.first().unwrap_or(&7);
     let b1 = *data.get(1).unwrap_or(&128);
     let max_depth = 4 + (b0 as usize % 9); // 4..12
     let budget = 256 + ((b1 as usize) * 16).min(3840); // up to 4096
@@ -200,11 +200,11 @@ fuzz_target!(|data: &[u8]| {
     }
     // TapeWalker::skip_value
     let mut w = norito::json::TapeWalker::new(&s);
-    if let Some((off, ch)) = w.peek_struct() {
-        if ch == b'[' {
-            let _ = w.next_struct();
-            w.sync_to_raw(off + 1);
-        }
+    if let Some((off, ch)) = w.peek_struct()
+        && ch == b'['
+    {
+        let _ = w.next_struct();
+        w.sync_to_raw(off + 1);
     }
     let _ = w.skip_value();
     let _ = w.consume_comma_if_present();

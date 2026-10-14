@@ -1,8 +1,12 @@
-#! Iroha 3 – Sora Nexus Ledger: Technical Design Specification
+#! Iroha 3 – SORA Nexus Ledger: Technical Design Specification
 
-This document specifies the Sora Nexus Ledger architecture for Iroha 3: a single global, logically unified ledger organized around Data Spaces (DS). Data Spaces provide strong privacy domains (“private data spaces”) and open participation (“public data spaces”). The design preserves composability across the global ledger while ensuring strict isolation and confidentiality for private‑DS data, and introduces data‑availability scaling via erasure coding across Kura (block storage) and WSV (World State View).
+This document specifies the SORA Nexus Ledger architecture for Iroha 3: a single global, logically unified ledger organized around Data Spaces (DS). Data Spaces provide strong privacy domains (“private data spaces”) and open participation (“public data spaces”). The design preserves composability across the global ledger while ensuring strict isolation and confidentiality for private‑DS data, and introduces data‑availability scaling via erasure coding across Kura (block storage) and WSV (World State View).
 
-Iroha 3 is one product line spanning canonical one-lane self-hosted deployments and SORA Nexus multi-lane deployments. Execution is powered by the shared Iroha Virtual Machine (IVM) and Kotodama toolchain, so contracts and bytecode artifacts remain portable across both deployment profiles.
+Iroha 3 supports self-hosted deployments and the connected data spaces of SORA
+Nexus. Each data space can have multiple lanes for transaction routing,
+dissemination, and certification. Execution is powered by the shared Iroha
+Virtual Machine (IVM) and Kotodama toolchain, so contracts and bytecode artifacts
+remain portable across both deployment profiles.
 
 Goals
 - One global logical ledger composed from many cooperating validators and Data Spaces.
@@ -17,7 +21,10 @@ Non‑Goals (Initial Phase)
 - Changing `abi_version` away from `1` is out of scope. The first-release ABI v1 surface includes typed anchored-spend staging at syscall `0xB5` and pointer ID `0x0013`; runtime upgrades do not add a second ABI.
 
 Terminology
-- Nexus Ledger: The global logical ledger formed by composing Data Space (DS) blocks into a single, ordered history and state commitment.
+- SORA Nexus Ledger: The connected ledger architecture with a global execution
+  domain and independently executing data spaces. Public lanes feed certified
+  transaction batches into global execution; independent data space roots retain
+  their own State and local finality and coordinate through authenticated evidence.
 - Data Space (DS): A bounded execution and storage domain with its own validators, governance, privacy class, DA policy, quotas, and fee policy. Two classes exist: public DS and private DS.
 - Private Data Space: Permissioned validators and access control; transaction data and state never leave the DS. Only commitments/metadata are anchored globally.
 - Public Data Space: Permissionless participation; full data and state are publicly available.
@@ -27,15 +34,26 @@ Terminology
   object's execution/storage location but is not the object's namespace.
 - Namespace: An independently governed logical naming scope with an explicit
   home-DS binding. Namespace identity remains distinct from both `DataSpaceId`
-  and `LaneId`, even when a rendered identifier includes a dataspace suffix.
-- Lane: A logical execution/routing stream inside exactly one Data Space. A
-  Data Space may contain multiple lanes without creating additional physical
-  validator cohorts.
+  and `LaneId`, even when a rendered identifier includes a data space suffix.
+- Data space catalog: `DataSpaceCatalog`, configured by
+  `[[nexus.dataspace_catalog]]`, defines data spaces and their `DataSpaceId`s.
+- Lane catalog: `LaneCatalog`, configured by `[[nexus.lane_catalog]]`, defines
+  lanes and their `LaneId`s. Each lane explicitly references one data space;
+  multiple lanes can reference the same data space catalog entry.
+- Lane: A transaction routing, dissemination, and certification stream assigned
+  to exactly one Data Space. Public lanes certify ordered batches that the
+  global chain executes against global State (`sumeragi_lanes.md`). Lane
+  configuration does not create an independent data space root; those roots have
+  their own State and local finality (`sumeragi.md` §11).
 - Anchor: A cryptographic commitment from a DS block/header included into the nexus chain to bind DS history into the global ledger.
 - Kura: Iroha block storage. Extended here with erasure‑coded blob storage and commitments.
 - WSV: Iroha World State View. Extended here with versioned, snapshot‑capable, erasure‑coded state segments.
 - IVM: Iroha Virtual Machine for smart contract execution (Kotodama bytecode `.to`).
  - AIR: Algebraic Intermediate Representation. An algebraic view of computation for STARK‑style proofs, describing execution as field‑based traces with transition and boundary constraints.
+
+In articles and diagrams, call an institution's environment a **data space**.
+Explain lanes when their routing or scaling role matters. A single-lane example
+does not make the two identities interchangeable or impose a one-to-one model.
 
 Data Spaces Model
 - Identity: `DataSpaceId (DSID)` identifies a physical execution, storage, and
@@ -44,18 +62,21 @@ Data Spaces Model
   domain, namespace, asset, governance module, or lane never implicitly creates
   a Data Space. Multiple such objects and multiple lanes may share one DSID;
   transactions can touch multiple DSIDs atomically.
+  The data space catalog records that identity; independent execution and local
+  finality require the independently signed root and authority of `sumeragi.md`
+  §11, not merely the catalog entry or its associated lanes.
 - Manifest lifecycle: DS creation, updates (key rotation, policy changes), and retirement are recorded in the Space Directory. Each per‑slot DS artifact references the latest manifest hash.
 - Classes: Public DS (open participation, public DA) and Private DS (permissioned, confidential DA). Hybrid policies are possible via manifest flags.
 - Policies per DS: ISI permissions, DA parameters `(k,m)`, encryption, retention, quotas (min/max tx share per block), ZK/optimistic proof policy, fees.
 - Governance: DS membership and validator rotation defined by the manifest’s governance section (on-chain proposals, multisig, or external governance anchored by nexus transactions and attestations).
 
-Dataspace-aware gossip
-- Transaction gossip batches carry a plane tag (public or restricted) derived from the lane catalog. Each restricted batch contains one exact lane/dataspace route. Recipients come from that route’s current committed native incarnation and live participant-role keys with matching pinned proofs of possession. Restricted gossip receivers enforce the same membership before materializing transactions; Torii ingress remains a separate admission boundary. Restricted batches target only connected authorized members, respecting `transaction_gossip_restricted_target_cap`; missing authority or unavailable recipients defer delivery without using the public overlay. Public batches use `transaction_gossip_public_target_cap` (set `null` for broadcast). Target selection reshuffles on the per-plane cadence set by `transaction_gossip_public_target_reshuffle_ms` and `transaction_gossip_restricted_target_reshuffle_ms` (default: `transaction_gossip_period_ms`). Telemetry reports per-dataspace recipient selections, outcomes, and drop reasons.
-- Unknown dataspaces are re-queued when `transaction_gossip_drop_unknown_dataspace` is enabled; otherwise they fall back to restricted targeting to avoid leaks.
-- Receive-side validation drops entries whose lanes/dataspaces disagree with the local catalog, whose plane tag does not match the derived dataspace visibility, or whose advertised route does not match the locally re-derived routing decision.
+Gossip routing by data space
+- Transaction gossip batches carry a plane tag (public or restricted) derived from the lane catalog. Each restricted batch contains one exact lane/data space route. Recipients come from that route’s current committed native incarnation and live participant-role keys with matching pinned proofs of possession. Restricted gossip receivers enforce the same membership before materializing transactions; Torii ingress remains a separate admission boundary. Restricted batches target only connected authorized members, respecting `transaction_gossip_restricted_target_cap`; missing authority or unavailable recipients defer delivery without using the public overlay. Public batches use `transaction_gossip_public_target_cap` (set `null` for broadcast). Target selection reshuffles on the per-plane cadence set by `transaction_gossip_public_target_reshuffle_ms` and `transaction_gossip_restricted_target_reshuffle_ms` (default: `transaction_gossip_period_ms`). Telemetry reports recipient selections, outcomes, and drop reasons for each data space.
+- Unknown data spaces are re-queued when `transaction_gossip_drop_unknown_dataspace` is enabled; otherwise they fall back to restricted targeting to avoid leaks.
+- Receive-side validation drops entries whose lanes/data spaces disagree with the local catalog, whose plane tag does not match the derived data space visibility, or whose advertised route does not match the locally re-derived routing decision.
 
 Capability manifests & UAID
-- Universal accounts: Every participant receives a deterministic canonical UAID (`UniversalAccountId` in `crates/iroha_data_model/src/nexus/manifest.rs`) that spans all dataspaces. UAIDs are Blake2b-256 digests with the final-byte LSB set to `1`; onboarding clients must submit the explicit `uaid` literal, and Torii rejects mutable alias/account-derived fallback generation. Capability manifests (`AssetPermissionManifest`) bind a UAID to a specific dataspace, activation/expiry epochs, and an ordered list of allow/deny `ManifestEntry` rules that scope `dataspace`, `program_id`, `method`, `asset`, and optional AMX roles. Deny rules always win; the evaluator emits either `ManifestVerdict::Denied` with an audit reason or an `Allowed` grant with the matching allowance metadata.
+- Universal accounts: Every participant receives a deterministic canonical UAID (`UniversalAccountId` in `crates/iroha_data_model/src/nexus/manifest.rs`) that spans all data spaces. UAIDs are Blake2b-256 digests with the final-byte LSB set to `1`; onboarding clients must submit the explicit `uaid` literal, and Torii rejects mutable alias/account-derived fallback generation. Capability manifests (`AssetPermissionManifest`) bind a UAID to a specific data space, activation/expiry epochs, and an ordered list of allow/deny `ManifestEntry` rules that scope `dataspace`, `program_id`, `method`, `asset`, and optional AMX roles. Deny rules always win; the evaluator emits either `ManifestVerdict::Denied` with an audit reason or an `Allowed` grant with the matching allowance metadata.
 - UAID portfolio snapshots are now exposed via `GET /v1/accounts/{uaid}/portfolio` (see `specs/torii/portfolio_api.md`), backed by the deterministic aggregator in `iroha_core::nexus::portfolio`.
 - Allowances: Each allow entry carries deterministic `AllowanceWindow` buckets (`PerSlot`, `PerMinute`, `PerDay`) plus an optional `max_amount`. Hosts and SDKs consume the same Norito payload, so enforcement remains identical across hardware and SDK implementations.
 - Audit telemetry: The Space Directory broadcasts `SpaceDirectoryEvent::{ManifestActivated, ManifestExpired, ManifestRevoked}` (`crates/iroha_data_model/src/events/data/space_directory.rs`) whenever a manifest changes state. The new `SpaceDirectoryEventFilter` surface allows Torii/data-event subscribers to monitor UAID manifest updates, revocations, and deny-wins decisions without custom plumbing.
@@ -97,7 +118,7 @@ and record lifecycle events in world state (`iroha_core::state::space_directory_
 
 3. **Expire** manifests that reached their scheduled end of life or **revoke**
    UAIDs on demand. Both commands require exact lower-case
-   `--uaid uaid:<64-hex>` literals (LSB=1) and the numeric dataspace id:
+   `--uaid uaid:<64-hex>` literals (LSB=1) and the numeric data space id:
 
    ```bash
    iroha app space-directory manifest expire \
@@ -113,7 +134,7 @@ and record lifecycle events in world state (`iroha_core::state::space_directory_
    ```
 
 4. **Produce audit bundles** — `manifest audit-bundle` writes the manifest JSON,
-   `.to` payload, hash, dataspace profile, and machine-readable metadata to an
+   `.to` payload, hash, data space profile, and machine-readable metadata to an
    output directory so governance reviewers can download a single archive:
 
    ```bash
@@ -124,7 +145,7 @@ and record lifecycle events in world state (`iroha_core::state::space_directory_
    ```
 
    The bundle embeds `SpaceDirectoryEvent` hooks from the profile to prove the
-   dataspace exposes the mandatory audit webhooks; see `specs/space_directory.md`
+   data space exposes the mandatory audit webhooks; see `specs/space_directory.md`
    for the field layout and evidence requirements.
 
 #### Torii APIs
@@ -132,19 +153,19 @@ and record lifecycle events in world state (`iroha_core::state::space_directory_
 Operators and SDKs can prepare the same actions over HTTPS. Torii validates and
 quotes each mutation, but private keys remain with the client:
 
-- `GET /v1/space-directory/uaids/{uaid}` — resolve the current dataspace bindings
-  for a UAID (normalized addresses, dataspace ids, program bindings). Add
+- `GET /v1/space-directory/uaids/{uaid}` — resolve the current data space bindings
+  for a UAID (normalized addresses, data space ids, program bindings). Add
   `canonical I105 output` for Sora Name Service output (canonical I105 output only).
 - `GET /v1/accounts/{uaid}/portfolio` —
   Norito-backed aggregator that mirrors `ToriiClient.getUaidPortfolio` so wallets
-  can render universal holdings without scraping per-dataspace state. Pass
+  can render universal holdings without scraping each data space's state. Pass
   `asset_id=<canonical_base58_asset_definition_id>` to filter the snapshot down to one asset.
 - `GET /v1/space-directory/uaids/{uaid}/manifests?dataspace={id}` — fetch the
   canonical manifest JSON, lifecycle metadata, and manifest hash for audits.
 - `POST /v1/space-directory/manifests` — prepare new or replacement manifests
   from JSON (`authority`, `manifest`, optional `reason`).
 - `POST /v1/space-directory/manifests/revoke` — prepare emergency revocations
-  with the authority, UAID, dataspace id, effective epoch, and optional reason.
+  with the authority, UAID, data space id, effective epoch, and optional reason.
 
 Both mutation routes reject unknown fields, including `private_key`, and return
 `submitted: false` with canonical `transaction_payload_b64` and
@@ -163,11 +184,10 @@ schemas and `specs/space_directory.md` for the source-adjacent operator
 playbook.
 
 AMX budget guardrails (NX-17)
-- `ivm::analysis::enforce_amx_budget` estimates per-dataspace and group execution
-  cost from the static analysis report. At AXT commit the host enforces
-  `amx_per_dataspace_budget_ms` (default 30 ms) and `amx_group_budget_ms`
-  (default 140 ms) of the committed `pipeline_validity_policy_v1` chain
-  parameter; a violation rejects the
+- `ivm::analysis::enforce_amx_budget` estimates execution costs for each data space
+  and group from the static analysis report. At AXT commit the host enforces
+  `pipeline.amx_per_dataspace_budget_ms` (default 30 ms) and
+  `pipeline.amx_group_budget_ms` (default 140 ms); a violation rejects the
   transaction with `AMX_TIMEOUT`.【crates/ivm/src/analysis.rs:795】
 
 High‑Level Architecture
@@ -182,8 +202,8 @@ High‑Level Architecture
 - Public DS export full data bodies (via DA) and PQ validity proofs.
 
 3) Atomic Cross‑Data‑Space Transactions (AMX)
-- Transactions on different lanes of one dataspace need no cross-lane protocol: the global block that merges the lanes fixes their order and atomicity (`sumeragi_lanes.md`).
-- Dataspaces with separate state keep DS-local finality; AMX across them is a two-phase commit through the global chain (Begin, Prepare/escrow, relay, Decision by deadline, Settle; `sumeragi.md` §11, goal S6).
+- Transactions on different lanes of one data space need no cross-lane protocol: the global block that merges the lanes fixes their order and atomicity (`sumeragi_lanes.md`).
+- Data spaces with separate state keep DS-local finality; AMX across them is a two-phase commit through the global chain (Begin, Prepare/escrow, relay, Decision by deadline, Settle; `sumeragi.md` §11, goal S6).
 - Privacy: private DS export only proofs/commitments; no raw private data leaves the DS.
 
 Confidential CBDC-style settlement uses the separate governed, default-off
@@ -203,7 +223,7 @@ Block and Commit Structure
   - Function: finalizes all atomic transactions whose required DS artifacts verify; updates the global world state vector of DS roots in one step.
 
 Consensus and Scheduling
-- Consensus: one Sumeragi instance orders the global chain (`sumeragi.md`). Each lane is a further Sumeragi instance whose committee is pinned at creation; the global chain merges its certified blocks (`sumeragi_lanes.md`). Dataspaces with separate state use the two-phase commit of `sumeragi.md` §11.
+- Consensus: one Sumeragi instance orders the global chain (`sumeragi.md`). Each lane is a further Sumeragi instance whose committee is pinned at creation; the global chain merges its certified blocks (`sumeragi_lanes.md`). Data spaces with separate state use the two-phase commit of `sumeragi.md` §11.
 - Transaction Scheduling: Users submit atomic transactions declaring touched DSIDs and read‑write sets. DS execute in parallel within the slot; the nexus committee includes the transaction in the 1s block if all DS artifacts verify and DA certificates are timely (≤300 ms).
 - Performance Isolation: Each DS has independent mempools and execution. Per‑DS quotas bound how many transactions touching a given DS can be committed per block to avoid head‑of‑line blocking and protect private DS latency.
 
@@ -244,7 +264,7 @@ Generalized ISI coverage and performance targets are not current qualification.
   contract](fastpq_compact_v1_framing.md) own its field arithmetic, fixed binary
   FRI geometry, transcript, complete context and query schedule.
 - Hash construction and proof geometry are compiled protocol identities. A
-  dataspace manifest cannot select another hash, FRI arity, transcript or proof
+  data space manifest cannot select another hash, FRI arity, transcript or proof
   system. There is no general-STARK or recursive fallback for an unsupported
   operation.
 - The [public artifact boundary](fastpq_public_artifacts.md) distinguishes
@@ -375,7 +395,7 @@ Configuration and Determinism
   not review.
 - **Behaviour:** Normal transaction validation rejects malformed or unsupported
   payload versions, stale catalog commitments, empty or structurally invalid
-  plans, reserved autoscale-lane mutations, unknown dataspaces, and authorities
+  plans, reserved autoscale-lane mutations, unknown data spaces, and authorities
   without `CanSetParameters`. A rejected transaction leaves both the block
   overlay and committed topology unchanged.
 - **Safety:** Commit revalidates the signed plan against committed state under

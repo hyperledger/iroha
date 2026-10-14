@@ -1,0 +1,89 @@
+"""Independent whole-body direct-edge census; deliberately includes dead code.
+
+This overapproximation is a review oracle, not an executable CFG or exception
+certificate. It includes all decoded body instructions of any reached function,
+so hidden cleanup instructions are included without trusting the new LSDA parser.
+Native and indirect destinations remain opaque. No worker is executed.
+"""
+import bisect
+import hashlib
+import json
+from pathlib import Path
+import re
+
+ROOT = Path(__file__).resolve().parents[2]
+CAPTURE = ROOT / "docs/validation/parliament_ballot_current_candidate/stack"
+
+
+def analyze(mode, folder=None):
+    """Read captured text independently and conservatively close direct edges."""
+    folder = CAPTURE / mode if folder is None else Path(folder)
+    raw = {name: (folder / name).read_bytes() for name in
+           ("disassembly.txt", "starts.txt", "stubs.txt")}
+    identities = {name: hashlib.sha256(data).hexdigest() for name, data in raw.items()}
+    starts = sorted(int(m[1], 16) for m in re.finditer(
+        r"(?m)^([0-9a-f]{16})\s+\S+", raw["starts.txt"].decode()))
+    assert starts and len(set(starts)) == len(starts)
+    text = raw["disassembly.txt"].decode().split("Disassembly of section __TEXT,__text:\n", 1)[1]
+    text = text.split("\nDisassembly of section ", 1)[0]
+    names = {int(m[1], 16): m[2] for m in re.finditer(
+        r"(?m)^([0-9a-f]+) <(.+)>:$", text)}
+    instructions = {int(m[1], 16): (m[2], m[3].split(";", 1)[0].strip())
+                    for m in re.finditer(r"(?m)^([0-9a-f]+):[ \t]+(\S+)[ \t]*(.*)$", text)}
+    assert instructions and all(s in instructions for s in starts)
+    text_end = max(instructions) + 4
+    def owner(address):
+        """Associate an address with its LC_FUNCTION_STARTS half-open interval."""
+        index = bisect.bisect_right(starts, address) - 1
+        return starts[index] if index >= 0 and address < text_end else None
+    roots = [s for s in starts if "parliament_memory_entry::workspace::worker::" in names.get(s, "")]
+    assert len(roots) == 1
+    by_function = {s: [] for s in starts}
+    for address, (op, operands) in instructions.items():
+        by_function[owner(address)].append((address, op, operands))
+    graph = {s: set() for s in starts}
+    indirect = {s: [] for s in starts}
+    external = {s: [] for s in starts}
+    for start, body in by_function.items():
+        for address, op, operands in body:
+            if op in {"br", "blr"}:
+                indirect[start].append(hex(address))
+            elif op in {"bl", "b", "cbz", "cbnz", "tbz", "tbnz"} or op.startswith("b."):
+                match = re.search(r"(?:^|,\s*)(0x[0-9a-f]+)(?:\s|$)", operands)
+                assert match, (mode, hex(address), op, operands)
+                target = int(match[1], 16)
+                target_owner = owner(target)
+                if target_owner is None:
+                    external[start].append({"address": hex(address), "target": hex(target)})
+                elif target_owner != start:
+                    assert target in instructions
+                    graph[start].add(target_owner)
+    seen, pending = set(), list(roots)
+    while pending:
+        start = pending.pop()
+        if start not in seen:
+            seen.add(start)
+            pending.extend(graph[start] - seen)
+    assert all(hashlib.sha256((folder / name).read_bytes()).hexdigest() == value
+               for name, value in identities.items())
+    return dict(mode=mode, captured_inputs=identities, worker_root=hex(roots[0]),
+                total_functions=len(starts), total_instructions=len(instructions),
+                all_body_reachable_functions=len(seen),
+                all_body_instruction_count=sum(len(by_function[s]) for s in seen),
+                all_body_indirect_sites=sum(len(indirect[s]) for s in seen),
+                all_body_external_direct_sites=sum(len(external[s]) for s in seen),
+                members=[dict(address=hex(s), name=names.get(s, ""),
+                              direct_owners=[hex(c) for c in sorted(graph[s])],
+                              indirect_sites=indirect[s], external_direct_sites=external[s])
+                         for s in sorted(seen)])
+
+
+if __name__ == "__main__":
+    report = dict(schema="parliament-exception-whole-body-reference-v1",
+                  scope="Independent all-body direct-edge overapproximation; dead code included, native/indirect/exception transfer semantics unproved",
+                  complete_exception_certificate=False, complete_workspace_certificate=False,
+                  modes=[analyze(mode) for mode in ("portable", "accel")])
+    output = Path(__file__).with_name("report.json")
+    with output.open("x") as stream:
+        stream.write(json.dumps(report, indent=2) + "\n")
+    print(json.dumps([{k: v for k, v in row.items() if k != "members"} for row in report["modes"]], indent=2))

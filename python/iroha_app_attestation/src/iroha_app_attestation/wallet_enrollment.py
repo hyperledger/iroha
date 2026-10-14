@@ -27,8 +27,8 @@ from .wallet_policy import (
 
 _PREFIX = b"iroha:kagemusha:wallet:v1:"
 
-# Evidence-record fact bits (specs/kagemusha_wallet_wire_v1.md §3.1). Bit 9
-# (PLAY_INTEGRITY_SIGNAL) is retired issuer output: this issuer never sets it.
+# Evidence-record fact bits (specs/kagemusha_wallet_wire_v1.md §3.1).
+# Bit 9 is reserved zero for all evidence records.
 FACT_HARDWARE_BACKED_KEY = 1 << 0
 FACT_STRONGBOX = 1 << 1
 FACT_BOOTLOADER_LOCKED = 1 << 2

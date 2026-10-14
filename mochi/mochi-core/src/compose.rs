@@ -22,7 +22,7 @@ use iroha_data_model::{
     role::RoleId,
     transaction::{Executable, ExecutableBatchItem, SignedTransaction, TransactionBuilder},
 };
-use iroha_executor_data_model::isi::multisig::MultisigPropose;
+use iroha_executor_data_model::isi::multisig::{MultisigProposalNonce, MultisigPropose};
 use iroha_primitives::numeric::Quantity;
 #[cfg(any(test, feature = "test"))]
 use iroha_test_samples::{ALICE_ID, ALICE_KEYPAIR, BOB_ID, BOB_KEYPAIR};
@@ -599,6 +599,8 @@ pub enum InstructionDraft {
     },
     /// Propose a multisig transaction for a multisig account.
     MultisigPropose {
+        /// Explicit occurrence nonce retained by the draft across retries.
+        proposal_nonce: MultisigProposalNonce,
         /// Multisig account issuing the proposal.
         account: AccountId,
         /// Instruction drafts to include in the proposal.
@@ -748,10 +750,16 @@ impl InstructionDraft {
     /// Returns a [`ComposeError`] if any field fails to parse.
     pub fn multisig_propose_from_json(
         account: &str,
+        proposal_nonce: &str,
         instructions_json: &str,
         transaction_ttl_ms: Option<u64>,
     ) -> Result<Self, ComposeError> {
         let account = parse_account_id(account)?;
+        let proposal_nonce = proposal_nonce
+            .parse::<MultisigProposalNonce>()
+            .map_err(|error| ComposeError::InvalidRawDraft {
+                reason: format!("invalid proposal_nonce: {error}"),
+            })?;
         let instructions = drafts_from_json_str(instructions_json)?;
         if instructions.is_empty() {
             return Err(ComposeError::InvalidRawDraft {
@@ -770,6 +778,7 @@ impl InstructionDraft {
         };
         Ok(Self::MultisigPropose {
             account,
+            proposal_nonce,
             instructions,
             transaction_ttl_ms,
         })
@@ -912,6 +921,7 @@ impl InstructionDraft {
             }
             InstructionDraft::MultisigPropose {
                 account,
+                proposal_nonce,
                 instructions,
                 transaction_ttl_ms,
             } => {
@@ -921,6 +931,7 @@ impl InstructionDraft {
                     .collect::<Vec<_>>();
                 InstructionBox::from(MultisigPropose::new(
                     account.clone(),
+                    *proposal_nonce,
                     payload,
                     *transaction_ttl_ms,
                 ))
@@ -1028,9 +1039,14 @@ impl InstructionDraft {
             }
             InstructionDraft::MultisigPropose {
                 account,
+                proposal_nonce,
                 instructions,
                 transaction_ttl_ms,
             } => {
+                object.insert(
+                    "proposal_nonce".to_owned(),
+                    Value::String(proposal_nonce.to_string()),
+                );
                 object.insert(
                     "kind".to_owned(),
                     Value::String("multisig_propose".to_owned()),
@@ -1164,7 +1180,7 @@ impl InstructionDraft {
                 require_draft_fields(
                     map,
                     &kind,
-                    &["kind", "account", "instructions"],
+                    &["kind", "account", "proposal_nonce", "instructions"],
                     &["transaction_ttl_ms"],
                 )?;
                 let account = extract_string(map, "account")?;
@@ -1186,6 +1202,11 @@ impl InstructionDraft {
                 let transaction_ttl_ms = extract_optional_nonzero_u64(map, "transaction_ttl_ms")?;
                 Ok(InstructionDraft::MultisigPropose {
                     account: parse_account_id(&account)?,
+                    proposal_nonce: extract_string(map, "proposal_nonce")?
+                        .parse::<MultisigProposalNonce>()
+                        .map_err(|error| ComposeError::InvalidRawDraft {
+                            reason: format!("invalid proposal_nonce: {error}"),
+                        })?,
                     instructions,
                     transaction_ttl_ms,
                 })
@@ -1942,9 +1963,13 @@ mod tests {
             InstructionDraft::revoke_role_from_input("council", &account).expect("revoke draft");
         let nested_json =
             drafts_to_pretty_json(&[mint.clone(), transfer.clone()]).expect("nested json");
-        let multisig =
-            InstructionDraft::multisig_propose_from_json(&account, &nested_json, Some(60_000))
-                .expect("multisig draft");
+        let multisig = InstructionDraft::multisig_propose_from_json(
+            &account,
+            &"07".repeat(32),
+            &nested_json,
+            Some(60_000),
+        )
+        .expect("multisig draft");
         let drafts = vec![
             mint,
             burn,
@@ -2029,6 +2054,7 @@ mod tests {
         let multisig = |instructions: Vec<Value>| {
             norito::json!({
                 "kind": "multisig_propose",
+                "proposal_nonce": ("07".repeat(32)),
                 "account": (account.clone()),
                 "instructions": instructions
             })
@@ -2097,6 +2123,41 @@ mod tests {
         }
     }
     #[test]
+    fn multisig_json_preserves_required_occurrence_nonce() {
+        use iroha_executor_data_model::isi::multisig::MultisigInstructionBox;
+
+        let draft = draft_from_fixture(FIXTURE_MULTISIG_PROPOSE);
+        let canonical = draft.to_json_value();
+        let parsed = InstructionDraft::from_json_value(&canonical).expect("canonical proposal");
+        let instruction = parsed.instruction();
+        let MultisigInstructionBox::Propose(proposal) =
+            MultisigInstructionBox::try_from(&instruction).expect("native multisig instruction")
+        else {
+            panic!("native proposal instruction");
+        };
+        assert_eq!(proposal.proposal_nonce.to_string(), "07".repeat(32));
+
+        let mut missing = canonical.clone();
+        missing.as_object_mut().unwrap().remove("proposal_nonce");
+        InstructionDraft::from_json_value(&missing)
+            .expect_err("a restored draft must retain its original nonce");
+        for invalid in [
+            Value::Null,
+            Value::String("00".repeat(32)),
+            Value::String("AB".repeat(32)),
+            Value::String("07".repeat(31)),
+        ] {
+            let mut value = canonical.clone();
+            value
+                .as_object_mut()
+                .unwrap()
+                .insert("proposal_nonce".to_owned(), invalid);
+            InstructionDraft::from_json_value(&value)
+                .expect_err("nonce must be exact nonzero lowercase 32-byte hexadecimal");
+        }
+    }
+
+    #[test]
     fn multisig_json_accepts_only_positive_integer_ttl() {
         let asset_def: AssetDefinitionId = "62Fk4FPcMuLvW5QjDGNF2a4jAmjM"
             .parse()
@@ -2107,6 +2168,7 @@ mod tests {
         )
         .expect("nested draft");
         let draft = InstructionDraft::MultisigPropose {
+            proposal_nonce: MultisigProposalNonce::new([7; 32]).unwrap(),
             account: ALICE_ID.clone(),
             instructions: vec![nested],
             transaction_ttl_ms: NonZeroU64::new(1),
@@ -2254,8 +2316,9 @@ mod tests {
     #[test]
     fn multisig_propose_from_json_requires_instructions() {
         let account = account_literal(&ALICE_ID);
-        let err = InstructionDraft::multisig_propose_from_json(&account, "[]", None)
-            .expect_err("empty proposal should be rejected");
+        let err =
+            InstructionDraft::multisig_propose_from_json(&account, &"07".repeat(32), "[]", None)
+                .expect_err("empty proposal should be rejected");
         assert!(matches!(err, ComposeError::InvalidRawDraft { .. }));
     }
     #[test]
@@ -2390,6 +2453,7 @@ mod tests {
         let nested_json = drafts_to_pretty_json(&[mint]).expect("nested json");
         let draft = InstructionDraft::multisig_propose_from_json(
             &account_literal(&ALICE_ID),
+            &"07".repeat(32),
             &nested_json,
             None,
         )

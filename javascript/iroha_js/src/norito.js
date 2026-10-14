@@ -8,7 +8,6 @@ import {
   TEXT_MUST_BE_AN_OBJECT,
   TEXT_USES_UNSUPPORTED,
   TEXT_MUST_CONTAIN_EXACTLY,
-  TEXT_MUST_BE_EXACT_STANDARD_BASE64,
   TEXT_MUST_BE_A,
   TEXT_MUST_NOT_CONTAIN,
   COMPACT_LEN_FLAG,
@@ -50,7 +49,6 @@ import {
   decodeU32Value,
   encodeNoritoStringValue,
   decodeStringValue,
-  encodeNoritoJsonValue,
   readNoritoField,
   encodeNoritoField,
   encodeNoritoVec,
@@ -85,7 +83,7 @@ import { blake3 } from "@noble/hashes/blake3";
 import { blake2b256 } from "./blake2b.js";
 import { createBlockProofVerification } from "./blockProofVerification.js";
 
-import { AccountAddress, curveIdFromAlgorithm, ensureCurveIdEnabled, normalizeBytes, validatePublicKeyForCurve } from "./address.js";
+import { curveIdFromAlgorithm, ensureCurveIdEnabled, normalizeBytes, validatePublicKeyForCurve } from "./address.js";
 import { canonicalizeDomainIdLabel } from "./domainId.js";
 import {
   getCurveEntryByPublicKeyMulticodec,
@@ -93,7 +91,7 @@ import {
 } from "./curveRegistry.js";
 
 import { normalizeAccountId, normalizeAssetId } from "./normalizers.js";
-import { normalizeRetailFeeAssessment, rejectUnknownRetailFeeFields } from "./retailFeeAssessment.js";
+import { normalizeRetailFeeAssessment } from "./retailFeeAssessment.js";
 import {
   defaultNativeRuntime,
   resolveNativeRuntimeBinding,
@@ -154,7 +152,6 @@ const TEXT_SUBMIT_PROOF_INSTRUCTION_NORITO_2 = "submitProofInstructionNorito";
 const TEXT_REGISTER_VERIFYING_KEY = "RegisterVerifyingKey";
 
 const TEXT_MUST_USE_A_NATIVE_HASH_WITH_ITS_MARKER_BIT_SET_2 = " must use a native hash with its marker bit set";
-const TEXT_ACCOUNT_ID = "account_id";
 const TEXT_SET_ASSET_TRANSFER_BLACKLIST_2 = "SetAssetTransferBlacklist";
 const TEXT_REPORT_KAIGI_RELAY_HEALTH = "ReportKaigiRelayHealth";
 
@@ -175,11 +172,9 @@ const TEXT_PRIVACY_EXACT12_FIXTURE_BUNDLE_V1 = "PrivacyExact12FixtureBundleV1.";
 
 const TEXT_REPLICATION_ORDER_V1 = "ReplicationOrderV1.";
 
-const TEXT_MULTISIG_CONTRACT_CALL_PROPOSE_DTO = "MultisigContractCallProposeDto.";
 
 const TEXT_PRIVACY_EXACT12_FIXTURE_BUNDLE_V1_2 = "PrivacyExact12FixtureBundleV1 ";
 
-const TEXT_MULTISIG_CONTRACT_CALL_APPROVE_DTO = "MultisigContractCallApproveDto.";
 
 const TEXT_NATIVE_GAME_VALUE_EXCEEDS_ITS_COMPILED_PAYLOAD_LIMIT = "native game value exceeds its compiled payload limit";
 const TEXT_SORA_FS_BILLING_ACKNOWLEDGEMENT = "SoraFS billing acknowledgement ";
@@ -187,7 +182,6 @@ const TEXT_MUST_USE_A_NATIVE_HASH_WITH_ITS_MARKER_BIT_SET = TEXT_MUST_USE_A_NATI
 
 const TEXT_ISSUE_REPLICATION_ORDER = "IssueReplicationOrder.";
 const TEXT_PAYLOAD_PROOF_AUDIT_PATH_MUST = ".payload.proof.audit_path must ";
-const TEXT_MULTISIG_PROPOSE_DTO = "MultisigProposeDtoV1.";
 
 const TEXT_UNSIGNED_TRANSACTION_PAYLOAD_NORITO = ".unsignedTransactionPayloadNorito.";
 const TEXT_SIGNED_TRANSACTION_VERSIONED_NORITO = ".signedTransactionVersionedNorito ";
@@ -280,15 +274,6 @@ const REPLICATION_ORDER_V1_SCHEMA_HASH = /* @__PURE__ */ schemaHashForTypeName(
 );
 const SORAFS_REPLICATION_ORDER_MAX_PAYLOAD_BYTES_V1 = 1024 * 1024;
 
-const MULTISIG_PROPOSE_DTO_SCHEMA_HASH = /* @__PURE__ */ schemaHashForTypeName(
-  "iroha_torii::routing::MultisigProposeDtoV1",
-);
-const MULTISIG_CONTRACT_CALL_PROPOSE_DTO_SCHEMA_HASH = /* @__PURE__ */ schemaHashForTypeName(
-  "iroha_torii::routing::MultisigContractCallProposeDto",
-);
-const MULTISIG_CONTRACT_CALL_APPROVE_DTO_SCHEMA_HASH = /* @__PURE__ */ schemaHashForTypeName(
-  "iroha_torii::routing::MultisigContractCallApproveDto",
-);
 const OPEN_VERIFY_ENVELOPE_SCHEMA_HASH = /* @__PURE__ */ schemaHashForTypeName(
   (TEXT_IROHA_DATA_MODEL + "zk::OpenVerifyEnvelope"),
 );
@@ -1023,120 +1008,6 @@ export function noritoEncodeFeePaymentIntentArchive(intent) {
   );
 }
 
-const INLINE_PRIVATE_KEY_FIELDS = new Set([
-  "private_key",
-  "privateKey",
-  "private_key_hex",
-  "privateKeyHex",
-  "private_key_bytes",
-  "privateKeyBytes",
-  "private_key_multihash",
-  "privateKeyMultihash",
-  "private_key_algorithm",
-  "privateKeyAlgorithm",
-]);
-
-function rejectInlinePrivateKeyFields(request, context) {
-  const fields = Object.keys(request).filter((key) =>
-    INLINE_PRIVATE_KEY_FIELDS.has(key),
-  );
-  if (fields.length !== 0) {
-    rejectType(`${context} does not accept private-key fields (${fields.join(", ")}); sign the returned transaction draft locally`);
-  }
-}
-
-/**
- * Encode a `/v1/multisig/propose` request DTO as a native Norito body.
- *
- * Torii's `NoritoJson<MultisigProposeDtoV1>` extractor accepts this payload with
- * `Content-Type: application/x-norito`. The `instructions` entries are normal
- * InstructionBox values embedded in the DTO, not base64 strings inside JSON.
- *
- * @param {object} request
- * @param {number} networkPrefix Caller-selected I105 deployment prefix (u16).
- * @returns {Buffer}
- */
-function encodeMultisigProposeRequest(request, networkPrefix, nativeRuntime) {
-  requireNetworkPrefix(networkPrefix);
-  if (!isPlainObject(request)) {
-    rejectType(("MultisigProposeDtoV1 request" + TEXT_MUST_BE_AN_OBJECT_2));
-  }
-  if (!Array.isArray(request.instructions)) {
-    rejectType((TEXT_MULTISIG_PROPOSE_DTO + "instructions" + TEXT_MUST_BE + "an array"));
-  }
-  rejectInlinePrivateKeyFields(request, "MultisigProposeDtoV1");
-  rejectUnknownRetailFeeFields(request, "MultisigProposeDtoV1");
-  if (Object.hasOwn(request, "validation_fee_assessment") && request.validation_fee_assessment === undefined) {
-    rejectType("MultisigProposeDtoV1.validation_fee_assessment must be a typed assessment or null");
-  }
-  for (const [_field, value] of [
-    ["signer_account_id", request.signer_account_id ?? request.signerAccountId],
-    ["multisig_account_id", request.multisig_account_id ?? request.multisigAccountId],
-  ]) {
-    if (value !== undefined && value !== null) AccountAddress.parseEncoded(value, networkPrefix);
-  }
-  const payload = withNoritoCompactLengths(() =>
-    encodeStructValue([
-      ...encodeMultisigAccountSelectorFields(request, (TEXT_MULTISIG_PROPOSE_DTO + "selector")),
-      [
-        encodeAccountIdValue(
-          request.signer_account_id ?? request.signerAccountId,
-          (TEXT_MULTISIG_PROPOSE_DTO + "signer_" + TEXT_ACCOUNT_ID),
-        ),
-      ],
-      [
-        encodeOptionValue(
-          request.public_key_hex ?? request.publicKeyHex ?? null,
-          encodeNoritoStringValue,
-          (TEXT_MULTISIG_PROPOSE_DTO + "public_key_hex"),
-        ),
-      ],
-      [
-        encodeOptionValue(
-          request.signature_b64 ?? request.signatureB64 ?? null,
-          encodeExactBase64StringValue,
-          (TEXT_MULTISIG_PROPOSE_DTO + "signature_b64"),
-        ),
-      ],
-      [
-        encodeOptionValue(
-          request.creation_time_ms ?? request.creationTimeMs ?? null,
-          encodeU64NumberValue,
-          (TEXT_MULTISIG_PROPOSE_DTO + TEXT_CREATION_TIME_MS),
-        ),
-      ],
-      [
-        encodeFeePaymentIntentValue(
-          request.fee_payment ?? request.feePayment,
-          (TEXT_MULTISIG_PROPOSE_DTO + "fee_payment"),
-        ),
-      ],
-      [
-        encodeOptionValue(
-          request.memo ?? null,
-          encodeNoritoStringValue,
-          (TEXT_MULTISIG_PROPOSE_DTO + "memo"),
-        ),
-      ],
-      [
-        encodeOptionValue(
-          request.validation_fee_assessment ?? null,
-          encodeRetailFeeAssessmentValue,
-          (TEXT_MULTISIG_PROPOSE_DTO + "validation_fee_assessment"),
-        ),
-      ],
-      [
-        encodeMultisigInstructions(request.instructions, networkPrefix, nativeRuntime),
-      ],
-    ]),
-  );
-  return frameNoritoPayload(payload, MULTISIG_PROPOSE_DTO_SCHEMA_HASH, COMPACT_LEN_FLAG);
-}
-
-export function noritoEncodeMultisigProposeRequest(request, networkPrefix) {
-  return encodeMultisigProposeRequest(request, networkPrefix, defaultNativeRuntime);
-}
-
 // Declared Norito frame identities of the native retail fee types.
 const RETAIL_FEE_QUOTE_REQUEST_V1_SCHEMA_HASH = Buffer.from("535a1db30ba036a8f35944ab55678779", HEX_ENCODING);
 const RETAIL_FEE_ASSESSMENT_V1_SCHEMA_HASH = Buffer.from("72ca99de9d49cae6dfc07a2a628eb918", HEX_ENCODING);
@@ -1300,227 +1171,6 @@ export function decodeRetailFeeAssessmentMarkerMessage(message) {
     rejectType("retail fee marker is not canonical");
   }
   return assessment;
-}
-
-/**
- * Encode a `/v1/contracts/call/multisig/propose` request DTO as a native Norito body.
- *
- * Torii's `NoritoJson<MultisigContractCallProposeDto>` extractor accepts this
- * payload with `Content-Type: application/x-norito`.
- *
- * @param {object} request
- * @param {number} networkPrefix Caller-selected I105 deployment prefix (u16).
- * @returns {Buffer}
- */
-export function noritoEncodeMultisigContractCallProposeRequest(request, networkPrefix) {
-  requireNetworkPrefix(networkPrefix);
-  for (const value of [
-    request?.signer_account_id ?? request?.signerAccountId,
-    request?.multisig_account_id ?? request?.multisigAccountId,
-  ]) {
-    if (value !== undefined && value !== null) {
-      AccountAddress.parseEncoded(value, networkPrefix);
-    }
-  }
-  if (!isPlainObject(request)) {
-    rejectType(("MultisigContractCallProposeDto request" + TEXT_MUST_BE_AN_OBJECT_2));
-  }
-  rejectInlinePrivateKeyFields(request, "MultisigContractCallProposeDto");
-  const contractAlias = request.contract_alias ?? request.contractAlias ?? null;
-  if (request.contract_address !== undefined || request.contractAddress !== undefined || contractAlias == null) {
-    rejectType("MultisigContractCallProposeDto requires exact contract_alias without contract_address");
-  }
-  const payloadValue = request.payload;
-  if (!isPlainObject(payloadValue)) {
-    rejectType("MultisigContractCallProposeDto requires an exact object payload");
-  }
-  const payload = withNoritoCompactLengths(() =>
-    encodeStructValue([
-      ...encodeMultisigAccountSelectorFields(
-        request,
-        (TEXT_MULTISIG_CONTRACT_CALL_PROPOSE_DTO + "selector"),
-      ),
-      [
-        encodeAccountIdValue(
-          request.signer_account_id ?? request.signerAccountId,
-          (TEXT_MULTISIG_CONTRACT_CALL_PROPOSE_DTO + "signer_" + TEXT_ACCOUNT_ID),
-        ),
-      ],
-      [
-        encodeOptionValue(
-          request.public_key_hex ?? request.publicKeyHex ?? null,
-          encodeNoritoStringValue,
-          (TEXT_MULTISIG_CONTRACT_CALL_PROPOSE_DTO + "public_key_hex"),
-        ),
-      ],
-      [
-        encodeOptionValue(
-          request.signature_b64 ?? request.signatureB64 ?? null,
-          encodeExactBase64StringValue,
-          (TEXT_MULTISIG_CONTRACT_CALL_PROPOSE_DTO + "signature_b64"),
-        ),
-      ],
-      [
-        encodeOptionValue(
-          request.creation_time_ms ?? request.creationTimeMs ?? null,
-          encodeU64NumberValue,
-          (TEXT_MULTISIG_CONTRACT_CALL_PROPOSE_DTO + TEXT_CREATION_TIME_MS),
-        ),
-      ],
-      [
-        encodeNoritoStringValue(assertNonEmptyString(
-          contractAlias,
-          (TEXT_MULTISIG_CONTRACT_CALL_PROPOSE_DTO + "contract_alias"),
-        )),
-      ],
-      [
-        encodeNoritoStringValue(
-          assertNonEmptyString(
-            request.entrypoint,
-            (TEXT_MULTISIG_CONTRACT_CALL_PROPOSE_DTO + "entrypoint"),
-          ),
-        ),
-      ],
-      [encodeNoritoJsonValue(payloadValue)],
-      [
-        encodeFeePaymentIntentValue(
-          request.fee_payment ?? request.feePayment,
-          (TEXT_MULTISIG_CONTRACT_CALL_PROPOSE_DTO + "fee_payment"),
-        ),
-      ],
-    ]),
-  );
-  return frameNoritoPayload(
-    payload,
-    MULTISIG_CONTRACT_CALL_PROPOSE_DTO_SCHEMA_HASH,
-    COMPACT_LEN_FLAG,
-  );
-}
-
-/**
- * Encode a `/v1/contracts/call/multisig/approve` request DTO as a native Norito body.
- *
- * @param {object} request
- * @param {number} networkPrefix Caller-selected I105 deployment prefix (u16).
- * @returns {Buffer}
- */
-export function noritoEncodeMultisigContractCallApproveRequest(request, networkPrefix) {
-  requireNetworkPrefix(networkPrefix);
-  for (const value of [
-    request?.signer_account_id ?? request?.signerAccountId,
-    request?.multisig_account_id ?? request?.multisigAccountId,
-  ]) {
-    if (value !== undefined && value !== null) {
-      AccountAddress.parseEncoded(value, networkPrefix);
-    }
-  }
-  if (!isPlainObject(request)) {
-    rejectType(("MultisigContractCallApproveDto request" + TEXT_MUST_BE_AN_OBJECT_2));
-  }
-  rejectInlinePrivateKeyFields(request, "MultisigContractCallApproveDto");
-  const proposalId = request.proposal_id ?? request.proposalId ?? null;
-  const instructionsHash = request.instructions_hash ?? request.instructionsHash ?? null;
-  if (proposalId == null && instructionsHash == null) {
-    rejectType("MultisigContractCallApproveDto requires proposal_id or instructions_hash");
-  }
-  const payload = withNoritoCompactLengths(() =>
-    encodeStructValue([
-      ...encodeMultisigAccountSelectorFields(
-        request,
-        (TEXT_MULTISIG_CONTRACT_CALL_APPROVE_DTO + "selector"),
-      ),
-      [
-        encodeAccountIdValue(
-          request.signer_account_id ?? request.signerAccountId,
-          (TEXT_MULTISIG_CONTRACT_CALL_APPROVE_DTO + "signer_" + TEXT_ACCOUNT_ID),
-        ),
-      ],
-      [
-        encodeOptionValue(
-          request.public_key_hex ?? request.publicKeyHex ?? null,
-          encodeNoritoStringValue,
-          (TEXT_MULTISIG_CONTRACT_CALL_APPROVE_DTO + "public_key_hex"),
-        ),
-      ],
-      [
-        encodeOptionValue(
-          request.signature_b64 ?? request.signatureB64 ?? null,
-          encodeExactBase64StringValue,
-          (TEXT_MULTISIG_CONTRACT_CALL_APPROVE_DTO + "signature_b64"),
-        ),
-      ],
-      [
-        encodeOptionValue(
-          request.creation_time_ms ?? request.creationTimeMs ?? null,
-          encodeU64NumberValue,
-          (TEXT_MULTISIG_CONTRACT_CALL_APPROVE_DTO + TEXT_CREATION_TIME_MS),
-        ),
-      ],
-      [
-        encodeFeePaymentIntentValue(
-          request.fee_payment ?? request.feePayment,
-          (TEXT_MULTISIG_CONTRACT_CALL_APPROVE_DTO + "fee_payment"),
-        ),
-      ],
-      [
-        encodeOptionValue(
-          proposalId,
-          encodeNoritoStringValue,
-          (TEXT_MULTISIG_CONTRACT_CALL_APPROVE_DTO + "proposal_id"),
-        ),
-      ],
-      [
-        encodeOptionValue(
-          instructionsHash,
-          encodeNoritoStringValue,
-          (TEXT_MULTISIG_CONTRACT_CALL_APPROVE_DTO + "instructions_hash"),
-        ),
-      ],
-      [
-        encodeNoritoStringValue(assertNonEmptyString(
-          request.contract_alias,
-          "MultisigContractCallApproveDto.contract_alias",
-        )),
-      ],
-      [
-        encodeNoritoStringValue(assertNonEmptyString(
-          request.entrypoint,
-          "MultisigContractCallApproveDto.entrypoint",
-        )),
-      ],
-      [encodeNoritoJsonValue(requireExactContractApprovalPayload(request.payload))],
-    ]),
-  );
-  return frameNoritoPayload(
-    payload,
-    MULTISIG_CONTRACT_CALL_APPROVE_DTO_SCHEMA_HASH,
-    COMPACT_LEN_FLAG,
-  );
-}
-
-function encodeMultisigAccountSelectorFields(request, context) {
-  const multisigAccountId = request.multisig_account_id ?? request.multisigAccountId ?? null;
-  const multisigAccountAlias =
-    request.multisig_account_alias ?? request.multisigAccountAlias ?? null;
-  if ((multisigAccountId == null) === (multisigAccountAlias == null)) {
-    rejectType(`${context} requires exactly one of multisig_account_id or multisig_account_alias`);
-  }
-  return [
-    [
-      encodeOptionValue(
-        multisigAccountId,
-        encodeAccountIdValue,
-        `${context}.multisig_${TEXT_ACCOUNT_ID}`,
-      ),
-    ],
-    [
-      encodeOptionValue(
-        multisigAccountAlias,
-        encodeNoritoStringValue,
-        `${context}.multisig_account_alias`,
-      ),
-    ],
-  ];
 }
 
 function encodeMultisigInstructions(instructions, networkPrefix, nativeRuntime) {
@@ -1704,8 +1354,6 @@ export function _createNoritoInstructionApi(nativeRuntime) {
       encodeInstruction(instruction, networkPrefix, nativeRuntime),
     noritoEncodeInstructionBoxArchive: (instruction, networkPrefix) =>
       encodeInstructionBoxArchive(instruction, networkPrefix, nativeRuntime),
-    noritoEncodeMultisigProposeRequest: (request, networkPrefix) =>
-      encodeMultisigProposeRequest(request, networkPrefix, nativeRuntime),
   });
 }
 
@@ -3764,23 +3412,6 @@ function decodeU64Value(payload, context) {
   return payload.readBigUInt64LE(0).toString();
 }
 
-function encodeExactBase64StringValue(value, context) {
-  if (typeof value !== JS_TYPE_STRING) {
-    rejectType(`${context}${TEXT_MUST_BE_A}string`);
-  }
-  if (value.length === 0 || value.trim() !== value || /\s/u.test(value)) {
-    rejectType(`${context}${TEXT_MUST_BE_EXACT_STANDARD_BASE64}`);
-  }
-  if (!/^[A-Za-z0-9+/]*={0,2}$/u.test(value) || value.length % 4 !== 0) {
-    rejectType(`${context}${TEXT_MUST_BE_EXACT_STANDARD_BASE64}`);
-  }
-  const decoded = Buffer.from(value, BASE64_ENCODING);
-  if (decoded.length === 0 || decoded.toString(BASE64_ENCODING) !== value) {
-    rejectType(`${context}${TEXT_MUST_BE_EXACT_STANDARD_BASE64}`);
-  }
-  return encodeNoritoStringValue(value);
-}
-
 function parseNumericLiteral(value, context) {
   let quantity;
   if (value instanceof KotodamaQuantity) {
@@ -3965,13 +3596,6 @@ function encodeBase58(bytes) {
   }
 
   return encoded.reverse().join("") || "1";
-}
-
-function requireExactContractApprovalPayload(payload) {
-  if (!isPlainObject(payload)) {
-    throw new TypeError("MultisigContractCallApproveDto.payload must be the exact contract object");
-  }
-  return payload;
 }
 
 export { exactRegisterDataspaceAssetDefinitionJson, validateNoritoFrame } from "./noritoValueCodecs.js";

@@ -3,7 +3,7 @@ use super::*;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 pub(super) struct LiveClock {
-    pub started: KagemushaWalletMonotonicReadingV1,
+    pub started: LiveEnrollmentReadingV1,
     pub observed_at_ms: u64,
     pub expires_at_ms: u64,
 }
@@ -42,7 +42,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         let clock = self.apple_clock.as_ref().ok_or(Error::Phase)?;
         super::super::prekey::require_elapsed(
             &clock.started,
-            &self.provider.monotonic_reading()?,
+            &self.provider.live_enrollment_reading()?,
             clock.observed_at_ms,
             clock.expires_at_ms,
         )
@@ -91,7 +91,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         }
         Ok(originals)
     }
-    /// Final same-boot deadline check after all vendor returns are durably retained.
+    /// Final process-bound deadline check after all vendor returns are durably retained.
     pub fn complete_apple_collection(&mut self) -> Result<(), Error> {
         let originals = self.apple_collection_originals()?;
         let key = STANDARD
@@ -133,7 +133,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         }
         self.provider
             .with_archive(&slot, |archive| archive.write_record(&key, &[stage]))?;
-        // Sleep-inclusive same-boot elapsed check immediately before the foreign vendor effect.
+        // Sleep-inclusive process-bound elapsed check immediately before the foreign vendor effect.
         self.require_apple_live()
     }
     /// Retain the actual vendor return BEFORE any clock/current-owner guard or publication.

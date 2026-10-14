@@ -1,5 +1,6 @@
 //! Canonical pre-key dispatch DATA. Only native and issuer owners supply admission authority.
 
+use crate::kagemusha_wallet_advance_v1::LiveEnrollmentReadingV1;
 use iroha_crypto::Algorithm;
 use iroha_data_model::{account::AccountId, kagemusha::*};
 
@@ -253,7 +254,7 @@ pub(crate) struct GenerationAuthorizationV1 {
     generation_policy: crate::kagemusha_wallet_advance_v1::KagemushaWalletKeyGenerationPolicyV1,
     fresh: bool,
     dates: crate::kagemusha_wallet_advance_v1::KagemushaWalletEnrollmentDatesV1,
-    started: KagemushaWalletMonotonicReadingV1,
+    started: LiveEnrollmentReadingV1,
     observed_at_ms: u64,
     expires_at_ms: u64,
 }
@@ -293,7 +294,7 @@ impl GenerationAuthorizationV1 {
         slot: crate::kagemusha_wallet_advance_v1::KagemushaWalletSlotIdV1,
         generation_policy: crate::kagemusha_wallet_advance_v1::KagemushaWalletKeyGenerationPolicyV1,
         fresh: bool,
-        started: KagemushaWalletMonotonicReadingV1,
+        started: LiveEnrollmentReadingV1,
         session_expires_at_ms: u64,
     ) -> Self {
         Self {
@@ -333,7 +334,7 @@ impl GenerationAuthorizationV1 {
         }
         require_elapsed(
             &self.started,
-            &provider.monotonic_reading()?,
+            &provider.live_enrollment_reading()?,
             self.observed_at_ms,
             self.expires_at_ms,
         )
@@ -344,22 +345,20 @@ impl GenerationAuthorizationV1 {
 }
 
 pub(super) fn require_elapsed(
-    started: &KagemushaWalletMonotonicReadingV1,
-    now: &KagemushaWalletMonotonicReadingV1,
+    started: &LiveEnrollmentReadingV1,
+    now: &LiveEnrollmentReadingV1,
     observed: u64,
     expires: u64,
 ) -> Result<(), &'static str> {
-    if started.boot_id == [0; 32] || now.boot_id != started.boot_id {
-        return Err("pre-key boot changed");
-    }
     let elapsed = now
-        .monotonic_ms
-        .checked_sub(started.monotonic_ms)
-        .ok_or("pre-key clock decreased")?;
+        .elapsed_since(started)
+        .map_err(|_| "pre-key live clock unavailable or changed")?;
+    let elapsed_ms =
+        u64::try_from(elapsed.as_millis()).map_err(|_| "pre-key elapsed duration overflow")?;
     if observed
-        .checked_add(elapsed)
-        // Both monotonic readings are floor-quantized milliseconds: round their
-        // difference upward before comparing a strict exclusive deadline.
+        .checked_add(elapsed_ms)
+        // Strictly round the suspend-inclusive duration upward, including a whole
+        // millisecond boundary, before comparing the exclusive signed deadline.
         .and_then(|upper| upper.checked_add(1))
         .is_none_or(|upper| upper >= expires)
     {
@@ -371,27 +370,41 @@ pub(super) fn require_elapsed(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn reading(domain: [u8; 32], nanos: u128) -> LiveEnrollmentReadingV1 {
+        LiveEnrollmentReadingV1::Simulated { domain, nanos }
+    }
     #[test]
-    fn elapsed_bound_is_strict_and_rejects_overflow_reboot_and_clock_rollback() {
-        let start = KagemushaWalletMonotonicReadingV1 {
-            boot_id: [1; 32],
-            monotonic_ms: 100,
-        };
-        let mut now = start;
-        now.monotonic_ms = 108;
-        assert!(require_elapsed(&start, &now, 10, 20).is_ok());
-        now.monotonic_ms = 109;
-        assert!(require_elapsed(&start, &now, 10, 20).is_err());
-        now.monotonic_ms = 101;
-        assert!(require_elapsed(&start, &now, u64::MAX, u64::MAX).is_err());
-        now.monotonic_ms = 99;
-        assert!(require_elapsed(&start, &now, 10, 20).is_err());
-        now.monotonic_ms = 100;
-        now.boot_id = [2; 32];
-        assert!(require_elapsed(&start, &now, 10, 20).is_err());
-        now.boot_id = [0; 32];
-        let mut start = start;
-        start.boot_id = [0; 32];
-        assert!(require_elapsed(&start, &now, 10, 20).is_err());
+    fn elapsed_bound_is_strict_and_rejects_overflow_domain_change_and_clock_rollback() {
+        let start = reading([1; 32], 100_000_000);
+        assert!(require_elapsed(&start, &reading([1; 32], 108_999_999), 10, 20).is_ok());
+        assert!(require_elapsed(&start, &reading([1; 32], 109_000_000), 10, 20).is_err());
+        assert!(
+            require_elapsed(&start, &reading([1; 32], 101_000_000), u64::MAX, u64::MAX).is_err()
+        );
+        assert!(require_elapsed(&start, &reading([1; 32], 99_999_999), 10, 20).is_err());
+        assert!(require_elapsed(&start, &reading([2; 32], 100_000_000), 10, 20).is_err());
+        assert!(require_elapsed(&reading([0; 32], 0), &reading([0; 32], 0), 10, 20).is_err());
+        assert!(
+            require_elapsed(
+                &start,
+                &reading([1; 32], u128::from(u64::MAX) * 1_000_000 + 100_000_000),
+                1,
+                u64::MAX
+            )
+            .is_err()
+        );
+        assert!(
+            require_elapsed(
+                &start,
+                &reading(
+                    [1; 32],
+                    (u128::from(u64::MAX) + 1) * 1_000_000 + 100_000_000
+                ),
+                0,
+                u64::MAX
+            )
+            .is_err()
+        );
+        assert!(require_elapsed(&start, &start, 19, 20).is_err());
     }
 }

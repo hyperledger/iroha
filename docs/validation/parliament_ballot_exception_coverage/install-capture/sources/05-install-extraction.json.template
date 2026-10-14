@@ -1,0 +1,33 @@
+{
+  "derived_sha256": "b646feb3469c7398c3325fe4b850ac9c8474e3be714636e2331cb803df2afe23",
+  "diff_sha256": "7c5e021413e393ea483780a8b5cb477fc83dada86104ef59691c55a179855e96",
+  "expected_remaining_tests": 113,
+  "extraction_recipe_sha256": "7c564063031849d0dc0e893234013bf9e538eb39a5ce61b10ff9784cf052c838",
+  "helper_sha256": "3693abdecf793fc2d1aac32679cf394c9843c5c3dcbc0befb74510a61db94c4d",
+  "original_sha256": "5a742bef80148d0d4c3c52016e22cab578d85919da1e366f7fae456fb26a386d",
+  "original_tests": 119,
+  "removed_functions": [
+    {
+      "end_line": 257,
+      "name": "test_actual_image_table_totals_match_independent_raw_byte_census",
+      "start_line": 230,
+      "test_cases": 2
+    },
+    {
+      "end_line": 295,
+      "name": "test_personality_reference_is_exact_independently_reviewed_rust_1931",
+      "start_line": 286,
+      "test_cases": 2
+    },
+    {
+      "end_line": 450,
+      "name": "test_actual_fde_header_counts_match_independent_byte_census",
+      "start_line": 437,
+      "test_cases": 2
+    }
+  ],
+  "retained_function_ast_identical": true,
+  "retained_lines_byte_identical": true,
+  "schema": "exception-synthetic-partition-extraction-v1",
+  "source_configuration_sha256": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62"
+}

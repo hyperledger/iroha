@@ -24,23 +24,24 @@ use crate::{
 };
 use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::{
-    ValidationFail,
+    NetworkId, ValidationFail,
     account::{AccountId, MultisigMember, MultisigPolicy},
     isi::{
         AddSignatory, InstructionBox, RemoveSignatory, SetAccountQuorum,
         error::{InstructionExecutionError, InvalidParameterError},
     },
     permission::Permission,
-    prelude::{Grant, Json, Level, Log, Register, Revoke},
+    prelude::{Grant, Json, Register, Revoke},
     query::error::{FindError, QueryExecutionFail},
     role::{Role, RoleId},
 };
 use iroha_executor_data_model::isi::multisig::{
     DEFAULT_MULTISIG_TTL_MS, MultisigAccountState, MultisigApprovalOutcomeStatusV1,
     MultisigApprovalOutcomeV1, MultisigApprove, MultisigCancel, MultisigInstructionBox,
-    MultisigInvalidateOutstanding, MultisigProposalState, MultisigProposalTerminalExecutionStateV1,
-    MultisigProposalTerminalState, MultisigProposalTerminalStatus, MultisigProposalValue,
-    MultisigPropose, MultisigRegister, MultisigSpec,
+    MultisigInvalidateOutstanding, MultisigProposalId, MultisigProposalState,
+    MultisigProposalTerminalExecutionStateV1, MultisigProposalTerminalState,
+    MultisigProposalTerminalStatus, MultisigProposalValue, MultisigPropose, MultisigRegister,
+    MultisigSpec,
 };
 use iroha_model_base::metadata::Metadata;
 use iroha_model_base::{name::Name, state_path::StatePath};
@@ -61,7 +62,7 @@ const MULTISIG_SIGNATORY_INDEX_STATE: &str = "signatory";
 const MULTISIG_SIGNATORY: &str = "MULTISIG_SIGNATORY";
 const DOMAINLESS_NAMESPACE: &str = "domainless";
 pub(crate) const MAX_MULTISIG_DEFERRED_EXECUTION_DEPTH: usize = 64;
-type MultisigDeferredExecutionId = (AccountId, HashOf<Vec<InstructionBox>>);
+type MultisigDeferredExecutionId = (AccountId, MultisigProposalId);
 
 /// Retain the original JSON or binary refusal while classifying a custom multisig instruction.
 pub(crate) fn multisig_instruction_decode_attempt<E>(
@@ -124,18 +125,18 @@ pub(crate) fn live_proposal_instructions_for_approval(
     state_transaction: &StateTransaction<'_, '_>,
     approve: &MultisigApprove,
 ) -> Result<Option<(AccountId, Vec<InstructionBox>)>, Attempt<ValidationFail>> {
-    let proposal = match proposal_state_attempt(
-        state_transaction,
-        &approve.account,
-        &approve.instructions_hash,
-    ) {
-        Ok(proposal) => proposal,
-        Err(Attempt::Rejected(ValidationFail::QueryFailed(QueryExecutionFail::NotFound))) => {
-            return Ok(None);
-        }
-        Err(error) => return Err(error),
-    };
-    if now_ms(state_transaction) >= proposal.expires_at_ms || proposal.is_relayed == Some(true) {
+    let proposal =
+        match proposal_state_attempt(state_transaction, &approve.account, &approve.proposal_id) {
+            Ok(proposal) => proposal,
+            Err(Attempt::Rejected(ValidationFail::QueryFailed(QueryExecutionFail::NotFound))) => {
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        };
+    if proposal.instructions_hash != approve.instructions_hash {
+        return Err(invalid_proposal_binding().into());
+    }
+    if now_ms(state_transaction) >= proposal.expires_at_ms {
         return Ok(None);
     }
     Ok(Some((proposal.multisig_account_id, proposal.instructions)))
@@ -345,12 +346,12 @@ fn multisig_proposal_state_prefix(account: &AccountId) -> StatePath {
 }
 fn multisig_proposal_state_key(
     multisig_account: &AccountId,
-    instructions_hash: &HashOf<Vec<InstructionBox>>,
+    proposal_id: &MultisigProposalId,
 ) -> StatePath {
     StatePath::from_str(&format!(
         "{}{}",
         multisig_proposal_state_prefix(multisig_account),
-        instructions_hash
+        proposal_id
     ))
     .expect("constant string must be a valid state path")
 }
@@ -363,12 +364,12 @@ fn multisig_proposal_terminal_state_prefix(account: &AccountId) -> StatePath {
 }
 fn multisig_proposal_terminal_state_key(
     multisig_account: &AccountId,
-    instructions_hash: &HashOf<Vec<InstructionBox>>,
+    proposal_id: &MultisigProposalId,
 ) -> StatePath {
     StatePath::from_str(&format!(
         "{}{}",
         multisig_proposal_terminal_state_prefix(multisig_account),
-        instructions_hash
+        proposal_id
     ))
     .expect("multisig proposal terminal state path must be valid")
 }
@@ -377,11 +378,11 @@ fn multisig_proposal_terminal_state_key(
 pub fn multisig_proposal_terminal_execution_state_key(
     terminal_entrypoint_hash: [u8; Hash::LENGTH],
     multisig_account: &AccountId,
-    instructions_hash: &HashOf<Vec<InstructionBox>>,
+    proposal_id: &MultisigProposalId,
 ) -> StatePath {
     let terminal_entrypoint_hash = Hash::prehashed(terminal_entrypoint_hash);
     StatePath::from_str(&format!(
-        "{MULTISIG}{DELIMITER}{MULTISIG_PROPOSAL_TERMINAL_EXECUTION_STATE}{DELIMITER}{terminal_entrypoint_hash}{DELIMITER}{}{DELIMITER}{instructions_hash}",
+        "{MULTISIG}{DELIMITER}{MULTISIG_PROPOSAL_TERMINAL_EXECUTION_STATE}{DELIMITER}{terminal_entrypoint_hash}{DELIMITER}{}{DELIMITER}{proposal_id}",
         HashOf::new(multisig_account),
     ))
     .expect("multisig proposal terminal execution path must be valid")
@@ -391,11 +392,11 @@ pub fn multisig_proposal_terminal_execution_state_key(
 pub fn multisig_approval_outcome_state_key(
     entrypoint_hash: [u8; Hash::LENGTH],
     entrypoint_account: &AccountId,
-    instructions_hash: &HashOf<Vec<InstructionBox>>,
+    proposal_id: &MultisigProposalId,
 ) -> StatePath {
     let entrypoint_hash = Hash::prehashed(entrypoint_hash);
     StatePath::from_str(&format!(
-        "{MULTISIG}{DELIMITER}{MULTISIG_APPROVAL_OUTCOME_STATE}{DELIMITER}{entrypoint_hash}{DELIMITER}{}{DELIMITER}{instructions_hash}",
+        "{MULTISIG}{DELIMITER}{MULTISIG_APPROVAL_OUTCOME_STATE}{DELIMITER}{entrypoint_hash}{DELIMITER}{}{DELIMITER}{proposal_id}",
         HashOf::new(entrypoint_account),
     ))
     .expect("multisig approval outcome path must be valid")
@@ -443,13 +444,12 @@ fn rekey_multisig_account(
             format!("multisig account `{updated_account}` already exists").into(),
         ));
     }
+    require_no_outstanding_proposals(state_transaction, account).map_err(map_validation_fail)?;
     rekey_account_id(state_transaction, account, &updated_account, home_domain)?;
     state_transaction
         .world
         .smart_contract_state
         .remove(multisig_account_state_key(account));
-    move_multisig_proposals(state_transaction, account, &updated_account)
-        .map_err(map_validation_fail)?;
     Ok(updated_account)
 }
 fn multisig_policy_from_spec(
@@ -1016,27 +1016,8 @@ pub(crate) fn replace_account_controller(
     // Explicit controller replacement cannot carry approvals granted to the
     // old policy into the new policy. Its owner must first invalidate them in
     // this same atomic instruction batch (as regulated recovery also does).
-    let prefix = multisig_proposal_state_prefix(old_account);
-    for (key, value) in state_transaction
-        .world
-        .smart_contract_state
-        .range(prefix.clone()..)
-    {
-        if !key.as_ref().starts_with(prefix.as_ref()) {
-            break;
-        }
-        let proposal = decode_proposal_state_at_key(key, value)
-            .map_err(|error| retain_multisig_read_attempt(state_transaction, error))
-            .map_err(map_validation_fail)?;
-        if proposal.is_relayed != Some(true) {
-            return Err(InstructionExecutionError::InvalidParameter(
-                InvalidParameterError::SmartContract(
-                    "controller replacement requires outstanding multisig proposal invalidation"
-                        .into(),
-                ),
-            ));
-        }
-    }
+    require_no_outstanding_proposals(state_transaction, old_account)
+        .map_err(map_validation_fail)?;
     let new_account = match new_controller {
         iroha_data_model::account::AccountController::Single(signatory) => {
             AccountId::new(signatory)
@@ -1086,8 +1067,6 @@ pub(crate) fn replace_account_controller(
             .world
             .smart_contract_state
             .remove(multisig_account_state_key(old_account));
-        move_multisig_proposals(state_transaction, old_account, &new_account)
-            .map_err(map_validation_fail)?;
     }
     let next_state = if let Some(policy) = new_account.multisig_policy() {
         Some(
@@ -1763,471 +1742,169 @@ fn execute_propose(
     authority: &AccountId,
     instruction: &MultisigPropose,
 ) -> Result<(), ValidationFail> {
-    let proposer = authority.clone();
-    let multisig_account = match resolve_signatory_account(state_transaction, &instruction.account)
-    {
-        Ok(value) => value,
-        Err(err) => {
-            iroha_logger::error!(
-                proposer = %proposer,
-                requested_multisig_account = %instruction.account,
-                error = ?err,
-                "multisig propose failed to resolve multisig account"
-            );
-            return Err(err);
-        }
-    };
-    let home_domain = match multisig_home_domain(state_transaction, &multisig_account) {
-        Ok(value) => value,
-        Err(err) => {
-            iroha_logger::error!(
-                proposer = %proposer,
-                multisig_account = %multisig_account,
-                error = ?err,
-                "multisig propose failed to load multisig home domain"
-            );
-            return Err(err);
-        }
-    };
-    let instructions_hash = HashOf::new(&instruction.instructions);
-    let multisig_spec = match multisig_spec(state_transaction, &multisig_account) {
-        Ok(value) => value,
-        Err(err) => {
-            iroha_logger::error!(
-                proposer = %proposer,
-                multisig_account = %multisig_account,
-                instructions_hash = %instructions_hash,
-                error = ?err,
-                "multisig propose failed to load multisig spec"
-            );
-            return Err(err);
-        }
-    };
-    let home_domain_literal = home_domain
-        .as_ref()
-        .map(ToString::to_string)
-        .unwrap_or_else(|| "-".to_owned());
-    iroha_logger::info!(
-        proposer = %proposer,
-        multisig_account = %multisig_account,
-        instructions_hash = %instructions_hash,
-        instruction_count = instruction.instructions.len(),
-        home_domain = %home_domain_literal,
-        quorum = multisig_spec.quorum.get(),
-        ttl_ms = multisig_spec.transaction_ttl_ms.get(),
-        signatory_count = multisig_spec.signatories.len(),
-        "multisig propose evaluating proposal"
-    );
-    let proposer_role = multisig_role_for(home_domain.as_ref(), &proposer);
-    let multisig_role = multisig_role_for(home_domain.as_ref(), &multisig_account);
-    let is_downward_proposal = state_transaction
-        .world
-        .account_roles_iter(&multisig_account)
-        .any(|role| role == &proposer_role);
-    let has_multisig_role = state_transaction
-        .world
-        .account_roles_iter(&proposer)
-        .any(|role| role == &multisig_role);
-    let is_signatory = spec_contains_signatory_subject(&multisig_spec, &proposer);
-    let is_self_proposal = proposer.subject_id() == multisig_account.subject_id();
-    let has_not_longer_ttl = instruction
+    let account = resolve_signatory_account(state_transaction, &instruction.account)?;
+    if account != instruction.account {
+        return Err(ValidationFail::NotPermitted(
+            "multisig occurrence account cannot remap across controller changes".into(),
+        ));
+    }
+    let spec = multisig_spec(state_transaction, &account)?;
+    ensure_signatories_are_single(&spec)?;
+    let home_domain = multisig_home_domain(state_transaction, &account)?;
+    let role = multisig_role_for(home_domain.as_ref(), &account);
+    let proposer_role = multisig_role_for(home_domain.as_ref(), authority);
+    let authorized = authority.subject_id() == account.subject_id()
+        || spec_contains_signatory_subject(&spec, authority)
+        || state_transaction
+            .world
+            .account_roles_iter(authority)
+            .any(|r| r == &role)
+        || state_transaction
+            .world
+            .account_roles_iter(&account)
+            .any(|r| r == &proposer_role);
+    if !authorized {
+        return Err(ValidationFail::NotPermitted(
+            "not qualified to propose multisig".into(),
+        ));
+    }
+    if instruction
         .transaction_ttl_ms
-        .is_none_or(|override_ttl_ms| override_ttl_ms <= multisig_spec.transaction_ttl_ms);
-    if !has_not_longer_ttl {
-        iroha_logger::error!(
-            proposer = %proposer,
-            multisig_account = %multisig_account,
-            instructions_hash = %instructions_hash,
-            requested_ttl_ms = ?instruction.transaction_ttl_ms,
-            spec_ttl_ms = multisig_spec.transaction_ttl_ms.get(),
-            "multisig propose rejected because ttl exceeds multisig spec"
-        );
-        return Err(ValidationFail::NotPermitted(
-            "ttl violates the restriction".to_owned(),
-        ));
-    }
-    if !(is_downward_proposal || has_multisig_role || is_signatory || is_self_proposal) {
-        iroha_logger::error!(
-            proposer = %proposer,
-            multisig_account = %multisig_account,
-            instructions_hash = %instructions_hash,
-            proposer_role = ?proposer_role,
-            multisig_role = ?multisig_role,
-            is_downward_proposal,
-            has_multisig_role,
-            is_signatory,
-            is_self_proposal,
-            "multisig propose rejected because proposer is not authorized"
-        );
-        return Err(ValidationFail::NotPermitted(
-            "not qualified to propose multisig".to_owned(),
-        ));
-    }
-    let existing_proposal =
-        match proposal_state(state_transaction, &multisig_account, &instructions_hash) {
-            Ok(existing) if now_ms(state_transaction) < existing.expires_at_ms => {
-                iroha_logger::warn!(
-                    proposer = %proposer,
-                    multisig_account = %multisig_account,
-                    instructions_hash = %instructions_hash,
-                    now_ms = now_ms(state_transaction),
-                    expires_at_ms = existing.expires_at_ms,
-                    "multisig propose rejected as duplicate active proposal"
-                );
-                return Err(ValidationFail::NotPermitted(
-                    "multisig proposal duplicates".to_owned(),
-                ));
-            }
-            Ok(_) => true,
-            Err(ValidationFail::QueryFailed(QueryExecutionFail::NotFound)) => false,
-            Err(err) => {
-                iroha_logger::error!(
-                    proposer = %proposer,
-                    multisig_account = %multisig_account,
-                    instructions_hash = %instructions_hash,
-                    error = ?err,
-                    "multisig propose failed while checking existing proposal state"
-                );
-                return Err(err);
-            }
-        };
-    let now_ms = now_ms(state_transaction);
-    if existing_proposal {
-        if let Err(err) = prune_expired(
-            state_transaction,
-            &multisig_account,
-            &instructions_hash,
-            &instruction.account,
-        ) {
-            iroha_logger::error!(
-                proposer = %proposer,
-                multisig_account = %multisig_account,
-                instructions_hash = %instructions_hash,
-                error = ?err,
-                "multisig propose failed while pruning expired proposal state"
-            );
-            return Err(err);
-        }
-    }
-    // Terminal proposal identity is permanent. Reusing its instruction hash
-    // would make historical cancellation and execution evidence ambiguous.
-    if state_transaction
-        .world
-        .smart_contract_state
-        .get(&multisig_proposal_terminal_state_key(
-            &multisig_account,
-            &instructions_hash,
-        ))
-        .is_some()
+        .is_some_and(|ttl| ttl > spec.transaction_ttl_ms)
     {
         return Err(ValidationFail::NotPermitted(
-            "multisig proposal instruction identity is already terminal".to_owned(),
+            "ttl violates the restriction".into(),
         ));
     }
-    let expires_at_ms = {
-        let ttl_ms = instruction
-            .transaction_ttl_ms
-            .unwrap_or(multisig_spec.transaction_ttl_ms);
-        now_ms.saturating_add(ttl_ms.into())
-    };
-    let proposal_value = MultisigProposalValue::new(
-        instruction.instructions.clone(),
-        now_ms,
+    let proposal_id = MultisigProposalId::derive(
+        &state_transaction.network_id,
+        &account,
+        &instruction.proposal_nonce,
+    );
+    if !fee_proposal_key_is_unused(&state_transaction.world, &account, &proposal_id) {
+        return Err(ValidationFail::NotPermitted(
+            "multisig occurrence already reserved; exact retries must recover its original".into(),
+        ));
+    }
+    let proposed_at_ms = now_ms(state_transaction);
+    let expires_at_ms = proposed_at_ms
+        .checked_add(
+            instruction
+                .transaction_ttl_ms
+                .unwrap_or(spec.transaction_ttl_ms)
+                .get(),
+        )
+        .ok_or_else(|| {
+            ValidationFail::NotPermitted("multisig proposal deadline overflow".into())
+        })?;
+    let state = MultisigProposalState {
+        network_id: state_transaction.network_id,
+        multisig_account_id: account,
+        proposal_nonce: instruction.proposal_nonce,
+        proposal_id,
+        instructions_hash: HashOf::new(&instruction.instructions),
+        transaction_ttl_ms: instruction.transaction_ttl_ms,
+        instructions: instruction.instructions.clone(),
+        proposed_at_ms,
         expires_at_ms,
-        BTreeSet::from([proposer.clone()]),
-        None,
-    );
-    let approve_me = MultisigApprove::new(multisig_account.clone(), instructions_hash);
-    let resolved_signatories = match resolved_signatory_accounts(state_transaction, &multisig_spec)
-    {
-        Ok(value) => value,
-        Err(err) => {
-            iroha_logger::error!(
-                proposer = %proposer,
-                multisig_account = %multisig_account,
-                instructions_hash = %instructions_hash,
-                error = ?err,
-                "multisig propose failed to resolve signatory accounts"
-            );
-            return Err(err);
-        }
+        approvals: BTreeSet::from([authority.clone()]),
     };
-    let resolved_signatory_summary = resolved_signatories
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(",");
-    iroha_logger::info!(
-        proposer = %proposer,
-        multisig_account = %multisig_account,
-        instructions_hash = %instructions_hash,
-        resolved_signatory_count = resolved_signatories.len(),
-        resolved_signatories = %resolved_signatory_summary,
-        "multisig propose resolved signatory accounts"
-    );
-    for signatory in resolved_signatories {
-        let signatory_is_multisig = match is_multisig(state_transaction, &signatory) {
-            Ok(value) => value,
-            Err(err) => {
-                iroha_logger::error!(
-                    proposer = %proposer,
-                    multisig_account = %multisig_account,
-                    instructions_hash = %instructions_hash,
-                    signatory = %signatory,
-                    error = ?err,
-                    "multisig propose failed while checking signatory multisig state"
-                );
-                return Err(err);
-            }
-        };
-        if signatory_is_multisig
-            && let Err(err) = deploy_relayer(
-                state_transaction,
-                &signatory,
-                &approve_me,
-                now_ms,
-                expires_at_ms,
-            )
-        {
-            iroha_logger::error!(
-                proposer = %proposer,
-                multisig_account = %multisig_account,
-                instructions_hash = %instructions_hash,
-                relayer = %signatory,
-                error = ?err,
-                "multisig propose failed to deploy nested multisig relayer"
-            );
-            return Err(err);
-        }
-    }
-    let proposal_state = MultisigProposalState::new(
-        multisig_account,
-        instructions_hash,
-        proposal_value.instructions,
-        proposal_value.proposed_at_ms,
-        proposal_value.expires_at_ms,
-        proposal_value.approvals,
-        proposal_value.is_relayed,
-    );
-    match store_multisig_proposal_state(state_transaction, &proposal_state) {
-        Ok(()) => {
-            iroha_logger::info!(
-                proposer = %proposer,
-                multisig_account = %proposal_state.multisig_account_id,
-                instructions_hash = %proposal_state.instructions_hash,
-                proposed_at_ms = proposal_state.proposed_at_ms,
-                expires_at_ms = proposal_state.expires_at_ms,
-                approvals = proposal_state.approvals.len(),
-                "multisig propose stored proposal state"
-            );
-            Ok(())
-        }
-        Err(err) => {
-            iroha_logger::error!(
-                proposer = %proposer,
-                multisig_account = %proposal_state.multisig_account_id,
-                instructions_hash = %proposal_state.instructions_hash,
-                error = ?err,
-                "multisig propose failed to store proposal state"
-            );
-            Err(err)
-        }
-    }
+    store_multisig_proposal_state(state_transaction, &state)
 }
 fn execute_approve(
     state_transaction: &mut StateTransaction<'_, '_>,
     authority: &AccountId,
     instruction: &MultisigApprove,
 ) -> Result<(), ValidationFail> {
-    let approver = authority.clone();
-    let multisig_account = resolve_signatory_account(state_transaction, &instruction.account)?;
-    let home_domain = multisig_home_domain(state_transaction, &multisig_account)?;
-    let instructions_hash = instruction.instructions_hash;
-    let spec = multisig_spec(state_transaction, &multisig_account)?;
-    let has_multisig_role = state_transaction
-        .world
-        .account_roles_iter(&approver)
-        .any(|role| role == &multisig_role_for(home_domain.as_ref(), &multisig_account));
-    let is_signatory = spec_contains_signatory_subject(&spec, &approver);
-    let is_self_approval = approver.subject_id() == multisig_account.subject_id();
-    if !(has_multisig_role || is_signatory || is_self_approval) {
+    let account = resolve_signatory_account(state_transaction, &instruction.account)?;
+    if account != instruction.account {
         return Err(ValidationFail::NotPermitted(
-            "not qualified to approve multisig".to_owned(),
+            "multisig occurrence account cannot remap across controller changes".into(),
         ));
     }
-    if let Err(err) = prune_expired(
-        state_transaction,
-        &multisig_account,
-        &instructions_hash,
-        &instruction.account,
-    ) {
-        iroha_logger::error!(
-            multisig_account = %multisig_account,
-            instructions_hash = %instructions_hash,
-            approver = %authority,
-            error = ?err,
-            "multisig approval proposal lookup failed before approval"
-        );
-        return Err(err);
+    let spec = multisig_spec(state_transaction, &account)?;
+    let home = multisig_home_domain(state_transaction, &account)?;
+    if !(authority.subject_id() == account.subject_id()
+        || spec_contains_signatory_subject(&spec, authority)
+        || state_transaction
+            .world
+            .account_roles_iter(authority)
+            .any(|r| r == &multisig_role_for(home.as_ref(), &account)))
+    {
+        return Err(ValidationFail::NotPermitted(
+            "not qualified to approve multisig".into(),
+        ));
     }
-    let mut proposal_state = match proposal_state(
+    let mut proposal = proposal_state(state_transaction, &account, &instruction.proposal_id)?;
+    if proposal.instructions_hash != instruction.instructions_hash {
+        return Err(invalid_proposal_binding());
+    }
+    if now_ms(state_transaction) >= proposal.expires_at_ms {
+        maybe_store_terminal_proposal_state(
+            state_transaction,
+            &proposal,
+            MultisigProposalTerminalStatus::Expired,
+            &instruction.account,
+        )?;
+        prune_down(state_transaction, &account, &instruction.proposal_id)?;
+        return store_multisig_approval_outcome(
+            state_transaction,
+            &instruction.account,
+            &account,
+            &instruction.proposal_id,
+            &instruction.instructions_hash,
+            MultisigApprovalOutcomeStatusV1::NotExecuted,
+        );
+    }
+    upsert_subject_approval(&mut proposal.approvals, authority.clone());
+    if approved_weight_by_subject(&spec, &proposal.approvals) < u32::from(spec.quorum.get()) {
+        store_multisig_proposal_state(state_transaction, &proposal)?;
+        return store_multisig_approval_outcome(
+            state_transaction,
+            &instruction.account,
+            &account,
+            &instruction.proposal_id,
+            &instruction.instructions_hash,
+            MultisigApprovalOutcomeStatusV1::NotExecuted,
+        );
+    }
+    crate::validation_fee::enforce_deferred_instruction_list(
+        &account,
+        &proposal.instructions,
         state_transaction,
-        &multisig_account,
-        &instructions_hash,
-    ) {
-        Ok(proposal) => proposal,
-        Err(ValidationFail::QueryFailed(QueryExecutionFail::NotFound)) => {
-            store_multisig_approval_outcome(
-                state_transaction,
-                &instruction.account,
-                &multisig_account,
-                &instructions_hash,
-                MultisigApprovalOutcomeStatusV1::NotExecuted,
-            )?;
-            let log = Log::new(
-                Level::INFO,
-                format!(
-                    "multisig proposal expired:\naccount: {multisig_account}\ninstructions hash: {instructions_hash}"
-                ),
-            );
-            return log
-                .execute(&multisig_account, state_transaction)
-                .map_err(ValidationFail::InstructionFailed);
+    )
+    .map_err(|reason| ValidationFail::NotPermitted(reason.to_string()))?;
+    let execution_id = (account.clone(), instruction.proposal_id);
+    begin_multisig_deferred_execution(
+        &mut state_transaction.multisig_deferred_execution_stack,
+        &execution_id,
+    )?;
+    let executor = state_transaction.world.executor.clone();
+    let result = (|| {
+        maybe_store_terminal_proposal_state(
+            state_transaction,
+            &proposal,
+            MultisigProposalTerminalStatus::Finalized,
+            &instruction.account,
+        )?;
+        prune_down(state_transaction, &account, &instruction.proposal_id)?;
+        for inner in proposal.instructions {
+            executor.execute_instruction(state_transaction, &account, inner)?;
         }
-        Err(error) => return Err(error),
-    };
-    if let Some(true) = proposal_state.is_relayed {
         store_multisig_approval_outcome(
             state_transaction,
             &instruction.account,
-            &multisig_account,
-            &instructions_hash,
-            MultisigApprovalOutcomeStatusV1::NotExecuted,
-        )?;
-        return Ok(());
-    }
-    upsert_subject_approval(&mut proposal_state.approvals, approver);
-    let approved_weight = approved_weight_by_subject(&spec, &proposal_state.approvals);
-    let is_authenticated = approved_weight >= u32::from(spec.quorum.get());
-    iroha_logger::info!(
-        multisig_account = %multisig_account,
-        instructions_hash = %instructions_hash,
-        approved_weight,
-        quorum = u32::from(spec.quorum.get()),
-        is_authenticated,
-        "multisig approval evaluated quorum"
-    );
-    if !is_authenticated {
-        iroha_logger::info!(
-            multisig_account = %multisig_account,
-            instructions_hash = %instructions_hash,
-            approvals = proposal_state.approvals.len(),
-            "multisig approval storing updated proposal state"
-        );
-        store_multisig_proposal_state(state_transaction, &proposal_state)?;
-        store_multisig_approval_outcome(
-            state_transaction,
-            &instruction.account,
-            &multisig_account,
-            &instructions_hash,
-            MultisigApprovalOutcomeStatusV1::NotExecuted,
-        )?;
-        iroha_logger::info!(
-            multisig_account = %multisig_account,
-            instructions_hash = %instructions_hash,
-            "multisig approval stored updated proposal state"
-        );
-        return Ok(());
-    }
-    if is_authenticated {
-        crate::validation_fee::enforce_deferred_instruction_list(
-            &multisig_account,
-            proposal_state.instructions.as_slice(),
-            state_transaction,
+            &account,
+            &instruction.proposal_id,
+            &instruction.instructions_hash,
+            MultisigApprovalOutcomeStatusV1::Executed,
         )
-        .map_err(|reason| ValidationFail::NotPermitted(reason.to_string()))?;
-        let execution_id = (multisig_account.clone(), instructions_hash);
-        begin_multisig_deferred_execution(
-            &mut state_transaction.multisig_deferred_execution_stack,
-            &execution_id,
-        )?;
-        let executor = state_transaction.world.executor.clone();
-        let execution_result = (|| {
-            match proposal_state.is_relayed {
-                None => {
-                    iroha_logger::info!(
-                        multisig_account = %multisig_account,
-                        instructions_hash = %instructions_hash,
-                        "multisig approval pruning proposal tree"
-                    );
-                    maybe_store_terminal_proposal_state(
-                        state_transaction,
-                        &proposal_state,
-                        MultisigProposalTerminalStatus::Finalized,
-                        &instruction.account,
-                    )?;
-                    prune_down(state_transaction, &multisig_account, &instructions_hash)?;
-                    iroha_logger::info!(
-                        multisig_account = %multisig_account,
-                        instructions_hash = %instructions_hash,
-                        "multisig approval pruned proposal tree"
-                    );
-                }
-                Some(false) => {
-                    proposal_state.is_relayed = Some(true);
-                    maybe_store_relayed_proposal_execution_state(
-                        state_transaction,
-                        &proposal_state,
-                        &instruction.account,
-                    )?;
-                    store_multisig_proposal_state(state_transaction, &proposal_state)?;
-                }
-                _ => unreachable!("proposal_state.is_relayed checked above"),
-            }
-            for instruction in proposal_state.instructions {
-                let instruction_debug = format!("{instruction:?}");
-                iroha_logger::info!(
-                    multisig_account = %multisig_account,
-                    instructions_hash = %instructions_hash,
-                    approver = %authority,
-                    instruction = %instruction_debug,
-                    "multisig approval executing authenticated instruction"
-                );
-                if let Err(err) =
-                    executor.execute_instruction(state_transaction, &multisig_account, instruction)
-                {
-                    iroha_logger::error!(
-                        multisig_account = %multisig_account,
-                        instructions_hash = %instructions_hash,
-                        approver = %authority,
-                        instruction = %instruction_debug,
-                        error = ?err,
-                        "multisig approval authenticated instruction failed"
-                    );
-                    return Err(err);
-                }
-                iroha_logger::info!(
-                    multisig_account = %multisig_account,
-                    instructions_hash = %instructions_hash,
-                    approver = %authority,
-                    "multisig approval finished authenticated instruction"
-                );
-            }
-            store_multisig_approval_outcome(
-                state_transaction,
-                &instruction.account,
-                &multisig_account,
-                &instructions_hash,
-                MultisigApprovalOutcomeStatusV1::Executed,
-            )
-        })();
-        finish_multisig_deferred_execution(
-            &mut state_transaction.multisig_deferred_execution_stack,
-            &execution_id,
-        );
-        execution_result?;
-    }
-    Ok(())
+    })();
+    finish_multisig_deferred_execution(
+        &mut state_transaction.multisig_deferred_execution_stack,
+        &execution_id,
+    );
+    result
 }
 fn canceler_is_authorized(multisig_account: &AccountId, canceler: &AccountId) -> bool {
     canceler.subject_id() == multisig_account.subject_id()
@@ -2239,23 +1916,44 @@ fn execute_cancel(
 ) -> Result<(), ValidationFail> {
     let canceler = authority.clone();
     let multisig_account = resolve_signatory_account(state_transaction, &instruction.account)?;
-    let instructions_hash = instruction.instructions_hash;
+    if multisig_account != instruction.account {
+        return Err(ValidationFail::NotPermitted(
+            "multisig occurrence account cannot remap across controller changes".into(),
+        ));
+    }
+    let proposal_id = instruction.proposal_id;
     if !canceler_is_authorized(&multisig_account, &canceler) {
         return Err(ValidationFail::NotPermitted(
             "multisig cancel must execute as the multisig account".to_owned(),
         ));
     }
+    let target = proposal_state(state_transaction, &multisig_account, &proposal_id)?;
+    if target.instructions_hash != instruction.instructions_hash {
+        return Err(invalid_proposal_binding());
+    }
+    // Cancellation participates in quorum as its own occurrence. A cancellation
+    // occurrence cannot itself be canceled; inspect before expiry traversal or writes.
+    for inner in &target.instructions {
+        if matches!(
+            proposal_instruction_attempt(inner)
+                .map_err(|error| retain_multisig_read_attempt(state_transaction, error))?,
+            Some(MultisigInstructionBox::Cancel(_))
+        ) {
+            return Err(ValidationFail::NotPermitted(
+                "a multisig cancellation proposal cannot target another cancellation proposal"
+                    .into(),
+            ));
+        }
+    }
     prune_expired(
         state_transaction,
         &multisig_account,
-        &instructions_hash,
+        &proposal_id,
         &instruction.account,
     )?;
-    let proposal_state = proposal_state(state_transaction, &multisig_account, &instructions_hash)?;
-    if let Some(true) = proposal_state.is_relayed {
-        return Err(ValidationFail::NotPermitted(
-            "cannot cancel an executed relayed approval".to_owned(),
-        ));
+    let proposal_state = proposal_state(state_transaction, &multisig_account, &proposal_id)?;
+    if proposal_state.instructions_hash != instruction.instructions_hash {
+        return Err(invalid_proposal_binding());
     }
     maybe_store_terminal_proposal_state(
         state_transaction,
@@ -2263,7 +1961,7 @@ fn execute_cancel(
         MultisigProposalTerminalStatus::Canceled,
         &instruction.account,
     )?;
-    prune_down(state_transaction, &multisig_account, &instructions_hash)
+    prune_down(state_transaction, &multisig_account, &proposal_id)
 }
 fn execute_invalidate_outstanding(
     state_transaction: &mut StateTransaction<'_, '_>,
@@ -2279,53 +1977,7 @@ fn execute_invalidate_outstanding(
     }
     invalidate_outstanding_proposals(state_transaction, &multisig_account).map(|_| ())
 }
-fn deploy_relayer(
-    state_transaction: &mut StateTransaction<'_, '_>,
-    relayer: &AccountId,
-    relay: &MultisigApprove,
-    now_ms: u64,
-    parent_expires_at_ms: u64,
-) -> Result<(), ValidationFail> {
-    let spec = multisig_spec(state_transaction, relayer)?;
-    let relay_expires_at_ms =
-        capped_relay_expiry(now_ms, parent_expires_at_ms, spec.transaction_ttl_ms.get());
-    let relay_hash = HashOf::new(&vec![InstructionBox::from(relay.clone())]);
-    let sub_relay = MultisigApprove::new(relayer.clone(), relay_hash);
-    for signatory in resolved_signatory_accounts(state_transaction, &spec)? {
-        if is_multisig(state_transaction, &signatory)? {
-            deploy_relayer(
-                state_transaction,
-                &signatory,
-                &sub_relay,
-                now_ms,
-                relay_expires_at_ms,
-            )?;
-        }
-    }
-    let relay_value = MultisigProposalValue::new(
-        vec![InstructionBox::from(relay.clone())],
-        now_ms,
-        relay_expires_at_ms,
-        BTreeSet::new(),
-        Some(false),
-    );
-    store_multisig_proposal_state(
-        state_transaction,
-        &MultisigProposalState::new(
-            relayer.clone(),
-            relay_hash,
-            relay_value.instructions,
-            relay_value.proposed_at_ms,
-            relay_value.expires_at_ms,
-            relay_value.approvals,
-            relay_value.is_relayed,
-        ),
-    )
-}
-fn capped_relay_expiry(now_ms: u64, parent_expires_at_ms: u64, relayer_ttl_ms: u64) -> u64 {
-    let local_expiry = now_ms.saturating_add(relayer_ttl_ms);
-    local_expiry.min(parent_expires_at_ms)
-}
+
 fn begin_multisig_deferred_execution(
     execution_stack: &mut Vec<MultisigDeferredExecutionId>,
     execution_id: &MultisigDeferredExecutionId,
@@ -2351,13 +2003,13 @@ fn finish_multisig_deferred_execution(
 fn prune_expired(
     state_transaction: &mut StateTransaction<'_, '_>,
     multisig_account: &AccountId,
-    instructions_hash: &HashOf<Vec<InstructionBox>>,
+    proposal_id: &MultisigProposalId,
     entrypoint_account: &AccountId,
 ) -> Result<(), ValidationFail> {
     prune_expired_with_guard(
         state_transaction,
         multisig_account,
-        instructions_hash,
+        proposal_id,
         entrypoint_account,
         0,
         &mut BTreeSet::new(),
@@ -2366,7 +2018,7 @@ fn prune_expired(
 fn prune_expired_with_guard(
     state_transaction: &mut StateTransaction<'_, '_>,
     multisig_account: &AccountId,
-    instructions_hash: &HashOf<Vec<InstructionBox>>,
+    proposal_id: &MultisigProposalId,
     entrypoint_account: &AccountId,
     depth: usize,
     active_path: &mut BTreeSet<MultisigDeferredExecutionId>,
@@ -2374,10 +2026,10 @@ fn prune_expired_with_guard(
     if depth >= MAX_MULTISIG_DEFERRED_EXECUTION_DEPTH {
         return Err(ValidationFail::TooComplex);
     }
-    let proposal_state = proposal_state(state_transaction, multisig_account, instructions_hash)?;
+    let proposal_state = proposal_state(state_transaction, multisig_account, proposal_id)?;
     let execution_id = (
         proposal_state.multisig_account_id.clone(),
-        proposal_state.instructions_hash,
+        proposal_state.proposal_id,
     );
     if !active_path.insert(execution_id.clone()) {
         return Err(ValidationFail::NotPermitted(
@@ -2396,7 +2048,7 @@ fn prune_expired_with_guard(
                 prune_expired_with_guard(
                     state_transaction,
                     &approve.account,
-                    &approve.instructions_hash,
+                    &approve.proposal_id,
                     &approve.account,
                     depth.saturating_add(1),
                     active_path,
@@ -2409,33 +2061,20 @@ fn prune_expired_with_guard(
             MultisigProposalTerminalStatus::Expired,
             entrypoint_account,
         )?;
-        prune_down(state_transaction, multisig_account, instructions_hash)
+        prune_down(state_transaction, multisig_account, proposal_id)
     })();
     active_path.remove(&execution_id);
     result
 }
 fn prune_down(
     state_transaction: &mut StateTransaction<'_, '_>,
-    multisig_account: &AccountId,
-    instructions_hash: &HashOf<Vec<InstructionBox>>,
+    account: &AccountId,
+    proposal_id: &MultisigProposalId,
 ) -> Result<(), ValidationFail> {
-    let spec = multisig_spec(state_transaction, multisig_account)?;
     state_transaction
         .world
         .smart_contract_state
-        .remove(multisig_proposal_state_key(
-            multisig_account,
-            instructions_hash,
-        ));
-    for signatory in resolved_signatory_accounts(state_transaction, &spec)? {
-        let relay_hash = {
-            let relay = MultisigApprove::new(multisig_account.clone(), *instructions_hash);
-            HashOf::new(&vec![InstructionBox::from(relay)])
-        };
-        if is_multisig(state_transaction, &signatory)? {
-            prune_down(state_transaction, &signatory, &relay_hash)?;
-        }
-    }
+        .remove(multisig_proposal_state_key(account, proposal_id));
     Ok(())
 }
 fn validate_registration(
@@ -2905,24 +2544,36 @@ fn store_multisig_proposal_state(
     state_transaction: &mut StateTransaction<'_, '_>,
     proposal_state: &MultisigProposalState,
 ) -> Result<(), ValidationFail> {
-    let bytes = norito::to_bytes(proposal_state).map_err(multisig_state_encode_error)?;
-    state_transaction.world.smart_contract_state.insert(
-        multisig_proposal_state_key(
-            &proposal_state.multisig_account_id,
-            &proposal_state.instructions_hash,
-        ),
-        bytes,
+    let key = multisig_proposal_state_key(
+        &proposal_state.multisig_account_id,
+        &proposal_state.proposal_id,
     );
+    if let Some(previous) = state_transaction.world.smart_contract_state.get(&key) {
+        let previous = decode_proposal_state_at_key(&key, previous)
+            .map_err(|error| retain_multisig_read_attempt(state_transaction, error))?;
+        let mut original = previous.clone();
+        original.approvals.clone_from(&proposal_state.approvals);
+        if original != *proposal_state || !previous.approvals.is_subset(&proposal_state.approvals) {
+            return Err(invalid_proposal_binding());
+        }
+    }
+    let bytes = norito::to_bytes(proposal_state).map_err(multisig_state_encode_error)?;
+    state_transaction
+        .world
+        .smart_contract_state
+        .insert(key, bytes);
     Ok(())
 }
 fn store_multisig_proposal_terminal_state(
     state_transaction: &mut StateTransaction<'_, '_>,
     terminal_state: &MultisigProposalTerminalState,
 ) -> Result<(), ValidationFail> {
+    validate_terminal_occurrence(terminal_state)
+        .map_err(|error| retain_multisig_read_attempt(state_transaction, error))?;
     let bytes = norito::to_bytes(terminal_state).map_err(multisig_state_encode_error)?;
     let key = multisig_proposal_terminal_state_key(
         &terminal_state.multisig_account_id,
-        &terminal_state.instructions_hash,
+        &terminal_state.proposal_id,
     );
     if let Some(existing) = state_transaction.world.smart_contract_state.get(&key) {
         if existing != &bytes {
@@ -2962,7 +2613,7 @@ fn store_multisig_proposal_terminal_execution_state(
     let execution_key = multisig_proposal_terminal_execution_state_key(
         terminal_entrypoint_hash,
         entrypoint_account,
-        &terminal_state.instructions_hash,
+        &terminal_state.proposal_id,
     );
     if let Some(existing) = state_transaction
         .world
@@ -2986,6 +2637,7 @@ fn store_multisig_approval_outcome(
     state_transaction: &mut StateTransaction<'_, '_>,
     entrypoint_account: &AccountId,
     resolved_multisig_account: &AccountId,
+    proposal_id: &MultisigProposalId,
     instructions_hash: &HashOf<Vec<InstructionBox>>,
     status: MultisigApprovalOutcomeStatusV1,
 ) -> Result<(), ValidationFail> {
@@ -3000,6 +2652,7 @@ fn store_multisig_approval_outcome(
     let outcome = MultisigApprovalOutcomeV1::new(
         entrypoint_account.clone(),
         resolved_multisig_account.clone(),
+        *proposal_id,
         *instructions_hash,
         status,
         state_transaction.block_height(),
@@ -3007,7 +2660,7 @@ fn store_multisig_approval_outcome(
     );
     let bytes = norito::to_bytes(&outcome).map_err(multisig_state_encode_error)?;
     let outcome_key =
-        multisig_approval_outcome_state_key(entrypoint_hash, entrypoint_account, instructions_hash);
+        multisig_approval_outcome_state_key(entrypoint_hash, entrypoint_account, proposal_id);
     if let Some(existing) = state_transaction
         .world
         .smart_contract_state
@@ -3029,9 +2682,9 @@ fn store_multisig_approval_outcome(
 fn proposal_state(
     state_transaction: &StateTransaction<'_, '_>,
     multisig_account: &AccountId,
-    instructions_hash: &HashOf<Vec<InstructionBox>>,
+    proposal_id: &MultisigProposalId,
 ) -> Result<MultisigProposalState, ValidationFail> {
-    proposal_state_attempt(state_transaction, multisig_account, instructions_hash)
+    proposal_state_attempt(state_transaction, multisig_account, proposal_id)
         .map_err(|error| retain_multisig_read_attempt(state_transaction, error))
 }
 
@@ -3057,15 +2710,16 @@ fn multisig_decode_attempt(error: norito::core::DecodeAttemptError) -> Attempt<V
 fn proposal_state_attempt(
     state_transaction: &StateTransaction<'_, '_>,
     multisig_account: &AccountId,
-    instructions_hash: &HashOf<Vec<InstructionBox>>,
+    proposal_id: &MultisigProposalId,
 ) -> Result<MultisigProposalState, Attempt<ValidationFail>> {
-    let resolved_account = resolve_signatory_account(state_transaction, multisig_account)?;
-    read_proposal_state(
-        &state_transaction.world,
-        &resolved_account,
-        instructions_hash,
-    )?
-    .ok_or_else(|| ValidationFail::QueryFailed(QueryExecutionFail::NotFound).into())
+    read_proposal_state(&state_transaction.world, multisig_account, proposal_id)?
+        .ok_or_else(|| Attempt::Rejected(ValidationFail::QueryFailed(QueryExecutionFail::NotFound)))
+        .and_then(|proposal| {
+            if proposal.network_id != state_transaction.network_id {
+                return Err(invalid_proposal_binding().into());
+            }
+            Ok(proposal)
+        })
 }
 
 /// Read the exact authenticated proposal used by execution and queue admission.
@@ -3075,15 +2729,14 @@ fn proposal_state_attempt(
 pub(crate) fn read_proposal_state<W: WorldReadOnly>(
     world: &W,
     account: &AccountId,
-    instructions_hash: &HashOf<Vec<InstructionBox>>,
+    proposal_id: &MultisigProposalId,
 ) -> Result<Option<MultisigProposalState>, Attempt<ValidationFail>> {
-    let key = multisig_proposal_state_key(account, instructions_hash);
+    let key = multisig_proposal_state_key(account, proposal_id);
     let Some(bytes) = world.smart_contract_state().get(&key) else {
         return Ok(None);
     };
     let proposal = decode_proposal_state_at_key(&key, bytes)?;
-    if proposal.multisig_account_id != *account || proposal.instructions_hash != *instructions_hash
-    {
+    if proposal.multisig_account_id != *account || proposal.proposal_id != *proposal_id {
         return Err(invalid_proposal_binding().into());
     }
     Ok(Some(proposal))
@@ -3091,7 +2744,7 @@ pub(crate) fn read_proposal_state<W: WorldReadOnly>(
 
 fn invalid_proposal_binding() -> ValidationFail {
     ValidationFail::QueryFailed(QueryExecutionFail::Conversion(
-        "native multisig proposal does not match its exact account and instruction-hash key or approved body"
+        "native multisig proposal does not match its exact network, account, occurrence key or approved body"
             .into(),
     ))
 }
@@ -3119,23 +2772,87 @@ fn decode_proposal_state_at_key(
     })?;
     if !cfg!(all(test, sumeragi_core_mutation = "HC68"))
         && (proposal.instructions_hash != hash
-            || *key != multisig_proposal_state_key(&proposal.multisig_account_id, &hash))
+            || proposal.expires_at_ms < proposal.proposed_at_ms
+            || proposal.transaction_ttl_ms.is_some_and(|ttl| {
+                proposal.proposed_at_ms.checked_add(ttl.get()) != Some(proposal.expires_at_ms)
+            })
+            || proposal.proposal_id
+                != MultisigProposalId::derive(
+                    &proposal.network_id,
+                    &proposal.multisig_account_id,
+                    &proposal.proposal_nonce,
+                )
+            || *key
+                != multisig_proposal_state_key(
+                    &proposal.multisig_account_id,
+                    &proposal.proposal_id,
+                ))
     {
         return Err(invalid_proposal_binding().into());
     }
     Ok(proposal)
 }
 
+fn validate_terminal_occurrence(
+    terminal: &MultisigProposalTerminalState,
+) -> Result<(), Attempt<ValidationFail>> {
+    let value = &terminal.proposal;
+    let hash = HashOf::try_new(&value.instructions)
+        .map_err(|error| multisig_instruction_decode_attempt(error, multisig_state_encode_error))?;
+    if terminal.proposal_id != value.proposal_id
+        || terminal.proposal_id
+            != MultisigProposalId::derive(
+                &value.network_id,
+                &terminal.multisig_account_id,
+                &value.proposal_nonce,
+            )
+        || terminal.instructions_hash != hash
+        || value.expires_at_ms < value.proposed_at_ms
+        || value.transaction_ttl_ms.is_some_and(|ttl| {
+            value.proposed_at_ms.checked_add(ttl.get()) != Some(value.expires_at_ms)
+        })
+    {
+        return Err(invalid_proposal_binding().into());
+    }
+    Ok(())
+}
+
 /// Validate retained native proposal rows before a restored World can become visible.
 pub(crate) fn validate_persisted_proposals<W: WorldReadOnly>(
     world: &W,
+    expected_network: Option<&NetworkId>,
 ) -> Result<(), Attempt<ValidationFail>> {
     let prefix: StatePath = "multisig/proposal/".parse().expect("constant state prefix");
     for (key, bytes) in world.smart_contract_state().range(prefix.clone()..) {
         if !key.as_ref().starts_with(prefix.as_ref()) {
             break;
         }
-        decode_proposal_state_at_key(key, bytes)?;
+        let proposal = decode_proposal_state_at_key(key, bytes)?;
+        if expected_network.is_some_and(|network| *network != proposal.network_id) {
+            return Err(invalid_proposal_binding().into());
+        }
+    }
+    let prefix: StatePath = "multisig/proposal-terminal/"
+        .parse()
+        .expect("constant terminal prefix");
+    for (key, bytes) in world.smart_contract_state().range(prefix.clone()..) {
+        if !key.as_ref().starts_with(prefix.as_ref()) {
+            break;
+        }
+        let terminal = norito::core::classify_decode_attempt(|| {
+            norito::decode_from_bytes::<MultisigProposalTerminalState>(bytes)
+        })
+        .map_err(multisig_decode_attempt)?;
+        validate_terminal_occurrence(&terminal)?;
+        if expected_network.is_some_and(|network| *network != terminal.proposal.network_id)
+            || *key
+                != multisig_proposal_terminal_state_key(
+                    &terminal.multisig_account_id,
+                    &terminal.proposal_id,
+                )
+        {
+            return Err(invalid_proposal_binding().into());
+        }
     }
     Ok(())
 }
@@ -3157,39 +2874,27 @@ fn proposal_instruction_attempt(
     }
 }
 fn proposal_state_value(proposal_state: &MultisigProposalState) -> MultisigProposalValue {
-    MultisigProposalValue::new(
-        proposal_state.instructions.clone(),
-        proposal_state.proposed_at_ms,
-        proposal_state.expires_at_ms,
-        proposal_state.approvals.clone(),
-        proposal_state.is_relayed,
-    )
+    MultisigProposalValue {
+        network_id: proposal_state.network_id,
+        proposal_nonce: proposal_state.proposal_nonce,
+        proposal_id: proposal_state.proposal_id,
+        transaction_ttl_ms: proposal_state.transaction_ttl_ms,
+        instructions: proposal_state.instructions.clone(),
+        proposed_at_ms: proposal_state.proposed_at_ms,
+        expires_at_ms: proposal_state.expires_at_ms,
+        approvals: proposal_state.approvals.clone(),
+    }
 }
-fn proposal_is_cancel_wrapper(
-    proposal_state: &MultisigProposalState,
-) -> Result<bool, Attempt<ValidationFail>> {
-    let [instruction] = proposal_state.instructions.as_slice() else {
-        return Ok(false);
-    };
-    Ok(matches!(
-        proposal_instruction_attempt(instruction)?,
-        Some(MultisigInstructionBox::Cancel(_))
-    ))
-}
+
 fn maybe_store_terminal_proposal_state(
     state_transaction: &mut StateTransaction<'_, '_>,
     proposal_state: &MultisigProposalState,
     status: MultisigProposalTerminalStatus,
     entrypoint_account: &AccountId,
 ) -> Result<(), ValidationFail> {
-    if proposal_state.is_relayed.is_some()
-        || proposal_is_cancel_wrapper(proposal_state)
-            .map_err(|error| retain_multisig_read_attempt(state_transaction, error))?
-    {
-        return Ok(());
-    }
     let terminal_state = MultisigProposalTerminalState::new(
         proposal_state.multisig_account_id.clone(),
+        proposal_state.proposal_id,
         proposal_state.instructions_hash,
         proposal_state_value(proposal_state),
         status,
@@ -3202,63 +2907,23 @@ fn maybe_store_terminal_proposal_state(
     )?;
     store_multisig_proposal_terminal_state(state_transaction, &terminal_state)
 }
-fn maybe_store_relayed_proposal_execution_state(
-    state_transaction: &mut StateTransaction<'_, '_>,
-    proposal_state: &MultisigProposalState,
-    entrypoint_account: &AccountId,
+
+fn require_no_outstanding_proposals(
+    state_transaction: &StateTransaction<'_, '_>,
+    account: &AccountId,
 ) -> Result<(), ValidationFail> {
-    debug_assert_eq!(proposal_state.is_relayed, Some(true));
-    let terminal_state = MultisigProposalTerminalState::new(
-        proposal_state.multisig_account_id.clone(),
-        proposal_state.instructions_hash,
-        proposal_state_value(proposal_state),
-        MultisigProposalTerminalStatus::Finalized,
-        now_ms(state_transaction),
-    );
-    store_multisig_proposal_terminal_execution_state(
-        state_transaction,
-        &terminal_state,
-        entrypoint_account,
-    )
-}
-fn move_multisig_proposals(
-    state_transaction: &mut StateTransaction<'_, '_>,
-    old_account: &AccountId,
-    new_account: &AccountId,
-) -> Result<(), ValidationFail> {
-    let prefix = multisig_proposal_state_prefix(old_account);
-    let prefix_literal = prefix.as_ref().to_owned();
-    let mut entries = Vec::new();
-    for (key, value) in state_transaction
+    let prefix = multisig_proposal_state_prefix(account);
+    if state_transaction
         .world
         .smart_contract_state
         .range(prefix.clone()..)
+        .next()
+        .is_some_and(|(key, _)| key.as_ref().starts_with(prefix.as_ref()))
     {
-        if !key.as_ref().starts_with(prefix_literal.as_str()) {
-            break;
-        }
-        let state = decode_proposal_state_at_key(key, value)
-            .map_err(|error| retain_multisig_read_attempt(state_transaction, error))?;
-        let new_key = multisig_proposal_state_key(new_account, &state.instructions_hash);
-        if state_transaction
-            .world
-            .smart_contract_state
-            .get(&new_key)
-            .is_some()
-        {
-            return Err(ValidationFail::NotPermitted(
-                "multisig rekey cannot overwrite an existing destination proposal".into(),
-            ));
-        }
-        entries.push((key.clone(), state));
+        return Err(ValidationFail::NotPermitted(
+            "controller change requires outstanding multisig proposal invalidation".into(),
+        ));
     }
-    for (old_key, mut proposal_state) in entries {
-        proposal_state.multisig_account_id = new_account.clone();
-        store_multisig_proposal_state(state_transaction, &proposal_state)?;
-        state_transaction.world.smart_contract_state.remove(old_key);
-    }
-    // Terminal records retain their original policy identity and approvals.
-    // Rekey cannot rewrite history or fabricate a new execution witness.
     Ok(())
 }
 /// Cancel every outstanding native multisig proposal owned by `account`.
@@ -3267,13 +2932,12 @@ fn move_multisig_proposals(
 /// [`MultisigInvalidateOutstanding`] exposes the same behavior as a deliberate
 /// owner-authorized policy-change instruction. When both instructions share a
 /// state transaction, rekey can never migrate a still-actionable proposal to
-/// the replacement signer set. The returned hashes are stable terminal
-/// evidence. Executed relays (`is_relayed == Some(true)`) are historical rather
-/// than outstanding and are intentionally left for the ordinary rekey mover.
+/// the replacement signer set. The returned occurrence IDs are stable terminal
+/// evidence. Historical terminal occurrences retain their original controller identity.
 pub(crate) fn invalidate_outstanding_proposals(
     state_transaction: &mut StateTransaction<'_, '_>,
     account: &AccountId,
-) -> Result<Vec<HashOf<Vec<InstructionBox>>>, ValidationFail> {
+) -> Result<Vec<MultisigProposalId>, ValidationFail> {
     let prefix = multisig_proposal_state_prefix(account);
     let prefix_literal = prefix.as_ref().to_owned();
     let mut proposals = Vec::new();
@@ -3287,25 +2951,11 @@ pub(crate) fn invalidate_outstanding_proposals(
         }
         let state = decode_proposal_state_at_key(key, value)
             .map_err(|error| retain_multisig_read_attempt(state_transaction, error))?;
-        if state.is_relayed != Some(true) {
-            proposals.push(state);
-        }
+        proposals.push(state);
     }
-    proposals.sort_by_key(|proposal| proposal.instructions_hash);
+    proposals.sort_by_key(|proposal| proposal.proposal_id);
     let mut invalidated = Vec::with_capacity(proposals.len());
     for proposal in proposals {
-        let proposal_key =
-            multisig_proposal_state_key(&proposal.multisig_account_id, &proposal.instructions_hash);
-        if state_transaction
-            .world
-            .smart_contract_state
-            .get(&proposal_key)
-            .is_none()
-        {
-            // A prior top-level cancellation may already have pruned this
-            // nested relay. Its parent hash is the authoritative evidence.
-            continue;
-        }
         let terminal_status = if now_ms(state_transaction) >= proposal.expires_at_ms {
             MultisigProposalTerminalStatus::Expired
         } else {
@@ -3313,6 +2963,7 @@ pub(crate) fn invalidate_outstanding_proposals(
         };
         let terminal_state = MultisigProposalTerminalState::new(
             proposal.multisig_account_id.clone(),
+            proposal.proposal_id,
             proposal.instructions_hash,
             proposal_state_value(&proposal),
             terminal_status,
@@ -3324,11 +2975,11 @@ pub(crate) fn invalidate_outstanding_proposals(
             account,
         )?;
         store_multisig_proposal_terminal_state(state_transaction, &terminal_state)?;
-        invalidated.push(proposal.instructions_hash);
+        invalidated.push(proposal.proposal_id);
         prune_down(
             state_transaction,
             &proposal.multisig_account_id,
-            &proposal.instructions_hash,
+            &proposal.proposal_id,
         )?;
     }
     Ok(invalidated)
@@ -3337,16 +2988,19 @@ pub(crate) fn invalidate_outstanding_proposals(
 fn proposal_value(
     state_transaction: &StateTransaction<'_, '_>,
     multisig_account: &AccountId,
-    instructions_hash: &HashOf<Vec<InstructionBox>>,
+    proposal_id: &MultisigProposalId,
 ) -> Result<MultisigProposalValue, ValidationFail> {
-    let proposal_state = proposal_state(state_transaction, multisig_account, instructions_hash)?;
-    Ok(MultisigProposalValue::new(
-        proposal_state.instructions,
-        proposal_state.proposed_at_ms,
-        proposal_state.expires_at_ms,
-        proposal_state.approvals,
-        proposal_state.is_relayed,
-    ))
+    let proposal_state = proposal_state(state_transaction, multisig_account, proposal_id)?;
+    Ok(MultisigProposalValue {
+        network_id: proposal_state.network_id,
+        proposal_nonce: proposal_state.proposal_nonce,
+        proposal_id: proposal_state.proposal_id,
+        transaction_ttl_ms: proposal_state.transaction_ttl_ms,
+        instructions: proposal_state.instructions,
+        proposed_at_ms: proposal_state.proposed_at_ms,
+        expires_at_ms: proposal_state.expires_at_ms,
+        approvals: proposal_state.approvals,
+    })
 }
 fn now_ms(state_transaction: &StateTransaction<'_, '_>) -> u64 {
     state_transaction
@@ -3401,6 +3055,7 @@ mod tests {
         sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
     };
     use iroha_crypto::{Algorithm, Hash, KeyPair};
+    use iroha_data_model::prelude::{Level, Log};
     use iroha_data_model::{
         IntoKeyValue, Registrable,
         account::{
@@ -3430,6 +3085,7 @@ mod tests {
         prelude::{Domain, InstructionBox, Json, Quantity, Register},
         transaction::{Executable, IvmBytecode},
     };
+    use iroha_executor_data_model::isi::multisig::MultisigProposalNonce;
     use iroha_executor_data_model::isi::multisig::{
         DEFAULT_MULTISIG_TTL_MS, MultisigApprove, MultisigCancel, MultisigPropose,
         MultisigRegister, MultisigSpec,
@@ -3449,10 +3105,22 @@ mod tests {
     fn new_account_id(key_pair: &KeyPair) -> AccountId {
         AccountId::new(key_pair.public_key().clone())
     }
+
+    fn test_nonce(hash: &HashOf<Vec<InstructionBox>>) -> MultisigProposalNonce {
+        MultisigProposalNonce::new(*hash.as_ref()).expect("nonzero test nonce")
+    }
+    fn test_id(
+        network: &iroha_data_model::NetworkId,
+        account: &AccountId,
+        hash: &HashOf<Vec<InstructionBox>>,
+    ) -> MultisigProposalId {
+        MultisigProposalId::derive(network, account, &test_nonce(hash))
+    }
     fn checked_keypair() -> KeyPair {
         KeyPair::try_random().expect("multisig ISI fixture key generation should succeed")
     }
     include!("multisig/core_execution_tests.rs");
+    include!("multisig/tests/occurrence.rs");
     fn runtime_state(
         world: World,
         chain_id: ChainId,
@@ -3807,6 +3475,7 @@ mod tests {
         block.admit_fastpq_source_for_testing(proposal_call);
         block.admit_fastpq_source_for_testing(approval_call);
         let mut tx = block.transaction_for_callback_testing();
+        let network_id = tx.network_id;
         assert_eq!(
             crate::sns::resolve_active_dataspace_id_by_alias(
                 tx.world(),
@@ -3941,14 +3610,23 @@ mod tests {
         execute_propose(
             &mut tx,
             &signer1_id,
-            &MultisigPropose::new(multisig_id.clone(), instructions, None),
+            &MultisigPropose::new(
+                multisig_id.clone(),
+                test_nonce(&HashOf::new(&instructions)),
+                instructions,
+                None,
+            ),
         )
         .expect("signer1 proposes FI registration batch");
         tx.tx_call_hash = Some(approval_call);
         execute_approve(
             &mut tx,
             &signer2_id,
-            &MultisigApprove::new(multisig_id.clone(), instructions_hash),
+            &MultisigApprove::new(
+                multisig_id.clone(),
+                test_id(&network_id, &multisig_id.clone(), &instructions_hash),
+                instructions_hash,
+            ),
         )
         .expect("signer2 approval executes FI registration batch");
         let lease = get_name_record(
@@ -4302,169 +3980,6 @@ mod tests {
         );
     }
     #[test]
-    fn add_signatory_keeps_alias_record_and_pending_proposal_approvable() {
-        tx!(
-            state,
-            block,
-            tx,
-            World::new(),
-            "multisig-add-signatory-alias-continuity"
-        );
-        let domain_id: iroha_model_base::domain::DomainId =
-            DomainId::try_new("wonderland", "universal").unwrap();
-        let owner_key = checked_keypair();
-        let owner_id = new_account_id(&owner_key);
-        domain!(tx, owner_id, domain_id, "domain registration");
-        account!(tx, owner_id, domain_id, owner_id, "register owner");
-        let signer1 = checked_keypair();
-        let signer2 = checked_keypair();
-        let signer3 = checked_keypair();
-        let signer1_id = new_account_id(&signer1);
-        let signer2_id = new_account_id(&signer2);
-        let signer3_id = new_account_id(&signer3);
-        for signer_id in [&signer1_id, &signer2_id, &signer3_id] {
-            register_account_in_domain(
-                &mut tx,
-                &owner_id,
-                &domain_id,
-                signer_id,
-                "register signer",
-            );
-        }
-        let spec = spec(
-            BTreeMap::from([(signer1_id.clone(), 1), (signer2_id.clone(), 1)]),
-            2,
-        );
-        let multisig_id = msig!(tx, owner_id, domain_id, spec, "register multisig account");
-        let alias = bind_account_label(&mut tx, &owner_id, &multisig_id, &domain_id, "cbdc");
-        let instructions = Vec::<InstructionBox>::new();
-        let instructions_hash = HashOf::new(&instructions);
-        execute_propose(
-            &mut tx,
-            &signer1_id,
-            &MultisigPropose::new(multisig_id.clone(), instructions, None),
-        )
-        .expect("initial propose");
-        AddSignatory::new(multisig_id.clone(), signer3.public_key().clone())
-            .execute(&owner_id, &mut tx)
-            .expect("add signatory");
-        let updated_spec = MultisigSpec {
-            signatories: BTreeMap::from([
-                (signer1_id.clone(), 1),
-                (signer2_id.clone(), 1),
-                (signer3_id.clone(), 1),
-            ]),
-            quorum: spec.quorum,
-            transaction_ttl_ms: spec.transaction_ttl_ms,
-        };
-        let updated_account =
-            AccountId::new_multisig(multisig_policy_from_spec(&updated_spec).expect("policy"));
-        let rekey_record = tx
-            .world
-            .account_rekey_records
-            .get(&alias)
-            .expect("alias rekey record");
-        assert_eq!(
-            rekey_record.active_account_id, updated_account,
-            "alias should resolve to the rekeyed multisig account"
-        );
-        assert_eq!(
-            rekey_record.previous_account_ids,
-            vec![multisig_id.clone()],
-            "rekey record should retain the prior concrete multisig account"
-        );
-        assert_eq!(
-            rekey_record.transition_provenance,
-            vec![AccountRekeyTransitionProvenance::AccountIdRekey],
-            "canonical multisig rekey must record trusted account-id provenance"
-        );
-        let lease = account_alias_lease_record(&tx, &alias);
-        assert_eq!(
-            lease.owner, updated_account,
-            "authoritative SNS ownership must follow the canonical multisig account id"
-        );
-        let old_address = iroha_data_model::account::AccountAddress::from_account_id(&multisig_id)
-            .expect("old multisig address");
-        let new_address =
-            iroha_data_model::account::AccountAddress::from_account_id(&updated_account)
-                .expect("updated multisig address");
-        assert!(
-            lease
-                .controllers
-                .iter()
-                .any(|controller| controller.account_address.as_ref() == Some(&new_address)),
-            "SNS owner controller must follow the canonical multisig account id"
-        );
-        assert!(
-            lease
-                .controllers
-                .iter()
-                .all(|controller| controller.account_address.as_ref() != Some(&old_address)),
-            "SNS controllers must not retain the obsolete multisig account id"
-        );
-        let proposal = proposal_value(&tx, &updated_account, &instructions_hash)
-            .expect("proposal should move to the rekeyed account");
-        assert_eq!(
-            proposal.approvals,
-            BTreeSet::from([signer1_id.clone()]),
-            "existing approvals should survive add-signatory rekey"
-        );
-        let approval_entrypoint_hash = Hash::prehashed([0xd1; Hash::LENGTH]);
-        tx.tx_call_hash = Some(approval_entrypoint_hash);
-        execute_approve(
-            &mut tx,
-            &signer2_id,
-            &MultisigApprove::new(updated_account.clone(), instructions_hash),
-        )
-        .expect("approval through rekeyed account");
-        let outcome_key = multisig_approval_outcome_state_key(
-            *approval_entrypoint_hash.as_ref(),
-            &updated_account,
-            &instructions_hash,
-        );
-        let outcome_bytes = tx
-            .world
-            .smart_contract_state
-            .get(&outcome_key)
-            .expect("rekeyed approval should leave an exact outcome");
-        let outcome = norito::decode_from_bytes::<MultisigApprovalOutcomeV1>(outcome_bytes)
-            .expect("rekeyed approval outcome should decode");
-        assert_eq!(outcome.entrypoint_account_id, updated_account);
-        assert_eq!(outcome.resolved_multisig_account_id, updated_account);
-        assert_eq!(outcome.status, MultisigApprovalOutcomeStatusV1::Executed);
-        let terminal_execution_key = multisig_proposal_terminal_execution_state_key(
-            *approval_entrypoint_hash.as_ref(),
-            &updated_account,
-            &instructions_hash,
-        );
-        let terminal_execution_bytes = tx
-            .world
-            .smart_contract_state
-            .get(&terminal_execution_key)
-            .expect("rekeyed finalization should use its signed lookup account");
-        let terminal_execution = norito::decode_from_bytes::<
-            MultisigProposalTerminalExecutionStateV1,
-        >(terminal_execution_bytes)
-        .expect("rekeyed terminal execution should decode");
-        assert_eq!(terminal_execution.entrypoint_account_id, updated_account);
-        assert_eq!(
-            terminal_execution.terminal.multisig_account_id,
-            updated_account
-        );
-        match proposal_value(&tx, &updated_account, &instructions_hash) {
-            Ok(proposal) => {
-                assert!(
-                    matches!(proposal.is_relayed, Some(true)),
-                    "executed proposal should be marked relayed when not pruned immediately"
-                );
-            }
-            Err(ValidationFail::QueryFailed(
-                QueryExecutionFail::Find(FindError::MetadataKey(_)) | QueryExecutionFail::NotFound,
-            )) => {}
-            Err(err) => panic!("unexpected proposal state after approval: {err:?}"),
-        }
-    }
-    #[test]
     fn add_signatory_materializes_missing_account() {
         tx!(
             state,
@@ -4563,104 +4078,6 @@ mod tests {
                 .any(|role| role == &signer_role),
             "multisig account should drop removed signatory role"
         );
-    }
-    #[test]
-    fn remove_signatory_keeps_alias_record_and_pending_proposal_approvable() {
-        tx!(
-            state,
-            block,
-            tx,
-            World::new(),
-            "multisig-remove-signatory-alias-continuity"
-        );
-        let domain_id: iroha_model_base::domain::DomainId =
-            DomainId::try_new("wonderland", "universal").unwrap();
-        let owner_key = checked_keypair();
-        let owner_id = new_account_id(&owner_key);
-        domain!(tx, owner_id, domain_id, "domain registration");
-        account!(tx, owner_id, domain_id, owner_id, "register owner");
-        let signer1 = checked_keypair();
-        let signer2 = checked_keypair();
-        let signer3 = checked_keypair();
-        let signer1_id = new_account_id(&signer1);
-        let signer2_id = new_account_id(&signer2);
-        let signer3_id = new_account_id(&signer3);
-        for signer_id in [&signer1_id, &signer2_id, &signer3_id] {
-            register_account_in_domain(
-                &mut tx,
-                &owner_id,
-                &domain_id,
-                signer_id,
-                "register signer",
-            );
-        }
-        let spec = spec(
-            BTreeMap::from([
-                (signer1_id.clone(), 1),
-                (signer2_id.clone(), 1),
-                (signer3_id.clone(), 1),
-            ]),
-            2,
-        );
-        let multisig_id = msig!(tx, owner_id, domain_id, spec, "register multisig account");
-        let alias = bind_account_label(&mut tx, &owner_id, &multisig_id, &domain_id, "cbdc");
-        let instructions = Vec::<InstructionBox>::new();
-        let instructions_hash = HashOf::new(&instructions);
-        execute_propose(
-            &mut tx,
-            &signer1_id,
-            &MultisigPropose::new(multisig_id.clone(), instructions, None),
-        )
-        .expect("initial propose");
-        RemoveSignatory::new(multisig_id.clone(), signer3.public_key().clone())
-            .execute(&owner_id, &mut tx)
-            .expect("remove signatory");
-        let updated_spec = MultisigSpec {
-            signatories: BTreeMap::from([(signer1_id.clone(), 1), (signer2_id.clone(), 1)]),
-            quorum: spec.quorum,
-            transaction_ttl_ms: spec.transaction_ttl_ms,
-        };
-        let updated_account =
-            AccountId::new_multisig(multisig_policy_from_spec(&updated_spec).expect("policy"));
-        let rekey_record = tx
-            .world
-            .account_rekey_records
-            .get(&alias)
-            .expect("alias rekey record");
-        assert_eq!(
-            rekey_record.active_account_id, updated_account,
-            "alias should resolve to the rekeyed multisig account"
-        );
-        assert_eq!(
-            rekey_record.previous_account_ids,
-            vec![multisig_id.clone()],
-            "rekey record should retain the prior concrete multisig account"
-        );
-        let proposal = proposal_value(&tx, &updated_account, &instructions_hash)
-            .expect("proposal should move to the rekeyed account");
-        assert_eq!(
-            proposal.approvals,
-            BTreeSet::from([signer1_id.clone()]),
-            "existing approvals should survive remove-signatory rekey"
-        );
-        execute_approve(
-            &mut tx,
-            &signer2_id,
-            &MultisigApprove::new(updated_account.clone(), instructions_hash),
-        )
-        .expect("approval through rekeyed account");
-        match proposal_value(&tx, &updated_account, &instructions_hash) {
-            Ok(proposal) => {
-                assert!(
-                    matches!(proposal.is_relayed, Some(true)),
-                    "executed proposal should be marked relayed when not pruned immediately"
-                );
-            }
-            Err(ValidationFail::QueryFailed(
-                QueryExecutionFail::Find(FindError::MetadataKey(_)) | QueryExecutionFail::NotFound,
-            )) => {}
-            Err(err) => panic!("unexpected proposal state after approval: {err:?}"),
-        }
     }
     #[test]
     fn set_account_quorum_updates_multisig_spec() {
@@ -4906,107 +4323,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn set_account_quorum_keeps_alias_record_and_pending_proposal_approvable() {
-        tx!(
-            state,
-            block,
-            tx,
-            World::new(),
-            "multisig-set-quorum-alias-continuity"
-        );
-        let domain_id: iroha_model_base::domain::DomainId =
-            DomainId::try_new("wonderland", "universal").unwrap();
-        let owner_key = checked_keypair();
-        let owner_id = new_account_id(&owner_key);
-        Register::domain(Domain::new(domain_id.clone()))
-            .execute(&owner_id, &mut tx)
-            .expect("domain registration");
-        account!(tx, owner_id, domain_id, owner_id, "register owner");
-        let signer1 = checked_keypair();
-        let signer2 = checked_keypair();
-        let signer3 = checked_keypair();
-        let signer1_id = new_account_id(&signer1);
-        let signer2_id = new_account_id(&signer2);
-        let signer3_id = new_account_id(&signer3);
-        for signer_id in [&signer1_id, &signer2_id, &signer3_id] {
-            register_account_in_domain(
-                &mut tx,
-                &owner_id,
-                &domain_id,
-                signer_id,
-                "register signer",
-            );
-        }
-        let spec = spec(
-            BTreeMap::from([
-                (signer1_id.clone(), 1),
-                (signer2_id.clone(), 1),
-                (signer3_id.clone(), 1),
-            ]),
-            3,
-        );
-        let multisig_id = msig!(tx, owner_id, domain_id, spec, "register multisig account");
-        let alias = bind_account_label(&mut tx, &owner_id, &multisig_id, &domain_id, "cbdc");
-        let instructions = Vec::<InstructionBox>::new();
-        let instructions_hash = HashOf::new(&instructions);
-        execute_propose(
-            &mut tx,
-            &signer1_id,
-            &MultisigPropose::new(multisig_id.clone(), instructions, None),
-        )
-        .expect("initial propose");
-        let new_quorum = NonZeroU16::new(2).unwrap();
-        SetAccountQuorum::new(multisig_id.clone(), new_quorum)
-            .execute(&owner_id, &mut tx)
-            .expect("set quorum");
-        let updated_spec = MultisigSpec {
-            signatories: spec.signatories.clone(),
-            quorum: new_quorum,
-            transaction_ttl_ms: spec.transaction_ttl_ms,
-        };
-        let updated_account =
-            AccountId::new_multisig(multisig_policy_from_spec(&updated_spec).expect("policy"));
-        let rekey_record = tx
-            .world
-            .account_rekey_records
-            .get(&alias)
-            .expect("alias rekey record");
-        assert_eq!(
-            rekey_record.active_account_id, updated_account,
-            "alias should resolve to the rekeyed multisig account"
-        );
-        assert_eq!(
-            rekey_record.previous_account_ids,
-            vec![multisig_id.clone()],
-            "rekey record should retain the prior concrete multisig account"
-        );
-        let proposal = proposal_value(&tx, &updated_account, &instructions_hash)
-            .expect("proposal should move to the rekeyed account");
-        assert_eq!(
-            proposal.approvals,
-            BTreeSet::from([signer1_id.clone()]),
-            "existing approvals should survive quorum-change rekey"
-        );
-        execute_approve(
-            &mut tx,
-            &signer2_id,
-            &MultisigApprove::new(updated_account.clone(), instructions_hash),
-        )
-        .expect("approval through rekeyed account");
-        match proposal_value(&tx, &updated_account, &instructions_hash) {
-            Ok(proposal) => {
-                assert!(
-                    matches!(proposal.is_relayed, Some(true)),
-                    "executed proposal should be marked relayed when not pruned immediately"
-                );
-            }
-            Err(ValidationFail::QueryFailed(
-                QueryExecutionFail::Find(FindError::MetadataKey(_)) | QueryExecutionFail::NotFound,
-            )) => {}
-            Err(err) => panic!("unexpected proposal state after approval: {err:?}"),
-        }
-    }
     #[test]
     fn aliasless_rekey_rejects_active_kaigi_host_without_partial_mutation() {
         tx!(
@@ -6539,7 +5855,12 @@ mod tests {
         let error = execute_propose(
             &mut tx,
             &signer_id,
-            &MultisigPropose::new(registered_multisig_id.clone(), Vec::new(), None),
+            &MultisigPropose::new(
+                registered_multisig_id.clone(),
+                test_nonce(&HashOf::new(&Vec::new())),
+                Vec::new(),
+                None,
+            ),
         )
         .expect_err("metadata alone must not materialize native multisig state");
         assert!(matches!(
@@ -6593,7 +5914,12 @@ mod tests {
         let error = execute_propose(
             &mut tx,
             &signer_id,
-            &MultisigPropose::new(registered_multisig_id.clone(), Vec::new(), None),
+            &MultisigPropose::new(
+                registered_multisig_id.clone(),
+                test_nonce(&HashOf::new(&Vec::new())),
+                Vec::new(),
+                None,
+            ),
         )
         .expect_err("spec metadata disagreement must fail closed");
         assert!(matches!(
@@ -6613,7 +5939,12 @@ mod tests {
         let error = execute_propose(
             &mut tx,
             &signer_id,
-            &MultisigPropose::new(registered_multisig_id, Vec::new(), None),
+            &MultisigPropose::new(
+                registered_multisig_id,
+                test_nonce(&HashOf::new(&Vec::new())),
+                Vec::new(),
+                None,
+            ),
         )
         .expect_err("home-domain metadata disagreement must fail closed");
         assert!(matches!(
@@ -6749,7 +6080,12 @@ mod tests {
         let expected_id = AccountId::new_multisig(policy);
         let override_ttl =
             NonZeroU64::new(spec.transaction_ttl_ms.get().saturating_add(1)).unwrap();
-        let propose = MultisigPropose::new(expected_id.clone(), Vec::new(), Some(override_ttl));
+        let propose = MultisigPropose::new(
+            expected_id.clone(),
+            test_nonce(&HashOf::new(&Vec::new())),
+            Vec::new(),
+            Some(override_ttl),
+        );
         let result = Executor::Initial.execute_instruction(
             &mut tx,
             &signer1_id,
@@ -6783,7 +6119,12 @@ mod tests {
         );
         let multisig_id = msig!(tx, signer1_id, domain_id, spec, "register multisig account");
         let instructions: Vec<InstructionBox> = Vec::new();
-        let propose = MultisigPropose::new(multisig_id.clone(), instructions, None);
+        let propose = MultisigPropose::new(
+            multisig_id.clone(),
+            test_nonce(&HashOf::new(&instructions)),
+            instructions,
+            None,
+        );
         execute_propose(&mut tx, &signer1_id, &propose).expect("signatory propose without roles");
     }
     #[test]
@@ -6849,7 +6190,12 @@ mod tests {
         account.metadata = Metadata::default();
         account.insert((*MULTISIG_CREATED_VIA_KEY).clone(), Json::new("implicit"));
         let instructions: Vec<InstructionBox> = Vec::new();
-        let propose = MultisigPropose::new(multisig_id.clone(), instructions, None);
+        let propose = MultisigPropose::new(
+            multisig_id.clone(),
+            test_nonce(&HashOf::new(&instructions)),
+            instructions,
+            None,
+        );
         let error = execute_propose(&mut tx, &signer1_id, &propose)
             .expect_err("controller data must not reconstruct missing authenticated state");
         assert!(matches!(
@@ -6989,6 +6335,7 @@ mod tests {
             World::new(),
             "multisig-trigger-contract-entrypoint"
         );
+        let network_id = tx.network_id;
         tx.tx_call_hash = Some(
             tx.direct_execution_identity()
                 .expect("component approval root"),
@@ -7033,12 +6380,6 @@ mod tests {
             .find(|account| account.id().multisig_policy().is_some())
             .map(|account| account.id().clone())
             .expect("registered multisig account");
-        Grant::account_permission(
-            Permission::new("Admin".to_owned(), Json::new(())),
-            multisig_id.clone(),
-        )
-        .execute(&owner_id, &mut tx)
-        .expect("grant trigger entrypoint permission to the multisig authority");
         let (program, manifest) =
             KotodamaCompiler::new_with_options(CompilerOptions {
                 mode: CompilerMode::Production,
@@ -7060,6 +6401,15 @@ seiyaku TriggerDispatch { permission Admin;
             .expect("compile trigger dispatch contract");
         let (bytecode, contract_address) =
             install_trigger_contract(&mut tx, &owner_id, &owner_keypair, program, manifest, 6_061);
+        Grant::account_permission(
+            iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                contract: contract_address.clone(),
+                permission: "Admin".parse().expect("declared contract permission"),
+            },
+            multisig_id.clone(),
+        )
+        .execute(&owner_id, &mut tx)
+        .expect("grant exact contract permission to the multisig authority");
         Executor::Initial
             .execute_instruction(
                 &mut tx,
@@ -7104,11 +6454,20 @@ seiyaku TriggerDispatch { permission Admin;
         execute_propose(
             &mut tx,
             &signer1_id,
-            &MultisigPropose::new(multisig_id.clone(), instructions, None),
+            &MultisigPropose::new(
+                multisig_id.clone(),
+                test_nonce(&HashOf::new(&instructions)),
+                instructions,
+                None,
+            ),
         )
         .expect("signatory propose");
-        let proposal = proposal_value(&tx, &multisig_id, &instructions_hash)
-            .expect("proposal exists after propose");
+        let proposal = proposal_value(
+            &tx,
+            &multisig_id,
+            &test_id(&network_id, &multisig_id, &instructions_hash),
+        )
+        .expect("proposal exists after propose");
         let register = proposal
             .instructions
             .first()
@@ -7132,7 +6491,11 @@ seiyaku TriggerDispatch { permission Admin;
         execute_approve(
             &mut tx,
             &signer2_id,
-            &MultisigApprove::new(multisig_id.clone(), instructions_hash),
+            &MultisigApprove::new(
+                multisig_id.clone(),
+                test_id(&network_id, &multisig_id.clone(), &instructions_hash),
+                instructions_hash,
+            ),
         )
         .expect("signatory approve should execute alternate entrypoint");
         let entrypoint_key: Name = "entrypoint".parse().expect("entrypoint metadata key");
@@ -7151,6 +6514,7 @@ seiyaku TriggerDispatch { permission Admin;
     #[test]
     fn multisig_signatory_can_approve_without_roles() {
         tx!(state, block, tx, World::new(), "multisig-signatory-approve");
+        let network_id = tx.network_id;
         let domain_id: iroha_model_base::domain::DomainId =
             DomainId::try_new("signatory-approve", "universal").unwrap();
         let signer1 = checked_keypair();
@@ -7167,17 +6531,26 @@ seiyaku TriggerDispatch { permission Admin;
         let multisig_id = msig!(tx, signer1_id, domain_id, spec, "register multisig account");
         let instructions: Vec<InstructionBox> = Vec::new();
         let instructions_hash = HashOf::new(&instructions);
-        let propose = MultisigPropose::new(multisig_id.clone(), instructions, None);
+        let propose = MultisigPropose::new(
+            multisig_id.clone(),
+            test_nonce(&HashOf::new(&instructions)),
+            instructions,
+            None,
+        );
         execute_propose(&mut tx, &signer1_id, &propose).expect("signatory propose");
         let pending_entrypoint_hash = Hash::prehashed([0xa4; Hash::LENGTH]);
         tx.tx_call_hash = Some(pending_entrypoint_hash);
-        let pending_approve = MultisigApprove::new(multisig_id.clone(), instructions_hash);
+        let pending_approve = MultisigApprove::new(
+            multisig_id.clone(),
+            test_id(&network_id, &multisig_id.clone(), &instructions_hash),
+            instructions_hash,
+        );
         execute_approve(&mut tx, &signer1_id, &pending_approve)
             .expect("duplicate subject approval should remain below quorum");
         let pending_outcome_key = multisig_approval_outcome_state_key(
             *pending_entrypoint_hash.as_ref(),
             &multisig_id,
-            &instructions_hash,
+            &test_id(&network_id, &multisig_id, &instructions_hash),
         );
         let pending_outcome_bytes = tx
             .world
@@ -7195,12 +6568,16 @@ seiyaku TriggerDispatch { permission Admin;
         assert_eq!(pending_outcome.resolved_multisig_account_id, multisig_id);
         let terminal_entrypoint_hash = Hash::prehashed([0xa5; Hash::LENGTH]);
         tx.tx_call_hash = Some(terminal_entrypoint_hash);
-        let approve = MultisigApprove::new(multisig_id.clone(), instructions_hash);
+        let approve = MultisigApprove::new(
+            multisig_id.clone(),
+            test_id(&network_id, &multisig_id.clone(), &instructions_hash),
+            instructions_hash,
+        );
         execute_approve(&mut tx, &signer2_id, &approve).expect("signatory approve without roles");
         let execution_key = multisig_proposal_terminal_execution_state_key(
             *terminal_entrypoint_hash.as_ref(),
             &multisig_id,
-            &instructions_hash,
+            &test_id(&network_id, &multisig_id, &instructions_hash),
         );
         let execution_bytes = tx
             .world
@@ -7220,7 +6597,7 @@ seiyaku TriggerDispatch { permission Admin;
         let executed_outcome_key = multisig_approval_outcome_state_key(
             *terminal_entrypoint_hash.as_ref(),
             &multisig_id,
-            &instructions_hash,
+            &test_id(&network_id, &multisig_id, &instructions_hash),
         );
         let executed_outcome_bytes = tx
             .world
@@ -7254,69 +6631,6 @@ seiyaku TriggerDispatch { permission Admin;
         );
     }
     #[test]
-    fn relayed_multisig_execution_leaves_only_transaction_bound_terminal_state() {
-        tx!(
-            state,
-            block,
-            tx,
-            World::new(),
-            "multisig-relayed-terminal-state"
-        );
-        let relay_account = new_account_id(&checked_keypair());
-        let relay_instructions = vec![InstructionBox::from(Log::new(
-            Level::INFO,
-            "relay execution".to_owned(),
-        ))];
-        let relay_instructions_hash = HashOf::new(&relay_instructions);
-        let relay_state = MultisigProposalState::new(
-            relay_account.clone(),
-            relay_instructions_hash,
-            relay_instructions,
-            1,
-            u64::MAX,
-            BTreeSet::from([relay_account.clone()]),
-            Some(true),
-        );
-        let terminal_entrypoint_hash = Hash::prehashed([0xb7; Hash::LENGTH]);
-        tx.tx_call_hash = Some(terminal_entrypoint_hash);
-        maybe_store_relayed_proposal_execution_state(&mut tx, &relay_state, &relay_account)
-            .expect("relayed execution should persist immutable evidence");
-        let execution_key = multisig_proposal_terminal_execution_state_key(
-            *terminal_entrypoint_hash.as_ref(),
-            &relay_account,
-            &relay_instructions_hash,
-        );
-        let execution_bytes = tx
-            .world
-            .smart_contract_state
-            .get(&execution_key)
-            .expect("relayed execution should leave transaction-bound terminal state");
-        let execution_state =
-            norito::decode_from_bytes::<MultisigProposalTerminalExecutionStateV1>(execution_bytes)
-                .expect("relayed terminal execution state should decode");
-        assert_eq!(
-            execution_state.terminal.status,
-            MultisigProposalTerminalStatus::Finalized
-        );
-        assert_eq!(execution_state.terminal.proposal.is_relayed, Some(true));
-        assert_eq!(execution_state.entrypoint_account_id, relay_account);
-        assert_eq!(execution_state.terminal_block_height, 1);
-        assert_eq!(
-            execution_state.terminal_entrypoint_hash,
-            *terminal_entrypoint_hash.as_ref()
-        );
-        assert!(
-            tx.world
-                .smart_contract_state
-                .get(&multisig_proposal_terminal_state_key(
-                    &relay_account,
-                    &relay_instructions_hash,
-                ))
-                .is_none(),
-            "relayed lifecycle state remains active and must not create the mutable terminal key"
-        );
-    }
-    #[test]
     fn terminal_state_rekey_does_not_fabricate_transaction_bound_execution_evidence() {
         tx!(
             state,
@@ -7325,6 +6639,7 @@ seiyaku TriggerDispatch { permission Admin;
             World::new(),
             "multisig-terminal-rekey-evidence"
         );
+        let network_id = tx.network_id;
         let old_account = new_account_id(&checked_keypair());
         let new_account = new_account_id(&checked_keypair());
         let instructions = vec![InstructionBox::from(Log::new(
@@ -7334,14 +6649,18 @@ seiyaku TriggerDispatch { permission Admin;
         let instructions_hash = HashOf::new(&instructions);
         let terminal_state = MultisigProposalTerminalState::new(
             old_account.clone(),
+            test_id(&network_id, &old_account.clone(), &instructions_hash),
             instructions_hash,
-            MultisigProposalValue::new(
+            MultisigProposalValue {
+                network_id,
+                proposal_nonce: test_nonce(&HashOf::new(&instructions)),
+                proposal_id: test_id(&network_id, &old_account, &HashOf::new(&instructions)),
+                transaction_ttl_ms: None,
                 instructions,
-                1,
-                u64::MAX,
-                BTreeSet::from([old_account.clone()]),
-                None,
-            ),
+                proposed_at_ms: 1,
+                expires_at_ms: u64::MAX,
+                approvals: BTreeSet::from([old_account.clone()]),
+            },
             MultisigProposalTerminalStatus::Finalized,
             2,
         );
@@ -7349,14 +6668,14 @@ seiyaku TriggerDispatch { permission Admin;
             .expect("historical terminal state should store");
         let rekey_entrypoint_hash = Hash::prehashed([0xc9; Hash::LENGTH]);
         tx.tx_call_hash = Some(rekey_entrypoint_hash);
-        move_multisig_proposals(&mut tx, &old_account, &new_account)
+        require_no_outstanding_proposals(&tx, &old_account)
             .expect("rekey must preserve terminal history");
         let moved_bytes = tx
             .world
             .smart_contract_state
             .get(&multisig_proposal_terminal_state_key(
                 &old_account,
-                &instructions_hash,
+                &test_id(&network_id, &old_account, &instructions_hash),
             ))
             .expect("original terminal state must remain queryable");
         let moved_state = norito::decode_from_bytes::<MultisigProposalTerminalState>(moved_bytes)
@@ -7368,7 +6687,7 @@ seiyaku TriggerDispatch { permission Admin;
                 .smart_contract_state
                 .get(&multisig_proposal_terminal_state_key(
                     &new_account,
-                    &instructions_hash,
+                    &test_id(&network_id, &new_account, &instructions_hash)
                 ))
                 .is_none(),
             "rekey must not rewrite terminal history under the new policy"
@@ -7385,7 +6704,7 @@ seiyaku TriggerDispatch { permission Admin;
                 .get(&multisig_proposal_terminal_execution_state_key(
                     *rekey_entrypoint_hash.as_ref(),
                     &new_account,
-                    &instructions_hash,
+                    &test_id(&network_id, &new_account, &instructions_hash)
                 ))
                 .is_none(),
             "rekeying historical lifecycle state must not create execution evidence"
@@ -7411,6 +6730,7 @@ seiyaku TriggerDispatch { permission Admin;
         let block_header = runtime_header(&state, 1_000);
         let mut block = state.block(block_header);
         let mut tx = block.transaction_for_callback_testing();
+        let network_id = tx.network_id;
         domain!(tx, owner_id, domain_id, "domain registration");
         for (account_id, label) in [
             (&owner_id, "register owner"),
@@ -7436,6 +6756,7 @@ seiyaku TriggerDispatch { permission Admin;
                 &signer1_id,
                 InstructionBox::from(MultisigPropose::new(
                     multisig_id.clone(),
+                    test_nonce(&HashOf::new(&active_instructions)),
                     active_instructions,
                     None,
                 )),
@@ -7452,26 +6773,25 @@ seiyaku TriggerDispatch { permission Admin;
                 &signer1_id,
                 InstructionBox::from(MultisigPropose::new(
                     multisig_id.clone(),
+                    test_nonce(&HashOf::new(&expired_instructions)),
                     expired_instructions,
                     None,
                 )),
             )
             .expect("create proposal to expire");
-        let expired_state =
-            proposal_state(&tx, &multisig_id, &expired_hash).expect("expired proposal state");
-        store_multisig_proposal_state(
-            &mut tx,
-            &MultisigProposalState::new(
-                expired_state.multisig_account_id,
-                expired_state.instructions_hash,
-                expired_state.instructions,
-                expired_state.proposed_at_ms,
-                1_000,
-                expired_state.approvals,
-                expired_state.is_relayed,
-            ),
+        let mut expired_state = proposal_state(
+            &tx,
+            &multisig_id,
+            &test_id(&network_id, &multisig_id, &expired_hash),
         )
-        .expect("seed expired proposal timestamp");
+        .expect("expired proposal state");
+        // Supply an earlier retained fixture original, never mutate one through the live writer.
+        expired_state.proposed_at_ms = 0;
+        expired_state.expires_at_ms = 1_000;
+        tx.world.smart_contract_state.insert(
+            multisig_proposal_state_key(&multisig_id, &expired_state.proposal_id),
+            norito::to_bytes(&expired_state).unwrap(),
+        );
         let replacement1 = checked_keypair();
         let replacement2 = checked_keypair();
         let replacement_policy =
@@ -7491,6 +6811,7 @@ seiyaku TriggerDispatch { permission Admin;
                 &signer1_id,
                 InstructionBox::from(MultisigPropose::new(
                     multisig_id.clone(),
+                    test_nonce(&HashOf::new(&policy_change_instructions)),
                     policy_change_instructions,
                     None,
                 )),
@@ -7510,6 +6831,7 @@ seiyaku TriggerDispatch { permission Admin;
                 &signer2_id,
                 InstructionBox::from(MultisigApprove::new(
                     multisig_id.clone(),
+                    test_id(&network_id, &multisig_id.clone(), &policy_change_hash),
                     policy_change_hash,
                 )),
             )
@@ -7519,14 +6841,20 @@ seiyaku TriggerDispatch { permission Admin;
             assert!(
                 tx.world
                     .smart_contract_state
-                    .get(&multisig_proposal_state_key(&recovered_account, &hash))
+                    .get(&multisig_proposal_state_key(
+                        &recovered_account,
+                        &test_id(&network_id, &recovered_account, &hash)
+                    ))
                     .is_none(),
                 "rekey must not migrate an invalidated proposal"
             );
             assert!(
                 tx.world
                     .smart_contract_state
-                    .get(&multisig_proposal_terminal_state_key(&multisig_id, &hash,))
+                    .get(&multisig_proposal_terminal_state_key(
+                        &multisig_id,
+                        &test_id(&network_id, &multisig_id, &hash)
+                    ))
                     .is_some(),
                 "rekey must preserve terminal evidence under its original controller"
             );
@@ -7535,7 +6863,10 @@ seiyaku TriggerDispatch { permission Admin;
             let bytes = tx
                 .world
                 .smart_contract_state
-                .get(&multisig_proposal_terminal_state_key(&multisig_id, &hash))
+                .get(&multisig_proposal_terminal_state_key(
+                    &multisig_id,
+                    &test_id(&network_id, &multisig_id, &hash),
+                ))
                 .expect("terminal policy-change evidence");
             norito::decode_from_bytes::<MultisigProposalTerminalState>(bytes)
                 .expect("terminal policy-change evidence should decode")
@@ -7572,6 +6903,7 @@ seiyaku TriggerDispatch { permission Admin;
             World::new(),
             "multisig-staged-mint-json-args"
         );
+        let network_id = tx.network_id;
         tx.tx_call_hash = Some(
             tx.direct_execution_identity()
                 .expect("component approval root"),
@@ -7589,12 +6921,6 @@ seiyaku TriggerDispatch { permission Admin;
             2,
         );
         let multisig_id = msig!(tx, signer1_id, domain_id, spec, "register multisig account");
-        Grant::account_permission(
-            Permission::new("staged_mint_request_run".into(), Json::new(())),
-            multisig_id.clone(),
-        )
-        .execute(&signer1_id, &mut tx)
-        .expect("grant staged mint permission");
         let src = format!(
             r#"
             seiyaku StagedMintRequest {{ permission staged_mint_request_run;
@@ -7654,6 +6980,17 @@ seiyaku TriggerDispatch { permission Admin;
             .expect("compile staged mint-like contract");
         let (bytecode, contract_address) =
             install_trigger_contract(&mut tx, &signer1_id, &signer1, program, manifest, 6_455);
+        Grant::account_permission(
+            iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                contract: contract_address.clone(),
+                permission: "staged_mint_request_run"
+                    .parse()
+                    .expect("declared contract permission"),
+            },
+            multisig_id.clone(),
+        )
+        .execute(&signer1_id, &mut tx)
+        .expect("grant exact staged mint contract permission");
         let trigger_id: iroha_data_model::trigger::TriggerId = "staged_mint_like".parse().unwrap();
         let mut trigger_metadata = Metadata::default();
         trigger_metadata.insert(
@@ -7691,17 +7028,31 @@ seiyaku TriggerDispatch { permission Admin;
         execute_propose(
             &mut tx,
             &signer1_id,
-            &MultisigPropose::new(multisig_id.clone(), instructions, None),
+            &MultisigPropose::new(
+                multisig_id.clone(),
+                test_nonce(&HashOf::new(&instructions)),
+                instructions,
+                None,
+            ),
         )
         .expect("signatory propose staged mint");
         execute_approve(
             &mut tx,
             &signer2_id,
-            &MultisigApprove::new(multisig_id.clone(), instructions_hash),
+            &MultisigApprove::new(
+                multisig_id.clone(),
+                test_id(&network_id, &multisig_id.clone(), &instructions_hash),
+                instructions_hash,
+            ),
         )
         .expect("signatory approve should execute staged mint trigger");
         assert!(
-            proposal_state(&tx, &multisig_id, &instructions_hash).is_err(),
+            proposal_state(
+                &tx,
+                &multisig_id,
+                &test_id(&network_id, &multisig_id, &instructions_hash)
+            )
+            .is_err(),
             "finalized proposal should be pruned from active proposal state"
         );
         assert!(
@@ -7709,7 +7060,7 @@ seiyaku TriggerDispatch { permission Admin;
                 .smart_contract_state
                 .get(&multisig_proposal_terminal_state_key(
                     &multisig_id,
-                    &instructions_hash,
+                    &test_id(&network_id, &multisig_id, &instructions_hash)
                 ))
                 .is_some(),
             "finalized proposal should leave terminal proposal state"
@@ -7728,122 +7079,6 @@ seiyaku TriggerDispatch { permission Admin;
         );
     }
     #[test]
-    fn multisig_propose_rejects_terminal_identity_and_accepts_fresh_semantic_payload() {
-        let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::start_test();
-        let state = State::new_with_chain(
-            World::new(),
-            kura,
-            query_handle,
-            ChainId::from("multisig-expired-duplicate-replace"),
-        );
-        let domain_id: iroha_model_base::domain::DomainId =
-            DomainId::try_new("retryable", "universal").unwrap();
-        let signer1 = checked_keypair();
-        let signer2 = checked_keypair();
-        let signer1_id = new_account_id(&signer1);
-        let signer2_id = new_account_id(&signer2);
-        let spec = MultisigSpec {
-            signatories: BTreeMap::from([(signer1_id.clone(), 1), (signer2_id.clone(), 1)]),
-            quorum: NonZeroU16::new(2).unwrap(),
-            transaction_ttl_ms: NonZeroU64::new(1).unwrap(),
-        };
-        let multisig_id = {
-            let block_header = BlockHeader::new(nonzero!(1_u64), None, None, 1, 0);
-            let mut block = state.block(block_header);
-            let mut tx = block.transaction();
-            domain!(tx, signer1_id, domain_id, "domain registration");
-            account!(tx, signer1_id, domain_id, signer1_id, "register signer1");
-            account!(tx, signer1_id, domain_id, signer2_id, "register signer2");
-            let multisig_id = msig!(tx, signer1_id, domain_id, spec, "register multisig account");
-            let instructions = Vec::<InstructionBox>::new();
-            execute_propose(
-                &mut tx,
-                &signer1_id,
-                &MultisigPropose::new(multisig_id.clone(), instructions, None),
-            )
-            .expect("initial propose");
-            tx.apply();
-            block
-                .commit_world_overlay_for_testing()
-                .expect("commit first block");
-            multisig_id
-        };
-        let block_header = BlockHeader::new(nonzero!(2_u64), None, None, 3, 0);
-        let mut block = state.block(block_header);
-        let mut tx = block.transaction();
-        let instructions = Vec::<InstructionBox>::new();
-        let instructions_hash = HashOf::new(&instructions);
-        let rejected = execute_propose(
-            &mut tx,
-            &signer2_id,
-            &MultisigPropose::new(multisig_id.clone(), instructions, None),
-        )
-        .expect_err("expired proposal identity cannot be reused");
-        assert!(matches!(rejected, ValidationFail::NotPermitted(message)
-            if message.contains("instruction identity is already terminal")));
-        assert!(proposal_value(&tx, &multisig_id, &instructions_hash).is_err());
-        let terminal_bytes = tx
-            .world
-            .smart_contract_state
-            .get(&multisig_proposal_terminal_state_key(
-                &multisig_id,
-                &instructions_hash,
-            ))
-            .expect("original expired tombstone")
-            .clone();
-        let terminal = norito::decode_from_bytes::<MultisigProposalTerminalState>(&terminal_bytes)
-            .expect("original terminal identity decodes");
-        assert_eq!(terminal.status, MultisigProposalTerminalStatus::Expired);
-        let instructions = vec![InstructionBox::from(Log::new(
-            Level::INFO,
-            "fresh semantic request after expiry".to_owned(),
-        ))];
-        let fresh_hash = HashOf::new(&instructions);
-        assert_ne!(fresh_hash, instructions_hash);
-        execute_propose(
-            &mut tx,
-            &signer2_id,
-            &MultisigPropose::new(multisig_id.clone(), instructions, None),
-        )
-        .expect("fresh semantic request may collect approvals");
-        let proposal = proposal_value(&tx, &multisig_id, &fresh_hash).expect("fresh proposal");
-        assert_eq!(proposal.proposed_at_ms, 3);
-        assert_eq!(proposal.expires_at_ms, 4);
-        assert_eq!(
-            proposal.approvals,
-            BTreeSet::from([signer2_id.clone()]),
-            "fresh proposal should record only the new proposer approval"
-        );
-        assert_eq!(
-            tx.world
-                .smart_contract_state
-                .get(&multisig_proposal_terminal_state_key(
-                    &multisig_id,
-                    &instructions_hash
-                )),
-            Some(&terminal_bytes),
-            "fresh proposal must retain original history"
-        );
-        let canceled = MultisigProposalTerminalState::new(
-            multisig_id.clone(),
-            fresh_hash,
-            proposal,
-            MultisigProposalTerminalStatus::Canceled,
-            3,
-        );
-        store_multisig_proposal_terminal_state(&mut tx, &canceled).unwrap();
-        prune_down(&mut tx, &multisig_id, &fresh_hash).unwrap();
-        let rejected = execute_propose(
-            &mut tx,
-            &signer2_id,
-            &MultisigPropose::new(multisig_id, canceled.proposal.instructions, None),
-        )
-        .expect_err("canceled identity cannot be reused");
-        assert!(matches!(rejected, ValidationFail::NotPermitted(message)
-            if message.contains("instruction identity is already terminal")));
-    }
-    #[test]
     fn multisig_register_accepts_cross_domain_signatory_subjects() {
         tx!(
             state,
@@ -7852,6 +7087,7 @@ seiyaku TriggerDispatch { permission Admin;
             World::new(),
             "multisig-cross-domain-signatories"
         );
+        let network_id = tx.network_id;
         let multisig_domain: iroha_model_base::domain::DomainId =
             DomainId::try_new("multisig-home", "universal").unwrap();
         let signer_domain: iroha_model_base::domain::DomainId =
@@ -7927,13 +7163,26 @@ seiyaku TriggerDispatch { permission Admin;
         execute_propose(
             &mut tx,
             &signer1_remote,
-            &MultisigPropose::new(registered_multisig_id.clone(), instructions, None),
+            &MultisigPropose::new(
+                registered_multisig_id.clone(),
+                test_nonce(&HashOf::new(&instructions)),
+                instructions,
+                None,
+            ),
         )
         .expect("remote-domain signatory should be able to propose by subject");
         execute_approve(
             &mut tx,
             &signer2_remote,
-            &MultisigApprove::new(registered_multisig_id.clone(), instructions_hash),
+            &MultisigApprove::new(
+                registered_multisig_id.clone(),
+                test_id(
+                    &network_id,
+                    &registered_multisig_id.clone(),
+                    &instructions_hash,
+                ),
+                instructions_hash,
+            ),
         )
         .expect("remote-domain signatory should be able to approve by subject");
     }
@@ -7946,6 +7195,7 @@ seiyaku TriggerDispatch { permission Admin;
             World::new(),
             "multisig-unique-subject-approvals"
         );
+        let network_id = tx.network_id;
         let home_domain: iroha_model_base::domain::DomainId =
             DomainId::try_new("subject-home", "universal").unwrap();
         let alt_domain: iroha_model_base::domain::DomainId =
@@ -8000,11 +7250,20 @@ seiyaku TriggerDispatch { permission Admin;
         execute_propose(
             &mut tx,
             &signer_b_id,
-            &MultisigPropose::new(multisig_account.clone(), instructions, None),
+            &MultisigPropose::new(
+                multisig_account.clone(),
+                test_nonce(&HashOf::new(&instructions)),
+                instructions,
+                None,
+            ),
         )
         .expect("propose");
-        let proposed = proposal_value(&tx, &multisig_account, &instructions_hash)
-            .expect("proposal exists after propose");
+        let proposed = proposal_value(
+            &tx,
+            &multisig_account,
+            &test_id(&network_id, &multisig_account, &instructions_hash),
+        )
+        .expect("proposal exists after propose");
         assert_eq!(
             approved_weight_by_subject(&loaded_spec, &proposed.approvals),
             1,
@@ -8013,11 +7272,19 @@ seiyaku TriggerDispatch { permission Admin;
         execute_approve(
             &mut tx,
             &shared_account,
-            &MultisigApprove::new(multisig_account.clone(), instructions_hash),
+            &MultisigApprove::new(
+                multisig_account.clone(),
+                test_id(&network_id, &multisig_account.clone(), &instructions_hash),
+                instructions_hash,
+            ),
         )
         .expect("approve from subject home account");
-        let approved_once = proposal_value(&tx, &multisig_account, &instructions_hash)
-            .expect("proposal exists after first subject approval");
+        let approved_once = proposal_value(
+            &tx,
+            &multisig_account,
+            &test_id(&network_id, &multisig_account, &instructions_hash),
+        )
+        .expect("proposal exists after first subject approval");
         assert_eq!(
             approved_weight_by_subject(&loaded_spec, &approved_once.approvals),
             2,
@@ -8026,11 +7293,19 @@ seiyaku TriggerDispatch { permission Admin;
         execute_approve(
             &mut tx,
             &shared_account,
-            &MultisigApprove::new(multisig_account.clone(), instructions_hash),
+            &MultisigApprove::new(
+                multisig_account.clone(),
+                test_id(&network_id, &multisig_account.clone(), &instructions_hash),
+                instructions_hash,
+            ),
         )
         .expect("approve from subject with additional domain link");
-        let approved_twice = proposal_value(&tx, &multisig_account, &instructions_hash)
-            .expect("proposal should persist after duplicate-subject approval");
+        let approved_twice = proposal_value(
+            &tx,
+            &multisig_account,
+            &test_id(&network_id, &multisig_account, &instructions_hash),
+        )
+        .expect("proposal should persist after duplicate-subject approval");
         assert_eq!(
             approved_weight_by_subject(&loaded_spec, &approved_twice.approvals),
             2,
@@ -8039,12 +7314,20 @@ seiyaku TriggerDispatch { permission Admin;
         execute_approve(
             &mut tx,
             &final_signer_id,
-            &MultisigApprove::new(multisig_account.clone(), instructions_hash),
+            &MultisigApprove::new(
+                multisig_account.clone(),
+                test_id(&network_id, &multisig_account.clone(), &instructions_hash),
+                instructions_hash,
+            ),
         )
         .expect("approve from third signatory");
         assert!(
             matches!(
-                proposal_value(&tx, &multisig_account, &instructions_hash),
+                proposal_value(
+                    &tx,
+                    &multisig_account,
+                    &test_id(&network_id, &multisig_account, &instructions_hash)
+                ),
                 Err(ValidationFail::QueryFailed(QueryExecutionFail::NotFound))
             ),
             "proposal should be pruned after quorum is reached by distinct subjects"
@@ -8117,6 +7400,7 @@ seiyaku TriggerDispatch { permission Admin;
             "multisig-deferred-active-executor",
             0
         );
+        let network_id = tx.network_id;
         let domain_id = DomainId::try_new("deferred", "universal").expect("domain id");
         let signer_id = new_account_id(&checked_keypair());
         domain!(
@@ -8156,14 +7440,25 @@ seiyaku TriggerDispatch { permission Admin;
             .execute_instruction(
                 &mut tx,
                 &signer_id,
-                MultisigPropose::new(multisig_id.clone(), valid_instructions, None).into(),
+                MultisigPropose::new(
+                    multisig_id.clone(),
+                    test_nonce(&HashOf::new(&valid_instructions)),
+                    valid_instructions,
+                    None,
+                )
+                .into(),
             )
             .expect("propose valid deferred instruction");
         Executor::Initial
             .execute_instruction(
                 &mut tx,
                 &signer_id,
-                MultisigApprove::new(multisig_id.clone(), valid_hash).into(),
+                MultisigApprove::new(
+                    multisig_id.clone(),
+                    test_id(&network_id, &multisig_id.clone(), &valid_hash),
+                    valid_hash,
+                )
+                .into(),
             )
             .expect("active initial executor should allow self-owned metadata mutation");
         assert_eq!(
@@ -8186,14 +7481,25 @@ seiyaku TriggerDispatch { permission Admin;
             .execute_instruction(
                 &mut tx,
                 &signer_id,
-                MultisigPropose::new(multisig_id.clone(), privileged_instructions, None).into(),
+                MultisigPropose::new(
+                    multisig_id.clone(),
+                    test_nonce(&HashOf::new(&privileged_instructions)),
+                    privileged_instructions,
+                    None,
+                )
+                .into(),
             )
             .expect("propose privileged deferred instruction");
         let privileged_error = Executor::Initial
             .execute_instruction(
                 &mut tx,
                 &signer_id,
-                MultisigApprove::new(multisig_id.clone(), privileged_hash).into(),
+                MultisigApprove::new(
+                    multisig_id.clone(),
+                    test_id(&network_id, &multisig_id.clone(), &privileged_hash),
+                    privileged_hash,
+                )
+                .into(),
             )
             .expect_err("multisig must not bypass genesis-only permission delegation");
         assert!(
@@ -8216,7 +7522,13 @@ seiyaku TriggerDispatch { permission Admin;
             .execute_instruction(
                 &mut tx,
                 &signer_id,
-                MultisigPropose::new(multisig_id.clone(), denied_instructions, None).into(),
+                MultisigPropose::new(
+                    multisig_id.clone(),
+                    test_nonce(&HashOf::new(&denied_instructions)),
+                    denied_instructions,
+                    None,
+                )
+                .into(),
             )
             .expect("propose instruction before executor replacement");
         *tx.world.executor.get_mut() =
@@ -8224,7 +7536,11 @@ seiyaku TriggerDispatch { permission Admin;
         let denied_error = execute_approve(
             &mut tx,
             &signer_id,
-            &MultisigApprove::new(multisig_id, denied_hash),
+            &MultisigApprove::new(
+                multisig_id.clone(),
+                test_id(&network_id, &multisig_id, &denied_hash),
+                denied_hash,
+            ),
         )
         .expect_err("final approval must submit stored instructions to the active executor");
         assert_eq!(
@@ -8238,12 +7554,14 @@ seiyaku TriggerDispatch { permission Admin;
     }
     #[test]
     fn multisig_deferred_execution_guard_rejects_cycles_and_excessive_depth() {
+        let network_id =
+            *runtime_state(World::new(), ChainId::from("occurrence-depth"), None).network_id_ref();
         let account = new_account_id(&checked_keypair());
         let first_hash = HashOf::new(&vec![InstructionBox::from(Log::new(
             Level::INFO,
             "cycle".to_owned(),
         ))]);
-        let first_id = (account.clone(), first_hash);
+        let first_id = (account.clone(), test_id(&network_id, &account, &first_hash));
         let mut execution_stack = Vec::new();
         begin_multisig_deferred_execution(&mut execution_stack, &first_id)
             .expect("first proposal may execute");
@@ -8257,17 +7575,21 @@ seiyaku TriggerDispatch { permission Admin;
                 Level::INFO,
                 format!("depth-{depth}"),
             ))]);
-            let execution_id = (account.clone(), hash);
+            let execution_id = (account.clone(), test_id(&network_id, &account, &hash));
             begin_multisig_deferred_execution(&mut execution_stack, &execution_id)
                 .expect("proposal within the deferred execution depth bound");
             execution_ids.push(execution_id);
         }
         let beyond_limit = (
-            account,
-            HashOf::new(&vec![InstructionBox::from(Log::new(
-                Level::INFO,
-                "beyond-limit".to_owned(),
-            ))]),
+            account.clone(),
+            test_id(
+                &network_id,
+                &account,
+                &HashOf::new(&vec![InstructionBox::from(Log::new(
+                    Level::INFO,
+                    "beyond-limit".to_owned(),
+                ))]),
+            ),
         );
         assert_eq!(
             begin_multisig_deferred_execution(&mut execution_stack, &beyond_limit),
@@ -8296,23 +7618,36 @@ seiyaku TriggerDispatch { permission Admin;
             1_u64,
             1
         );
+        let network_id = tx.network_id;
         let cycle_hash = HashOf::new(&Vec::<InstructionBox>::new());
-        let cycle_instruction = MultisigApprove::new(multisig_id.clone(), cycle_hash);
+        let cycle_instruction = MultisigApprove::new(
+            multisig_id.clone(),
+            test_id(&network_id, &multisig_id.clone(), &cycle_hash),
+            cycle_hash,
+        );
         store_multisig_proposal_state(
             &mut tx,
-            &MultisigProposalState::new(
-                multisig_id.clone(),
-                cycle_hash,
-                vec![cycle_instruction.into()],
-                0,
-                0,
-                BTreeSet::new(),
-                None,
-            ),
+            &MultisigProposalState {
+                network_id,
+                multisig_account_id: multisig_id.clone(),
+                proposal_nonce: test_nonce(&cycle_hash),
+                proposal_id: test_id(&network_id, &multisig_id.clone(), &cycle_hash),
+                instructions_hash: cycle_hash,
+                transaction_ttl_ms: None,
+                instructions: vec![cycle_instruction.into()],
+                proposed_at_ms: 0,
+                expires_at_ms: 0,
+                approvals: BTreeSet::new(),
+            },
         )
         .expect("store cyclic proposal state");
-        let cycle_error = prune_expired(&mut tx, &multisig_id, &cycle_hash, &multisig_id)
-            .expect_err("cyclic expiry traversal must fail closed");
+        let cycle_error = prune_expired(
+            &mut tx,
+            &multisig_id,
+            &test_id(&network_id, &multisig_id, &cycle_hash),
+            &multisig_id,
+        )
+        .expect_err("cyclic expiry traversal must fail closed");
         assert_eq!(
             cycle_error,
             invalid_proposal_binding(),
@@ -8331,6 +7666,7 @@ seiyaku TriggerDispatch { permission Admin;
                 |hash| {
                     vec![InstructionBox::from(MultisigApprove::new(
                         multisig_id.clone(),
+                        test_id(&network_id, &multisig_id.clone(), &hash),
                         hash,
                     ))]
                 },
@@ -8338,21 +7674,29 @@ seiyaku TriggerDispatch { permission Admin;
             let hash = HashOf::new(&instructions);
             store_multisig_proposal_state(
                 &mut tx,
-                &MultisigProposalState::new(
-                    multisig_id.clone(),
-                    hash,
+                &MultisigProposalState {
+                    network_id,
+                    multisig_account_id: multisig_id.clone(),
+                    proposal_nonce: test_nonce(&hash),
+                    proposal_id: test_id(&network_id, &multisig_id.clone(), &hash),
+                    instructions_hash: hash,
+                    transaction_ttl_ms: None,
                     instructions,
-                    0,
-                    0,
-                    BTreeSet::new(),
-                    None,
-                ),
+                    proposed_at_ms: 0,
+                    expires_at_ms: 0,
+                    approvals: BTreeSet::new(),
+                },
             )
             .expect("store exact deep proposal state");
             child = Some(hash);
         }
-        let depth_error = prune_expired(&mut tx, &multisig_id, &child.unwrap(), &multisig_id)
-            .expect_err("expiry traversal beyond the deterministic depth bound must fail");
+        let depth_error = prune_expired(
+            &mut tx,
+            &multisig_id,
+            &test_id(&network_id, &multisig_id, &child.unwrap()),
+            &multisig_id,
+        )
+        .expect_err("expiry traversal beyond the deterministic depth bound must fail");
         assert_eq!(depth_error, ValidationFail::TooComplex);
     }
     #[test]
@@ -8401,6 +7745,7 @@ seiyaku TriggerDispatch { permission Admin;
     #[test]
     fn multisig_approval_weight_sum_does_not_overflow() {
         runtime_tx!(state, block, tx, World::new(), "multisig-weight-overflow");
+        let network_id = tx.network_id;
         let domain_id: iroha_model_base::domain::DomainId =
             DomainId::try_new("weights", "universal").unwrap();
         let owner_key = checked_keypair();
@@ -8425,24 +7770,36 @@ seiyaku TriggerDispatch { permission Admin;
             .next()
             .expect("signatories present")
             .clone();
-        let proposal = MultisigPropose::new(multisig_id.clone(), instructions, None);
+        let proposal = MultisigPropose::new(
+            multisig_id.clone(),
+            test_nonce(&HashOf::new(&instructions)),
+            instructions,
+            None,
+        );
         Executor::Initial
             .execute_instruction(&mut tx, &proposer, InstructionBox::from(proposal))
             .expect("multisig propose");
-        let mut seeded_value =
-            proposal_value(&tx, &multisig_id, &instructions_hash).expect("proposal value");
+        let mut seeded_value = proposal_value(
+            &tx,
+            &multisig_id,
+            &test_id(&network_id, &multisig_id, &instructions_hash),
+        )
+        .expect("proposal value");
         seeded_value.approvals = signatories.keys().cloned().collect();
         store_multisig_proposal_state(
             &mut tx,
-            &MultisigProposalState::new(
-                multisig_id.clone(),
+            &MultisigProposalState {
+                network_id,
+                multisig_account_id: multisig_id.clone(),
+                proposal_nonce: test_nonce(&instructions_hash),
+                proposal_id: test_id(&network_id, &multisig_id.clone(), &instructions_hash),
                 instructions_hash,
-                seeded_value.instructions,
-                seeded_value.proposed_at_ms,
-                seeded_value.expires_at_ms,
-                seeded_value.approvals,
-                seeded_value.is_relayed,
-            ),
+                transaction_ttl_ms: None,
+                instructions: seeded_value.instructions,
+                proposed_at_ms: seeded_value.proposed_at_ms,
+                expires_at_ms: seeded_value.expires_at_ms,
+                approvals: seeded_value.approvals,
+            },
         )
         .expect("seed approvals");
         let approver = signatories
@@ -8450,12 +7807,21 @@ seiyaku TriggerDispatch { permission Admin;
             .next_back()
             .expect("signatories present")
             .clone();
-        let approve = MultisigApprove::new(multisig_id.clone(), instructions_hash);
+        let approve = MultisigApprove::new(
+            multisig_id.clone(),
+            test_id(&network_id, &multisig_id.clone(), &instructions_hash),
+            instructions_hash,
+        );
         Executor::Initial
             .execute_instruction(&mut tx, &approver, InstructionBox::from(approve))
             .expect("multisig approve");
         assert!(
-            proposal_value(&tx, &multisig_id, &instructions_hash).is_err(),
+            proposal_value(
+                &tx,
+                &multisig_id,
+                &test_id(&network_id, &multisig_id, &instructions_hash)
+            )
+            .is_err(),
             "proposal should be pruned after reaching quorum"
         );
     }
@@ -8609,6 +7975,7 @@ seiyaku TriggerDispatch { permission Admin;
         let block_header = BlockHeader::new(nonzero!(1_u64), None, None, 1_000, 0);
         let mut block = state.block(block_header);
         let mut tx = block.transaction();
+        let network_id = tx.network_id;
         Register::domain(Domain::new(domain_id.clone()))
             .execute(&signer1_id, &mut tx)
             .expect("domain registration");
@@ -8638,7 +8005,12 @@ seiyaku TriggerDispatch { permission Admin;
         execute_propose(
             &mut tx,
             &signer1_id,
-            &MultisigPropose::new(multisig_id.clone(), outstanding_instructions, None),
+            &MultisigPropose::new(
+                multisig_id.clone(),
+                test_nonce(&HashOf::new(&outstanding_instructions)),
+                outstanding_instructions,
+                None,
+            ),
         )
         .expect("create outstanding proposal before ordinary rekey");
         let replacement_policy = multisig_policy_for_members(&[(&signer2, 1), (&signer3, 1)]);
@@ -8654,7 +8026,14 @@ seiyaku TriggerDispatch { permission Admin;
             InvalidParameterError::SmartContract(message))
             if message.contains("outstanding multisig proposal invalidation"))
         );
-        assert!(proposal_state(&tx, &multisig_id, &outstanding_hash).is_ok());
+        assert!(
+            proposal_state(
+                &tx,
+                &multisig_id,
+                &test_id(&network_id, &multisig_id, &outstanding_hash)
+            )
+            .is_ok()
+        );
         assert!(tx.world.accounts.get(&multisig_id).is_some());
         execute_invalidate_outstanding(
             &mut tx,
@@ -8667,7 +8046,7 @@ seiyaku TriggerDispatch { permission Admin;
             .smart_contract_state
             .get(&multisig_proposal_terminal_state_key(
                 &multisig_id,
-                &outstanding_hash,
+                &test_id(&network_id, &multisig_id, &outstanding_hash),
             ))
             .expect("original canceled evidence")
             .clone();
@@ -8711,11 +8090,21 @@ seiyaku TriggerDispatch { permission Admin;
             BTreeSet::from([signer2_id, signer3_id])
         );
         assert!(
-            proposal_state(&tx, &multisig_id, &outstanding_hash).is_err(),
+            proposal_state(
+                &tx,
+                &multisig_id,
+                &test_id(&network_id, &multisig_id, &outstanding_hash)
+            )
+            .is_err(),
             "ordinary rekey must remove the old-account proposal key",
         );
         assert!(
-            proposal_state(&tx, &updated_account, &outstanding_hash).is_err(),
+            proposal_state(
+                &tx,
+                &updated_account,
+                &test_id(&network_id, &updated_account, &outstanding_hash)
+            )
+            .is_err(),
             "replacement policy must never inherit old approvals"
         );
         assert_eq!(
@@ -8723,7 +8112,7 @@ seiyaku TriggerDispatch { permission Admin;
                 .smart_contract_state
                 .get(&multisig_proposal_terminal_state_key(
                     &multisig_id,
-                    &outstanding_hash
+                    &test_id(&network_id, &multisig_id, &outstanding_hash)
                 )),
             Some(&original_terminal),
             "original policy history survives controller replacement"
@@ -8733,7 +8122,7 @@ seiyaku TriggerDispatch { permission Admin;
                 .smart_contract_state
                 .get(&multisig_proposal_terminal_state_key(
                     &updated_account,
-                    &outstanding_hash
+                    &test_id(&network_id, &updated_account, &outstanding_hash)
                 ))
                 .is_none()
         );

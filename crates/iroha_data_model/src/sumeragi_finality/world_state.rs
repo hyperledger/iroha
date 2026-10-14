@@ -749,6 +749,8 @@ impl VerifiedWorldStateSnapshotV1 {
     /// canonical table values. The definition must be domainless and the row must name exactly
     /// `expected_dataspace`, which is never the universal dataspace. This never derives a home
     /// from aliases, Parameters or monetary balance scope.
+    /// Query-materialized aliases are excluded from the canonical definition preimage: aliases
+    /// live in `world.asset_definition_alias_bindings`. This verifies no alias claim or lease.
     /// # Errors
     /// Refuses absent, changed, conflicting, universal or foreign-incarnation home originals.
     pub fn verify_asset_definition_direct_home(
@@ -768,7 +770,13 @@ impl VerifiedWorldStateSnapshotV1 {
         {
             return Err(fail("direct asset home row differs from the expected home"));
         }
-        self.verify_table_value("world.asset_definitions", definition.id(), definition)?;
+        let mut stored_definition = definition.clone();
+        stored_definition.alias = None;
+        self.verify_table_value(
+            "world.asset_definitions",
+            definition.id(),
+            &stored_definition,
+        )?;
         self.verify_table_value("world.asset_definition_direct_homes", definition.id(), home)?;
         self.verify_table_value(
             "world.axt_asset_incarnations",

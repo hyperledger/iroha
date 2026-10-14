@@ -26,6 +26,15 @@ android {
         consumerProguardFiles("consumer-rules.pro")
     }
 
+    packaging {
+        resources {
+            // Per-JAR classpath indexes do not describe the flattened APK.
+            excludes.add("META-INF/INDEX.LIST")
+            // Each Netty module contributes distinct keys consumed by its version lookup.
+            merges.add("META-INF/io.netty.versions.properties")
+        }
+    }
+
     sourceSets {
         getByName("test") {
             kotlin.srcDir(rootProject.file("test-support/src"))

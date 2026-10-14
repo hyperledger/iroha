@@ -141,7 +141,6 @@ use toml::{Table, Value, map::Entry};
 use tracing::{Instrument, debug, error, info, info_span, warn};
 const TEST_SNS_LEASE_PAYMENT: &str = "0.5";
 const TEST_SNS_POLICY_VERSION: u16 = 1;
-const TEST_SNS_PAYMENT_ASSET_DEFINITION: &str = "61CtjvNd9T3THAR65GsMVHr82Bjc";
 const TEST_SNS_LEASE_VISIBILITY_TIMEOUT: Duration = Duration::from_secs(120);
 const TEST_SNS_LEASE_VISIBILITY_POLL: Duration = Duration::from_millis(250);
 fn checked_key_pair_from_seed(seed: impl Into<Vec<u8>>, algorithm: Algorithm) -> KeyPair {
@@ -200,7 +199,8 @@ fn test_domain_setup_instruction(
     dataspace_id: DataSpaceId,
     owner: &AccountId,
 ) -> Result<EnsureAlias> {
-    let payment_asset = AssetDefinitionId::parse_address_literal(TEST_SNS_PAYMENT_ASSET_DEFINITION)
+    let payment_asset = iroha_config::parameters::defaults::nexus::fees::fee_asset_id()
+        .parse::<AssetDefinitionId>()
         .wrap_err("parse test SNS payment asset definition")?;
     Ok(EnsureAlias::new(
         AliasIntentV1::Domain(AliasDomainIntentV1 {
@@ -237,7 +237,8 @@ pub fn dataspace_setup_instruction(
     let canonical_name = alias
         .parse()
         .wrap_err_with(|| format!("parse test dataspace alias `{alias}`"))?;
-    let payment_asset = AssetDefinitionId::parse_address_literal(TEST_SNS_PAYMENT_ASSET_DEFINITION)
+    let payment_asset = iroha_config::parameters::defaults::nexus::fees::fee_asset_id()
+        .parse::<AssetDefinitionId>()
         .wrap_err("parse test SNS payment asset definition")?;
     Ok(EnsureAlias::new(
         AliasIntentV1::Dataspace(AliasDataSpaceIntentV1 {
@@ -265,7 +266,8 @@ pub fn account_alias_setup_instruction_in_dataspace(
     let canonical_name = alias_literal
         .parse::<AccountAliasName>()
         .wrap_err_with(|| format!("parse test account alias `{alias_literal}`"))?;
-    let payment_asset = AssetDefinitionId::parse_address_literal(TEST_SNS_PAYMENT_ASSET_DEFINITION)
+    let payment_asset = iroha_config::parameters::defaults::nexus::fees::fee_asset_id()
+        .parse::<AssetDefinitionId>()
         .wrap_err("parse test SNS payment asset definition")?;
     Ok(EnsureAlias::new(
         AliasIntentV1::AccountAlias(AliasAccountIntentV1 {
@@ -327,20 +329,46 @@ fn domain_alias_record_visible_to_client(client: &Client, domain: &DomainId) -> 
     }
 }
 fn domain_setup_ready_to_client(client: &Client, domain: &DomainId) -> Result<bool> {
-    let domain_exists = match client.client().query(FindDomains::new()).execute_all() {
-        Ok(domains) => match domains.into_iter().find(|existing| existing.id() == domain) {
-            Some(existing) if existing.owned_by() == client.client().account() => true,
-            Some(existing) => {
-                return Err(eyre!(
-                    "domain `{domain}` is owned by `{}`, not setup authority `{}`",
-                    existing.owned_by(),
-                    client.client().account()
-                ));
-            }
-            None => false,
-        },
-        Err(err) => {
-            let report = Report::from(err);
+    let read_domain = || -> Result<bool> {
+        use iroha::collections::{Collection, ListQuery, field};
+
+        // Account/domain query errors do not carry typed absence identities.
+        // Prove absence through a successful bounded exact-ID collection read.
+        let id = domain.to_string();
+        let page = client.list_page(
+            &Collection::Domains,
+            &ListQuery::new().filter(field("id").eq(id.clone())).limit(1),
+        )?;
+        if page.has_more()
+            || page.items.len() > 1
+            || page
+                .items
+                .iter()
+                .any(|row| row.get("id").and_then(JsonValue::as_str) != Some(id.as_str()))
+        {
+            return Err(eyre!(
+                "exact domain collection returned an unexpected row or continuation"
+            ));
+        }
+        if page.items.is_empty() {
+            return Ok(false);
+        }
+        let existing = client
+            .client()
+            .query_single(FindDomainById::new(domain.clone()))?;
+        if existing.id() != domain || existing.owned_by() != client.client().account() {
+            return Err(eyre!(
+                "domain `{domain}` requires the exact id and setup owner `{}`; found `{}` owned by `{}`",
+                client.client().account(),
+                existing.id(),
+                existing.owned_by()
+            ));
+        }
+        Ok(true)
+    };
+    let domain_exists = match read_domain() {
+        Ok(exists) => exists,
+        Err(report) => {
             if torii_request_error_is_transient(&report) {
                 debug!(
                     err = %report,
@@ -4387,6 +4415,7 @@ impl Network {
                 Some(consensus_handshake_meta),
                 None,
                 confidential_policy_hash,
+                None,
             );
         let validated = ValidatedNetworkGenesis::new(
             genesis,
@@ -8135,6 +8164,13 @@ impl NetworkBuilder {
                             ConsensusMode::Npos => SumeragiConsensusMode::Npos,
                         }),
                         confidential_policy_hash,
+                        Some(
+                            std::num::NonZeroU64::new(
+                                u64::try_from(block_cadence.as_millis())
+                                    .expect("signed cadence fits u64 milliseconds"),
+                            )
+                            .expect("signed cadence is nonzero"),
+                        ),
                     );
                     assert_genesis_voting_roster_matches_network(&preview_genesis, &peer_topology);
                     (
@@ -15486,6 +15522,95 @@ mod tests {
             "signed handshake metadata must carry the explicit cadence"
         );
     }
+    #[test]
+    fn explicit_cadence_reaches_sccp_genesis_before_preview_execution() {
+        use iroha_data_model::{
+            isi::sccp::InitializeSccpV1,
+            parameter::{SumeragiParameter, governance_clock::GovernanceClockParametersV1},
+            sccp::params::{SCCP_MIN_EPOCH_MS_V1, SccpParametersV1},
+        };
+        use std::num::NonZeroU64;
+
+        init_instruction_registry();
+        let epoch = NonZeroU64::new(64).unwrap();
+        let cadence_ms = SCCP_MIN_EPOCH_MS_V1 / epoch.get();
+        let lag_ms = 2_000 + 4 * cadence_ms;
+        let clock = GovernanceClockParametersV1 {
+            due_work_max_lag_ms: lag_ms,
+            ..GovernanceClockParametersV1::default()
+        };
+        let npos = SumeragiNposParameters {
+            epoch_length_blocks: epoch,
+            max_validators: 4,
+            evidence_horizon_blocks: epoch.get() * 2,
+            slashing_delay_blocks: 1,
+            ..SumeragiNposParameters::default()
+        };
+        let builder = NetworkBuilder::new()
+            .with_peers(4)
+            .with_npos_consensus()
+            .with_npos_genesis_bootstrap(1_000_u64.into())
+            .with_block_cadence(Duration::from_millis(cadence_ms))
+            .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
+                SumeragiParameter::MaxClockDriftMs(1_000),
+            )))
+            .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
+                SumeragiParameter::PayloadRetryIntervalMs(NonZeroU64::new(cadence_ms).unwrap()),
+            )))
+            .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
+                SumeragiParameter::DueWorkMaxLagMs(NonZeroU64::new(lag_ms).unwrap()),
+            )))
+            .with_genesis_instruction(SetParameter::new(Parameter::Custom(CustomParameter::new(
+                GovernanceClockParametersV1::parameter_id().clone(),
+                norito::json::to_json(&clock)
+                    .unwrap()
+                    .parse::<iroha_primitives::json::Json>()
+                    .unwrap(),
+            ))))
+            .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
+                SumeragiParameter::EpochLengthBlocks(epoch),
+            )))
+            .with_genesis_instruction(SetParameter::new(Parameter::Custom(
+                npos.into_custom_parameter(),
+            )))
+            .with_genesis_post_bootstrap_isi(vec![
+                InitializeSccpV1 {
+                    parameters: SccpParametersV1::taira_default(),
+                    reset_nonce: [0x6c; 32],
+                }
+                .into(),
+            ])
+            .with_config_layer(|layer| {
+                layer
+                    .write(
+                        ["nexus", "staking", "unbonding_delay_ms"],
+                        1_814_400_000_i64,
+                    )
+                    .write(["nexus", "staking", "max_slash_bps"], 1_i64)
+                    .write(
+                        ["nexus", "storage", "local_budget_bytes"],
+                        1_073_741_824_i64,
+                    );
+            });
+        // This construction executes both preview and final genesis, including the
+        // original SCCP one-hour guard and generated-policy fixed-point check.
+        let network = build_with_isolated_permit(builder);
+        let parameters = consensus_parameters_from_genesis(&network.genesis());
+        assert_eq!(parameters.sumeragi().epoch_length_blocks.get(), epoch.get());
+        let metadata = consensus_handshake_metadata(&network.genesis())
+            .expect("executed SCCP genesis must retain its signed consensus metadata");
+        assert_eq!(metadata.block_cadence_ms.get(), cadence_ms);
+        assert_eq!(
+            network
+                .consensus_bootstrap_profile()
+                .params
+                .block_cadence_ms
+                .get(),
+            cadence_ms
+        );
+        assert_eq!(epoch.get() * cadence_ms, SCCP_MIN_EPOCH_MS_V1);
+    }
+
     #[test]
     fn configured_block_cadence_reports_explicit_override() {
         let duration = Duration::from_secs(3);

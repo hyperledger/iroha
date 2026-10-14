@@ -211,6 +211,7 @@ fn registry(binding: &ValidationFeeTreasuryPayoutBindingV1) -> ValidationFeePoli
         enacted_at_height: 15,
     };
     let registry = ValidationFeePolicyRegistryV1 {
+        history: None,
         registered_policies: vec![],
         payout_policies: ValidationFeePayoutPolicyRegistryV1 {
             entries: vec![ValidationFeePayoutPolicyEntryV1 {

@@ -4,6 +4,8 @@
 //! scheduler expects, based on the runtime configuration. The router abstraction keeps the queue
 //! decoupled from the exact routing policy while allowing metrics to reflect the real assignments
 //! instead of collapsing metrics to the primary lane.
+use iroha_data_model::NetworkId;
+use iroha_executor_data_model::isi::multisig::{MultisigProposalId, MultisigProposalNonce};
 mod settlement_atomic;
 mod settlement_pair;
 
@@ -110,6 +112,8 @@ const AMX_POLICY_REJECT_CROSS_DATASPACE: &str = "reject_cross_dataspace";
 /// quote discovery and queue admission execute the same routing code. Signatures and
 /// envelope attachments deliberately do not participate in routing.
 pub trait TransactionRoutingView {
+    /// Return the signed native network for occurrence derivation.
+    fn network_id(&self) -> Option<&NetworkId>;
     /// Return the authority when this entrypoint has one.
     fn authority_opt(&self) -> Option<&AccountId>;
     /// Return routing metadata when this entrypoint has it.
@@ -131,6 +135,15 @@ fn executable_any_matching_instruction(
         .any(|instruction| predicate(&**instruction))
 }
 impl TransactionRoutingView for AcceptedTransaction<'_> {
+    fn network_id(&self) -> Option<&NetworkId> {
+        match self.entrypoint() {
+            iroha_data_model::transaction::TransactionEntrypoint::External(tx) => tx.network_id(),
+            iroha_data_model::transaction::TransactionEntrypoint::SealedReveal(tx) => {
+                tx.signed_transaction().network_id()
+            }
+            iroha_data_model::transaction::TransactionEntrypoint::SealedCommitment(_) => None,
+        }
+    }
     fn authority_opt(&self) -> Option<&AccountId> {
         AcceptedTransaction::authority_opt(self)
     }
@@ -173,6 +186,9 @@ impl TransactionRoutingView for AcceptedTransaction<'_> {
     }
 }
 impl TransactionRoutingView for TransactionPayload {
+    fn network_id(&self) -> Option<&NetworkId> {
+        TransactionPayload::network_id(self)
+    }
     fn authority_opt(&self) -> Option<&AccountId> {
         Some(&self.authority)
     }
@@ -316,25 +332,25 @@ pub enum RoutingResolveError {
     },
     /// A retained native proposal does not reproduce its exact approved account and body.
     #[error(
-        "invalid persisted multisig proposal `{instructions_hash}` for account `{account}`: {reason}"
+        "invalid persisted multisig proposal `{proposal_id}` for account `{account}`: {reason}"
     )]
     InvalidMultisigProposal {
         /// Canonical account used to look up the row.
         account: AccountId,
-        /// Signed instruction-list digest used to look up the row.
-        instructions_hash: HashOf<Vec<InstructionBox>>,
+        /// Signed occurrence identity used to look up the row.
+        proposal_id: MultisigProposalId,
         /// Completed binding or decoding error.
         reason: String,
     },
     /// A persisted multisig proposal graph recursively approves the same proposal.
     #[error(
-        "persisted multisig proposal `{instructions_hash}` for account `{account}` contains an approval cycle"
+        "persisted multisig proposal `{proposal_id}` for account `{account}` contains an approval cycle"
     )]
     MultisigProposalCycle {
         /// Multisig account that owns the cyclic proposal.
         account: AccountId,
-        /// Instruction-list digest used to address the cyclic proposal.
-        instructions_hash: HashOf<Vec<InstructionBox>>,
+        /// Occurrence identity used to address the cyclic proposal.
+        proposal_id: MultisigProposalId,
     },
     /// provided routing plan does not match the current Nexus routing policy
     #[error("provided routing plan does not match the current Nexus routing policy")]
@@ -506,37 +522,31 @@ pub(crate) fn assert_completed_routing_error_eq(
         (
             InvalidMultisigProposal {
                 account: a_account,
-                instructions_hash: a_instructions_hash,
+                proposal_id: a_proposal_id,
                 reason: a_reason,
             },
             InvalidMultisigProposal {
                 account: b_account,
-                instructions_hash: b_instructions_hash,
+                proposal_id: b_proposal_id,
                 reason: b_reason,
             },
         ) => {
             assert_eq!(a_account, b_account, "{context}: account");
-            assert_eq!(
-                a_instructions_hash, b_instructions_hash,
-                "{context}: instructions_hash"
-            );
+            assert_eq!(a_proposal_id, b_proposal_id, "{context}: proposal_id");
             assert_eq!(a_reason, b_reason, "{context}: reason");
         }
         (
             MultisigProposalCycle {
                 account: a_account,
-                instructions_hash: a_instructions_hash,
+                proposal_id: a_proposal_id,
             },
             MultisigProposalCycle {
                 account: b_account,
-                instructions_hash: b_instructions_hash,
+                proposal_id: b_proposal_id,
             },
         ) => {
             assert_eq!(a_account, b_account, "{context}: account");
-            assert_eq!(
-                a_instructions_hash, b_instructions_hash,
-                "{context}: instructions_hash"
-            );
+            assert_eq!(a_proposal_id, b_proposal_id, "{context}: proposal_id");
         }
         (StaleRoutingPlan, StaleRoutingPlan) => {}
         (
@@ -1285,7 +1295,7 @@ fn fx_corridor_policy_with_world<W: WorldReadOnly>(
             policy_id: policy_id.clone(),
         })
 }
-type MultisigProposalRoutingKey = (AccountId, HashOf<Vec<InstructionBox>>);
+type MultisigProposalRoutingKey = (AccountId, MultisigProposalId);
 #[derive(Default)]
 struct MultisigProposalRoutingStack {
     active: BTreeSet<MultisigProposalRoutingKey>,
@@ -1296,7 +1306,7 @@ impl MultisigProposalRoutingStack {
     fn with_proposal<T>(
         &mut self,
         account: &AccountId,
-        instructions_hash: &HashOf<Vec<InstructionBox>>,
+        proposal_id: &MultisigProposalId,
         resolve: impl FnOnce(&mut Self) -> Result<T, RoutingResolveError>,
     ) -> Result<T, RoutingResolveError> {
         if !cfg!(all(test, sumeragi_core_mutation = "HC70"))
@@ -1307,11 +1317,11 @@ impl MultisigProposalRoutingStack {
                 reason: "multisig proposal exceeds the deferred execution depth bound".into(),
             });
         }
-        let key = (account.clone(), *instructions_hash);
+        let key = (account.clone(), *proposal_id);
         if !self.active.insert(key.clone()) {
             return Err(RoutingResolveError::MultisigProposalCycle {
                 account: account.clone(),
-                instructions_hash: *instructions_hash,
+                proposal_id: *proposal_id,
             });
         }
         #[cfg(test)]
@@ -1325,10 +1335,32 @@ impl MultisigProposalRoutingStack {
 }
 #[derive(Clone, Debug, Default)]
 struct FxCorridorRoutingOverlay {
+    network_id: Option<NetworkId>,
     policies: BTreeMap<Name, FxCorridorPolicy>,
     executed_multisig_proposals: BTreeMap<MultisigProposalRoutingKey, Vec<InstructionBox>>,
 }
 impl FxCorridorRoutingOverlay {
+    fn for_network(network_id: Option<&NetworkId>) -> Self {
+        Self {
+            network_id: network_id.copied(),
+            ..Self::default()
+        }
+    }
+    fn proposal_id(
+        &self,
+        propose: &MultisigPropose,
+    ) -> Result<MultisigProposalId, RoutingResolveError> {
+        let network = self.network_id.as_ref().ok_or_else(|| {
+            RoutingResolveError::OrdinaryRouteUnavailable {
+                reason: "multisig occurrence requires signed network context".into(),
+            }
+        })?;
+        Ok(MultisigProposalId::derive(
+            network,
+            &propose.account,
+            &propose.proposal_nonce,
+        ))
+    }
     fn observe(&mut self, instruction: &dyn Instruction) {
         let any = instruction.as_any();
         let policy = any
@@ -1372,31 +1404,46 @@ impl FxCorridorRoutingOverlay {
         &mut self,
         propose: MultisigPropose,
     ) -> Result<(), RoutingResolveError> {
+        let proposal_id = self.proposal_id(&propose)?;
         let MultisigPropose {
             account,
             instructions,
             ..
         } = propose;
-        let instructions_hash = proposal_instructions_hash(&instructions)?;
-        self.executed_multisig_proposals
-            .entry((account, instructions_hash))
-            .or_insert(instructions);
+        proposal_instructions_hash(&instructions)?;
+        let key = (account.clone(), proposal_id);
+        if self.executed_multisig_proposals.contains_key(&key) {
+            return Err(RoutingResolveError::InvalidMultisigProposal {
+                account,
+                proposal_id,
+                reason: "multisig occurrence is proposed more than once in one transaction".into(),
+            });
+        }
+        self.executed_multisig_proposals.insert(key, instructions);
         Ok(())
     }
     fn multisig_proposal_instructions_with_world<W: WorldReadOnly>(
         &self,
         world: &W,
         account: &AccountId,
+        proposal_id: &MultisigProposalId,
         instructions_hash: &HashOf<Vec<InstructionBox>>,
     ) -> Result<Option<Vec<InstructionBox>>, RoutingResolveError> {
         if let Some(instructions) = self
             .executed_multisig_proposals
-            .get(&(account.clone(), *instructions_hash))
+            .get(&(account.clone(), *proposal_id))
         {
+            if proposal_instructions_hash(instructions)? != *instructions_hash {
+                return Err(RoutingResolveError::InvalidMultisigProposal {
+                    account: account.clone(),
+                    proposal_id: *proposal_id,
+                    reason: "multisig occurrence instruction hash mismatch".into(),
+                });
+            }
             return Ok(Some(instructions.clone()));
         }
         Ok(
-            multisig_proposal_state_raw(world, account, instructions_hash)?
+            multisig_proposal_state_raw(world, account, proposal_id, instructions_hash)?
                 .map(|proposal| proposal.instructions),
         )
     }
@@ -1924,7 +1971,7 @@ fn settlement_transaction_dataspace_target_with_world<W: WorldReadOnly>(
     let Some(executable) = transaction_executable(tx) else {
         return Ok(None);
     };
-    let mut fx_overlay = FxCorridorRoutingOverlay::default();
+    let mut fx_overlay = FxCorridorRoutingOverlay::for_network(tx.network_id());
     executable_settlement_dataspace_target_with_world(
         executable,
         dataspace_catalog,
@@ -1993,6 +2040,7 @@ fn instruction_settlement_dataspace_target_with_stack(
                 Ok(with_multisig_proposal_state(
                     view.world(),
                     &approve.account,
+                    &approve.proposal_id,
                     &approve.instructions_hash,
                     stack,
                     |proposal, stack| {
@@ -2204,6 +2252,7 @@ fn instruction_settlement_dataspace_target_with_world_and_stack<W: WorldReadOnly
                 fx_overlay,
                 world,
                 &approve.account,
+                &approve.proposal_id,
                 &approve.instructions_hash,
                 stack,
                 |instructions, stack| {
@@ -2527,6 +2576,8 @@ struct TransactionDataspaceTarget {
     participants: BTreeSet<DataSpaceId>,
 }
 struct SameTransactionMultisigProposalTarget {
+    proposal_id: MultisigProposalId,
+    proposal_nonce: MultisigProposalNonce,
     top_level_instruction_index: usize,
     account: AccountId,
     instructions_hash: HashOf<Vec<InstructionBox>>,
@@ -2748,6 +2799,7 @@ fn transaction_dataspace_routing_target_info(
     let reject_cross_dataspace = amx_policy_rejects_cross_dataspace(tx);
     let instruction_refs = executable_instruction_refs(executable);
     let same_transaction_multisig_proposals = same_transaction_multisig_proposal_targets(
+        tx.network_id(),
         &instruction_refs,
         dataspace_catalog,
         state_view,
@@ -2829,7 +2881,7 @@ fn transaction_dataspace_routing_target_info_with_world<W: WorldReadOnly>(
         return Ok(TransactionDataspaceTarget::default());
     };
     let mut target = TransactionDataspaceTarget::default();
-    let mut fx_overlay = FxCorridorRoutingOverlay::default();
+    let mut fx_overlay = FxCorridorRoutingOverlay::for_network(tx.network_id());
     let reject_cross_dataspace = amx_policy_rejects_cross_dataspace(tx);
     let instruction_refs = executable_instruction_refs(executable);
     let same_transaction_multisig_proposals =
@@ -3089,7 +3141,7 @@ fn native_amx_participant_dataspaces_with_world_at<W: WorldReadOnly>(
     ledger_time_ms: Option<u64>,
 ) -> Result<Vec<DataSpaceId>, RoutingResolveError> {
     let mut dataspaces = std::collections::BTreeSet::new();
-    let mut fx_overlay = FxCorridorRoutingOverlay::default();
+    let mut fx_overlay = FxCorridorRoutingOverlay::for_network(tx.network_id());
     let mut multisig_stack = MultisigProposalRoutingStack::default();
     let Some(executable) = transaction_executable(tx) else {
         return Ok(Vec::new());
@@ -3486,7 +3538,19 @@ fn collect_instruction_native_amx_participants<W: WorldReadOnly>(
                     world,
                 )?;
             }
-            if nested_dataspaces.is_empty() {
+            // Universal targets are intentionally absent from the participant set.
+            // Only a payload without any concrete target inherits the account scope;
+            // a global balance write must not acquire a spurious private participant.
+            if nested_dataspaces.is_empty()
+                && merge_instruction_dataspace_targets_with_world_and_fx_overlay(
+                    instructions.iter(),
+                    Some(dataspace_catalog),
+                    world,
+                    ledger_time_ms,
+                    &mut fx_overlay.clone(),
+                )?
+                .is_none()
+            {
                 insert_native_amx_participant(
                     &mut nested_dataspaces,
                     account_dataspace_target(Some(world), account, ledger_time_ms)?,
@@ -3502,6 +3566,7 @@ fn collect_instruction_native_amx_participants<W: WorldReadOnly>(
                 fx_overlay,
                 world,
                 &approve.account,
+                &approve.proposal_id,
                 &approve.instructions_hash,
                 stack,
                 |instructions, stack| collect_payload(instructions, &approve.account, stack),
@@ -4845,7 +4910,7 @@ fn multisig_instruction(
 #[cfg(test)]
 fn multisig_proposal_state_key(
     multisig_account: &AccountId,
-    instructions_hash: &HashOf<Vec<InstructionBox>>,
+    proposal_id: &MultisigProposalId,
 ) -> StatePath {
     const DELIMITER: char = '/';
     const MULTISIG: &str = "multisig";
@@ -4853,7 +4918,7 @@ fn multisig_proposal_state_key(
     StatePath::from_str(&format!(
         "{MULTISIG}{DELIMITER}{MULTISIG_PROPOSAL_STATE}{DELIMITER}{}{DELIMITER}{}",
         HashOf::new(multisig_account),
-        instructions_hash
+        proposal_id
     ))
     .expect("multisig proposal state path must be valid")
 }
@@ -4862,29 +4927,40 @@ fn multisig_proposal_state_key(
 fn multisig_proposal_state_raw<W: WorldReadOnly>(
     world: &W,
     multisig_account: &AccountId,
+    proposal_id: &MultisigProposalId,
     instructions_hash: &HashOf<Vec<InstructionBox>>,
 ) -> Result<Option<MultisigProposalState>, RoutingResolveError> {
-    crate::smartcontracts::isi::multisig::read_proposal_state(
-        world,
-        multisig_account,
-        instructions_hash,
-    )
-    .map_err(|error| match error {
-        crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
-            RoutingResolveError::Deferred(reason)
-        }
-        crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
-            RoutingResolveError::InvalidMultisigProposal {
-                account: multisig_account.clone(),
-                instructions_hash: *instructions_hash,
-                reason: error.to_string(),
+    crate::smartcontracts::isi::multisig::read_proposal_state(world, multisig_account, proposal_id)
+        .and_then(|value| {
+            if value
+                .as_ref()
+                .is_some_and(|proposal| proposal.instructions_hash != *instructions_hash)
+            {
+                return Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+                    iroha_data_model::ValidationFail::NotPermitted(
+                        "multisig occurrence instruction hash mismatch".into(),
+                    ),
+                ));
             }
-        }
-    })
+            Ok(value)
+        })
+        .map_err(|error| match error {
+            crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                RoutingResolveError::Deferred(reason)
+            }
+            crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
+                RoutingResolveError::InvalidMultisigProposal {
+                    account: multisig_account.clone(),
+                    proposal_id: *proposal_id,
+                    reason: error.to_string(),
+                }
+            }
+        })
 }
 fn with_multisig_proposal_state<W: WorldReadOnly, T>(
     world: &W,
     account: &AccountId,
+    proposal_id: &MultisigProposalId,
     instructions_hash: &HashOf<Vec<InstructionBox>>,
     stack: &mut MultisigProposalRoutingStack,
     resolve: impl FnOnce(
@@ -4892,19 +4968,20 @@ fn with_multisig_proposal_state<W: WorldReadOnly, T>(
         &mut MultisigProposalRoutingStack,
     ) -> Result<T, RoutingResolveError>,
 ) -> Result<Option<T>, RoutingResolveError> {
-    let Some(proposal) = multisig_proposal_state_raw(world, account, instructions_hash)? else {
+    let Some(proposal) =
+        multisig_proposal_state_raw(world, account, proposal_id, instructions_hash)?
+    else {
         return Ok(None);
     };
     stack
-        .with_proposal(account, instructions_hash, |stack| {
-            resolve(&proposal, stack)
-        })
+        .with_proposal(account, proposal_id, |stack| resolve(&proposal, stack))
         .map(Some)
 }
 fn with_multisig_proposal_instructions<W: WorldReadOnly, T>(
     fx_overlay: &FxCorridorRoutingOverlay,
     world: &W,
     account: &AccountId,
+    proposal_id: &MultisigProposalId,
     instructions_hash: &HashOf<Vec<InstructionBox>>,
     stack: &mut MultisigProposalRoutingStack,
     resolve: impl FnOnce(
@@ -4912,15 +4989,17 @@ fn with_multisig_proposal_instructions<W: WorldReadOnly, T>(
         &mut MultisigProposalRoutingStack,
     ) -> Result<T, RoutingResolveError>,
 ) -> Result<Option<T>, RoutingResolveError> {
-    let Some(instructions) =
-        fx_overlay.multisig_proposal_instructions_with_world(world, account, instructions_hash)?
+    let Some(instructions) = fx_overlay.multisig_proposal_instructions_with_world(
+        world,
+        account,
+        proposal_id,
+        instructions_hash,
+    )?
     else {
         return Ok(None);
     };
     stack
-        .with_proposal(account, instructions_hash, |stack| {
-            resolve(&instructions, stack)
-        })
+        .with_proposal(account, proposal_id, |stack| resolve(&instructions, stack))
         .map(Some)
 }
 fn extend_instruction_concrete_dataspace_targets(
@@ -5162,6 +5241,7 @@ fn deferred_instruction_concrete_dataspace_targets_with_stack(
                     with_multisig_proposal_state(
                         view.world(),
                         &approve.account,
+                        &approve.proposal_id,
                         &approve.instructions_hash,
                         stack,
                         |proposal, stack| collect(&proposal.instructions, stack),
@@ -5439,6 +5519,7 @@ fn deferred_instruction_concrete_dataspace_targets_with_world_and_stack<W: World
                 with_multisig_proposal_state(
                     world,
                     &approve.account,
+                    &approve.proposal_id,
                     &approve.instructions_hash,
                     stack,
                     |proposal, stack| collect(&proposal.instructions, stack),
@@ -5598,6 +5679,7 @@ fn extend_instruction_concrete_dataspace_targets_with_world_and_fx_overlay_and_s
                     fx_overlay,
                     world,
                     &approve.account,
+                    &approve.proposal_id,
                     &approve.instructions_hash,
                     stack,
                     collect,
@@ -5754,6 +5836,7 @@ fn deferred_instruction_concrete_dataspace_targets_with_world_and_fx_overlay<W: 
     Ok(Some(targets))
 }
 fn same_transaction_multisig_proposal_targets(
+    network_id: Option<&NetworkId>,
     instructions: &[&InstructionBox],
     dataspace_catalog: Option<&DataSpaceCatalog>,
     state_view: Option<&StateView<'_>>,
@@ -5784,6 +5867,8 @@ fn same_transaction_multisig_proposal_targets(
         }
         proposals.push(SameTransactionMultisigProposalTarget {
             top_level_instruction_index,
+            proposal_id: FxCorridorRoutingOverlay::for_network(network_id).proposal_id(&propose)?,
+            proposal_nonce: propose.proposal_nonce,
             account: propose.account,
             instructions_hash: proposal_instructions_hash(&propose.instructions)?,
             instructions: propose.instructions,
@@ -5850,6 +5935,8 @@ fn same_transaction_multisig_proposal_targets_with_world<W: WorldReadOnly>(
             requires_universal_coordinator |= concrete_dataspaces.len() > 1;
             proposals.push(SameTransactionMultisigProposalTarget {
                 top_level_instruction_index,
+                proposal_id: fx_overlay.proposal_id(&propose)?,
+                proposal_nonce: propose.proposal_nonce,
                 account: propose.account,
                 instructions_hash: proposal_instructions_hash(&propose.instructions)?,
                 instructions: propose.instructions,
@@ -5876,21 +5963,29 @@ fn same_transaction_multisig_route_target<'a>(
     let Some(multisig) = multisig_instruction(instruction)? else {
         return Ok(None);
     };
-    let (account, instructions_hash, must_precede) = match multisig {
+    let (account, proposal_id, proposal_nonce, instructions_hash, must_precede) = match multisig {
         MultisigInstructionBox::Propose(propose) => (
             propose.account,
+            None,
+            Some(propose.proposal_nonce),
             proposal_instructions_hash(&propose.instructions)?,
             false,
         ),
-        MultisigInstructionBox::Approve(approve) => {
-            (approve.account, approve.instructions_hash, true)
-        }
+        MultisigInstructionBox::Approve(approve) => (
+            approve.account,
+            Some(approve.proposal_id),
+            None,
+            approve.instructions_hash,
+            true,
+        ),
         MultisigInstructionBox::Register(_)
         | MultisigInstructionBox::Cancel(_)
         | MultisigInstructionBox::InvalidateOutstanding(_) => return Ok(None),
     };
     Ok(proposals.iter().find(|proposal| {
         proposal.account == account
+            && proposal_id.is_none_or(|id| proposal.proposal_id == id)
+            && proposal_nonce.is_none_or(|nonce| proposal.proposal_nonce == nonce)
             && proposal.instructions_hash == instructions_hash
             && if must_precede {
                 proposal.top_level_instruction_index < top_level_instruction_index
@@ -5935,9 +6030,16 @@ fn observe_authenticated_instruction_fx_effects<W: WorldReadOnly>(
         MultisigInstructionBox::Approve(approve) => approve,
         _ => return Ok(()),
     };
-    let key = (approve.account.clone(), approve.instructions_hash);
+    let key = (approve.account.clone(), approve.proposal_id);
     let instructions = if let Some(instructions) = fx_overlay.executed_multisig_proposals.get(&key)
     {
+        if proposal_instructions_hash(instructions)? != approve.instructions_hash {
+            return Err(RoutingResolveError::InvalidMultisigProposal {
+                account: approve.account.clone(),
+                proposal_id: approve.proposal_id,
+                reason: "approval body does not match its proposed occurrence".into(),
+            });
+        }
         Some(instructions.clone())
     } else if let Some(proposal) = same_transaction_multisig_route_target(
         same_transaction_multisig_proposals,
@@ -5946,13 +6048,18 @@ fn observe_authenticated_instruction_fx_effects<W: WorldReadOnly>(
     )? {
         Some(proposal.instructions.clone())
     } else {
-        multisig_proposal_state_raw(world, &approve.account, &approve.instructions_hash)?
-            .map(|proposal| proposal.instructions)
+        multisig_proposal_state_raw(
+            world,
+            &approve.account,
+            &approve.proposal_id,
+            &approve.instructions_hash,
+        )?
+        .map(|proposal| proposal.instructions)
     };
     // Any vote may complete quorum. Project its exact authenticated branch with the same
     // cycle/depth bound as other routing walks, including otherwise non-settlement proposals.
     if let Some(instructions) = instructions {
-        stack.with_proposal(&approve.account, &approve.instructions_hash, |stack| {
+        stack.with_proposal(&approve.account, &approve.proposal_id, |stack| {
             for nested in &instructions {
                 observe_authenticated_instruction_fx_effects(
                     fx_overlay,
@@ -5999,19 +6106,23 @@ fn multisig_approve_transaction_dataspace_target(
     };
     // The instruction-target entry point completes its guarded settlement pre-walk before this
     // helper is reached, so a cyclic graph cannot enter this unguarded result fold.
-    let proposal_target =
-        match multisig_proposal_state_raw(world, &approve.account, &approve.instructions_hash)? {
-            Some(proposal_state) => merge_instruction_dataspace_target_results(
-                proposal_state.instructions.iter().map(|instruction| {
-                    instruction_transaction_dataspace_target(
-                        &**instruction,
-                        dataspace_catalog,
-                        state_view,
-                    )
-                }),
-            )?,
-            None => None,
-        };
+    let proposal_target = match multisig_proposal_state_raw(
+        world,
+        &approve.account,
+        &approve.proposal_id,
+        &approve.instructions_hash,
+    )? {
+        Some(proposal_state) => merge_instruction_dataspace_target_results(
+            proposal_state.instructions.iter().map(|instruction| {
+                instruction_transaction_dataspace_target(
+                    &**instruction,
+                    dataspace_catalog,
+                    state_view,
+                )
+            }),
+        )?,
+        None => None,
+    };
     Ok(proposal_target.map_or_else(
         || {
             account_dataspace_target(
@@ -6033,6 +6144,7 @@ fn multisig_approve_transaction_dataspace_target_with_world_and_fx_overlay<W: Wo
     let proposal_target = match fx_overlay.multisig_proposal_instructions_with_world(
         world,
         &approve.account,
+        &approve.proposal_id,
         &approve.instructions_hash,
     )? {
         Some(instructions) => {
@@ -6306,6 +6418,7 @@ fn instruction_transaction_target_requires_universal_coordinator(
                 Some(view) => multisig_proposal_state_raw(
                     view.world(),
                     &approve.account,
+                    &approve.proposal_id,
                     &approve.instructions_hash,
                 )?
                 .map(|proposal| proposal.instructions),
@@ -6464,10 +6577,13 @@ fn instruction_transaction_target_requires_universal_coordinator_with_world<W: W
         // coordinator scan, preventing a cyclic payload from reaching that scan.
         let instructions = match multisig {
             MultisigInstructionBox::Propose(propose) => Some(propose.instructions),
-            MultisigInstructionBox::Approve(approve) => {
-                multisig_proposal_state_raw(world, &approve.account, &approve.instructions_hash)?
-                    .map(|proposal| proposal.instructions)
-            }
+            MultisigInstructionBox::Approve(approve) => multisig_proposal_state_raw(
+                world,
+                &approve.account,
+                &approve.proposal_id,
+                &approve.instructions_hash,
+            )?
+            .map(|proposal| proposal.instructions),
             MultisigInstructionBox::Register(_)
             | MultisigInstructionBox::Cancel(_)
             | MultisigInstructionBox::InvalidateOutstanding(_) => None,
@@ -6730,6 +6846,7 @@ fn instruction_transaction_target_requires_universal_coordinator_with_world_and_
                 .multisig_proposal_instructions_with_world(
                     world,
                     &approve.account,
+                    &approve.proposal_id,
                     &approve.instructions_hash,
                 )?,
             MultisigInstructionBox::Register(_)
@@ -9904,6 +10021,17 @@ mod sccp_routing_tests {
 
 #[cfg(test)]
 mod tests {
+    fn test_nonce(hash: &HashOf<Vec<InstructionBox>>) -> MultisigProposalNonce {
+        MultisigProposalNonce::new(*hash.as_ref()).unwrap()
+    }
+    fn test_id(account: &AccountId, hash: &HashOf<Vec<InstructionBox>>) -> MultisigProposalId {
+        MultisigProposalId::derive(
+            &super::super::queue_test_network_id(),
+            account,
+            &test_nonce(hash),
+        )
+    }
+
     /// Canonical typed retail scope routing and native-policy refusal controls.
     mod retail_daily_limit_routing_tests {
         include!("router/retail_daily_limit_routing_tests.rs");
@@ -11085,6 +11213,7 @@ mod tests {
             .insert(account_id.clone(), scope_entry);
     }
     include!("router_initial_routing_tests.rs");
+    include!("router_multisig_global_scope_tests.rs");
     #[test]
     fn canonical_dataspace_route_classifies_unknown_scope_before_lane_absence() {
         let unknown = DataSpaceId::new(8);
@@ -12731,6 +12860,22 @@ mod tests {
                 "multisig-wrapped DVP",
                 InstructionBox::from(MultisigPropose::new(
                     alice_id.clone(),
+                    test_nonce(&HashOf::new(&vec![InstructionBox::from(DvpIsi::new(
+                        "multisig_dvp_plan".parse().expect("settlement id"),
+                        SettlementLeg::new(
+                            delivery_definition.clone(),
+                            1_u32,
+                            alice_id.clone(),
+                            bob_id.clone(),
+                        ),
+                        SettlementLeg::new(
+                            payment_definition.clone(),
+                            1_u32,
+                            bob_id.clone(),
+                            alice_id.clone(),
+                        ),
+                        SettlementPlan::default(),
+                    ))])),
                     vec![InstructionBox::from(DvpIsi::new(
                         iroha_data_model::isi::SettlementId::new(
                             alice_id.clone(),
@@ -12757,6 +12902,27 @@ mod tests {
                 "multisig mixed private settlement and write",
                 InstructionBox::from(MultisigPropose::new(
                     alice_id.clone(),
+                    test_nonce(&HashOf::new(&vec![
+                        InstructionBox::from(DvpIsi::new(
+                            "multisig_mixed_plan".parse().expect("settlement id"),
+                            SettlementLeg::new(
+                                delivery_definition.clone(),
+                                1_u32,
+                                alice_id.clone(),
+                                bob_id.clone(),
+                            ),
+                            SettlementLeg::new(
+                                delivery_definition.clone(),
+                                1_u32,
+                                bob_id.clone(),
+                                alice_id.clone(),
+                            ),
+                            SettlementPlan::default(),
+                        )),
+                        InstructionBox::from(Register::domain(Domain::new(
+                            DomainId::try_new("merchant", "payment").expect("domain id"),
+                        ))),
+                    ])),
                     vec![
                         InstructionBox::from(DvpIsi::new(
                             iroha_data_model::isi::SettlementId::new(
@@ -16558,16 +16724,19 @@ mod tests {
                 "multisig proposal",
                 InstructionBox::from(MultisigPropose::new(
                     authority.clone(),
+                    test_nonce(&HashOf::new(&vec![update.clone(), fund.clone()])),
                     vec![update.clone(), fund.clone()],
                     None,
                 )),
                 InstructionBox::from(MultisigPropose::new(
                     authority.clone(),
+                    test_nonce(&HashOf::new(&vec![fund.clone(), update.clone()])),
                     vec![fund.clone(), update.clone()],
                     None,
                 )),
                 InstructionBox::from(MultisigPropose::new(
                     authority.clone(),
+                    test_nonce(&HashOf::new(&vec![update.clone()])),
                     vec![update.clone()],
                     None,
                 )),
@@ -16654,11 +16823,15 @@ mod tests {
         let proposal_hash = HashOf::new(&proposed);
         let proposal = InstructionBox::from(MultisigPropose::new(
             multisig_id.clone(),
+            test_nonce(&HashOf::new(&proposed.clone())),
             proposed.clone(),
             None,
         ));
-        let approval =
-            InstructionBox::from(MultisigApprove::new(multisig_id.clone(), proposal_hash));
+        let approval = InstructionBox::from(MultisigApprove::new(
+            multisig_id.clone(),
+            test_id(&multisig_id.clone(), &proposal_hash),
+            proposal_hash,
+        ));
         let expected = RoutingPlan::native_amx(
             RoutingDecision::new(LaneId::SINGLE, DataSpaceId::UNIVERSAL),
             vec![RouteLeg::new(
@@ -16716,6 +16889,7 @@ mod tests {
             ),
             InstructionBox::from(MultisigPropose::new(
                 multisig_id.clone(),
+                test_nonce(&HashOf::new(&vec![approval.clone()])),
                 vec![approval.clone()],
                 None,
             )),
@@ -16737,20 +16911,23 @@ mod tests {
 
         let mut persisted_state = blank_state();
         install_router_nexus(&mut persisted_state, &router);
-        let persisted_proposal = MultisigProposalState::new(
-            multisig_id.clone(),
-            proposal_hash,
-            proposed,
-            1,
-            10_000,
-            BTreeSet::new(),
-            None,
-        );
+        let persisted_proposal = MultisigProposalState {
+            network_id: super::super::queue_test_network_id(),
+            multisig_account_id: multisig_id.clone(),
+            proposal_nonce: test_nonce(&proposal_hash),
+            proposal_id: test_id(&multisig_id.clone(), &proposal_hash),
+            instructions_hash: proposal_hash,
+            transaction_ttl_ms: None,
+            instructions: proposed,
+            proposed_at_ms: 1,
+            expires_at_ms: 10_000,
+            approvals: BTreeSet::new(),
+        };
         persisted_state
             .world
             .smart_contract_state_mut_for_testing()
             .insert(
-                multisig_proposal_state_key(&multisig_id, &proposal_hash),
+                multisig_proposal_state_key(&multisig_id, &test_id(&multisig_id, &proposal_hash)),
                 encoded_multisig_proposal_state(&persisted_proposal),
             );
         let persisted_tx = sample_transaction(
@@ -16769,27 +16946,37 @@ mod tests {
         let (outer_multisig_id, _) = gen_account_in("wonderland");
         let outer_proposed = vec![approval.clone()];
         let outer_proposal_hash = HashOf::new(&outer_proposed);
-        let outer_proposal = MultisigProposalState::new(
-            outer_multisig_id.clone(),
-            outer_proposal_hash,
-            outer_proposed,
-            1,
-            10_000,
-            BTreeSet::new(),
-            None,
-        );
+        let outer_proposal = MultisigProposalState {
+            network_id: super::super::queue_test_network_id(),
+            multisig_account_id: outer_multisig_id.clone(),
+            proposal_nonce: test_nonce(&outer_proposal_hash),
+            proposal_id: test_id(&outer_multisig_id.clone(), &outer_proposal_hash),
+            instructions_hash: outer_proposal_hash,
+            transaction_ttl_ms: None,
+            instructions: outer_proposed,
+            proposed_at_ms: 1,
+            expires_at_ms: 10_000,
+            approvals: BTreeSet::new(),
+        };
         persisted_state
             .world
             .smart_contract_state_mut_for_testing()
             .insert(
-                multisig_proposal_state_key(&outer_multisig_id, &outer_proposal_hash),
+                multisig_proposal_state_key(
+                    &outer_multisig_id,
+                    &test_id(&outer_multisig_id, &outer_proposal_hash),
+                ),
                 encoded_multisig_proposal_state(&outer_proposal),
             );
         let nested_approval_tx = sample_transaction(
             &authority,
             authority_keypair.private_key(),
             vec![
-                InstructionBox::from(MultisigApprove::new(outer_multisig_id, outer_proposal_hash)),
+                InstructionBox::from(MultisigApprove::new(
+                    outer_multisig_id.clone(),
+                    test_id(&outer_multisig_id, &outer_proposal_hash),
+                    outer_proposal_hash,
+                )),
                 fund.clone(),
             ],
         );
@@ -16817,27 +17004,34 @@ mod tests {
         let (payload_multisig_id, _) = gen_account_in("wonderland");
         let payload_proposed = vec![approval.clone(), fund.clone()];
         let payload_proposal_hash = HashOf::new(&payload_proposed);
-        let payload_proposal = MultisigProposalState::new(
-            payload_multisig_id.clone(),
-            payload_proposal_hash,
-            payload_proposed,
-            1,
-            10_000,
-            BTreeSet::new(),
-            None,
-        );
+        let payload_proposal = MultisigProposalState {
+            network_id: super::super::queue_test_network_id(),
+            multisig_account_id: payload_multisig_id.clone(),
+            proposal_nonce: test_nonce(&payload_proposal_hash),
+            proposal_id: test_id(&payload_multisig_id.clone(), &payload_proposal_hash),
+            instructions_hash: payload_proposal_hash,
+            transaction_ttl_ms: None,
+            instructions: payload_proposed,
+            proposed_at_ms: 1,
+            expires_at_ms: 10_000,
+            approvals: BTreeSet::new(),
+        };
         persisted_state
             .world
             .smart_contract_state_mut_for_testing()
             .insert(
-                multisig_proposal_state_key(&payload_multisig_id, &payload_proposal_hash),
+                multisig_proposal_state_key(
+                    &payload_multisig_id,
+                    &test_id(&payload_multisig_id, &payload_proposal_hash),
+                ),
                 encoded_multisig_proposal_state(&payload_proposal),
             );
         let nested_payload_tx = sample_transaction(
             &authority,
             authority_keypair.private_key(),
             vec![InstructionBox::from(MultisigApprove::new(
-                payload_multisig_id,
+                payload_multisig_id.clone(),
+                test_id(&payload_multisig_id, &payload_proposal_hash),
                 payload_proposal_hash,
             ))],
         );
@@ -16854,11 +17048,15 @@ mod tests {
         let local_proposal_hash = HashOf::new(&local_proposed);
         let local_proposal = InstructionBox::from(MultisigPropose::new(
             local_multisig_id.clone(),
+            test_nonce(&HashOf::new(&local_proposed)),
             local_proposed,
             None,
         ));
-        let local_approval =
-            InstructionBox::from(MultisigApprove::new(local_multisig_id, local_proposal_hash));
+        let local_approval = InstructionBox::from(MultisigApprove::new(
+            local_multisig_id.clone(),
+            test_id(&local_multisig_id, &local_proposal_hash),
+            local_proposal_hash,
+        ));
         let (ordered_outer_id, _) = gen_account_in("wonderland");
         let ordered_outer_instructions =
             vec![local_proposal.clone(), local_approval.clone(), fund.clone()];
@@ -16867,22 +17065,29 @@ mod tests {
             .world
             .smart_contract_state_mut_for_testing()
             .insert(
-                multisig_proposal_state_key(&ordered_outer_id, &ordered_outer_hash),
-                encoded_multisig_proposal_state(&MultisigProposalState::new(
-                    ordered_outer_id.clone(),
-                    ordered_outer_hash,
-                    ordered_outer_instructions,
-                    1,
-                    10_000,
-                    BTreeSet::new(),
-                    None,
-                )),
+                multisig_proposal_state_key(
+                    &ordered_outer_id,
+                    &test_id(&ordered_outer_id, &ordered_outer_hash),
+                ),
+                encoded_multisig_proposal_state(&MultisigProposalState {
+                    network_id: super::super::queue_test_network_id(),
+                    multisig_account_id: ordered_outer_id.clone(),
+                    proposal_nonce: test_nonce(&ordered_outer_hash),
+                    proposal_id: test_id(&ordered_outer_id.clone(), &ordered_outer_hash),
+                    instructions_hash: ordered_outer_hash,
+                    transaction_ttl_ms: None,
+                    instructions: ordered_outer_instructions,
+                    proposed_at_ms: 1,
+                    expires_at_ms: 10_000,
+                    approvals: BTreeSet::new(),
+                }),
             );
         let ordered_local_tx = sample_transaction(
             &authority,
             authority_keypair.private_key(),
             vec![InstructionBox::from(MultisigApprove::new(
-                ordered_outer_id,
+                ordered_outer_id.clone(),
+                test_id(&ordered_outer_id, &ordered_outer_hash),
                 ordered_outer_hash,
             ))],
         );
@@ -16915,22 +17120,29 @@ mod tests {
             .world
             .smart_contract_state_mut_for_testing()
             .insert(
-                multisig_proposal_state_key(&reversed_outer_id, &reversed_outer_hash),
-                encoded_multisig_proposal_state(&MultisigProposalState::new(
-                    reversed_outer_id.clone(),
-                    reversed_outer_hash,
-                    reversed_outer_instructions,
-                    1,
-                    10_000,
-                    BTreeSet::new(),
-                    None,
-                )),
+                multisig_proposal_state_key(
+                    &reversed_outer_id,
+                    &test_id(&reversed_outer_id, &reversed_outer_hash),
+                ),
+                encoded_multisig_proposal_state(&MultisigProposalState {
+                    network_id: super::super::queue_test_network_id(),
+                    multisig_account_id: reversed_outer_id.clone(),
+                    proposal_nonce: test_nonce(&reversed_outer_hash),
+                    proposal_id: test_id(&reversed_outer_id.clone(), &reversed_outer_hash),
+                    instructions_hash: reversed_outer_hash,
+                    transaction_ttl_ms: None,
+                    instructions: reversed_outer_instructions,
+                    proposed_at_ms: 1,
+                    expires_at_ms: 10_000,
+                    approvals: BTreeSet::new(),
+                }),
             );
         let reversed_local_tx = sample_transaction(
             &authority,
             authority_keypair.private_key(),
             vec![InstructionBox::from(MultisigApprove::new(
-                reversed_outer_id,
+                reversed_outer_id.clone(),
+                test_id(&reversed_outer_id, &reversed_outer_hash),
                 reversed_outer_hash,
             ))],
         );
@@ -16960,6 +17172,10 @@ mod tests {
         let (inert_outer_id, _) = gen_account_in("wonderland");
         let inert_proposal = InstructionBox::from(MultisigPropose::new(
             inert_outer_id,
+            test_nonce(&HashOf::new(&vec![
+                local_proposal.clone(),
+                local_approval.clone(),
+            ])),
             vec![local_proposal, local_approval],
             None,
         ));
@@ -16998,18 +17214,25 @@ mod tests {
             "reviewed queue proposal".into(),
         ))];
         let hash = HashOf::new(&instructions);
-        let approval = InstructionBox::from(MultisigApprove::new(account.clone(), hash));
-        let signed = sample_transaction(&authority, keypair.private_key(), vec![approval.clone()]);
-        let original = MultisigProposalState::new(
+        let approval = InstructionBox::from(MultisigApprove::new(
             account.clone(),
+            test_id(&account.clone(), &hash),
             hash,
+        ));
+        let signed = sample_transaction(&authority, keypair.private_key(), vec![approval.clone()]);
+        let original = MultisigProposalState {
+            network_id: super::super::queue_test_network_id(),
+            multisig_account_id: account.clone(),
+            proposal_nonce: test_nonce(&hash),
+            proposal_id: test_id(&account.clone(), &hash),
+            instructions_hash: hash,
+            transaction_ttl_ms: None,
             instructions,
-            1,
-            10_000,
-            BTreeSet::new(),
-            None,
-        );
-        let key = multisig_proposal_state_key(&account, &hash);
+            proposed_at_ms: 1,
+            expires_at_ms: 10_000,
+            approvals: BTreeSet::new(),
+        };
+        let key = multisig_proposal_state_key(&account, &test_id(&account, &hash));
         let bytes = encoded_multisig_proposal_state(&original);
         let mut state = blank_state();
         let route = |state: &State| {
@@ -17029,8 +17252,13 @@ mod tests {
         norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
             || {
-                let direct = multisig_proposal_state_raw(state.view().world(), &account, &hash)
-                    .expect_err("actual direct proposal decode refusal");
+                let direct = multisig_proposal_state_raw(
+                    state.view().world(),
+                    &account,
+                    &test_id(&account, &hash),
+                    &hash,
+                )
+                .expect_err("actual direct proposal decode refusal");
                 // The signed approval is a CustomInstruction. Routing first decodes its
                 // JSON while checking for FX settlement, before reading persisted bytes.
                 let custom = multisig_instruction(&*approval)
@@ -17045,14 +17273,33 @@ mod tests {
                 else {
                     panic!("all actual operations must retain their original decoder refusal");
                 };
-                assert_eq!(
-                    direct.reason(),
-                    ivm::error::ExecutionDeferral::ActiveMemoryCapacity
-                );
+                let repeated = multisig_proposal_state_raw(
+                    state.view().world(),
+                    &account,
+                    &test_id(&account, &hash),
+                    &hash,
+                )
+                .expect_err("a repeated unfunded proposal read also defers");
+                let RoutingResolveError::Deferred(repeated) = repeated else {
+                    panic!("the repeated read must retain its own decoder refusal");
+                };
+                assert_eq!(repeated.reason(), direct.reason());
                 assert_eq!(routed.reason(), direct.reason());
                 let direct_cause = direct
                     .decode_refusal()
                     .expect("actual direct decoder cause");
+                let repeated_cause = repeated
+                    .decode_refusal()
+                    .expect("actual repeated decoder cause");
+                assert_eq!(repeated_cause.kind(), direct_cause.kind());
+                assert_eq!(
+                    repeated_cause.resource_error(),
+                    direct_cause.resource_error()
+                );
+                assert_ne!(
+                    repeated_cause, direct_cause,
+                    "separate persisted reads retain distinct original decoder observers"
+                );
                 let custom_cause = custom
                     .decode_refusal()
                     .expect("actual custom JSON decoder cause");
@@ -17119,7 +17366,8 @@ mod tests {
                 ),
                 Err(RoutingResolveError::InvalidMultisigProposal { .. })
             ));
-            let mut overlay = FxCorridorRoutingOverlay::default();
+            let mut overlay =
+                FxCorridorRoutingOverlay::for_network(Some(&super::super::queue_test_network_id()));
             assert!(matches!(
                 observe_top_level_instruction_fx_effects(
                     &mut overlay,
@@ -17166,24 +17414,31 @@ mod tests {
     fn authenticated_multisig_approval_fx_effect_projection_breaks_cycles() {
         let (multisig_id, _) = gen_account_in("wonderland");
         let instructions_hash = HashOf::new(&Vec::<InstructionBox>::new());
-        let approval =
-            InstructionBox::from(MultisigApprove::new(multisig_id.clone(), instructions_hash));
-        let proposal = MultisigProposalState::new(
+        let approval = InstructionBox::from(MultisigApprove::new(
             multisig_id.clone(),
+            test_id(&multisig_id.clone(), &instructions_hash),
             instructions_hash,
-            vec![approval.clone()],
-            1,
-            10_000,
-            BTreeSet::new(),
-            None,
-        );
+        ));
+        let proposal = MultisigProposalState {
+            network_id: super::super::queue_test_network_id(),
+            multisig_account_id: multisig_id.clone(),
+            proposal_nonce: test_nonce(&instructions_hash),
+            proposal_id: test_id(&multisig_id.clone(), &instructions_hash),
+            instructions_hash,
+            transaction_ttl_ms: None,
+            instructions: vec![approval.clone()],
+            proposed_at_ms: 1,
+            expires_at_ms: 10_000,
+            approvals: BTreeSet::new(),
+        };
         let mut state = blank_state();
         state.world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_key(&multisig_id, &instructions_hash),
+            multisig_proposal_state_key(&multisig_id, &test_id(&multisig_id, &instructions_hash)),
             encoded_multisig_proposal_state(&proposal),
         );
         let view = state.view();
-        let mut fx_overlay = FxCorridorRoutingOverlay::default();
+        let mut fx_overlay =
+            FxCorridorRoutingOverlay::for_network(Some(&super::super::queue_test_network_id()));
         assert!(matches!(
             observe_top_level_instruction_fx_effects(
                 &mut fx_overlay,
@@ -17200,29 +17455,35 @@ mod tests {
     fn persisted_multisig_proposal_cycle_fails_closed_without_rejecting_repeated_siblings() {
         let (cyclic_account, _) = gen_account_in("wonderland");
         let cyclic_hash = HashOf::new(&Vec::<InstructionBox>::new());
-        let cyclic_approval =
-            InstructionBox::from(MultisigApprove::new(cyclic_account.clone(), cyclic_hash));
-        let cyclic_proposal = MultisigProposalState::new(
+        let cyclic_approval = InstructionBox::from(MultisigApprove::new(
             cyclic_account.clone(),
+            test_id(&cyclic_account.clone(), &cyclic_hash),
             cyclic_hash,
-            vec![cyclic_approval.clone()],
-            1,
-            10_000,
-            BTreeSet::new(),
-            None,
-        );
+        ));
+        let cyclic_proposal = MultisigProposalState {
+            network_id: super::super::queue_test_network_id(),
+            multisig_account_id: cyclic_account.clone(),
+            proposal_nonce: test_nonce(&cyclic_hash),
+            proposal_id: test_id(&cyclic_account.clone(), &cyclic_hash),
+            instructions_hash: cyclic_hash,
+            transaction_ttl_ms: None,
+            instructions: vec![cyclic_approval.clone()],
+            proposed_at_ms: 1,
+            expires_at_ms: 10_000,
+            approvals: BTreeSet::new(),
+        };
         let mut state = blank_state();
         state.world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_key(&cyclic_account, &cyclic_hash),
+            multisig_proposal_state_key(&cyclic_account, &test_id(&cyclic_account, &cyclic_hash)),
             encoded_multisig_proposal_state(&cyclic_proposal),
         );
         let expected = RoutingResolveError::InvalidMultisigProposal {
             account: cyclic_account.clone(),
-            instructions_hash: cyclic_hash,
+            proposal_id: test_id(&cyclic_account, &cyclic_hash),
             reason: crate::smartcontracts::isi::multisig::read_proposal_state(
                 state.view().world(),
                 &cyclic_account,
-                &cyclic_hash,
+                &test_id(&cyclic_account, &cyclic_hash),
             )
             .unwrap_err()
             .to_string(),
@@ -17230,9 +17491,17 @@ mod tests {
         assert_eq!(expected.as_label(), "invalid_multisig_proposal");
         let mut cycle_stack = MultisigProposalRoutingStack::default();
         assert!(matches!(
-            cycle_stack.with_proposal(&cyclic_account, &cyclic_hash, |stack| {
-                stack.with_proposal(&cyclic_account, &cyclic_hash, |_| Ok(()))
-            }),
+            cycle_stack.with_proposal(
+                &cyclic_account,
+                &test_id(&cyclic_account, &cyclic_hash),
+                |stack| {
+                    stack.with_proposal(
+                        &cyclic_account,
+                        &test_id(&cyclic_account, &cyclic_hash),
+                        |_| Ok(()),
+                    )
+                }
+            ),
             Err(RoutingResolveError::MultisigProposalCycle { .. })
         ));
         assert!(cycle_stack.active.is_empty());
@@ -17302,7 +17571,9 @@ mod tests {
                     view.world(),
                     None,
                     &mut participants,
-                    &FxCorridorRoutingOverlay::default(),
+                    &FxCorridorRoutingOverlay::for_network(Some(
+                        &super::super::queue_test_network_id(),
+                    )),
                     &mut participant_stack,
                 ))
                 .as_ref()
@@ -17315,35 +17586,48 @@ mod tests {
         let (leaf_account, _) = gen_account_in("wonderland");
         let leaf_hash = HashOf::new(&Vec::<InstructionBox>::new());
         state.world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_key(&leaf_account, &leaf_hash),
-            encoded_multisig_proposal_state(&MultisigProposalState::new(
-                leaf_account.clone(),
-                leaf_hash,
-                Vec::new(),
-                1,
-                10_000,
-                BTreeSet::new(),
-                None,
-            )),
+            multisig_proposal_state_key(&leaf_account, &test_id(&leaf_account, &leaf_hash)),
+            encoded_multisig_proposal_state(&MultisigProposalState {
+                network_id: super::super::queue_test_network_id(),
+                multisig_account_id: leaf_account.clone(),
+                proposal_nonce: test_nonce(&leaf_hash),
+                proposal_id: test_id(&leaf_account.clone(), &leaf_hash),
+                instructions_hash: leaf_hash,
+                transaction_ttl_ms: None,
+                instructions: Vec::new(),
+                proposed_at_ms: 1,
+                expires_at_ms: 10_000,
+                approvals: BTreeSet::new(),
+            }),
         );
         let (parent_account, _) = gen_account_in("wonderland");
-        let repeated_approval = InstructionBox::from(MultisigApprove::new(leaf_account, leaf_hash));
+        let repeated_approval = InstructionBox::from(MultisigApprove::new(
+            leaf_account.clone(),
+            test_id(&leaf_account, &leaf_hash),
+            leaf_hash,
+        ));
         let parent_instructions = vec![repeated_approval.clone(), repeated_approval];
         let parent_hash = HashOf::new(&parent_instructions);
         state.world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_key(&parent_account, &parent_hash),
-            encoded_multisig_proposal_state(&MultisigProposalState::new(
-                parent_account.clone(),
-                parent_hash,
-                parent_instructions,
-                1,
-                10_000,
-                BTreeSet::new(),
-                None,
-            )),
+            multisig_proposal_state_key(&parent_account, &test_id(&parent_account, &parent_hash)),
+            encoded_multisig_proposal_state(&MultisigProposalState {
+                network_id: super::super::queue_test_network_id(),
+                multisig_account_id: parent_account.clone(),
+                proposal_nonce: test_nonce(&parent_hash),
+                proposal_id: test_id(&parent_account.clone(), &parent_hash),
+                instructions_hash: parent_hash,
+                transaction_ttl_ms: None,
+                instructions: parent_instructions,
+                proposed_at_ms: 1,
+                expires_at_ms: 10_000,
+                approvals: BTreeSet::new(),
+            }),
         );
-        let parent_approval =
-            InstructionBox::from(MultisigApprove::new(parent_account, parent_hash));
+        let parent_approval = InstructionBox::from(MultisigApprove::new(
+            parent_account.clone(),
+            test_id(&parent_account, &parent_hash),
+            parent_hash,
+        ));
         let view = state.view();
         let mut stack = MultisigProposalRoutingStack::default();
         assert_eq!(
@@ -17367,33 +17651,40 @@ mod tests {
     fn persisted_multisig_chain_is_checked_in_linear_expansions() {
         const NODE_COUNT: usize = 64;
         let mut state = blank_state();
-        let mut child = None;
+        let mut child: Option<(AccountId, HashOf<Vec<InstructionBox>>)> = None;
         for _ in (0..NODE_COUNT).rev() {
             let (account, _) = gen_account_in("wonderland");
             let instructions = child.map_or_else(Vec::new, |(next_account, next_hash)| {
                 vec![InstructionBox::from(MultisigApprove::new(
-                    next_account,
+                    next_account.clone(),
+                    test_id(&next_account, &next_hash),
                     next_hash,
                 ))]
             });
             let hash = HashOf::new(&instructions);
             state.world.smart_contract_state_mut_for_testing().insert(
-                multisig_proposal_state_key(&account, &hash),
-                encoded_multisig_proposal_state(&MultisigProposalState::new(
-                    account.clone(),
-                    hash,
+                multisig_proposal_state_key(&account, &test_id(&account, &hash)),
+                encoded_multisig_proposal_state(&MultisigProposalState {
+                    network_id: super::super::queue_test_network_id(),
+                    multisig_account_id: account.clone(),
+                    proposal_nonce: test_nonce(&hash),
+                    proposal_id: test_id(&account.clone(), &hash),
+                    instructions_hash: hash,
+                    transaction_ttl_ms: None,
                     instructions,
-                    1,
-                    10_000,
-                    BTreeSet::new(),
-                    None,
-                )),
+                    proposed_at_ms: 1,
+                    expires_at_ms: 10_000,
+                    approvals: BTreeSet::new(),
+                }),
             );
             child = Some((account, hash));
         }
         let (root_account, root_hash) = child.unwrap();
-        let root_approval =
-            InstructionBox::from(MultisigApprove::new(root_account.clone(), root_hash));
+        let root_approval = InstructionBox::from(MultisigApprove::new(
+            root_account.clone(),
+            test_id(&root_account.clone(), &root_hash),
+            root_hash,
+        ));
         let view = state.view();
         let mut stack = MultisigProposalRoutingStack::default();
         assert_eq!(
@@ -17413,18 +17704,25 @@ mod tests {
         let instructions = vec![root_approval];
         let hash = HashOf::new(&instructions);
         state.world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_key(&outer_account, &hash),
-            encoded_multisig_proposal_state(&MultisigProposalState::new(
-                outer_account.clone(),
-                hash,
+            multisig_proposal_state_key(&outer_account, &test_id(&outer_account, &hash)),
+            encoded_multisig_proposal_state(&MultisigProposalState {
+                network_id: super::super::queue_test_network_id(),
+                multisig_account_id: outer_account.clone(),
+                proposal_nonce: test_nonce(&hash),
+                proposal_id: test_id(&outer_account.clone(), &hash),
+                instructions_hash: hash,
+                transaction_ttl_ms: None,
                 instructions,
-                1,
-                10_000,
-                BTreeSet::new(),
-                None,
-            )),
+                proposed_at_ms: 1,
+                expires_at_ms: 10_000,
+                approvals: BTreeSet::new(),
+            }),
         );
-        let approval = InstructionBox::from(MultisigApprove::new(outer_account, hash));
+        let approval = InstructionBox::from(MultisigApprove::new(
+            outer_account.clone(),
+            test_id(&outer_account, &hash),
+            hash,
+        ));
         let view = state.view();
         assert!(matches!(
             instruction_settlement_dataspace_target_with_stack(

@@ -1,0 +1,50 @@
+{
+  "changes": {
+    "crates/iroha_parliament_ballot_proof/examples/QUALIFICATION.md": {
+      "after": "bde3ac0ba4c2c75dcc7d0afb4e9e063bc807e3cfbbc805274092a365d59ff6ec",
+      "before": "506d20d66b75826765cf1422709666913c498866c5d6adef581d8f0802116c26",
+      "final_snapshot": "target/parliament-qualification-dispatch-fix/final/crates/iroha_parliament_ballot_proof/examples/QUALIFICATION.md",
+      "original_snapshot": "target/parliament-qualification-dispatch-fix/original/crates/iroha_parliament_ballot_proof/examples/QUALIFICATION.md"
+    },
+    "crates/iroha_parliament_ballot_proof/examples/qualification/mod.rs": {
+      "after": "60491167fc591379960cc36cdfa996e198f9b3547bbb5903a6c74932e6fb1072",
+      "before": "3a599dea55abe8751866d8e61e95c65a686f0a294052784aea6ed73c5e5b3725",
+      "final_snapshot": "target/parliament-qualification-dispatch-fix/final/crates/iroha_parliament_ballot_proof/examples/qualification/mod.rs",
+      "original_snapshot": "target/parliament-qualification-dispatch-fix/original/crates/iroha_parliament_ballot_proof/examples/qualification/mod.rs"
+    },
+    "crates/iroha_parliament_ballot_proof/examples/qualification/tests.rs": {
+      "after": "ef34b6ef1d8567e80f9c5b5ec044c138e656c934a9d3ca52ef0827fa6aa964ab",
+      "before": "9504726b67dc3a987b3ee75b6db24f6aba81108a59925b89f67c243a9940a910",
+      "final_snapshot": "target/parliament-qualification-dispatch-fix/final/crates/iroha_parliament_ballot_proof/examples/qualification/tests.rs",
+      "original_snapshot": "target/parliament-qualification-dispatch-fix/original/crates/iroha_parliament_ballot_proof/examples/qualification/tests.rs"
+    },
+    "crates/iroha_parliament_ballot_proof/examples/qualify.rs": {
+      "after": "4facea305eb3e5770301c57eeb80c4c211e2ce90b726aba2aec70f480e11f2e8",
+      "before": "94fe7a73d3d2c59c342f0b7881588d935f0c9f9ff72edc2f6be0115524ba1749",
+      "final_snapshot": "target/parliament-qualification-dispatch-fix/final/crates/iroha_parliament_ballot_proof/examples/qualify.rs",
+      "original_snapshot": "target/parliament-qualification-dispatch-fix/original/crates/iroha_parliament_ballot_proof/examples/qualify.rs"
+    }
+  },
+  "format_command": [
+    "rustfmt",
+    "--edition",
+    "2024",
+    "--config",
+    "skip_children=true",
+    "crates/iroha_parliament_ballot_proof/examples/qualify.rs",
+    "crates/iroha_parliament_ballot_proof/examples/qualification/mod.rs",
+    "crates/iroha_parliament_ballot_proof/examples/qualification/tests.rs"
+  ],
+  "format_exit": 0,
+  "new_dispatch_tests": 2,
+  "production_qualified": false,
+  "scope": "Shared existing qualification command dispatch; no new FFI or public API, no lint suppression, no Cargo build/test run in this capture.",
+  "tests_executed": false,
+  "unchanged_source_hashes": {
+    "crates/iroha_parliament_ballot_proof/examples/qualification/malformed.rs": "c5034b3596a4ba23b1c8cf5bf9c7b4713809598364f0069b55f1cb0466a32973",
+    "crates/iroha_parliament_ballot_proof/examples/qualification/malformed/tests.rs": "b5241b0b7e2e6865abea750efd156917292667fd1f7a6ea36dba46e7c7156e35",
+    "docs/validation/parliament_ballot_b6/ios_host_template/bridge/Cargo.lock.template": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+    "docs/validation/parliament_ballot_b6/ios_host_template/bridge/Cargo.toml": "6cfb0f21936366664872485c3f502be2b80e2caf7f7a5f5fbb5c0e4562940d57",
+    "docs/validation/parliament_ballot_b6/ios_host_template/bridge/src/lib.rs": "3be9c32fff1d4bb83c99bed1b1cd79a5dc1a1a17935d004db54893c7f4ac0afd"
+  }
+}

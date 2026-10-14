@@ -1,0 +1,181 @@
+# Independent concrete Keccak / SHA3 construction review
+
+Verdict: no actionable construction or resource-count finding in the reviewed
+candidate. This is a source-level review of the explicit reversible circuit and
+its selected Rust correspondence. It is not an independent cryptographic audit,
+a native execution certificate, complete public framing, or full B6 qualification.
+No component implementation, tracked file, old capture or Cargo process changed.
+The independent executable controls are separately owned by the Torii reviewer;
+this note does not claim to have run either test suite.
+
+## Reviewed identities and references
+
+- `target/parliament-keccak-machine-stage/keccak1600.py`:
+  `3bdc8284f122b20cf7cb77b54c922ab02e6ff46fc35f8f102ac8510756702d2b`.
+- `report.py`: `46023477b94a724ee41cc99665ae1da2f286f5d33a658574a3f2da8610eebec2`.
+- `test_keccak1600.py`: `3d2157d007374d04c1b4805166b157a635d3c5d087f25e195d037b7cc470c4cb`.
+- Component `README.md`: `acbe65a553942de82bb868e00f5e0afeefa814d4f827c67add8bb0d0ca8b1290`.
+- `target/parliament-ideal-machine-stage/bit_ir.py`:
+  `f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64`.
+- Retained [FIPS 202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf):
+  `1592607831ff0908cc590632ce371c6c95e94025bb1a0c8ae90a4d0ec1ed025e`.
+  Read the exact local PDF through a scratch `pdftotext -layout` extraction;
+  section 3.1.2, algorithms 1–9 and section 6.1 are authoritative for this review.
+  The web PDF fetch timed out; the local pinned PDF remained available.
+- [Team Keccak's specification summary](https://keccak.team/keccak_specs_summary.html)
+  supplied a secondary primary-author check of byte suffix/rate and independent
+  constant/rotation tables. Its own text describes it as an introductory summary;
+  the FIPS algorithms control the interpretation here.
+
+The report's exact five selected pins were independently rehashed: the IR, Rust
+`iroha_zkp_vole/src/hash.rs`, Parliament `framing.rs` and `profile.rs`, and FIPS PDF.
+Their current identities match the report. This is a selected source inventory,
+not the compiler or Python import dependency closure. Runtime/library behavior and
+source/import-cache coherence remain outside this static review.
+
+## FIPS correspondence
+
+The bit index `64*(x+5*y)+z` is the FIPS state-string order. Theta forms five
+column parities, then uses the previous column and the next column rotated one
+bit with source index `z-1`; it XORs that delta into all five rows. Rho's orbit
+starts at `(1,0)` and applies the triangular offset through all 24 nonzero lanes;
+the origin has zero offset. The combined forward scatter to
+`(y, (2*x+3*y) mod 5, z+offset mod64)` equals rho followed by FIPS pi's
+inverse-coordinate read. Its destination bijection is also checked in the code.
+Chi uses fresh NOT/AND/XOR targets, so later columns cannot read already-updated
+chi values. Iota changes only lane `(0,0)`.
+
+With FIPS bit zero represented as the integer's low bit, the `0x71` feedback
+mask implements the listed LFSR taps. The code starts at register one, handles
+the zero residue by zero iterations, selects `rc(j+7*round)` and places it at
+`2^j-1`. Twenty-four complete rounds start at zero. This agrees with the pinned
+FIPS algorithms and the separately tabulated constants in the owned tests.
+
+For SHA3-512 the capacity is1,024, hence the rate is576 bits /72 bytes, and the
+output is512 bits. Byte-aligned messages append the two domain bits and pad10*1:
+the terminal byte has `0x06`, and the last rate byte is XORed with `0x80`. The
+three toggles are always distinct for an integral byte length, including the
+71-byte remainder. Every full message block is permuted, followed by one final
+padded block, so `k=floor(n/72)+1`; exact multiples require a fresh final block.
+Since512<576, no additional squeeze permutation is needed.
+
+The Rust `Sha3_512::update` likewise permutes immediately at72 bytes and resets
+its position; `finalize` adds suffix and final bit then permutes once. Its
+`xor_into` and `read_from` use little-endian lane bytes. The reviewed circuit
+matches those selected byte semantics. `framing.rs` and `profile.rs` use this
+concrete hash for public frames/descriptors; their framing validation, variable
+fields and other profile computations are not implemented by this component.
+No statement here replaces an ideal backend function with a concrete SHA3 call.
+
+## Independently derived counts
+
+For each round:
+
+- Column parity takes `5*64*4=1,280` XOR nodes; delta takes320 and theta applies
+  it with1,600. Chi adds1,600 XOR,1,600 NOT and1,600 AND nodes.
+- Therefore each round has4,800 XOR and1,600 AND nodes;24 rounds give115,200 XOR
+  and38,400 AND. Chi contributes38,400 NOT; the constant table contributes86
+  more, for38,486 NOT.
+- SSA history is the sum192,086 bits. Static rho/pi relabeling requires no new
+  circuit gates or extra history beyond the existing labels.
+
+In the frozen IR, a NOT into a fresh zero target costs one X and one CNOT;
+a XOR costs two CNOT and an AND costs one Toffoli. Thus the forward computation
+cost is `(38,486 X, 268,886 CNOT, 38,400 Toffoli)`. Compute/copy1,600/uncompute
+costs `(76,972 X, 539,372 CNOT, 76,800 Toffoli)` and192,086 clean work bits.
+The existing accounting convention `X+CNOT+5*Toffoli` yields1,000,344. This note
+verifies use of that convention; it does not calibrate hardware or independently
+establish a native gate model.
+
+A fixed n-byte sponge retains1,600 initial zero bits,8n absorption-XOR targets,
+three padding-NOT targets and1,600 output bits for each of k clean permutation
+calls. It shares the single192,086-bit clean permutation workspace. Its outer
+compute/copy512/uncompute adds a second traversal of each already-clean
+permutation and gives:
+
+```
+X       = 153,944*k + 6
+CNOT    = 1,078,744*k + 32*n + 518
+Toffoli = 153,600*k
+work    = 192,086 + 1,600 + 8*n + 3 + 1,600*k
+base-oracle calls = 0
+```
+
+The extra six CNOT are the forward and reverse padding-NOT copies, not extra
+message bits. The512 output copies are outside those six. Caller input and
+output registers are additional. Empty input uses one untouched dummy bit and
+has the same result for either value. These are exact counts of this emitted
+construction, without claiming optimal reversible space or gate complexity.
+
+## Joint-map and cleanup boundary
+
+The IR assigns every derived result a fresh target. With clean work, its forward
+circuit computes each Boolean value into that target, copies the final output to
+an arbitrary disjoint caller target, then reverses the computation. Consequently
+its joint action on basis labels is
+
+`|m, y, 0_work> -> |m, y XOR SHA3_512(m), 0_work>`
+
+and similarly with Keccak-f for the1,600-bit permutation kernel. All operations
+are X/CNOT/Toffoli, so the joint action extends linearly to coherent states without
+measurement or data-dependent classical branching. The input wires are never
+targeted. This does not assert an unchanged standalone reduced input state after
+entanglement with the result. Dirty work is outside the promised interface.
+
+A nested clean response-XOR kernel is its own inverse on that clean-work
+interface. During outer reverse traversal, later sponge states are erased before
+the earlier states on which they depend; shared permutation scratch is zero
+between calls. The relocation map orders input, derived/history plus shared
+scratch, then output exactly as `Block.emit_clean` does, and rejects aliases
+across all three caller regions. No temporary aliases or caller output are used
+as an untracked scratch register.
+
+The public length is the circuit's shape. The `2^20` byte cap is an interface
+bound, not a demonstrated host generation/storage budget for the largest shape.
+Variable coherent lengths, frame validity, coherent shape selection, maximum
+register allocation, end-to-end cleanup and complete P0/P1/machine composition
+remain separate work. The report correctly leaves its full-machine, primitive
+security, native-workspace and qualification flags false.
+
+## Capture recommendations
+
+Capture the final owned and independent suites with exact collection/JUnit
+membership; retain the two independent test partitions distinctly. Pin this
+review and both executable tests along with helper, report, final README, IR,
+three Rust inputs, FIPS PDF, pytest config and present/absent conftests. Record
+actual Python/pytest identities and the executing recipe before/after. Retain
+normal report exit0 and qualification-refusal exit2 with byte-equal reports.
+Do not turn source pins or these finite tests into a compiler proof or production
+qualification. No additional implementation change was requested by this review.
+
+
+## Subsequent independent cache finding and reviewed repair
+
+The preceding review is retained byte-for-byte in
+`construction-review-pre-cache-fix.md` (SHA256
+`4a662a172584fccc6b4af8cd0efbf567caac0c9613c6cb9e9dced86a1be24e79`).
+Its source identifiers describe the pre-repair candidate. Torii's later
+independent executable partition found a concrete interface validation bypass:
+with the default untyped cache, a cached keyword `message_bytes=0` could satisfy
+`message_bytes=False` or `0.0` without entering integer validation. The canonical
+integer-shaped kernel circuit and its count formulas were unchanged, but those
+invalid direct helper calls did violate the promised rejection contract.
+
+Root changed both length-bearing cache decorators, `sha3_512_block` and
+`sha3_512_cost`, to `typed=True`. I read the two changes and the new owned and
+independent cached-key controls; they distinguish invalid type keys while leaving
+the reviewed arithmetic and emitted circuit unchanged. No further static issue
+was found. Final helper SHA256 is
+`412518945be5df7292607448aa71c2bad0d452a4c9c6a36f2622402dce587010`;
+owned tests are
+`095a65ce6d46914de78473593c01288aef699432071da8a8fc3a6f080beec9cc`.
+Report, component README, IR, Rust inputs and PDF retain the identities above.
+
+`cache-validation-counterexample.json` retains the observed failure description.
+The original helper is retained as `pre-cache-fix-keccak1600.py.template`: undoing
+only these two decorator arguments reproduces the original exact SHA256 listed
+above, so this is authenticated byte recovery, not a newly pinned original.
+The preliminary 50-case records remain `pre-cache-fix-test-receipt.json` and
+`pre-cache-fix-junit.xml`. They do not qualify the corrected candidate; final
+collection/full execution is a separate capture. This addendum is a source read,
+not an additional test run or a promotion of any qualification flag.

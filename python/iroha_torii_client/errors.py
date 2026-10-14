@@ -142,7 +142,10 @@ class ToriiQueryError(ToriiBadRequestError, ListQueryError):
     def __init__(self, status: int, **fields: Any) -> None:
         ToriiBadRequestError.__init__(self, status, **fields)
         field = self.details.get("field")
-        parameter = field if field in QUERY_ERROR_CODES else _PARAMETER_FOR_CODE.get(self.code or "", "query")
+        parameter = (
+            field if isinstance(field, str) and field in QUERY_ERROR_CODES
+            else _PARAMETER_FOR_CODE.get(self.code or "", "query")
+        )
         self.parameter = parameter
 
 
@@ -277,7 +280,8 @@ def _envelope_fields(body: bytes) -> Tuple[Optional[str], str, Dict[str, Any]]:
         return None, text, {}
     if isinstance(payload, Mapping):
         code = payload.get("code") if isinstance(payload.get("code"), str) else None
-        details = payload.get("details") if isinstance(payload.get("details"), Mapping) else {}
+        raw_details = payload.get("details")
+        details = raw_details if isinstance(raw_details, Mapping) else {}
         message = _message_from(payload) or ""
         if not message:
             message = json.dumps(payload, sort_keys=True, separators=(",", ":"))

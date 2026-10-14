@@ -34,6 +34,14 @@ The [first-release goals](specs/first_release_completion_goals.md),
 coordinate this work. Remove retired interfaces directly; production behavior
 remains deterministic and configuration-owned, with mandatory protocol semantics.
 
+Core/retail-fee owners must integrate a bounded, original pre-output source
+owner for idle settlement, with disjoint frozen FASTPQ capacity, exact receipt
+permits and complete source-seal reconciliation. Completion requires the genuine
+Parliament due-height regression plus paid multiwallet/month progress, foreign
+owner and capacity refusals, and atomic balance/receipt/reward/cursor rollback
+on the same candidate. Preserve governance and SNS capacity and invariant
+poisoning; the calendar fixture correction does not close this production gap.
+
 ### SORA Nexus payment acceptance
 
 The delivery contract is **payment intent → authorized effects → verified receipt
@@ -137,6 +145,7 @@ Authoritative contracts: [Sumeragi](specs/sumeragi.md),
 | N3 | Dataspace topology/SNS | Nexus/Core/deployment | Manifest-owned membership/privacy/DA/governance; additive activation preserves certified history and cold replay; prove physical server/storage isolation. |
 | N4 | Bounded execution/query | State/triggers/query | Consensus-owned budgets, reverse permission index and one registry; deterministic benchmarks, rollback/restart and no production invariant-bypass mutators. |
 | N5 | Accounts/fees/transactions | Model/executors/SDKs | Remove inert/redundant carriers; one executable/signing registry. Qualify Hijiri fees, 120,960-block delay, exact quotes and native transactions under stale/private/loss cases. |
+| N13 | Multisig occurrences | Native model/Core/Torii/SDKs | [Occurrence contract](specs/multisig_proposal_occurrences.md): identical payments execute independently, retries never duplicate, cancellation and rooted evidence bind the exact occurrence, and all controller changes invalidate outstanding proposals. Validate matching SDKs and deployment. |
 | N6 | Authenticated recovery | Kura/startup | Emergency Fast read-only; Strict restores writes. Bound authentication without premature body/snapshot/World decode; positive-height replay and canonical export. |
 | N7 | Identity/obligations | Nexus/Torii/Connect | Exact chain/genesis/network binding, snapshot pagination, authenticated renewals/tombstones, audited irreversible AXT retirement and per-issuer quotas. |
 | N8 | Configuration closure | Config/runtime | Complete [C5/P2/P8 controls](specs/configuration_simplification.md), generators, aggregated errors and four-daemon paid DPN; qualify the BPNG local preset through contracts, fee authority and application provisioning; one default source without aliases, silent clamps or production environment controls. |
@@ -161,7 +170,9 @@ formal, SDK and workspace gates.
 
 See the [JVM inventory](specs/jvm_consolidation_inventory.md),
 [native release contract](docs/norito_bridge_release.md),
-[KAGEMUSHA design and goals](specs/kagemusha_single_design_proposal.md#10-goals-and-execution-order)
+[KAGEMUSHA design and goals](specs/kagemusha_single_design_proposal.md#10-goals-and-execution-order),
+[first-release completion sequence](specs/kagemusha_single_design_proposal.md#101-first-release-completion-sequence),
+[compact artifact and phone performance goals](specs/kagemusha_compact_artifact_goals.md)
 and [verification checklist](specs/kagemusha_evidence_gate.md).
 
 | ID | Outcome | Owner | Completion criteria |

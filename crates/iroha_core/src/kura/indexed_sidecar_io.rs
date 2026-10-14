@@ -265,6 +265,8 @@ impl Kura {
     /// are logged and ignored.
     pub fn write_pipeline_metadata(&self, sidecar: &PipelineRecoverySidecar) {
         let _prune_guard = self.prune_lock.lock();
+        #[cfg(test)]
+        original_queued_sidecar_release_tests::fence_boundary(1);
         if self.prune_recovery_is_required() {
             warn!(
                 height = sidecar.height,
@@ -285,6 +287,8 @@ impl Kura {
     fn write_pipeline_metadata_unlocked(&self, sidecar: &PipelineRecoverySidecar) {
         if let Some(mut dir) = self.store_dir() {
             let _guard = self.sidecar_lock.lock();
+            #[cfg(test)]
+            original_queued_sidecar_release_tests::fence_boundary(2);
             dir.push(PIPELINE_DIR_NAME);
             if let Err(e) = std::fs::create_dir_all(&dir) {
                 iroha_logger::warn!(?e, ?dir, "failed to create pipeline dir");
@@ -376,6 +380,8 @@ impl Kura {
             return FastpqProofWriteResult::Drop;
         };
         let _guard = self.sidecar_lock.lock();
+        #[cfg(test)]
+        original_queued_sidecar_release_tests::fence_boundary(3);
         dir.push(PIPELINE_DIR_NAME);
         if let Err(err) = std::fs::create_dir_all(&dir) {
             iroha_logger::warn!(?err, ?dir, "failed to create pipeline dir for FASTPQ proof");
@@ -4344,4 +4350,10 @@ impl Kura {
             }
         }
     }
+}
+
+/// Original notification custody through queued diagnostic writers.
+#[cfg(test)]
+mod original_queued_sidecar_release_tests {
+    include!("queued_sidecar_release_tests.rs");
 }

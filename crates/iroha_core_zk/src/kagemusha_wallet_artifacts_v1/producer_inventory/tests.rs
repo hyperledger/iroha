@@ -182,6 +182,69 @@ fn structural_inventory() -> ProducerInventoryV1 {
 }
 
 #[test]
+fn builtin_profile_binds_network_source_policy_and_complete_ordered_inventory() {
+    use iroha_plonk_gadgets::p256::native::Affine;
+    let point = |root: Affine| {
+        let mut bytes = vec![4];
+        for coordinate in [root.x, root.y] {
+            for word in coordinate.iter().rev() {
+                bytes.extend(word.to_be_bytes());
+            }
+        }
+        KagemushaDevicePublicKeyV1::from_sec1_bytes(&bytes).unwrap()
+    };
+    let scheme = KagemushaWalletSchemeV1 {
+        version: 1,
+        network_id: [1; 32],
+        provider_contract: [2; 32],
+        scheme_root_key: point(Affine::GENERATOR),
+        relation_id: [3; 32],
+    };
+    let inventory = structural_inventory();
+    let expected = super::builtin::profile_bytes(&inventory, &scheme).unwrap();
+    for change in 0..3 {
+        let mut changed = scheme.clone();
+        match change {
+            0 => changed.network_id[0] ^= 1,
+            1 => changed.provider_contract[0] ^= 1,
+            _ => changed.scheme_root_key = point(Affine::GENERATOR.neg()),
+        }
+        assert_ne!(
+            super::builtin::profile_bytes(&inventory, &changed).unwrap(),
+            expected
+        );
+    }
+    for change in 0..12 {
+        let mut changed = inventory.clone();
+        match change {
+            0 => changed.originals[0].descriptor.sha256[0] ^= 1,
+            1 => changed.originals[0].verifying_key.sha256[0] ^= 1,
+            2 => changed.originals[0].proving_key.sha256[0] ^= 1,
+            3 => changed.originals[0].proving_key.bytes += 1,
+            4 => changed.operations[0].context[0][0] ^= 1,
+            5 => {
+                changed.operations.remove(0);
+            }
+            6 => changed.routes.swap(0, 1),
+            7 => {
+                changed.routes.pop();
+            }
+            8 => changed.operations[0].a.push(0),
+            9 => changed.operations[0].q.push(0),
+            10 => changed.terminals.push(0),
+            _ => changed.native_profile[0] ^= 1,
+        }
+        match super::builtin::profile_bytes(&changed, &scheme) {
+            Ok(bytes) => assert_ne!(bytes, expected, "mutation {change}"),
+            Err(_) => {} // Structurally invalid graphs fail before registry lookup.
+        }
+    }
+    // A byte transcript can only select a compiled entry; unknown input cannot
+    // itself register a profile or authorize even one member.
+    assert!(iroha_plonk::keys::BuiltinSourceProfileV1::match_actual(&expected, None).is_err());
+}
+
+#[test]
 fn canonical_inventory_covers_all_routes_and_rejects_missing_or_foreign_members() {
     let source = structural_inventory();
     let bytes = source.to_canonical_bytes().unwrap();

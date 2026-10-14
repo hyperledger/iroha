@@ -1,0 +1,60 @@
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+___________ test_actual_parent_and_subtest_reports[retained-failure] ___________
+
+tmp_path = PosixPath('/Users/mtakemiya/dev/iroha/target/parliament-machine-final-capture/observer-review-final-temp/test_actual_parent_and_subtest1')
+failed_subtest = True
+
+    @pytest.mark.parametrize('failed_subtest', (False, True), ids=('two-pass', 'retained-failure'))
+    def test_actual_parent_and_subtest_reports(tmp_path, failed_subtest):
+        """A failing subtest survives separately from its parent's aggregate result."""
+        case = tmp_path/'test_observed_case.py'
+        case.write_text(
+            'def test_parent(subtests):\n'
+            '    for value in range(2):\n'
+            '        with subtests.test(value=value):\n'
+            f'            assert not ({failed_subtest!r} and value == 1)\n')
+        observation = tmp_path/'observation.json'
+        junit = tmp_path/'junit.xml'
+        command = [str(PYTEST), '-o', 'addopts=', '-p', 'no:cacheprovider',
+            '--noconftest', '-p', 'capture_observer', '-k', '', '-m', '',
+            '--maxfail=0', '--basetemp='+str(tmp_path/'pytest-temp'),
+            '--junitxml='+str(junit), '-q', str(case)]
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1',
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD='1', PYTEST_ADDOPTS='', PYTEST_PLUGINS='',
+            PYTHONPATH=str(OBSERVER.parent), PARLIAMENT_CAPTURE_OBSERVATION=str(observation))
+        before = hashlib.sha256(OBSERVER.read_bytes()).hexdigest()
+        result = subprocess.run(command,cwd=tmp_path,env=env,capture_output=True,check=False)
+        (tmp_path/'command.json').write_text(json.dumps(command,indent=2)+'\n')
+        (tmp_path/'stdout.txt').write_bytes(result.stdout)
+        (tmp_path/'stderr.txt').write_bytes(result.stderr)
+        assert hashlib.sha256(OBSERVER.read_bytes()).hexdigest()==before
+        assert result.returncode == int(failed_subtest)
+        report=json.loads(observation.read_text())
+        assert report['exitstatus'] == int(failed_subtest)
+        assert len(report['collected']) == 1
+        assert report['collected'][0].endswith('test_observed_case.py::test_parent')
+        assert len(report['calls']) == 3
+        assert all(type(call['is_subtest']) is bool for call in report['calls'])
+        parents=[call for call in report['calls'] if not call['is_subtest']]
+        children=[call for call in report['calls'] if call['is_subtest']]
+        assert [call['nodeid'] for call in parents] == report['collected']
+        assert parents[0]['outcome'] == ('failed' if failed_subtest else 'passed')
+        assert len(children)==2
+        assert all(call['nodeid']==parents[0]['nodeid'] for call in children)
+        assert [call['outcome'] for call in children] == ['passed','failed' if failed_subtest else 'passed']
+        assert all(call['outcome']=='passed' for call in report['calls']) is (not failed_subtest)
+        # Failed child remains visible in JUnit too; report count is not used as
+        # collected parent membership because child reports share the same node ID.
+        tree=ET.parse(junit)
+>       assert len(tree.findall('.//failure'))==int(failed_subtest)
+E       AssertionError: assert 2 == 1
+E        +  where 2 = len([<Element 'failure' at 0x10ae27150>, <Element 'failure' at 0x10ae27290>])
+E        +    where [<Element 'failure' at 0x10ae27150>, <Element 'failure' at 0x10ae27290>] = findall('.//failure')
+E        +      where findall = <xml.etree.ElementTree.ElementTree object at 0x10ae65dd0>.findall
+E        +  and   1 = int(True)
+
+target/parliament-machine-final-capture/test_capture_observer.py:58: AssertionError
+=========================== short test summary info ============================
+FAILED target/parliament-machine-final-capture/test_capture_observer.py::test_actual_parent_and_subtest_reports[retained-failure]
+1 failed, 1 passed in 0.34s

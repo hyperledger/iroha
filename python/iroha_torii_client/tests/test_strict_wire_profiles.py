@@ -149,6 +149,23 @@ def test_identifier_resolution_receipt_matches_shared_vectors() -> None:
     assert hashlib.sha256(payload_bytes).hexdigest().upper() == fixture["canonical_payload_sha256"]
     assert verify_identifier_resolution_receipt(fixture["receipt"], fixture["policy"]) is True
 
+    network_id = fixture["receipt"]["payload"]["network_id"]
+    for malformed_network in (
+        None,
+        "",
+        network_id.upper(),
+        f" {network_id}",
+        f"{network_id} ",
+        f"0x{network_id}",
+        network_id[:-2],
+        network_id + "00",
+        "g" + network_id[1:],
+        network_id[:-1] + "0",
+    ):
+        malformed_payload = dict(fixture["receipt"]["payload"], network_id=malformed_network)
+        with pytest.raises((TypeError, ValueError), match=r"payload\.network_id"):
+            encode_identifier_resolution_receipt_payload(malformed_payload)
+
     for kind in (" signed", "signed ", "Signed"):
         non_exact_kind = json.loads(json.dumps(fixture["receipt"]["attestation"]))
         non_exact_kind["kind"] = kind
@@ -336,7 +353,10 @@ def test_identifier_resolution_receipt_matches_shared_vectors() -> None:
     for negative in fixture["negative_cases"]:
         receipt = json.loads(json.dumps(fixture["receipt"]))
         policy = json.loads(json.dumps(fixture["policy"]))
-        if negative["mutation"] == "receipt.payload.execution.output_ciphertext_hash":
+        if negative["mutation"] == "receipt.payload.network_id":
+            receipt["payload"]["network_id"] = negative["value"]
+            assert encode_identifier_resolution_receipt_payload(receipt["payload"]) != payload_bytes
+        elif negative["mutation"] == "receipt.payload.execution.output_ciphertext_hash":
             receipt["payload"]["execution"]["output_ciphertext_hash"] = negative["value"]
         elif negative["mutation"] == "policy.resolver_public_key":
             policy["resolver_public_key"] = negative["value"]

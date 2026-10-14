@@ -46,8 +46,8 @@ To simplify explanations, the multisig controller is labeled `MSA` and the signa
 - A transaction is executed once the total weight of approving signatories meets the __quorum__:
   - For example, `S1` (weight __1__) and `S2` (weight __2__) together meet the quorum (__3__).
   - Alternatively, `S3` (weight __3__) alone meets the quorum.
-- If the __transaction TTL__ expires before reaching the quorum, the proposal is discarded.
-  This TTL also acts as the policy cap for future proposals and nested relayers; overrides cannot exceed the registered value.
+- If the __transaction TTL__ expires before reaching the quorum, the occurrence is retained as expired and cannot execute.
+  The policy caps the original proposal TTL; retries never renew it. Nested multisig signatories are rejected.
 
 After submitting the registration, query for accounts whose metadata contains the key
 `multisig/spec` to discover the multisig account ID:
@@ -74,13 +74,16 @@ echo '"congratulations"' | iroha --emit-instructions account meta set \
 --id <canonical-i105-multisig> \
 --key success_marker \
 | iroha --fee-payer authority ledger multisig propose \
---account <canonical-i105-multisig>
+--account <canonical-i105-multisig> \
+--proposal-nonce <64-lowercase-hex-nonzero-nonce>
 ```
 
 __Explanation:__
 
 - Proposes setting the string value "congratulations" for the key "success_marker" in the metadata of the multi-signature __account__.
 - The proposer automatically becomes the first __approver__.
+- Generate and persist a nonzero 32-byte nonce before the first attempt. Pass it with `--proposal-nonce` and retain it for retries. Use a fresh nonce only for a new intentional operation.
+- The native owner derives `proposal_id` from the network, original multisig account and nonce. The independent `instructions_hash` commits to the reviewed contents. Identical contents with distinct nonces are separate proposals.
 - Torii's `/v1/multisig/propose` endpoint accepts typed JSON instruction objects or base64 native Norito `InstructionBox` frames inside the JSON `instructions` array. Fully native clients may also send the whole `MultisigProposeDto` request body as `application/x-norito`.
 
 ## Listing Multi-Signature Transactions
@@ -100,7 +103,8 @@ __Example text output (`--output-format text`):__
 
 ```text
 multisig_account_id: <canonical-i105-multisig>
-proposal_id: FB8AEBB405236A9B4CCD26BBA4988D0B8E03957FDC52DD2A1F9F0A6953079989
+proposal_id: <64-lowercase-hex-occurrence-id>
+instructions_hash: <reviewed-instruction-commitment>
 status: COLLECTING_SIGNATURES
 operation_type: SET_KEY_VALUE
 intent: null
@@ -110,7 +114,7 @@ proposed_at_ms: 1738871998000
 __Explanation:__
 
 - Each block represents one proposal visible to the authenticated signatory authority.
-- `proposal_id` is the stable proposal hash. `status`, `operation_type`, and `intent` come directly from the approvals API ordering and classification.
+- `proposal_id` identifies one intentional occurrence. `instructions_hash` is its content commitment. `status`, `operation_type`, and `intent` come directly from the approvals API ordering and classification.
 - `proposed_at_ms` is the proposal creation timestamp in milliseconds since the Unix epoch.
 - JSON mode remains machine-readable and emits one approval entry per array item using the same server ordering.
 
@@ -126,11 +130,29 @@ __Example usage:__
 ```bash
 iroha --fee-payer authority ledger multisig approve \
 --account <canonical-i105-multisig> \
---instructions-hash FB8AEBB405236A9B4CCD26BBA4988D0B8E03957FDC52DD2A1F9F0A6953079989
+--proposal-id <64-lowercase-hex-occurrence-id> \
+--instructions-hash <reviewed-instruction-commitment>
 ```
 
 __Explanation:__
 
-- Approves a proposal linked to the given __instructions hash__ for the multi-signature __account__.
+- Approves the exact __proposal ID__ and __instruction commitment__ for the multi-signature __account__. An equal instruction hash never selects another proposal.
 - Approval may lead to either execution or expiration of the proposal.
 - If the approval meets the quorum but the multi-signature account lacks the necessary permissions to execute it, the final approval is discarded. Signatories who have not yet approved it can retry after the multi-signature account has acquired the required permissions.
+
+## Canceling a proposal
+
+```bash
+iroha --fee-payer authority ledger multisig cancel \
+--account <canonical-i105-multisig> \
+--proposal-id <target-occurrence-id> \
+--instructions-hash <target-instruction-commitment> \
+--proposal-nonce <new-cancellation-nonce>
+```
+
+Cancellation is a separate proposal containing a native `MultisigCancel` instruction
+bound to the target occurrence and content. The CLI prints `cancel_proposal_id` and
+`cancel_instructions_hash`. Later signers use `ledger multisig approve` with those two
+values. Re-running cancellation retains the original nonce and exact payload; it never
+switches automatically to approval. The wrapper and canceled target have separate
+permanent histories. See the [native occurrence contract](../../../specs/multisig_proposal_occurrences.md).

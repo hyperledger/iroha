@@ -1,0 +1,25 @@
+{
+  "capture_kind": "Selected transcription and summary of the parent exec tool result; this is not a separate raw transcript or complete traceback. No program log was written before the preflight failure.",
+  "command": [
+    "python3",
+    "docs/validation/parliament_ballot_b6/source-framing-coherence.py.template"
+  ],
+  "diff_logs_written": false,
+  "error": "unreviewed concurrent source drift",
+  "exit": 1,
+  "newly_identified_historical_drift": {
+    "absolute_path": "/Users/mtakemiya/dev/iroha/crates/iroha_core/src/state/deserialize_world.rs",
+    "after": "32e29395814b249e0c009526b263aa63e5d8ceef23d4a3f6568c013d7392703a",
+    "before": "8f15d08f8380fe5b42688de2313ef139ca6cfe378a5b4e8abf4205463adfa843",
+    "path": "crates/iroha_core/src/state/deserialize_world.rs"
+  },
+  "other_drift_entries": "Six already-authorized paths: three central documents, the source checker and its test file, and status.md. Their complete identities are not transcribed here.",
+  "publication_occurred": false,
+  "recipe_archive": "docs/validation/parliament_ballot_b6/source-framing-preflight-2.recipe.py.template",
+  "recipe_sha256": "a33ed474ad95e1cabcf1151ec0a7bcddffc15c5e832f0a727cf995cddba48f4e",
+  "recorded_at_utc": "2026-10-13T15:51:48.984145+00:00",
+  "recovery": "Authenticate original source bytes and register only exact reviewed source deltas. Keep the prior Result source check and complete 1755-test regression historical; require a separate current post-merge source-only CLI capture. No runtime or regression result is transferred.",
+  "reported_trace_expression": "require(set(previous_drift) <= allowed, ('unreviewed concurrent source drift', previous_drift))",
+  "reported_trace_line": 179,
+  "schema": "parliament-source-framing-preflight-v1"
+}

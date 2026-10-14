@@ -2,21 +2,6 @@
 
 from __future__ import annotations
 
-from ._canonical_values import (
-    BASE58_ALPHABET,
-    BASE58_INDEX,
-    _QUANTITY_MAX_MANTISSA,
-    _canonical_quantity,
-    _decode_base_n,
-    _offline_exact_string,
-    _offline_canonical_asset_definition_id,
-)
-
-from .native_sumeragi import SumeragiStatus, SumeragiFootprint, SumeragiBeaconHorizon, SumeragiHaltReason, parse_native_status_json
-from .native_sumeragi import SumeragiLaneStatus, SumeragiLaneRecord, SumeragiLaneMember, SumeragiLaneFrontier, SumeragiParameters, SumeragiDataAvailabilityLayout, parse_native_lanes_json
-from .iroha_hash import iroha_hash_bytes as _iroha_hash_bytes
-from .client_evidence import parse_sumeragi_evidence_record as _parse_sumeragi_evidence_record
-
 import base64
 import binascii
 import hashlib
@@ -26,7 +11,7 @@ import re
 import secrets
 import time
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import (
     Any,
@@ -56,6 +41,15 @@ from . import (
 )
 from . import (
     identifier_receipts as _identifier_receipts,
+)
+from ._canonical_values import (
+    _QUANTITY_MAX_MANTISSA,
+    BASE58_ALPHABET,
+    BASE58_INDEX,
+    _canonical_quantity,
+    _decode_base_n,
+    _offline_canonical_asset_definition_id,
+    _offline_exact_string,
 )
 from .attachment_client import authenticated_attachment_request
 from .canonical_request_v1 import (
@@ -99,6 +93,7 @@ from .canonical_transport import (
 from .canonical_transport import (
     send_request as _send_request,
 )
+from .client_evidence import parse_sumeragi_evidence_record as _parse_sumeragi_evidence_record
 from .client_status_models import (
     _KAIGI_HEALTH_STATUSES,
     SUMERAGI_EVIDENCE_KINDS,
@@ -128,6 +123,7 @@ from .client_status_models import (
     QueueConfig,
     SumeragiEvidenceAppliedPenaltyStatus,
     SumeragiEvidenceListPage,
+    SumeragiEvidenceOffender,
     SumeragiEvidencePenaltyDetails,
     SumeragiEvidencePenaltyStatus,
     SumeragiEvidencePendingPenaltyStatus,
@@ -145,7 +141,6 @@ from .client_status_models import (
     SccpEvidenceAttribution,
     SccpForgeryEvidenceRecord,
     SumeragiParamsSnapshot,
-    SumeragiEvidenceOffender,
     parse_sumeragi_json_object,
 )
 from .collection import Collection, CollectionsMixin
@@ -154,10 +149,22 @@ from .errors import error_for_response
 from .governance_ballot_client import create_governance_ballot_client_mixin
 from .governance_proposals import GovernanceProposalResult
 from .governance_proposals import _contract_address as _canonical_contract_address
+from .governance_tally import GovernanceTally
+from .iroha_hash import iroha_hash_bytes as _iroha_hash_bytes
 from .kaigi_relay_client import create_kaigi_relay_client_mixin
-from .norito_frame import (
-    schema_hash_for_type_name,
-    validate_norito_frame,
+from .native_sumeragi import (
+    SumeragiBeaconHorizon,
+    SumeragiDataAvailabilityLayout,
+    SumeragiFootprint,
+    SumeragiHaltReason,
+    SumeragiLaneFrontier,
+    SumeragiLaneMember,
+    SumeragiLaneRecord,
+    SumeragiLaneStatus,
+    SumeragiParameters,
+    SumeragiStatus,
+    parse_native_lanes_json,
+    parse_native_status_json,
 )
 from .orderbook_submission import (
     SorafsOrderbookSubmissionAmbiguousError,
@@ -169,11 +176,10 @@ from .orderbook_submission import (
 )
 from .parliament_api import ParliamentApiV1Mixin
 from .private_settlement_client import create_atomic_private_settlement_client_mixin
-from .governance_tally import GovernanceTally
 from .runtime_governance_auth import RuntimeGovernanceAuthMixin
 from .space_directory_client import ToriiLocalSigningContext, create_space_directory_client_mixin
 from .status_metrics import compute_status_metric_values as _compute_status_metric_values
-from .subscription_auth import normalize_subscription_status, signed_subscription_post
+from .subscription_auth import signed_subscription_post
 from .subscription_models import SubscriptionActionResult, SubscriptionCreateResult
 from .vpn_validation import (
     normalize_vpn_canonical_hex_input as _vpn_normalize_canonical_hex_input,
@@ -685,7 +691,6 @@ __all__ = [
     "ContractCallResponse",
     "PipelineTransactionStatus",
     "PipelineTransactionStatusResponse",
-    "MultisigResponse",
     "GovernanceContractEmergencyHold",
     "GovernanceContractLifecycle",
     "GovernanceContractResponse",
@@ -2146,7 +2151,7 @@ def _trusted_intent_archive(value: str, context: str) -> bytes:
 
 
 def _network_transaction_domain_archive(
-    signing_context: ToriiLocalSigningContext,
+    signing_context: Optional[ToriiLocalSigningContext],
     context: str,
 ) -> bytes:
     if not isinstance(signing_context, ToriiLocalSigningContext):
@@ -2930,25 +2935,6 @@ class ContractCallResponse:
     transaction_payload_b64: Optional[str]
     signing_message_b64: Optional[str]
     operation_receipt: ContractOperationReceipt
-
-
-@dataclass(frozen=True)
-class MultisigResponse:
-    """Result returned by multisig participation endpoints."""
-
-    ok: bool
-    resolved_multisig_account_id: str
-    submitted: bool
-    proposal_id: Optional[str]
-    instructions_hash: Optional[str]
-    tx_hash_hex: Optional[str]
-    executed_tx_hash_hex: Optional[str]
-    creation_time_ms: Optional[int]
-    fee_payment: Dict[str, Any]
-    transaction_payload_b64: Optional[str]
-    signing_message_b64: Optional[str]
-
-
 
 
 @dataclass(frozen=True)
@@ -5427,8 +5413,8 @@ class ToriiClient(
         payload = self._fee_quote_json_response(response)
         if payload is None:
             raise RuntimeError("fee quote endpoint returned no payload")
-        response = dict(self._ensure_mapping(payload, "fee quote response"))
-        return self._validate_fee_quote_response_for_draft(unsigned_payload, response)
+        response_payload = dict(self._ensure_mapping(payload, "fee quote response"))
+        return self._validate_fee_quote_response_for_draft(unsigned_payload, response_payload)
 
     def get_fee_sponsor_program(
         self,
@@ -5729,10 +5715,10 @@ class ToriiClient(
             allow_retry=False, allow_redirects=False,
         )
         self._expect_status(response, {200})
-        body = self._maybe_json(response)
-        if body is None:
+        response_body = self._maybe_json(response)
+        if response_body is None:
             raise RuntimeError("contract call endpoint returned no payload")
-        record = self._ensure_mapping(body, "contract call response")
+        record = self._ensure_mapping(response_body, "contract call response")
         result = self._parse_contract_call_response(
             record,
             context="contract call response",
@@ -8258,7 +8244,7 @@ class ToriiClient(
     @classmethod
     def _normalize_fee_payment_intent(
         cls,
-        value: Mapping[str, Any],
+        value: object,
         *,
         context: str,
         require_gas_limit: bool = False,
@@ -11479,96 +11465,6 @@ class ToriiClient(
                 context=f"{context}.payload_digest_hex",
                 expected_length=64,
             ),
-        )
-
-    @staticmethod
-    def _parse_multisig_response(
-        payload: Mapping[str, Any],
-        *,
-        context: str,
-    ) -> MultisigResponse:
-        record = ToriiClient._ensure_mapping(payload, context)
-        if record.get("ok") is not True:
-            raise RuntimeError(f"{context}.ok must be true")
-        for retired in ("transaction_scaffold_b64", "signed_transaction_b64"):
-            if retired in record:
-                raise RuntimeError(f"{context} contains retired field `{retired}`")
-        resolved_multisig_account_id = ToriiClient._require_exact_i105_account_id(
-            record.get("resolved_multisig_account_id"),
-            f"{context}.resolved_multisig_account_id",
-        )
-
-        def optional_hash(field: str) -> Optional[str]:
-            raw = record.get(field)
-            return None if raw is None else ToriiClient._normalize_hex_string(
-                raw, context=f"{context}.{field}", expected_length=64
-            )
-
-        def optional_transaction_hash(field: str) -> Optional[str]:
-            raw = record.get(field)
-            return (
-                None
-                if raw is None
-                else ToriiClient._require_exact_signed_transaction_hash(
-                    raw,
-                    context=f"{context}.{field}",
-                )
-            )
-
-        creation_raw = record.get("creation_time_ms")
-        creation_time_ms = None if creation_raw is None else ToriiClient._coerce_unsigned(
-            creation_raw, f"{context}.creation_time_ms"
-        )
-        proposal_id_raw = record.get("proposal_id")
-        proposal_id = (
-            None
-            if proposal_id_raw is None
-            else ToriiClient._normalize_hex_string(
-                proposal_id_raw,
-                context=f"{context}.proposal_id",
-                expected_length=64,
-            )
-        )
-        instructions_hash = optional_hash("instructions_hash")
-        if (
-            proposal_id is not None
-            and instructions_hash is not None
-            and proposal_id != instructions_hash
-        ):
-            raise RuntimeError(
-                f"{context}.proposal_id and instructions_hash must identify the same proposal"
-            )
-        tx_hash_hex = optional_transaction_hash("tx_hash_hex")
-        executed_tx_hash_hex = optional_transaction_hash("executed_tx_hash_hex")
-        submitted = record.get("submitted")
-        if not isinstance(submitted, bool):
-            raise TypeError(f"{context}.submitted must be a boolean")
-        transaction_payload_b64, signing_message_b64 = ToriiClient._normalize_transaction_response_pair(
-            record.get("transaction_payload_b64"),
-            record.get("signing_message_b64"),
-            submitted=submitted,
-            transaction_hash=tx_hash_hex,
-            context=context,
-        )
-        fee_payment = ToriiClient._normalize_fee_payment_intent(
-            ToriiClient._ensure_mapping(
-                record.get("fee_payment"),
-                f"{context}.fee_payment",
-            ),
-            context=f"{context}.fee_payment",
-        )
-        return MultisigResponse(
-            ok=True,
-            resolved_multisig_account_id=resolved_multisig_account_id,
-            submitted=submitted,
-            proposal_id=proposal_id,
-            instructions_hash=instructions_hash,
-            tx_hash_hex=tx_hash_hex,
-            executed_tx_hash_hex=executed_tx_hash_hex,
-            creation_time_ms=creation_time_ms,
-            fee_payment=fee_payment,
-            transaction_payload_b64=transaction_payload_b64,
-            signing_message_b64=signing_message_b64,
         )
 
     @staticmethod

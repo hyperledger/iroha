@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Type, Union
 from urllib.parse import ParseResult, parse_qs, urlencode, urlparse
 
 from iroha_native import load_crypto_extension
+
 from .crypto import NetworkId, _require_network_id
 
 __all__ = [

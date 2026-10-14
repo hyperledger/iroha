@@ -1796,6 +1796,7 @@ dependencies = [
  "iroha_executor_data_model",
  "iroha_fs",
  "iroha_genesis",
+ "iroha_js_codec",
  "iroha_kagemusha_proof",
  "iroha_model_base",
  "iroha_pasta",
@@ -4996,6 +4997,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
@@ -5322,6 +5324,7 @@ dependencies = [
  "hex",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_executor_data_model",
  "iroha_model_base",
  "iroha_primitives",
  "norito",
@@ -6087,6 +6090,7 @@ dependencies = [
  "hkdf",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_executor_data_model",
  "iroha_model_base",
  "iroha_primitives",
  "iroha_schema",

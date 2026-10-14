@@ -1,0 +1,261 @@
+"""Independent word-reference, boundary, relocation and census checks."""
+import hashlib
+import importlib.util
+import json
+from collections import Counter
+from pathlib import Path
+import random
+import sys
+
+import pytest
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "parliament-ideal-machine-stage"))
+sys.path.insert(0, str(HERE))
+from bit_ir import Builder, bits, unpack
+from keccak1600 import (Keccak1600Kernel, SHA3_512Kernel, emit_relocated,
+                        keccak1600_block, rotation_offsets, round_bits,
+                        round_constant, sha3_512_block, sha3_512_cost)
+
+RC = (
+    0x0000000000000001, 0x0000000000008082, 0x800000000000808A, 0x8000000080008000,
+    0x000000000000808B, 0x0000000080000001, 0x8000000080008081, 0x8000000000008009,
+    0x000000000000008A, 0x0000000000000088, 0x0000000080008009, 0x000000008000000A,
+    0x000000008000808B, 0x800000000000008B, 0x8000000000008089, 0x8000000000008003,
+    0x8000000000008002, 0x8000000000000080, 0x000000000000800A, 0x800000008000000A,
+    0x8000000080008081, 0x8000000000008080, 0x0000000080000001, 0x8000000080008008,
+)
+ROT = (0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39,
+       41, 45, 15, 21, 8, 18, 2, 61, 56, 14)
+MASK = (1 << 64) - 1
+
+
+def reference(values, constants=RC):
+    """Word-at-a-time reference with destination-coordinate rho/pi reads."""
+    state = list(values)
+    for constant in constants:
+        parity = [state[x] ^ state[x+5] ^ state[x+10] ^ state[x+15] ^ state[x+20] for x in range(5)]
+        delta = [parity[(x-1) % 5] ^ ((parity[(x+1) % 5] << 1) | (parity[(x+1) % 5] >> 63)) & MASK
+                 for x in range(5)]
+        state = [v ^ delta[i % 5] for i, v in enumerate(state)]
+        moved = []
+        for y in range(5):
+            for x in range(5):
+                source = (x+3*y) % 5 + 5*x
+                shift = ROT[source]
+                v = state[source]
+                moved.append(((v << shift) | (v >> ((64-shift) % 64))) & MASK)
+        state = [moved[x+5*y] ^ ((~moved[(x+1) % 5+5*y]) & moved[(x+2) % 5+5*y])
+                 for y in range(5) for x in range(5)]
+        state[0] ^= constant
+    return state
+
+
+def to_bits(data):
+    return tuple(bit for byte in data for bit in bits(byte, 8))
+
+
+def from_bits(data):
+    return bytes(unpack(data[i:i+8]) for i in range(0, len(data), 8))
+
+
+def test_round_constants_and_offsets_match_primary_tables():
+    assert tuple(round_constant(i) for i in range(24)) == RC
+    assert rotation_offsets() == ROT
+
+
+def test_one_round_matches_word_reference():
+    values = [((i+1)*0x123456789ABCDEF1) & MASK for i in range(25)]
+    builder = Builder(1600)
+    block = builder.finish(round_bits(builder, tuple(range(1600)), 23))
+    result = block.evaluate(tuple(bit for v in values for bit in bits(v, 64)))
+    assert [unpack(result[i:i+64]) for i in range(0, 1600, 64)] == reference(values, (RC[23],))
+
+
+@pytest.mark.parametrize("seed", [0, 1, 1001])
+def test_permutation_matches_reference(seed):
+    rng = random.Random(seed)
+    values = [0]*25 if seed == 0 else [rng.getrandbits(64) for _ in range(25)]
+    result = Keccak1600Kernel().evaluate(tuple(bit for v in values for bit in bits(v, 64)))
+    assert [unpack(result[i:i+64]) for i in range(0, 1600, 64)] == reference(values)
+    if seed == 0:
+        # Public all-zero-state Keccak-f[1600] vector, independent of sponge padding.
+        assert unpack(result[:64]) == 0xF1258F7940E1DDE7
+
+
+def test_permutation_exact_resource_counts():
+    block = keccak1600_block()
+    nodes = Counter(n.kind for n in block.nodes)
+    ones = sum(v.bit_count() for v in RC)
+    assert nodes == {"xor": 115200, "and": 38400, "not": 38400+ones}
+    assert ones == 86
+    assert block.derived == 192086
+    assert block.work == 0
+    assert Keccak1600Kernel().cost.as_dict() == {
+        "x": 76972, "cx": 539372, "ccx": 76800,
+        "elementary_gates": 1000344, "base_xor_oracle_calls": 0}
+
+
+def packed_clean_check(kernel, samples, expected):
+    """Interpret the emitted gates simultaneously on eight actual basis states."""
+    lanes = len(samples)
+    mask = (1 << lanes)-1
+    rng = random.Random(719)
+    # Noncontiguous reversed relocation, guard bits and arbitrary XOR targets.
+    total = kernel.inputs + kernel.work + kernel.outputs
+    labels = tuple(2*i+3 for i in range(total-1, -1, -1))
+    inputs = labels[:kernel.inputs]
+    work = labels[kernel.inputs:kernel.inputs+kernel.work]
+    outputs = labels[-kernel.outputs:]
+    memory = [mask]*(2*total+7)
+    for i, wire in enumerate(inputs):
+        memory[wire] = sum(sample[i] << k for k, sample in enumerate(samples))
+    for wire in work:
+        memory[wire] = 0
+    targets = [rng.getrandbits(lanes) for _ in outputs]
+    for wire, value in zip(outputs, targets):
+        memory[wire] = value
+    before_inputs = tuple(memory[w] for w in inputs)
+    census = Counter()
+    for gate in kernel.emit(inputs, outputs, work):
+        kind, *wires = gate
+        assert kind in ("x", "cx", "ccx")
+        assert len(wires) == {"x": 1, "cx": 2, "ccx": 3}[kind]
+        assert len(set(wires)) == len(wires)
+        census[kind] += 1
+        value = mask
+        for control in wires[:-1]:
+            value &= memory[control]
+        memory[wires[-1]] ^= value
+    assert census == {"x": kernel.cost.x, "cx": kernel.cost.cx, "ccx": kernel.cost.ccx}
+    assert all(memory[w] == 0 for w in work)
+    assert tuple(memory[w] for w in inputs) == before_inputs
+    for i, wire in enumerate(outputs):
+        assert memory[wire] == targets[i] ^ sum(result[i] << k for k, result in enumerate(expected))
+    used = set(labels)
+    assert all(v == mask for i, v in enumerate(memory) if i not in used)
+
+
+def test_emitted_permutation_joint_map_cleanup_arbitrary_target_and_census():
+    rng = random.Random(123)
+    raw = [bytes(200), bytes([255])*200] + [rng.randbytes(200) for _ in range(6)]
+    samples = [to_bits(v) for v in raw]
+    expected = [tuple(bit for word in reference([int.from_bytes(v[i:i+8], "little") for i in range(0, 200, 8)])
+                      for bit in bits(word, 64)) for v in raw]
+    packed_clean_check(Keccak1600Kernel(), samples, expected)
+
+
+@pytest.mark.parametrize("size", [0, 1, 3, 70, 71, 72, 73, 143, 144, 145, 321])
+def test_sha3_digest_and_padding_boundaries(size):
+    raw = bytes((i*71+19) % 256 for i in range(size))
+    kernel = SHA3_512Kernel(size)
+    assert from_bits(kernel.evaluate(to_bits(raw) if size else (0,))) == hashlib.sha3_512(raw).digest()
+    if size == 0:
+        assert kernel.evaluate((0,)) == kernel.evaluate((1,))
+    block = sha3_512_block(size)
+    permutations = size // 72 + 1
+    assert sum(n.kind == "kernel" for n in block.nodes) == permutations
+    assert block.derived == 1600 + 8*size + 3 + 1600*permutations
+    assert kernel.work == block.derived + 192086
+    expected = Keccak1600Kernel().cost.times(2*permutations)
+    assert kernel.cost.x == expected.x + 6
+    assert kernel.cost.cx == expected.cx + 32*size + 6 + 512
+    assert kernel.cost.ccx == expected.ccx and kernel.cost.base_calls == 0
+
+
+def test_emitted_two_block_sponge_joint_map_cleanup_and_census():
+    raw = [bytes(72), bytes([255])*72, bytes(range(72)), bytes(reversed(range(72)))]
+    packed_clean_check(SHA3_512Kernel(72), [to_bits(v) for v in raw],
+                       [to_bits(hashlib.sha3_512(v).digest()) for v in raw])
+
+
+@pytest.mark.parametrize("bad", [-1, 24, True, 2.0, "1"])
+def test_bad_round_indices_refused(bad):
+    with pytest.raises(ValueError):
+        round_constant(bad)
+
+
+@pytest.mark.parametrize("bad", [-1, (1 << 20)+1, True, 1.0, "1"])
+def test_bad_message_lengths_refused(bad):
+    with pytest.raises(ValueError):
+        SHA3_512Kernel(bad)
+    with pytest.raises(ValueError):
+        sha3_512_block(bad)
+
+
+@pytest.mark.parametrize("function", [sha3_512_block, sha3_512_cost])
+def test_cached_keyword_lengths_do_not_bypass_integer_validation(function):
+    function.cache_clear()
+    function(message_bytes=0)
+    for invalid in (False, 0.0):
+        with pytest.raises(ValueError):
+            function(message_bytes=invalid)
+    function(message_bytes=1)
+    for invalid in (True, 1.0):
+        with pytest.raises(ValueError):
+            function(message_bytes=invalid)
+
+
+def test_invalid_wire_and_value_interfaces_refused():
+    builder = Builder(1600)
+    with pytest.raises(ValueError):
+        round_bits(builder, tuple(range(1599)), 0)
+    with pytest.raises(ValueError):
+        round_bits(builder, tuple(range(1, 1601)), 0)
+    kernel = Keccak1600Kernel()
+    inputs = tuple(range(kernel.inputs))
+    work = tuple(range(kernel.inputs, kernel.inputs+kernel.work))
+    outputs = tuple(range(kernel.inputs+kernel.work, kernel.inputs+kernel.work+kernel.outputs))
+    with pytest.raises(ValueError):
+        list(kernel.emit(list(inputs), outputs, work))
+    with pytest.raises(ValueError):
+        list(kernel.emit(inputs, outputs[:-1], work))
+    with pytest.raises(ValueError):
+        list(kernel.emit(inputs, inputs, work))
+    with pytest.raises(ValueError):
+        list(kernel.emit(inputs, outputs, (True,) + work[1:]))
+    with pytest.raises(ValueError):
+        kernel.evaluate((0,)*1599)
+    with pytest.raises(ValueError):
+        kernel.evaluate((2,)+(0,)*1599)
+
+
+def load_report():
+    """Load this component's report under a unique test-only module name."""
+    spec = importlib.util.spec_from_file_location("scratch_keccak_report_tests", HERE / "report.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_source_bound_report_and_qualification_refusal(tmp_path):
+    report = load_report()
+    normal, refusal = tmp_path / "normal.json", tmp_path / "refusal.json"
+    assert report.main(["--out", str(normal)]) == 0
+    assert report.main(["--out", str(refusal), "--require-qualified"]) == 2
+    assert normal.read_bytes() == refusal.read_bytes()
+    value = json.loads(normal.read_bytes())
+    assert value['source_before'] == value['source_after']
+    assert value['permutation']['gates']['elementary_gates'] == 1000344
+    assert set(value['sha3_512']) == {'0', '71', '72', '73', '144', '321'}
+    assert all(value[key] is False for key in report.FLAGS)
+    with pytest.raises(FileExistsError):
+        report.main(["--out", str(normal)])
+
+
+def test_report_refuses_source_drift_without_promoting_flags(tmp_path, monkeypatch):
+    report = load_report()
+    pin = next(iter(report.PINS))
+    monkeypatch.setitem(report.PINS, pin, "0"*64)
+    output = tmp_path / "drift.json"
+    assert report.main(["--out", str(output)]) == 1
+    value = json.loads(output.read_bytes())
+    assert value['checked_component_construction'] is False
+    assert all(value[key] is False for key in report.FLAGS)
+
+
+def test_report_refuses_relocated_loaded_kernel(monkeypatch):
+    report = load_report()
+    monkeypatch.setattr(report.keccak1600, '__file__', '/nonexistent/keccak1600.py')
+    with pytest.raises(ValueError, match='loaded Keccak path differs'):
+        report.observed()

@@ -1,0 +1,80 @@
+{
+  "audited_repository_read_paths": [
+    "crates/iroha_core/src/smartcontracts/isi/world_parliament_initial_sortition_tests.rs",
+    "crates/iroha_core/src/state/deserialize_world.rs",
+    "crates/iroha_core/src/sumeragi/epoch_beacon/producer/execution_tests.rs",
+    "pytest.ini",
+    "scripts/formal/check_sora_parliament_source_contract.py",
+    "scripts/formal/rust_text.py",
+    "scripts/sumeragi_mutation_gate.py",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "scripts/tests/conftest.py",
+    "specs/sumeragi.md"
+  ],
+  "command": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "docs/validation/parliament_ballot_execution_result_guard/execution-result-controls.py.template",
+    "parliament_pulse_isolation or parliament_pulse_restore_tests or execution_result_guard"
+  ],
+  "environment": {
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"
+  },
+  "exit": 0,
+  "log": "docs/validation/parliament_ballot_execution_result_guard/execution-result-controls.txt",
+  "log_sha256": "f020dd79aa01a4128fefe3570cc56d5d6494ececef695923623abb9f5146a899",
+  "observed_at_utc": "2026-10-13T15:02:19.425866+00:00",
+  "observed_read_count": 11,
+  "passed": 204,
+  "profile_qualified": false,
+  "pytest_arguments": [
+    "--import-mode=importlib",
+    "--import-mode=importlib",
+    "-q",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "-k",
+    "parliament_pulse_isolation or parliament_pulse_restore_tests or execution_result_guard"
+  ],
+  "pytest_version": "9.1.1",
+  "read_scope": "Repository source/data/config reads; Python bytecode caches and generated evidence outputs excluded. Installed interpreter/pytest runtime trusted.",
+  "repository_imports": {
+    "__main__": "docs/validation/parliament_ballot_execution_result_guard/execution-result-controls.py.template",
+    "scripts.formal.check_sora_parliament_source_contract": "scripts/formal/check_sora_parliament_source_contract.py",
+    "scripts.tests.check_sora_parliament_source_contract_test": "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "scripts.tests.conftest": "scripts/tests/conftest.py"
+  },
+  "runtime": {
+    "installed_runtime_trusted": true,
+    "python_executable": "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "python_executable_sha256": "1b5cb11d163e5ba34e2a05fc533c0ed89574d4425f9749a9d89405f651980e0d",
+    "python_version": "3.14.8 (main, Sep 30 2026, 17:55:09) [Clang 21.0.0 (clang-2100.3.34.2)]"
+  },
+  "schema": "parliament-execution-result-controls-v1",
+  "scope": "Two hundred four focused Python pulse-isolation, restore module, HC224 gate/spec and execution-result controls, including sixty-eight new Result and borrowed-witness controls. This repairs three stale source expectation strings and preserves the existing assertion suite. Complete module-level invalid/HC224 item token pins with exact attributes reject dormant branch, closure, macro and loop variants. Explicit Ok(Some(Invalid)) and Ok(Some(Valid { .. })) patterns, certified false calls and actual borrowed pulse encoding remain mandatory. Surrounding helpers/fixtures, macro/type/name resolution, Result/Option pattern semantics, writer and compiler/runtime behavior remain premises. No Rust or production qualification follows.",
+  "source_after": {
+    "crates/iroha_core/src/smartcontracts/isi/world_parliament_initial_sortition_tests.rs": "554ae18e22022e5ff6fdcf036f300378aa47462d249b391a675c84efdc7227c1",
+    "crates/iroha_core/src/state/deserialize_world.rs": "8f15d08f8380fe5b42688de2313ef139ca6cfe378a5b4e8abf4205463adfa843",
+    "crates/iroha_core/src/sumeragi/epoch_beacon/producer/execution_tests.rs": "a2f197065902fa050ae23bed5dbc055f175bac708c353eac922d96223e18fc38",
+    "docs/validation/parliament_ballot_execution_result_guard/execution-result-controls.py.template": "f89f7f832690d1a25f41425b229766a6b1a10c845101f5245aa861328c10bcf9",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/formal/check_sora_parliament_source_contract.py": "4b160bff09631da0fef6ae61fe94b8e037e281fd2fa358a6b544588df7a5a2ec",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/sumeragi_mutation_gate.py": "52c08ad7163419caa93e54f633555bb2a6df332c246d83f3a51b978675aaca9a",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "e35855cc059afa7be471dc5678338a06b78d0c6560a282085370d391bdb3a3af",
+    "scripts/tests/conftest.py": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f",
+    "specs/sumeragi.md": "445913b7e81c9d5005539208a93b6ab441b803d331bed84eccadd152d79b7df4"
+  },
+  "source_before": {
+    "crates/iroha_core/src/smartcontracts/isi/world_parliament_initial_sortition_tests.rs": "554ae18e22022e5ff6fdcf036f300378aa47462d249b391a675c84efdc7227c1",
+    "crates/iroha_core/src/state/deserialize_world.rs": "8f15d08f8380fe5b42688de2313ef139ca6cfe378a5b4e8abf4205463adfa843",
+    "crates/iroha_core/src/sumeragi/epoch_beacon/producer/execution_tests.rs": "a2f197065902fa050ae23bed5dbc055f175bac708c353eac922d96223e18fc38",
+    "docs/validation/parliament_ballot_execution_result_guard/execution-result-controls.py.template": "f89f7f832690d1a25f41425b229766a6b1a10c845101f5245aa861328c10bcf9",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/formal/check_sora_parliament_source_contract.py": "4b160bff09631da0fef6ae61fe94b8e037e281fd2fa358a6b544588df7a5a2ec",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/sumeragi_mutation_gate.py": "52c08ad7163419caa93e54f633555bb2a6df332c246d83f3a51b978675aaca9a",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "e35855cc059afa7be471dc5678338a06b78d0c6560a282085370d391bdb3a3af",
+    "scripts/tests/conftest.py": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f",
+    "specs/sumeragi.md": "445913b7e81c9d5005539208a93b6ab441b803d331bed84eccadd152d79b7df4"
+  },
+  "source_unchanged": true
+}

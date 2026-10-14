@@ -1162,6 +1162,24 @@ impl SumeragiFinalityVerifier {
     pub const fn root_scope(&self) -> crate::block::consensus::SumeragiRootScope {
         self.genesis_metadata.sumeragi_context.root_scope
     }
+    /// Keep only the newest `count` authenticated decisions in memory.
+    ///
+    /// Always retain at least the three decisions required by checkpoint export, or
+    /// all decisions if fewer exist. The count includes the tip and witness parents:
+    /// re-verifying a witness `lag` heights behind the tip requires `lag + 2` decisions.
+    /// Pruned decisions and their historical epoch contexts cannot be recovered by
+    /// increasing this count. The independently selected genesis and instance stay intact.
+    ///
+    /// This prunes the current prefix only; call again after verifying more proofs to
+    /// bound memory. It does not change verification rules or checkpoint encoding:
+    /// exporting and importing a checkpoint still restores only its three-decision
+    /// restart context, not this larger in-memory window.
+    pub fn retain_recent_decisions(&mut self, count: usize) {
+        let count = count.max(3);
+        while self.decisions.len() > count {
+            self.decisions.pop_first();
+        }
+    }
     /// Highest decision in the authenticated contiguous prefix, if any.
     /// This is local verified progress, never an unauthenticated server height.
     #[must_use]

@@ -1,3 +1,5 @@
+//! Fuzzing for numeric frames, arithmetic, and staged syscall gas.
+
 #![no_main]
 use iroha_primitives::{
     bigint::BigInt,
@@ -272,19 +274,25 @@ fn fuzz_decimal_arithmetic(payload: &[u8]) {
         RoundingMode::NearestTowardZero,
     ];
     let mode = rounding_modes[payload.get(1).map_or(0, |byte| usize::from(*byte) % 7)];
-    if !rhs.is_zero() {
-        if let Ok(rounded) = lhs.try_decimal_div_round(&rhs, output_scale, mode) {
-            assert!(rounded.scale() <= output_scale);
-            assert_eq!(
-                (rounded.canonicalize_decimal()).expect("expected successful fixture result"),
-                rounded.clone()
-            );
-        }
+    if !rhs.is_zero()
+        && let Ok(rounded) = lhs.try_decimal_div_round(&rhs, output_scale, mode)
+    {
+        assert!(rounded.scale() <= output_scale);
+        assert_eq!(
+            rounded
+                .clone()
+                .canonicalize_decimal()
+                .expect("expected successful fixture result"),
+            rounded
+        );
     }
     if let Ok(quantized) = lhs.try_quantize(output_scale, mode) {
         assert!(quantized.scale() <= output_scale.min(lhs.scale()));
         assert_eq!(
-            (quantized.canonicalize_decimal()).expect("expected successful fixture result"),
+            quantized
+                .clone()
+                .canonicalize_decimal()
+                .expect("expected successful fixture result"),
             quantized
         );
     }

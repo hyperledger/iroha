@@ -9,7 +9,8 @@
 //!   head, a record or a tombstone, and refuse its reuse with changed inputs;
 //! - **A2** validate the request against the current marker; **A3** reserve capacity;
 //! - **A4** stage both capsule copies; **A5** publish the Selected marker (the commit point);
-//! - **A6** retire the older marker; **A7** sign the receipt body under the Selected-marker
+//! - **A6** retire the older marker and anchor the durable Selected marker; **A7** sign the
+//!   receipt body under the Selected-marker
 //!   capability, unless a valid record for the head already exists; **A8** persist the
 //!   completion record in two copies; **A9** publish the Released marker binding its digest;
 //!   **A10** raise the iOS anchor; **A11** retire the Selected marker; **A12** regrow the
@@ -883,7 +884,8 @@ where
         }
     }
 
-    /// Finish a durable Selected marker (A6-A12; reconcile R9): retire `lower`, sign the
+    /// Finish a durable Selected marker (A6-A12; reconcile R9): retire `lower`, anchor the
+    /// Selected marker, sign the
     /// receipt unless a valid record for the head exists, persist the record, publish and
     /// anchor the Released marker, retire the Selected marker and cache the result.
     ///
@@ -944,6 +946,11 @@ where
     ) -> Result<FinishedV1<R>, KagemushaWalletProviderErrorV1> {
         // A6: every older marker is retired before any signature.
         kagemusha_wallet_retire_markers_v1(&self.store, selected, lower)?;
+        // Bind the selected successor in the keychain before producing any signature. If
+        // only the later Released-anchor update is lost, restoring pre-Advance files still
+        // leaves an anchor ahead of those files. Two acknowledged writes are not a platform
+        // durability fence; losing both remains a separately documented qualification gap.
+        kagemusha_wallet_raise_anchor_v1(&self.platform, selected.record())?;
         let capability =
             selected
                 .selected_capability()

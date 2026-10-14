@@ -1223,6 +1223,40 @@ fn names_chain() -> (CertifiedTestChain, AccountId, AssetDefinitionId) {
 }
 
 #[test]
+fn certified_originals_source_gate_is_exact_and_current() {
+    use iroha_data_model::{Registrable, account::Account, permission::Permission};
+    use std::collections::BTreeSet;
+    let account = AccountId::new(iroha_crypto::KeyPair::random().public_key().clone());
+    let mut world = World::with([], [Account::new(account.clone()).build(&account)], []);
+    assert!(require_names_read_authority(&world.view(), &account).is_err());
+    let permission: Permission =
+        iroha_executor_data_model::permission::query::CanReadCertifiedOriginals.into();
+    world
+        .account_permissions
+        .insert(account.clone(), BTreeSet::from([permission]));
+    require_names_read_authority(&world.view(), &account)
+        .expect("exact narrow original-read permission");
+    world
+        .account_permissions
+        .insert(account.clone(), BTreeSet::new());
+    assert!(
+        require_names_read_authority(&world.view(), &account).is_err(),
+        "revocation applies to the current source World"
+    );
+    world.account_permissions.insert(
+        account.clone(),
+        BTreeSet::from([Permission::new(
+            "CanReadCertifiedOriginals".into(),
+            iroha_primitives::json::Json::new("forged"),
+        )]),
+    );
+    assert!(
+        require_names_read_authority(&world.view(), &account).is_err(),
+        "matching permission names never authorize malformed payloads"
+    );
+}
+
+#[test]
 fn names_publisher_requires_actual_native_root_and_complete_exact_cut_originals() {
     let (chain, reader, asset) = names_chain();
     let state = chain.state();

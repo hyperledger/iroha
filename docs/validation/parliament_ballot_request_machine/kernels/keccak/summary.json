@@ -1,0 +1,105 @@
+{
+  "actual_input_primitive_entry": false,
+  "complete_public_framing": false,
+  "complete_resource_vector": false,
+  "complete_simulator_coverage": false,
+  "full_generator_implemented": false,
+  "independent_cryptographic_review": false,
+  "module_test_counts": {
+    "target/parliament-keccak-machine-stage/test_keccak1600.py": 35,
+    "target/parliament-keccak-review/test_independent_keccak.py": 25
+  },
+  "native_workspace_certificate": false,
+  "passed_tests": 60,
+  "permutation": {
+    "clean_work_bits": 192086,
+    "gates": {
+      "base_xor_oracle_calls": 0,
+      "ccx": 76800,
+      "cx": 539372,
+      "elementary_gates": 1000344,
+      "x": 76972
+    },
+    "input_bits": 1600,
+    "output_bits": 1600
+  },
+  "primitive_advantage_assumed": false,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "report_sha256": "a9401ea73678cf01a333257256deb3e272c2441b279b2c15804a06bf29cb727b",
+  "sha3_512": {
+    "0": {
+      "clean_work_bits": 195289,
+      "gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 153600,
+        "cx": 1079262,
+        "elementary_gates": 2001212,
+        "x": 153950
+      },
+      "input_bits": 1,
+      "output_bits": 512
+    },
+    "144": {
+      "clean_work_bits": 199641,
+      "gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 460800,
+        "cx": 3241358,
+        "elementary_gates": 6007196,
+        "x": 461838
+      },
+      "input_bits": 1152,
+      "output_bits": 512
+    },
+    "321": {
+      "clean_work_bits": 204257,
+      "gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 768000,
+        "cx": 5404510,
+        "elementary_gates": 10014236,
+        "x": 769726
+      },
+      "input_bits": 2568,
+      "output_bits": 512
+    },
+    "71": {
+      "clean_work_bits": 195857,
+      "gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 153600,
+        "cx": 1081534,
+        "elementary_gates": 2003484,
+        "x": 153950
+      },
+      "input_bits": 568,
+      "output_bits": 512
+    },
+    "72": {
+      "clean_work_bits": 197465,
+      "gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 307200,
+        "cx": 2160310,
+        "elementary_gates": 4004204,
+        "x": 307894
+      },
+      "input_bits": 576,
+      "output_bits": 512
+    },
+    "73": {
+      "clean_work_bits": 197473,
+      "gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 307200,
+        "cx": 2160342,
+        "elementary_gates": 4004236,
+        "x": 307894
+      },
+      "input_bits": 584,
+      "output_bits": 512
+    }
+  },
+  "status": "PASS"
+}

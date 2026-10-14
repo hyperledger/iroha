@@ -6,10 +6,44 @@ impl Kura {
     /// This does not publish an active catalog or derive an identity from configuration.
     pub(in crate::kura) fn recover_journal_owned_lane_instances_on_startup(&self) -> Result<()> {
         self.durable_mutation_authorized()?;
+        // Each original release source outlives every acquired physical guard,
+        // including partial acquisition, returned storage errors and unwind.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC354")))]
+        let (
+            mut prune_releases,
+            mut canonical_releases,
+            mut geometry_releases,
+            mut sidecar_releases,
+        ) = (
+            self.prune_lock.defer_notifications(),
+            self.canonical_chain_lock.defer_notifications(),
+            self.lane_geometry_lock.defer_notifications(),
+            self.sidecar_lock.defer_notifications(),
+        );
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC354")))]
+        let _prune_guard = prune_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC354"))]
         let _prune_guard = self.prune_lock.lock();
+        #[cfg(test)]
+        tests::original_recovery_release_tests::fence_boundary(1);
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC354")))]
+        let _canonical_guard = canonical_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC354"))]
         let _canonical_guard = self.canonical_chain_lock.lock();
+        #[cfg(test)]
+        tests::original_recovery_release_tests::fence_boundary(2);
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC354")))]
+        let _geometry_guard = geometry_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC354"))]
         let _geometry_guard = self.lane_geometry_lock.lock();
+        #[cfg(test)]
+        tests::original_recovery_release_tests::fence_boundary(3);
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC354")))]
+        let _sidecar_guard = sidecar_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC354"))]
         let _sidecar_guard = self.sidecar_lock.lock();
+        #[cfg(test)]
+        tests::original_recovery_release_tests::fence_boundary(4);
         self.durable_mutation_authorized()?;
         let journal = self.read_lane_geometry_journal()?;
         if journal.configured_primary_binding.is_none()

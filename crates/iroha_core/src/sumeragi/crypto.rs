@@ -12,17 +12,81 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
+use crate::execution_attempt::ExecutionDeferred;
 use iroha_crypto::{
     Algorithm, BlsNormalPopVerifiedKey, Hash, KeyPair, PrivateKey, PublicKey as IrohaPublicKey,
     bls::consensus::{self, ConsensusAggregateScratch, ConsensusDigest},
 };
+use iroha_data_model::sumeragi::epoch::ValidatorCommitteeMemberV1;
 use iroha_sumeragi::{
     crypto::{AggregationError, Crypto, Signer, SigningError},
     types::{AggregateSignature, Hash32, PublicKey, Signature},
 };
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 
 pub(crate) mod funded;
+
+/// Request-local committee construction preserves resource refusal separately from bad keys.
+#[derive(Debug)]
+pub(crate) enum QueryCommitteeError {
+    Resource(ExecutionDeferred),
+    Member { index: usize, error: KeyError },
+}
+
+impl From<ExecutionDeferred> for QueryCommitteeError {
+    fn from(error: ExecutionDeferred) -> Self {
+        Self::Resource(error)
+    }
+}
+
+fn query_committee_allocation_failure(bytes: usize) -> QueryCommitteeError {
+    let _ = bytes;
+    QueryCommitteeError::Resource(ivm::error::ExecutionDeferral::AllocationUnavailable.into())
+}
+
+// Complete allocator-visible backing of the closed one-shot constructor below. No temporary
+// committee Vec or returned key list is built, and each core key moves once into the map.
+fn query_committee_allocation_bytes(
+    members: &[ValidatorCommitteeMemberV1],
+) -> Result<usize, QueryCommitteeError> {
+    let overflow = || query_committee_allocation_failure(usize::MAX);
+    let map =
+        norito::core::owned_btree_allocation_bytes::<PublicKey, Arc<BlsNormalPopVerifiedKey>>(
+            members.len(),
+        )
+        .map_err(|_| overflow())?;
+    let credential = norito::core::owned_arc_allocation_bytes::<BlsNormalPopVerifiedKey>()
+        .map_err(|_| overflow())?;
+    let mut bytes = map
+        .checked_add(ConsensusAggregateScratch::<()>::backing_bytes())
+        .ok_or_else(overflow)?;
+    for member in members {
+        let key = member.validator.public_key();
+        bytes = bytes
+            .checked_add(key.input_payload_len())
+            .and_then(|bytes| bytes.checked_add(key.retained_allocation_layout().size()))
+            .and_then(|bytes| bytes.checked_add(credential))
+            .ok_or_else(overflow)?;
+    }
+    Ok(bytes)
+}
+
+fn query_committee_key_error(
+    index: usize,
+    reason: &'static str,
+    bad_pop: bool,
+    admit: &mut dyn FnMut(usize) -> Result<(), ExecutionDeferred>,
+) -> Result<QueryCommitteeError, QueryCommitteeError> {
+    // Diagnostics belong to the same stage as its partially constructed authority. A refusal
+    // to retain the exact message is local capacity, never a fabricated invalid-key verdict.
+    admit(reason.len())?;
+    let error = if bad_pop {
+        KeyError::BadPop(reason.to_owned())
+    } else {
+        KeyError::Malformed(reason.to_owned())
+    };
+    Ok(QueryCommitteeError::Member { index, error })
+}
 
 /// Why a key cannot be used as a Sumeragi consensus key.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -72,6 +136,7 @@ pub fn iroha_key(key: &PublicKey) -> Result<IrohaPublicKey, KeyError> {
 #[derive(Debug, Default)]
 pub struct BlsCrypto {
     admitted: RwLock<BTreeMap<PublicKey, Arc<BlsNormalPopVerifiedKey>>>,
+    aggregate_scratch: Option<Mutex<ConsensusAggregateScratch>>,
 }
 
 impl BlsCrypto {
@@ -80,13 +145,90 @@ impl BlsCrypto {
         Self::default()
     }
 
+    /// Construct a request-owned committee after admitting its exact backing.
+    pub(crate) fn for_query_committee(
+        members: &[ValidatorCommitteeMemberV1],
+        admit: &mut dyn FnMut(usize) -> Result<(), ExecutionDeferred>,
+    ) -> Result<Self, QueryCommitteeError> {
+        if members.is_empty() || members.len() > iroha_sumeragi::types::MAX_COMMITTEE_SIZE {
+            return Err(query_committee_key_error(
+                0,
+                "committee size is outside the native bound",
+                false,
+                admit,
+            )?);
+        }
+        let demand = query_committee_allocation_bytes(members)?;
+        admit(demand)?;
+        let mut admitted = BTreeMap::new();
+        for (index, member) in members.iter().enumerate() {
+            let key = member.validator.public_key();
+            let (algorithm, payload) = match key.borrowed_parts() {
+                Ok(parts) => parts,
+                Err(_) => {
+                    return Err(query_committee_key_error(
+                        index,
+                        "malformed compact public key envelope",
+                        false,
+                        admit,
+                    )?);
+                }
+            };
+            if algorithm != Algorithm::BlsNormal {
+                return Err(QueryCommitteeError::Member {
+                    index,
+                    error: KeyError::NotBlsNormal(algorithm),
+                });
+            }
+            let mut raw = Vec::new();
+            raw.try_reserve_exact(payload.len())
+                .map_err(|_| query_committee_allocation_failure(payload.len()))?;
+            raw.extend_from_slice(payload);
+            let core = match PublicKey::new(raw) {
+                Ok(core) => core,
+                Err(_) => {
+                    return Err(query_committee_key_error(
+                        index,
+                        "malformed consensus public key length",
+                        false,
+                        admit,
+                    )?);
+                }
+            };
+            let verified = match BlsNormalPopVerifiedKey::from_owned_uncached(
+                key.clone(),
+                &member.proof_of_possession,
+            ) {
+                Ok(verified) => verified,
+                Err((_original, _error)) => {
+                    return Err(query_committee_key_error(
+                        index,
+                        "invalid proof of possession",
+                        true,
+                        admit,
+                    )?);
+                }
+            };
+            admitted.insert(core, Arc::new(verified));
+        }
+        let scratch = ConsensusAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
+            .unwrap_or_else(|never| match never {});
+        Ok(Self {
+            admitted: RwLock::new(admitted),
+            aggregate_scratch: Some(Mutex::new(scratch)),
+        })
+    }
+
     fn with_scratch(&self, verify: impl FnOnce(&mut ConsensusAggregateScratch) -> bool) -> bool {
-        // Dynamic node callers retain their original independent per-call scratch.
-        // The immutable native-reader owner has a separate original prepaid backing.
-        let mut scratch =
-            ConsensusAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
-                .unwrap_or_else(|never| match never {});
-        verify(&mut scratch)
+        if let Some(scratch) = &self.aggregate_scratch {
+            verify(&mut scratch.lock())
+        } else {
+            // Dynamic node callers retain their original independent per-call scratch.
+            let mut scratch =
+                ConsensusAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
+                    .unwrap_or_else(|never| match never {});
+            verify(&mut scratch)
+        }
     }
 
     /// Admit a committee key: verify its proof of possession `pop` once and keep the parsed
@@ -382,6 +524,148 @@ mod tests {
 
     fn pop(key_pair: &KeyPair) -> Vec<u8> {
         bls_normal_pop_prove(key_pair.private_key()).unwrap()
+    }
+
+    fn query_members(pairs: &[KeyPair]) -> Vec<ValidatorCommitteeMemberV1> {
+        pairs
+            .iter()
+            .map(|pair| ValidatorCommitteeMemberV1 {
+                validator: iroha_model_base::peer::PeerId::new(pair.public_key().clone()),
+                proof_of_possession: pop(pair),
+            })
+            .collect()
+    }
+
+    fn query_limits(bytes: usize) -> norito::DecodeLimits {
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, 64)
+    }
+
+    fn query_admission(bytes: usize) -> Result<(), ExecutionDeferred> {
+        norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(bytes))
+            .map_err(|error| {
+                error
+                    .into_local_refusal()
+                    .expect("allocation admission captures its actual enclosing refusal")
+                    .into()
+            })
+    }
+
+    #[test]
+    fn query_committee_exact_admission_verifies_and_reuses_pairing_backing() {
+        let pairs: Vec<_> = (1..=4).map(key_pair).collect();
+        let members = query_members(&pairs);
+        let demand = query_committee_allocation_bytes(&members).unwrap();
+        let (result, usage) =
+            norito::core::with_decode_limits_measured(query_limits(demand), || {
+                BlsCrypto::for_query_committee(&members, &mut query_admission)
+            });
+        assert_eq!(usage.total_allocated_bytes(), demand);
+        let crypto = result.unwrap();
+        assert_eq!(crypto.admitted_len(), members.len());
+        assert!(crypto.aggregate_scratch.is_some());
+        let signers: Vec<_> = pairs
+            .iter()
+            .map(|pair| KeyPairSigner::new(pair).unwrap())
+            .collect();
+        let signatures: Vec<_> = signers
+            .iter()
+            .map(|signer| signer.sign(&message(1)).unwrap())
+            .collect();
+        let aggregate = BlsCrypto::new().aggregate(&signatures).unwrap();
+        let keys: Vec<_> = signers.iter().map(Signer::public_key).collect();
+        let (_, usage) = norito::core::with_decode_limits_measured(query_limits(0), || {
+            let preimage = message(1);
+            assert!(crypto.verify_aggregate(&keys, &preimage, &aggregate));
+            assert!(!crypto.verify_aggregate(&keys, b"changed", &aggregate));
+            assert!(crypto.verify_aggregate(&keys, &preimage, &aggregate));
+        });
+        assert_eq!(usage.total_allocated_bytes(), 0);
+    }
+
+    #[test]
+    fn query_committee_refuses_before_backing_and_preserves_inherited_limit() {
+        let members = query_members(&[key_pair(1)]);
+        let demand = query_committee_allocation_bytes(&members).unwrap();
+        let outer = norito::core::DecodeBudgetContext::new(query_limits(demand - 1));
+        let (result, _) = outer.with(|| {
+            norito::core::with_decode_limits_measured(query_limits(demand), || {
+                BlsCrypto::for_query_committee(&members, &mut query_admission)
+            })
+        });
+        let Err(QueryCommitteeError::Resource(original)) = result else {
+            panic!("query committee must retain the enclosing allocation refusal");
+        };
+        assert_eq!(
+            original.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        );
+        assert!(matches!(
+            original
+                .decode_refusal()
+                .expect("original enclosing decode refusal")
+                .resource_error(),
+            norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+        ));
+        assert_eq!(outer.consumed_allocated_bytes(), 0);
+        assert!(!norito::core::decode_limits_active());
+        outer.with(|| query_admission(demand - 1)).unwrap();
+        assert!(outer.with(|| query_admission(1)).is_err());
+    }
+
+    #[test]
+    fn query_committee_invalid_pop_is_typed_and_diagnostic_is_funded() {
+        let mut members = query_members(&[key_pair(1), key_pair(2)]);
+        members[0].proof_of_possession[0] ^= 1;
+        let demand = query_committee_allocation_bytes(&members).unwrap();
+        let result = norito::core::with_decode_limits_scope(query_limits(demand), || {
+            BlsCrypto::for_query_committee(&members, &mut query_admission)
+        });
+        assert!(matches!(result, Err(QueryCommitteeError::Resource(_))));
+        let diagnostic = "invalid proof of possession".len();
+        let (result, usage) =
+            norito::core::with_decode_limits_measured(query_limits(demand + diagnostic), || {
+                BlsCrypto::for_query_committee(&members, &mut query_admission)
+            });
+        assert!(matches!(
+            result,
+            Err(QueryCommitteeError::Member {
+                index: 0,
+                error: KeyError::BadPop(_)
+            })
+        ));
+        assert_eq!(usage.total_allocated_bytes(), demand + diagnostic);
+        // A failed private construction cannot populate the next request's authority.
+        let valid = query_members(&[key_pair(1), key_pair(2)]);
+        let crypto = norito::core::with_decode_limits_scope(query_limits(demand), || {
+            BlsCrypto::for_query_committee(&valid, &mut query_admission)
+        })
+        .unwrap();
+        assert_eq!(crypto.admitted_len(), 2);
+    }
+
+    #[test]
+    fn query_committee_rejects_empty_and_non_bls_without_unfunded_diagnostics() {
+        let (result, usage) = norito::core::with_decode_limits_measured(query_limits(0), || {
+            BlsCrypto::for_query_committee(&[], &mut query_admission)
+        });
+        assert!(matches!(result, Err(QueryCommitteeError::Resource(_))));
+        assert_eq!(usage.total_allocated_bytes(), 0);
+        let pair = KeyPair::from_seed(vec![7; 32], Algorithm::Ed25519);
+        let members = vec![ValidatorCommitteeMemberV1 {
+            validator: iroha_model_base::peer::PeerId::new(pair.public_key().clone()),
+            proof_of_possession: vec![0; 96],
+        }];
+        let demand = query_committee_allocation_bytes(&members).unwrap();
+        let result = norito::core::with_decode_limits_scope(query_limits(demand), || {
+            BlsCrypto::for_query_committee(&members, &mut query_admission)
+        });
+        assert!(matches!(
+            result,
+            Err(QueryCommitteeError::Member {
+                index: 0,
+                error: KeyError::NotBlsNormal(Algorithm::Ed25519)
+            })
+        ));
     }
 
     /// `n` validators: their signers, a crypto that admitted every key, and the committee.

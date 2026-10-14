@@ -1,0 +1,61 @@
+"""Compare the final report to an independent dead-code-inclusive body universe."""
+import argparse,bisect,gzip,hashlib,importlib.util,json,re,sys
+from pathlib import Path
+ROOT=Path.cwd().resolve();STAGE=ROOT/'target/parliament-exception-coverage-stage';REVIEW=ROOT/'target/parliament-exception-graph-review'
+EXPECTED_RAW='9460da92323a358a6bdf13cb27ad286bb6ee5799ab88189b1db05bcd3c1dce70'
+REFERENCE_SHA='53b468943fde0f0d7a4405cae957230d94932b8e061a9e8a6be9881ad366e1ad'
+sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+def need(ok,why):
+ if not ok:raise ValueError(why)
+parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--out',type=Path,required=True);args=parser.parse_args()
+need(not args.out.exists(),'refuse overwrite');need(not sys.flags.optimize,'reference assertions must remain enabled')
+reference=REVIEW/'all_body_reference.py';need(sha(reference)==REFERENCE_SHA,'independent reference changed')
+raw=gzip.decompress((STAGE/'capture/analysis.json.gz').read_bytes());need(hashlib.sha256(raw).hexdigest()==EXPECTED_RAW,'not the final report')
+report=json.loads(raw)
+spec=importlib.util.spec_from_file_location('independent_whole_body_final_comparison',reference);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+results={}
+for mode,expected_functions,expected_instructions,branch in [('portable',287,32998,0x100032348),('accel',291,31299,0x1000300b0)]:
+ folder=ROOT/'docs/validation/parliament_ballot_current_candidate/stack'/mode
+ pins={name:sha(folder/name) for name in ('disassembly.txt','starts.txt','stubs.txt')}
+ need(pins=={name:report['input_sha256_after'][mode+'_'+name[:-4]] for name in pins},'final report/census input mismatch')
+ census=module.analyze(mode,folder)
+ need(census['captured_inputs']==pins,'reference input mismatch')
+ text=(folder/'disassembly.txt').read_text().split('Disassembly of section __TEXT,__text:\n',1)[1].split('\nDisassembly of section ',1)[0]
+ instructions={int(m[1],16):(m[2],m[3].split(';',1)[0].strip()) for m in re.finditer(r'(?m)^([0-9a-f]+):[ \t]+(\S+)[ \t]*(.*)$',text)}
+ starts=sorted(int(m[1],16) for m in re.finditer(r'(?m)^([0-9a-f]{16})\s+\S+',(folder/'starts.txt').read_text()))
+ names={int(m[1],16):m[2] for m in re.finditer(r'(?m)^([0-9a-f]+) <(.+)>:$',text)}
+ need(len(starts)==len(set(starts)) and all(s in instructions for s in starts),'function start membership')
+ def owner(pc):
+  position=bisect.bisect_right(starts,pc)-1
+  need(position>=0,'instruction before first function');return starts[position]
+ functions={int(m['address'],16) for m in census['members']}
+ universe={pc for pc in instructions if owner(pc) in functions}
+ graph=report['modes'][mode]['exception_augmented'];actual=set(graph['reachable_instructions']);actual_functions=set(graph['reachable_functions'])
+ need(actual<=universe and actual_functions<=functions,'augmented graph escaped independent universe')
+ need(len(functions)==census['all_body_reachable_functions']==expected_functions and len(universe)==census['all_body_instruction_count']==expected_instructions,'independent universe count')
+ difference=sorted(universe-actual);extra_functions=sorted(functions-actual_functions)
+ need(len(difference)==46 and len(extra_functions)==3,'unexpected unresolved difference')
+ native={int(site['address'],16) for member in census['members'] for site in member['external_direct_sites']}
+ native_actual={site['address'] for site in graph['frontiers'] if site['kind']=='native_edge'}
+ need(native==native_actual and len(native)==census['all_body_external_direct_sites'],'native direct-site disagreement')
+ indirect={int(site,16) for member in census['members'] for site in member['indirect_sites']}
+ indirect_actual={site['address'] for site in graph['frontiers'] if site['kind'] in ('indirect_call','indirect_branch')}
+ need(indirect_actual<=indirect and len(indirect-indirect_actual)==2,'indirect comparison disagreement')
+ need(instructions[branch][0]=='br' and branch in indirect_actual and 'std::panicking::default_hook' in names[owner(branch)],'reported unresolved branch identity')
+ local_gap=[pc for pc in difference if owner(pc)==owner(branch)]
+ need(local_gap and all(pc>branch for pc in local_gap),'gap is not later body instructions')
+ need(all(owner(pc)==owner(branch) or owner(pc) in extra_functions for pc in difference),'unexpected gap owner')
+ need(all('_OUTLINED_FUNCTION_' in names[s] for s in extra_functions),'extra functions are not outlined helpers')
+ called=set()
+ for pc in local_gap:
+  op,args_text=instructions[pc]
+  if op in ('bl','b'):
+   match=re.match(r'(0x[0-9a-f]+)(?:\s|$)',args_text)
+   if match and int(match[1],16) in instructions:called.add(owner(int(match[1],16)))
+ need(set(extra_functions)<=called,'extra helper not called from omitted body')
+ need({name:sha(folder/name) for name in pins}==pins,'late text drift')
+ results[mode]=dict(input_sha256=pins,all_body_census=census,augmented_functions=len(actual_functions),augmented_instructions=len(actual),augmented_function_subset=True,augmented_instruction_subset=True,all_body_instruction_addresses=[hex(pc) for pc in sorted(universe)],additional_instructions=[dict(pc=hex(pc),owner=hex(owner(pc)),owner_name=names[owner(pc)],op=instructions[pc][0],operands=instructions[pc][1]) for pc in difference],additional_functions=[dict(address=hex(s),name=names[s]) for s in extra_functions],unresolved_indirect_branch=dict(pc=hex(branch),owner=hex(owner(branch)),owner_name=names[owner(branch)],op=instructions[branch][0],operands=instructions[branch][1]),native_direct_sites_identical=True,native_direct_site_count=len(native),additional_indirect_sites=[hex(pc) for pc in sorted(indirect-indirect_actual)],gap_proven_dead=False,indirect_targets_resolved=False)
+need(sha(reference)==REFERENCE_SHA,'late reference drift')
+value=dict(schema='parliament-final-exception-whole-body-comparison-v1',status='PASS',final_raw_report_sha256=EXPECTED_RAW,independent_reference_sha256=REFERENCE_SHA,modes=results,scope='Independent complete-body direct-edge overapproximation over the same retained decoded text. The final augmented graph is a subset; omitted instructions remain unresolved, not proven dead. No worker, loaded unwinder, CFI execution, native semantics or complete resource certificate.',complete_exception_semantics=False,complete_workspace_certificate=False,applies_to_current_checkout=False,profile_qualified=False,production_gate_changed=False,worker_executed=False)
+with args.out.open('x') as f:f.write(json.dumps(value,indent=2,sort_keys=True)+'\n')
+print(json.dumps({mode:{'functions':len(value['all_body_census']['members']),'instructions':value['all_body_census']['all_body_instruction_count'],'additional_instructions':len(value['additional_instructions']),'native_direct_sites':value['native_direct_site_count']} for mode,value in results.items()},sort_keys=True))

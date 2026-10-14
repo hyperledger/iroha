@@ -1,0 +1,112 @@
+"""Verify retained complete-regression evidence and create one immutable manifest."""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+import re
+
+root = Path.cwd()
+out = root / "docs/validation/parliament_ballot_source_guard_regressions"
+manifest = out / "SHA256SUMS"
+review_path = out / "freeze-review.json"
+if manifest.exists() or review_path.exists():
+    raise RuntimeError("refuse overwriting frozen regression evidence")
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+phases = {}
+for phase in ("collection", "final-collection", "full"):
+    receipt_path = out / (phase+".json")
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["phase"] == phase
+    assert receipt["source_count"] == len(receipt["source_before"])
+    assert set(receipt["source_before"]) == set(receipt["source_after"]) == set(receipt["snapshots"])
+    assert receipt["source_changes"] == {
+        name: {"before": before, "after": receipt["source_after"][name]}
+        for name, before in receipt["source_before"].items()
+        if before != receipt["source_after"][name]
+    }
+    for name, snapshot in receipt["snapshots"].items():
+        assert sha(out/snapshot) == receipt["source_before"][name], snapshot
+    assert sha(root/receipt["log"]) == receipt["log_sha256"]
+    assert sha(root/receipt["nodeids"]) == receipt["nodeids_sha256"]
+    nodeids = json.loads((root/receipt["nodeids"]).read_text())
+    assert len(nodeids) == receipt["collected_count"]
+    assert len(set(nodeids)) == len(nodeids)
+    reports = receipt["test_reports"]
+    assert all(row["nodeid"] in set(nodeids) for row in reports)
+    assert receipt["call_outcomes"] == {
+        outcome: sum(row["when"] == "call" and row["outcome"] == outcome for row in reports)
+        for outcome in ("passed", "failed", "skipped")
+    }
+    current = {name: sha(root/name) if (root/name).is_file() else None
+               for name in receipt["source_after"]}
+    drift = {name: {"captured": value, "current": current[name]}
+             for name, value in receipt["source_after"].items() if current[name] != value}
+    captured_existence = {
+        name: receipt["path_existence_changes"].get(name, {}).get("after_exists", before)
+        for name, before in receipt["guarded_path_existence_before"].items()
+    }
+    current_existence = {name: (root/name).exists() for name in captured_existence}
+    existence_drift = {name: {"captured": value, "current": current_existence[name]}
+                       for name, value in captured_existence.items()
+                       if current_existence[name] != value}
+    phases[phase] = {
+        "receipt_sha256": sha(receipt_path), "exit": receipt["exit"],
+        "collected_count": receipt["collected_count"], "call_outcomes": receipt["call_outcomes"],
+        "source_count": receipt["source_count"], "exact_snapshot_count": len(receipt["snapshots"]),
+        "source_changes_during_capture": receipt["source_changes"],
+        "path_existence_changes_during_capture": receipt["path_existence_changes"],
+        "current_source_sha256": current, "post_capture_drift": drift,
+        "guarded_path_existence_at_freeze": current_existence,
+        "post_capture_path_existence_drift": existence_drift,
+        "all_captured_bytes_retained": True,
+        "applies_to_current_observed_inputs": not (drift or existence_drift or receipt["source_changes"]
+                                                    or receipt["path_existence_changes"]),
+    }
+
+final_inventory = json.loads((out/"final-collection.json").read_text())
+full = json.loads((out/"full.json").read_text())
+assert final_inventory["exit"] == 0
+assert final_inventory["nodeids_sha256"] == full["nodeids_sha256"]
+assert final_inventory["expected_checker_sha256"] == full["expected_checker_sha256"]
+assert final_inventory["expected_tests_sha256"] == full["expected_tests_sha256"]
+for phase in (final_inventory, full):
+    assert phase["environment"] == {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+                                   "PYTEST_ADDOPTS": None, "PYTEST_PLUGINS": None}
+    assert phase["effective_pytest_config"]["keyword"] == ""
+    assert phase["effective_pytest_config"]["markexpr"] == ""
+    assert phase["effective_pytest_config"]["maxfail"] == 0
+assert full["effective_pytest_config"]["collectonly"] is False
+assert final_inventory["effective_pytest_config"]["collectonly"] is True
+assert full["profile_qualified"] is False and full["production_qualified"] is False
+
+for target in re.findall(r"\]\(([^)]+)\)", (out/"README.md").read_text()):
+    if "://" not in target and out/target not in {review_path, manifest}:
+        assert (out/target).exists(), target
+review = {
+    "schema": "parliament-source-guard-regressions-freeze-review-v1",
+    "frozen_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "phases": phases, "final_inventory_matches_full_nodeids": True,
+    "captured_scope": "Complete Python source-contract module; actual failures are preserved without repair or suppression in this bundle. Historical collection is separate from final candidate execution.",
+    "no_rust_build_or_test_in_this_capture": True,
+    "independent_cryptographic_review": False, "owner_acceptance": False,
+    "full_resource_vector": False, "profile_qualified": False,
+    "physical_verification_workspace_certificate": False, "production_gate_changed": False,
+}
+with review_path.open("x") as stream:
+    stream.write(json.dumps(review, indent=2, sort_keys=True)+"\n")
+files = sorted(path for path in out.rglob("*") if path.is_file()
+               and path.name not in {"SHA256SUMS", ".DS_Store"} and "__pycache__" not in path.parts)
+with manifest.open("x") as stream:
+    for path in files:
+        stream.write(sha(path)+"  "+path.relative_to(root).as_posix()+"\n")
+for line in manifest.read_text().splitlines():
+    value, name = line.split("  ", 1)
+    assert sha(root/name) == value
+print(json.dumps({"entry_count": len(files), "manifest_sha256": sha(manifest),
+                  "freeze_review_sha256": sha(review_path),
+                  "full_exit": full["exit"], "full_call_outcomes": full["call_outcomes"]}))

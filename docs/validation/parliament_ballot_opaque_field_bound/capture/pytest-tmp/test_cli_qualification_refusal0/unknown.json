@@ -1,0 +1,12 @@
+{
+  "applies_to_current_checkout": false,
+  "complete_constructor_cost_certificate": false,
+  "complete_native_cost_certificate": false,
+  "complete_workspace_certificate": false,
+  "error": "mutated evidence",
+  "physical_cost_calibrated": false,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "schema": "parliament-opaque-field-bound-v1",
+  "verdict": "UNKNOWN"
+}

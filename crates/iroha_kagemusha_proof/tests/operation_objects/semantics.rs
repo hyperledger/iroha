@@ -108,6 +108,36 @@ fn credential_evidence_and_policy_rules_return_total_verdicts() {
     assert_eq!(known.tables.permutation(), unknown.tables.permutation());
 }
 
+#[test]
+fn credential_reserved_fact_bit_is_false_for_initial_and_renewed_evidence() {
+    for (kind, facts) in [(1, 1085), (2, 1087), (3, 192)] {
+        let mut valid = credential();
+        set(&mut valid, 7, kind);
+        for index in [10, 16] {
+            set(&mut valid, index, facts);
+        }
+        if kind == 3 {
+            for index in [11, 12, 13, 17, 18, 19] {
+                set(&mut valid, index, 0);
+            }
+        }
+        assert!(valid.accepts(Fp::ZERO));
+        // Both records match, so initial-evidence equality cannot mask this rejection.
+        let mut initial = valid.clone();
+        for index in [10, 16] {
+            set(&mut initial, index, facts | (1 << 9));
+        }
+        invalid(initial, "reserved bit in matching initial evidence");
+        set(&mut valid, 26, 1);
+        assert!(valid.accepts(Fp::ZERO));
+        for index in [10, 16] {
+            let mut renewed = valid.clone();
+            set(&mut renewed, index, facts | (1 << 9));
+            invalid(renewed, "reserved bit in either renewed evidence record");
+        }
+    }
+}
+
 pub fn parse(
     c: &ObjectCircuit,
     bytes: &mut BytesChip<Fp>,

@@ -13,6 +13,9 @@ const CASES: &[crate::captured_schema_tests::Case] = &[
     crate::captured_schema_tests::Case::bidirectional::<super::ValidationFeePolicyRegistryV1>(
         "iroha_data_model::validation_fee::ValidationFeePolicyRegistryV1",
     ),
+    crate::captured_schema_tests::Case::paired_bidirectional::<super::ValidationFeePolicyHistoryV1>(
+        "iroha_data_model::validation_fee::ValidationFeePolicyHistoryV1",
+    ),
     crate::captured_schema_tests::Case::bidirectional::<
         super::ValidationFeePolicySnapshotAvailableV1,
     >("iroha_data_model::validation_fee::ValidationFeePolicySnapshotAvailableV1"),

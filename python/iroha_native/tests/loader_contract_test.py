@@ -1,12 +1,40 @@
 """Runtime checks for the native owner's explicit absence boundary."""
-from pathlib import Path
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
+import pytest
 
 NATIVE = Path(__file__).resolve().parents[1] / "src/iroha_native"
 ROOT = Path(__file__).resolve().parents[3]
+
+
+@pytest.mark.parametrize("version", [None, 28, 29, 30])
+@pytest.mark.parametrize(
+    "missing",
+    [None, "_validate_account_address_v1", "_parse_account_address_v1", "_render_account_address_v1"],
+)
+def test_account_codec_requires_exact_current_abi_and_complete_surface(monkeypatch, version, missing):
+    """Exercise ABI admission only; a stub is never native execution evidence."""
+    from types import SimpleNamespace
+
+    from iroha_native import _loader
+
+    native = SimpleNamespace()
+    if version is not None:
+        native.connect_norito_bridge_abi_version = lambda: version
+    for name in (
+        "_validate_account_address_v1", "_parse_account_address_v1", "_render_account_address_v1"
+    ):
+        if name != missing:
+            setattr(native, name, lambda *args: None)
+    monkeypatch.setattr(_loader, "load_crypto_extension", lambda: native)
+    if version == 29 and missing is None:
+        assert _loader.require_account_codec_v1() is native
+    else:
+        with pytest.raises(_loader.NativeUnavailableError, match="ABI-29"):
+            _loader.require_account_codec_v1()
 
 
 def _owner_without_extension(tmp_path):

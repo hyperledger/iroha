@@ -219,6 +219,60 @@ fn norito_records_flush_and_round_trip_without_environment_access() {
 }
 
 #[test]
+fn malformed_dispatch_preserves_help_and_rejects_invalid_options_before_work() {
+    let mut help = Sink::default();
+    run(&args(&["malformed", "--help"]), &mut help).expect("malformed help");
+    assert_eq!(
+        help.bytes,
+        [
+            b"Use: qualify malformed [the qualify options below]\n".as_slice(),
+            HELP.as_bytes()
+        ]
+        .concat()
+    );
+    assert_eq!(help.flushes, 1);
+    for (input, expected) in [
+        (
+            vec!["malformed", "--samples", "0"],
+            "--samples must be in 1..=1001",
+        ),
+        (
+            vec!["malformed", "--samples"],
+            "missing value for --samples",
+        ),
+        (
+            vec!["malformed", "malformed", "--help"],
+            "unknown option malformed",
+        ),
+        (
+            vec!["--row", "malformed"],
+            "--row must be all, candidate or comparator",
+        ),
+    ] {
+        let mut output = Sink::default();
+        let error = run(&args(&input), &mut output).expect_err("invalid options");
+        assert_eq!(error.to_string(), expected);
+        assert!(output.bytes.is_empty());
+        assert_eq!(output.flushes, 0);
+    }
+}
+
+#[test]
+fn malformed_dispatch_preserves_output_errors() {
+    let mut buffer = [0_u8; 0];
+    let mut output = std::io::Cursor::new(&mut buffer[..]);
+    let error = run(&args(&["malformed", "--help"]), &mut output)
+        .expect_err("the caller's full output buffer must fail");
+    assert_eq!(
+        error
+            .downcast_ref::<std::io::Error>()
+            .expect("output error")
+            .kind(),
+        std::io::ErrorKind::WriteZero
+    );
+}
+
+#[test]
 fn summaries_keep_the_phase_and_retry_sample_counts() {
     let metric = Metric {
         elapsed_ns: 5,

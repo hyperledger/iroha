@@ -1531,6 +1531,106 @@ def require_block_start_construction(state: str) -> None:
             raise RuntimeError(f"{location}: start construction changed its defining module tokens")
 
 
+def torii_release_without_lint_attributes(source: str) -> str:
+    """Remove only the four reviewed leading Torii lint attributes for ownership checks.
+
+    The complete literal-preserving attribute tokens are pinned before removal.
+    New inner cfg/allow attributes, non-leading attributes, altered conditions or
+    additional code refuse. No general attribute stripping is performed.
+    """
+    path = "crates/iroha_torii/src/lib.rs"
+    code = mask_rust(source)
+    spans: list[tuple[int, int]] = []
+    end = 0
+    for match in re.finditer(r"#\s*!\s*\[", code):
+        if code[end:match.start()].strip():
+            raise RuntimeError(f"{path}: local release has non-leading inner attributes")
+        depth, end = 1, match.end()
+        while end < len(code) and depth:
+            depth += (code[end] == "[") - (code[end] == "]")
+            end += 1
+        if depth:
+            raise RuntimeError(f"{path}: local release has an unclosed inner attribute")
+        spans.append((match.start(), end))
+    attributes = " ".join(source[start:end] for start, end in spans)
+    if rust_token_digest(attributes) != "18eabee7073a396c1adfb7c8fcddf88d731c76f72cb7fae33b41331cee972648":
+        raise RuntimeError(f"{path}: local release changed reviewed leading lint attributes")
+    located = list(source)
+    for start, end in spans:
+        located[start:end] = " " * (end - start)
+    return "".join(located)
+
+
+def require_local_partial_release_boundary(local_release: str, torii: str) -> None:
+    """Bind the current private local-release adapter and its physical permit handoff.
+
+    Complete reviewed items pin identifier/body rejection, handler ordering,
+    the original owned permit moved into physical work, committed-view lookup,
+    recovery and closed error mapping. Small service/recovery module pins also
+    bind imports and macros. Admission and recovery implementations below are
+    explicit source premises, not runtime tests or a cancellation theorem.
+
+    The canonical-authentication route macro/mount/middleware chain, surrounding
+    Torii name resolution, dependency semantics and native execution remain
+    upstream premises. This check neither qualifies the anonymous-ballot worker
+    nor changes any production availability or latency gate.
+    """
+    service_path = "crates/iroha_torii/src/parliament_tle_release.rs"
+    torii_path = "crates/iroha_torii/src/lib.rs"
+    recovery_path = "crates/iroha_torii/src/panic_recovery.rs"
+    located = torii_release_without_lint_attributes(torii)
+    # The reviewed struct relies on ordinary declaration-order field retirement.
+    # Reject direct custom Drop impls for this spelling, including qualified/raw
+    # paths and parenthesized Self types, even inside cfg-disabled scopes. This
+    # is a conservative lexical boundary; aliases/name resolution elsewhere in
+    # Torii remain the explicitly stated surrounding-source premise above.
+    permit_code = re.sub(r"\br#(?=[A-Za-z_])", "", mask_rust(located))
+    for implementation in re.finditer(r"\bimpl\b([^{};]*)\{", permit_code):
+        header = implementation[1]
+        if re.search(r"\bDrop\s+for\b", header) and re.search(
+                r"\bfor\s+(?:\(\s*)*(?:::)?(?:[A-Za-z_][A-Za-z_0-9]*\s*::\s*)*"
+                r"QueryAdmissionPermit\b", header):
+            raise RuntimeError(f"{torii_path}: local release permit has a custom Drop implementation")
+    sources = {"service": local_release, "torii": located, "recovery": read(recovery_path)}
+    paths = {"service": service_path, "torii": torii_path, "recovery": recovery_path}
+    for declaration, attributes in (
+        ("mod parliament_tle_release;", ('#[cfg(feature = "app_api")]',)),
+        ("mod panic_recovery;", ()),
+    ):
+        construction_rust_item(located, declaration, torii_path, attributes=attributes)
+    owners = (
+        ('service', 'pub async fn require_empty_body_v1(', (),
+         'bounded empty-body gate', '51e91a9d77fab127d9a1d011a7ac70c6d8c73e805523f93ac518a5f3d855a329'),
+        ('service', 'fn parse_ballot_attempt_id(', (),
+         'canonical nonzero identifier', '75ec4f376159e69887cdba3428401984d098d2b466895f85eac344594058611a'),
+        ('service', 'fn map_coordinator_error(', (),
+         'closed payload-free coordinator failures', '763aa0283bba7c70b3521d6d76985b21c4aeed0ea03b6e847d15faeca35ee772'),
+        ('service', 'pub async fn request_local_partial_release_v1(', (),
+         'physical signer admission and committed-view handoff', 'b9a7af91b8df70926ad125b3f9dcc62b45ff91f1672a94444209fabc6fd711f8'),
+        ('torii', 'async fn handler_gov_parliament_tle_partial_release(', ('#[cfg(feature = "app_api")]',),
+         'access/body/admission/service/response order', 'd773a1bf836cf9e3f8b9b1f8bcd4dd42722ee02f51767fdb4cf53be2dc967e54'),
+        ('torii', 'pub(crate) struct QueryAdmissionPermit', (),
+         'original admission field custody and release order', 'f046085d91ed25e4d2e2c83dc0fcfa1a684916f9e8648d9cd5b329a1faa88981'),
+        ('torii', 'async fn acquire_query_admission(', (),
+         'original general and heavy admission with one deadline', '420d2c33c882755e9f8765bd91a67c1783fe2b5b20caaf797c14158af3665a3d'),
+        ('recovery', 'pub fn spawn_blocking_recoverable<F, T>(', (),
+         'physical recovery boundary', '9d1d186b77134785525359e98f980bbb747acd0688638b786efbd6107ff1be2d'),
+        ('recovery', 'pub async fn join_recoverable<T>(', (),
+         'opaque recovery join result', 'e34b8731f861a956bbb730b13d613cb715744153ddcfa807951a68ba32326f92'),
+    )
+    for location, declaration, attributes, obligation, expected in owners:
+        item = construction_rust_item(sources[location], declaration, paths[location],
+                                      attributes=attributes)
+        if rust_token_digest(item) != expected:
+            raise RuntimeError(f"{paths[location]}: local release changed {obligation}")
+    for location, expected in (
+        ("service", "990ac558884cbe32066a5481dc546429041d76771ef0dea5af49d7e0fe0df075"),
+        ("recovery", "036e22a03809def9017788c93deb89f3141bff658078478ccacb071480d16fe1"),
+    ):
+        if rust_token_digest(sources[location]) != expected:
+            raise RuntimeError(f"{paths[location]}: local release changed its defining module tokens")
+
+
 def require_block_start_phase_call_order(state: str) -> None:
     """Bind the current same-block SCCP/Parliament call order before continuation.
 
@@ -2524,6 +2624,7 @@ def require_parliament_commit_publication(state: str) -> None:
 
 EPOCH_BEACON_PATH = "crates/iroha_core/src/sumeragi/epoch_beacon.rs"
 BEACON_PRODUCER_PATH = "crates/iroha_core/src/sumeragi/epoch_beacon/producer.rs"
+BEACON_CONTROL_PATH = "crates/iroha_core/src/sumeragi/epoch_beacon/control.rs"
 BEACON_READINESS_PATH = (
     "crates/iroha_core/src/sumeragi/epoch_beacon/producer/readiness.rs"
 )
@@ -2630,6 +2731,69 @@ def require_borrowed_beacon_roster_and_sealed_binding() -> None:
         "ifsource.transcript_hash!=expected.transcript_hash{returnErr(GlobalThresholdBeaconError::TranscriptMismatch);}",
         "beacon::validate_adaptive_dkg_geometry(source)?;",
     ))
+
+
+def require_beacon_borrowed_witness(beacon: str, producer: str, control: str) -> None:
+    """Bind the original prepared context to the exact borrowed witness encoder.
+
+    The complete build/encode items, direct module routes and producer import
+    are bound. The small codec module pin includes its imports and macros.
+    Surrounding producer type/name resolution, Pulse/ControlWitness definitions,
+    Norito serializer semantics and compiler/runtime behavior remain explicit
+    premises. This source check does not establish byte, allocation or runtime
+    equivalence and does not qualify production.
+    """
+    for declaration in ("pub(crate) mod control;", "pub(crate) mod producer;"):
+        construction_rust_item(beacon, declaration, EPOCH_BEACON_PATH)
+    construction_rust_item(producer, "use super::control;", BEACON_PRODUCER_PATH)
+    build = construction_rust_item(
+        producer, "pub(crate) fn build(", BEACON_PRODUCER_PATH, "impl NativeBeaconProducer")
+    expected_build = """
+        pub(crate) fn build(
+            &self,
+            context: &ControlWitnessContext,
+        ) -> Result<ControlWitness, NativeBeaconError> {
+            let source = ApplicationControlContext {
+                instance: self.instance,
+                epoch: context.epoch,
+                height: context.height,
+                parent_hash: context.parent_hash,
+                parent_result: context.parent_result,
+            };
+            if self.prepared.as_ref() != Some(&source) {
+                return Err(NativeBeaconError::Context);
+            }
+            let pulse = match &self.active {
+                None => None,
+                Some(active) => Some(active.finalized.ok_or(NativeBeaconError::AwaitingShares {
+                    height: context.height,
+                })?),
+            };
+            control::encode(pulse.as_ref()).map_err(NativeBeaconError::from)
+        }
+    """
+    if rust_token_digest(build) != rust_token_digest(expected_build):
+        raise RuntimeError(
+            f"{BEACON_PRODUCER_PATH}: original prepared context and actual demanded shares "
+            "must reach the borrowed witness encoder with error propagation"
+        )
+    encode = construction_rust_item(control, "pub(crate) fn encode(", BEACON_CONTROL_PATH)
+    expected_encode = """
+        pub(crate) fn encode(pulse: Option<&Pulse>) -> Result<ControlWitness, ControlCodecError> {
+            let mut witness = ControlWitness::empty();
+            if let Some(pulse) = pulse {
+                norito::core::write_canonical_to_writer(pulse, &mut witness)?;
+            }
+            Ok(witness)
+        }
+    """
+    if rust_token_digest(encode) != rust_token_digest(expected_encode):
+        raise RuntimeError(
+            f"{BEACON_CONTROL_PATH}: borrowed original pulse must stream into its returned "
+            "witness with codec error propagation"
+        )
+    if rust_token_digest(control) != "477c9f6fe212385c3c7eb308d3ab42e711a86f138d866f37984ed68a07660e04":
+        raise RuntimeError(f"{BEACON_CONTROL_PATH}: borrowed witness codec changed defining module tokens")
 
 
 def require_parliament_beacon_requirement(beacon: str, producer: str, readiness: str) -> None:
@@ -2973,23 +3137,7 @@ def require_parliament_beacon_requirement(beacon: str, producer: str, readiness:
         raise RuntimeError(
             f"{producer_path}: native production must activate only on the committed demand"
         )
-    build = compact_rust(rust_item(producer, "    pub(crate) fn build(", producer_path))
-    witness = compact_rust("""
-            let pulse = match &self.active {
-                None => None,
-                Some(active) => Some(active.finalized.ok_or(NativeBeaconError::AwaitingShares {
-                    height: context.height,
-                })?),
-            };
-            control::encode(pulse).map_err(NativeBeaconError::from)
-        }
-    """)
-    if (not build.endswith(witness)
-            or "ifself.prepared.as_ref()!=Some(&source){returnErr(NativeBeaconError::Context);}"
-            not in build):
-        raise RuntimeError(
-            f"{producer_path}: a demanded pulse must await actual shares, never an empty witness"
-        )
+    require_beacon_borrowed_witness(beacon, producer, read(BEACON_CONTROL_PATH))
     # The current producer verifies original share custody directly before its
     # first signing call. A cached source/share cannot turn this into a detached
     # attestation flag or project the signing refusal into a successful output.
@@ -3095,6 +3243,12 @@ def require_parliament_pulse_isolation_evidence(
     the restore tests show a wait survives a snapshot on its exact slot; the
     rotation test shows late consumption uses the retained session and nothing
     else. The mutation gate and the spec each carry exactly one HC224 row.
+
+    The two Result-aware assertion owners have complete literal-preserving item
+    pins: extra branches, loops or dormant closures cannot keep their assertion
+    text while disabling it. Surrounding helpers/fixtures, macro and type/name
+    resolution, compiler and runtime behavior remain explicit premises. These
+    source checks do not execute or qualify the native tests.
     """
     path = BEACON_EXECUTION_TESTS_PATH
     pinned_helper(execution_tests, path, "fn admit(", (
@@ -3141,7 +3295,7 @@ def require_parliament_pulse_isolation_evidence(
         "assert_eq!(stored.commitment().beacon,None);",
     ))
     pinned_helper(execution_tests, path, "fn invalid(", (
-        "assert!(matches!(executor.execute(candidate,&hash,false),Some(ExecOutcome::Invalid)));",
+        "assert!(matches!(executor.execute(candidate,&hash,false),Ok(Some(ExecOutcome::Invalid))));",
         "assert_eq!(u64::try_from(view.height()).unwrap(),chain.height());",
         "assert!(view.world().global_beacon_pulses().is_empty());",
         "assert!(view.world().global_beacon_pulse_slots().is_empty());",
@@ -3171,12 +3325,12 @@ def require_parliament_pulse_isolation_evidence(
         "assert_sortition_awaits(&chain,attempt_id,SLOT);assert_eq!(slot_index(&chain),index);",
         # The same body carrying a genuine pulse is Invalid; without it, Valid.
         "with_pulse.control_witness="
-        "control::encode(Some(genuine_pulse_at_next_height(&custody,&custody.chain))).unwrap();"
+        "control::encode(Some(genuine_pulse_at_next_height(&custody,&custody.chain)).as_ref()).unwrap();"
         "letunrequested=custody.chain.author_payload(with_pulse,bytes.clone());"
         "invalid(&mutexecutor_in(&custody.chain,ConsensusMode::Permissioned),"
         "&custody.chain,&unrequested,);",
         "assert!(matches!(executor_in(&custody.chain,ConsensusMode::Permissioned)"
-        ".execute(&requested_nothing,&hash,false),Some(ExecOutcome::Valid(_))),",
+        ".execute(&requested_nothing,&hash,false),Ok(Some(ExecOutcome::Valid{..}))),",
         "assert_sortition_awaits(&custody.chain,attempt_id,SLOT);",
         # Every later block likewise, far past the unserved slot.
         "whilechain.height()+1<release{assert_no_demand_at_next_height(&chain);"
@@ -3198,6 +3352,15 @@ def require_parliament_pulse_isolation_evidence(
         "assert_sortition_awaits(&chain,attempt_id,SLOT);letview=chain.state().view();",
         "assert!(stored.requires_beacon_pulse_at(logical_session(&chain),release));}",
     ))
+    # Preserve the exact bodies as well as their explanatory assertion sequence.
+    # Token presence alone would allow an intact assertion under `if false`.
+    for declaration, attributes, expected in (
+        ("fn invalid(", (), "045a760fa0aa5154363c63fc4d47e6ba8d7738549082eda95a74e4b4317cc57a"),
+        (f"fn {HC224_KILL_TEST}() {{", ("#[test]",), "2099c082cc5bb3029f70eaa301552f9d78f9939b56eb13b0494b14c928da63b9"),
+    ):
+        item = construction_rust_item(execution_tests, declaration, path, attributes=attributes)
+        if rust_token_digest(item) != expected:
+            raise RuntimeError(f"{path}: Result-aware assertion owner changed its complete body")
     # The native obligation at the NPoS pre-boundary height is unchanged by a pending
     # governance slot that the alignment rule put on that same height.
     pinned_test(
@@ -4432,14 +4595,21 @@ def require_threshold_signer_startup_readiness(runtime_deps: str, daemon: str) -
     if mask_rust(daemon).count("preflight_threshold_signer_startup_readiness_v1(") != 1:
         raise RuntimeError(f"{daemon_path}: startup must call the custody preflight exactly once")
     entry_owner = "pub(crate) async fn start_with_runtime_deps("
-    entry, _ = live_rust_item(daemon, entry_owner, daemon_path)
+    # Accept exactly the reviewed boxed handoff, not arbitrary wrapper removal.
+    # The original unconditional Iroha owner, complete signature and direct
+    # awaits/error propagation are pinned. Surrounding Box/name resolution,
+    # allocator/compiler/runtime behavior remain premises; this is source
+    # structure, not startup execution or memory qualification.
+    entry_source = construction_rust_item(daemon, entry_owner, daemon_path, "impl Iroha")
+    entry = compact_rust(mask_rust(entry_source))
     entry_body = compact_rust("""
-        { let prepared = PreparedStartup::prepare(config, genesis).await?;
-          Self::activate_with_runtime_deps(
+        { let prepared = Box::pin(PreparedStartup::prepare(config, genesis)).await?;
+          Box::pin(Self::activate_with_runtime_deps(
               build, prepared, logger, shutdown_signal, runtime_deps, musubi_publication_factory,
-          ).await }
+          )).await }
     """)
-    if entry[entry.index("{"):] != entry_body:
+    if (entry[entry.index("{"):] != entry_body
+            or rust_token_digest(entry_source) != "abcb73261aad256d57bd32ad6a2776bc637e7062ff1ffce278988e09fe96e4f4"):
         raise RuntimeError(f"{daemon_path}: startup must propagate original preparation into awaited activation")
     startup_owner = "async fn activate_with_runtime_deps("
     startup, _ = live_rust_item(daemon, startup_owner, daemon_path)
@@ -7022,41 +7192,10 @@ def main() -> int:
                 f"{casting_path}: casting archive exposes forbidden material {forbidden!r}"
             )
 
-    local_release_path = "crates/iroha_torii/src/parliament_tle_release.rs"
-    local_release = read(local_release_path)
-    require_all(
-        local_release_path,
-        local_release,
-        (
-            "pub(crate) async fn request_local_partial_release_v1(",
-            "ballot_attempt_id: String",
-            "signer_admission: crate::QueryAdmissionPermit",
-            "crate::panic_recovery::join_recoverable(",
-            "crate::panic_recovery::spawn_blocking_recoverable(",
-            "let _signer_admission = signer_admission;",
-            "coordinator.request_partial_release(&view, ballot_attempt_id)",
-            "TleReleaseCoordinatorErrorV1::SignerUnavailable",
-            "TleReleaseCoordinatorErrorV1::InvalidSignerOutput",
-        ),
-    )
-
+    local_release = read("crates/iroha_torii/src/parliament_tle_release.rs")
     torii_path = "crates/iroha_torii/src/lib.rs"
     torii = read(torii_path)
-    partial_handler = section(
-        torii,
-        "async fn handler_gov_parliament_tle_partial_release(",
-        "async fn handler_gov_citizen_status(",
-        torii_path,
-    )
-    require_all(
-        torii_path,
-        partial_handler,
-        (
-            '"v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release"',
-            "let signer_admission = acquire_query_admission(app.as_ref(), true).await?;",
-            "ballot_attempt_id,\n        signer_admission,",
-        ),
-    )
+    require_local_partial_release_boundary(local_release, torii)
 
     route_catalog_path = "crates/iroha_torii_shared/src/route_catalog.rs"
     route_catalog = read(route_catalog_path)

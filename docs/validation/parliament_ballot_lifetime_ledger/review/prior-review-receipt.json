@@ -1,0 +1,387 @@
+{
+  "adaptive_driver_executed": false,
+  "after_run_selected_sources": {
+    "crates/iroha_parliament_ballot_proof/src/credential.rs": "9cef899f6864c4b8517cab01b66ec66e38e0d5350d7a1ce02cfb889bdca02b34",
+    "crates/iroha_parliament_ballot_proof/src/framing.rs": "784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0",
+    "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": "f757f491b81c52563b34e425a9ded20547419200c848c4ad5231ef1fd32374f5",
+    "crates/iroha_parliament_ballot_proof/src/layout.rs": "33db7b2cb59ccebaa557a73ee6db899c3cfa32a288bdc3382384d151fab4c6f0",
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+    "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+    "crates/iroha_parliament_ballot_proof/src/registration.rs": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+    "crates/iroha_parliament_ballot_proof/src/sealed_list.rs": "769eb3de9f35211bd80067f1c0669645995d603cce3aa2f0e2818699be834de0",
+    "crates/iroha_parliament_ballot_proof/src/selector.rs": "1d96fee19e79b781434580a00e355048585994c15e9210fdc62c3665ddd37d75",
+    "crates/iroha_parliament_ballot_proof/src/vote.rs": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+    "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+    "crates/iroha_zkp_vole/src/codec.rs": "ac354c72e09fb022b1dcb300cf339fa66303abdf76ae5518f7f9e243cc5e5a2f",
+    "crates/iroha_zkp_vole/src/crt/bits.rs": "2b4ab26994a3f6debb543c29ace1676233881cca0e59f91351f6966387b52912",
+    "crates/iroha_zkp_vole/src/crt/codec.rs": "9da70396e4e6aa637f8033e95855eeaccae276c10ae4576469da42139349a68a",
+    "crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs": "a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e",
+    "crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs": "535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f",
+    "crates/iroha_zkp_vole/src/crt/matrix.rs": "810bad5d8087109e52ce650a5ac596e87e6df8a167cde36b97f24834bbf7281f",
+    "crates/iroha_zkp_vole/src/crt/tables.rs": "77c1197bba8e107fda8e833be0550e98b45825f805d3630c7dbac92810bac3cb",
+    "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+    "crates/iroha_zkp_vole/src/hash.rs": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+    "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+    "crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+    "crates/iroha_zkp_vole/src/quicksilver.rs": "99260f5f4f0cb1b8e8e6356ce14b0deb20099d25549b852441bc541588c6f3ad",
+    "crates/iroha_zkp_vole/src/quicksilver/verifier.rs": "7b038e8b2aa647d89f06d38bcdf371efb97b4abf6f2edb43585be89609051dfe",
+    "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+    "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+    "crates/iroha_zkp_vole/src/vole/bits.rs": "4e41952eb31574505fcf97d02a4f9074035818660958ff3dbf9cf2650749d079",
+    "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+    "scripts/parliament_ballot_admissibility_circuit.py": "313c4de935a5afdd9795cfc8be1d754dfcc022b2c9624b117167ec9f577792ad",
+    "scripts/parliament_ballot_gf_circuit.py": "c23d09a06a7f78ba16753409f695f4d03048a14bb19e1a55748e245272da564a",
+    "scripts/parliament_ballot_oracle_log_circuit.py": "d045f66581f7a50bcb4e696b0346a192724f5d0858a21c23343bb35478d5c558",
+    "scripts/parliament_ballot_write_framing.py": "ad5230fdcd01b52588b40d29a2e766625050ef530dfba4cb529350f993a21617",
+    "specs/parliament_ballot_b6_hidden_assignment_deletion.md": "1a522853ba2aff3d3d7c77e11e5674ec41144ab93cad8e54f0e3b4c937ecb58b",
+    "specs/parliament_ballot_b6_ideal_public_sampler.md": "eeea377a3686fcd31c1c77b8ea576d6f72895789389ed4c2d99d9107a5f0ab74",
+    "specs/parliament_ballot_b6_ideal_sampler_accounting.md": "c022d1f76360dfe4bdd6934fe352d5d87e7b9f63df3828608230f759cb1e22c5",
+    "specs/parliament_ballot_b6_oracle_log_circuit.md": "de33b603bfc281238b348f082a2316a645f1d236894e7837ee95078ddbc1d673",
+    "specs/parliament_ballot_b6_write_framing.md": "2d69a46520c1b9f8ef01859509aad2d4a26629887d3cd4446f541f76c3d2b9b0",
+    "target/parliament-aes-machine-stage/aes256.py": "d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2",
+    "target/parliament-ideal-machine-stage/aes_kernel.py": "52ce8e9dafcaf9969cb14cf46305842fa9ebc7f95409772d2738c2516562acae",
+    "target/parliament-ideal-machine-stage/bavc_machine.py": "f001ecf7580d09774f119eb913e6a3cbdbffe196ffbd14fea242e469afe49e4b",
+    "target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64",
+    "target/parliament-ideal-machine-stage/chronological_log.py": "200dfc7bbd53782c4aeb609b4c3322737bab934e8985712e84f96fd45cfa95cf",
+    "target/parliament-ideal-machine-stage/crt_machine.py": "0bef11d58513949541dae259edac6afe57307f76aa9df07198906d2865f4fa73",
+    "target/parliament-ideal-machine-stage/field_kernel.py": "d708f053d19fab9464871c7df7343ec77592878a2c443204023ae573a6f1f9f2",
+    "target/parliament-ideal-machine-stage/hash_machine.py": "d97073f478decda2f7b0e82b502839a17f330f1563ede43604af9b27105c104b",
+    "target/parliament-ideal-machine-stage/l0_machine.py": "e10d3d6b49e778c9abdde8655188513d0dddf910da73e095ff19da6ddd0fba23",
+    "target/parliament-ideal-machine-stage/leaf_machine.py": "f2cd3773ad74341275da375433dc73815b75880de6acbf6b658f911228e0a8ba",
+    "target/parliament-ideal-machine-stage/mask_fold.py": "67386f460f7f66e1c18952a4c4507cfffb6029699e67f5e530d92a3d0ff91605",
+    "target/parliament-ideal-machine-stage/opening.py": "6223057116ba7652d90025327635384c102f7d68193715dc5d9d82b334ae9118",
+    "target/parliament-ideal-machine-stage/opening_reconstruction.py": "cbc9417de099e7f847c8618dc2e2b2443e5d170c8ce599548af3bfa5540de0b0",
+    "target/parliament-ideal-machine-stage/prg_machine.py": "5bf556a9de0f57230dd2639526c726124eb9d132b91e4714416ea0b3ff4511b6",
+    "target/parliament-ideal-machine-stage/public_hash.py": "f4ad52186a959025b9f9940c3099460e07a6981b078c666a0eee448c92f46e6c",
+    "target/parliament-ideal-machine-stage/public_machine.py": "da79c4e07bc5f504ff5b02a6af96f2bfcf4b09ea480eafdc2e5d59bfcf55cd6f",
+    "target/parliament-ideal-machine-stage/r0_machine.py": "19bf2f781df312c87b6981a6205d22b3cbeacb653abcc7690a741bd1bddd1d77",
+    "target/parliament-ideal-machine-stage/r1_machine.py": "5074c38518f455df3e583f7a361617136a20c366a36f575bd128047c3d5de3e3",
+    "target/parliament-ideal-machine-stage/reconstruction.py": "857b03b9c3b5d3a4e05e639ac7a4ad62e86438206c5cdbaadb68a99a1fe88757",
+    "target/parliament-ideal-machine-stage/request-accepted-observation.json": "81ffb1db693c94f73f41239da3cd8164893d9c84ddd805d873ec3ede974f4f4c",
+    "target/parliament-ideal-machine-stage/request_dispatch.py": "94729ac8325800e40dbbe2011ff7c1fbf39937dd128960ade269ccfac7e927bb",
+    "target/parliament-ideal-machine-stage/request_family.py": "26a91d48a98a538de02b5d38d7875ef224fac1bbffc78bfa7b41155897f34041",
+    "target/parliament-ideal-machine-stage/request_generator.py": "0f3173dfb0d806685d7b437297928ae4edf31805b21a1628684d0b15cfb201d9",
+    "target/parliament-ideal-machine-stage/request_observation.py": "266b48c461c62330885bb4b8d3cd25c0c78d2a25279485dcb34f492f3af34816",
+    "target/parliament-ideal-machine-stage/request_transition.py": "02d43d565b893497a16ec606917a19e3261479f82f5db8aaafbf4d9355bfdcd1",
+    "target/parliament-ideal-machine-stage/return_machine.py": "71e65a7840fee8c75c1913d3af4bf5826b5815c40c327766cae2a91344767b20",
+    "target/parliament-ideal-machine-stage/schedule.py": "f46ef5e6899aa2eaa078131d1d88eb7478e7e63cb49b72c0a8663178827405cf",
+    "target/parliament-ideal-machine-stage/stage_plan.py": "4087930673266d460ead30c4306e742a3e70595b70555210beec1a70b8b0ece4",
+    "target/parliament-ideal-machine-stage/vole_columns.py": "13787c5c5d464908ae783dcee125f3bfba129620d9f9ec5e8c7cadfea4a06ab1",
+    "target/parliament-ideal-machine-stage/vole_machine.py": "ed41fc140050b87e7e1ddd62a3d62783987a9395c9429a43ff6553bac4e62a55",
+    "target/parliament-ideal-machine-stage/vole_reconstruction.py": "be2bb0c3a48bf2b4c5edef44694aad3e0832e8b37da31b01a0f7ea05086a635d",
+    "target/parliament-ideal-machine-stage/write_machine.py": "4982fb0bada85cbb6a323f367935a9743e6d383ed275f19e61a97f297e2964aa",
+    "target/parliament-keccak-machine-stage/keccak1600.py": "412518945be5df7292607448aa71c2bad0d452a4c9c6a36f2622402dce587010",
+    "target/parliament-lifetime-composition-stage/README.md": "be52b037e2091f89d3656a3a19d47a48685f0d89a45b20c251c8fb25a1ee8189",
+    "target/parliament-lifetime-composition-stage/design.md": "67001272d3d34f8f943b989797b409789512c7e9ced46eceedfb91bdf2e80e06",
+    "target/parliament-lifetime-composition-stage/ledger.py": "5af7ed9e7e133fd2a9885239616ff8dbc0d0e74c5e658c6c5457e90c312acd7e",
+    "target/parliament-lifetime-review/ledger-review.md": "9013b055021c39458274e797a39c13a1555c17170359962ed92f143d274f104d",
+    "target/parliament-lifetime-review/test_independent_ledger.py": "9a06ace6235dc4571647913f1e62fe397fe700dca743627f20654412df2321b9"
+  },
+  "command": "PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /opt/homebrew/bin/pytest -o addopts= -p no:cacheprovider --noconftest -q target/parliament-lifetime-review/test_independent_ledger.py --basetemp target/parliament-lifetime-review/final-pytest-temp --junitxml target/parliament-lifetime-review/junit.xml",
+  "complete_resource_vector": false,
+  "exit_code": 0,
+  "full_actual_gate_stream_executed": false,
+  "full_dependency_closure_claimed": false,
+  "full_source_before_after_capture_claimed": false,
+  "independent_cryptographic_review": false,
+  "junit_sha256": "ef432b95ddc95732d983b483e8afad88075b530e63327f93b8e6102e7eee4f30",
+  "membership": [
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_population_sum_by_independent_columns[0]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_population_sum_by_independent_columns[1]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_population_sum_by_independent_columns[2]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_population_sum_by_independent_columns[3]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_population_sum_by_independent_columns[4]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_population_sum_by_independent_columns[7]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_population_sum_by_independent_columns[8]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_population_sum_by_independent_columns[31]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_population_sum_by_independent_columns[32]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_population_sum_by_independent_columns[33]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_population_sum_by_independent_columns[255]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_population_sum_by_independent_columns[256]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_population_sum_by_independent_columns[257]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_population_sum_by_independent_columns[18446744073709551639]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[1-23-candidate-REG]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[1-23-candidate-VOTE]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[1-23-comparator-REG]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[1-23-comparator-VOTE]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[2-64-candidate-REG]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[2-64-candidate-VOTE]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[2-64-comparator-REG]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[2-64-comparator-VOTE]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[17592186044416-4096-candidate-REG]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[17592186044416-4096-candidate-VOTE]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[17592186044416-4096-comparator-REG]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[17592186044416-4096-comparator-VOTE]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[18446744073709551616-64-candidate-REG]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[18446744073709551616-64-candidate-VOTE]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[18446744073709551616-64-comparator-REG]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rebased_w_matches_frozen_component_and_independent_append[18446744073709551616-64-comparator-VOTE]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_lookup_exact_frozen_component_and_no_duplicate_counter[0-23]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_lookup_exact_frozen_component_and_no_duplicate_counter[1-64]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_lookup_exact_frozen_component_and_no_duplicate_counter[7-4096]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_lookup_exact_frozen_component_and_no_duplicate_counter[18446744073709551616-64]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_catalog_authenticates_exact_selected_case_inventory"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_mixed_trace_counts_actual_source_parts_and_once_only_storage"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_empty_lifetime_retains_only_explicit_counter"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_l0_only_no_log_has_two_oracles_per_call"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rejected_size_retains_fullwidth_input_without_coin_or_log_effect[candidate-233012-0]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rejected_size_retains_fullwidth_input_without_coin_or_log_effect[candidate-233012-2]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rejected_size_retains_fullwidth_input_without_coin_or_log_effect[candidate-233012-1001]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rejected_size_retains_fullwidth_input_without_coin_or_log_effect[candidate-233012-65536]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rejected_size_retains_fullwidth_input_without_coin_or_log_effect[candidate-233012-18446744073709551615]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rejected_size_retains_fullwidth_input_without_coin_or_log_effect[comparator-158074-0]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rejected_size_retains_fullwidth_input_without_coin_or_log_effect[comparator-158074-2]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rejected_size_retains_fullwidth_input_without_coin_or_log_effect[comparator-158074-1001]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rejected_size_retains_fullwidth_input_without_coin_or_log_effect[comparator-158074-65536]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_rejected_size_retains_fullwidth_input_without_coin_or_log_effect[comparator-158074-18446744073709551615]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_purification_adds_one_purifier_and_separate_h_cx_per_coin"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_same_n_b_f_completion_required[capacity-17]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_same_n_b_f_completion_required[length_bits-63]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_same_n_b_f_completion_required[oracle-other F]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_same_n_b_f_completion_required[completion-other completion]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_unobserved_accepted_shapes_do_not_get_endpoint_maxima[REG-changes0]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_unobserved_accepted_shapes_do_not_get_endpoint_maxima[REG-changes1]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_unobserved_accepted_shapes_do_not_get_endpoint_maxima[VOTE-changes2]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_unobserved_accepted_shapes_do_not_get_endpoint_maxima[VOTE-changes3]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_unobserved_accepted_shapes_do_not_get_endpoint_maxima[VOTE-changes4]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_request_and_query_caps_count_rejected_calls_too"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_exact_disjoint_allocation_rejects_alias_missing_and_wrong_width"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_all_whole_experiment_claims_remain_unqualified"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_json_event_collection_must_be_array[malformed0]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_json_event_collection_must_be_array[]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_json_event_collection_must_be_array[malformed2]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_json_event_collection_must_be_array[None]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_json_event_collection_must_be_array[False]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_json_event_collection_must_be_array[0]"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_catalog_is_immutable_and_has_no_caller_case_override"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_before_and_after_source_verification_refuses_drift"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_observation_bad_bytes_refuse_before_any_metadata_parsing"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_selected_helper_drift_refuses_catalog"
+    },
+    {
+      "classname": "target.parliament-lifetime-review.test_independent_ledger",
+      "name": "test_cli_normal_and_qualification_refusal_identical_report"
+    }
+  ],
+  "physical_workspace_bound": false,
+  "primitive_entry_bridge": false,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "pytest_seconds": 0.5,
+  "scope": "independent conditional metadata review; after-run selected source observations, not atomic execution capture",
+  "tests": 72
+}

@@ -585,7 +585,7 @@ CORE_MUTATIONS = [
       ["sumeragi::driver::tests::proposal_recovery::proposal_recovery_terminal_original_propagates_even_after_request_replacement"],
       causes=(ExpectedFailure("terminal proposal recovery must preserve the original failure after request replacement",
           "crates/iroha_core/src/sumeragi/driver/tests/proposal_recovery.rs"),)),
-    m("HC353", "omit original native CT1 clock resampling at first Prepare",
+    m("HC361", "omit original native CT1 clock resampling at first Prepare",
       ["sumeragi::executor::prepare_admission_tests::ct1_native_first_prepare_rechecks_original_clock_after_execution",
        "sumeragi::executor::clock_tests::prepare_withheld_while_block_time_ahead"],
       causes=(ExpectedFailure("native first Prepare must recheck the original drift after a wall-clock rewind",
@@ -598,11 +598,11 @@ CORE_MUTATIONS = [
           worker_thread="sumeragi-publication-test",
           join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
           join_message="publication worker fixture: Any { .. }"))),
-    m("HC354", "omit pinned native lane CT1 clock resampling at first Prepare",
+    m("HC362", "omit pinned native lane CT1 clock resampling at first Prepare",
       ["sumeragi::lanes::executor::native_decode_tests::native_lane_first_prepare_rechecks_pinned_clock_after_execution"],
       causes=(ExpectedFailure("native lane first Prepare must recheck the pinned drift after a wall-clock rewind",
           "crates/iroha_core/src/sumeragi/lanes/executor/native_decode_tests.rs"),)),
-    m("HC355", "recheck fresh proposal progress against its deterministic input floor",
+    m("HC363", "recheck fresh proposal progress against its deterministic input floor",
       ["sumeragi::payload::work_tests::fresh_proposal_progress_recheck_uses_captured_time_with_original_signed_input"],
       causes=(ExpectedFailure("fresh proposal progress must use captured time without replacing signed input",
           "crates/iroha_core/src/sumeragi/payload/work_tests.rs"),)),
@@ -871,7 +871,7 @@ CORE_MUTATIONS = [
       ['smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_decode_refusal_retries_original_signed_xor_transfer']),
     m("HC68", "retained multisig proposal: accept an unapproved body or rebound physical row",
       ['smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_body_binding_rolls_back_original_signed_xor_transfer',
-       'smartcontracts::isi::multisig::tests::proposal_attempt::proposal_migration_validates_original_physical_key_and_body_before_writes',
+       'smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_missing_malformed_and_rebound_state_are_not_deferrals',
        'queue::router::tests::persisted_multisig_body_binding_and_local_refusal_reach_signed_queue_admission',
        'state::deserialize::decode_tests::restored_multisig_proposals_require_exact_body_and_preserve_local_read_refusal']),
     m("HC69", "multisig cancellation and expiry: treat unfinished custom decoding as a nonmatch",
@@ -1341,6 +1341,23 @@ CORE_MUTATIONS = [
       ['kura::lane_geometry::tests::original_watch_release_tests::original_geometry_captured_rollback_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_applied_rollback_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_catalog_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_pure_drop_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_partial_error_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_unwind_watch_follows_physical_cleanup', 'state::tests::geometry_completion_tests::original_watch_release_tests::original_geometry_watch_follows_direct_state_completion', 'state::tests::geometry_completion_tests::original_watch_release_tests::original_geometry_watch_follows_all_state_sibling_owners', 'state::tests::geometry_completion_tests::original_watch_release_tests::original_geometry_watch_follows_all_state_sibling_unwind', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_capture_error_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_capture_unwind_watch_follows_physical_cleanup'],
       causes=tuple(ExpectedFailure('original geometry watch must wait for all physical owners', path)
           for path in ['crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/state/geometry_completion_tests.rs', 'crates/iroha_core/src/state/geometry_completion_tests.rs', 'crates/iroha_core/src/state/geometry_completion_tests.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs'])),
+
+    m("HC355", "Native frame reads: notify original physical waiters under sibling storage fences",
+      ['kura::native_frame_release_tests::original_native_frame_metadata_success_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_metadata_absence_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_metadata_refusal_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_body_success_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_body_refusal_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_partial_refusals_retain_exact_storage_errors', 'kura::native_frame_release_tests::original_native_frame_unwind_notifies_after_each_acquired_prefix'],
+      causes=tuple(ExpectedFailure('original native frame notice must wait for every storage fence',
+          'crates/iroha_core/src/kura/native_frame_release_tests.rs') for _ in range(7))),
+
+    m("HC354", "Geometry recovery: notify original physical waiters under sibling fences",
+      ['kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_preflight_success_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_preflight_refusal_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_replay_success_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_replay_refusal_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_startup_success_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_startup_refusal_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_recovery_partial_refusals_keep_exact_errors_and_release_sources', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_recovery_unwind_notifies_after_every_acquired_fence'],
+      causes=tuple(ExpectedFailure("original geometry recovery notice must wait for every physical fence",
+          "crates/iroha_core/src/kura/lane_geometry_tests/09_recovery_releases.rs")
+          for _ in range(8))),
+
+    m("HC353", "Native lane authority: notify original State readers under scan and registry locks",
+      ['sumeragi::lanes::registry::tests::original_native_history_reader_success_reenters_after_scan_unlock', 'sumeragi::lanes::registry::tests::original_native_history_reader_absence_reenters_after_scan_unlock', 'sumeragi::lanes::registry::tests::original_native_history_reader_error_reenters_after_scan_unlock', 'sumeragi::lanes::registry::tests::original_native_history_reader_reentry_preserves_concurrent_ready_owner', 'sumeragi::lanes::registry::tests::original_native_history_partial_reader_refusal_retains_exact_source_after_unlock', 'sumeragi::lanes::registry::tests::original_authority_recheck_retains_reentrant_opening_and_historical_interest'],
+      causes=tuple(ExpectedFailure("original State reader notices must follow scan and registry unlock",
+          "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs")
+          for _ in range(6))),
 
     m("HC351", "Native lane history: refund original authenticated scan owners under the scan mutex",
       ['sumeragi::runtime_availability::refund_tests::original_history_scan_progress_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_finish_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_cancellation_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_stale_cut_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_terminal_cleanup_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_cancelled_error_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_invalid_prefix_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_refused_retry_refunds_after_scan_unlock'],

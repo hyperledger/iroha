@@ -18,6 +18,7 @@ categories.workspace = true
 workspace = true
 
 [dependencies]
+iroha_executor_data_model = { workspace = true }
 iroha_model_base = { workspace = true }
 iroha_schema = { workspace = true }
 norito = { workspace = true, default-features = false, features = ["node-codec"] }

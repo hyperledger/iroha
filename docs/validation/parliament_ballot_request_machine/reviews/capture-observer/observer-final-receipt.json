@@ -1,0 +1,98 @@
+{
+  "actual_subprocess_controls": [
+    {
+      "exit_code": 0,
+      "parent": [
+        {
+          "is_subtest": false,
+          "nodeid": "target/parliament-machine-final-capture/observer-final-temp/test_actual_parent_and_subtest0/test_observed_case.py::test_parent",
+          "outcome": "passed"
+        }
+      ],
+      "path": "observer-final-temp/test_actual_parent_and_subtest0/observation.json",
+      "subtests": [
+        {
+          "is_subtest": true,
+          "nodeid": "target/parliament-machine-final-capture/observer-final-temp/test_actual_parent_and_subtest0/test_observed_case.py::test_parent",
+          "outcome": "passed"
+        },
+        {
+          "is_subtest": true,
+          "nodeid": "target/parliament-machine-final-capture/observer-final-temp/test_actual_parent_and_subtest0/test_observed_case.py::test_parent",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "exit_code": 1,
+      "parent": [
+        {
+          "is_subtest": false,
+          "nodeid": "target/parliament-machine-final-capture/observer-final-temp/test_actual_parent_and_subtest1/test_observed_case.py::test_parent",
+          "outcome": "failed"
+        }
+      ],
+      "path": "observer-final-temp/test_actual_parent_and_subtest1/observation.json",
+      "subtests": [
+        {
+          "is_subtest": true,
+          "nodeid": "target/parliament-machine-final-capture/observer-final-temp/test_actual_parent_and_subtest1/test_observed_case.py::test_parent",
+          "outcome": "passed"
+        },
+        {
+          "is_subtest": true,
+          "nodeid": "target/parliament-machine-final-capture/observer-final-temp/test_actual_parent_and_subtest1/test_observed_case.py::test_parent",
+          "outcome": "failed"
+        }
+      ]
+    }
+  ],
+  "command": "PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTEST_ADDOPTS='' PYTEST_PLUGINS='' /opt/homebrew/bin/pytest -o addopts= -p no:cacheprovider --noconftest --maxfail=0 --basetemp=target/parliament-machine-final-capture/observer-final-temp --junitxml=target/parliament-machine-final-capture/observer-final-junit.xml -q target/parliament-machine-final-capture/test_capture_observer.py",
+  "complete_resource_vector": false,
+  "controls_passed": 2,
+  "exit_code": 0,
+  "final_observer_rehashed_inside_each_actual_child_control": true,
+  "historical_control_failures": "Attempt 1 expected the failed-subtest parent to pass; attempt 2 expected one instead of two JUnit failure nodes. Both corrected for installed pytest 9.1; exact failed recipes/logs/JUnit retained.",
+  "independent_cryptographic_review": false,
+  "installed_pytest_launcher_sha256": "63aac753282bf709581dee19db2f6f8198954d5ddcaaa0bcc0b1677ebaac4edd",
+  "installed_subtest_report_source_sha256": "f514883bad06a84cec0d7ddc1dd8ce8c16e5680597f9fc5a9bd8836b878f92a4",
+  "observer_sha256": "8d33047e2154f996da2a95dbd048de3bbcefa57b5010d40224ae68412033140c",
+  "production_qualified": false,
+  "pytest_version": "9.1.0",
+  "scope": "Pytest observation only; original machine capture and staged machine sources unchanged",
+  "selected_owned_file_sha256": {
+    "capture_observer.py": "8d33047e2154f996da2a95dbd048de3bbcefa57b5010d40224ae68412033140c",
+    "observer-attempt-1-observer-review-junit.xml": "7a756ed73f759e1e4d1fea020571fb25f13827c3e642cae4111c6e70624b8d1b",
+    "observer-attempt-1-observer-review.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "observer-attempt-1-observer-review.stdout.txt": "e85ba45cf5953076257676c32f84327cf34e2ce36ee4b07546962b6c35d88afe",
+    "observer-attempt-1-test_capture_observer.py": "d34e650a37469b91e93df6fa19f15a4b7a09984cccf2fef97d109f54095efa5b",
+    "observer-attempt-2-observer-review-final-junit.xml": "e6f461eb94b5312a6cdc48c53a955e118b1ece23ce40ecef9964f205e47a8fa9",
+    "observer-attempt-2-observer-review-final.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "observer-attempt-2-observer-review-final.stdout.txt": "e6958c92b853c9e206f15daaea5dd287e699f957919e74fd2ca83226456fdd7d",
+    "observer-attempt-2-test_capture_observer.py": "0e5bb9997a95ed62395554bce7b9b58976637e3389ebbee939c1aa7ada0cf2c1",
+    "observer-final-junit.xml": "10825a300a3599baa5da1495cb5831247f897c4e79df77c881d2cbf605422bc9",
+    "observer-final-temp/test_actual_parent_and_subtest0/command.json": "6a6a85889526c680843c0e4d01af14a6b5a86f89f98522f1005d6d814d972148",
+    "observer-final-temp/test_actual_parent_and_subtest0/junit.xml": "987d3de2d92126f189b63ecb17ec27153dbb195a4802aa3ec3031e6485aa8830",
+    "observer-final-temp/test_actual_parent_and_subtest0/observation.json": "37d3b21debd478efce8d1536190a8ef9e98c1e3eca76e760fcf077429a679fb2",
+    "observer-final-temp/test_actual_parent_and_subtest0/stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "observer-final-temp/test_actual_parent_and_subtest0/stdout.txt": "799859224452f944b5a8a3d6bb818cbfcad195913e1a2cd8fbb53ce911c6ffeb",
+    "observer-final-temp/test_actual_parent_and_subtest0/test_observed_case.py": "664496ea408faf0bb939bd887640dcb93d05a4146300450750a1d7506460c9fa",
+    "observer-final-temp/test_actual_parent_and_subtest1/command.json": "d437f4f1ad9b6c8751c17c6d57c27e68e4e39040426335206e72e0e59227b229",
+    "observer-final-temp/test_actual_parent_and_subtest1/junit.xml": "1d91258ea0b82cec4b1ffdb4c9ceb838ec70844d2441c9ae1cccad31df7f83df",
+    "observer-final-temp/test_actual_parent_and_subtest1/observation.json": "ef9d009eed89e48d9fc4b4d591ed38bce91029829d85ffd1d1e11d1cf670ef7f",
+    "observer-final-temp/test_actual_parent_and_subtest1/stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "observer-final-temp/test_actual_parent_and_subtest1/stdout.txt": "fd8d3734a7404e7ba9f6ff8cac35314028cfb0d22b5e2bc08268f210233a7b1f",
+    "observer-final-temp/test_actual_parent_and_subtest1/test_observed_case.py": "779cbdd586ebb779025dd1185b5f35f2f809e9796ecd8f603b36872f3f792978",
+    "observer-final.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "observer-final.stdout.txt": "c9104009f8d316fbd88020f3dfb1ea271692c623b1a4c29dd4a2d2c07cbc4862",
+    "observer-review-final-junit.xml": "e6f461eb94b5312a6cdc48c53a955e118b1ece23ce40ecef9964f205e47a8fa9",
+    "observer-review-final.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "observer-review-final.stdout.txt": "e6958c92b853c9e206f15daaea5dd287e699f957919e74fd2ca83226456fdd7d",
+    "observer-review-junit.xml": "7a756ed73f759e1e4d1fea020571fb25f13827c3e642cae4111c6e70624b8d1b",
+    "observer-review.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "observer-review.stdout.txt": "e85ba45cf5953076257676c32f84327cf34e2ce36ee4b07546962b6c35d88afe",
+    "test_capture_observer.py": "b105e1e3a21815a8317a80ffd324f90f39f09589ccc2f8ec39d1b5e0d8077e24"
+  },
+  "status": "PASS",
+  "test_sha256": "b105e1e3a21815a8317a80ffd324f90f39f09589ccc2f8ec39d1b5e0d8077e24"
+}

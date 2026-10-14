@@ -417,7 +417,71 @@ fn consume_identifier<T>(
     consume(snapshot, policy, program)
 }
 
+fn consume_retail_policy<T>(
+    snapshot: &WorldStateSnapshotV1,
+    world: &WorldBlock<'_>,
+    asset: &iroha_data_model::asset::AssetDefinitionId,
+    dataspace: DataSpaceId,
+    budget: &AllocationBudget,
+    consume: impl FnOnce(&WorldStateSnapshotV1, &Vec<u8>, &Vec<u8>) -> Result<T, String>,
+) -> Result<T, String> {
+    use iroha_data_model::asset::retail_daily_limit::{
+        retail_activation_state_path_v1, retail_policy_state_path_v1,
+    };
+    // Two fixed native state paths; reserve before deriving either owned key.
+    let _selector_charge = budget.try_reserve_bytes(4096).map_err(|e| e.to_string())?;
+    if dataspace == DataSpaceId::UNIVERSAL {
+        return Err("World authority retail policy requires a physical dataspace".into());
+    }
+    let policy_key = retail_policy_state_path_v1(asset, dataspace);
+    let activation_key = retail_activation_state_path_v1(asset);
+    let policy = world
+        .smart_contract_state
+        .get(&policy_key)
+        .ok_or("World authority selected retail policy original is absent")?;
+    let activation = world
+        .smart_contract_state
+        .get(&activation_key)
+        .ok_or("World authority selected retail activation original is absent")?;
+    if policy.is_empty() || activation.is_empty() {
+        return Err("World authority retail original is empty".into());
+    }
+    require_row(snapshot, "world.smart_contract_state", &policy_key, policy)?;
+    require_row(
+        snapshot,
+        "world.smart_contract_state",
+        &activation_key,
+        activation,
+    )?;
+    consume(snapshot, policy, activation)
+}
+
 impl State {
+    /// Borrow exactly the native retail policy and activation marker selected by
+    /// asset and physical route from one certified World under the ledger read root.
+    /// Publication grants no policy, bank settlement or account authority.
+    /// # Errors
+    /// Missing/revoked permission, changed cut, absent or substituted rows, universal
+    /// route, oversized originals or exhausted finite allocation budget.
+    pub fn with_native_retail_policy_originals_v1<T>(
+        &self,
+        tip: &CommittedBlock,
+        authority: &AccountId,
+        asset: &iroha_data_model::asset::AssetDefinitionId,
+        dataspace: DataSpaceId,
+        budget: &AllocationBudget,
+        consume: impl FnOnce(&WorldStateSnapshotV1, &Vec<u8>, &Vec<u8>) -> Result<T, String>,
+    ) -> Result<T, WorldStateSnapshotError> {
+        self.with_native_world_state_snapshot_cut_v1(
+            tip,
+            Some(authority),
+            budget,
+            |snapshot, world| {
+                consume_retail_policy(snapshot, world, asset, dataspace, budget, consume)
+            },
+        )
+    }
+
     /// Borrow only the exact identifier policy and its referenced program from
     /// the same certified World cut under the existing ledger-wide read root.
     /// Active-policy and program-use decisions remain with the native consumer.

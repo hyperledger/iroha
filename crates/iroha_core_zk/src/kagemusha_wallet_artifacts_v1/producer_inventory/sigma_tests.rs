@@ -55,6 +55,22 @@ fn sigma_policy_has_all_exact_selector_recipes_and_bounded_intake() {
     assert_eq!(source.opens, 0);
 }
 
+#[test]
+fn reused_sigma_parameter_domain_is_rejected_before_reading_originals() {
+    let selected = AuthenticatedProducerInventoryV1 {
+        inventory: structural_inventory(),
+        scheme_id: [1; 32],
+        manifest_digest: [2; 32],
+    };
+    let wrong = PinnedParams::<Eq>::derive(6).unwrap();
+    let mut source = memory();
+    assert!(matches!(
+        selected.qualify_sigmas_with_params(&mut source, config(), &wrong, &wrong),
+        Err(SigmaQualificationErrorV1::Parameters)
+    ));
+    assert_eq!(source.opens, 0);
+}
+
 fn key(selector: usize, params: &PinnedParams<Eq>) -> ProvingKey<Eq> {
     fn admin<C: Circuit<Fp>>(source: &C, params: &PinnedParams<Eq>) -> ProvingKey<Eq> {
         let mut cfg = KeygenConfigV2::pipa_r(BootstrapCircuit::instance_types().to_vec());
@@ -276,6 +292,13 @@ fn real_q_fixture(
         &authenticated.inventory.operations[program],
         installed.verifier().scheme(),
         sigmas.metadata(),
+        &|k| {
+            installed
+                .verifier()
+                .vesta_parameters(k)
+                .map(|params| params.as_ref().clone())
+                .map_err(QQualificationErrorV1::Original)
+        },
     )
     .unwrap();
     let params = PinnedParams::<Ep>::derive(16).unwrap();

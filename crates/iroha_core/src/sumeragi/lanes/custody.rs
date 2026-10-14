@@ -189,7 +189,7 @@ fn pin_signers(
                     .any(|member| member.peer == validator.peer_id)
                 && world
                     .public_lane_stake_custody()
-                    .get(key)
+                    .get(*key)
                     .is_some_and(|(_, amount)| !amount.is_zero())
         })
         .count();

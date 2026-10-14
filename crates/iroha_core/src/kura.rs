@@ -4802,6 +4802,8 @@ impl Kura {
                 should_exit = true;
             }
             let prune_guard = kura.prune_lock.lock();
+            #[cfg(test)]
+            original_queued_sidecar_release_tests::fence_boundary(1);
             if kura.prune_recovery_is_required() {
                 error!("Kura writer stopped because canonical prune recovery requires restart");
                 return;

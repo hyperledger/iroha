@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 import subprocess
+import tomllib
 
 ROOT = Path.cwd()
 B6 = ROOT / 'docs/validation/parliament_ballot_b6'
@@ -19,11 +20,18 @@ RECEIPT = B6 / 'current-resource-coherence.json'
 RECIPE = B6 / 'current-resource-coherence.py.template'
 VALIDATED = {}
 ABSENT = set()
+RETAINED_SCOPES = {}
+EXPECTED_LOCK_DRIFT = {
+    str(ROOT / 'Cargo.lock'): {
+        'before': '2e12f608e4819adab3e5ab49ba66bdb5005a1c3c1c4830a8298b02e12056200e',
+        'after': 'd185eaad173f871c2ac9ecd48923119b0276546739e87963fd5a6532781b9442',
+    },
+}
 BUNDLES = {
     'parliament_ballot_current_candidate': '40b01704bcad1551c5a44cf8b5b8311f64d3f751a19caf36fb2ec1641611c7ba',
     'parliament_ballot_oracle_log_circuit': '413349a8d2e3b8e04578ab5b2122083ad6ef696597b133079b0565c8700e3dd7',
     'parliament_ballot_current_correspondence': 'aa1c81d1f598776f046cb429b0ccff01f35ba31fbb9a962aa1f3b373a5e3bc8b',
-    'parliament_ballot_construction_guard': 'PENDING_REVIEW',
+    'parliament_ballot_construction_guard': 'd9be6ab21d1df65f88e0dcfbf40fbf9c4fe0b4c42bff0f9fefff3d51dac3343c',
 }
 DOCUMENTS = {
     'docs/validation/parliament_ballot_b6.md',
@@ -109,6 +117,29 @@ def drift(pins):
     return changes
 
 
+def bind_retained_pins(label, pins, expected_drift):
+    """Resolve captured bytes separately from later live-path identities."""
+    changes = drift(pins)
+    require(changes == expected_drift, ('unexpected post-capture change', label, changes))
+    resolved = {}
+    for name, expected in pins.items():
+        path = ROOT / name
+        if name not in changes:
+            bind(path, expected)
+            continue
+        # A reviewed child manifest must already bind the exact old content.
+        archives = sorted(p for p, value in VALIDATED.items()
+                          if value == expected and p.startswith(str(ROOT / 'docs/validation') + '/'))
+        require(archives, ('missing original captured content', label, name, expected))
+        bind(archives[0], expected)
+        bind(path, changes[name]['after'])
+        resolved[name] = {'sha256': expected, 'archive': archives[0]}
+    RETAINED_SCOPES[label] = {
+        'recorded_inputs': len(pins), 'current_path_drift': changes,
+        'resolved_originals': resolved, 'current_source_applicability': not bool(changes),
+    }
+
+
 require(sha(PRIOR) == '45b81302dfe05611da092fba2dec474bf2666d32b15c56294e611a5d031dd9ac', 'wrong prior index')
 require(INDEX.read_bytes() == PRIOR.read_bytes(), 'index already changed')
 require(not RECEIPT.exists(), 'receipt already exists')
@@ -135,14 +166,28 @@ candidate = ROOT / 'docs/validation/parliament_ballot_current_candidate'
 summary = read(candidate / 'summary.json')
 build = read(candidate / 'build-v2/build-receipt.json')
 require(sha(candidate / 'build-v2/build-receipt.json') == summary['build_receipt_sha256'], 'build differs')
-require(build['source_stable'] and not drift(build['source_files']), 'current build drift')
-bind_pins(build['source_files'])
+require(build['source_stable'], 'build changed during capture')
+bind_retained_pins('worker-build', build['source_files'], EXPECTED_LOCK_DRIFT)
+old_lock_path = candidate / 'build-v2/generated-source/root-Cargo.lock.template.template'
+old_lock = tomllib.loads(old_lock_path.read_text())
+new_lock = tomllib.loads((ROOT / 'Cargo.lock').read_text())
+old_packages = {(p['name'], p['version']): p for p in old_lock['package']}
+new_packages = {(p['name'], p['version']): p for p in new_lock['package']}
+changed_packages = {key for key in set(old_packages) | set(new_packages)
+                    if old_packages.get(key) != new_packages.get(key)}
+require(changed_packages == {(name, '2.0.0-rc.2.0') for name in (
+    'connect_norito_bridge', 'iroha_torii_shared', 'iroha_js_codec', 'iroha_core_zk')},
+    'root lock package differences changed')
+metadata_path = candidate / 'build-v2/dependency-metadata.json'
+metadata = read(metadata_path)
+require(not changed_packages & {(p['name'], p['version']) for p in metadata['packages']},
+        'root lock changes intersect recorded worker package identities')
 for folder, value in summary['current_checks'].items():
     path = ROOT / value['path']
     require(sha(path) == value['sha256'], ('current capture differs', folder))
     report = read(path)
-    require(not report['input_changes'] and not drift(report['input_sha256']), ('current capture drift', folder))
-    bind_pins(report['input_sha256'])
+    require(not report['input_changes'], ('input changed during capture', folder))
+    bind_retained_pins('worker-' + folder, report['input_sha256'], EXPECTED_LOCK_DRIFT)
 require(not summary['profile_qualified'] and not summary['complete_workspace_certificate'], 'summary scope changed')
 for name in LIVE_GUARDS:
     archive = candidate / 'source-guard-history' / (Path(name).name + '.template')
@@ -153,7 +198,7 @@ allocation = read(allocation_path)
 require(allocation['source_stable'] and allocation['all_requested_commands_passed']
         and not allocation['source_changes'] and not allocation['absence_changed']
         and allocation['source_before'] == allocation['source_after'], 'allocation controls changed')
-bind_pins(allocation['source_after'])
+bind_retained_pins('allocation-controls', allocation['source_after'], EXPECTED_LOCK_DRIFT)
 ABSENT.update(allocation['guarded_absent_paths'])
 for command in allocation['commands']:
     require(command['exit'] == 0 and command['log_complete']
@@ -175,8 +220,12 @@ require(not oracle['profile_qualified'] and not oracle['full_resource_vector'], 
 # The following two reviewed component receipt paths are fixed before capture.
 correspondence_path = ROOT / 'docs/validation/parliament_ballot_current_correspondence/analysis/report.json'
 construction_path = ROOT / 'docs/validation/parliament_ballot_construction_guard/source-check.json'
+construction_controls_path = construction_path.parent / 'construction-controls.json'
+latest_source_path = B6 / 'current-resource-source-check.json'
 correspondence = read(correspondence_path)
 construction = read(construction_path)
+construction_controls = read(construction_controls_path)
+latest_source = read(latest_source_path)
 correspondence_capture_path = correspondence_path.parent.parent / 'capture-receipt.json'
 correspondence_review_path = correspondence_path.parent.parent / 'peer-review.json'
 correspondence_capture = read(correspondence_capture_path)
@@ -184,9 +233,9 @@ correspondence_review = read(correspondence_review_path)
 require(not correspondence['profile_qualified'] and not correspondence['complete_workspace_certificate'], 'correspondence scope changed')
 require(correspondence['verdict'] == 'PASS_UNDER_STATED_PREMISES'
         and correspondence['applies_to_guarded_current_candidate']
-        and not correspondence['input_changes'] and not drift(correspondence['input_sha256']),
-        'compiled correspondence not current and stable')
-bind_pins(correspondence['input_sha256'])
+        and not correspondence['input_changes'],
+        'compiled correspondence was not stable at capture')
+bind_retained_pins('compiled-correspondence', correspondence['input_sha256'], EXPECTED_LOCK_DRIFT)
 require(correspondence_capture['exit'] == 0
         and not correspondence_capture['input_changes']
         and correspondence_capture['inputs_before'] == correspondence_capture['inputs_after']
@@ -202,10 +251,44 @@ require(correspondence_review['capture_receipt_sha256'] == sha(correspondence_ca
 for name in ('stdout', 'stderr'):
     require(sha(correspondence_capture[name]) == correspondence_capture[name + '_sha256'],
             ('correspondence captured output changed', name))
-require(not construction['source_changes'] and not drift(construction['source_after']), 'construction source drift')
-bind_pins(construction['source_after'])
+construction_drift = read(construction_path.parent / 'post-capture-review.json')
+construction_changes = {
+    name: {'before': value['captured_sha256'], 'after': value['current_sha256']}
+    for name, value in construction_drift['post_capture_drift'].items()
+}
+require(not construction['source_changes'], 'construction changed during capture')
+bind_retained_pins('construction-source-check', construction['source_after'], construction_changes)
+require(construction['source_before'] == construction['source_after']
+        and construction['exit'] == 1 and construction['probe_matches_cli_result']
+        and not construction['cli_read_set_independently_traced']
+        and not construction['absence_changed']
+        and construction['observed_main_error'] == "crates/iroha_torii/src/parliament_tle_release.rs: missing modeled source binding(s): 'pub(crate) async fn request_local_partial_release_v1('",
+        'construction source check scope or first refusal changed')
+ABSENT.update(construction['guarded_absent_paths'])
+bind(construction['log'], construction['log_sha256'])
+require(construction_controls['exit'] == 0 and construction_controls['passed'] == 121
+        and construction_controls['source_unchanged']
+        and construction_controls['source_before'] == construction_controls['source_after'],
+        'construction controls not successful and stable')
+bind_retained_pins('construction-controls', construction_controls['source_after'], {
+    name: value for name, value in construction_changes.items()
+    if name in construction_controls['source_after']
+})
+bind(construction_controls['log'], construction_controls['log_sha256'])
 require(construction['binding_ballot_available'] is False and construction['qualified_attempt_latency_ms'] is None
         and construction['no_experimental_core_torii_dependencies'], 'production gate changed')
+require(not latest_source['source_changes']
+        and latest_source['source_before'] == latest_source['source_after']
+        and latest_source['exit'] == 1 and latest_source['probe_matches_cli_result']
+        and not latest_source['absence_changed']
+        and not latest_source['cli_read_set_independently_traced']
+        and latest_source['observed_main_error'] == construction['observed_main_error']
+        and latest_source['binding_ballot_available'] is False
+        and latest_source['qualified_attempt_latency_ms'] is None
+        and latest_source['no_experimental_core_torii_dependencies'], 'latest source check changed')
+bind_pins(latest_source['source_after'])
+bind(latest_source_path)
+bind(latest_source['log'], latest_source['log_sha256'])
 
 documents = [ROOT / name for name in sorted(DOCUMENTS)] + [
     ROOT / 'specs/parliament_ballot_b6_oracle_log_circuit.md',
@@ -231,8 +314,13 @@ for label, paths in (('scoped-diff', sorted(DOCUMENTS | LIVE_GUARDS | NEW_SOURCE
     checks.append({'command': command, 'exit': result.returncode,
                    'log': str(log.relative_to(ROOT)), 'log_sha256': sha(log)})
 require(all(row['exit'] == 0 for row in checks), 'scoped whitespace failure')
+current_lock_archive = B6 / 'current-resource-Cargo.lock.template'
+require(not current_lock_archive.exists(), 'current lock archive already exists')
+current_lock_archive.write_bytes((ROOT / 'Cargo.lock').read_bytes())
+bind(current_lock_archive, EXPECTED_LOCK_DRIFT[str(ROOT / 'Cargo.lock')]['after'])
 
 historical = {}
+historical_pins = {}
 for name, key in (
     ('docs/validation/parliament_ballot_b6/kura-claim-guard-source-check.json', 'source_after'),
     ('docs/validation/parliament_ballot_b6/kura-claim-guard-controls.json', 'source_after'),
@@ -242,7 +330,8 @@ for name, key in (
     ('docs/validation/parliament_ballot_typed_decoder_bound/analysis/report.json', 'input_sha256'),
 ):
     path = ROOT / name
-    historical[name] = {'sha256': sha(path), 'current_path_drift': drift(read(path)[key])}
+    historical_pins[name] = read(path)[key]
+    historical[name] = {'sha256': sha(path), 'current_path_drift': drift(historical_pins[name])}
 
 
 def verify_frozen_inputs():
@@ -251,6 +340,9 @@ def verify_frozen_inputs():
             'recorded absent allocation input appeared')
     require(drift(old) == changes, 'prior index drift changed during capture')
     require(INDEX.read_bytes() == PRIOR.read_bytes(), 'prior index changed during capture')
+    for name, pins in historical_pins.items():
+        require(drift(pins) == historical[name]['current_path_drift'],
+                ('historical current-path observation changed', name))
     for name, expected in BUNDLES.items():
         path = ROOT / 'docs/validation' / name / 'SHA256SUMS'
         require(sha(path) == expected, ('late component manifest change', name))
@@ -266,11 +358,18 @@ receipt = {
     'prior_entries': len(old), 'prior_manifest_sha256': sha(PRIOR),
     'updated_live_entries': changes, 'component_manifests': manifests,
     'current_worker_summary_sha256': sha(candidate / 'summary.json'),
-    'current_build_inputs_checked': len(build['source_files']),
+    'retained_build_inputs_checked': len(build['source_files']),
     'allocation_receipt_sha256': sha(allocation_path),
     'allocation_recorded_inputs_checked': len(allocation['source_after']),
     'allocation_recorded_absences_checked': len(ABSENT),
-    'current_worker_checks': summary['current_checks'],
+    'retained_worker_checks': summary['current_checks'],
+    'retained_capture_scopes': RETAINED_SCOPES,
+    'worker_current_source_applicability': False,
+    'post_capture_root_lock_changes': 'Four package dependency lists changed outside the 121-package recorded isolated worker metadata. This observation is not a new build, dependency-graph equivalence or transfer of captured qualification to current sources.',
+    'root_lock_archive_sha256': sha(current_lock_archive),
+    'changed_root_lock_packages': [{'name': key[0], 'version': key[1],
+        'before': old_packages.get(key), 'after': new_packages.get(key)}
+        for key in sorted(changed_packages)],
     'oracle_source_guards_checked': len(oracle['source_sha256_at_freeze']),
     'oracle_executing_artifacts_checked': len(oracle['executing_artifact_sha256_at_freeze']),
     'oracle_receipt_sha256': sha(oracle_dir / 'receipt.json'),
@@ -281,8 +380,17 @@ receipt = {
     'correspondence_local_controls': correspondence_review['local_tests']['passed'],
     'correspondence_peer_controls': correspondence_review['peer_reviews'][1]['independent_tests_passed'],
     'construction_source_check_sha256': sha(construction_path),
+    'construction_controls_sha256': sha(construction_controls_path),
+    'construction_controls_passed': construction_controls['passed'],
+    'construction_control_inputs_checked': len(construction_controls['source_after']),
+    'construction_source_inputs_checked': len(construction['source_after']),
+    'construction_cli_read_set_independently_traced': False,
     'construction_source_check_exit': construction['exit'],
     'construction_source_check_first_error': construction['observed_main_error'],
+    'latest_source_check_sha256': sha(latest_source_path),
+    'latest_source_check_inputs_checked': len(latest_source['source_after']),
+    'latest_source_check_exit': latest_source['exit'],
+    'latest_source_check_first_error': latest_source['observed_main_error'],
     'historical_capture_current_drift': historical,
     'local_links_checked': len(links), 'broken_links': [], 'checks': checks,
     'current_status_roadmap_sha256': {name: sha(ROOT / name) for name in ('status.md', 'roadmap.md')},
@@ -296,8 +404,10 @@ RECEIPT.write_text(json.dumps(receipt, indent=2, sort_keys=True) + '\n')
 bind(RECEIPT)
 names = set(old) | NEW_SOURCES | LIVE_GUARDS | {
     str(Path(p).relative_to(ROOT)) for files in bundle_files.values() for p in files
-} | {str(p.relative_to(ROOT)) for p in (PRIOR, RECEIPT, RECIPE)}
+} | {str(p.relative_to(ROOT)) for p in (PRIOR, RECEIPT, RECIPE, current_lock_archive)}
 names.update(row['log'] for row in checks)
+names.update(str(Path(p).relative_to(ROOT)) for p in VALIDATED
+             if p.startswith(str(B6 / 'current-resource-source-check')))
 verify_frozen_inputs()
 INDEX.write_text(''.join(VALIDATED[str(ROOT / name)] + '  ' + name + '\n' for name in sorted(names)))
 require(not drift(inventory(INDEX)), 'published index does not match validated bytes')

@@ -1,0 +1,112 @@
+"""Capture scoped framing controls and reports without replacing prior evidence."""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import types
+
+root = Path.cwd()
+out = root / "docs/validation/parliament_ballot_write_framing"
+receipt_path = out / "receipt.json"
+if receipt_path.exists():
+    raise RuntimeError("refuse replacing a prior capture")
+helper_path = "scripts/parliament_ballot_write_framing.py"
+test_path = "scripts/tests/parliament_ballot_write_framing_test.py"
+spec_path = "specs/parliament_ballot_b6_write_framing.md"
+recipe_path = Path(__file__).resolve().relative_to(root).as_posix()
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def hashes(names):
+    return {name: sha((root / name).read_bytes()) for name in sorted(names)}
+
+
+executing = [helper_path, test_path, spec_path, "pytest.ini", "scripts/tests/conftest.py", recipe_path]
+executing_before = hashes(executing)
+helper_bytes = (root / helper_path).read_bytes()
+assert sha(helper_bytes) == executing_before[helper_path]
+model = types.ModuleType("write_framing_capture")
+model.__file__ = str(root / helper_path)
+exec(compile(helper_bytes, model.__file__, "exec"), model.__dict__)
+before, _ = model.sources(root)
+python = sys.executable
+arguments = [python, helper_path, "--root", str(root), "--request-cap", str(1 << 44), "--length-bits", "64"]
+commands = {
+    "tests": [python, "-m", "pytest", "-q", test_path],
+    "illustrative": arguments,
+    "zero_requests": [python, helper_path, "--root", str(root), "--request-cap", "0", "--length-bits", "64"],
+    "framing_only_width": [python, helper_path, "--root", str(root), "--request-cap", "1", "--length-bits", "18"],
+    "qualification_refusal": arguments+["--require-qualified"],
+}
+filenames = {"tests": "tests.txt", "illustrative": "report.json", "zero_requests": "zero-request-report.json",
+             "framing_only_width": "framing-only-width-report.json", "qualification_refusal": "qualification-refusal.txt"}
+with (out / "commands.json").open("x") as stream:
+    stream.write(json.dumps(commands, indent=2, sort_keys=True)+"\n")
+environment = dict(os.environ, PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
+exit_codes = {}
+for name, command in commands.items():
+    completed = subprocess.run(command, cwd=root, env=environment, capture_output=True, check=False)
+    for suffix, data in (("", completed.stdout), (".stderr", completed.stderr)):
+        with (out / (filenames[name]+suffix)).open("xb") as stream:
+            stream.write(data)
+    exit_codes[name] = completed.returncode
+    if completed.returncode != (2 if name == "qualification_refusal" else 0):
+        raise RuntimeError("command failed; outputs retained: "+name)
+after, _ = model.sources(root)
+executing_after = hashes(executing)
+assert before == after and executing_before == executing_after
+assert b"11 passed" in (out / "tests.txt").read_bytes()
+report = json.loads((out / "report.json").read_text())
+assert report["source_sha256_before"] == before == report["source_sha256_after"]
+assert report["lifetime"]["per_request_max_exact_framing_gates"] == 7291167830
+assert not report["full_resource_vector"] and not report["production_gate_changed"]
+assert report["shared_length_width_satisfies_prior_honest_envelope"]
+assert not json.loads((out / "framing-only-width-report.json").read_text())["shared_length_width_satisfies_prior_honest_envelope"]
+assert json.loads((out / "zero-request-report.json").read_text())["lifetime"]["existing_staging_wires_reused"] == 0
+assert (out / "qualification-refusal.txt").read_bytes() == (out / "report.json").read_bytes()
+outputs = {path.relative_to(out).as_posix(): sha(path.read_bytes()) for path in out.iterdir()
+           if path.name in {"commands.json", *filenames.values(), *(name+".stderr" for name in filenames.values())}}
+snapshots = {}
+for name in executing:
+    path = out / "sources" / (name+".template")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = (root / name).read_bytes()
+    assert sha(data) == executing_before[name]
+    with path.open("xb") as stream:
+        stream.write(data)
+    snapshots[name] = path.relative_to(out).as_posix()
+receipt = {
+    "schema": "parliament-write-framing-capture-v1",
+    "captured_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "commands": commands, "environment": {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    "exit_codes": exit_codes, "test_count": 11,
+    "source_count": len(before), "source_sha256_before": before, "source_sha256_after": after,
+    "executing_artifact_sha256_before": executing_before,
+    "executing_artifact_sha256_after": executing_after,
+    "source_unchanged": True, "snapshot_paths": snapshots, "output_sha256": outputs,
+    "qualification_refusal_stdout_equals_report": True,
+    "runtime": {"python_version": sys.version, "python_executable": python,
+                "python_executable_sha256": sha(Path(python).resolve().read_bytes()),
+                "installed_python_pytest_and_standard_library_trusted": True},
+    "input_scope": "Reviewed source/metadata closure and six explicit tool/test/spec/config/recipe inputs are checked before/after. Child processes' full read sets are not independently traced; this is not an atomic or hermetic snapshot.",
+    "local_code_reviews": {
+        "root": "Source framing/order, F1/F2/F3, supplied-field and shared-width scope reviewed; no finding under stated premises.",
+        "security_obligations": "Independently reviewed helper/tests/spec and ran11 controls after disjointness/width changes; no finding. Later scope wording and zero-request no-staging record are explicit capture deltas."},
+    "scope": "Conditional canonical record preparation/unpreparation component only. Existing append cost and staging are reused, not charged twice. Supplied source labels are preserved; coherent fields may become entangled with appended records.",
+    "full_resource_vector": False, "independent_cryptographic_review": False,
+    "owner_acceptance": False, "actual_input_collision_bridge": False,
+    "primitive_advantage_assumed": False, "physical_verification_workspace_certificate": False,
+    "profile_qualified": False, "production_gate_changed": False,
+}
+with receipt_path.open("x") as stream:
+    stream.write(json.dumps(receipt, indent=2, sort_keys=True)+"\n")
+print(json.dumps({"receipt_sha256": sha(receipt_path.read_bytes()), "source_count": len(before),
+                  "executing_count": len(executing), "tests": 11,
+                  "report_sha256": sha((out/"report.json").read_bytes())}))

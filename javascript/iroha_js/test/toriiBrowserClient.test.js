@@ -1189,7 +1189,7 @@ test("browser aggregate exports reusable browser-safe SDK APIs", () => {
   assert.equal(typeof browserSdk.ToriiStreamGapError, "function");
   assert.equal(typeof browserDistSdk.ToriiStreamGapError, "function");
   assert.equal(typeof browserSdk.normalizeAccountAliasFqn, "function");
-  assert.equal(typeof browserSdk.noritoEncodeMultisigProposeRequest, "function");
+  assert.equal("noritoEncodeMultisigProposeRequest" in browserSdk, false);
   assert.equal(typeof browserSdk.noritoDecodeBlockProofs, "function");
   assert.equal(typeof browserSdk.verifyBlockProofs, "function");
   assert.equal(typeof browserSdk.NumericV1?.decodeQuantityJson, "function");
@@ -1239,7 +1239,7 @@ test("ToriiBrowserClient statically imports only named browser-safe Norito APIs"
   );
   assert.match(
     source,
-    /import\s*\{[^}]*noritoDecodeBlockProofs[^}]*noritoEncodeMultisigProposeRequest[^}]*\}\s*from\s*["']\.\/norito\.js["']/su,
+    /import\s*\{[^}]*noritoDecodeBlockProofs[^}]*\}\s*from\s*["']\.\/norito\.js["']/su,
   );
   assert.doesNotMatch(source, /import\s*\(\s*["']\.\/norito\.js["']\s*\)/u);
   assert.doesNotMatch(source, /import\s+\*\s+as\s+\w+\s+from\s+["']\.\/norito\.js["']/u);
@@ -1290,7 +1290,7 @@ test("ToriiBrowserClient posts selector-explicit multisig proposal reads", async
         : {
             resolved_multisig_account_id: FIXTURE_ALICE_ID,
             proposal_id: "a".repeat(64),
-            instructions_hash: "a".repeat(64),
+            proposal_id: "a".repeat(64),
             proposal: { approvals: [], proposed_at_ms: 1 },
           },
     );
@@ -1312,7 +1312,7 @@ test("ToriiBrowserClient posts selector-explicit multisig proposal reads", async
   await client.resolveMultisigProposal(
     {
       multisigAccountAlias: "cbdc@banka",
-      instructionsHash: "a".repeat(64),
+      proposalId: "a".repeat(64),
     },
     canonicalReadOptions(),
   );
@@ -1333,7 +1333,7 @@ test("ToriiBrowserClient posts selector-explicit multisig proposal reads", async
   assert.equal(calls[1].init.redirect, "error");
   assert.deepEqual(JSON.parse(calls[1].init.body), {
     multisig_account_alias: "cbdc@banka",
-    instructions_hash: "a".repeat(64),
+    proposal_id: "a".repeat(64),
   });
 });
 
@@ -1383,12 +1383,12 @@ test("ToriiBrowserClient rejects implicit and ambiguous multisig selectors befor
         proposalId: "b".repeat(64),
         instructionsHash: "b".repeat(64),
       }),
-    /requires exactly one/,
+    /resolves only a proposal occurrence ID/,
   );
   assert.equal(calls, 0);
 });
 
-test("ToriiBrowserClient submits multisig Norito payloads to registered routes", async () => {
+test("ToriiBrowserClient submits strict JSON multisig payloads to registered routes", async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {
     calls.push({ url: String(url), init });
@@ -1401,35 +1401,45 @@ test("ToriiBrowserClient submits multisig Norito payloads to registered routes",
   const client = new ToriiBrowserClient("https://torii.example", { networkPrefix: 753, fetchImpl });
 
   await client.submitMultisigPropose({
-    multisigAccountAlias: "cbdc@banka",
-    signerAccountId: FIXTURE_ALICE_ID,
-    feePayment: AUTHORITY_FEE_PAYMENT,
+    multisig_account_alias: "cbdc@banka",
+    signer_account_id: FIXTURE_ALICE_ID,
+    fee_payment: AUTHORITY_FEE_PAYMENT,
+    proposal_nonce: "12".repeat(32),
     instructions: [{ Custom: { payload: { probe: true } } }],
   });
   await client.submitMultisigContractCallPropose({
-    multisigAccountAlias: "cbdc@banka",
-    signerAccountId: FIXTURE_ALICE_ID,
-    contractAlias: "apps_review::universal",
+    multisig_account_alias: "cbdc@banka",
+    signer_account_id: FIXTURE_ALICE_ID,
+    proposal_nonce: "34".repeat(32),
+    contract_alias: "apps_review::universal",
     entrypoint: "execute",
     payload: { probe: true },
-    feePayment: AUTHORITY_FEE_PAYMENT,
+    fee_payment: AUTHORITY_FEE_PAYMENT,
   });
   await client.submitMultisigContractCallApprove({
-    multisigAccountId: FIXTURE_ALICE_ID,
-    signerAccountId: FIXTURE_BOB_ID,
-    proposalId: "e".repeat(64),
+    multisig_account_id: FIXTURE_ALICE_ID,
+    signer_account_id: FIXTURE_BOB_ID,
+    proposal_id: "e".repeat(64),
+    instructions_hash: "f".repeat(64),
     contract_alias: "apps_mint_request::sbp",
     entrypoint: "create_mint_request",
     payload: { amount: 111 },
-    feePayment: AUTHORITY_FEE_PAYMENT,
+    fee_payment: AUTHORITY_FEE_PAYMENT,
   });
 
   assert.equal(calls[0].url, "https://torii.example/v1/multisig/propose");
-  assert.equal(calls[0].init.headers["Content-Type"], "application/x-norito");
+  assert.equal(calls[0].init.headers["Content-Type"], "application/json");
   assert.equal(calls[1].url, "https://torii.example/v1/contracts/call/multisig/propose");
-  assert.equal(calls[1].init.headers["Content-Type"], "application/x-norito");
+  assert.equal(calls[1].init.headers["Content-Type"], "application/json");
   assert.equal(calls[2].url, "https://torii.example/v1/contracts/call/multisig/approve");
-  assert.equal(calls[2].init.headers["Content-Type"], "application/x-norito");
+  assert.equal(calls[2].init.headers["Content-Type"], "application/json");
+  assert.equal(JSON.parse(calls[0].init.body).proposal_nonce, "12".repeat(32));
+  assert.equal(JSON.parse(calls[1].init.body).proposal_nonce, "34".repeat(32));
+  assert.equal(JSON.parse(calls[2].init.body).proposal_id, "e".repeat(64));
+  assert.equal(JSON.parse(calls[2].init.body).instructions_hash, "f".repeat(64));
+  for (const field of ["private_key", "privateKeyHex", "instructionsHash"]) {
+    await assert.rejects(client.submitMultisigPropose({[field]: "secret"}), /unexpected fields/);
+  }
 });
 
 test("ToriiBrowserClient requires canonical raw lowercase receipt identities", async () => {

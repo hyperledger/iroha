@@ -188,8 +188,7 @@ and queue/cache observations are not successful finality.
 Signed transaction hashes in this status surface use exact
 `[0-9a-f]{63}[13579bdf]` text; the final odd nibble is the Iroha `HashOf`
 marker, not a normalization option. Contract `tx_hash_hex` receipt fields use
-the same exact spelling, as do contract entrypoint hashes and multisig
-transaction hashes.
+the same exact spelling, as do contract entrypoint hashes.
 
 The shared Torii mock returns missing pipeline status as an HTTP 404 JSON
 `ErrorEnvelope` bound to the requested hash and scope. Omitted scope means
@@ -245,8 +244,7 @@ Validation runs before network dispatch where possible, then binds the network,
 authority, executable, metadata, response-enriched fee, creation time, TTL,
 ordinary admission mode, absent nonce and attachments, and the closed operation
 receipt (selector resolution, code/ABI, entrypoint, gas state, and payload
-digest) before any bytes are exposed for signing. Generic multisig proposals
-apply their archive-binding rule whenever `signature_b64` is absent.
+digest) before any bytes are exposed for signing.
 
 ## Node-local core and pipeline reads
 

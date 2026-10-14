@@ -1,0 +1,121 @@
+# Concrete AES-256 circuit for the proposed simulator
+
+This scratch component implements the public AES-256 function as an explicit
+Boolean circuit. It includes all key expansion, fourteen rounds and reversible
+cleanup. No value-dependent table lookup, memory oracle, AES opcode or unpriced
+AES macro is used. It does not implement a primitive reduction, substitute for
+the external classical PRP challenge interface, or qualify production.
+
+The circuit follows [FIPS 197 (2023)](https://csrc.nist.gov/pubs/fips/197/final),
+sections 3.4, 4 and 5.1–5.2. Its byte tests also use NIST's
+[AES-256 example](https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Standards-and-Guidelines/documents/examples/AES_Core256.pdf).
+The exact PDFs and extracted standard text are retained in `references/`.
+This is correspondence to the specified AES function. It is not a proof about
+RustCrypto's native implementation, acceleration, compiler, allocator or stack.
+
+The selected Rust `crates/iroha_zkp_vole/src/prg.rs` takes a 32-byte seed for the
+256-bit profile. It encrypts 16-byte blocks assembled from the actual IV, adding
+the public block counter to its low little-endian 32-bit word, and the tweak to
+its high little-endian 32-bit word. Both additions wrap separately. The middle
+eight bytes are preserved. Those counter/tweak additions, prefix truncation,
+partial-byte clearing and the complete surrounding generator invocation are
+outside this AES kernel; the B1/V0 machine must emit and price them explicitly.
+
+## Interface and construction
+
+Input wires encode `key[32] || plaintext[16]`. Bytes retain their original order;
+bit zero of each byte is its low coefficient. The 384 input wires, 128 output
+wires and 201,587 work wires must be pairwise disjoint. The output starts with
+any value, and work starts zero. The emitted map is
+
+```
+|key, plaintext, z, 0_work>
+    -> |key, plaintext, z XOR AES256(key, plaintext), 0_work>.
+```
+
+The low-bit polynomial representation uses `x^8+x^4+x^3+x+1`. Multiplication
+emits all 64 pair products, XORs coefficients, and reduces degrees 14 through 8
+with four fixed taps. Squaring is the explicit binary linear map on the eight
+basis monomials. Inversion uses the exponent chain
+
+```
+1 -> 2 -> 3 -> 6 -> 12 -> 15 -> 30 -> 60 -> 120 -> 240 -> 252 -> 254.
+```
+
+There are four multiplications and seven squarings per S-box. The chain maps
+zero to zero and every nonzero element to its inverse. The FIPS affine map,
+including its `0x63` constant, completes the S-box. The implementation contains
+no S-box table; the tests retain an independent literal 256-byte table.
+
+State bytes use the FIPS column-major layout. ShiftRows is fixed wire routing.
+MixColumns uses fixed `xtime` and XOR operations. The 256-bit key expands into
+60 four-byte words with RotWord, SubWord and the seven applicable Rcon bytes.
+The initial AddRoundKey is followed by thirteen full rounds and the final
+SubBytes/ShiftRows/AddRoundKey round. SubWord in the expansion contributes 52
+S-boxes; the cipher contributes 224, for 276 total.
+
+The generic Boolean IR allocates a fresh zero target per intermediate value.
+It computes all nodes, CNOT-copies the ciphertext into the supplied target,
+then reverses the node sequence. No history is discarded early. This proof is
+for a clean output-XOR circuit, so invoking the same clean map again reverses
+it even with an arbitrary output. All gates have their literal phase-free
+classical reversible action; equality on every basis state extends by
+linearity to coherent and externally entangled inputs.
+
+## Exact component resources
+
+The source-shaped IR has 70,656 AND nodes, 129,820 XOR nodes and 1,111 NOT nodes.
+Its 201,587 derived wires are retained until the reverse traversal. It has no
+registered subkernels or additional clean work. Using the existing B6
+convention of five elementary gates per Toffoli, the complete clean AES map is:
+
+| Kind | Count |
+| --- | ---: |
+| X | 2,222 |
+| CNOT | 521,630 |
+| Toffoli | 141,312 |
+| Elementary total | 1,230,412 |
+| Base XOR-oracle calls | 0 |
+| Clean work bits | 201,587 |
+| Additional input/output bits | 384 / 128 |
+
+These counts are exact for this emitted construction, not optimal AES bounds,
+native instruction counts, physical qubits, timing, or a complete simulator
+resource vector. Every use by the surrounding machine must charge this full
+kernel cost, its own routing and intermediate targets, and any outer
+compute/copy/uncompute duplication. Reusing work is justified only because
+each call returns it to zero. A whole-machine reverse traversal must retain
+the appropriate original input/log versions; this stateless kernel does not
+resolve that separate lifetime obligation.
+
+The root's exploratory component and report checks pass 23 cases, including all 256 S-box
+values and their emitted clean maps, independent finite-field and matrix
+checks, the key schedule, five NIST known answers, full relocated AES
+cleanup/inversion, an emitted gate census and source/refusal controls. A separate
+local reviewer checked the arithmetic and counts and passed 13 independent
+controls, including all sixty NIST Appendix A.3 key words and a packed-basis
+interpreter of the complete emitted circuit. These
+are finite checks plus a construction argument, not external cryptographic
+review. TODO: capture the reviewed final component and integrate it into the
+full source-bound B1/V0 machine before claiming complete machine coverage.
+
+## Identity and limits
+
+The machine's `bit_ir.py` is fixed at
+`f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64`.
+The selected Rust PRG source is
+`58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81`.
+FIPS PDF SHA-256 is
+`62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1`;
+the NIST AES example PDF is
+`8caf33781b8d4b9564c7e95a7690e491ca1d95efe9a31cdea2977deaf4c7b4ce`.
+Source identity supports review correspondence and does not prove automatic
+semantic equivalence or authenticate arbitrary Python module mutation.
+
+The diagnostic report requires the exact loaded local AES/IR module paths and
+checks the selected reference/source identities before and after construction.
+Missing or changed pins refuse; no automatic repinning exists. The ordinary
+component report exits zero, and `--require-qualified` exits two with the same
+report. All full-machine, primitive-advantage, independent-review and
+production-qualification flags remain false.
+

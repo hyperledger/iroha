@@ -73,6 +73,8 @@ fn at_generation(
     generation: u64,
     current: u64,
     spacing_ms: u64,
+    measurement_lc: u64,
+    clearance_age_ms: Option<u64>,
 ) {
     let start = (generation - 1) * spacing_ms;
     source.generation = generation;
@@ -83,26 +85,50 @@ fn at_generation(
     };
     source.start_timestamp_ms = start;
     source.start_lc = start;
-    source.start_height = start / CADENCE_MS + 1;
+    source.start_height = if generation == 1 {
+        1
+    } else {
+        start / CADENCE_MS + 2
+    };
     source.deadline_ms = start + source.validity_ms;
     source.liable_until_lc = source.deadline_ms + source.grace_ms;
-    source.dest_cleared_lc = None;
     source.end = (generation < current).then_some(SccpGenerationEndV1 {
-        end_height: source.start_height + spacing_ms / CADENCE_MS - 1,
-        end_timestamp_ms: start + spacing_ms - CADENCE_MS,
+        end_height: (start + spacing_ms) / CADENCE_MS + 1,
+        end_timestamp_ms: start + spacing_ms,
         next_committee_root: source.committee_root,
         successor_validity_ms: source.validity_ms,
     });
+    source.dest_cleared_lc = clearance_age_ms
+        .map(|age| start + age)
+        .filter(|cleared| source.end.is_some() && *cleared <= measurement_lc);
 }
 
-fn measure_generations(window_ms: u64, rate_per_day: u64) -> Value {
+fn measure_generations(window_ms: u64, rate_per_day: u64, clearance_age_ms: Option<u64>) -> Value {
     // The sum of epoch and heartbeat rate ceilings is a conservative storage population,
     // not a claim that a half-hour heartbeat trace is admitted by the transition rules.
     // Include the current generation and the inclusive oldest liability boundary.
     let count = window_ms / DAY_MS * rate_per_day + 1;
     let spacing_ms = DAY_MS / rate_per_day;
     let mut source = maximal_committee();
-    at_generation(&mut source, 1, count, spacing_ms);
+    at_generation(
+        &mut source,
+        1,
+        count,
+        spacing_ms,
+        window_ms,
+        clearance_age_ms,
+    );
+    // L5 may clear at the inclusive no-clearance boundary before it expires. The
+    // cleared leg then retains one further grace period; it has no 90-day clamp.
+    assert_eq!(source.dest_cleared_lc, clearance_age_ms);
+    if let Some(cleared) = clearance_age_ms {
+        source.dest_cleared_lc = None;
+        assert!(source.is_liable(count, cleared));
+        assert!(!source.is_liable(count, cleared + 1));
+        source.dest_cleared_lc = Some(cleared);
+    }
+    assert!(source.is_liable(count, window_ms));
+    assert!(!source.is_liable(count, window_ms + 1));
     let members = source
         .members
         .iter()
@@ -118,6 +144,8 @@ fn measure_generations(window_ms: u64, rate_per_day: u64) -> Value {
     let exact = AllocationBudget::new(demand);
     let owner = RetainedSccpGeneration::admit(&source, &exact).unwrap();
     assert_eq!(exact.reserved_bytes(), demand);
+    assert!(owner.is_liable(count, window_ms));
+    assert!(!owner.is_liable(count, window_ms + 1));
     assert_eq!(owner.encode(), source.encode());
     let reader = owner.clone();
     drop(owner);
@@ -130,7 +158,14 @@ fn measure_generations(window_ms: u64, rate_per_day: u64) -> Value {
     let table = CommitteeStorage::try_new_admitted(pool.clone()).unwrap();
     let empty_map_bytes = pool.reserved_bytes();
     for generation in 1..count {
-        at_generation(&mut source, generation, count - 1, spacing_ms);
+        at_generation(
+            &mut source,
+            generation,
+            count - 1,
+            spacing_ms,
+            window_ms,
+            clearance_age_ms,
+        );
         assert!(source.is_liable(count, window_ms));
         let owner = RetainedSccpGeneration::admit(&source, &pool).unwrap();
         let encoded = owner.encode();
@@ -150,10 +185,17 @@ fn measure_generations(window_ms: u64, rate_per_day: u64) -> Value {
         .unwrap()
         .clone();
     assert!(ended.end.is_none());
-    at_generation(&mut source, count, count, spacing_ms);
+    at_generation(
+        &mut source,
+        count,
+        count,
+        spacing_ms,
+        window_ms,
+        clearance_age_ms,
+    );
     ended.end = Some(SccpGenerationEndV1 {
         end_height: source.start_height - 1,
-        end_timestamp_ms: source.start_timestamp_ms - CADENCE_MS,
+        end_timestamp_ms: source.start_timestamp_ms,
         next_committee_root: source.committee_root,
         successor_validity_ms: source.validity_ms,
     });
@@ -180,8 +222,18 @@ fn measure_generations(window_ms: u64, rate_per_day: u64) -> Value {
         .unwrap();
     let ended_current = snapshot.current().get(&(count - 1)).unwrap();
     assert!(old_current.end.is_none());
-    assert!(ended_current.end.is_some());
-    assert!(std::ptr::eq(&**old_current, &**ended_current));
+    assert_eq!(
+        ended_current.end.unwrap().end_timestamp_ms,
+        source.start_timestamp_ms
+    );
+    assert_eq!(
+        ended_current.end.unwrap().end_height + 1,
+        source.start_height
+    );
+    assert!(std::ptr::eq(
+        std::ptr::from_ref(&**old_current),
+        std::ptr::from_ref(&**ended_current)
+    ));
     assert_eq!(snapshot.revert_map().get(&count), Some(&None));
     assert_eq!(pool.reserved_bytes(), transition_with_previous_reader_bytes);
     drop(previous_snapshot);
@@ -206,6 +258,8 @@ fn measure_generations(window_ms: u64, rate_per_day: u64) -> Value {
     drop(table);
     assert_eq!(pool.reserved_bytes(), 0);
     norito::json!({
+        "measurement_liability_clock_ms": window_ms,
+        "clearance_age_ms": clearance_age_ms,
         "records_including_current_and_inclusive_boundary": count,
         "single_constructed_body_custody_bytes": demand,
         "current_record_norito_payload_bytes": current_record_payload_bytes,
@@ -305,12 +359,17 @@ fn native_maximal_churn_storage_measurement() {
     let defaults = SccpParametersV1::taira_default();
     let normal_window = defaults.committee_validity_ms + defaults.forgery_evidence_grace_ms;
     let stalled_default_window = normal_window + defaults.destination_progress_cap_ms;
-    let maximum_window = SCCP_MAX_VALIDITY_MS_V1
+    let stalled_maximum_window = SCCP_MAX_VALIDITY_MS_V1
         + SCCP_MAX_FORGERY_EVIDENCE_GRACE_MS_V1
         + SCCP_MAX_DESTINATION_PROGRESS_CAP_MS_V1;
+    let late_clearance_default_window = stalled_default_window + defaults.forgery_evidence_grace_ms;
+    let late_clearance_maximum_window =
+        stalled_maximum_window + SCCP_MAX_FORGERY_EVIDENCE_GRACE_MS_V1;
     let default_rate = DAY_MS / SCCP_MIN_EPOCH_MS_V1 + DAY_MS / defaults.committee_heartbeat_ms;
     let maximum_rate = DAY_MS / SCCP_MIN_EPOCH_MS_V1 + DAY_MS / SCCP_MIN_HEARTBEAT_MS_V1;
-    assert_eq!(maximum_window / DAY_MS, 90);
+    assert_eq!(stalled_maximum_window / DAY_MS, 90);
+    assert_eq!(late_clearance_maximum_window / DAY_MS, 120);
+    assert_eq!(late_clearance_default_window / DAY_MS, 58);
     assert_eq!(maximum_rate, 48);
     let measured = norito::json!({
         "cadence_ms": CADENCE_MS,
@@ -320,10 +379,19 @@ fn native_maximal_churn_storage_measurement() {
         "default_rate_ceiling_per_day": default_rate,
         "estimated_ordinary_default_records_including_boundary": (normal_window / DAY_MS * default_rate + 1),
         "estimated_stalled_default_records_including_boundary": (stalled_default_window / DAY_MS * default_rate + 1),
-        "maximum_window_days": (maximum_window / DAY_MS),
+        "late_clearance_default_window_days": (late_clearance_default_window / DAY_MS),
+        "estimated_late_clearance_default_records_including_boundary": (late_clearance_default_window / DAY_MS * default_rate + 1),
         "maximum_rate_ceiling_per_day": maximum_rate,
-        "generations": (measure_generations(maximum_window, maximum_rate)),
-        "anchor_roots": (measure_anchor_roots(maximum_window)),
+        "stalled_no_clearance": {
+            "window_days": (stalled_maximum_window / DAY_MS),
+            "generations": (measure_generations(stalled_maximum_window, maximum_rate, None)),
+            "anchor_roots": (measure_anchor_roots(stalled_maximum_window)),
+        },
+        "late_clearance": {
+            "window_days": (late_clearance_maximum_window / DAY_MS),
+            "generations": (measure_generations(late_clearance_maximum_window, maximum_rate, Some(stalled_maximum_window))),
+            "anchor_roots": (measure_anchor_roots(late_clearance_maximum_window)),
+        },
         "open_chunk": (measure_open_chunk()),
     });
     println!(

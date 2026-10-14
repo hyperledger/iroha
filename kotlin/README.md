@@ -1398,8 +1398,9 @@ native startup. `KagemushaWalletEnrollmentSessionOriginalsV1(accessToken, dpopPr
 carries no attestation root: the KeyMint chain carries its own root, pinned by SPKI in
 the enrollment policy. `begin` retains the retry identity and returns native-selected
 issuer dispatch DATA; `acceptPermit` verifies the rooted signed pre-key permit before
-returning the existing-account challenge. Native rechecks the same-boot elapsed deadline
-at hardware generation and preserves the original server attempt on retry.
+returning the existing-account challenge. Native rechecks the process-bound,
+suspend-inclusive elapsed deadline at hardware generation. Restart discards live
+authorization while preserving the original server attempt for a fresh signed permit.
 
 The payment key has one hardware plan (design §2.2): StrongBox where the phone declares
 it, otherwise the TEE. There is no policy-driven selector, StrongBox-only profile or
@@ -1425,8 +1426,10 @@ stay with the issuer, which remains authoritative. `prepareRequest(certificates)
 that chain and nothing else: there is no Play Integrity token, vendor verdict or second
 attested key. Native creates/selects the hardware slot, binds existing-account
 authorization to exact E5 originals, and retains E5/E6 before returning bytes.
-`loadRuntime()` performs complete native artifact qualification and transfers to
-`KagemushaWalletRuntimeV1.beginEnrolled()` for a fresh account challenge. This does not
+`loadInstalledRuntime()` transfers that same Native owner, including the sources qualified
+at installation and its platform custody, into `openEnrolledResult()` for a fresh account
+challenge. The lower-level `loadRuntime()` likewise transfers once; neither repeats source
+qualification. Closing the transferred enrollment cannot close the new owner. This does not
 establish issuer-service, ledger activation or phone qualification. `activation()`
 returns exact retained Activate bytes for ledger submission after Bootstrap.
 

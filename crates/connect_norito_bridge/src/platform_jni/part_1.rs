@@ -1836,3 +1836,21 @@ pub(super) fn java_native_encode_register_zk_asset_signed_transaction(
         }
     }
 }
+
+/// Derive occurrence identity using the same native adapter as Swift and Node.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_org_hyperledger_iroha_sdk_crypto_NativeSignerBridge_nativeDeriveMultisigProposalId(
+    mut env: jni::JNIEnv<'_>, _class: jni::objects::JClass<'_>, input: jni::objects::JByteArray<'_>,
+) -> jni::sys::jbyteArray {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let bytes = read_java_byte_array_bounded(&mut env, &input, "multisig occurrence", 4096)
+            .ok_or_else(|| "bounded multisig occurrence input required".to_owned())?;
+        let output = multisig_proposal_id_from_json(&bytes).map_err(|_| "invalid native multisig occurrence".to_owned())?;
+        env.byte_array_from_slice(&output).map(jni::objects::JByteArray::into_raw).map_err(|error| error.to_string())
+    }));
+    match result {
+        Ok(Ok(array)) => array,
+        Ok(Err(message)) => { throw_java_illegal_argument(&mut env, message); std::ptr::null_mut() },
+        Err(_) => { throw_java_illegal_state(&mut env, "multisig occurrence codec panicked".to_owned()); std::ptr::null_mut() },
+    }
+}

@@ -1,3 +1,4 @@
+import { requireMultisigId, requireMultisigNonce } from "./multisigIdentifiers.js";
 import { normalizeRetailFeeAssessment, rejectUnknownRetailFeeFields } from "./retailFeeAssessment.js";
 import { createContractManifestNormalizer } from "./contractManifestNormalizer.js";
 import { kaigiScalarBytesV1 } from "./kaigiScalarV1.js";
@@ -3965,6 +3966,7 @@ export function buildRegisterMultisigInstruction({ accountId, spec }) {
  */
 export function buildProposeMultisigInstruction({
   accountId,
+  proposalNonce,
   instructions,
   spec,
   transactionTtlMs,
@@ -3991,6 +3993,7 @@ export function buildProposeMultisigInstruction({
 
   const payload = {
     account: controller,
+    proposal_nonce: requireMultisigNonce(proposalNonce),
     instructions,
   };
   if (transactionTtlMs !== undefined && transactionTtlMs !== null) {
@@ -4027,6 +4030,7 @@ export function buildProposeMultisigExecuteTriggerInstruction(options) {
   );
   return buildProposeMultisigInstruction({
     accountId: source.accountId,
+    proposalNonce: source.proposalNonce,
     instructions: [buildExecuteTriggerInstruction(normalized.trigger, normalized.args)],
     spec: source.spec,
     transactionTtlMs: source.transactionTtlMs ?? source.transaction_ttl_ms,
@@ -4272,11 +4276,13 @@ export function buildMultisigProposeRequest(options) {
     if (typeof source.memo !== "string") throw new TypeError("multisig memo must be a string");
     payload.memo = source.memo;
   }
+  payload.proposal_nonce = requireMultisigNonce(source.proposalNonce ?? source.proposal_nonce);
   return payload;
 }
 
 /**
- * Build a normalized payload for `ToriiClient.proposeMultisigContractCall(...)`.
+ * Build the JSON HTTP body for the multisig contract-call proposal endpoint.
+ * Local `ToriiClient.proposeMultisigContractCall(...)` also requires a separately reviewed draftIntent.
  * @param {object} options
  * @returns {object}
  */
@@ -4350,6 +4356,7 @@ export function buildMultisigContractCallProposeRequest(options) {
       (TEXT_MULTISIG_CONTRACT_CALL_PROPOSE + "creationTimeMs"),
     );
   }
+  payload.proposal_nonce = requireMultisigNonce(source.proposalNonce ?? source.proposal_nonce);
   return payload;
 }
 
@@ -4420,13 +4427,8 @@ export function buildMultisigContractCallApproveRequest(options) {
       (TEXT_MULTISIG_CONTRACT_CALL_APPROVE + "instructionsHash"),
     );
   }
-  if (!payload.proposal_id && !payload.instructions_hash) {
-    fail(
-      V_CODE_INVALID_OBJECT,
-      "multisigContractCallApprove requires proposalId or instructionsHash",
-      TEXT_MULTISIG_CONTRACT_CALL_APPROVE_2,
-    );
-  }
+  payload.proposal_id = requireMultisigId(source.proposalId ?? source.proposal_id);
+  payload.instructions_hash = requireMultisigId(source.instructionsHash ?? source.instructions_hash, "instructionsHash");
   const publicKeyHex = source.publicKeyHex ?? source.public_key_hex;
   if (publicKeyHex !== undefined && publicKeyHex !== null) {
     payload.public_key_hex = normalizeOptionalHexString(

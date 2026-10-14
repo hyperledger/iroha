@@ -493,3 +493,21 @@ fn operator_listener_token_can_be_replaced_for_a_different_origin() {
     );
     assert_status_listener_and_signature(original, Some("configured-listener-owner-test-token"));
 }
+
+#[test]
+fn client_debug_reports_listener_token_provenance_without_secret() {
+    let client = client_with_base_url(base_url());
+    let absent = format!("{client:?}");
+    assert!(absent.contains("has_configured_api_token: false"));
+    let client = client
+        .to_builder()
+        .api_token(Some(crate::secrecy::SecretString::new(
+            "sdk-debug-token-sentinel".into(),
+        )))
+        .build()
+        .unwrap();
+    let configured = format!("{client:?}");
+    assert!(configured.contains("has_configured_api_token: true"));
+    assert!(configured.contains("<redacted>"));
+    assert!(!configured.contains("sdk-debug-token-sentinel"));
+}

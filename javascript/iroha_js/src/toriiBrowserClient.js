@@ -1,3 +1,4 @@
+import { requireMultisigId, requireMultisigNonce } from "./multisigIdentifiers.js";
 import { requireNetworkPrefix } from "./networkPrefix.js";
 import { rejectError, rejectRange, rejectType } from "./validationThrow.js";
 import { ToriiHttpError, ToriiStreamGapError, toriiHttpErrorFromResponseText } from "./toriiErrors.js";
@@ -17,9 +18,6 @@ import { parseStrictLosslessIntegerJson } from "./strictLosslessJson.js";
 import { readAccountCapabilitiesResponseV1 } from "./accountCapabilities.js";
 import {
   noritoDecodeBlockProofs,
-  noritoEncodeMultisigContractCallApproveRequest,
-  noritoEncodeMultisigContractCallProposeRequest,
-  noritoEncodeMultisigProposeRequest,
 } from "./norito.js";
 import { browserSignedTransactionHashHex } from "./transactionCodec.js";
 import { buildCanonicalJsonRequest } from "./canonicalRequest.js";
@@ -955,31 +953,33 @@ function normalizeMultisigProposalsQueryBody(value, context) {
   return body;
 }
 
+function normalizeNativeMultisigJson(kind, request) {
+  const common = ["multisig_account_id", "multisig_account_alias", "signer_account_id", "public_key_hex", "signature_b64", "creation_time_ms", "fee_payment"];
+  const extra = kind === "propose" ? ["proposal_nonce", "instructions", "memo", "validation_fee_assessment"]
+    : kind === "contract-propose" ? ["proposal_nonce", "contract_alias", "entrypoint", "payload"]
+    : ["proposal_id", "instructions_hash", "contract_alias", "entrypoint", "payload"];
+  if (Object.keys(request).some(key => !common.includes(key) && !extra.includes(key))) rejectType("native multisig request has unexpected fields");
+  if (Boolean(request.multisig_account_id) === Boolean(request.multisig_account_alias)) rejectType("native multisig request requires one account selector");
+  requireNonEmptyString(request.signer_account_id, "signer_account_id");
+  requireObject(request.fee_payment, "fee_payment");
+  if (kind === "contract-approve") {
+    requireMultisigId(request.proposal_id); requireMultisigId(request.instructions_hash, "instructions_hash");
+  } else requireMultisigNonce(request.proposal_nonce);
+  if (kind === "propose") {
+    if (!Array.isArray(request.instructions) || !request.instructions.length) rejectType("native instructions must be nonempty");
+  } else {
+    requireNonEmptyString(request.contract_alias, "contract_alias");
+    requireNonEmptyString(request.entrypoint, "entrypoint"); requireObject(request.payload, "payload");
+  }
+  return request;
+}
+
 function normalizeMultisigProposalsResolveBody(value, context) {
   const source = requireObject(value, context);
+  if (source.instructionsHash !== undefined || source.instructions_hash !== undefined) rejectType(`${context} resolves only a proposal occurrence ID`);
   const body = normalizeMultisigSelectorBody(source, context);
-  if (source.proposalId !== undefined && body.proposal_id === undefined) {
-    body.proposal_id = source.proposalId;
-  }
-  if (source.instructionsHash !== undefined && body.instructions_hash === undefined) {
-    body.instructions_hash = source.instructionsHash;
-  }
+  body.proposal_id = requireMultisigId(source.proposal_id ?? source.proposalId);
   delete body.proposalId;
-  delete body.instructionsHash;
-  if (body.proposal_id !== undefined) {
-    body.proposal_id = requireNonEmptyString(body.proposal_id, `${context}.proposal_id`);
-  }
-  if (body.instructions_hash !== undefined) {
-    body.instructions_hash = requireNonEmptyString(
-      body.instructions_hash,
-      `${context}.instructions_hash`,
-    );
-  }
-  const hasProposalId = body.proposal_id !== undefined;
-  const hasInstructionsHash = body.instructions_hash !== undefined;
-  if (hasProposalId === hasInstructionsHash) {
-    rejectType(`${context} requires exactly one of proposalId or instructionsHash`);
-  }
   return body;
 }
 
@@ -2687,8 +2687,7 @@ export class ToriiBrowserClient {
     const opts = requireObject(options, "submitMultisigPropose options");
     rejectSuccessStatuses(opts, "submitMultisigPropose options");
     return this._json("POST", "/v1/multisig/propose", {
-      rawBody: noritoEncodeMultisigProposeRequest(requireObject(request, "submitMultisigPropose request"), this.#networkPrefix),
-      contentType: FIELD_APPLICATION_X_NORITO,
+      body: normalizeNativeMultisigJson("propose", requireObject(request, "submitMultisigPropose request")),
       headers: { Accept: FIELD_APPLICATION_JSON, ...(opts.headers ?? {}) },
       signal: signalFrom(opts),
       successStatuses: [200, 202],
@@ -2699,11 +2698,7 @@ export class ToriiBrowserClient {
     const opts = requireObject(options, (TEXT_SUBMIT_MULTISIG_CONTRACT_CALL_PROPOSE + "options"));
     rejectSuccessStatuses(opts, (TEXT_SUBMIT_MULTISIG_CONTRACT_CALL_PROPOSE + "options"));
     return this._json("POST", (TEXT_V1_CONTRACTS + "call/multisig/propose"), {
-      rawBody: noritoEncodeMultisigContractCallProposeRequest(
-        requireObject(request, (TEXT_SUBMIT_MULTISIG_CONTRACT_CALL_PROPOSE + "request")),
-        this.#networkPrefix,
-      ),
-      contentType: FIELD_APPLICATION_X_NORITO,
+      body: normalizeNativeMultisigJson("contract-propose", requireObject(request, "submitMultisigContractCallPropose request")),
       headers: { Accept: FIELD_APPLICATION_JSON, ...(opts.headers ?? {}) },
       signal: signalFrom(opts),
       successStatuses: [200, 202],
@@ -2714,11 +2709,7 @@ export class ToriiBrowserClient {
     const opts = requireObject(options, (TEXT_SUBMIT_MULTISIG_CONTRACT_CALL_APPROVE + "options"));
     rejectSuccessStatuses(opts, (TEXT_SUBMIT_MULTISIG_CONTRACT_CALL_APPROVE + "options"));
     return this._json("POST", (TEXT_V1_CONTRACTS + "call/multisig/approve"), {
-      rawBody: noritoEncodeMultisigContractCallApproveRequest(
-        requireObject(request, (TEXT_SUBMIT_MULTISIG_CONTRACT_CALL_APPROVE + "request")),
-        this.#networkPrefix,
-      ),
-      contentType: FIELD_APPLICATION_X_NORITO,
+      body: normalizeNativeMultisigJson("contract-approve", requireObject(request, "submitMultisigContractCallApprove request")),
       headers: { Accept: FIELD_APPLICATION_JSON, ...(opts.headers ?? {}) },
       signal: signalFrom(opts),
       successStatuses: [200, 202],

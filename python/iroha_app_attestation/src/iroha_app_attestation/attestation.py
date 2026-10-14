@@ -894,6 +894,27 @@ def _integer_set(value: DerValue) -> frozenset:
     return frozenset(positive_integer(member) for member in children(value, number=17))
 
 
+def recheck_retained_android_chain_revocation(chain_der, anchors, revocation) -> None:
+    """Refresh revocation only for originals already authenticated by the private owner.
+
+    This parses the retained chain with the existing certificate parser and selects its
+    configured root. It does not admit a key, re-run enrollment, or extend its lifetime.
+    """
+    chain = tuple(chain_der)
+    require(2 <= len(chain) <= MAX_CHAIN
+            and all(type(cert) is bytes and 0 < len(cert) <= MAX_CERT for cert in chain)
+            and sum(len(cert) for cert in chain) <= MAX_ANDROID_CHAIN_BYTES,
+            "retained Android chain outside shape")
+    certificates = tuple(_parse_android_certificate(cert) for cert in chain)
+    roots = tuple(anchors)
+    for anchor in roots:
+        anchor.validate()
+    matched = tuple(anchor for anchor in roots if anchor.spki_sha256 == certificates[-1].spki_sha256)
+    require(len(matched) == 1, "retained Android root differs from selected policy")
+    revocation(tuple(AndroidChainMember(cert.serial, cert.spki_sha256) for cert in certificates),
+               matched[0])
+
+
 def verify_android_key_attestation(
     chain_der: Sequence[bytes], *, challenge_digest: bytes, payment_key_sec1: bytes,
     package_name: str, minimum_package_version: int, signer_set: Sequence[bytes],

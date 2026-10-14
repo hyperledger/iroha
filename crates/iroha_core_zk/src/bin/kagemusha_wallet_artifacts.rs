@@ -36,6 +36,16 @@ const REQUEST_MAX: usize = 65_536;
 const GENESIS_MAX: usize = 64 << 20;
 const OUTPUT_MAX: u64 = 128 << 30;
 
+#[path = "kagemusha_wallet_artifacts/reuse.rs"]
+mod reuse;
+use reuse::{Candidates, CarrierSource, CompilerSources};
+
+#[path = "kagemusha_wallet_artifacts/inspect.rs"]
+mod inspect;
+
+#[path = "kagemusha_wallet_artifacts/builtin.rs"]
+mod builtin;
+
 #[derive(JsonDeserialize)]
 #[norito(deny_unknown_fields)]
 struct OriginalInput {
@@ -255,7 +265,7 @@ fn scope(key: KagemushaDevicePublicKeyV1) -> io::Result<SourceScopeV1> {
 /// Copy only identities returned by the completed signed catalog. The compiler
 /// cache may contain provisional sources and is never the transport directory.
 fn copy_closed(
-    source: &DirectoryOriginalsV1,
+    source: &impl CarrierSource,
     target: &PrivateDirectory,
     selected: &[BlobV1],
 ) -> io::Result<()> {
@@ -275,6 +285,7 @@ fn copy_closed(
         }
     }
     for blob in selected {
+        let source = source.directory(blob.sha256)?;
         source.verify_original(*blob)?;
         let name = hex::encode(blob.sha256);
         let mut reader = source
@@ -402,7 +413,7 @@ fn finish(
     request: &Request,
     draft: WalletArtifactDraftV1,
     output: &PrivateDirectory,
-    wallet: &DirectoryOriginalsV1,
+    wallet: &CompilerSources,
     native: &SumeragiFinalityVerifier,
     config: ReadConfig,
 ) -> io::Result<()> {
@@ -512,7 +523,7 @@ fn finish(
     Ok(())
 }
 
-fn run(path: &str) -> io::Result<()> {
+fn run(path: &str, reuse_input: Option<&str>) -> io::Result<()> {
     let request_original = Original::open(path, REQUEST_MAX, None)?;
     let request = parse_request(&request_original.bytes)?;
     let genesis = Original::open(
@@ -528,13 +539,17 @@ fn run(path: &str) -> io::Result<()> {
     )?;
     request_original.recheck()?;
     genesis.recheck()?;
+    let candidates = reuse_input.map(Candidates::load).transpose()?;
     let parent = PrivateDirectory::open_exact(&request.output_parent)?;
     let output = parent.create_child(&request.output_name)?;
     let wallet_directory = output.create_child("compiler-cache")?;
-    let mut wallet =
-        DirectoryOriginalsV1::open_existing(wallet_directory.path(), PROVING_KEY_MAX_BYTES_V1)?;
+    let mut wallet = CompilerSources::new(
+        DirectoryOriginalsV1::open_existing(wallet_directory.path(), PROVING_KEY_MAX_BYTES_V1)?,
+        candidates,
+    );
     publish(&output, "request.json", &request_original.bytes)?;
     publish(&output, "signed-genesis.norito", &genesis.bytes)?;
+    wallet.retain_inputs(&output)?;
     let config = ReadConfig {
         maximum_bytes: PROVING_KEY_MAX_BYTES_V1,
         maximum_rows: 1 << 16,
@@ -544,6 +559,7 @@ fn run(path: &str) -> io::Result<()> {
     eprintln!(
         "Compiling the complete native wallet graph; partial originals remain preserved on failure."
     );
+    let candidates = wallet.candidate_originals();
     let mut compiler = checked(
         OfflineCompilerV1::new(
             scope(point(&request.scheme_root_public_key_hex)?)?,
@@ -553,12 +569,23 @@ fn run(path: &str) -> io::Result<()> {
         ),
         "wallet compiler configuration",
     )?;
+    for (index, original) in candidates.iter().enumerate() {
+        eprintln!(
+            "Indexing candidate original {}/{}; current-source import remains required.",
+            index + 1,
+            candidates.len()
+        );
+        compiler
+            .index_original(*original)
+            .map_err(io::Error::other)?;
+    }
     let draft = compiler
         .wallet_pack(*native.initial_epoch().network_id.as_bytes())
         .map_err(io::Error::other)?;
     drop(compiler);
     request_original.recheck()?;
     genesis.recheck()?;
+    wallet.recheck()?;
     publish(
         &output,
         "unsigned-producer-inventory.norito",
@@ -567,10 +594,52 @@ fn run(path: &str) -> io::Result<()> {
     finish(&request, draft, &output, &wallet, &native, config)?;
     request_original.recheck()?;
     genesis.recheck()?;
+    wallet.recheck()?;
     output.sync()?;
     println!(
         "Complete signed artifact originals written to {}. Installation, release admission and financial execution remain separate.",
         output.path().display()
+    );
+    Ok(())
+}
+
+fn encode_carrier(path: &str, scheme: &str, manifest: &str, destination: &str) -> io::Result<()> {
+    let root = PrivateDirectory::open_exact(path)?;
+    let pack = Original::open(
+        root.path()
+            .join("verifier-pack.norito")
+            .to_str()
+            .ok_or_else(|| invalid("carrier path"))?,
+        iroha_core_zk::kagemusha_wallet_artifacts_v1::VERIFIER_PACK_MAX_BYTES_V1,
+        None,
+    )?;
+    let catalog = Original::open(
+        root.path()
+            .join("producer-inventory.norito")
+            .to_str()
+            .ok_or_else(|| invalid("carrier path"))?,
+        iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::CATALOG_MAX_BYTES_V1,
+        None,
+    )?;
+    let raw = DirectoryOriginalsV1::open_existing(
+        root.path().join("wallet-originals"),
+        PROVING_KEY_MAX_BYTES_V1,
+    )?;
+    iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::encode_wallet_carrier_v1(
+        &pack.bytes,
+        &catalog.bytes,
+        InstallationV1 {
+            scheme_id: digest(scheme)?,
+            manifest_digest: digest(manifest)?,
+        },
+        &raw,
+        destination,
+    )?;
+    pack.recheck()?;
+    catalog.recheck()?;
+    root.revalidate()?;
+    println!(
+        "Encoded carrier written to {destination}. Proof identities are unchanged; runtime selection and native installation remain separate."
     );
     Ok(())
 }
@@ -583,11 +652,29 @@ fn main() {
     let result = match args.as_slice() {
         [help] if help == "--help" => {
             println!(
-                "kagemusha_wallet_artifacts --request ABSOLUTE_IMMUTABLE_PUBLIC_JSON\nConstructs native wallet originals and signs protocol certificates/manifest using the selected private recovery role keys. Finality uses direct BLS verification and needs no proof artifacts. No network actions."
+                "kagemusha_wallet_artifacts --request ABSOLUTE_IMMUTABLE_PUBLIC_JSON [--reuse-candidates ABSOLUTE_IMMUTABLE_PUBLIC_JSON]\nConstructs native wallet originals and signs protocol certificates/manifest using the selected private recovery role keys. Explicit candidate JSON selects originals_directory and bounded descriptor/verifying_key/proving_key triples, each with bytes and sha256. These are untrusted cache hints, not signed installation inputs. Selected originals are indexed, then imported only for matching current sources with complete source and commitment checks; changed fingerprints compile fresh. Finality uses direct BLS verification and needs no proof artifacts. No network actions.\nRead-only source compatibility: --inspect-sources ABSOLUTE_RAW_CARRIER SCHEME_HEX MANIFEST_HEX or --inspect-encoded-sources ABSOLUTE_ENCODED_CARRIER SCHEME_HEX MANIFEST_HEX. Checks every real source using the selected representation and prints phase timings; does not admit genesis/finality or a wallet. Encoded inspection verifies the signed raw closure and both encoded/raw identities without a decoded disk cache.\nCompiled source profiles: --export-builtin-profile ABSOLUTE_IMMUTABLE_PUBLIC_JSON independently authenticates genesis and strictly qualifies every source before exporting one native registry entry; --inspect-builtin-profile uses the same closed request to check the exact compiled graph. Neither command signs artifacts or registers runtime authority.\nLossless mobile carrier: --encode-carrier ABSOLUTE_RAW_CARRIER SCHEME_HEX MANIFEST_HEX ABSOLUTE_EXISTING_PRIVATE_OUTPUT. Checks the signed selection and all raw/stored identities; recomputes transport and financial metadata for independent runtime selection."
             );
             Ok(())
         }
-        [flag, path] if flag == "--request" => run(path),
+        [flag, path] if flag == "--request" => run(path, None),
+        [flag, path] if flag == "--export-builtin-profile" => builtin::run(path, true),
+        [flag, path] if flag == "--inspect-builtin-profile" => builtin::run(path, false),
+        [flag, path, reuse_flag, reuse_path]
+            if flag == "--request" && reuse_flag == "--reuse-candidates" =>
+        {
+            run(path, Some(reuse_path))
+        }
+        [flag, path, scheme, manifest] if inspect::Encoding::from_flag(flag).is_some() => {
+            inspect::sources(
+                path,
+                scheme,
+                manifest,
+                inspect::Encoding::from_flag(flag).expect("matched inspection command"),
+            )
+        }
+        [flag, path, scheme, manifest, destination] if flag == "--encode-carrier" => {
+            encode_carrier(path, scheme, manifest, destination)
+        }
         _ => Err(invalid(
             "usage: kagemusha_wallet_artifacts --request ABSOLUTE_IMMUTABLE_PUBLIC_JSON",
         )),

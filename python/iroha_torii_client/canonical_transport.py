@@ -144,7 +144,7 @@ def _merge_transport_settings(
     prepared: requests.PreparedRequest,
     *,
     stream: bool,
-) -> dict[str, Any]:
+) -> Mapping[str, Any]:
     try:
         settings = session.merge_environment_settings(
             prepared.url,

@@ -14,7 +14,8 @@ use iroha_data_model::{
     smart_contract::{ContractAlias, multisig_call::build_multisig_contract_call},
 };
 use iroha_executor_data_model::isi::multisig::{
-    MultisigAccountState, MultisigApprove, MultisigPropose, MultisigSpec,
+    MultisigAccountState, MultisigApprove, MultisigProposalId, MultisigProposalNonce,
+    MultisigPropose, MultisigSpec,
 };
 use std::num::{NonZeroU16, NonZeroU64};
 
@@ -154,6 +155,16 @@ fn inner(f: &Fixture, target: &AccountId) -> Vec<InstructionBox> {
     .unwrap()
     .instructions
 }
+fn nonce() -> MultisigProposalNonce {
+    MultisigProposalNonce::new([7; 32]).unwrap()
+}
+fn occurrence(f: &Fixture, account: &AccountId) -> MultisigProposalId {
+    MultisigProposalId::derive(
+        f.payload.network_id().expect("native fixture network"),
+        account,
+        &nonce(),
+    )
+}
 fn propose_payload(
     f: &Fixture,
     target: &AccountId,
@@ -161,9 +172,9 @@ fn propose_payload(
     approve: bool,
 ) -> TransactionPayload {
     let hash = HashOf::try_new(&body).unwrap();
-    let mut items = vec![MultisigPropose::new(target.clone(), body, None).into()];
+    let mut items = vec![MultisigPropose::new(target.clone(), nonce(), body, None).into()];
     if approve {
-        items.push(MultisigApprove::new(target.clone(), hash).into());
+        items.push(MultisigApprove::new(target.clone(), occurrence(f, target), hash).into());
     }
     let mut payload = f.payload.clone();
     payload.instructions = Executable::Instructions(items.into());
@@ -276,7 +287,7 @@ fn enrolled_multisig_binds_current_code_alias_entrypoint_and_entire_inner_vector
             rejection(admitted(tx, f, &propose_payload(f, &target, extra, true))),
             FeeRejectionCode::OperationNotAllowed
         );
-        let nested = vec![MultisigPropose::new(target.clone(), body, None).into()];
+        let nested = vec![MultisigPropose::new(target.clone(), nonce(), body, None).into()];
         assert_eq!(
             rejection(admitted(tx, f, &propose_payload(f, &target, nested, false))),
             FeeRejectionCode::OperationNotAllowed
@@ -441,7 +452,7 @@ fn enrolled_multisig_standalone_approval_uses_native_pending_and_denies_expired_
         let original = propose_payload(f, &target, body.clone(), true);
         let mut approve = f.payload.clone();
         approve.instructions = Executable::Instructions(
-            vec![MultisigApprove::new(target.clone(), hash).into()].into(),
+            vec![MultisigApprove::new(target.clone(), occurrence(f, &target), hash).into()].into(),
         );
         assert_eq!(
             rejection(admitted(tx, f, &approve)),
@@ -450,7 +461,7 @@ fn enrolled_multisig_standalone_approval_uses_native_pending_and_denies_expired_
         execute_multisig_instruction(
             tx,
             &f.beneficiary,
-            MultisigPropose::new(target.clone(), body, None).into(),
+            MultisigPropose::new(target.clone(), nonce(), body, None).into(),
         )
         .unwrap();
         assert!(admitted(tx, f, &approve).is_ok());
@@ -474,7 +485,7 @@ fn enrolled_multisig_standalone_approval_uses_native_pending_and_denies_expired_
         execute_multisig_instruction(
             tx,
             &target,
-            MultisigCancel::new(target.clone(), hash).into(),
+            MultisigCancel::new(target.clone(), occurrence(f, &target), hash).into(),
         )
         .unwrap();
         assert_eq!(
@@ -547,18 +558,23 @@ fn enrolled_multisig_standalone_settlement_requires_exact_successful_tx_and_bloc
         let hash = HashOf::try_new(&body).unwrap();
         let mut approve = f.payload.clone();
         approve.instructions = Executable::Instructions(
-            vec![MultisigApprove::new(target.clone(), hash).into()].into(),
+            vec![MultisigApprove::new(target.clone(), occurrence(f, &target), hash).into()].into(),
         );
+        let proposal_id = occurrence(f, &target);
         let terminal = MultisigProposalTerminalState::new(
             target,
+            proposal_id,
             hash,
-            MultisigProposalValue::new(
-                body,
-                100,
-                1_100,
-                BTreeSet::from([f.beneficiary.clone()]),
-                None,
-            ),
+            MultisigProposalValue {
+                network_id: tx.network_id,
+                proposal_nonce: nonce(),
+                proposal_id,
+                transaction_ttl_ms: None,
+                instructions: body,
+                proposed_at_ms: 100,
+                expires_at_ms: 1_100,
+                approvals: BTreeSet::from([f.beneficiary.clone()]),
+            },
             MultisigProposalTerminalStatus::Finalized,
             500,
         );

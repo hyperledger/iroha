@@ -24,7 +24,7 @@ use iroha_data_model::{
 use iroha_model_base::{domain::DomainId, name::Name, topology::DataSpaceId};
 use iroha_primitives::numeric::NumericSpec;
 pub(crate) use signed_original_fixtures::{
-    sign_paid_fixture, signed_payout_lifecycle_registry_fixture,
+    sign_payout_fixture_work, signed_payout_lifecycle_registry_fixture,
     signed_payout_lifecycle_registry_fixture_with_config,
     with_original_validation_fee_payout_state_at_height,
 };
@@ -988,6 +988,7 @@ pub(crate) fn policy_registry(
         })
         .collect();
     ValidationFeePolicyRegistryV1 {
+        history: None,
         registered_policies,
         payout_policies: ValidationFeePayoutPolicyRegistryV1 {
             entries: bindings
@@ -1071,6 +1072,11 @@ pub(crate) fn install_policy_registry_fixture(
         .world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(registry.clone().into_custom_parameter()))
+        .set_parameter(Parameter::Custom(
+            registry
+                .clone()
+                .into_custom_parameter()
+                .expect("validation-fee fixture registry fits the canonical JSON parameter"),
+        ))
         .expect("valid fixture parameters");
 }
