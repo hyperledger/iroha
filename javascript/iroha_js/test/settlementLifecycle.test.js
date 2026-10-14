@@ -103,22 +103,41 @@ baseTest("identifier helpers produce the exact native literals", () => {
   assert.match(randomEscrow, /^hash:[0-9A-F]{64}#[0-9A-F]{4}$/u);
   assert.equal(Number.parseInt(randomEscrow.slice(68, 69), 16) & 1, 1);
 
-  assert.match(newSettlementId(), /^settlement-[0-9a-f]{32}$/u);
-  assert.equal(newSettlementId("trade-1"), newSettlementId("trade-1"));
-  assert.notEqual(newSettlementId("trade-1"), newSettlementId("trade-2"));
+  const random = newSettlementId(BUYER);
+  assert.deepEqual(Object.keys(random), ["owner", "reference"]);
+  assert.equal(random.owner, BUYER);
+  assert.match(random.reference, /^settlement-[0-9a-f]{32}$/u);
+  assert.deepEqual(newSettlementId(BUYER, "trade-1"), newSettlementId(BUYER, "trade-1"));
+  assert.notEqual(
+    newSettlementId(BUYER, "trade-1").reference,
+    newSettlementId(BUYER, "trade-2").reference,
+  );
+  // The reference derivation is independent of the owner namespace.
+  assert.equal(
+    newSettlementId(BUYER, "trade-1").reference,
+    newSettlementId(ISSUER, "trade-1").reference,
+  );
+  assert.throws(() => newSettlementId("not-an-account", "trade-1"), /newSettlementId\.owner/u);
   assert.match(newRepoAgreementId(), /^repo-[0-9a-f]{32}$/u);
-  assert.notEqual(newRepoAgreementId("x").slice(5), newSettlementId("x").slice(11));
+  assert.notEqual(
+    newRepoAgreementId("x").slice(5),
+    newSettlementId(BUYER, "x").reference.slice(11),
+  );
   const expectedSuffix = Buffer.from(
     blake2b256(Buffer.concat([Buffer.from("iroha-js:settlement-id:v1\0"), Buffer.from("trade-1")])),
   ).subarray(0, 16).toString("hex");
-  assert.equal(newSettlementId("trade-1"), `settlement-${expectedSuffix}`);
+  assert.deepEqual(newSettlementId(BUYER, "trade-1"), {
+    owner: BUYER,
+    reference: `settlement-${expectedSuffix}`,
+  });
 });
 
 test("consent, alias scope and metadata builders emit exact native JSON", () => {
+  const settlementId = { owner: ISSUER, reference: "dvp_bond_1" };
   const consent = buildGrantSettlementConsentInstruction({
     grantee: ISSUER,
     debitedAssetHoldingId: `${CASH}#${BUYER}`,
-    settlementId: "dvp_bond_1",
+    settlementId,
     intentHash: ESCROW_ID,
   });
   assert.deepEqual(consent, {
@@ -128,7 +147,7 @@ test("consent, alias scope and metadata builders emit exact native JSON", () => 
           name: "CanExecuteSettlement",
           payload: {
             debited_asset: `${CASH}#${BUYER}`,
-            settlement_id: "dvp_bond_1",
+            settlement_id: settlementId,
             intent_hash: ESCROW_ID,
           },
         },
@@ -141,11 +160,28 @@ test("consent, alias scope and metadata builders emit exact native JSON", () => 
     () => buildGrantSettlementConsentInstruction({
       grantee: ISSUER,
       debitedAssetHoldingId: `${CASH}#${BUYER}`,
-      settlementId: "dvp_bond_1",
+      settlementId,
       intentHash: ESCROW_ID.toLowerCase(),
     }),
     /canonical uppercase hash literal/u,
   );
+  // Settlement ids are owner-qualified; bare references and extra fields are refused.
+  for (const [invalid, pattern] of [
+    ["dvp_bond_1", /settlementId must be a \{ owner, reference \} settlement id/u],
+    [{ reference: "dvp_bond_1" }, /settlementId\.owner is required/u],
+    [{ ...settlementId, extra: 1 }, /settlementId\.extra is not supported/u],
+    [{ owner: ISSUER, reference: "has space" }, /settlementId\.reference/u],
+  ]) {
+    assert.throws(
+      () => buildGrantSettlementConsentInstruction({
+        grantee: ISSUER,
+        debitedAssetHoldingId: `${CASH}#${BUYER}`,
+        settlementId: invalid,
+        intentHash: ESCROW_ID,
+      }),
+      pattern,
+    );
+  }
 
   const scope = buildGrantAssetDefinitionAliasScopeInstruction({
     grantee: ISSUER,
@@ -285,7 +321,7 @@ test("atomic settlement is sorted natively and hashed exactly as consented", () 
     { sourceAssetHoldingId: `${CASH}#${BUYER}`, recipient: ISSUER, quantity: "1015.5" },
     { sourceAssetHoldingId: `${BOND}#${ISSUER}`, recipient: BUYER, quantity: "10" },
   ];
-  const settlementId = newSettlementId("dvp-1");
+  const settlementId = newSettlementId(ISSUER, "dvp-1");
   const forward = buildSettleAtomicInstruction({
     networkId: NETWORK_ID,
     settlementId,
@@ -311,6 +347,7 @@ test("atomic settlement is sorted natively and hashed exactly as consented", () 
     "settlement_id",
   ]);
   assert.deepEqual(payload.escrows, []);
+  assert.deepEqual(payload.settlement_id, settlementId);
   assert.equal(payload.network_id, NETWORK_ID.toString());
   assert.equal(payload.expires_at_height, 5_000);
   assert.deepEqual(
@@ -364,6 +401,52 @@ test("atomic settlement is sorted natively and hashed exactly as consented", () 
     intentHash: intent,
   });
   roundtrip(consent);
+
+  // The owner namespace is part of the consented intent.
+  const buyerOwned = buildSettleAtomicInstruction({
+    networkId: NETWORK_ID,
+    settlementId: { owner: BUYER, reference: settlementId.reference },
+    movements,
+    expiresAtHeight: 5_000,
+    metadata: { isin: "SI0031234567" },
+  });
+  assert.notEqual(settleAtomicIntentHash(buyerOwned), intent);
+  // The owner must debit one of the legs; a single payment is a complete intent.
+  assert.throws(
+    () => buildSettleAtomicInstruction({
+      networkId: NETWORK_ID,
+      settlementId: { owner: ORACLE, reference: "dvp-oracle" },
+      movements,
+      expiresAtHeight: 5_000,
+    }),
+    /settlement id owner/u,
+  );
+  const single = buildSettleAtomicInstruction({
+    networkId: NETWORK_ID,
+    settlementId: { owner: BUYER, reference: "payment-1" },
+    movements: [movements[0]],
+    expiresAtHeight: 5_000,
+  });
+  assert.equal(single.Settlement.Atomic.movements.length, 1);
+  roundtrip(single);
+  assert.throws(
+    () => buildSettleAtomicInstruction({
+      networkId: NETWORK_ID,
+      settlementId: { owner: BUYER, reference: "empty" },
+      movements: [],
+      expiresAtHeight: 5_000,
+    }),
+    /at least one movement or escrow leg/u,
+  );
+  assert.throws(
+    () => buildSettleAtomicInstruction({
+      networkId: NETWORK_ID,
+      settlementId: settlementId.reference,
+      movements,
+      expiresAtHeight: 5_000,
+    }),
+    /settlementId must be a \{ owner, reference \} settlement id/u,
+  );
 });
 
 test("repo lifecycle builders and consent hashes match the native agreement", () => {
@@ -399,6 +482,14 @@ test("repo lifecycle builders and consent hashes match the native agreement", ()
   });
   roundtrip(initiate);
   const hashes = repoIntentHashes(initiate);
+  // Both repo consents bind the initiator-owned agreement reference.
+  assert.deepEqual(hashes.settlementId, { owner: ISSUER, reference: agreementId });
+  roundtrip(buildGrantSettlementConsentInstruction({
+    grantee: ISSUER,
+    debitedAssetHoldingId: `${CASH}#${BUYER}`,
+    settlementId: hashes.settlementId,
+    intentHash: hashes.initiation,
+  }));
   assert.match(hashes.initiation, /^hash:[0-9A-F]{64}#[0-9A-F]{4}$/u);
   assert.match(hashes.maturity, /^hash:[0-9A-F]{64}#[0-9A-F]{4}$/u);
   assert.notEqual(hashes.initiation, hashes.maturity);
@@ -466,7 +557,7 @@ test("atomic settlement escrow legs are normalized, ordered and bound into the i
   // Two issuer-owned bond deliveries and four escrow legs (two foreign cash sources).
   const options = {
     networkId: NETWORK_ID,
-    settlementId: newSettlementId("bond-issue-escrow"),
+    settlementId: newSettlementId(ISSUER, "bond-issue-escrow"),
     movements: [
       { sourceAssetHoldingId: `${BOND}#${ISSUER}`, recipient: BUYER, quantity: "10" },
       { sourceAssetHoldingId: `${BOND}#${ISSUER}`, recipient: INVESTOR_B, quantity: "5" },
@@ -527,12 +618,21 @@ test("atomic settlement escrow legs are normalized, ordered and bound into the i
   changed.Settlement.Atomic.escrows[0].amount = "999";
   assert.notEqual(settleAtomicIntentHash(canonicalSettleAtomicInstruction(changed)), intent);
 
-  // Escrow legs alone can satisfy the two-leg minimum; a single leg cannot.
-  const escrowOnly = buildSettleAtomicInstruction({ ...options, movements: [], escrows: options.escrows.slice(0, 2) });
+  // Escrow legs alone form a complete intent, down to a single leg, when the
+  // settlement id owner debits one of them; without any leg the intent is refused.
+  const issuerEscrows = options.escrows.filter((entry) => entry.sourceAssetHoldingId.endsWith(`#${ISSUER}`));
+  const escrowOnly = buildSettleAtomicInstruction({ ...options, movements: [], escrows: issuerEscrows });
   assert.equal(escrowOnly.Settlement.Atomic.movements.length, 0);
+  assert.equal(escrowOnly.Settlement.Atomic.escrows.length, 2);
+  const singleEscrow = buildSettleAtomicInstruction({ ...options, movements: [], escrows: issuerEscrows.slice(0, 1) });
+  assert.equal(singleEscrow.Settlement.Atomic.escrows.length, 1);
   assert.throws(
-    () => buildSettleAtomicInstruction({ ...options, movements: [], escrows: options.escrows.slice(0, 1) }),
-    /two legs/u,
+    () => buildSettleAtomicInstruction({ ...options, movements: [], escrows: options.escrows.slice(0, 2) }),
+    /settlement id owner/u,
+  );
+  assert.throws(
+    () => buildSettleAtomicInstruction({ ...options, movements: [], escrows: [] }),
+    /at least one movement or escrow leg/u,
   );
   assert.throws(
     () => buildSettleAtomicInstruction({
@@ -551,7 +651,7 @@ test("atomic settlement escrow legs are normalized, ordered and bound into the i
 test("every lifecycle instruction assembles into one native transaction payload", () => {
   const settle = buildSettleAtomicInstruction({
     networkId: NETWORK_ID,
-    settlementId: newSettlementId("dvp-2"),
+    settlementId: newSettlementId(ISSUER, "dvp-2"),
     movements: [
       { sourceAssetHoldingId: `${CASH}#${BUYER}`, recipient: ISSUER, quantity: "1000" },
       { sourceAssetHoldingId: `${BOND}#${ISSUER}`, recipient: BUYER, quantity: "10" },

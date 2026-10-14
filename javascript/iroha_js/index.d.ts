@@ -13285,13 +13285,22 @@ export type ConditionalEscrowConditionJson =
     }
   | { kind: "Within"; value: { id: string; duration_ms: number } };
 
+/**
+ * Owner-qualified native settlement identifier. `owner` is the participating debit
+ * owner whose namespace consumes the canonical `Name` `reference`.
+ */
+export interface SettlementIdJson {
+  owner: string;
+  reference: string;
+}
+
 /** `Grant::Permission(CanExecuteSettlement)` consent signed by the debited bucket owner. */
 export interface GrantSettlementConsentInstruction {
   Grant: {
     Permission: {
       object: {
         name: "CanExecuteSettlement";
-        payload: { debited_asset: string; settlement_id: string; intent_hash: string };
+        payload: { debited_asset: string; settlement_id: SettlementIdJson; intent_hash: string };
       };
       destination: string;
     };
@@ -13303,8 +13312,11 @@ export function buildGrantSettlementConsentInstruction(options: {
   grantee: string;
   /** Exact debited bucket `<asset-definition>#<account>[#dataspace:<id>]`. */
   debitedAssetHoldingId: string;
-  /** Settlement id; for repo consents the agreement id. */
-  settlementId: string;
+  /**
+   * Exact settlement id of the consented instruction; for repo consents
+   * `repoIntentHashes(instruction).settlementId` (`{ owner: initiator, reference: agreementId }`).
+   */
+  settlementId: SettlementIdJson;
   /** Canonical `hash:<HEX>#<CRC>` intent hash. */
   intentHash: string;
 }): GrantSettlementConsentInstruction;
@@ -13407,7 +13419,7 @@ export interface SettleAtomicInstruction {
   Settlement: {
     Atomic: {
       network_id: string;
-      settlement_id: string;
+      settlement_id: SettlementIdJson;
       movements: Array<{ source: string; recipient: string; quantity: string }>;
       escrows: SettleAtomicEscrowLegJson[];
       expires_at_height: number;
@@ -13418,11 +13430,12 @@ export interface SettleAtomicInstruction {
 
 /**
  * Build a `Settlement::Atomic` instruction with natively ordered movements and
- * escrow legs (0..=255 movements, 0..=16 escrows, at least two legs in total).
+ * escrow legs (0..=255 movements, 0..=16 escrows, at least one leg in total).
+ * `settlementId.owner` must own the source bucket of one movement or escrow leg.
  */
 export function buildSettleAtomicInstruction(options: {
   networkId: NetworkId | string;
-  settlementId: string;
+  settlementId: SettlementIdJson;
   movements: ReadonlyArray<SettleAtomicMovementInput>;
   escrows?: ReadonlyArray<SettleAtomicEscrowLegInput> | null;
   expiresAtHeight: NumericLike;
@@ -13488,10 +13501,15 @@ export function buildRepoReverseInstruction(options: {
   agreementId: string;
 }): { Repo: { Reverse: { agreement_id: string } } };
 
-/** Exact initiation and maturity consent hash literals of one repo initiation. */
+/**
+ * Exact initiation and maturity consent hash literals of one repo initiation, and
+ * the owner-qualified settlement id (`{ owner: initiator, reference: agreement_id }`)
+ * both consents bind.
+ */
 export function repoIntentHashes(instruction: RepoInitiateInstruction): {
   initiation: string;
   maturity: string;
+  settlementId: SettlementIdJson;
 };
 
 /** Maximum scheduled cash flows of registered bond terms. */
@@ -13801,8 +13819,11 @@ export function assetDefinitionIdFromSeed(
 /** Canonical `EscrowId` hash literal; a seed yields `EscrowId::new(Hash::new(seed))`. */
 export function newEscrowId(seed?: string | Uint8Array): string;
 
-/** Canonical `SettlementId` name `settlement-<32 hex>` (random, or derived from the seed). */
-export function newSettlementId(seed?: string | Uint8Array): string;
+/**
+ * One-shot owner-qualified `SettlementId`: `owner` is the participating debit owner,
+ * `reference` is `settlement-<32 hex>` (random, or derived from the seed alone).
+ */
+export function newSettlementId(owner: string, seed?: string | Uint8Array): SettlementIdJson;
 
 /** Canonical `RepoAgreementId` name `repo-<32 hex>` (random, or derived from the seed). */
 export function newRepoAgreementId(seed?: string | Uint8Array): string;

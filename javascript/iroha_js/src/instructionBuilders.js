@@ -11,6 +11,7 @@ import {
 } from "./norito.js";
 import { ensureCanonicalAccountId, normalizeAccountAliasLiteral, normalizeAccountId, normalizeAssetDefinitionId, normalizeAssetId, normalizeAssetHoldingId, normalizeRwaId } from "./normalizers.js";
 import { MultisigSpec, MultisigSpecBuilder } from "./multisig.js";
+import { normalizeSettlementId } from "./settlementId.js";
 
 
 import {
@@ -5530,8 +5531,11 @@ function conditionalEscrowConditions(value, name) {
  *
  * The owner of `debitedAssetHoldingId` signs this grant; `grantee` is the
  * account that later submits the settlement (or repo) instruction.
- * @param {{ grantee: string, debitedAssetHoldingId: string, settlementId: string, intentHash: string }} options
- * @returns {{Grant: {Permission: {object: {name: "CanExecuteSettlement", payload: {debited_asset: string, settlement_id: string, intent_hash: string}}, destination: string}}}}
+ * `settlementId` is the exact owner-qualified identifier of that instruction:
+ * the atomic settlement's `{ owner, reference }`, or a repo's
+ * `repoIntentHashes(instruction).settlementId` (`{ owner: initiator, reference: agreementId }`).
+ * @param {{ grantee: string, debitedAssetHoldingId: string, settlementId: { owner: string, reference: string }, intentHash: string }} options
+ * @returns {{Grant: {Permission: {object: {name: "CanExecuteSettlement", payload: {debited_asset: string, settlement_id: { owner: string, reference: string }, intent_hash: string}}, destination: string}}}}
  */
 export function buildGrantSettlementConsentInstruction(options) {
   const context = "grantSettlementConsent";
@@ -5547,7 +5551,7 @@ export function buildGrantSettlementConsentInstruction(options) {
               source.debitedAssetHoldingId,
               `${context}.debitedAssetHoldingId`,
             ),
-            settlement_id: settlementName(source.settlementId, `${context}.settlementId`),
+            settlement_id: normalizeSettlementId(source.settlementId, `${context}.settlementId`),
             intent_hash: exactHashLiteral(source.intentHash, `${context}.intentHash`),
           },
         },
@@ -5728,7 +5732,8 @@ const REPO_INITIATE_FIELDS = new Set([
  * Before submission the counterparty grants the initiator `CanExecuteSettlement`
  * for its cash bucket with `repoIntentHashes(instruction).initiation`, and the
  * collateral holder (custodian, else counterparty) grants it for the collateral
- * bucket with `.maturity`; both use `settlementId = agreementId`. With
+ * bucket with `.maturity`; both use the repo's owner-qualified settlement id
+ * `{ owner: initiator, reference: agreementId }` (`repoIntentHashes(...).settlementId`). With
  * `governance.allowEarlyRepayment` the initiator may reverse before maturity.
  * @param {object} options
  * @returns {{Repo: {Initiate: object}}}

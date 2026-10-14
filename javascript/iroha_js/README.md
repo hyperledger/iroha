@@ -470,8 +470,13 @@ Identifiers return the exact JSON literal each native type accepts:
 | `generateAssetDefinitionId()` | `AssetDefinitionId` | random UUIDv4 Base58 address |
 | `assetDefinitionIdFromSeed(seed)` | `AssetDefinitionId` | `derive_from_components`: first 16 bytes of BLAKE3(seed) with UUIDv4 bits; `{ domain, name }` hashes `"<name>#<domain>"` |
 | `newEscrowId(seed?)` | `EscrowId` | `hash:<HEX>#<CRC>`; a seed gives `EscrowId::new(Hash::new(seed))` |
-| `newSettlementId(seed?)` | `SettlementId` | `settlement-<32 hex>` |
-| `newRepoAgreementId(seed?)` | `RepoAgreementId` | `repo-<32 hex>`; also the repo consent `settlement_id` |
+| `newSettlementId(owner, seed?)` | `SettlementId` | `{ owner, reference: "settlement-<32 hex>" }`; the reference is derived from the seed alone |
+| `newRepoAgreementId(seed?)` | `RepoAgreementId` | `repo-<32 hex>`; the repo consent `settlement_id` is `{ owner: initiator, reference: <agreement id> }` |
+
+A native `SettlementId` is the owner-qualified JSON object `{ owner, reference }`:
+`owner` is a participating debit owner (normally the submitter) and `reference`
+the canonical `Name` its successful receipt consumes in that owner's namespace.
+Bare references are refused.
 
 Instruction builders:
 
@@ -496,8 +501,9 @@ Instruction builders:
   `{ sourceAssetHoldingId, escrowId, beneficiary, amount, conditions, expiresAtMs, evidenceHashes? }`
   (global-scope sources; the source owner opens and is refunded). Movements are
   sorted natively by `(AssetId, AccountId)` and escrow legs by `EscrowId`
-  bytes; 0..=255 movements and 0..=16 escrow legs must total at least two legs,
-  and duplicate and self-transfer rules are enforced natively. The strict codec
+  bytes; 0..=255 movements and 0..=16 escrow legs must total at least one leg,
+  `settlementId.owner` must own the source of one movement or escrow leg, and
+  duplicate and self-transfer rules are enforced natively. The strict codec
   never sorts; `canonicalSettleAtomicInstruction(instruction)` orders and
   validates hand-built atomic settlement JSON the same way.
 - `buildRepoInitiateInstruction({ agreementId, initiator, counterparty, custodian?, cashLeg, collateralLeg, rateBps, maturityTimestampMs, governance: { haircutBps, marginFrequencySecs, allowEarlyRepayment } })`
@@ -520,7 +526,7 @@ import {
 
 const settlement = buildSettleAtomicInstruction({
   networkId, // NetworkId from GET /v1/accounts/capabilities
-  settlementId: newSettlementId(),
+  settlementId: newSettlementId(issuer), // the submitter's own namespace
   movements: [
     { sourceAssetHoldingId: `${cash}#${investor}`, recipient: issuer, quantity: "1015.5" },
     { sourceAssetHoldingId: `${bond}#${issuer}`, recipient: investor, quantity: "10" },
@@ -536,11 +542,12 @@ const consent = buildGrantSettlementConsentInstruction({
 });
 ```
 
-For a repo, `repoIntentHashes(initiate)` returns `{ initiation, maturity }`.
-Before the initiator submits `Repo::Initiate`, the counterparty grants it
-consent for its cash bucket with `initiation`, and the collateral holder
-(custodian, else counterparty) grants consent for the collateral bucket with
-`maturity`; both use `settlementId = agreementId`.
+For a repo, `repoIntentHashes(initiate)` returns
+`{ initiation, maturity, settlementId }`. Before the initiator submits
+`Repo::Initiate`, the counterparty grants it consent for its cash bucket with
+`initiation`, and the collateral holder (custodian, else counterparty) grants
+consent for the collateral bucket with `maturity`; both use the returned
+`settlementId`, `{ owner: initiator, reference: agreementId }`.
 
 ### Bond servicing
 

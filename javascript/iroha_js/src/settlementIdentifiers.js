@@ -8,7 +8,9 @@
  * Each helper returns the exact JSON literal its native type accepts:
  * - `AssetDefinitionId`: canonical versioned, checksummed Base58 UUIDv4 address;
  * - `EscrowId`: canonical `hash:<HEX>#<CRC>` literal of an Iroha hash;
- * - `SettlementId` and `RepoAgreementId`: canonical Iroha `Name` text.
+ * - `SettlementId`: the owner-qualified pair `{ owner, reference }`, whose
+ *   `reference` is canonical Iroha `Name` text;
+ * - `RepoAgreementId`: canonical Iroha `Name` text.
  */
 
 import { blake3 } from "@noble/hashes/blake3";
@@ -17,6 +19,7 @@ import { Buffer } from "buffer";
 import { blake2b256 } from "./blake2b.js";
 import { canonicalizeDomainId } from "./domainId.js";
 import { assertCanonicalIrohaName, canonicalHashLiteral } from "./instructionBuilderPrimitives.js";
+import { normalizeAccountId } from "./normalizers.js";
 import { assetDefinitionAddressFromUuidBytes } from "./norito.js";
 
 const UTF8 = new TextEncoder();
@@ -116,21 +119,29 @@ function derivedName(prefix, domain, seed, context) {
 }
 
 /**
- * Create a canonical one-shot `SettlementId` name (`settlement-<32 hex>`).
+ * Create a one-shot owner-qualified `SettlementId` (`{ owner, reference }`).
  *
- * Without a seed the suffix is random; with a seed it is the first 16 bytes of
- * BLAKE2b-256 over a fixed domain separator and the seed.
+ * `owner` is the participating debit owner whose namespace consumes the
+ * reference (normally the submitter of the settlement). The reference is
+ * `settlement-<32 hex>`: without a seed the suffix is random; with a seed it is
+ * the first 16 bytes of BLAKE2b-256 over a fixed domain separator and the seed,
+ * independent of the owner.
+ * @param {string} owner
  * @param {string | Uint8Array} [seed]
- * @returns {string}
+ * @returns {{ owner: string, reference: string }}
  */
-export function newSettlementId(seed) {
-  return derivedName("settlement-", SETTLEMENT_ID_DOMAIN, seed, "newSettlementId seed");
+export function newSettlementId(owner, seed) {
+  return {
+    owner: normalizeAccountId(owner, "newSettlementId.owner"),
+    reference: derivedName("settlement-", SETTLEMENT_ID_DOMAIN, seed, "newSettlementId seed"),
+  };
 }
 
 /**
  * Create a canonical `RepoAgreementId` name (`repo-<32 hex>`).
  *
- * A repo's consent permissions use this same name as their `settlement_id`.
+ * A repo's consent permissions bind the owner-qualified settlement id
+ * `{ owner: initiator, reference: <this name> }`.
  * @param {string | Uint8Array} [seed]
  * @returns {string}
  */

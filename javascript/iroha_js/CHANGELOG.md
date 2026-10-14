@@ -35,6 +35,13 @@ All notable changes to `@iroha/iroha-js` are documented in this file.
 - Added `feeLimitMarginBps` to `quoteAndSignTransaction` for rounded-up
   headroom using the same quote-limit conversion as external wallet signing.
 
+- Settlement ids are owner-qualified `{ owner, reference }` objects, matching
+  the native `SettlementId`: `buildSettleAtomicInstruction` and
+  `buildGrantSettlementConsentInstruction` take `settlementId: { owner, reference }`,
+  `newSettlementId(owner, seed?)` returns one, and `repoIntentHashes` also
+  returns the repo consent `settlementId` (`{ owner: initiator, reference: agreementId }`).
+  An atomic settlement needs at least one movement or escrow leg, and its
+  settlement id owner must debit one of them. Bare references are refused.
 - Added settlement, conditional-escrow, repo and domain-lease helpers:
   `generateAssetDefinitionId`, `assetDefinitionIdFromSeed` (native
   `derive_from_components` rule), `newEscrowId`, `newSettlementId`,

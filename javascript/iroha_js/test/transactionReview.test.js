@@ -97,7 +97,7 @@ test("reviewTransactionPayload describes bond-poc settlement, escrow, repo and c
   });
   const settle = buildSettleAtomicInstruction({
     networkId: NETWORK_ID,
-    settlementId: newSettlementId("bond-issue-review"),
+    settlementId: newSettlementId(ISSUER, "bond-issue-review"),
     movements: [
       { sourceAssetHoldingId: `${BOND}#${ISSUER}`, recipient: BUYER, quantity: "10" },
       { sourceAssetHoldingId: `${BOND}#${ISSUER}`, recipient: INVESTOR_B, quantity: "5" },
@@ -177,7 +177,11 @@ test("reviewTransactionPayload describes bond-poc settlement, escrow, repo and c
 
   const atomicFields = fieldMap(atomic);
   assert.equal(atomic.title, "Atomic settlement");
-  assert.equal(atomicFields.settlement, settle.Settlement.Atomic.settlement_id);
+  // Owner-qualified ids are shown in their canonical `reference$owner` text form.
+  assert.equal(
+    atomicFields.settlement,
+    `${settle.Settlement.Atomic.settlement_id.reference}$${ISSUER}`,
+  );
   assert.equal(atomicFields.network, NETWORK_ID.toString());
   assert.equal(atomicFields["expires at height"], "5000");
   assert.equal(atomic.fields.filter(({ label }) => label.startsWith("movement ")).length, 2);

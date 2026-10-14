@@ -41,6 +41,13 @@ function field(label, value) {
   return { label, value: sanitizeReviewText(value) };
 }
 
+/** Render an owner-qualified settlement id in its canonical `reference$owner` text form. */
+function settlementIdText(id) {
+  return id !== null && typeof id === "object" && typeof id.reference === "string"
+    ? `${id.reference}$${id.owner}`
+    : id;
+}
+
 function conditionSummary(conditions) {
   return (Array.isArray(conditions) ? conditions : [])
     .map((condition) => {
@@ -336,7 +343,7 @@ function describeInstruction(instruction, bonds) {
       const atomic = body.Atomic;
       if (atomic) {
         const fields = [
-          field("settlement", atomic.settlement_id),
+          field("settlement", settlementIdText(atomic.settlement_id)),
           field("network", atomic.network_id),
           field("expires at height", atomic.expires_at_height),
         ];

@@ -11,11 +11,11 @@
  */
 
 import { AccountAddress } from "./address.js";
-import { assertCanonicalIrohaName } from "./instructionBuilderPrimitives.js";
 import {
   buildOpenConditionalEscrowInstruction,
   buildTransferAssetInstruction,
 } from "./instructionBuilders.js";
+import { normalizeSettlementId } from "./settlementId.js";
 import { normalizeAssetHoldingId } from "./normalizers.js";
 import { defaultNativeRuntime, resolveNativeRuntimeBinding } from "./nativeRuntime.js";
 import { NetworkId } from "./networkId.js";
@@ -105,7 +105,7 @@ function atomicPayload(instruction, context) {
 }
 
 function atomicAccounts(payload) {
-  const accounts = [];
+  const accounts = [payload.settlement_id?.owner];
   for (const movement of Array.isArray(payload.movements) ? payload.movements : []) {
     accounts.push(movement?.recipient, String(movement?.source ?? "").split("#")[1]);
   }
@@ -174,11 +174,16 @@ function nativeBinding() {
  * Each movement is normalized exactly like a transfer leg and each escrow leg
  * exactly like `OpenConditionalEscrow` (plus its global-scope source bucket);
  * {@link canonicalSettleAtomicInstruction} then sorts and validates natively.
- * Movements (0..=255) and escrow legs (0..=16) must total at least two legs.
+ * Movements (0..=255) and escrow legs (0..=16) must total at least one leg.
+ * `settlementId` is the owner-qualified native identifier `{ owner, reference }`:
+ * `owner` must own the source bucket of at least one movement or escrow leg
+ * (normally the submitter), and `reference` is the business reference that the
+ * successful receipt consumes in that owner's namespace.
  * Every foreign source owner (movement or escrow) grants the submitter
- * `CanExecuteSettlement` with {@link settleAtomicIntentHash} of the returned
- * instruction; the submitter's own buckets need no consent.
- * @param {{ networkId: NetworkId | string, settlementId: string, movements: Array<{ sourceAssetHoldingId: string, recipient: string, quantity: import("./numericV1.js").KotodamaQuantity | string | bigint }>, escrows?: Array<{ sourceAssetHoldingId: string, escrowId: string, beneficiary: string, amount: import("./numericV1.js").KotodamaQuantity | string | bigint, conditions: Array<object>, expiresAtMs: number | bigint | string, evidenceHashes?: string[] }>, expiresAtHeight: number | bigint | string, metadata?: object | null }} options
+ * `CanExecuteSettlement` for the same `settlementId` with
+ * {@link settleAtomicIntentHash} of the returned instruction; the submitter's
+ * own buckets need no consent.
+ * @param {{ networkId: NetworkId | string, settlementId: { owner: string, reference: string }, movements: Array<{ sourceAssetHoldingId: string, recipient: string, quantity: import("./numericV1.js").KotodamaQuantity | string | bigint }>, escrows?: Array<{ sourceAssetHoldingId: string, escrowId: string, beneficiary: string, amount: import("./numericV1.js").KotodamaQuantity | string | bigint, conditions: Array<object>, expiresAtMs: number | bigint | string, evidenceHashes?: string[] }>, expiresAtHeight: number | bigint | string, metadata?: object | null }} options
  * @returns {{Settlement: {Atomic: object}}}
  */
 export function buildSettleAtomicInstruction(options) {
@@ -213,7 +218,7 @@ export function buildSettleAtomicInstruction(options) {
     Settlement: {
       Atomic: {
         network_id: networkIdLiteral(source.networkId, `${context}.networkId`),
-        settlement_id: assertCanonicalIrohaName(source.settlementId, `${context}.settlementId`),
+        settlement_id: normalizeSettlementId(source.settlementId, `${context}.settlementId`),
         movements,
         escrows: escrowInput.map((leg, index) => escrowLeg(leg, `${context}.escrows[${index}]`)),
         expires_at_height: positiveSafeInteger(source.expiresAtHeight, `${context}.expiresAtHeight`),
@@ -238,13 +243,15 @@ export function settleAtomicIntentHash(instruction) {
 
 /**
  * Compute the exact initiation and maturity `CanExecuteSettlement.intent_hash`
- * literals of one `Repo::Initiate` instruction.
+ * literals of one `Repo::Initiate` instruction, with the settlement id both
+ * consents bind.
  *
  * The counterparty consents to its cash debit with `initiation`; the collateral
  * holder (custodian, else counterparty) consents to the maturity collateral
- * release with `maturity`. Both use `settlementId = agreement_id`.
+ * release with `maturity`. Both use `settlementId`, the repo's owner-qualified
+ * identifier `{ owner: initiator, reference: agreement_id }`.
  * @param {{Repo: {Initiate: object}}} instruction
- * @returns {{ initiation: string, maturity: string }}
+ * @returns {{ initiation: string, maturity: string, settlementId: { owner: string, reference: string } }}
  */
 export function repoIntentHashes(instruction) {
   const context = "repoIntentHashes.instruction";
@@ -254,5 +261,9 @@ export function repoIntentHashes(instruction) {
   }
   const prefix = sharedNetworkPrefix([initiate.initiator], context);
   const hashes = nativeBinding().repoIntentHashesJson(JSON.stringify(instruction), prefix);
-  return { initiation: hashes.initiation, maturity: hashes.maturity };
+  return {
+    initiation: hashes.initiation,
+    maturity: hashes.maturity,
+    settlementId: { owner: initiate.initiator, reference: initiate.agreement_id },
+  };
 }
