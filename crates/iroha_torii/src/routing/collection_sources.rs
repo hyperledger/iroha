@@ -4,6 +4,13 @@
 //! its [`CollectionSpec`]; the engine then filters, orders and pages them.
 //! Execution here returns full rows: projection happens before returning the page.
 use super::*;
+use super::account_history_multisig::{
+    MultisigHistoryBudget, append_executed_multisig_history,
+};
+
+#[cfg(test)]
+mod account_history_multisig_tests;
+
 use crate::collections::{self, CollectionError, CollectionSpec, Limits, RowPage, specs};
 use iroha_torii_shared::list_query::ListQuery;
 
@@ -876,9 +883,12 @@ fn account_subrow_page(
     let mut last_visible = None;
     let mut below_range = false;
     let mut expansion_exceeded = false;
+    let mut projection_error = None;
     let mut scanned = 0u64;
     let account_literal = account.to_string();
     let work = app_query_limits().max_fetch_size;
+    let mut multisig_budget =
+        MultisigHistoryBudget::new(work, transaction_history_byte_limit(work));
     let end = visit_committed_transaction_page(
         &view,
         resume,
@@ -908,6 +918,17 @@ fn account_subrow_page(
                 &transaction,
                 position.height(),
             );
+            if let Err(error) = append_executed_multisig_history(
+                &mut projected,
+                &transaction,
+                position.height(),
+                view.world(),
+                state.network_id_ref(),
+                &mut multisig_budget,
+            ) {
+                projection_error = Some(error);
+                return std::ops::ControlFlow::Break(());
+            }
             // Carrier bytes bound decoding, including movements at or above the
             // resume coordinate that are decoded again but not examined again.
             // Bound each expansion before JSON projection; `scanned` charges all
@@ -954,6 +975,9 @@ fn account_subrow_page(
     .map_err(|error| Error::Query(iroha_data_model::ValidationFail::QueryFailed(error)))?;
     drop(view);
     reads.finish()?;
+    if let Some(error) = projection_error {
+        return Err(error);
+    }
     if expansion_exceeded {
         return Err(CollectionError::new(
             "query_scan_limit_exceeded",

@@ -8,6 +8,8 @@
     clippy::struct_excessive_bools
 )]
 #[cfg(feature = "app_api")]
+mod account_history_multisig;
+#[cfg(feature = "app_api")]
 pub mod collection_sources;
 #[cfg(feature = "app_api")]
 mod contract_return_attempt;
@@ -31736,29 +31738,10 @@ None,
         }
         return out;
     }
-    if let Some(batch) = any.downcast_ref::<TransferAssetBatch>() {
-        for entry in batch.entries() {
-            let definition = entry.asset_definition().to_string();
-            let source_asset_id = iroha_data_model::asset::AssetId::new(
-                entry.asset_definition().clone(),
-                entry.from().clone(),
-            )
-            .to_string();
-            let destination_asset_id = iroha_data_model::asset::AssetId::new(
-                entry.asset_definition().clone(),
-                entry.to().clone(),
-            )
-            .to_string();
-            account_history_push_directional(
-&mut out,
-entry.from(),
-entry.to(),
-(Some(source_asset_id), Some(destination_asset_id)),
-Some(definition),
-Some(entry.amount().to_string()),
-"TRANSFER",
-);
-        }
+    if any.is::<TransferAssetBatch>() {
+        // Both batch modes write durable per-leg outcomes. Project those once
+        // from the transaction result, including nested multisig execution,
+        // because successful independent batches may contain rejected legs.
         return out;
     }
     if let Some(mint) = any.downcast_ref::<MintBox>() {
@@ -31793,12 +31776,17 @@ Some(entry.amount().to_string()),
         if let Ok(MultisigInstructionBox::Propose(propose)) =
             MultisigInstructionBox::try_from(custom.payload())
         {
-            for nested in &propose.instructions {
-                out.extend(account_history_movements_from_instruction(nested));
-            }
-            if !out.is_empty() {
-                return out;
-            }
+            // A proposal records intent. Only a matched Finalized terminal
+            // and Executed outcome identify the transaction that moved value.
+            return vec![AccountHistoryMovement {
+                account: propose.account.clone(),
+                direction: "affected",
+                counterparty: None,
+                asset_id: None,
+                asset_definition_id: None,
+                amount: None,
+                history_type: "RAW_ON_CHAIN",
+            }];
         }
     }
     crate::account_activity::instruction_account_activities(instr)
@@ -34746,39 +34734,18 @@ mod tx_query_filter_tests {
             Some(source_asset_literal.as_str())
         );
     }
-    routing_test! { sync account_history_movements_project_transfer_batch_recipient_asset_ids
+    routing_test! { sync account_history_movements_require_batch_execution_receipts
         let (alice, _) = account_with_key();
         let (bob, _) = account_with_key();
-        let (carol, _) = account_with_key();
-        let (dave, _) = account_with_key();
         let def = test_asset_definition_id();
-        let entry_a = dm::TransferAssetBatchEntry::new(alice, bob.clone(), def.clone(), 1_u32);
-        let entry_b = dm::TransferAssetBatchEntry::new(carol, dave.clone(), def.clone(), 2_u32);
-        let instruction: dm::InstructionBox =
-            dm::TransferAssetBatch::new(vec![entry_a, entry_b]).into();
-        let bob_asset_id = dm::AssetId::new(def.clone(), bob.clone()).to_string();
-        let dave_asset_id = dm::AssetId::new(def, dave.clone()).to_string();
-        let movements = account_history_movements_from_instruction(&instruction);
-        let bob_incoming = movements
-            .iter()
-            .find(|movement| movement.account == bob)
-            .expect("Bob incoming batch movement");
-        assert_eq!(bob_incoming.direction, "incoming");
-        assert_eq!(
-            bob_incoming.asset_id.as_deref(),
-            Some(bob_asset_id.as_str())
-        );
-        assert_eq!(bob_incoming.amount.as_deref(), Some("1"));
-        let dave_incoming = movements
-            .iter()
-            .find(|movement| movement.account == dave)
-            .expect("Dave incoming batch movement");
-        assert_eq!(dave_incoming.direction, "incoming");
-        assert_eq!(
-            dave_incoming.asset_id.as_deref(),
-            Some(dave_asset_id.as_str())
-        );
-        assert_eq!(dave_incoming.amount.as_deref(), Some("2"));
+        let entry = dm::TransferAssetBatchEntry::new(alice, bob, def, 1_u32);
+        for batch in [
+            dm::TransferAssetBatch::new(vec![entry.clone()]),
+            dm::TransferAssetBatch::independent(vec![entry]),
+        ] {
+            let instruction: dm::InstructionBox = batch.into();
+            assert!(account_history_movements_from_instruction(&instruction).is_empty());
+        }
     }
     routing_test! { sync account_transaction_subject_matches_authority_and_transfer_participants
         let (authority, keypair): (dm::AccountId, KeyPair) = account_with_key();

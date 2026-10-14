@@ -294,6 +294,22 @@ candidates; exhausting a page budget before finding one returns an explicit
 `query_scan_limit_exceeded` error. Account movement expansion also consumes the
 raw-row budget. These pages do not build a full-history process cache.
 
+Multisig proposals are administrative activity for the controller account;
+their proposed transfers are not payments. Account movement history reads the
+immutable native terminal and approval-outcome originals for each successful
+executing transaction. Only matching `Finalized` and `Executed` records, bound
+to the network, account, proposal occurrence, instruction commitment, block
+height and entrypoint hash, produce multisig movements. Nested approvals use
+their own executed records, so proposed or repeated instructions cannot create
+duplicate credits. Movement identities include the executing transaction and
+occurrence. Batch transfers use the transaction result's ordered applied-leg
+receipts once, including nested execution; rejected legs produce no successful
+movement. Receipt identities include their committed result position.
+Original reads, decoded instructions and projected rows share a bounded work
+allowance across the page, with a separate bounded byte allowance for native
+originals. Malformed or inconsistent originals fail the page. These display
+rows do not replace consumers' verification of authenticated finality.
+
 - The cursor holds the block coordinates of the last row and the next page
   starts strictly before them, so transactions committed while paging never
   shift later pages.

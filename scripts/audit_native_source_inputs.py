@@ -85,7 +85,147 @@ def inputs(depfile, absent_watchers):
     return paths
 
 
-def artifact_depfiles(item):
+def native_output_file(path):
+    """Require the exact regular Cargo output, without lexical or symlink aliases."""
+    path = Path(path)
+    try:
+        canonical = path.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        raise ValueError(f'Missing native Cargo output: {path}') from error
+    if not path.is_absolute() or canonical != path or not path.is_file() or path.is_symlink():
+        raise ValueError(f'Noncanonical native Cargo output: {path}')
+    return path
+
+
+def native_output_sha(path):
+    """Hash large native archives without loading them into memory."""
+    digest = hashlib.sha256()
+    with native_output_file(path).open('rb') as stream:
+        for block in iter(lambda: stream.read(1 << 20), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def native_depfile_rules(path):
+    """Read rustc output rules and its input-only phony rules, without guessing."""
+    text = native_output_file(path).read_text().replace('\\\n', '')
+    rules, phony = [], set()
+    def lexical(token):
+        value = Path(token)
+        return value if value.is_absolute() else ROOT / value
+    for line in text.splitlines():
+        if not line or line.startswith('#'):
+            continue
+        if line.endswith(':'):
+            targets = {lexical(token) for token in shlex.split(line[:-1])}
+            if not targets:
+                raise ValueError(f'Empty native depfile phony rule: {path}')
+            phony.update(targets)
+            continue
+        if ': ' not in line:
+            raise ValueError(f'Malformed native depfile rule: {path}')
+        left, right = line.split(': ', 1)
+        targets = {lexical(token) for token in shlex.split(left)}
+        dependencies = {lexical(token) for token in shlex.split(right)}
+        if not targets or not dependencies:
+            raise ValueError(f'Empty native depfile rule: {path}')
+        rules.append((targets, dependencies))
+    if not rules or not phony <= set().union(*(dependencies for _, dependencies in rules)):
+        raise ValueError(f'Missing native dependency rules or unknown phony input: {path}')
+    return rules
+
+
+def native_artifact_depfiles(item):
+    """Bind every top-level native output to one exact rustc deps-output family.
+
+    Cargo reports copied top-level staticlib/cdylib outputs, while rustc's direct
+    depfile lives in deps and can use either a hashed or untagged stem. Byte
+    equality selects the family; filenames or timestamps alone never select it.
+    The aggregate depfile is supplemental because it can omit generated inputs.
+    """
+    target = item['target']
+    name, types = target['name'], target['crate_types']
+    if (not re.fullmatch(r'[A-Za-z0-9_]+', name) or not types
+            or len(types) != len(set(types)) or target['kind'] != types
+            or not set(types) <= {'staticlib', 'cdylib', 'rlib'}
+            or not set(types) & {'staticlib', 'cdylib'}):
+        raise ValueError('Unsupported native Cargo target declaration')
+    manifest = native_output_file(item['manifest_path'])
+    source = native_output_file(target['src_path'])
+    if (item.get('reason') != 'compiler-artifact' or not manifest.is_relative_to(ROOT)
+            or not source.is_relative_to(ROOT) or manifest.name != 'Cargo.toml'):
+        raise ValueError('Native output does not belong to a canonical source artifact')
+    outputs = [native_output_file(path) for path in item['filenames']]
+    if not outputs or len(outputs) != len(types) or len(set(outputs)) != len(outputs):
+        raise ValueError('Native Cargo output count differs from declared crate types')
+    profile = outputs[0].parent
+    prefix = 'lib' + name
+    if any(path.parent != profile for path in outputs):
+        raise ValueError('Native Cargo outputs do not share one canonical target profile')
+    extensions = {'staticlib': '.a', 'rlib': '.rlib'}
+    if 'cdylib' in types:
+        dynamic = [path.suffix for path in outputs if path.name in {prefix + '.so', prefix + '.dylib'}]
+        if len(dynamic) != 1:
+            raise ValueError('Native Cargo event must select one exact dynamic library')
+        extensions['cdylib'] = dynamic[0]
+    if set(outputs) != {profile / (prefix + extensions[kind]) for kind in types}:
+        raise ValueError('Native Cargo filenames differ from declared target outputs')
+    companions, families = [], set()
+    for output in outputs:
+        digest = native_output_sha(output)
+        candidates = set((profile / 'deps').glob(prefix + '-*' + output.suffix))
+        untagged = profile / 'deps' / output.name
+        if untagged.exists() or untagged.is_symlink():
+            candidates.add(untagged)
+        matches = []
+        for candidate in sorted(candidates):
+            if not re.fullmatch(re.escape(prefix) + r'(?:-[0-9a-f]+)?' + re.escape(output.suffix), candidate.name):
+                raise ValueError(f'Malformed native deps output name: {candidate}')
+            native_output_file(candidate)
+            if candidate.stat().st_size == output.stat().st_size and native_output_sha(candidate) == digest:
+                matches.append(candidate)
+        if len(matches) != 1:
+            raise ValueError(f'Need one byte-identical native deps output: {output}')
+        dependency = matches[0]
+        families.add(dependency.stem)
+        companions.append({'output': str(output), 'depsOutput': str(dependency),
+                           'sha256': digest, 'bytes': output.stat().st_size})
+    if len(families) != 1:
+        raise ValueError('Native companion outputs select different compiler families')
+    direct = profile / 'deps' / (families.pop().removeprefix('lib') + '.d')
+    aggregate = profile / (prefix + '.d')
+    direct_rules = native_depfile_rules(direct)
+    direct_inputs = direct_rules[0][1]
+    direct_targets = {Path(row['depsOutput']) for row in companions} | {direct}
+    if (direct_rules[0][0] != {direct} or len(direct_rules) != len(direct_targets)
+            or set().union(*(left for left, _ in direct_rules)) != direct_targets
+            or any(len(left) != 1 or dependencies != direct_inputs for left, dependencies in direct_rules)
+            or source not in direct_inputs):
+        raise ValueError('Native direct depfile lacks exact output/source binding')
+    aggregate_rules = native_depfile_rules(aggregate)
+    aggregate_targets = set().union(*(left for left, _ in aggregate_rules))
+    if (not aggregate_targets <= set(outputs) or len(aggregate_rules) != len(aggregate_targets)
+            or any(len(left) != 1 or dependencies != aggregate_rules[0][1]
+                   for left, dependencies in aggregate_rules)
+            or source not in aggregate_rules[0][1]):
+        raise ValueError('Native aggregate depfile does not describe the selected Cargo event')
+    record = {'event': item, 'outputs': companions,
+              'directDepfile': str(direct), 'directDepfileSha256': native_output_sha(direct),
+              'directInputCount': len(direct_inputs),
+              'aggregateDepfile': str(aggregate), 'aggregateDepfileSha256': native_output_sha(aggregate),
+              'relationship': 'Every reported native output uniquely byte-matches one deps output in the same compiler family. Direct rules bind all outputs to the exact event source and identical input sets; aggregate inputs are additionally audited.'}
+    return {direct, aggregate}, record
+
+
+def recheck_native_artifact_mappings(mappings):
+    """Reject output, depfile or family-selection changes during containment."""
+    for expected in mappings:
+        _, current = native_artifact_depfiles(expected['event'])
+        if current != expected:
+            raise ValueError('Native output/depfile mapping changed during containment audit')
+
+
+def artifact_depfiles(item, native_mappings=None):
     candidates = set()
     for name in item['filenames']:
         path = Path(name)
@@ -97,6 +237,11 @@ def artifact_depfiles(item):
             candidates.add(candidate.resolve())
         if path.name == 'build-script-build':
             candidates.update(p.resolve() for p in path.parent.glob('build_script_build-*.d'))
+    if (not candidates and item.get('manifest_path', '').startswith(str(ROOT) + '/')
+            and set(item.get('target', {}).get('crate_types', [])) & {'staticlib', 'cdylib'}):
+        candidates, mapping = native_artifact_depfiles(item)
+        if native_mappings is not None:
+            native_mappings.append(mapping)
     return candidates
 
 
@@ -314,6 +459,7 @@ def main():
     depfiles = {p.resolve(strict=True) for p in args.depfile}
     out_dirs = {p.resolve(strict=True) for p in args.plonk_out_dir}
     artifacts = []
+    native_mappings = []
     events = []
     if args.cargo_json:
         for line in args.cargo_json.read_text().splitlines():
@@ -326,7 +472,7 @@ def main():
             raise ValueError('Cargo JSON does not end in successful build')
         for e in events:
             if e.get('reason') == 'compiler-artifact':
-                selected = artifact_depfiles(e)
+                selected = artifact_depfiles(e, native_mappings)
                 manifest = e.get('manifest_path', '')
                 if manifest.startswith(str(ROOT) + '/') and not selected:
                     raise ValueError(f'No exact depfile for local artifact: {e["target"]["name"]}')
@@ -348,11 +494,11 @@ def main():
         if actual_before != expected:
             raise ValueError('Current maintained source snapshot differs from expected compiled/exported identity')
         return audit(args, events, depfiles, out_dirs, artifacts, snapshot_tool,
-                     expected, actual_before, actual_watched)
+                     expected, actual_before, actual_watched, native_mappings)
 
 
 def audit(args, events, depfiles, out_dirs, artifacts, snapshot_tool,
-          expected, actual_before, actual_watched):
+          expected, actual_before, actual_watched, native_mappings=None):
     """Reconcile selected compiler inputs with the actual compiled and current census."""
     external_no_source = []
     external_generated = external_generated_inputs(events, external_no_source)
@@ -422,6 +568,7 @@ def audit(args, events, depfiles, out_dirs, artifacts, snapshot_tool,
     for path in observed_canonical_generated:
         if sha(path) != canonical_generated[path]['sha256']:
             raise ValueError(f'Canonical generated output changed during audit: {path}')
+    recheck_native_artifact_mappings(native_mappings or [])
     result = {
         'passed': not omitted,
         'auditToolSha256':sha(Path(__file__)),
@@ -441,6 +588,7 @@ def audit(args, events, depfiles, out_dirs, artifacts, snapshot_tool,
                 'Generated only by included iroha_plonk/build.rs + build_support/source_identity.rs from the actual complete census. Target labels are diagnostic; target support is a separate predicate.')} for p in sorted(exceptions)],
         'depfiles': [{'path': str(p), 'sha256': sha(p)} for p in sorted(depfiles)],
         'artifacts': artifacts,
+        'nativeArtifactDepfileMappings': native_mappings or [],
         'canonicalInputs': [str(p) for p in sorted(canonical)],
         'externalInputs': [str(p) for p in sorted(external)],
     }

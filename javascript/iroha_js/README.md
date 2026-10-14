@@ -130,8 +130,10 @@ The tool configuration has exactly `python`, `cargo`, `rustc`, `rustdoc`,
 current canonical Python 3.12 and Node executables, stock Rust 1.93.1 tools,
 and the selected Xcode's macOS SDK, clang and Apple linker. The producer uses
 locked, offline Cargo with one job, incremental compilation disabled and zero
-Debug symbols; it creates no additional Cargo target. It retains the actual compiler JSON,
-complete dep-info after Cargo's natural successful terminal, original source
+Debug symbols; it creates no additional Cargo target.
+The producer uses sccache's persistent server mode so its private compiler
+scratch path does not overflow macOS's per-process Unix socket path limit.
+It retains the actual compiler JSON, complete dep-info after Cargo's natural successful terminal, original source
 and native build inputs, exact tools, and independently copied emitted bytes.
 The real Node consumer checks the current ABI and required exports before the
 explicit local-unit manifest can be loaded. Loading rechecks current consumed

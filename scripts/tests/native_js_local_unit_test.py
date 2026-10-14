@@ -247,11 +247,13 @@ def test_closed_environment_binds_actual_apple_tools_without_serialized_or_calle
     root = tmp_path / 'source'; output = root / 'target/qualification/output'
     output.mkdir(parents=True, mode=0o700); (output / 'temporary').mkdir(mode=0o700)
     monkeypatch.setenv('TMPDIR', '/unrelated/caller/temporary')
+    monkeypatch.setenv('SCCACHE_CLIENT_SIDE', '1')
     selected = unit.environment(root, config, output)
     assert selected['CC'] == config['clang'] and selected['CXX'] == '/stock/apple/bin/clang++'
     assert selected['AR'] == '/stock/apple/bin/ar' and selected['RANLIB'] == '/stock/apple/bin/ranlib'
     assert selected['NODE_OPTIONS'] == ''
     assert selected['TMPDIR'] == str(output / 'temporary')
+    assert selected['SCCACHE_CLIENT_SIDE'] == '0'
     assert selected['PATH'] == unit.tool_path(config) == '/stock/rust/bin:/opt/homebrew/bin:/usr/bin:/bin'
     assert not {'CARGO_BUILD_JOBS', 'CARGO_INCREMENTAL', 'RUSTFLAGS', 'RUSTC_WRAPPER',
                 'IROHA_GIT_COMMIT_HASH'} & selected.keys()

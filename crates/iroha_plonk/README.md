@@ -249,7 +249,11 @@ The canonical Android and Apple bridge builders run the maintained check directl
 standalone generator builds use `python3 scripts/audit_native_source_inputs.py
 --cargo-json <successful-json> --expected-source-digest <digest> --output
 <audit.json>`. An optional `--snapshot-tool` must be pinned to the maintained
-snapshot driver and helper.
+snapshot driver and helper. For top-level native libraries, the audit binds every
+Cargo-reported output to one unique byte-identical `deps` output in the same
+compiler family. It checks the complete direct depfile against every output and
+the exact source entry point, includes the aggregate depfile, and rechecks these
+bindings before reporting success.
 
 Native mathematical sources and assets belong under a package's `src` or
 `build_support` tree. These trees for all inventoried Cargo owners, the existing
