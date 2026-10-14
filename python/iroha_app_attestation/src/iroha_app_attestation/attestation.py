@@ -665,11 +665,13 @@ GOOGLE_ADAPTER_PROFILE = AndroidAdapterProfile(
     provisioning_information=True,
     factory_validity_exemption=True,
 )
-# Huawei's own attestation root for EMUI and HarmonyOS 2–4 AndroidKeyStore phones. This is the
-# AOSP key description variant: Android admission steps 4–9 apply unchanged, every
-# certificate's validity is evaluated and Google's provisioning information extension is
-# not permitted. It is UNQUALIFIED until genuine post-2019 no-GMS chains fix its chain
-# shape, extension OIDs and positions and enrollment tests qualify it in a reviewed release.
+# Candidate Huawei profile; no Huawei-rooted AndroidKeyStore chain has established this
+# AOSP key description variant. Huawei HUKS device certificates are a separate evidence
+# source, including on Android/EMUI, and their roots alone do not establish this profile.
+# TODO: establish the chain shape, extension OIDs, positions and all E1 assertions from
+# genuine no-GMS evidence before qualifying this adapter. For this candidate, Android
+# admission steps 4–9 apply unchanged, every certificate's validity is evaluated and
+# Google's provisioning information extension is not permitted.
 HUAWEI_ADAPTER_PROFILE = AndroidAdapterProfile(
     adapter_id="huawei",
     qualified=False,

@@ -227,21 +227,41 @@ independent strict exporter do not consult this registry. The owning wallet must
 still authenticate its installation and finish the complete source graph before
 granting a wallet capability. Proof-time source reconstruction remains unchanged.
 
-The build computes registry freshness from the actual tracked and unignored
-workspace regular files, including higher-level circuit code, assets, manifests,
-lockfile and build configuration. Native mathematical sources and assets belong
-under each crate's `src` or `build_support` tree. Those trees and root `.cargo` are
-also walked without Git ignore filtering, so an ignored module, binary constant
-or Cargo configuration cannot silently escape freshness. Generator/mobile compiler
-input containment checks must reject mathematical inputs outside the census;
-generated `OUT_DIR` inputs require their exact maintained generator relationship.
-Generated registry DATA is the sole regular-file
-exclusion. The existing Swift generated-framework symlink contributes its exact
-path and link text only; the optional `iroha-docs` gitlink contributes its recorded
-object identity. Other symlinks must resolve to an already included regular input
-inside the workspace. Missing tracked inputs, incomplete Git inventory or changing
-inputs disable built-in admission while allowing strict compilation/generation.
-This source identity is not an external dependency or toolchain attestation.
+The build computes registry freshness from actual tracked and unignored inputs,
+including higher-level circuit code, assets, manifests, lockfile and configuration.
+The census includes unknown owners and file formats by default. It omits unrelated
+Python, Swift, Kotlin and JavaScript client owners, Android/iOS examples, and
+Markdown prose under the workspace root, `docs` and `specs`. Every inventoried
+nested Cargo package takes precedence over these exclusions, so a native package
+inside an SDK or vendor directory retains all its inventoried files. Native crate
+prose, scripts, tests, fixtures, machine-readable specifications and assets remain
+inputs. The optional `iroha-docs` gitlink does not affect native identity.
+
+Declared external native inputs and conservatively resolved Rust include/path
+literal references restore otherwise excluded files, including referenced documentation
+and SDK fixtures. This restoration intentionally retains false positives; it is
+not a Rust parser or an exhaustive compiler-input analysis. Generator/mobile
+compiler input containment checks must still reject mathematical inputs outside
+the census; generated `OUT_DIR` inputs require their exact maintained generator
+relationship. A new external compiler input must be included before its artifact
+is accepted. The census does not replace those existing build-correctness checks.
+The canonical Android and Apple bridge builders run the maintained check directly;
+standalone generator builds use `python3 scripts/audit_native_source_inputs.py
+--cargo-json <successful-json> --expected-source-digest <digest> --output
+<audit.json>`. An optional `--snapshot-tool` must be pinned to the maintained
+snapshot driver and helper.
+
+Native mathematical sources and assets belong under a package's `src` or
+`build_support` tree. These trees for all inventoried Cargo owners, the existing
+top-level crate source roots, and root `.cargo` are also walked without Git ignore
+filtering. Thus ignored native modules, binary constants and Cargo configuration
+remain inputs. Generated registry DATA is excluded from the digest to avoid a
+self-hash. The existing Swift generated-framework symlink contributes its exact
+path and link text only. Other included symlinks must resolve to an already
+included regular input inside the workspace. Missing selected tracked inputs,
+incomplete Git inventory or changing inputs disable built-in admission while
+allowing strict compilation/generation. This source identity is not an external
+dependency or toolchain attestation.
 
 Cargo recomputes membership and file contents on each invocation through an absent
 `OUT_DIR` rerun input. This detects newly added untracked sources or build config
