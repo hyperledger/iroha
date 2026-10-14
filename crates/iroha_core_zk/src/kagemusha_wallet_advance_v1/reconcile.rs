@@ -227,6 +227,7 @@ where
         slot: &KagemushaWalletSlotIdV1,
         owner: Option<&dyn KagemushaWalletTransitionOwnerV1<C, R>>,
     ) -> Result<KagemushaWalletSlotStatusV1, KagemushaWalletProviderErrorV1> {
+        super::counters::count(super::counters::EventV1::Reconcile);
         // R0.
         self.require_storage()?;
         if let Some(status) = self.cached_status(slot)? {
@@ -353,6 +354,7 @@ where
         slot: &KagemushaWalletSlotIdV1,
         owner: Option<&dyn KagemushaWalletTransitionOwnerV1<C, R>>,
     ) -> Result<KagemushaWalletSlotStatusV1, KagemushaWalletProviderErrorV1> {
+        super::counters::count(super::counters::EventV1::FullReconcile);
         self.poison(slot);
         let boot = self.boot();
         // R2: read-only selection and checks before anything is written.

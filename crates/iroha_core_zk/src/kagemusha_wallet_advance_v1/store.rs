@@ -26,6 +26,9 @@
 //! The mutating primitives are private to the provider: other code gets custody only through
 //! the provider's operations.
 //!
+//! Every primitive counts its calls, and times its syncs by class, in the calling thread's
+//! [`super::KagemushaWalletStorageCountersV1`]. The counters only observe; no outcome reads them.
+//!
 //! [`KagemushaWalletStdFsV1`] uses retained native Unix/Windows custody. `KagemushaWalletSimFsV1`
 //! (tests and the `test-utils` feature) keeps visible and durable state separately for file
 //! data and directory entries, injects deterministic faults at every step, and simulates
@@ -37,6 +40,7 @@ use std::io;
 
 use super::{
     KagemushaWalletProviderErrorV1,
+    counters::{self, EventV1, SyncClassV1},
     layout::{
         KagemushaWalletCustodyDirV1, KagemushaWalletEntryNameV1,
         kagemusha_wallet_is_staging_name_v1, kagemusha_wallet_require_removed_v1,
@@ -150,6 +154,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         name: &KagemushaWalletEntryNameV1,
         bytes: &[u8],
     ) -> KagemushaWalletPublishOutcomeV1 {
+        counters::count(EventV1::WriteNew(1));
         let staged = match self.stage(dir, bytes) {
             Ok(staged) => staged,
             Err(reason) => return KagemushaWalletPublishOutcomeV1::NotPublished(reason),
@@ -167,6 +172,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         first: (&KagemushaWalletEntryNameV1, &[u8]),
         second: (&KagemushaWalletEntryNameV1, &[u8]),
     ) -> [KagemushaWalletPublishOutcomeV1; 2] {
+        counters::count(EventV1::WriteNew(2));
         let first_staged = match self.stage(dir, first.1) {
             Ok(staged) => staged,
             Err(reason) => return [KagemushaWalletPublishOutcomeV1::NotPublished(reason); 2],
@@ -185,7 +191,10 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         let synced = steps
             .iter()
             .any(|step| matches!(step, RenameStepV1::Renamed))
-            .then(|| self.fs.sync_dir(dir).map_err(|error| unavailable(&error)));
+            .then(|| {
+                counters::sync(SyncClassV1::Publish, || self.fs.sync_dir(dir))
+                    .map_err(|error| unavailable(&error))
+            });
         steps.map(|step| match (step, synced) {
             (RenameStepV1::Done(outcome), _) => outcome,
             (RenameStepV1::Renamed, Some(Ok(()))) => KagemushaWalletPublishOutcomeV1::Published,
@@ -226,6 +235,11 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         expected: &[u8],
         bytes: &[u8],
     ) -> KagemushaWalletPublishOutcomeV1 {
+        counters::count(if expected == bytes {
+            EventV1::RewriteSame
+        } else {
+            EventV1::ReplaceExact
+        });
         match self.read(dir, name, expected.len()) {
             KagemushaWalletReadV1::Present(existing) if existing == expected => {}
             KagemushaWalletReadV1::Present(_) | KagemushaWalletReadV1::Oversized => {
@@ -273,6 +287,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         dir: &KagemushaWalletCustodyDirV1,
         name: &KagemushaWalletEntryNameV1,
     ) -> KagemushaWalletRemoveOutcomeV1 {
+        counters::count(EventV1::Removal);
         match self.fs.unlink(dir, name.as_str()) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -284,7 +299,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
                 };
             }
         }
-        match self.fs.sync_dir(dir) {
+        match counters::sync(SyncClassV1::Dir, || self.fs.sync_dir(dir)) {
             Ok(()) => KagemushaWalletRemoveOutcomeV1::Removed,
             Err(error) => KagemushaWalletRemoveOutcomeV1::Uncertain(unavailable(&error)),
         }
@@ -300,7 +315,9 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         match self.fs.mkdir(parent, name.as_str()) {
             Ok(()) => self.sync_after_publish(parent),
             Err(error) => match classify(&error) {
-                FailureClassV1::Exists => match self.fs.sync_dir(parent) {
+                FailureClassV1::Exists => match counters::sync(SyncClassV1::Dir, || {
+                    self.fs.sync_dir(parent)
+                }) {
                     Ok(()) => KagemushaWalletPublishOutcomeV1::NotPublished(
                         KagemushaWalletNotPublishedV1::DestinationExists,
                     ),
@@ -328,6 +345,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         parent: &KagemushaWalletCustodyDirV1,
         name: &KagemushaWalletEntryNameV1,
     ) -> KagemushaWalletRemoveOutcomeV1 {
+        counters::count(EventV1::Removal);
         match self.fs.remove_dir(parent, name.as_str()) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -339,7 +357,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
                 };
             }
         }
-        match self.fs.sync_dir(parent) {
+        match counters::sync(SyncClassV1::Dir, || self.fs.sync_dir(parent)) {
             Ok(()) => KagemushaWalletRemoveOutcomeV1::Removed,
             Err(error) => KagemushaWalletRemoveOutcomeV1::Uncertain(unavailable(&error)),
         }
@@ -355,8 +373,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         dir: &KagemushaWalletCustodyDirV1,
         name: &KagemushaWalletEntryNameV1,
     ) -> Result<(), KagemushaWalletUnavailableV1> {
-        self.fs
-            .sync_named(dir, name.as_str())
+        counters::sync(SyncClassV1::File, || self.fs.sync_named(dir, name.as_str()))
             .map_err(|error| unavailable(&error))
     }
 
@@ -369,7 +386,8 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         &self,
         dir: &KagemushaWalletCustodyDirV1,
     ) -> Result<(), KagemushaWalletUnavailableV1> {
-        self.fs.sync_dir(dir).map_err(|error| unavailable(&error))
+        counters::sync(SyncClassV1::Dir, || self.fs.sync_dir(dir))
+            .map_err(|error| unavailable(&error))
     }
 
     /// Read `name` with a bound of `max` bytes.
@@ -379,6 +397,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         name: &KagemushaWalletEntryNameV1,
         max: usize,
     ) -> KagemushaWalletReadV1 {
+        counters::count(EventV1::Read);
         match self.fs.read(dir, name.as_str(), max.saturating_add(1)) {
             Ok(bytes) if bytes.len() > max => KagemushaWalletReadV1::Oversized,
             Ok(bytes) => KagemushaWalletReadV1::Present(bytes),
@@ -392,6 +411,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         &self,
         dir: &KagemushaWalletCustodyDirV1,
     ) -> KagemushaWalletProbeV1<Vec<KagemushaWalletListedEntryV1>> {
+        counters::count(EventV1::Listing);
         match self.fs.list(dir) {
             Ok(mut entries) => {
                 entries.sort_by(|left, right| left.name.cmp(&right.name));
@@ -485,7 +505,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         let result = self
             .fs
             .write_all(&mut file, bytes)
-            .and_then(|()| self.fs.sync_staged(&file))
+            .and_then(|()| counters::sync(SyncClassV1::Staged, || self.fs.sync_staged(&file)))
             .map_err(|error| not_published(&error));
         if let Err(reason) = result {
             drop(file);
@@ -533,7 +553,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         &self,
         dir: &KagemushaWalletCustodyDirV1,
     ) -> KagemushaWalletPublishOutcomeV1 {
-        match self.fs.sync_dir(dir) {
+        match counters::sync(SyncClassV1::Publish, || self.fs.sync_dir(dir)) {
             Ok(()) => KagemushaWalletPublishOutcomeV1::Published,
             Err(error) => KagemushaWalletPublishOutcomeV1::Uncertain(unavailable(&error)),
         }

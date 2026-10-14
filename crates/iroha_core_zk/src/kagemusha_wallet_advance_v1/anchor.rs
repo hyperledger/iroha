@@ -144,12 +144,10 @@ pub(super) fn kagemusha_wallet_read_anchor_v1<P: KagemushaWalletPlatformV1 + ?Si
     platform: &P,
     slot: &KagemushaWalletSlotIdV1,
 ) -> Result<Option<KagemushaWalletAnchorV1>, KagemushaWalletProviderErrorV1> {
-    platform
-        .storage_state()
+    super::counters::probe_storage(platform)
         .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
     let answer = platform.anchor_read(slot);
-    platform
-        .storage_state()
+    super::counters::probe_storage(platform)
         .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
     match answer {
         KagemushaWalletProbeV1::Present(bytes) => KagemushaWalletAnchorV1::decode(&bytes)

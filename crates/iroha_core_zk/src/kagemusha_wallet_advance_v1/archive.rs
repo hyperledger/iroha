@@ -335,6 +335,15 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletArchiveAccessV1<'_, F> {
     /// # Errors
     /// Unavailable or corrupt copies, conflicting valid copies, or a violated payload bound.
     pub fn read_record(&self, key: &[u8; 32], max_bytes: usize) -> Result<Option<Vec<u8>>, Error> {
+        super::counters::count(super::counters::EventV1::ArchiveGet);
+        self.read_record_copies(key, max_bytes)
+    }
+
+    fn read_record_copies(
+        &self,
+        key: &[u8; 32],
+        max_bytes: usize,
+    ) -> Result<Option<Vec<u8>>, Error> {
         let limit = max_bytes.checked_add(32).ok_or(Error::Invalid {
             field: "archive.record_size",
         })?;
@@ -383,6 +392,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletArchiveAccessV1<'_, F> {
     /// # Errors
     /// An unavailable or uncertain deletion is returned unchanged; absence is idempotent.
     pub fn remove_record(&self, key: &[u8; 32]) -> Result<(), Error> {
+        super::counters::count(super::counters::EventV1::ArchiveRemove);
         let directory = kagemusha_wallet_archive_dir_v1(self.slot);
         for name in record_names(key) {
             super::layout::kagemusha_wallet_require_removed_v1(
@@ -396,8 +406,9 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletArchiveAccessV1<'_, F> {
     /// # Errors
     /// Conflicting existing bytes, unavailable storage or uncertain durable publication.
     pub fn write_record(&self, key: &[u8; 32], bytes: &[u8]) -> Result<(), Error> {
+        super::counters::count(super::counters::EventV1::ArchivePut);
         if self
-            .read_record(key, bytes.len())?
+            .read_record_copies(key, bytes.len())?
             .as_ref()
             .is_some_and(|old| *old != bytes)
         {

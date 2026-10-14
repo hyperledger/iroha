@@ -1,6 +1,7 @@
 //! Bounded persistent wallet IMT, including genuine intermediate insertion/removal paths.
 
 use super::{Error, IndexRoot, ObjectStore, archive, valid};
+use crate::kagemusha_wallet_advance_v1::counters::{self, EventV1};
 use iroha_data_model::kagemusha::*;
 
 /// Fixed immutable description; selecting it belongs to the authenticated source owner.
@@ -309,6 +310,7 @@ impl PersistentMapV1 {
         key: [u8; 32],
         value: [u8; 32],
     ) -> Result<KagemushaWalletIndexedInsertV1, Error> {
+        counters::count(EventV1::MapInsert);
         if value == [0; 32] || !kagemusha_wallet_is_canonical_field_v1(&value) {
             return Err(Error::Invalid("map field value"));
         }
@@ -333,6 +335,7 @@ impl PersistentMapV1 {
         store: &mut impl ObjectStore,
         key: &[u8; 32],
     ) -> Result<KagemushaWalletIndexedRemoveV1, Error> {
+        counters::count(EventV1::MapRemove);
         key_valid(key)?;
         let entry = self
             .entry(store, key)?

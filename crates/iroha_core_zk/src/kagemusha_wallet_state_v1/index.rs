@@ -1,7 +1,12 @@
 //! Immutable Patricia indexes: one bounded path per access, with a source-anchored root.
+//! Each access counts its node loads, saves and path depth in the calling thread's
+//! [`crate::kagemusha_wallet_advance_v1::KagemushaWalletStorageCountersV1`] (observation only).
 
 use super::{Error, archive};
-use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1 as digest;
+use crate::kagemusha_wallet_advance_v1::{
+    counters::{self, EventV1, IndexWalkV1},
+    kagemusha_wallet_archive_object_digest_v1 as digest,
+};
 
 /// Largest value stored directly in an index leaf. Capsules/proofs live in separate objects;
 /// index leaves hold their digests or fixed replay/tree metadata.
@@ -81,6 +86,7 @@ fn prefix(key: &[u8; 32], length: u16) -> [u8; 32] {
 }
 
 fn load(store: &mut impl ObjectStore, root: [u8; 32], minimum: u16) -> Result<Node, Error> {
+    counters::count(EventV1::IndexNodeLoad);
     let bytes = store.read_object(&root, NODE_LIMIT)?;
     if digest(&bytes) != root {
         return Err(Error::WitnessLost("index node hash"));
@@ -109,6 +115,7 @@ fn load(store: &mut impl ObjectStore, root: [u8; 32], minimum: u16) -> Result<No
 }
 
 fn save(store: &mut impl ObjectStore, node: &Node) -> Result<[u8; 32], Error> {
+    counters::count(EventV1::IndexNodeSave);
     let bytes = archive::encode(node)?;
     let expected = digest(&bytes);
     let saved = store.write_object(&bytes, NODE_LIMIT)?;
@@ -128,6 +135,7 @@ impl IndexRoot {
         store: &mut impl ObjectStore,
         key: &[u8; 32],
     ) -> Result<Option<Vec<u8>>, Error> {
+        let _walk = IndexWalkV1::start(true);
         let mut root = self.0;
         let mut minimum = 0;
         while root != [0; 32] {
@@ -164,6 +172,7 @@ impl IndexRoot {
         if value.len() > INDEX_VALUE_LIMIT {
             return Err(Error::Invalid("index value size"));
         }
+        let _walk = IndexWalkV1::start(true);
         let leaf = Node::Leaf {
             key,
             value: value.to_vec(),
@@ -249,6 +258,7 @@ impl IndexRoot {
     /// # Errors
     /// Corrupted/unavailable paths or uncertain publication.
     pub fn remove(self, store: &mut impl ObjectStore, key: &[u8; 32]) -> Result<Self, Error> {
+        let _walk = IndexWalkV1::start(true);
         let mut path = Vec::new();
         let mut root = self.0;
         let mut minimum = 0;
@@ -315,6 +325,7 @@ impl IndexRoot {
         store: &mut impl ObjectStore,
         key: &[u8; 32],
     ) -> Result<Option<([u8; 32], Vec<u8>)>, Error> {
+        let _walk = IndexWalkV1::start(false);
         let mut root = self.0;
         let mut minimum = 0;
         let mut candidate = None;
@@ -487,5 +498,56 @@ mod tests {
         store.objects.insert(original.0, bytes);
         store.objects.get_mut(&original.0).unwrap().push(0);
         assert!(original.remove(&mut store, &[0; 32]).is_err());
+    }
+
+    #[test]
+    fn walks_count_every_node_load_save_and_path_depth() {
+        use crate::kagemusha_wallet_advance_v1::KagemushaWalletStorageCountersV1 as Counters;
+        let mut store = Memory::default();
+        let (root, first) = Counters::observe(|| {
+            IndexRoot::default()
+                .set(&mut store, [1; 32], b"one")
+                .unwrap()
+        });
+        assert_eq!(
+            (
+                first.index_node_saves,
+                first.index_node_loads,
+                first.index_walks
+            ),
+            (1, 0, 1),
+            "a set on an empty root saves only its leaf"
+        );
+        let (root, second) = Counters::observe(|| root.set(&mut store, [2; 32], b"two").unwrap());
+        assert_eq!(
+            (second.index_node_saves, second.index_node_loads),
+            (2, 1),
+            "a split saves the new leaf and its branch after loading the old leaf"
+        );
+        assert_eq!(second.index_max_depth, 1);
+        for i in 3_u8..64 {
+            let mut key = [0; 32];
+            key[0] = i;
+            store.reads = 0;
+            let (updated, update) = Counters::observe(|| root.set(&mut store, key, &[i]));
+            updated.unwrap();
+            assert_eq!(update.index_node_loads, u64::try_from(store.reads).unwrap());
+        }
+        store.reads = 0;
+        let (value, lookup) = Counters::observe(|| root.get(&mut store, &[2; 32]).unwrap());
+        assert_eq!(value, Some(b"two".to_vec()));
+        assert_eq!(lookup.index_node_loads, u64::try_from(store.reads).unwrap());
+        assert_eq!(lookup.index_max_depth, lookup.index_node_loads);
+        assert_eq!((lookup.index_walks, lookup.index_node_saves), (1, 0));
+        let ((), outer) = Counters::observe(|| {
+            let (_, inner) = Counters::observe(|| root.get(&mut store, &[1; 32]).unwrap());
+            assert_eq!(inner.index_walks, 1);
+            root.predecessor(&mut store, &[2; 32]).unwrap();
+        });
+        assert_eq!(
+            outer.index_walks, 2,
+            "an enclosing observation keeps inner work"
+        );
+        assert!(Counters::current().index_walks >= 2 + 64);
     }
 }

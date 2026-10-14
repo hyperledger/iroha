@@ -165,8 +165,7 @@ where
                 field: "options.ballast_bytes",
             });
         }
-        platform
-            .storage_state()
+        super::counters::probe_storage(&platform)
             .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
         let store = KagemushaWalletDurableStoreV1::new(fs);
         let lock = store
@@ -481,8 +480,7 @@ where
     ///
     /// `Unavailable` with the platform's reason.
     pub(super) fn require_storage(&self) -> Result<(), KagemushaWalletProviderErrorV1> {
-        self.platform
-            .storage_state()
+        super::counters::probe_storage(&self.platform)
             .map_err(KagemushaWalletProviderErrorV1::Unavailable)
     }
 

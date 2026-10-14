@@ -616,9 +616,7 @@ where
                 field: "challenge.scheme_id",
             });
         }
-        self.platform
-            .storage_state()
-            .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
+        self.require_storage()?;
         // A locally abandoned (pre-E2) slot never starts E2 or receives a generation grant.
         if self.abandoned_without_marker(&slot)? {
             return Ok(KagemushaWalletEnrollmentStepV1::SlotAbandoned { slot });

@@ -20,6 +20,9 @@
 //!   same-content-rewrite and removal primitives, its `std::fs` backend, and (tests and
 //!   `test-utils`) a simulator with fault injection at every step and crash, restart and
 //!   power-loss simulation.
+//! - `counters`: per-thread, in-memory counts of storage work (store calls, sync classes and
+//!   their time, protected-storage probes, reconciliations, archive and index accesses) for
+//!   on-device measurement ([`KagemushaWalletStorageCountersV1`]). They only observe.
 //! - `layout`: custody root layout, strict names and directory preparation.
 //! - `marker`: marker generations (Enrollment, Selected head, Released head bound to its
 //!   completion digest, Terminal), generation ordering, selection of the highest generation,
@@ -125,6 +128,8 @@ mod anchor;
 mod archive;
 mod capsule;
 mod completion;
+pub(crate) mod counters;
+pub use counters::KagemushaWalletStorageCountersV1;
 mod enrollment;
 mod enrollment_phase;
 mod layout;
@@ -335,7 +340,7 @@ where
 }
 
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 
 #[cfg(test)]
 mod crash_matrix_tests;
