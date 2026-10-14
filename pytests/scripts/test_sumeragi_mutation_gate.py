@@ -1268,6 +1268,8 @@ def test_retained_multisig_proposals_bind_exact_approved_body_and_physical_row()
                        "proposal_id", "network_id", "transaction_ttl_ms"):
         assert f"altered.{coordinate} =" in body
     assert "ExecutionAttemptError::Rejected" in body
+    # The transaction now exposes the refusal bit directly.  This malformed
+    # state path must remain an ordinary rejection and leave no deferral.
     assert "assert!(!tx.is_execution_deferred());" in body
 
 

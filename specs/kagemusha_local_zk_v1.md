@@ -555,7 +555,216 @@ publication. Native identity and zero-round stops already coupled stay coupled.
 Different private Direct frames change Phi through their instance evaluations
 and their absorbed prelude. Residual masks alone do not remove that dependence.
 This result eliminates an additional opening-polynomial argument within a
-same-frame fiber; it supplies neither an efficient public sampler nor the
-across-frame joint law needed by C12. Independent source/algebra review and
+same-frame fiber. Appendix D constructs a public-input sampler under an
+additional coherent known-log setup premise; the across-frame joint fold law
+needed by C12 remains open. Independent source/algebra review and
 108 finite polynomial checks support this bounded derivation; they do not
 qualify native proofs, current keys or the concrete randomness conversion.
+
+## Appendix C: compact Send support and zero-preserving products
+
+For `wallet_monetary_shape(SigmaRelation::SEND)`, the ordinary source has one
+Pow5 lane, eleven-bit range limbs and k12. Its five advice columns are queried
+in order `(0,0),(1,0),(2,0),(3,0),(4,0),(4,1),(4,-1),(0,1),(1,1),(2,1),(3,1)`;
+equality order is advice 0..3, fixed 6, advice 4, instance 0. Thus b=5, u=4090,
+and seven equality columns form two product sets. The
+[`compact_send_descriptor_support_inventory`](../crates/iroha_kagemusha_proof/tests/real_proofs.rs)
+regression pins the descriptor, all sixteen selector bitmaps, copy map and full
+public-source fingerprint to retained compact originals. These source checks
+perform no commitment admission and cannot replace current installed-original
+custody or the strict native source/VK checks.
+
+The source's active support gives the required mask independence. Pow5 offsets
+0..35 read only assigned rows of their block; continuation assigns the next
+state before returning, while the final squeeze at offset 36 reads only its
+current row. Glue reads current advice and has zero standard coefficients off
+its assigned rows. Range step is enabled only before an assigned successor;
+top and shifted-top rows use current/previous advice. Assembly rejects unusable
+assignments and copy endpoints; key preparation also rejects nonzero fixed
+values, active selectors and nonidentity copies in the tail. Selector
+compression preserves these supports because a replacement vanishes at zero
+and at every other member's root.
+
+The opening groups, in first-slot order, are: `{0,1}` for advice 0..3, second
+copy product and lookup product; `{0,1,-1}` for advice 4; `{0,1,-6}` for the first
+copy product; `{0,-1}` for A'; and `{0}` for S', public fixed/sigma columns, H_x
+and R. R is last. Advice and A'/S' have six fresh rows u..n-1; products have five
+fresh rows u+1..n-1. Product starts and endpoints z[u] are excluded from that
+count; the copy link's rotation -6 at row zero reads exactly u. Including x3,
+the worst product exposes four coordinates against five. The rank statement
+requires the regular distinct evaluation points specified above. This is the
+concrete support premise for the local argument, not a C12 result.
+
+### Product residuals and the challenge experiment
+
+For either copy or lookup products the native zero-preserving inverse gives
+`z_(i+1)=z_i*N_i*inv0(D_i)`, with `inv0(0)=0`. The exact recurrence residual is
+zero when `D_i!=0` and `-z_i*N_i` when `D_i=0`. Once z reaches zero it stays zero.
+Copy sets concatenate in `(set,row<u)` order: each starts at its predecessor's
+z[u], without resetting to one. Each lookup separately starts at one. For valid
+copy/lookup factor multisets, either both sides have no zero, yielding terminal
+one, or both have a zero. In the latter case every recurrence holds exactly iff
+the first zero numerator occurs no later than the first zero denominator;
+otherwise the first zero denominator has a nonzero residual. The terminal
+constraint allows zero and one and hence does not distinguish these branches.
+GoodDen is sufficient, not necessary, and a zero denominator is not necessarily
+a native abort. Outcomes must be retained or charged without conditioning on
+accepted proofs or retrying challenges.
+
+Only usable-row denominators affect retained products; later computed copy
+ratios are overwritten by fresh masks before use. This source has 7u copy
+factors and 2u lookup factors. In the normalized random-oracle model, fresh
+challenges have maximum atom lambda, giving `Pr[not GoodDen] <= 9u*lambda`
+(capped at one), with lambda=2/q for Vesta's actual Fq-to-Fp map.
+
+For fixed RP57, use the cut after theta, usable lookup values and both A'/S'
+random tails are fixed, immediately before the two commitment blinds.
+`lookup::commit_permuted` draws both blinds before writing either point. Ideal
+fresh scalar blinds and nonidentity W make those points independent uniform
+group points. Apply unchanged native absorption, identity errors, RP57 squeezes
+and challenge conversion, retaining errors as bottom. For every reachable
+private/public prefix P at that cut, define kappa_beta and kappa_gamma as maximum
+masses of defined challenge atoms and kappa_line as maximum mass of
+`gamma+a*beta+b=0`, over field a,b. The per-attempt denominator loss is at most
+`u*(kappa_beta+kappa_gamma+7*kappa_line)`, capped at one. Sum over the bounded
+number of fresh attempts, maximizing over prefixes reachable under the full
+adversary query budget; a two-world coupling may conservatively charge both
+worlds. These construction-specific masses are not proved small here. Conditioning
+on the entire emitted prefix instead makes fixed-RP57 challenges deterministic
+and cannot justify a fresh uniform challenge assumption. Exact-byte recovery
+is not a fresh attempt.
+
+### The quotient on the regular branch
+
+The [native evaluator](../crates/iroha_plonk/src/prover/quotient.rs) compiles
+expressions using only field identities; induction on its postfix stack and
+DAG preserves each root. Rotated coset reads evaluate P(omega^r X). Four-lane
+storage evaluates that same recurrence per lane. The gate plan expands each
+eight-term Horner block as `old*y^8 + sum_j gate_j*y^(7-j)`; factoring identical
+public subexpressions distributes over this sum. It appends permutation first,
+last, links and products in the protocol table's order, then each lookup's
+first, last, product, start and step. The lookup batch is exactly
+`old*y^5 + l0*(y^4*first+y*start) + llast*y^3*last + lactive*(y^2*product+step)`.
+No inverse of y occurs. The verifier evaluates the same table by serial Horner.
+Coset masks use `l0(X)=(X^n-1)/(n*(X-1))`, `l_r(X)=l0(omega^-r X)` and
+`lactive=1-sum_(r=u)^(n-1) l_r`, so both paths sample the same numerator N(X).
+
+On a valid usable assignment and GoodDen, active support and product equations
+make every constraint vanish on H; lookup permutation preserves its multiset
+and start/adjacency equations. Every row polynomial has degree at most n-1.
+Descriptor degree bounds include the permutation mask, product and at most d-2
+factors, and the lookup degree rule. Thus `deg N<=d*(n-1)`, so `X^n-1` divides N
+and `h=N/(X^n-1)` has degree below `(d-1)*n=5n`.
+
+[`QuotientDomain`](../crates/iroha_plonk/src/keys/pk.rs) chooses
+`s_c=ZETA*omega_e^c`, `e=k+3`, c=0..4, and `lambda_c=s_c^n`. The lambda values
+are distinct since omega_e^n has order eight, and none is one since ZETA has
+order three and n is a power of two; constructor inversions also check this.
+Each coset division by lambda_c-1 therefore samples h. Writing
+`h(X)=sum_(t=0)^4 X^(tn)*h_t(X)`, its coset IFFT with shift removal gives
+`a_c[r]=sum_t lambda_c^t*h_t[r]`. Recombination stores coefficient t of the
+Lagrange basis at lambda_c, so the inverse Vandermonde multiplication recovers
+each h_t uniquely. This derives the native quotient under correct field/FFT
+arithmetic; it is not an inference from proof acceptance.
+
+The pieces are committed in order with separate blinds. The polynomial opened
+later is `H_x(T)=sum_t(x^n)^t*h_t(T)` with the same combination of blinds.
+Therefore `H_x(x)=h(x)=N(x)/(x^n-1)` at reached regular x, matching the verifier.
+At x3 the group uses H_x(x3), generally different from h(x3). R's final-slot
+compensation concerns this H_x, keeping H_x(x) and R(x) fixed. If a zero
+inverse causes a nonzero residual, coset interpolation still returns a
+polynomial, but its equality to a global quotient or the verifier's value at
+new x cannot be inferred; aggregate Horner cancellation may also occur.
+
+Fixed-RP57 regularity bounds, concrete randomness and complete error laws,
+chosen/installed setup, cross-frame recursion, salted-fold hiding and the joint
+erased endpoint remain separate obligations. These source-coupled local
+premises do not close C12.
+
+## Appendix D: public samplers and the surviving fold boundary
+
+The [source-coupled sampler derivation](../formal/kagemusha_setup/PUBLIC_SAMPLER.md)
+extends the preceding local result under an additional coherent setup premise:
+the simulation owner knows the logs of the same K's generators and nonzero W.
+Native producers, circuits, verifiers, simulator and continuations all use the
+same unchanged deterministic RP57 F. At a valid atomic proof cut, usable witness,
+canonical Direct frame and pre-coin auxiliary state are fixed; fresh scalar
+coins are independent uniform. The observer obtains the complete proof response
+or its declared cryptographic error, not a partial stream or the new coin tape.
+This is an ideal-coin statement, not current installed-setup qualification.
+
+For the compact Send source in Appendix C, an independent uniform W blind makes
+each committed point independent of its entire polynomial. Conditioning on that
+point leaves the polynomial mask fiber unchanged. Cauchy rank makes the initial
+private evaluations uniform. The first four point groups each have their own
+remaining private coordinate with coefficient one, including when x1=0. Changes
+to them can alter the dependent H_x; the last group's independent R(x3) coordinate
+compensates that arbitrary offset while preserving R(x), on regular x3!=x.
+The q' commitment blind preserves its already exposed point. GoodDen gives the
+actual opening value equal to public Phi. The known-log IPA sampler then matches
+the full c/f/G law, retaining the exact coefficient-rank-collapse branch.
+
+Thus the honest response and the public-input same-F sampler can be coupled
+except at the union of usable denominator failure, x3 in H or an earlier rotated
+opening point, and reached xi=0. Using Appendix C's exact pre-blind cuts, the
+one-attempt bound is
+
+`min(1, min(1,4090*(kappa_beta+kappa_gamma+7*kappa_line)) + min(1,4100*kappa_3) + kappa_xi0)`.
+
+Here kappa_3 is the maximum defined x3 atom over the fresh q' commitment blind,
+and kappa_xi0 is the probability of xi=0 over the fresh IPA S blind, retaining
+identity errors as bottom. The x3 exceptional set has at most 4096+4 elements.
+No fixed-RP57 smallness bound is proved for these masses. The coupling is built
+before imposing GoodDen or eventual success. Fresh attempts compose by first
+divergence; exact replay reuses its response. Concrete entropy, operational and
+custody costs remain separate. This compact-source result does not establish
+the corresponding support predicates for the current Omega/A/W catalog.
+
+The public sampler is total on canonical frames even without a relation witness,
+within its coherent known-log setup. That property permits already erased
+recursive suffixes to run after a frame changes. The
+[erased endpoint derivation](../formal/kagemusha_setup/ERASED_ENDPOINT.md) fixes
+the complete public key catalog, ordered exported sigma frames/bodies' roles and
+counts, public18, outer key, permitted prior public history and observable
+schedule. After independently sampling the exported sigma bodies and the two
+explicit erased challenge tapes, it derives P,V, the 52-field lineage digest,
+Omega's 1/2/16 Direct columns, and the total Omega response. This kernel reads no
+hidden history. Equal stated leakage gives pointwise equal outputs under common
+coins, including refusals, so its cross-history middle term is exactly zero.
+This proves endpoint equality; it does not prove the real construction reaches
+that endpoint, apply to the old session's exact P/V check, or cover a continuation
+that reveals designated private salts/bodies or additional private state.
+
+The [surviving-carrier argument](../formal/kagemusha_setup/SALTED_FOLD_PRIVACY.md)
+identifies the remaining edge precisely. Deciding P/V serialize their sixteen
+challenges verbatim; their generators are reconstructed from those challenges
+and K. Together with exported sigma bodies this is an efficient representation
+of the surviving carrier. After justified proof erasure, let Q be the common
+total public endpoint kernel and eta_j the probability that its output fails to
+retain a decodable carrier in world j. Then
+
+`max(0, TV(carrier_0,carrier_1)-eta_0-eta_1) <= TV(Q(carrier_0),Q(carrier_1)) <= TV(carrier_0,carrier_1)`.
+
+The same decoding reduction preserves any efficient carrier distinguisher up to
+eta_0+eta_1. Therefore outer sampling alone cannot remove an unresolved fold-law
+difference. This is an obstruction to that proof shortcut, not an RP57 attack.
+
+A narrower endpoint can run the actual salted fold on public templates of
+repeated source-admitted full-k16 trivial claims, with fresh salts and all errors
+retained. It has the same exact cross-history factorization while avoiding an
+independent-sixteen-word target. The sufficient missing edge is computational
+*joint salted-fold input privacy* against these canonical real-fold carriers,
+including permitted pre-salt auxiliary state, coherent setup logs, adaptive
+continuations and total outcomes. That hypothesis is proposed, unadopted and
+unproved. The selected recursive Fiat–Shamir knowledge/accumulation assumption
+does not supply it. A full independent-tape hypothesis would be stronger.
+
+For fixed inputs a real fold has at most b salt-indexed successful vectors.
+If its success probability is rho and each independent mapped word has maximum
+atom lambda, its statistical distance from an independent sixteen-word target
+is at least `max(0,rho-b*lambda^16)`. This rules out a small statistical full-tape
+claim when success is frequent; no efficient support-membership test is given.
+It does not refute computational input privacy or equality of two real-fold
+input laws. Current setup/source admission, fixed-RP57 regularity, concrete
+randomness and outcomes, the missing joint fold comparison, and whole-wallet
+custody/continuation remain open. These conditional results do not close C12.

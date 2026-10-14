@@ -765,3 +765,185 @@ fn installed_sigma_originals_reject_substitution_bounds_and_wrong_source() {
         .is_err()
     );
 }
+
+/// Pins compact Send's source support to an independently retained public archive.
+/// This synthesizes public source and hashes it, but grants no source authority.
+#[test]
+fn compact_send_descriptor_support_inventory() {
+    use iroha_kagemusha_proof::{SigmaCircuit, wallet_monetary_shape};
+    use iroha_plonk::{
+        Protocol,
+        cs::{InstanceType, descriptor::ColumnKindV1},
+        frontend::synthesize,
+        keys::{DescriptorBinding, KeygenConfigV2, source_fingerprint_v2},
+        pcs::ipa::PinnedParams,
+    };
+    use sha2::{Digest as _, Sha256};
+
+    let shape = wallet_monetary_shape(SigmaRelation::SEND).expect("wallet shape");
+    let descriptor = shape.descriptor::<Eq>().expect("descriptor");
+    let binding = DescriptorBinding::new_v2(descriptor.clone()).expect("binding");
+    let protocol = Protocol::new(&descriptor).expect("protocol");
+    let advice: Vec<_> = descriptor
+        .advice_queries
+        .iter()
+        .map(|query| (query.column, query.rotation))
+        .collect();
+    let fixed: Vec<_> = descriptor
+        .fixed_queries
+        .iter()
+        .map(|query| (query.column, query.rotation))
+        .collect();
+    let equality: Vec<_> = descriptor
+        .permutation
+        .iter()
+        .map(|column| (column.kind, column.index))
+        .collect();
+    let selector_map: Vec<_> = descriptor
+        .selectors
+        .entries
+        .iter()
+        .map(|entry| (entry.max_degree, entry.combination, entry.root))
+        .collect();
+    assert_eq!(descriptor.k, 12);
+    assert_eq!(descriptor.degree, 6);
+    assert_eq!(descriptor.blinding_factors, 5);
+    assert_eq!(descriptor.permutation_chunk_len, 4);
+    assert_eq!(descriptor.quotient_pieces, 5);
+    assert_eq!(descriptor.num_advice_columns, 5);
+    assert_eq!(descriptor.num_fixed_columns, 24);
+    assert_eq!(descriptor.instance_lengths, vec![1]);
+    assert_eq!(descriptor.lookups.len(), 1);
+    assert_eq!(
+        advice,
+        vec![
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (3, 0),
+            (4, 0),
+            (4, 1),
+            (4, -1),
+            (0, 1),
+            (1, 1),
+            (2, 1),
+            (3, 1)
+        ]
+    );
+    let expected_fixed: Vec<_> = [
+        6, 7, 8, 9, 10, 11, 12, 13, 14, 0, 1, 2, 3, 4, 5, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+    ]
+    .into_iter()
+    .map(|index| (index, 0))
+    .collect();
+    assert_eq!(fixed, expected_fixed);
+    assert_eq!(
+        equality,
+        vec![
+            (ColumnKindV1::Advice, 0),
+            (ColumnKindV1::Advice, 1),
+            (ColumnKindV1::Advice, 2),
+            (ColumnKindV1::Advice, 3),
+            (ColumnKindV1::Fixed, 6),
+            (ColumnKindV1::Advice, 4),
+            (ColumnKindV1::Instance, 0)
+        ]
+    );
+    assert!(descriptor.selectors.compress);
+    assert_eq!(descriptor.selectors.first_column, 15);
+    assert_eq!(
+        selector_map,
+        vec![
+            (3, 2, 1),
+            (3, 2, 2),
+            (3, 2, 3),
+            (0, 0, 1),
+            (0, 1, 1),
+            (3, 2, 4),
+            (6, 3, 1),
+            (6, 4, 1),
+            (6, 5, 1),
+            (6, 6, 1),
+            (6, 7, 1),
+            (2, 8, 1),
+            (2, 8, 2),
+            (2, 8, 3),
+            (2, 8, 4),
+            (2, 8, 5)
+        ]
+    );
+    assert_eq!(protocol.shape().usable_rows, 4090);
+    assert_eq!(protocol.shape().permutation_sets, 2);
+    assert_eq!(protocol.plan().rotations(), &[0, 1, -1, -6]);
+    assert_eq!(protocol.plan().sets().len(), 5);
+    assert_eq!(
+        format!("{:x}", Sha256::digest(binding.encoded())),
+        "e320f8c818ac562bc909db4158bce72b8f7b237ae0ef5d5396580b492bb1af75"
+    );
+
+    let circuit = SigmaCircuit::<Fp>::keygen(shape.params);
+    let source = synthesize(&circuit, shape.k, None).expect("native source");
+    let selectors = source.tables.selectors();
+    assert_eq!(selectors.len(), 16);
+    let usable = protocol.shape().usable_rows;
+    for (selector, active) in selectors.iter().enumerate() {
+        assert!(active[usable..].iter().all(|value| !value));
+        if [3, 6, 7, 8, 9].contains(&selector) {
+            assert!(
+                active
+                    .iter()
+                    .enumerate()
+                    .all(|(row, value)| !value || row + 1 < usable)
+            );
+        }
+        if selector == 5 {
+            assert!(!active[0], "range previous rotation cannot wrap");
+        }
+    }
+    let packed: Vec<_> = selectors
+        .iter()
+        .flat_map(|rows| {
+            rows.chunks(8).map(|chunk| {
+                chunk
+                    .iter()
+                    .enumerate()
+                    .fold(0_u8, |byte, (bit, value)| byte | (u8::from(*value) << bit))
+            })
+        })
+        .collect();
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&packed)),
+        "726eec3eae129cb012871bb0abba0eae768f1f5c585d1963ba9441d46542fdff"
+    );
+    assert_eq!(
+        source.tables.permutation().mapping_digest(),
+        [
+            58, 11, 95, 52, 222, 174, 85, 166, 7, 214, 168, 130, 107, 100, 63, 35, 43, 18, 204,
+            244, 175, 157, 149, 120, 218, 47, 50, 24, 227, 189, 225, 63
+        ]
+    );
+    let params = PinnedParams::<Eq>::for_domain(shape.k).expect("pinned parameters");
+    let fingerprint = source_fingerprint_v2(
+        &params,
+        &circuit,
+        &KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]),
+        None,
+    )
+    .expect("source fingerprint");
+    assert_eq!(fingerprint.binding(), &binding);
+    assert_eq!(
+        fingerprint.digest(),
+        &[
+            133, 195, 148, 39, 153, 72, 16, 127, 156, 62, 109, 158, 70, 155, 33, 25, 156, 159, 172,
+            5, 192, 29, 87, 26, 254, 188, 13, 203, 188, 74, 83, 134
+        ]
+    );
+    println!(
+        "COMPACT_SEND_SOURCE descriptor={:x} selectors={:x} source={:?} queries={:?} groups={:?} selector_map={selector_map:?}",
+        Sha256::digest(binding.encoded()),
+        Sha256::digest(packed),
+        fingerprint.digest(),
+        protocol.queries(),
+        protocol.plan().slots()
+    );
+}

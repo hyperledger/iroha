@@ -1198,6 +1198,8 @@ pub struct WalletEnrollmentRequest {
 /// instruction (<=65536 bytes, same handle in sequence), or58 empty for the local form.
 /// Abandon10 returns 58 for the local no-marker form (nothing to submit) or 28 with the exact
 /// retained signed Abandonment frame for the marker form.
+/// Selector21 consumes one issuer-signed E1 expiry proof and returns 58 only after Native has
+/// authenticated the exact Accepted/no-Slot attempt and retained the immutable Expired marker.
 /// The same opaque runtime handle is returned in sequence. E6 does not imply ledger activation.
 /// # Safety
 /// Request and each bounded item/input must be readable; output writable and unallocated.

@@ -528,6 +528,28 @@ REQUIRED_WALLET_JNI_SYMBOLS=(
 REQUIRED_LOAD_ORIGINAL_JNI_SYMBOLS=(
   Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletLoadOriginalNativeV1_validate
 )
+REQUIRED_PRIVACY_JNI_SYMBOLS=(
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeSubmitProofIntentProjectionV1
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeBridgeAbiVersion
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeConfidentialDerivationContractRevisionV3
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeDefaultConfidentialDiversifierV3
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeDeriveConfidentialDiversifierV3
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeDeriveConfidentialOwnerTagV3
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeDeriveConfidentialAssetTagV3
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeDeriveConfidentialNetworkTagV3
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeDeriveConfidentialNoteCommitmentV3
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeDeriveConfidentialNullifierV3
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeDeriveConfidentialMerklePathV3
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeVerifyConfidentialMerklePathV3
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeCompiledProfileCatalog
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeValidateCompiledProfileCatalog
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeValidateExact12CapabilityManifestForNetworkV1
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeInspectExact12CapabilityManifest
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeRequireExact12CapabilityTupleForNetworkV1
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeValidateExact12SubmitProofConstructionForNetworkV1
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeExact12FixtureBundle
+  Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeValidateExact12FixtureBundle
+)
 # Retired with the Google first-device sign-up key at bridge ABI 29.
 RETIRED_AUTH_JNI_SYMBOLS=(
   Java_org_hyperledger_iroha_sdk_crypto_keystore_NativeFirstDeviceAuthKeyJniV1_reserve
@@ -569,7 +591,7 @@ check_binary_symbols() {
   [[ -n "$symbols" ]] || { fail "$label has no inspectable exported symbols"; return; }
   local symbol
   if [[ "$nm_mode" == "elf" ]]; then
-    for symbol in "${REQUIRED_WALLET_JNI_SYMBOLS[@]}" "${REQUIRED_LOAD_ORIGINAL_JNI_SYMBOLS[@]}"; do
+    for symbol in "${REQUIRED_WALLET_JNI_SYMBOLS[@]}" "${REQUIRED_LOAD_ORIGINAL_JNI_SYMBOLS[@]}" "${REQUIRED_PRIVACY_JNI_SYMBOLS[@]}"; do
       if ! grep -Fxq "$symbol" <<<"$symbols"; then
         fail "$label is missing $symbol"
       fi

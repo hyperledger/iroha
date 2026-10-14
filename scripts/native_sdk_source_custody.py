@@ -174,7 +174,7 @@ def source_identity(metadata, root, selected_names, digest):
     # Exact root-outside originals read by actual Crypto SM2/SoraNet units,
     # plus retained Primitives/Norito documentation and rANS input custody.
     # Local captured schema, diagnostic TSVs and PQ vectors are captured below.
-    for relative in ['norito.md', 'scripts/norito_schema_capture/derive_probe.rs', 'codec/rans/tables/rans_seed0.toml', 'artifacts/poseidon/constants.ron', 'fixtures/sm/sm2_fixture.json', 'tests/interop/soranet/interop/rust/snnet-interop-nk2-v1.json', 'tests/interop/soranet/interop/rust/snnet-interop-nk3-v1.json']:
+    for relative in ['norito.md', 'scripts/norito_schema_capture/derive_probe.rs', 'scripts/contract_tooling/artifact-lock.json', 'codec/rans/tables/rans_seed0.toml', 'artifacts/poseidon/constants.ron', 'fixtures/sm/sm2_fixture.json', 'tests/interop/soranet/interop/rust/snnet-interop-nk2-v1.json', 'tests/interop/soranet/interop/rust/snnet-interop-nk3-v1.json']:
         p=root/relative
         if p.is_symlink() or not p.is_file():
             raise RuntimeError("Declared public outside-package input custody changed")

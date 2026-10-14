@@ -424,3 +424,124 @@ Use the same immutable daemon, isolated permit directory and `IROHA_TEST_NETWORK
 then run `cargo test -p integration_tests --test core_api native_payment_network::rejected_payment:: -- --ignored --nocapture --test-threads=1`.
 It authenticates an included insufficient-principal rejection at H2, restarts all validators and recovers at that final tip without credit or new work.
 A missing-journal resume refuses to sign without explicit authorization. A deliberately requested fresh-gateway submit is a separate paid H3 rejected attempt: the test explicitly distinguishes read-only recovery from retry authorization and does not promise exactly-once rejection fees.
+
+### KAGEMUSHA monetary continuation
+
+The ignored `sumeragi` selector
+`kagemusha_network_setup::continuation::execute_four_validator_monetary_continuation`
+owns the same four Linux validators and stores across registration, external enrollment and
+proof work, funding, settlement, and once-only payout checks after restart. Select
+same-candidate `TEST_NETWORK_BIN_IROHAD` and `TEST_NETWORK_BIN_IROHA`, set
+`IROHA_TEST_REQUIRE_NETWORK=1` and `IROHA_TEST_SKIP_BUILD=1`, and supply a new absolute
+`KAGEMUSHA_REAL_NETWORK_CAMPAIGN` under checkout-local `target/qualification`. Keep
+test-network and temporary directories under `target`; select the exact ignored test
+with `--exact --ignored --nocapture --test-threads=1`. The owner creates fresh canonical
+signed genesis with current chain parameters. Retired genesis layouts cannot be used
+as catalog inputs. This disposable engineering network does not deploy to production.
+
+After `ready.json`, publish `registration-command.json` with schema
+`iroha.kagemusha.real-network-command.v1`, phase `registration`, the exact
+`setup_sha256`, `previous_sha256` of `ready.json`, canonical nonzero `scheme_id` and
+`manifest_digest`, and `verifier_pack` containing its absolute `path` and `sha256`.
+The native pack is independently admitted before Register/Install. `registered.json`
+binds genuine H3 finality and `registration/package/registration-source.norito`,
+which the existing native registration publisher verifies before sealing. Enrollment
+can obtain its registration authority before activation. This stage issues no
+credential or mobile admission.
+
+After registration, publish `issuer-command.json` bound to `registered.json`. It uses
+that same command schema with phase `issuer`, `peer_index` selecting exactly one of
+the four existing validators (0–3), and `configuration:{path,sha256}` selecting an
+existing owner-private, single-link TOML original within the native 1 MiB config
+bound. Its sole subtree is `[torii.kagemusha_enrollment]`; it cannot override peer
+identities, committee, genesis, storage, listeners, or any other node settings.
+Every provider must select the exact registered Scheme and installed manifest.
+Private signer, middleware credential and worker-store paths remain runtime-only;
+no configuration bytes or secrets are copied into the readiness receipt.
+
+The owner stops and restarts only that peer using its existing config layers,
+keys, genesis and stores, with the selected issuer subtree appended. The other
+three validators remain running. Normal native startup authenticates the issuer
+journal, signer, worker and transport dependencies. `issuer-ready.json` appears
+only after actual Torii startup and all four validators' unchanged H3 finality are
+verified. This is startup evidence, not an enrollment or eligibility verdict.
+Missing or failed startup retains partial state without a fallback issuer. The
+owner retains this exact selection through the final full-network restart.
+
+Next publish `funding-command.json` bound to `issuer-ready.json`. Its closed fields
+are `schema`, `phase`, `setup_sha256`, `previous_sha256`, and
+`target:{path,sha256}`. It selects the exact new-anchor
+`iroha.kagemusha.native-load-target.v1` original. The owner verifies its setup,
+scheme, asset, and manifest against registration, prepares and signs Activate
+once, and retains its complete canonical versioned `SignedTransaction` wire in
+`funding/activate-signed.wire`. It atomically publishes `activation-prepared.json`
+after that wire is durable. This closed receipt contains `schema` equal to
+`iroha.kagemusha.network-activation-prepared.v1`, `setup_sha256`,
+`registration_sha256`, `funding_command_sha256`, `target_sha256`,
+`transaction_hash_hex`, and `signed_transaction:{name,bytes,sha256}`. The signed
+original's name is exactly `funding/activate-signed.wire`. A transaction hash alone
+is insufficient because it does not bind every signature in the complete wire.
+
+The controller delivers those exact wire bytes to the same A wallet's real
+`retainActivationAttempt` call before any submission. A successful initial Native
+return produces a portable UTF-8 JSON original with exactly eight string fields:
+`schema` equal to `iroha.kagemusha.wallet-activation-retained.v1`, `action` equal to
+`retain-activation`, `signedWireSHA256`, `signedWireBytes`, `nativeResult` equal to
+`not_started`, `nativeReturnedTicks`, `invocation`, and `sequence`. Decimal strings
+are canonical unsigned integers; ticks are positive and sequence is 0–9999.
+Invocation preserves the driver's UUID identity. The driver emits no such receipt
+for confirmation, rejection, or partial finality progress. Its command,
+started/finished observations, and invocation remain independently pinned by the
+controller; an activation export, host boolean, or normalized host substitute is
+never a wallet-retention receipt.
+
+Only then publish `activation-retained-command.json`, using the same command
+schema, phase `activation-retained`, `setup_sha256`,
+`previous_sha256` equal to the exact prepared receipt SHA-256, and
+`retention:{path,sha256}` selecting the device-produced original. Those are its
+only fields. The owner validates the closed receipt and exact wire hash/extent,
+retains it, rechecks its original signed bytes, campaign deadline, explicit abort,
+and unchanged H3, then submits the already-signed transaction unchanged. It never
+re-signs while waiting. Activation executes at H4 and funded Load at H5.
+`funded.json` binds prepared, acknowledgment, retention, and signed-wire hashes.
+This observed controller DATA is not a signature, a finality certificate, or a
+physical-device qualification verdict. The software native-exchange caller uses the explicit ignored test
+`native_exchange::load::activation_retention::retain_actual_a_activation_before_network_submission`.
+It selects `KAGEMUSHA_NATIVE_ACTIVATION_PREPARED` and its `_SHA256`, the existing
+`KAGEMUSHA_NATIVE_LOAD_TARGET` and its `_SHA256`,
+`KAGEMUSHA_NATIVE_ACTIVATION_INVOCATION` (a fresh UUID), and a fresh private
+`KAGEMUSHA_NATIVE_ACTIVATION_RETENTION_OUTPUT`, with the same admitted-source and
+executed-setup inputs as the target producer. The selected prepared receipt sits
+beside its `funding/activate-signed.wire`; paths remain under the native
+qualification root. It restores the same saved `wallet-a`, checks existing
+Bootstrap and activation originals, actually retains the signed attempt, and
+reopens the same owner before emitting `activation-retained.json`. Its separate
+`component-scope.json` declares software custody, no new payment signatures and
+no physical qualification. The controller retains this scope record and the
+actual successful test result; it must never treat this receipt as a phone
+observation. Retaining only after H4 does not satisfy the handshake.
+
+`settlement-command.json` binds `funded.json` and has exactly `schema`, `phase`,
+`setup_sha256`, `previous_sha256`, `exchange`, `target`, `verifier_pack`, and
+`adversarial`. Each selected original uses `{path,sha256}`. `adversarial` must be
+explicitly `{"kind":"none"}` or
+`{"kind":"software_bad_sigma","claim":{"path":"/absolute/original","sha256":"..."}}`.
+The optional software fixture must have valid model authentication, the same
+payout/public binding as genuine C, only the permitted proof/receipt change, and
+actual rejection by the installed verifier. It is separate from physical C's
+nonexportable payment key. Genuine C's installed proof verification is mandatory
+for either choice. Omitting the fixture still permits genuine settlement and
+replay checks but leaves adversarial and native proof-rejection coverage false;
+no missing coverage is inferred from the successful payout. The native software
+exchange's exported bad-sigma original is never selected implicitly.
+
+`confirmed-command.json` binds `settled.json` and selects `confirmation`. Commands
+and originals must be bounded, owner-private, single-link regular files. Publish
+complete commands atomically before exposing their final names. Existing and
+partial outputs remain for inspection. Controller aborts use the explicit
+`abort-command.json` setup/failure record and normal shutdown of owned peers.
+
+The continuation reports actual network execution. Registration, controller
+receipts, optional software adversarial inputs, and network settlement alone do
+not establish physical enrollment or phone latency; device custody and native
+consumer qualification are separately retained evidence.

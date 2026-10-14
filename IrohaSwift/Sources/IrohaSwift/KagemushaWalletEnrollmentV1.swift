@@ -53,6 +53,7 @@ struct KagemushaWalletEnrollmentInputV1 {
     case 0: bounds = [32,4096,1024]
     case 1,5: bounds = [64,0,0]
     case 2,7,8,10,20: bounds = [0,0,0]
+    case 21: bounds = [4096,0,0]
     case 4: bounds = [32,65536,4096]
     case 6: bounds = [KagemushaWalletEnrollmentV1.RESULT_MAX_BYTES,0,0]
     case 9: bounds = [KagemushaWalletEnrollmentV1.PERMIT_MAX_BYTES,0,0]
@@ -131,6 +132,7 @@ public final class KagemushaWalletEnrollmentV1: KagemushaWalletCleanupResourceV1
     case 9: expected = [18]
     case 10: expected = [28, 58]
     case 20: expected = [58, 59]
+    case 21: expected = [58]
     case 13: expected = [38]
     case 14,15,17,19: expected = [39]
     case 16: expected = [20,24]
@@ -292,6 +294,13 @@ public final class KagemushaWalletEnrollmentV1: KagemushaWalletCleanupResourceV1
     lock.lock(); defer { lock.unlock() }
     let reply = try call(KagemushaWalletEnrollmentInputV1(20))
     return try Self.abandonmentLedgerInstruction(reply)
+  }
+  /// Permanently release an Accepted/no-Slot attempt after Native verifies the exact Core-signed
+  /// expiry proof. This path never handles a selected Slot or emits a ledger instruction.
+  public func abandonExpired(proof: Data) throws -> KagemushaWalletEnrollmentAbandonmentV1 {
+    lock.lock(); defer { lock.unlock() }
+    guard (1...4096).contains(proof.count) else { throw KagemushaWalletErrorV1.invalidInput }
+    return try Self.abandonment(call(KagemushaWalletEnrollmentInputV1(21, proof)))
   }
   static func abandonmentLedgerInstruction(_ reply: KagemushaWalletCallV1) throws -> Data? {
     switch reply.status {

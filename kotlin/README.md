@@ -366,7 +366,7 @@ pins, proof verdicts or payment-key replacement.
 Native artifact builds select their application release authority with the paired
 public inputs `MOBILE_SDK_WALLET_RUNTIME_AUTHORITY` and
 `MOBILE_SDK_WALLET_RUNTIME_TRUST_ED25519_HEX`. The authority is exactly
-`bpng-taira-v7` or `cbsi-release-v1`; the key is the independently selected,
+`bpng-taira-v7`, `cbsi-release-v1` or `application-release-v1`; the key is the independently selected,
 nonzero lowercase Ed25519 public-key hex. Provenance retains
 `wallet_runtime_authority` and `wallet_runtime_trust_ed25519_hex`. Authenticated
 artifact builds require both and the embedding app verifies its exact product

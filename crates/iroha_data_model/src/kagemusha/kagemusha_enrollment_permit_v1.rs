@@ -24,6 +24,9 @@ pub const KAGEMUSHA_ENROLLMENT_PERMIT_TRANSCRIPT_BYTES_V1: usize = 574;
 /// New nonmonetary message domain. No existing Credential/Certificate domain is reused.
 pub const KAGEMUSHA_ENROLLMENT_PERMIT_MESSAGE_DOMAIN_V1: &[u8] =
     b"iroha:kagemusha:pre-key-permit:v1\0";
+/// New nonmonetary message domain for an issuer-authenticated expired E1 proof.
+pub const KAGEMUSHA_ENROLLMENT_EXPIRY_PROOF_MESSAGE_DOMAIN_V1: &[u8] =
+    b"iroha:kagemusha:pre-key-expired:v1\0";
 const ORIGINALS_DOMAIN: &[u8] = b"iroha:kagemusha:pre-key-originals:v1\0";
 const SCOPE_DOMAIN: &[u8] = b"iroha:kagemusha:pre-key-scope:v1\0";
 
@@ -193,6 +196,144 @@ pub struct KagemushaEnrollmentPermitBodyV1 {
     pub expires_at_ms: u64,
     /// Fresh actual issuer clock sampled for THIS nonce/signature, including Fresh retries.
     pub observed_at_ms: u64,
+}
+
+/// Exact issuer statement that a retained E1 challenge is terminally expired.
+///
+/// This proof authorizes only Native's narrow pre-E2 cleanup path. It does not
+/// authorize a permit, key generation, E5, E6 or any ledger action. Every field
+/// binds the proof to one retained dispatch and permit original.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
+#[norito_schema(name = "iroha.kagemusha.enrollment.expiry-proof.body.v1")]
+pub struct KagemushaEnrollmentExpiryProofBodyV1 {
+    /// Wire version; exactly 1.
+    pub version: u16,
+    /// Closed refusal code; exactly `ChallengeExpired` (10).
+    pub refusal_code: u16,
+    /// Native Client request identity.
+    pub request_id: [u8; 32],
+    /// SHA-256 of the exact dispatch original.
+    pub dispatch_sha256: [u8; 32],
+    /// SHA-256 of the exact Accepted permit original.
+    pub permit_sha256: [u8; 32],
+    /// Issuer attempt identity.
+    pub attempt_id: [u8; 32],
+    /// Challenge digest in the accepted permit.
+    pub challenge_digest: [u8; 32],
+    /// The immutable E1 deadline that the issuer evaluated.
+    pub expires_at_ms: u64,
+    /// Issuer observation proving the deadline had passed.
+    pub observed_at_ms: u64,
+}
+
+impl KagemushaEnrollmentExpiryProofBodyV1 {
+    /// Construct the fixed refusal statement for one exact attempt.
+    #[must_use]
+    pub const fn new(
+        request_id: [u8; 32],
+        dispatch_sha256: [u8; 32],
+        permit_sha256: [u8; 32],
+        attempt_id: [u8; 32],
+        challenge_digest: [u8; 32],
+        expires_at_ms: u64,
+        observed_at_ms: u64,
+    ) -> Self {
+        Self {
+            version: 1,
+            refusal_code: 10,
+            request_id,
+            dispatch_sha256,
+            permit_sha256,
+            attempt_id,
+            challenge_digest,
+            expires_at_ms,
+            observed_at_ms,
+        }
+    }
+
+    /// Canonical signer message. Expiry proof uses SHA-256 and a distinct nonmonetary domain.
+    pub fn signing_message(&self) -> Result<[u8; 32]> {
+        let bytes = norito::encode_canonical(self).map_err(|_| invalid("expiry-proof.body"))?;
+        let mut hash = Sha256::new();
+        hash.update(KAGEMUSHA_ENROLLMENT_EXPIRY_PROOF_MESSAGE_DOMAIN_V1);
+        hash.update((bytes.len() as u64).to_le_bytes());
+        hash.update(bytes);
+        Ok(hash.finalize().into())
+    }
+
+    /// Structural validation without signer authority.
+    pub fn validate(&self) -> Result<()> {
+        if self.version != 1
+            || self.refusal_code != 10
+            || self.request_id == [0; 32]
+            || self.dispatch_sha256 == [0; 32]
+            || self.permit_sha256 == [0; 32]
+            || self.attempt_id == [0; 32]
+            || self.challenge_digest == [0; 32]
+            || self.expires_at_ms == 0
+            || self.observed_at_ms < self.expires_at_ms
+        {
+            return Err(invalid("expiry-proof.body"));
+        }
+        Ok(())
+    }
+}
+
+/// Issuer-signed proof used only to release an Accepted/no-Slot attempt after E1 expiry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
+#[norito_schema(name = "iroha.kagemusha.enrollment.expiry-proof.v1")]
+pub struct KagemushaEnrollmentExpiryProofV1 {
+    /// Exact expiry statement.
+    pub body: KagemushaEnrollmentExpiryProofBodyV1,
+    /// Signature by the installed Enrollment-role signer.
+    pub signature: KagemushaDeviceSignatureV1,
+}
+
+impl KagemushaEnrollmentExpiryProofV1 {
+    /// Freeze a canonical DER issuer signature over the expiry statement.
+    pub fn from_issuer_der(
+        body: KagemushaEnrollmentExpiryProofBodyV1,
+        _certificate: &KagemushaWalletSignerCertificateV1,
+        original_der: &[u8],
+    ) -> Result<Self> {
+        body.validate()?;
+        let signature = KagemushaDeviceSignatureV1::from_der_normalizing_low_s(original_der)?;
+        Ok(Self { body, signature })
+    }
+
+    /// Verify the proof under the installed Scheme and Enrollment certificate.
+    pub fn verify(
+        &self,
+        scheme: &KagemushaWalletSchemeV1,
+        certificate: &KagemushaWalletSignerCertificateV1,
+    ) -> Result<()> {
+        self.body.validate()?;
+        certificate.verify_role(scheme, KagemushaWalletSignerRoleV1::Enrollment)?;
+        self.signature
+            .verify(&certificate.body.key, &self.body.signing_message()?)
+    }
+
+    /// Encode the bounded canonical proof original.
+    pub fn encode_canonical(&self) -> Result<Vec<u8>> {
+        self.body.validate()?;
+        self.signature.validate()?;
+        norito::encode_canonical(self).map_err(|_| invalid("expiry-proof.frame"))
+    }
+
+    /// Decode a canonical proof original; signer verification remains explicit.
+    pub fn decode_canonical(bytes: &[u8]) -> Result<Self> {
+        if bytes.is_empty() || bytes.len() > 4096 {
+            return Err(invalid("expiry-proof.frame"));
+        }
+        let value: Self = norito::decode_canonical_with_limits(
+            bytes,
+            norito::canonical_decode_limits(bytes.len()),
+        )
+        .map_err(|_| invalid("expiry-proof.frame"))?;
+        value.body.validate()?;
+        value.signature.validate()?;
+        Ok(value)
+    }
 }
 
 impl KagemushaEnrollmentPermitBodyV1 {

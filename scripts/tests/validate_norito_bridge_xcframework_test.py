@@ -43,6 +43,32 @@ LOAD_ORIGINAL_JNI_SYMBOLS = [
     "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletLoadOriginalNativeV1_validate",
 ]
 KAGEMUSHA_JNI_SYMBOLS = [*WALLET_JNI_SYMBOLS, *LOAD_ORIGINAL_JNI_SYMBOLS]
+PRIVACY_JNI_SYMBOLS = [
+    "Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_" + method
+    for method in (
+        "nativeSubmitProofIntentProjectionV1",
+        "nativeBridgeAbiVersion",
+        "nativeConfidentialDerivationContractRevisionV3",
+        "nativeDefaultConfidentialDiversifierV3",
+        "nativeDeriveConfidentialDiversifierV3",
+        "nativeDeriveConfidentialOwnerTagV3",
+        "nativeDeriveConfidentialAssetTagV3",
+        "nativeDeriveConfidentialNetworkTagV3",
+        "nativeDeriveConfidentialNoteCommitmentV3",
+        "nativeDeriveConfidentialNullifierV3",
+        "nativeDeriveConfidentialMerklePathV3",
+        "nativeVerifyConfidentialMerklePathV3",
+        "nativeCompiledProfileCatalog",
+        "nativeValidateCompiledProfileCatalog",
+        "nativeValidateExact12CapabilityManifestForNetworkV1",
+        "nativeInspectExact12CapabilityManifest",
+        "nativeRequireExact12CapabilityTupleForNetworkV1",
+        "nativeValidateExact12SubmitProofConstructionForNetworkV1",
+        "nativeExact12FixtureBundle",
+        "nativeValidateExact12FixtureBundle",
+    )
+]
+REQUIRED_JNI_SYMBOLS = [*KAGEMUSHA_JNI_SYMBOLS, *PRIVACY_JNI_SYMBOLS]
 
 
 class StrictNoritoBridgeValidatorTests(unittest.TestCase):
@@ -317,7 +343,7 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 exported = (
                     ["_" + symbol for symbol in current]
-                    if mode == "apple" else [*current, *KAGEMUSHA_JNI_SYMBOLS]
+                    if mode == "apple" else [*current, *REQUIRED_JNI_SYMBOLS]
                 )
                 result = self.check_mobile_binary_symbols(exported, mode)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -338,13 +364,13 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
                     if mode == "apple":
                         exported = ["_" + symbol for symbol in exported]
                     else:
-                        exported += KAGEMUSHA_JNI_SYMBOLS
+                        exported += REQUIRED_JNI_SYMBOLS
                     result = self.check_mobile_binary_symbols(exported, mode)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(f"missing {missing}", result.stderr)
-        for missing in KAGEMUSHA_JNI_SYMBOLS:
+        for missing in REQUIRED_JNI_SYMBOLS:
             with self.subTest(missing=missing, mode="elf"):
-                exported = [*current, *(symbol for symbol in KAGEMUSHA_JNI_SYMBOLS if symbol != missing)]
+                exported = [*current, *(symbol for symbol in REQUIRED_JNI_SYMBOLS if symbol != missing)]
                 result = self.check_mobile_binary_symbols(exported, "elf")
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"missing {missing}", result.stderr)
@@ -372,7 +398,7 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
             for mode in ("apple", "elf"):
                 with self.subTest(symbol=symbol, mode=mode):
                     exported = "_" + symbol if mode == "apple" else symbol
-                    inventory = current if mode == "apple" else [*current, *KAGEMUSHA_JNI_SYMBOLS]
+                    inventory = current if mode == "apple" else [*current, *REQUIRED_JNI_SYMBOLS]
                     result = self.check_mobile_binary_symbols([*inventory, exported], mode)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn("retired KAGEMUSHA", result.stderr)
@@ -399,7 +425,7 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
             "Java_org_hyperledger_iroha_sdk_offline_probe_Pixel6TestnetDiagnosticSelectionJniV1_nativeUnlistedV1",
         ):
             with self.subTest(symbol=symbol):
-                result = self.check_mobile_binary_symbols([*current, *KAGEMUSHA_JNI_SYMBOLS, symbol], "elf")
+                result = self.check_mobile_binary_symbols([*current, *REQUIRED_JNI_SYMBOLS, symbol], "elf")
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("retired KAGEMUSHA JNI", result.stderr)
 
@@ -741,10 +767,10 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
 
     def test_application_authority_is_exact_closed_build_data(self):
         environment = self.payload["build_environment"]
-        for authority in ["bpng-taira-v7", "cbsi-release-v1"]:
+        for authority in ["bpng-taira-v7", "cbsi-release-v1", "application-release-v1"]:
             environment["wallet_runtime_authority"] = authority
             validator._validate_build_environment(ROOT, environment)
-        for authority in [None, "", "bpng", "bpng-taira-v6", "BPNG-TAIRA-V7", "bpng-taira-v7\n", 1, True, {}, []]:
+        for authority in [None, "", "bpng", "bpng-taira-v6", "BPNG-TAIRA-V7", "bpng-taira-v7\n", "application", "ApplicationReleaseV1", "APPLICATION-RELEASE-V1", "application-release-v1\n", " application-release-v1", 1, True, {}, []]:
             environment["wallet_runtime_authority"] = authority
             with self.assertRaises(validator.ValidationError):
                 validator._validate_build_environment(ROOT, environment)

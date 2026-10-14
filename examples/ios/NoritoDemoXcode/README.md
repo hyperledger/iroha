@@ -118,6 +118,17 @@ response as "pending" and keeps polling until a terminal status arrives.
 - `ci/check_swift_samples.sh` wraps this helper and also builds/tests the XcodeGen template
   in `examples/ios/NoritoDemo` so CI can gate both demos in one step.
 
+## Native enrollment probe
+
+The separately selected `KagemushaEnrollmentPhysicalDeviceTests` consumes pinned
+complete catalog/genesis inputs and the real Apple adapter in a disposable app.
+Its live mailbox retains E1/E5/E6 originals and accepts external account signatures;
+it contains no account signer, issuer or proof fallback. See the source-coupled
+[probe interface](KagemushaEnrollmentProbe.md) for staging and recovery boundaries.
+It is excluded from ordinary demo CI. The [monetary stage contract](KagemushaMonetaryProbe.md)
+uses actual native operations and requires real externally supplied issuer/ledger
+originals; no carrier or release qualification is implied.
+
 ## Torii + mock ledger integration
 
 Use the automation in `scripts/ios_demo` (see the repository root README) to spawn a Torii

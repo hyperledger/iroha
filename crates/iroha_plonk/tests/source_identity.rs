@@ -160,6 +160,208 @@ fn staging_without_byte_changes_does_not_change_mathematical_identity() {
 }
 
 #[test]
+fn unrelated_client_owners_and_prose_do_not_invalidate_native_inputs() {
+    let workspace = Workspace::new();
+    let expected = workspace.digest();
+    for path in [
+        "python/iroha_app_attestation/tests/test_android_admission.py",
+        "python/iroha_app_attestation/src/iroha_app_attestation/attestation.py",
+        "IrohaSwift/Tests/ClientTests.swift",
+        "kotlin/client/src/test/ClientTest.kt",
+        "javascript/iroha_js/test/client.test.js",
+        "examples/android/attestation-probe/build.gradle",
+        "examples/ios/probe/README.md",
+        "docs/operator-guide.md",
+        "specs/wallet-policy.md",
+        "README.md",
+    ] {
+        workspace.write(path, b"first unrelated edit\n");
+        assert_eq!(workspace.digest(), expected, "new unrelated input {path}");
+        workspace.git(&["add", path]);
+        assert_eq!(
+            workspace.digest(),
+            expected,
+            "staged unrelated input {path}"
+        );
+        workspace.write(path, b"second unrelated edit\n");
+        assert_eq!(
+            workspace.digest(),
+            expected,
+            "changed unrelated input {path}"
+        );
+    }
+    let snapshot = snapshot(&workspace.0).unwrap();
+    assert!(
+        !snapshot.watched_paths.contains(
+            &workspace
+                .0
+                .join("python/iroha_app_attestation/tests/test_android_admission.py")
+        )
+    );
+}
+
+#[test]
+fn unknown_assets_scripts_tests_and_machine_readable_specs_remain_inputs() {
+    let workspace = Workspace::new();
+    for path in [
+        "new-native-owner/parameters.bin",
+        "scripts/generator.py",
+        "tests/native-fixture.json",
+        "fixtures/new-curve/constants.bin",
+        "specs/native-profile.json",
+        "docs/native-schema.toml",
+        "configs/native.toml",
+        "crates/proof/README.md",
+    ] {
+        let before = workspace.digest();
+        workspace.write(path, b"first\n");
+        let added = workspace.digest();
+        assert_ne!(added, before, "unknown input {path} must remain included");
+        workspace.write(path, b"second\n");
+        assert_ne!(workspace.digest(), added, "changed input {path}");
+        fs::remove_file(workspace.0.join(path)).unwrap();
+        assert_eq!(workspace.digest(), before, "removed input {path}");
+    }
+}
+
+#[test]
+fn nested_native_packages_override_client_owner_and_bind_ignored_sources() {
+    let workspace = Workspace::new();
+    workspace.write(".gitignore", b"/target/\n/output/\n**/ignored_*\n");
+    for owner in [
+        "python/client/native",
+        "vendor/native_math",
+        "crates/outer/nested",
+    ] {
+        let before = workspace.digest();
+        workspace.write(
+            &format!("{owner}/Cargo.toml"),
+            b"[package]\nname = \"native\"\nversion = \"0.1.0\"\n",
+        );
+        let manifest = workspace.digest();
+        assert_ne!(manifest, before, "new native owner {owner}");
+        for leaf in [
+            "src/ignored_module.rs",
+            "src/ignored_constants.bin",
+            "build_support/ignored_recipe.rs",
+            "README.md",
+        ] {
+            let before = workspace.digest();
+            let path = format!("{owner}/{leaf}");
+            workspace.write(&path, b"first");
+            let added = workspace.digest();
+            assert_ne!(added, before, "new package input {path}");
+            workspace.write(&path, b"second");
+            assert_ne!(workspace.digest(), added, "changed package input {path}");
+            fs::remove_file(workspace.0.join(&path)).unwrap();
+            assert_eq!(workspace.digest(), before, "removed package input {path}");
+        }
+    }
+}
+
+#[test]
+fn native_literal_references_restore_external_prose_and_client_inputs() {
+    let workspace = Workspace::new();
+    workspace.write(
+        "crates/proof/Cargo.toml",
+        b"[package]\nname = \"proof\"\nversion = \"0.1.0\"\n",
+    );
+    workspace.write(".gitignore", b"/target/\n/output/\n/docs/ignored_*\n");
+    workspace.write("docs/ignored_profile.md", b"profile one");
+    workspace.write("python/client/native_input.py", b"native input one");
+    workspace.write("crates/proof/src/circuit.rs", br#"
+const PROFILE: &str = include_str!("../../../docs/ignored_profile.md");
+#[cfg(target_os = "android")]
+const OTHER: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../python/client/native_input.py"));
+"#);
+    let before = workspace.digest();
+    workspace.write("docs/ignored_profile.md", b"profile two");
+    let changed = workspace.digest();
+    assert_ne!(changed, before);
+    workspace.write("python/client/native_input.py", b"native input two");
+    assert_ne!(
+        workspace.digest(),
+        changed,
+        "conditional reference is target-independent"
+    );
+    let selected = snapshot(&workspace.0).unwrap().watched_paths;
+    assert!(selected.contains(&workspace.0.join("docs/ignored_profile.md")));
+    assert!(selected.contains(&workspace.0.join("python/client/native_input.py")));
+}
+
+#[test]
+fn declared_external_native_inputs_override_owner_and_prose_filters() {
+    let workspace = Workspace::new();
+    for path in [
+        "norito.md",
+        "generatediso20022.md",
+        "specs/kotodama_grammar.md",
+        "IrohaSwift/Sources/IrohaSwift/NativeBridge.swift",
+        "javascript/iroha_js/test/fixtures/future-native-vector.json",
+    ] {
+        let before = workspace.digest();
+        workspace.write(path, b"first");
+        let added = workspace.digest();
+        assert_ne!(added, before, "declared native input {path}");
+        workspace.write(path, b"second");
+        assert_ne!(workspace.digest(), added);
+    }
+}
+
+#[test]
+fn restored_external_rust_sources_restore_their_relative_inputs_recursively() {
+    let workspace = Workspace::new();
+    workspace.write(
+        "crates/proof/src/circuit.rs",
+        b"include!(\"../../../python/client/helper.rs\");\n",
+    );
+    workspace.write("python/client/helper.rs", b"const INPUT: &[u8] = include_bytes!(\"sibling.dat\");\n#[path = \"other.rs\"] mod other;\n");
+    workspace.write(
+        "python/client/other.rs",
+        b"const INPUT: &str = include_str!(\"last.dat\");\n",
+    );
+    workspace.write("python/client/sibling.dat", b"first");
+    workspace.write("python/client/last.dat", b"first");
+    let before = workspace.digest();
+    workspace.write("python/client/sibling.dat", b"second");
+    let changed = workspace.digest();
+    assert_ne!(changed, before);
+    workspace.write("python/client/last.dat", b"second");
+    assert_ne!(workspace.digest(), changed);
+    let watched = snapshot(&workspace.0).unwrap().watched_paths;
+    for name in ["helper.rs", "other.rs", "sibling.dat", "last.dat"] {
+        assert!(watched.contains(&workspace.0.join("python/client").join(name)));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn reference_scanning_rejects_symlinked_source_ancestors_before_reading() {
+    use std::os::unix::fs::symlink;
+    let workspace = Workspace::new();
+    workspace.write(
+        "native-extra/child/source.rs",
+        b"include_str!(\"input.md\");\n",
+    );
+    workspace.git(&["add", "native-extra"]);
+    fs::rename(
+        workspace.0.join("native-extra/child"),
+        workspace.0.join("retained-test-source"),
+    )
+    .unwrap();
+    symlink(
+        "../retained-test-source",
+        workspace.0.join("native-extra/child"),
+    )
+    .unwrap();
+    assert!(
+        snapshot(&workspace.0)
+            .unwrap_err()
+            .contains("source input traverses a symlink")
+    );
+}
+
+#[test]
 fn fresh_invocation_detects_untracked_inputs_beside_ignored_outputs() {
     let workspace = Workspace::new();
     workspace.write(
@@ -296,7 +498,7 @@ fn source_links_are_bounded_and_generated_swift_output_is_only_link_metadata() {
 }
 
 #[test]
-fn only_the_optional_docs_gitlink_is_opaque_membership() {
+fn unrelated_docs_gitlink_is_omitted_and_native_gitlinks_still_fail_closed() {
     let workspace = Workspace::new();
     let before = workspace.digest();
     workspace.git(&[
@@ -306,13 +508,13 @@ fn only_the_optional_docs_gitlink_is_opaque_membership() {
         "160000,1111111111111111111111111111111111111111,iroha-docs",
     ]);
     let first = workspace.digest();
-    assert_ne!(first, before);
+    assert_eq!(first, before);
     workspace.git(&[
         "update-index",
         "--cacheinfo",
         "160000,2222222222222222222222222222222222222222,iroha-docs",
     ]);
-    assert_ne!(workspace.digest(), first);
+    assert_eq!(workspace.digest(), first);
     workspace.git(&[
         "update-index",
         "--add",

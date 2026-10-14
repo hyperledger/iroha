@@ -235,6 +235,66 @@ class KagemushaWalletEnrollmentV1Test {
         }
         owner.close()
     }
+    @Test fun `expiry abandonment sends the exact bounded proof without certificates or other originals`() {
+        val driver = Driver()
+        val owner = KagemushaWalletEnrollmentV1(7, driver, byteArrayOf(1), Any(), 2)
+        driver.reply = KagemushaWalletCallV1(58, -1, 0, 7, 0, 0, byteArrayOf())
+        for (size in listOf(1, KagemushaWalletEnrollmentV1.EXPIRY_PROOF_MAX_BYTES)) {
+            val proof = ByteArray(size) { (it % 251).toByte() }
+            val original = proof.copyOf()
+            assertSame(KagemushaWalletEnrollmentAbandonmentV1.LocalAbandoned, owner.abandonExpired(proof))
+            assertEquals(21, driver.lastSelector)
+            assertContentEquals(original, driver.original)
+            // The fixture overwrites the dispatched input; caller-owned proof bytes stay intact.
+            assertContentEquals(original, proof)
+            assertTrue(driver.retainedFrames.drop(1).all { it.isEmpty() })
+            assertTrue(driver.retainedCertificates.isEmpty())
+            assertSame(KagemushaWalletEnrollmentAbandonmentV1.LocalAbandoned, owner.abandonExpired(proof))
+            assertContentEquals(original, driver.original)
+        }
+        owner.close()
+    }
+
+    @Test fun `expiry abandonment rejects empty or oversized proofs before native dispatch`() {
+        val driver = Driver()
+        val owner = KagemushaWalletEnrollmentV1(7, driver, byteArrayOf(1), Any(), 2)
+        for (proof in listOf(byteArrayOf(), ByteArray(KagemushaWalletEnrollmentV1.EXPIRY_PROOF_MAX_BYTES + 1))) {
+            assertFailsWith<IllegalArgumentException> { owner.abandonExpired(proof) }
+        }
+        assertEquals(0, driver.calls)
+        owner.close()
+    }
+
+    @Test fun `expiry abandonment requires exact same-owner local abandonment and preserves native refusal`() {
+        val driver = Driver()
+        val owner = KagemushaWalletEnrollmentV1(7, driver, byteArrayOf(1), Any(), 2)
+        for (reply in listOf(
+            KagemushaWalletCallV1(58, -1, 0, 8, 0, 0, byteArrayOf()),
+            KagemushaWalletCallV1(20, -1, 0, 7, 0, 0, byteArrayOf()),
+            KagemushaWalletCallV1(28, -1, 0, 7, 0, 0, byteArrayOf(1)),
+            KagemushaWalletCallV1(59, -1, 0, 7, 0, 0, byteArrayOf(1)),
+        )) {
+            driver.reply = reply
+            assertEquals(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT,
+                assertFailsWith<KagemushaWalletExceptionV1> { owner.abandonExpired(byteArrayOf(1)) }.status)
+        }
+        driver.reply = KagemushaWalletCallV1(-5, 17, 23, 0, 0, 0, byteArrayOf())
+        val failure = assertFailsWith<KagemushaWalletExceptionV1> { owner.abandonExpired(byteArrayOf(1)) }
+        assertEquals(-5, failure.status)
+        assertEquals(17, failure.reason)
+        assertEquals(23, failure.platformCode)
+        assertFalse(owner.cleanupReleased())
+        owner.close()
+    }
+
+    @Test fun `expiry abandonment cannot dispatch after enrollment owner closes`() {
+        val driver = Driver()
+        val owner = KagemushaWalletEnrollmentV1(7, driver, byteArrayOf(1), Any(), 2)
+        owner.close()
+        assertFailsWith<KagemushaWalletExceptionV1> { owner.abandonExpired(byteArrayOf(1)) }
+        assertEquals(0, driver.calls)
+    }
+
     @Test fun `canonical JNI enrollment carries only native selector and original frames`() {
         val method = JvmApiInventory.read(KagemushaWalletNativeV1::class.java).methods.single { it.name == "enrollment" && it.isNative }
         assertTrue(method.isStatic)

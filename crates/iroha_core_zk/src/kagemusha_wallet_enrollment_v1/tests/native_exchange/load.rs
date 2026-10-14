@@ -15,6 +15,9 @@ use iroha_data_model::{
 use iroha_fs::{PrivateDirectory, PublishMode};
 use std::collections::{BTreeMap, BTreeSet};
 
+#[path = "load/activation_retention.rs"]
+mod activation_retention;
+
 const CAPTURE_MAX: usize = 16 << 20;
 const ORIGINAL_MAX: usize = 16 << 20;
 
@@ -447,6 +450,57 @@ fn inputs(genesis: &SumeragiFinalityVerifier, installation: InstallationV1) -> I
     }
 }
 
+fn activation_signed_wire<'a>(
+    mut transactions: impl Iterator<Item = &'a iroha_data_model::transaction::SignedTransaction>,
+) -> Vec<u8> {
+    let transaction = transactions
+        .next()
+        .expect("H4 requires its sole Activate transaction");
+    assert!(
+        transactions.next().is_none(),
+        "H4 must contain only Activate; Install is at H3"
+    );
+    transaction.encode_wire_v1().unwrap()
+}
+
+#[test]
+fn activation_wire_selects_one_transaction_and_refuses_retired_two_entry_layout() {
+    use iroha_data_model::transaction::{FeePaymentIntent, TransactionBuilder};
+    let keys = iroha_crypto::KeyPair::from_seed(vec![41; 32], iroha_crypto::Algorithm::Ed25519);
+    let authority = iroha_data_model::account::AccountId::new(keys.public_key().clone());
+    let network = iroha_data_model::NetworkId::from_genesis_hash(
+        iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(
+            b"activation wire test",
+        )),
+    );
+    let transaction = TransactionBuilder::new(
+        network,
+        authority,
+        FeePaymentIntent::authority(Vec::new(), None),
+    )
+    .with_instructions([iroha_data_model::isi::Log::new(
+        iroha_data_model::Level::INFO,
+        "selector test".into(),
+    )])
+    .sign(keys.private_key());
+    assert_eq!(
+        activation_signed_wire([&transaction].into_iter()),
+        transaction.encode_wire_v1().unwrap()
+    );
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| activation_signed_wire(
+            std::iter::empty()
+        )))
+        .is_err()
+    );
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| activation_signed_wire(
+            [&transaction, &transaction].into_iter()
+        )))
+        .is_err()
+    );
+}
+
 // Confirm the exact already-executed Activate before the first native Load. No
 // transaction, activation proof, ledger result or finality certificate is synthesized.
 pub(super) fn confirm_existing_activation(
@@ -468,16 +522,9 @@ pub(super) fn confirm_existing_activation(
         .iter()
         .find(|block| block.height() == 4)
         .unwrap();
-    // The executed Core fixture asserts Install then Activate at H4. Native intake
-    // below independently checks the exact A authority, signature and inner original.
-    assert_eq!(activation.block().external_transactions().count(), 2);
-    let signed = activation
-        .block()
-        .external_transactions()
-        .nth(1)
-        .unwrap()
-        .encode_wire_v1()
-        .unwrap();
+    // Registration and Install are already certified at H3. H4 contains only Activate.
+    // Native intake independently checks the exact A authority, signature and inner original.
+    let signed = activation_signed_wire(activation.block().external_transactions());
     assert_eq!(
         wallet.retain_activation_attempt(&signed).unwrap(),
         Progress::NotStarted

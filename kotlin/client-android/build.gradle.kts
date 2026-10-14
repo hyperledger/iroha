@@ -62,8 +62,8 @@ private object NativeBridgeBuildContract {
     const val hermeticRunnerSchema = "iroha.mobile-hermetic-command.v1"
     const val walletRuntimeAuthorityInput = "MOBILE_SDK_WALLET_RUNTIME_AUTHORITY"
     fun validateWalletRuntimeAuthority(value: String?): String {
-        require(value == "bpng-taira-v7" || value == "cbsi-release-v1") {
-            "$walletRuntimeAuthorityInput must be bpng-taira-v7 or cbsi-release-v1"
+        require(value == "bpng-taira-v7" || value == "cbsi-release-v1" || value == "application-release-v1") {
+            "$walletRuntimeAuthorityInput must be bpng-taira-v7, cbsi-release-v1, or application-release-v1"
         }
         return value
     }
@@ -2183,6 +2183,34 @@ val requireAndroidArtifactDirectory =
 val androidNdkRoot = providers.environmentVariable("ANDROID_NDK_HOME")
     .orElse(providers.environmentVariable("ANDROID_NDK_ROOT"))
     .orElse(androidComponents.sdkComponents.ndkDirectory.map { it.asFile.absolutePath })
+
+tasks.register("verifyNativeRuntimeTrustContract") {
+    group = "verification"
+    description = "Exercises the exact Native runtime authority and public trust selection"
+    doLast {
+        val publicRoot = "3".repeat(64)
+        NativeBridgeBuildContract.validateWalletRuntimeSelection(null, null)
+        for (authority in listOf("bpng-taira-v7", "cbsi-release-v1", "application-release-v1")) {
+            check(NativeBridgeBuildContract.validateWalletRuntimeAuthority(authority) == authority)
+            NativeBridgeBuildContract.validateWalletRuntimeSelection(authority, publicRoot)
+        }
+        for (authority in listOf(null, "", "application", "ApplicationReleaseV1",
+            "APPLICATION-RELEASE-V1", "application-release-v1\n", " application-release-v1")) {
+            check(runCatching {
+                NativeBridgeBuildContract.validateWalletRuntimeAuthority(authority)
+            }.isFailure)
+        }
+        for (root in listOf(null, "", "0".repeat(64), "A".repeat(64), "3".repeat(63),
+            "3".repeat(65), publicRoot + "\n")) {
+            check(runCatching {
+                NativeBridgeBuildContract.validateWalletRuntimeSelection("application-release-v1", root)
+            }.isFailure)
+        }
+        check(runCatching {
+            NativeBridgeBuildContract.validateWalletRuntimeSelection(null, publicRoot)
+        }.isFailure)
+    }
+}
 
 tasks.register("verifyAndroidNdkIdentityContract") {
     group = "verification"

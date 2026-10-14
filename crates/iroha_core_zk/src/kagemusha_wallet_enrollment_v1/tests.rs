@@ -2925,6 +2925,9 @@ fn accepted_permit_before_slot_can_report_request_absence_without_a_generation_g
     d.platform.with(|s| assert_eq!(s.generate_calls, 1));
 }
 
+#[path = "tests/expired_prekey.rs"]
+mod expired_prekey;
+
 #[test]
 fn lost_prekey_slot_with_actual_intent_never_becomes_optional_request_absence() {
     let f = fixture();

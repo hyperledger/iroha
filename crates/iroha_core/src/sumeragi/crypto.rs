@@ -41,7 +41,9 @@ impl From<ExecutionDeferred> for QueryCommitteeError {
 
 fn query_committee_allocation_failure(bytes: usize) -> QueryCommitteeError {
     let _ = bytes;
-    QueryCommitteeError::Resource(ivm::error::ExecutionDeferral::AllocationUnavailable.into())
+    QueryCommitteeError::Resource(ExecutionDeferred::from(
+        ivm::error::ExecutionDeferral::AllocationUnavailable,
+    ))
 }
 
 // Complete allocator-visible backing of the closed one-shot constructor below. No temporary

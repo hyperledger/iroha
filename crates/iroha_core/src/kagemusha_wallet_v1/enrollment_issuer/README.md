@@ -63,3 +63,9 @@ TODO: qualify the complete Linux launch and real platform evidence through this
 serving path, together with node shutdown and network integration. Component
 unit runtimes use explicit DATA and real test-key signatures for ordering and
 refusal; they establish no device or deployed-service qualification.
+
+## Explicit journal provisioning
+
+`kagemusha_enrollment_journal_init --parent <existing-private-parent> --name <fresh-child> --scope-hex <selected-scope>` creates one fresh issuer journal through the same native custody and scope APIs used by serving startup. Build the standalone tool with `cargo iroha-fast -- build -p iroha_core --bin kagemusha_enrollment_journal_init`. The scope is public operator-selected DATA and must equal `torii.kagemusha_enrollment.scope_hex`; initialization establishes no eligibility, certificate or enrollment authority. `journal_dir` is the exact resulting child path.
+
+The parent must already exist with owner-private custody. The tool reads no node configuration, signing key, session token or device input, contacts no service and writes no caller values to diagnostics. It refuses existing children, including incomplete ones, and has no reset, overwrite or repair mode. Preserve every partial child on error. Serving startup continues to open an existing journal only. The E1 verifier store is separately initialized by `iroha-wallet-e1-store-init`; this command never fabricates its generation/counter files.

@@ -7,21 +7,23 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ff::{Field, PrimeField};
-use iroha_pasta::{Ep, Eq, Fp, Fq};
+use iroha_pasta::{Ep, Eq, Fp, Fq, PastaCurve};
 use iroha_plonk::{
     DescriptorBinding, Protocol,
     cs::{
         descriptor::{CurveV1, ExprNodeV1, ExprV1, InstanceModeV1, ProofSuffixV1, QueryV1},
         descriptor_v2::{ProtocolDescriptor, TranscriptV2},
     },
-    keys::VerifyingKey,
+    frontend::Circuit,
+    keys::{ProvingKey, SourceBoundVerifyingKeyV2, VerifyingKey, pk::artifact::ReadConfig},
+    pcs::ipa::PinnedParams,
     pcs::multiopen::{OpeningPlan, Slot, SlotKind},
     protocol::check_zero_knowledge_budget,
 };
 
 use super::{
-    DESCRIPTOR_MAX_BYTES_V1, OriginalSourceV1, ProducerInventoryV1, VERIFYING_KEY_MAX_BYTES_V1,
-    read,
+    ARTIFACT_MAX_COUNT_V1, BlobV1, DESCRIPTOR_MAX_BYTES_V1, OriginalSourceV1, OriginalV1,
+    ProducerInventoryV1, VERIFYING_KEY_MAX_BYTES_V1, read,
 };
 
 type Check<T> = Result<T, String>;
@@ -29,12 +31,15 @@ const MAX_TERMS: usize = 100_000;
 
 trait MaskField: PrimeField<Repr = [u8; 32]> {
     const NAME: &'static str;
+    const CURVE: CurveV1;
 }
 impl MaskField for Fp {
     const NAME: &'static str = "Fp";
+    const CURVE: CurveV1 = CurveV1::Vesta;
 }
 impl MaskField for Fq {
     const NAME: &'static str = "Fq";
+    const CURVE: CurveV1 = CurveV1::Pallas;
 }
 
 // Same variable for repeated/aliased queries into the same physical cell.
@@ -129,6 +134,9 @@ fn canonical<F: MaskField>(bytes: [u8; 32]) -> Check<F> {
 }
 
 fn dimensions<F: MaskField>(descriptor: &ProtocolDescriptor) -> Check<(usize, usize)> {
+    if descriptor.curve != F::CURVE {
+        return Err("mask scalar field differs from descriptor".into());
+    }
     let n = 1_usize
         .checked_shl(u32::from(descriptor.k))
         .ok_or("domain size")?;
@@ -344,55 +352,186 @@ fn check_boundary<F: MaskField>(
     Ok(())
 }
 
-fn artifact_rows<F: MaskField>(
-    original: &[u8],
-    descriptor: &ProtocolDescriptor,
-    descriptor_digest: &[u8; 32],
-    verifying_key: &[u8],
-) -> Check<BTreeMap<usize, Row<F>>> {
-    let (n, usable) = dimensions::<F>(descriptor)?;
-    let columns = descriptor.num_fixed_columns as usize + descriptor.permutation.len();
-    let offset = 76_usize
-        .checked_add(verifying_key.len())
-        .ok_or("PK offset")?;
-    let expected = columns
-        .checked_mul(n)
-        .and_then(|size| size.checked_mul(32))
-        .and_then(|size| size.checked_add(offset))
-        .ok_or("PK extent")?;
-    if original.len() != expected
-        || original.get(..8) != Some(b"PIPAPK01".as_slice())
-        || original.get(8..40) != Some(descriptor_digest.as_slice())
-    {
-        return Err("PK framing/binding/extent".into());
+// The collector is reachable only in cfg(test) compiler builds and is explicitly
+// enabled by the complete-catalogue test. It holds at most 64 MiB of scalar cells
+// and at most 262,144 rows, with the inventory's original count cap. These are
+// retained-cell/count limits, not total process RSS. No proving key is retained.
+const MAX_CAPTURE_BYTES: usize = 64 << 20;
+const MAX_CAPTURE_ROWS: usize = 1 << 18;
+
+#[derive(Debug)]
+struct EncodedRow {
+    fixed: Vec<[u8; 32]>,
+    sigma: Vec<[u8; 32]>,
+}
+
+struct CapturedOriginal {
+    identity: OriginalV1,
+    rows: BTreeMap<usize, EncodedRow>,
+}
+
+#[derive(Default)]
+pub(in super::super) struct ImportedRows {
+    originals: BTreeMap<[u8; 32], CapturedOriginal>,
+    bytes: usize,
+    rows: usize,
+}
+
+impl ImportedRows {
+    pub(in super::super) fn contains(&self, original: OriginalV1) -> bool {
+        self.originals
+            .get(&original.proving_key.sha256)
+            .is_some_and(|captured| captured.identity == original)
     }
-    let key_len = u32::from_le_bytes(original[40..44].try_into().map_err(|_| "PK key length")?);
-    if key_len as usize != verifying_key.len()
-        || original.get(44..offset - 32) != Some(verifying_key)
-    {
-        return Err("PK exact VK".into());
-    }
-    let mut rows = BTreeMap::new();
-    for row in public_table_rows(descriptor, n, usable)? {
-        let mut values = Vec::with_capacity(columns);
-        for column in 0..columns {
-            let start = offset + (column * n + row) * 32;
-            values.push(canonical(
-                original[start..start + 32]
-                    .try_into()
-                    .map_err(|_| "PK scalar")?,
-            )?);
+
+    pub(in super::super) fn import<C: PastaCurve, S: Circuit<C::ScalarExt>>(
+        &mut self,
+        original: OriginalV1,
+        bytes: &[u8],
+        binding: &DescriptorBinding,
+        params: &PinnedParams<C>,
+        circuit: &S,
+        config: ReadConfig,
+    ) -> Check<SourceBoundVerifyingKeyV2<C>> {
+        if original.descriptor != BlobV1::of(binding.encoded())
+            || original.proving_key != BlobV1::of(bytes)
+            || self.originals.contains_key(&original.proving_key.sha256)
+            || self.originals.len() >= ARTIFACT_MAX_COUNT_V1
+            || bytes.len() > config.maximum_bytes
+            || binding.n() > config.maximum_rows
+        {
+            return Err("compact source capture identity/count".into());
         }
-        let sigma = values.split_off(descriptor.num_fixed_columns as usize);
-        rows.insert(
-            row,
-            Row {
-                fixed: values,
-                sigma,
+        let d = binding.descriptor();
+        let n = binding.n();
+        let usable = n
+            .checked_sub(usize::from(d.blinding_factors) + 1)
+            .filter(|usable| *usable > 1)
+            .ok_or("capture usable rows")?;
+        let selected = public_table_rows(d, n, usable)?;
+        let total_rows = self
+            .rows
+            .checked_add(selected.len())
+            .filter(|count| *count <= MAX_CAPTURE_ROWS)
+            .ok_or("capture row budget")?;
+        let columns = (d.num_fixed_columns as usize)
+            .checked_add(d.permutation.len())
+            .ok_or("capture columns")?;
+        let size = selected
+            .len()
+            .checked_mul(columns)
+            .and_then(|cells| cells.checked_mul(32))
+            .ok_or("capture extent")?;
+        let total = self
+            .bytes
+            .checked_add(size)
+            .filter(|v| *v <= MAX_CAPTURE_BYTES)
+            .ok_or("capture byte budget")?;
+        // This is the ordinary strict source and commitment importer. It is the
+        // only authority for reconstructed evaluations; compact bytes contain no
+        // tables. Metadata is derived from this same admitted key, avoiding a
+        // second commitment import. The owned PK retires at this call's end.
+        let key = ProvingKey::from_artifact_v2(bytes, binding, params, circuit, config)
+            .map_err(|error| error.to_string())?;
+        if original.verifying_key != BlobV1::of(&key.vk().to_bytes()) {
+            return Err("compact source capture exact VK".into());
+        }
+        let rows = selected
+            .into_iter()
+            .map(|row| {
+                (
+                    row,
+                    EncodedRow {
+                        fixed: key
+                            .fixed_values()
+                            .iter()
+                            .map(|column| column[row].to_repr())
+                            .collect(),
+                        sigma: key
+                            .permutation_values()
+                            .iter()
+                            .map(|column| column[row].to_repr())
+                            .collect(),
+                    },
+                )
+            })
+            .collect();
+        let admitted = SourceBoundVerifyingKeyV2::from_proving_key(&key, None)
+            .map_err(|error| error.to_string())?;
+        self.originals.insert(
+            original.proving_key.sha256,
+            CapturedOriginal {
+                identity: original,
+                rows,
             },
         );
+        self.bytes = total;
+        self.rows = total_rows;
+        Ok(admitted)
     }
-    Ok(rows)
+
+    pub(super) fn require_inventory(&self, inventory: &ProducerInventoryV1) -> Check<()> {
+        if inventory
+            .originals
+            .iter()
+            .any(|original| !self.contains(*original))
+        {
+            return Err("missing exact inventory source rows".into());
+        }
+        Ok(())
+    }
+
+    fn artifact_rows<F: MaskField>(
+        &self,
+        original: &[u8],
+        binding: &DescriptorBinding,
+        verifying_key: &[u8],
+    ) -> Check<BTreeMap<usize, Row<F>>> {
+        let descriptor = binding.descriptor();
+        let (n, usable) = dimensions::<F>(descriptor)?;
+        let identity = OriginalV1 {
+            descriptor: BlobV1::of(binding.encoded()),
+            verifying_key: BlobV1::of(verifying_key),
+            proving_key: BlobV1::of(original),
+        };
+        let captured = self
+            .originals
+            .get(&identity.proving_key.sha256)
+            .filter(|captured| captured.identity == identity)
+            .ok_or("missing exact compact source capture")?;
+        let expected = public_table_rows(descriptor, n, usable)?;
+        if captured.rows.keys().copied().collect::<BTreeSet<_>>() != expected {
+            return Err("missing or substituted public closure rows".into());
+        }
+        captured
+            .rows
+            .iter()
+            .map(|(&row, values)| {
+                if values.fixed.len() != descriptor.num_fixed_columns as usize
+                    || values.sigma.len() != descriptor.permutation.len()
+                {
+                    return Err("captured row column extent".into());
+                }
+                Ok((
+                    row,
+                    Row {
+                        fixed: values
+                            .fixed
+                            .iter()
+                            .copied()
+                            .map(canonical)
+                            .collect::<Check<_>>()?,
+                        sigma: values
+                            .sigma
+                            .iter()
+                            .copied()
+                            .map(canonical)
+                            .collect::<Check<_>>()?,
+                    },
+                ))
+            })
+            .collect()
+    }
 }
 
 // Counts independent *domain rows*, not commitment blinds. Blinds are an
@@ -544,6 +683,7 @@ fn assert_opening_mask(binding: &DescriptorBinding, role: &str) {
 pub(super) fn assert_public_sigmas(
     inventory: &ProducerInventoryV1,
     source: &mut dyn OriginalSourceV1,
+    captured: &ImportedRows,
 ) {
     for (selector, index) in inventory.sigma.iter().copied().enumerate() {
         let original = inventory.member(index).expect("public sigma role");
@@ -564,14 +704,14 @@ pub(super) fn assert_public_sigmas(
         assert_eq!(d.k, expected_k);
         let key = read(source, original.verifying_key, VERIFYING_KEY_MAX_BYTES_V1).unwrap();
         VerifyingKey::<Eq>::read(&key, &binding).unwrap();
-        let expected_bytes = (d.num_fixed_columns as usize + d.permutation.len())
-            .checked_mul(binding.n())
-            .and_then(|v| v.checked_mul(32))
-            .and_then(|v| v.checked_add(76))
-            .and_then(|v| v.checked_add(key.len()))
-            .expect("public PK extent");
+        let expected_bytes = key
+            .len()
+            .checked_add(108)
+            .expect("compact public PK extent");
         let proving_key = read(source, original.proving_key, expected_bytes).unwrap();
-        let rows = artifact_rows::<Fp>(&proving_key, d, binding.digest(), &key).unwrap();
+        let rows = captured
+            .artifact_rows::<Fp>(&proving_key, &binding, &key)
+            .unwrap();
         check_boundary(d, &rows).unwrap();
         assert_opening_mask(&binding, &format!("sigma.{selector}"));
         eprintln!(
@@ -589,6 +729,7 @@ pub(super) fn assert_public_sigmas(
 pub(super) fn assert_final_omega(
     inventory: &ProducerInventoryV1,
     source: &mut dyn OriginalSourceV1,
+    captured: &ImportedRows,
 ) {
     let original = inventory.member(inventory.omega).expect("final Omega role");
     let descriptor = read(source, original.descriptor, DESCRIPTOR_MAX_BYTES_V1).unwrap();
@@ -605,10 +746,11 @@ pub(super) fn assert_final_omega(
     assert_eq!((d.permutation_chunk_len, d.quotient_pieces), (7, 8));
     let key = read(source, original.verifying_key, VERIFYING_KEY_MAX_BYTES_V1).unwrap();
     VerifyingKey::<Ep>::read(&key, &binding).unwrap();
-    let expected_bytes =
-        76 + key.len() + (d.num_fixed_columns as usize + d.permutation.len()) * binding.n() * 32;
+    let expected_bytes = key.len().checked_add(108).expect("compact Omega PK extent");
     let proving_key = read(source, original.proving_key, expected_bytes).unwrap();
-    let rows = artifact_rows::<Fq>(&proving_key, d, binding.digest(), &key).unwrap();
+    let rows = captured
+        .artifact_rows::<Fq>(&proving_key, &binding, &key)
+        .unwrap();
     check_boundary(d, &rows).unwrap();
     assert_opening_mask(&binding, "Omega");
     eprintln!(
@@ -627,6 +769,7 @@ pub(super) fn assert_final_omega(
 pub(super) fn assert_private_roles(
     inventory: &ProducerInventoryV1,
     source: &mut dyn OriginalSourceV1,
+    captured: &ImportedRows,
 ) {
     let mut members = BTreeMap::new();
     for operation in &inventory.operations {
@@ -663,21 +806,23 @@ pub(super) fn assert_private_roles(
                 VerifyingKey::<Eq>::read(&key, &binding).unwrap();
             }
         }
-        let expected_bytes = (d.num_fixed_columns as usize + d.permutation.len())
-            .checked_mul(binding.n())
-            .and_then(|v| v.checked_mul(32))
-            .and_then(|v| v.checked_add(76))
-            .and_then(|v| v.checked_add(key.len()))
-            .expect("private PK extent");
+        let expected_bytes = key
+            .len()
+            .checked_add(108)
+            .expect("compact private PK extent");
         let proving_key = read(source, original.proving_key, expected_bytes).unwrap();
         let rows = match curve {
             CurveV1::Pallas => {
-                let rows = artifact_rows::<Fq>(&proving_key, d, binding.digest(), &key).unwrap();
+                let rows = captured
+                    .artifact_rows::<Fq>(&proving_key, &binding, &key)
+                    .unwrap();
                 check_boundary(d, &rows).unwrap();
                 rows.len()
             }
             CurveV1::Vesta => {
-                let rows = artifact_rows::<Fp>(&proving_key, d, binding.digest(), &key).unwrap();
+                let rows = captured
+                    .artifact_rows::<Fp>(&proving_key, &binding, &key)
+                    .unwrap();
                 check_boundary(d, &rows).unwrap();
                 rows.len()
             }
@@ -1006,31 +1151,6 @@ mod tests {
         }
         d.lookups.clear();
         check_boundary(&d, &rows).unwrap();
-        // Exercise artifact_rows itself, not only the set calculation.
-        let digest = [7; 32];
-        let key = [9, 10];
-        let mut original = b"PIPAPK01".to_vec();
-        original.extend_from_slice(&digest);
-        original.extend_from_slice(&u32::try_from(key.len()).unwrap().to_le_bytes());
-        original.extend_from_slice(&key);
-        original.extend_from_slice(&[3; 32]);
-        for column in 0..3 {
-            for row in 0..8 {
-                let value = if column == 0 {
-                    rows[&row].fixed[0]
-                } else {
-                    rows[&row].sigma[column - 1]
-                };
-                original.extend_from_slice(&value.to_repr());
-            }
-        }
-        let read = artifact_rows::<Fq>(&original, &d, &digest, &key).unwrap();
-        assert_eq!(
-            read.keys().copied().collect::<BTreeSet<_>>(),
-            public_table_rows(&d, 8, 6).unwrap()
-        );
-        assert_eq!(read[&3].fixed, rows[&3].fixed);
-        check_boundary(&d, &read).unwrap();
         rows.remove(&4);
         assert!(
             check_boundary(&d, &rows)
@@ -1039,51 +1159,309 @@ mod tests {
         );
     }
 
-    #[test]
-    fn exact_original_table_reader_refuses_binding_framing_and_scalar_mutations() {
-        let (d, expected_rows) = fixture();
-        let digest = [7; 32];
-        let key = [9, 10];
-        // Synthetic PK framing only; not a VK, strict source import or key proof.
-        let mut original = b"PIPAPK01".to_vec();
-        original.extend_from_slice(&digest);
-        original.extend_from_slice(&u32::try_from(key.len()).unwrap().to_le_bytes());
-        original.extend_from_slice(&key);
-        original.extend_from_slice(&[3; 32]); // Opaque copy digest, covered by the full original hash.
-        for column in 0..3 {
-            for row in 0..8 {
-                let value = expected_rows.get(&row).map_or(Fq::ZERO, |values| {
-                    if column == 0 {
-                        values.fixed[0]
-                    } else {
-                        values.sigma[column - 1]
-                    }
-                });
-                original.extend_from_slice(&value.to_repr());
-            }
-        }
-        let rows = artifact_rows::<Fq>(&original, &d, &digest, &key).unwrap();
-        check_boundary(&d, &rows).unwrap();
-        for row in public_table_rows(&d, 8, 6).unwrap() {
-            assert_eq!(rows[&row].fixed, expected_rows[&row].fixed);
-            assert_eq!(rows[&row].sigma, expected_rows[&row].sigma);
-        }
-        for index in [0, 8, 40, 44] {
-            let mut changed = original.clone();
-            changed[index] ^= 1;
-            assert!(artifact_rows::<Fq>(&changed, &d, &digest, &key).is_err());
-        }
-        let mut changed = original.clone();
-        changed.push(0);
-        assert!(artifact_rows::<Fq>(&changed, &d, &digest, &key).is_err());
-        assert!(artifact_rows::<Fq>(&original[..original.len() - 1], &d, &digest, &key).is_err());
-        let offset = 76 + key.len() + 6 * 32;
-        original[offset..offset + 32].fill(255);
-        assert!(
-            artifact_rows::<Fq>(&original, &d, &digest, &key)
-                .unwrap_err()
-                .contains("noncanonical Fq")
+    #[derive(Clone, Copy)]
+    struct CompactSource {
+        fixed: u64,
+        copy: bool,
+    }
+
+    impl<F: iroha_pasta::PastaField> Circuit<F> for CompactSource {
+        type Config = (
+            iroha_plonk::cs::Column<iroha_plonk::cs::Advice>,
+            iroha_plonk::cs::Column<iroha_plonk::cs::Advice>,
+            iroha_plonk::cs::Column<iroha_plonk::cs::Fixed>,
+            iroha_plonk::cs::Selector,
         );
+        type FloorPlanner = iroha_plonk::frontend::SimpleFloorPlanner;
+        type Params = ();
+
+        fn without_witnesses(&self) -> Self {
+            *self
+        }
+
+        fn configure(meta: &mut iroha_plonk::cs::ConstraintSystem<F>) -> Self::Config {
+            use iroha_plonk::cs::Rotation;
+            let a = meta.advice_column();
+            let b = meta.advice_column();
+            let fixed = meta.fixed_column();
+            let selector = meta.selector();
+            meta.enable_equality(a);
+            meta.enable_equality(b);
+            meta.create_gate("compact mask source", |cells| {
+                vec![
+                    cells.query_selector(selector)
+                        * (cells.query_advice(a, Rotation(2))
+                            * cells.query_fixed(fixed, Rotation(-1))
+                            - cells.query_advice(b, Rotation::cur())),
+                ]
+            });
+            (a, b, fixed, selector)
+        }
+
+        fn synthesize(
+            &self,
+            (a, b, fixed, selector): Self::Config,
+            mut layouter: impl iroha_plonk::frontend::Layouter<F>,
+        ) -> Result<(), iroha_plonk::frontend::Error> {
+            use iroha_plonk::frontend::Value;
+            layouter.assign_region(
+                || "compact source",
+                |mut region| {
+                    let a = region.assign_advice(a, 0, Value::<F>::unknown())?.cell();
+                    let b = region.assign_advice(b, 0, Value::<F>::unknown())?.cell();
+                    region.assign_fixed(fixed, 0, F::from(self.fixed))?;
+                    selector.enable(&mut region, 0)?;
+                    if self.copy {
+                        region.constrain_equal(a, b)?;
+                    }
+                    Ok(())
+                },
+            )
+        }
+    }
+
+    fn compact_source_rows<C: PastaCurve>()
+    where
+        C::ScalarExt: MaskField,
+    {
+        use super::super::super::{OfflineCompilerV1, config};
+        use super::super::{Originals, fixture_scope};
+        use iroha_plonk::keys::CosetCachePolicy;
+        let directory = tempfile::tempdir().unwrap();
+        let mut originals = Originals {
+            root: directory.path().to_owned(),
+            bytes: 0,
+            count: 0,
+            new_write_remaining: 1 << 20,
+        };
+        let read_config = ReadConfig {
+            maximum_bytes: 1 << 20,
+            maximum_rows: 1 << 16,
+            coset_cache: CosetCachePolicy::OnDemand,
+            msm_budget: iroha_pasta::msm::MemoryBudget::DEFAULT,
+        };
+        let params = PinnedParams::<C>::derive(6).unwrap();
+        let circuit = CompactSource {
+            fixed: 7,
+            copy: true,
+        };
+        let mut compiler =
+            OfflineCompilerV1::new(fixture_scope(), &mut originals, read_config, 1 << 20).unwrap();
+        compiler.mask_rows = Some(ImportedRows::default());
+        let key = compiler
+            .key(&circuit, &params, &config(vec![], true, read_config))
+            .unwrap();
+        // Exercise fresh publication, indexed reuse, and final closure imports.
+        let reused = compiler
+            .key(&circuit, &params, &config(vec![], true, read_config))
+            .unwrap();
+        assert_eq!(key.original(), reused.original());
+        assert_eq!(compiler.mask_rows.as_ref().unwrap().originals.len(), 1);
+        assert_eq!(
+            compiler.import(&key, &circuit, &params).unwrap().original(),
+            key.original()
+        );
+        // Existing collected cells cannot bypass a changed exact native source.
+        for changed in [
+            CompactSource {
+                fixed: 8,
+                ..circuit
+            },
+            CompactSource {
+                copy: false,
+                ..circuit
+            },
+        ] {
+            assert!(compiler.import(&key, &changed, &params).is_err());
+        }
+        let mut captured = compiler.mask_rows.take().unwrap();
+        drop(compiler);
+        let record = key.original();
+        let descriptor = read(&mut originals, record.descriptor, DESCRIPTOR_MAX_BYTES_V1).unwrap();
+        let binding = DescriptorBinding::decode_v2(&descriptor).unwrap();
+        let vk = read(
+            &mut originals,
+            record.verifying_key,
+            VERIFYING_KEY_MAX_BYTES_V1,
+        )
+        .unwrap();
+        let bytes = read(
+            &mut originals,
+            record.proving_key,
+            read_config.maximum_bytes,
+        )
+        .unwrap();
+        assert_eq!(&bytes[..8], b"PIPACPK1");
+        assert_eq!(bytes.len(), 108 + vk.len());
+        let typed =
+            ProvingKey::from_artifact_v2(&bytes, &binding, &params, &circuit, read_config).unwrap();
+        let rows = captured
+            .artifact_rows::<C::ScalarExt>(&bytes, &binding, &vk)
+            .unwrap();
+        let (n, usable) = dimensions::<C::ScalarExt>(binding.descriptor()).unwrap();
+        let closure = public_table_rows(binding.descriptor(), n, usable).unwrap();
+        assert_eq!(rows.keys().copied().collect::<BTreeSet<_>>(), closure);
+        assert!(!closure.is_subset(&boundary_rows(binding.descriptor(), n, usable).unwrap()));
+        for (&row, values) in &rows {
+            assert_eq!(
+                values.fixed,
+                typed
+                    .fixed_values()
+                    .iter()
+                    .map(|column| column[row])
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                values.sigma,
+                typed
+                    .permutation_values()
+                    .iter()
+                    .map(|column| column[row])
+                    .collect::<Vec<_>>()
+            );
+        }
+        check_boundary(binding.descriptor(), &rows).unwrap();
+        assert!(
+            ImportedRows::default()
+                .artifact_rows::<C::ScalarExt>(&bytes, &binding, &vk)
+                .is_err()
+        );
+        let mut wrong = record;
+        wrong.descriptor.sha256[0] ^= 1;
+        assert!(!captured.contains(wrong));
+        assert!(
+            ImportedRows::default()
+                .import(wrong, &bytes, &binding, &params, &circuit, read_config)
+                .is_err()
+        );
+        wrong = record;
+        wrong.verifying_key.sha256[0] ^= 1;
+        assert!(!captured.contains(wrong));
+        assert!(
+            ImportedRows::default()
+                .import(wrong, &bytes, &binding, &params, &circuit, read_config)
+                .is_err()
+        );
+        let mut altered_vk = vk.clone();
+        altered_vk[0] ^= 1;
+        assert!(
+            captured
+                .artifact_rows::<C::ScalarExt>(&bytes, &binding, &altered_vk)
+                .is_err()
+        );
+        for index in [0, 8, 40, 44, bytes.len() - 33, bytes.len() - 1] {
+            let mut changed = bytes.clone();
+            changed[index] ^= 1;
+            let changed_record = OriginalV1 {
+                proving_key: BlobV1::of(&changed),
+                ..record
+            };
+            assert!(
+                ImportedRows::default()
+                    .import(
+                        changed_record,
+                        &changed,
+                        &binding,
+                        &params,
+                        &circuit,
+                        read_config
+                    )
+                    .is_err()
+            );
+            assert!(
+                captured
+                    .artifact_rows::<C::ScalarExt>(&changed, &binding, &vk)
+                    .is_err()
+            );
+        }
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        let mut dense = bytes.clone();
+        dense[..8].copy_from_slice(b"PIPAPK01");
+        for changed in [bytes[..bytes.len() - 1].to_vec(), trailing, dense] {
+            let changed_record = OriginalV1 {
+                proving_key: BlobV1::of(&changed),
+                ..record
+            };
+            assert!(
+                ImportedRows::default()
+                    .import(
+                        changed_record,
+                        &changed,
+                        &binding,
+                        &params,
+                        &circuit,
+                        read_config
+                    )
+                    .is_err()
+            );
+            assert!(
+                captured
+                    .artifact_rows::<C::ScalarExt>(&changed, &binding, &vk)
+                    .is_err()
+            );
+        }
+        let mut bounded = ImportedRows {
+            bytes: MAX_CAPTURE_BYTES,
+            ..ImportedRows::default()
+        };
+        assert!(
+            bounded
+                .import(record, &bytes, &binding, &params, &circuit, read_config)
+                .unwrap_err()
+                .contains("budget")
+        );
+        let entry = captured
+            .originals
+            .get_mut(&record.proving_key.sha256)
+            .unwrap();
+        let first = *entry.rows.keys().next().unwrap();
+        let missing = entry.rows.remove(&first).unwrap();
+        assert!(
+            captured
+                .artifact_rows::<C::ScalarExt>(&bytes, &binding, &vk)
+                .unwrap_err()
+                .contains("closure rows")
+        );
+        let entry = captured
+            .originals
+            .get_mut(&record.proving_key.sha256)
+            .unwrap();
+        entry.rows.insert(first, missing);
+        entry.rows.get_mut(&first).unwrap().fixed[0] = [255; 32];
+        assert!(
+            captured
+                .artifact_rows::<C::ScalarExt>(&bytes, &binding, &vk)
+                .unwrap_err()
+                .contains("noncanonical")
+        );
+        // Storage remains untrusted after collection: all final role assertions
+        // use read() again, which refuses replacement and extent changes.
+        let stored = directory
+            .path()
+            .join(hex::encode(record.proving_key.sha256));
+        for changed in [
+            bytes[..bytes.len() - 1].to_vec(),
+            [bytes.as_slice(), &[0]].concat(),
+        ] {
+            std::fs::write(&stored, changed).unwrap();
+            assert!(
+                read(
+                    &mut originals,
+                    record.proving_key,
+                    read_config.maximum_bytes
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn compact_source_capture_preserves_exact_rows_and_refuses_substitution_on_both_curves() {
+        compact_source_rows::<Ep>();
+        compact_source_rows::<Eq>();
+        let (d, _) = fixture();
+        assert!(dimensions::<Fp>(&d).is_err());
     }
 
     #[test]

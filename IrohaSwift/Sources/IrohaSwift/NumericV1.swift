@@ -646,3 +646,31 @@ private func stripLeadingDecimalZeros(_ value: String) -> String {
     let stripped = value.drop(while: { $0 == "0" })
     return stripped.isEmpty ? "0" : String(stripped)
 }
+
+
+extension CanonicalNorito {
+    /// Decode one exact bare compact-Norito Quantity, including canonical
+    /// mantissa width, non-negative value, scale and byte-for-byte round trip.
+    public static func decodeCompactQuantity(_ payload: Data) throws -> KotodamaQuantity {
+        var reader = CanonicalNoritoReader(data: payload)
+        var mantissa = CanonicalNoritoReader(data: try reader.readCompactField())
+        var scale = CanonicalNoritoReader(data: try reader.readCompactField())
+        let count = try mantissa.readUInt32LE()
+        guard count <= 64, Int(count) == mantissa.remaining() else {
+            throw numericFailure(.mantissaOverflow, "quantity mantissa length is invalid")
+        }
+        let bytes = try mantissa.readBytes(Int(count))
+        // Bare Numeric uses the BigInt codec's one-byte zero; the separate
+        // Kotodama V1 numeric frame represents zero with an empty mantissa.
+        let digits = bytes == Data([0]) ? "0" : try NumericV1Internal.decodeTwos(Array(bytes))
+        let scaleValue = try scale.readUInt32LE()
+        guard reader.remaining() == 0, scale.remaining() == 0, scaleValue <= 28 else {
+            throw numericFailure(.invalidScale, "quantity scale or payload length is invalid")
+        }
+        let value = try KotodamaQuantity(mantissa: KotodamaInt(digits), scale: UInt8(scaleValue))
+        guard try encodeCompactQuantity(value.canonicalString) == payload else {
+            throw numericFailure(.noncanonicalDecimal, "quantity is not canonical")
+        }
+        return value
+    }
+}

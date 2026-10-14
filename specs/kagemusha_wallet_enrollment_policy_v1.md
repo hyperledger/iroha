@@ -177,18 +177,23 @@ profile names the documented features that identify a factory-provisioned chain;
 that carries the provisioning information extension, or that the profile cannot identify as
 factory-provisioned, is evaluated as remotely provisioned, including a chain to the RSA root.
 
-The `huawei` profile admits Huawei's own attestation root for Android phones running EMUI or
-HarmonyOS 2–4 with AndroidKeyStore, including post-2019 phones without Google Mobile
-Services. Huawei's published EMUI security documentation describes iTrustee hardware
-attestation and a Huawei root, device CA, device and key certificate hierarchy. That supports
-pinning a genuine Huawei root; it does not establish that every such phone emits the AOSP key
-description schema. The profile's chain shape, constraints, extension OIDs and positions are
-therefore fixed from genuine chains captured from such phones, and enrollment tests on them
-qualify it before its root entry is admitted. Where those chains carry the AOSP key
-description, steps 4–9 apply to it unchanged, and a phone whose attestation lacks a required
-field is refused for that evidence. No HarmonyOS NEXT or HUKS assumption applies: that
-platform runs no Android apps and needs its own adapter (design §2.2). An emulator chain
-ends at a software root and never qualifies a profile.
+The `huawei` identifier currently names an unqualified candidate profile. The Python
+verifier and native issuer configuration reject a policy selecting it. Huawei's
+[EMUI security documentation](https://consumer.huawei.com/content/dam/huawei-cbg-site/common/campaign/privacy/whitepaper/emui_11.0_security_technical_white_paper_v1.0.pdf)
+describes iTrustee hardware attestation and a Huawei root, device CA, device and key
+certificate hierarchy. It does not establish that AndroidKeyStore emits a chain to those
+roots or that its evidence carries the AOSP key description schema. HUKS also exists on
+Android/EMUI; HUKS evidence must not be conflated with either AndroidKeyStore evidence or
+HarmonyOS NEXT merely because the manufacturer is the same.
+
+TODO: establish the candidate profile's chain shape, constraints, extension OIDs and
+positions from authentic no-GMS Android evidence, and test all E1 assertions before
+admitting its root entry. Where those chains carry the AOSP key description, steps 4–9
+apply unchanged; a different vendor schema requires its own reviewed parsing and equivalent
+assertion checks. A phone whose evidence lacks a required field is refused for that
+evidence. HarmonyOS NEXT has no Android APK runtime and remains outside the first release
+(design §2.2). A software-rooted chain, including one that claims a TEE security level,
+never establishes manufacturer hardware provenance.
 
 ## Android admission
 
