@@ -8,7 +8,7 @@ use eyre::Result;
 use iroha_crypto::{HashOf, MerkleTree};
 use iroha_data_model::{
     AccountId,
-    block::BlockHeader,
+    block::{BlockHeader, SignedBlock},
     kaigi::KaigiId,
     query::{
         CommittedTransaction, CommittedTxFilters, dsl::CompoundPredicate,
@@ -1527,7 +1527,7 @@ pub(crate) fn visit_committed_transactions(
         resume.map(HistoryResume::After),
         max_row_bytes,
         before_project,
-        |transaction, matches, visit| visitor(transaction, matches, visit.next),
+        |transaction, matches, visit, _block| visitor(transaction, matches, visit.next),
     )
 }
 /// Where a history walk authenticates its first block.
@@ -1593,6 +1593,7 @@ fn walk_committed_transactions(
         CommittedTransaction,
         bool,
         HistoryVisit,
+        &SignedBlock,
     ) -> Result<ControlFlow<()>, QueryExecutionFail>,
 ) -> Result<bool, QueryExecutionFail> {
     anchor.validate(state_ro)?;
@@ -1678,7 +1679,7 @@ fn walk_committed_transactions(
                     block_index: input_index as usize,
                 },
             };
-            if visitor(transaction, matches, visit)?.is_break() {
+            if visitor(transaction, matches, visit, &projection.block)?.is_break() {
                 return Ok(ControlFlow::Break(()));
             }
         }
@@ -1826,6 +1827,8 @@ pub enum TransactionHistoryPageEnd {
 /// Every off-chain walk authenticates history downward from the nearest verified
 /// checkpoint at or above the requested position. Its work and byte budgets
 /// include checkpoint-to-position authentication as well as visited transactions.
+/// The visitor borrows the same authenticated carrier that produced each transaction,
+/// so visibility checks can inspect committed routing without a second history read.
 /// Consensus execution retains its cache-independent accounting. Running out of budget after visiting a
 /// transaction ends the page with the position to resume from
 /// ([`TransactionHistoryPageEnd::BudgetSpent`]); running out before reaching
@@ -1839,7 +1842,11 @@ pub fn visit_committed_transaction_page(
     resume: Option<TransactionHistoryPosition>,
     max_projection_work: u64,
     max_history_bytes: u64,
-    mut visitor: impl FnMut(CommittedTransaction, TransactionHistoryPosition) -> ControlFlow<()>,
+    mut visitor: impl FnMut(
+        CommittedTransaction,
+        TransactionHistoryPosition,
+        &SignedBlock,
+    ) -> ControlFlow<()>,
 ) -> Result<TransactionHistoryPageEnd, QueryExecutionFail> {
     let canonical_max = iroha_data_model::query::parameters::MAX_FETCH_SIZE.get();
     if max_projection_work == 0 || max_projection_work > canonical_max || max_history_bytes == 0 {
@@ -1873,9 +1880,9 @@ pub fn visit_committed_transaction_page(
                 Err(QueryExecutionFail::GasBudgetExceeded)
             }
         },
-        |transaction, _matches, visit| {
+        |transaction, _matches, visit, block| {
             last = Some(visit.position);
-            let flow = visitor(transaction, visit.position);
+            let flow = visitor(transaction, visit.position, block);
             stopped = flow.is_break();
             Ok(flow)
         },
@@ -3061,7 +3068,16 @@ pub(crate) mod tests {
                 resume,
                 work,
                 TRANSACTION_HISTORY_MAX_BYTES,
-                |transaction, position| {
+                |transaction, position, block| {
+                    assert_eq!(transaction.block_hash, block.hash());
+                    assert_eq!(position.height(), block.header().height().get());
+                    assert_eq!(
+                        transaction.entrypoint_hash,
+                        block
+                            .network_entrypoint_at(position.block_index() as usize)
+                            .unwrap()
+                            .hash(),
+                    );
                     page.push((transaction.entrypoint_hash, position));
                     if page.len() == stop_after {
                         ControlFlow::Break(())
@@ -3155,6 +3171,44 @@ pub(crate) mod tests {
             rest[..],
             all[first_older..first_older + rest.len()],
             "a warm deep page continues exactly where history stands"
+        );
+    }
+    #[test]
+    fn transaction_history_page_reuses_authenticated_carriers_for_visibility() {
+        let fixture = canonical_query_fixture();
+        let state_view = fixture.state.view();
+        state_view.kura().history_checkpoints().clear();
+        state_view.kura().reset_canonical_query_reads_for_test();
+        let mut visited = 0;
+        let end = visit_committed_transaction_page(
+            &state_view,
+            None,
+            1_000,
+            TRANSACTION_HISTORY_MAX_BYTES,
+            |transaction, position, block| {
+                // Visibility needs the original committed execution routing, not
+                // a reconstructed transaction body or a separately loaded block.
+                assert_eq!(block.hash(), transaction.block_hash);
+                assert_eq!(block.header().height().get(), position.height());
+                let source = block
+                    .network_entrypoint_at(position.block_index() as usize)
+                    .expect("carrier contains its projected transaction");
+                assert_eq!(source.hash(), transaction.entrypoint_hash);
+                let (_, output) = block
+                    .network_output_at(position.block_index() as u32)
+                    .expect("carrier contains the exact committed output");
+                assert_eq!(&output.result, transaction.result());
+                visited += 1;
+                ControlFlow::Continue(())
+            },
+        )
+        .expect("authenticated page");
+        assert_eq!(end, TransactionHistoryPageEnd::Exhausted);
+        assert!(visited > state_view.height());
+        assert_eq!(
+            state_view.kura().canonical_query_reads_for_test().0,
+            state_view.height(),
+            "all projected rows share one authenticated source read per carrier"
         );
     }
     #[test]

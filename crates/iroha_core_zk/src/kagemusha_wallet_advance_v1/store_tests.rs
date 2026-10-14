@@ -911,6 +911,184 @@ mod std_fs {
         (temp, store)
     }
 
+    fn deep_cached_store(
+        depth: usize,
+    ) -> (
+        tempfile::TempDir,
+        KagemushaWalletDurableStoreV1<KagemushaWalletStdFsV1>,
+        KagemushaWalletCustodyDirV1,
+        Vec<std::path::PathBuf>,
+    ) {
+        assert!(depth > 0);
+        let (temp, store) = std_store();
+        let mut selected = dir();
+        let mut path = temp.path().join("root");
+        let mut ancestors = vec![path.clone()];
+        path.push("d");
+        ancestors.push(path.clone());
+        for level in 1..depth {
+            let child = name(&format!("level-{level:02}"));
+            assert_eq!(
+                store.create_dir(&selected, &child),
+                KagemushaWalletPublishOutcomeV1::Published
+            );
+            selected = selected.child(&child);
+            path.push(format!("level-{level:02}"));
+            ancestors.push(path.clone());
+        }
+        assert_eq!(
+            store.write_new(&selected, &name("f"), BYTES),
+            KagemushaWalletPublishOutcomeV1::Published
+        );
+        assert_eq!(
+            store.read(&selected, &name("f"), 1024),
+            KagemushaWalletReadV1::Present(BYTES.to_vec())
+        );
+        (temp, store, selected, ancestors)
+    }
+
+    #[test]
+    fn wallet_advance_v1_std_fs_deep_cached_reads_reject_each_replaced_ancestor() {
+        use std::os::unix::fs::{PermissionsExt as _, symlink};
+        for position in 0..5 {
+            let (temp, store, selected, ancestors) = deep_cached_store(4);
+            let original = &ancestors[position];
+            let displaced = temp.path().join("displaced-original");
+            std::fs::rename(original, &displaced).unwrap();
+            assert!(
+                matches!(
+                    store.read(&selected, &name("missing"), 0),
+                    KagemushaWalletReadV1::Unavailable(_)
+                ),
+                "a vanished cached ancestor is not leaf absence: {position}"
+            );
+            for path in &ancestors[position..] {
+                std::fs::create_dir(path).unwrap();
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            let leaf = ancestors.last().unwrap();
+            std::fs::write(leaf.join("f"), OTHER).unwrap();
+            std::fs::set_permissions(leaf.join("f"), std::fs::Permissions::from_mode(0o600))
+                .unwrap();
+            assert!(
+                matches!(
+                    store.read(&selected, &name("f"), 1024),
+                    KagemushaWalletReadV1::Unavailable(_)
+                ),
+                "same-name replacement cannot be adopted: {position}"
+            );
+            assert!(matches!(
+                store.list(&selected),
+                KagemushaWalletProbeV1::Unavailable(_)
+            ));
+            assert!(matches!(
+                store.write_new(&selected, &name("intruder"), OTHER),
+                KagemushaWalletPublishOutcomeV1::NotPublished(_)
+            ));
+            assert!(!leaf.join("intruder").exists());
+            std::fs::remove_dir_all(original).unwrap();
+            symlink(&displaced, original).unwrap();
+            assert!(
+                matches!(
+                    store.read(&selected, &name("f"), 1024),
+                    KagemushaWalletReadV1::Unavailable(_)
+                ),
+                "even a link to the retained inode must be refused: {position}"
+            );
+            std::fs::remove_file(original).unwrap();
+            std::fs::rename(&displaced, original).unwrap();
+            assert_eq!(
+                store.read(&selected, &name("f"), 1024),
+                KagemushaWalletReadV1::Present(BYTES.to_vec())
+            );
+        }
+    }
+
+    #[test]
+    fn wallet_advance_v1_std_fs_deep_cached_reads_recheck_each_ancestor_mode() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let (_temp, store, selected, ancestors) = deep_cached_store(4);
+        for path in ancestors {
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o770)).unwrap();
+            assert!(matches!(
+                store.read(&selected, &name("f"), 1024),
+                KagemushaWalletReadV1::Unavailable(_)
+            ));
+            assert!(matches!(
+                store.read(&selected, &name("missing"), 0),
+                KagemushaWalletReadV1::Unavailable(_)
+            ));
+            assert!(matches!(
+                store.list(&selected),
+                KagemushaWalletProbeV1::Unavailable(_)
+            ));
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            assert_eq!(
+                store.read(&selected, &name("f"), 1024),
+                KagemushaWalletReadV1::Present(BYTES.to_vec())
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn wallet_advance_v1_std_fs_deep_cached_reads_recheck_each_ancestor_acl() {
+        let (_temp, store, selected, ancestors) = deep_cached_store(4);
+        for path in ancestors {
+            assert!(
+                std::process::Command::new("chmod")
+                    .args(["+a", "everyone allow add_file"])
+                    .arg(&path)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            assert!(matches!(
+                store.read(&selected, &name("f"), 1024),
+                KagemushaWalletReadV1::Unavailable(_)
+            ));
+            assert!(matches!(
+                store.read(&selected, &name("missing"), 0),
+                KagemushaWalletReadV1::Unavailable(_)
+            ));
+            assert!(
+                std::process::Command::new("chmod")
+                    .arg("-N")
+                    .arg(&path)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            assert_eq!(
+                store.read(&selected, &name("f"), 1024),
+                KagemushaWalletReadV1::Present(BYTES.to_vec())
+            );
+        }
+    }
+
+    /// A bounded host comparison only; wall-clock samples do not assert phone latency.
+    #[test]
+    #[ignore = "host filesystem microbenchmark, run explicitly before and after the same source change"]
+    fn wallet_advance_v1_std_fs_deep_read_profile() {
+        const ITERATIONS: usize = 128;
+        for depth in [1, 3, 8] {
+            let (_temp, store, selected, _ancestors) = deep_cached_store(depth);
+            for sample in 0..5 {
+                let start = std::time::Instant::now();
+                for _ in 0..ITERATIONS {
+                    assert_eq!(
+                        store.read(&selected, &name("f"), 1024),
+                        KagemushaWalletReadV1::Present(BYTES.to_vec())
+                    );
+                }
+                eprintln!(
+                    "WALLET_FS_DEEP_READ depth={depth} sample={sample} iterations={ITERATIONS} elapsed_ns={}",
+                    start.elapsed().as_nanos()
+                );
+            }
+        }
+    }
+
     #[test]
     fn wallet_advance_v1_std_fs_open_requires_a_directory() {
         let temp = tempfile::tempdir().expect("tempdir");

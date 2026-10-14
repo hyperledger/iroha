@@ -130,33 +130,100 @@ commitment. Sending a second copy of those deterministic tables is unnecessary.
    verify the deployed sizes and signed runtime selection. Report separately
    any physical-device checks that cannot be performed here.
 
-## Current state (2026-10-13 JST)
+## Current state (2026-10-15 Asia/Taipei)
 
-The signed generation-3 carrier meets the download budget: **5,017,489 bytes
-(4.785 MiB)** including all metadata. Its 1,029 originals occupy 3,885,985
+The signed generation-4 carrier meets the download budget: **5,017,539 bytes
+(4.785 MiB)** including all metadata. Its 1,029 originals occupy 3,886,035
 compressed bytes and decode to 117,796,512 bytes in total; decoding is streamed,
 not retained as a second disk copy. The four metadata files add 1,131,504 bytes.
-The preceding complete dense carrier was 18,689,631,983 bytes. The coordinated
-release task reports the generation-3 server cutover and signed runtime
-selection complete on the approved OVH host. Android 38 now contains the e6/v2 native libraries; iOS build 20261013030704
-contains the 8bf/v3 device library, including the Apple ancestor-search repair.
-Both retain their actual source/profile identities. Their app acceptance and
-performance scopes remain distinct from the isolated phone diagnostics below.
-An independent public HTTPS check retrieved all 1,029 encoded originals with
-their exact stored extents and hashes. Ten initial connection timeouts passed
-one targeted retry; this verifies the served bytes, not uninterrupted
-availability or phone download latency. The retained result is
-`../bpng/png2-deploy/output/compact-wallet-20261012/public-originals-check-20261013-v1/retry-timeouts-1/result.json`.
+The preceding complete dense carrier was 18,689,631,983 bytes. The compact
+carrier is about 3,725 times smaller. Neither that count nor the streamed
+decoded total is an estimate of the whole app's installed storage.
+
+Both independent complete strict exports pass for canonical native source
+`491cc207bdaf92af72cf07c21b95c0455d9ad081aca1240a1e7511f8774cd1ae`.
+Each contains 908 members and 2,725 original bindings; every member matches the
+preceding qualified profile except source identity and equivalent numeric
+formatting. Matching generated DATA has SHA-256
+`dffe37c171f8bf6c17377d564678acff31fbc4b792bb77be32fc0b5801dcc10d`.
+The ABI 29 Android three-ABI and host libraries and both Apple iOS 18 slices
+are rebuilt and accepted against that pair. The maintained source evaluator
+still matches at 2026-10-14 16:08 UTC; SDK worker changes do not alter native inputs.
+
+Current host tests pass complete graph reuse and original/role controls, typed
+wrapper and compact-key reconstruction controls, and H4 Install/Activate layout
+selection. With network access denied, the production carrier passes native
+admission in 10.298 seconds and reaches the first unavailable custody-root
+callback; a changed signature is rejected before any platform callback. This
+is host admission evidence, not a phone opening time or successful enrollment.
+
+The shared Swift and Kotlin SDKs now execute heavy native calls on bounded
+8 MiB workers after a physical iPhone finality decoder exhausted its dispatch
+stack. All 101 focused SDK/host checks pass, including genuine public finality
+decoding from a measured 524 KiB simulator caller. Synchronous ownership,
+original errors and separate capacity for payment and folding/snapshot work
+are preserved. This repair changes neither proof relations nor native DATA.
+The release owner reports Android 40 and iPhone 80107 delivered and installed.
+Their physical activation, Load and offline Send/Receive acceptance remain
+pending. The coordinated validator update completed against all four retained
+ledgers at height 66. Fresh checks at 2026-10-14 16:06 UTC confirm all four
+current validators and all six public readiness endpoints; the deployment owner
+released the phone-test hold. The earlier successful engineering journey below
+retains its original binary identity and is not current-source phone evidence.
+
+The iPhone has completed user authentication and resumed its saved activation,
+but has not completed Load. A foreground profile finds repeated native directory
+ancestry validation dominating cursor advancement. The next candidate narrows
+cached directory selection while preserving complete ancestry and leaf checks;
+host before/after measurements and replacement, mode and ACL controls are in
+progress. It requires fresh strict exports and matched native libraries before
+phone acceptance. The installed phones still use the accepted source above.
+Core wallet-ledger recovery also returns HTTP 503; closed-stage diagnostics pass
+their unchanged-response regression and await service deployment. Direct
+activation finality proofs checked by the device owner are being served
+successfully. The separate incoming-payment signer-restricted lookup is repaired
+and passes its public-proof HTTP regressions; deployment is in progress.
+Android 40's three registration transactions have finalized. These observations
+do not yet establish hardware wallet activation or an offline transfer.
+
+Exact current results are retained in
+`output/current-source-wallet-20261014/current-source-validation-handoff-v1.json`,
+`production-strict-v5/`, `engineering-strict-v5/`,
+`native-admission-current-v5/` and `completion-source-audit-v1/` under the same
+current-source output directory. Carrier counts, all decoded hashes and the
+runtime signature were checked in
+`../bpng/png2-deploy/output/current-source-20261014/gen4-carrier-local-validation-v1/result.json`.
+Independent reads of Android 39's AAB and Play-signed APK and iPhone 80107's IPA
+confirm all 1,033 carrier files are byte-identical to this generation. All 1,029
+single-frame originals also pass bounded decompression, raw-length and raw-hash
+checks without decoded disk writes. The three packaged Android native hashes
+match the accepted source; the iPhone executable contains the same source
+identity and its static input matches the release record. The whole APK, AAB
+and IPA are respectively 205,282,687, 109,200,480 and 64,500,937 bytes. These are
+complete package sizes, not store per-device downloads or installed storage.
+The result and the limits of static-link and physical-device verification are in
+`output/current-source-wallet-20261014/carrier-completion-audit-v1/audit.json`.
+Android 40's subsequent 109,200,651-byte AAB and 205,282,687-byte Play-signed
+APK independently pass the same 1,033-file carrier and three-native-library
+comparison, with version 40 and minimum API 26 confirmed from their actual
+manifests. The APK SHA-256 is
+`1ccb3cfa38bcb931b0615b05b8fdeaf68b684a4991aa0858a86a38c618982afc`.
+These package checks do not establish physical installation or wallet acceptance;
+see `output/current-source-wallet-20261014/android40-carrier-audit-v1/aab-audit.json`
+and `apk-audit.json` in the same directory.
+An independent public HTTPS check also retrieves all 1,033 generation-4 files
+with exact stored sizes and hashes, with no retry. The served financial
+selection matches the locally verified signed runtime. The result is
+`output/current-source-wallet-20261014/public-carrier-audit-v1/result.json`.
+This confirms the published bytes; app installation uses its complete local
+bundle, and the public check does not measure PNG connectivity or phone speed.
 
 Production scheme:
-`aed95157c9a15d6affd07e150a36fc3ff48cba3fa8d7f5065978e48ba3b22bb9`.
+`ce12ce4dff53395d3f1bbad62dec9097c41aa5401664bd5841296dcd19a84fc0`.
 Manifest:
-`929a468417604b2c34e8f7ea8ed08b1c100a16a2537a772ec96bfe2fc24bfbaa`.
-Byte counts and deployment handoff are retained in
-`../bpng/png2-deploy/output/compact-wallet-20261012/carrier-handoff.json`
-and `carrier-inspection.json`.
+`96ffc4b776f552fa73cc101508adad3f9b170bab63e15e2fdb96fdc464f72091`.
 
-### Phone loading and storage
+### Earlier phone loading and storage measurements
 
 On the Pixel 6 (ARM64, Android API 37), isolated complete source-graph loading
 passed all 32 programs and 52 routes under both paths:
@@ -295,20 +362,25 @@ and rebuilt consumer acceptance are recorded under
 alone is not a passing test or a physical-device result. Consumers need a matching
 rebuilt native library to receive this E1 runtime repair.
 
-Registry maintenance binds generated DATA to the finalized canonical source
-census, which includes tests and documentation. Source changes require a fresh
-strict generator, independent complete profile exports and exact member parity
-before installing matching DATA; generated DATA alone is excluded from its own
-source hash. Exact captures, generated hashes and validation results remain in
-the retained output records. Test-only settlement and documentation changes do
-not alter already shipped libraries' internally matched source/profile pairs,
-the generation-3 carrier, circuits or monetary runtime. Existing e6/v2 and
-8bf/v3 artifacts keep their original identities.
+Registry maintenance binds generated DATA to the finalized canonical native
+source census. Native package trees, fixtures and explicitly declared external
+inputs are included. Unrelated client roots and ordinary top-level/docs/specs
+Markdown are excluded; `NativeBridge.swift` and native-consumed documentation
+remain explicit inputs. Changes to selected inputs require a fresh strict
+generator, independent complete profile exports and exact member parity before
+installing matching DATA. Generated DATA is excluded from its own source hash.
+Compiler-input containment is checked separately. Exact captures and validation
+results remain in retained output records; earlier artifacts keep their original
+identities and are never relabelled as results for a later build.
 
 ### Real proofs and retained monetary recovery
 
-Generated-versus-compact-imported proof bytes match for four Sigma Send/Receive
-fixtures across both Pasta curves and four k16 Q-signature fixtures. On the
+Generic engine fixtures check generated-versus-compact-imported proof-byte
+parity across both Pasta curves. Four Sigma Send/Receive fixtures separately
+verify imported proofs and exact proving-key/verifying-key continuity on both
+curves; they do not compare two generated and imported proof byte strings.
+Four k16 Q-signature fixtures include generated-versus-imported proof-byte
+comparison. These results retain their recorded source identities. On the
 Pixel, Sigma key reconstruction/import took 69–247 ms and proofs 667–872 ms;
 one-/two-slot Q-signature key reconstruction took 1.281/1.014 s and proof plus
 self-verification took 31.087/24.931 s. The combined Q test peaked at 527,692 KiB.

@@ -691,7 +691,6 @@ mod std_fs {
             &self,
             dir: &KagemushaWalletCustodyDirV1,
         ) -> io::Result<Arc<PrivateDirectory>> {
-            self.root.revalidate().map_err(custody_changed)?;
             // Serialize cache selection with any consuming child-removal transition.
             let mut cache = self.directories.lock().map_err(|_| poisoned())?;
             #[cfg(windows)]
@@ -706,6 +705,14 @@ mod std_fs {
                     "child removal requires fresh runtime reconciliation",
                 ));
             }
+            if let Some(held) = cache.get(dir.components()) {
+                // The retained directory validates its complete native ancestor chain.
+                // Revalidate it on every selection without repeating the same walk for
+                // each cached prefix; no validation result survives this operation.
+                held.revalidate().map_err(custody_changed)?;
+                return Ok(Arc::clone(held));
+            }
+            self.root.revalidate().map_err(custody_changed)?;
             let mut current = Arc::clone(&self.root);
             let mut prefix = Vec::new();
             for component in dir.components() {

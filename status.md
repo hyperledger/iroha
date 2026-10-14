@@ -567,7 +567,7 @@ passes.
   records remain explicit; these results do not qualify the whole checkout or phones.
   Scoped proof-crate strict lint and workspace formatting pass; dependency-inclusive
   strict lint retains unrelated configuration failures.
-  The signed compact catalogue measures 5,017,489 bytes including metadata;
+  The current signed compact carrier measures 5,017,539 bytes including metadata;
   complete native catalogue and signed production-runtime import pass. Pixel 6
   strict source-graph inspection stores 7,224 KiB and passes all 32 Q programs
   and 52 routes in 701.473 seconds, peaking at 562.9 MiB RSS. The first independently
@@ -646,8 +646,38 @@ passes.
   The 14.201-second measurement remains the separate source351234 diagnostic.
   Canonical registry maintenance strictly regenerates matching DATA from the
   finalized source census; exact source/DATA pairs remain in output records.
-  Test/documentation changes do not relabel or require rebuilding these shipped
-  artifacts. The compact download/storage result and local settlement/native
+  Current production and engineering strict exports and the matched ABI29 Apple
+  device/simulator, Android three-ABI and host builds are complete. Physical iPhone
+  activation exposed cumulative finality decoding stack exhaustion on a 544 KiB
+  dispatch worker before Load. The shared Swift and Kotlin SDKs now give heavy
+  native calls bounded 8 MiB workers, preserving synchronous ownership and
+  separate payment versus folding/snapshot/collection capacity. Kotlin worker
+  and matched host JNI checks pass. Swift simulator checks also pass with genuine
+  public finality inputs from a measured 524 KiB caller; a matched host trace
+  confirms deep native-lane decoding and successful checkpoint-page verification
+  before the deliberately invalid transaction row is refused. Physical activation
+  on the updated app remains pending. Independent package inspection confirms
+  Android 39 and iPhone 80107 carry the same complete generation-4 originals and
+  metadata (5,017,539 bytes); all stored and decoded original hashes pass, and
+  their native source selection matches the accepted build. These client changes
+  preserve the compiled native source census and generated proof DATA. No extra
+  compile is needed solely to relabel unchanged proof code. The release owner
+  reports both app deliveries complete. The coordinated validator update and
+  fresh four-validator/six-endpoint checks passed; the phone-test hold is lifted.
+  Android 40's AAB and Play-signed APK also preserve all carrier and
+  native-library bytes. Its owner reports in-place installation and three
+  finalized registration transactions. The iPhone has resumed its saved
+  activation after user authentication, but Core wallet-ledger recovery returns
+  HTTP 503; direct activation proofs checked by its owner are served successfully.
+  Closed-stage Core diagnostics pass and await deployment. A foreground iPhone
+  profile identifies repeated native directory ancestry validation during cursor
+  advancement. A narrow retained-directory cache selection optimization is under
+  host comparison with replacement, mode and ACL refusal controls; fresh strict
+  exports and matched native consumers are required before it ships.
+  Neither phone has completed
+  current hardware wallet activation, Load and offline transfer acceptance.
+  Current-phone opening time, memory and post-proof
+  storage remain unmeasured. The compact download/storage result and local settlement/native
   confirmation do not close further opening measurements, four-validator
   monetary acceptance, the two-second durable-completion target, the full native
   release matrix or physical-device recovery.

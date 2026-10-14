@@ -43,23 +43,25 @@ private final class KagemushaWalletInstallationLeaseV1: KagemushaWalletCleanupLe
   }
   func begin(_ originals:KagemushaWalletRuntimeOriginalsV1) throws {
     guard let platform else { throw KagemushaWalletErrorV1.closed }
-    var callbacks=kagemushaWalletCallbacksV1(platform)
-    let status=withExtendedLifetime(platform) {
-      withPinnedWalletOriginalsV1(originals.originals) { ptr in
-        var value=connect_norito_kagemusha_wallet_runtime_originals_v1()
-        value.app_manifest=ptr[0]; value.app_manifest_length=originals.originals[0].count
-        value.envelope=ptr[1]; value.envelope_length=originals.originals[1].count
-        value.wallet_runtime=ptr[2]; value.wallet_runtime_length=originals.originals[2].count
-        value.verifier_pack=ptr[3]; value.verifier_pack_length=originals.originals[3].count
-        value.producer_inventory=ptr[4]; value.producer_inventory_length=originals.originals[4].count
-        value.signed_genesis=ptr[5]; value.signed_genesis_length=originals.originals[5].count
-        value.originals_root=ptr[6]; value.originals_root_length=originals.originals[6].count
-        value.registration_source=ptr[7]; value.registration_source_length=originals.originals[7].count
-        return driver.begin(&value,&callbacks,&pointer)
-      }
-    }
     // Genuine begin returns no pointer on error. A contradictory retained pointer is still retired.
     do {
+      let status=try KagemushaWalletNativeWorkerV1.perform {
+        var callbacks=kagemushaWalletCallbacksV1(platform)
+        return withExtendedLifetime(platform) {
+          withPinnedWalletOriginalsV1(originals.originals) { ptr in
+            var value=connect_norito_kagemusha_wallet_runtime_originals_v1()
+            value.app_manifest=ptr[0]; value.app_manifest_length=originals.originals[0].count
+            value.envelope=ptr[1]; value.envelope_length=originals.originals[1].count
+            value.wallet_runtime=ptr[2]; value.wallet_runtime_length=originals.originals[2].count
+            value.verifier_pack=ptr[3]; value.verifier_pack_length=originals.originals[3].count
+            value.producer_inventory=ptr[4]; value.producer_inventory_length=originals.originals[4].count
+            value.signed_genesis=ptr[5]; value.signed_genesis_length=originals.originals[5].count
+            value.originals_root=ptr[6]; value.originals_root_length=originals.originals[6].count
+            value.registration_source=ptr[7]; value.registration_source_length=originals.originals[7].count
+            return driver.begin(&value,&callbacks,&pointer)
+          }
+        }
+      }
       try KagemushaWalletNativeDriverV1.check(status)
       guard pointer != nil else { throw KagemushaWalletErrorV1.invalidNativeOutput }
     } catch {
@@ -75,7 +77,7 @@ private final class KagemushaWalletInstallationLeaseV1: KagemushaWalletCleanupLe
     try sequence.requireRegistration()
     guard let original=pointer, let platform else { throw KagemushaWalletErrorV1.closed }
     var handle:UInt64=0
-    let status=driver.register(&pointer,&handle)
+    let status=try KagemushaWalletNativeWorkerV1.perform { driver.register(&pointer,&handle) }
     if status != 0 {
       guard pointer==original, handle==0 else { throw KagemushaWalletErrorV1.invalidNativeOutput }
       try KagemushaWalletNativeDriverV1.check(status)

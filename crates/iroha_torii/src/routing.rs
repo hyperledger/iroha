@@ -33494,53 +33494,6 @@ impl HistoryVisibilityReads {
             }),
         }
     }
-    fn allows(
-        &self,
-        visibility: &DataspaceReadVisibility,
-        height: u64,
-        expected: Option<HashOf<BlockHeader>>,
-        source: HashOf<TransactionEntrypoint>,
-    ) -> bool {
-        if visibility.can_read_all() {
-            return true;
-        }
-        let mut reads = self
-            .reads
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if reads.error.is_some() {
-            return false;
-        }
-        let result = (|| -> Result<bool> {
-            if height == 0 || height > self.height {
-                return Err(conversion_error(
-                    "visibility source exceeds its captured prefix".into(),
-                ));
-            }
-            let height = usize::try_from(height)
-                .ok()
-                .and_then(NonZeroUsize::new)
-                .ok_or_else(|| conversion_error("visibility height exceeds host range".into()))?;
-            if reads.block.as_ref().is_none_or(|(cached_height, _)| *cached_height != height.get()) {
-                let block = reads.budget.read(&self.state, height)?;
-                reads.block = Some((height.get(), block));
-            }
-            let (_, block) = reads.block.as_ref().expect("retained authenticated carrier");
-            if expected.is_some_and(|hash| hash != block.hash()) {
-                return Err(conversion_error(
-                    "visibility carrier differs from the projected source".into(),
-                ));
-            }
-            Ok(visibility.allows_external_entrypoint_hash(block, source))
-        })();
-        match result {
-            Ok(allowed) => allowed,
-            Err(error) => {
-                reads.error = Some(error);
-                false
-            }
-        }
-    }
     fn allows_contract_event(&self, visibility: &DataspaceReadVisibility, projection: &ContractEventProjection) -> bool {
         let mut reads = self.reads.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if reads.error.is_some() { return false; }

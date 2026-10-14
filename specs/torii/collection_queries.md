@@ -325,7 +325,10 @@ rows do not replace consumers' verification of authenticated finality.
   64 blocks, recorded at startup and as blocks commit, plus the blocks recent
   pages verified), so a page starts at most 64 blocks above its position and
   all of history is reachable. A page whose blocks alone exceed the budget
-  is rejected with `query_scan_limit_exceeded`.
+  is rejected with `query_scan_limit_exceeded`. Transaction and account movement
+  visibility uses that same authenticated carrier, without rereading and verifying
+  the block for each visibility check. The captured canonical prefix is rechecked
+  before publishing the page.
 - Bounds on `block_height` in the filter's top-level `and` bound the rows a
   page examines: `block_height >= 1200` ends the walk below height 1200, and
   `block_height <= 1500` starts the walk just above height 1500. `filter=block_height >= 1200 and result_ok = true`

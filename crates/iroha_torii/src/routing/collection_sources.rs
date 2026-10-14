@@ -3,10 +3,8 @@
 //! Each collection turns this node's state into JSON rows whose fields match
 //! its [`CollectionSpec`]; the engine then filters, orders and pages them.
 //! Execution here returns full rows: projection happens before returning the page.
+use super::account_history_multisig::{MultisigHistoryBudget, append_executed_multisig_history};
 use super::*;
-use super::account_history_multisig::{
-    MultisigHistoryBudget, append_executed_multisig_history,
-};
 
 #[cfg(test)]
 mod account_history_multisig_tests;
@@ -878,7 +876,9 @@ fn account_subrow_page(
         .cloned()
         .map(TxHistoryAssetSelector::DefinitionId);
     let view = state.view();
-    let reads = HistoryVisibilityReads::new(Arc::clone(state));
+    let anchor = view
+        .latest_block_hash()
+        .map(|hash| (view.height() as u64, hash));
     let mut items = Vec::new();
     let mut last_visible = None;
     let mut below_range = false;
@@ -894,7 +894,7 @@ fn account_subrow_page(
         resume,
         work,
         transaction_history_byte_limit(work),
-        |transaction, position| {
+        |transaction, position, block| {
             if scanned >= work {
                 return std::ops::ControlFlow::Break(());
             }
@@ -903,12 +903,8 @@ fn account_subrow_page(
                 return std::ops::ControlFlow::Break(());
             }
             if !(visibility.can_read_all()
-                || reads.allows(
-                    visibility,
-                    position.height(),
-                    Some(transaction.block_hash),
-                    *transaction.entrypoint_hash(),
-                ))
+                || visibility
+                    .allows_external_entrypoint_hash(block, *transaction.entrypoint_hash()))
             {
                 return std::ops::ControlFlow::Continue(());
             }
@@ -974,7 +970,9 @@ fn account_subrow_page(
     )
     .map_err(|error| Error::Query(iroha_data_model::ValidationFail::QueryFailed(error)))?;
     drop(view);
-    reads.finish()?;
+    if let Some((height, hash)) = anchor {
+        require_history_anchor(state, height, hash)?;
+    }
     if let Some(error) = projection_error {
         return Err(error);
     }
@@ -1184,10 +1182,12 @@ fn transaction_page(
     let allowed = allowed_definition
         .cloned()
         .map(TxHistoryAssetSelector::DefinitionId);
-    // The walk's view is captured before the visibility reads so every visited
-    // carrier lies inside the prefix the reads authenticate.
+    // Visibility uses the authenticated carrier borrowed from this same history
+    // walk, so it cannot observe a different prefix or repeat source verification.
     let view = state.view();
-    let reads = HistoryVisibilityReads::new(Arc::clone(state));
+    let anchor = view
+        .latest_block_hash()
+        .map(|hash| (view.height() as u64, hash));
     let limit = prepared.limit();
     let mut items = Vec::new();
     let mut last_visible = None;
@@ -1198,18 +1198,14 @@ fn transaction_page(
         resume,
         work,
         transaction_history_byte_limit(work),
-        |transaction, position| {
+        |transaction, position, block| {
             if position.height() < lowest {
                 below_range = true;
                 return std::ops::ControlFlow::Break(());
             }
             let visible = visibility.can_read_all()
-                || reads.allows(
-                    visibility,
-                    position.height(),
-                    Some(transaction.block_hash),
-                    *transaction.entrypoint_hash(),
-                );
+                || visibility
+                    .allows_external_entrypoint_hash(block, *transaction.entrypoint_hash());
             if !visible
                 || subject.is_some_and(|account| {
                     !tx_matches_account_history_subject(&transaction, account)
@@ -1236,7 +1232,9 @@ fn transaction_page(
     )
     .map_err(|error| Error::Query(iroha_data_model::ValidationFail::QueryFailed(error)))?;
     drop(view);
-    reads.finish()?;
+    if let Some((height, hash)) = anchor {
+        require_history_anchor(state, height, hash)?;
+    }
     let resume = match end {
         TransactionHistoryPageEnd::Stopped(_) if below_range => None,
         TransactionHistoryPageEnd::Stopped(_) | TransactionHistoryPageEnd::BudgetSpent(_) => {
@@ -2270,6 +2268,44 @@ mod tests {
         .await
         .expect("movement filter");
         assert_eq!(filtered.items[0]["id"], second.items[0]["id"]);
+
+        // Ordinary readers must apply route visibility using the same authenticated
+        // carrier as the page. This covers both the transaction and movement paths.
+        let committed = chain.committed(chain.height());
+        let visible = DataspaceReadVisibility::new(
+            DataspaceReadVisibility::external_entrypoint_dataspaces(committed.block(), 0)
+                .expect("fixture has committed execution routing")
+                .into_iter()
+                .collect(),
+            false,
+        );
+        assert!(visible.allows_account(&state.world_view(), &alice));
+        for target in [&target, &movements, &CollectionTarget::Transactions] {
+            let query = ListQuery::new().filter(field("block_height").eq(chain.height()));
+            let expected = run(&state, target, query.clone()).await.unwrap();
+            assert!(!expected.items.is_empty());
+            for (visibility, authorized) in [
+                (&visible, true),
+                (&DataspaceReadVisibility::default(), false),
+            ] {
+                let page = execute_collection_local(
+                    None,
+                    &state,
+                    target,
+                    query.clone(),
+                    &MaybeTelemetry::for_tests(),
+                    visibility,
+                )
+                .await
+                .expect("scoped authenticated history");
+                if authorized {
+                    assert_eq!(page.items, expected.items);
+                } else {
+                    assert!(page.items.is_empty(), "hidden routes must not leak rows");
+                    assert_eq!(page.next_cursor, None);
+                }
+            }
+        }
     }
 
     #[tokio::test]
