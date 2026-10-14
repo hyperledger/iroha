@@ -42,6 +42,8 @@ pub enum BondEvent {
     Defaulted(BondDefaulted),
     /// The issuer replaced the paying agent.
     PayingAgentReplaced(BondPayingAgentReplaced),
+    /// The issuer retired units it held.
+    TreasuryUnitsRetired(BondTreasuryUnitsRetired),
 }
 
 impl BondEvent {
@@ -57,6 +59,7 @@ impl BondEvent {
             Self::Called(event) => &event.bond,
             Self::Defaulted(event) => &event.bond,
             Self::PayingAgentReplaced(event) => &event.bond,
+            Self::TreasuryUnitsRetired(event) => &event.bond,
         }
     }
 }
@@ -193,10 +196,29 @@ bond_event_payload!(
     }
 );
 
+bond_event_payload!(
+    /// Payload of [`BondEvent::TreasuryUnitsRetired`].
+    BondTreasuryUnitsRetired = "iroha_data_model::events::data::bond::BondTreasuryUnitsRetired" {
+        /// Bond identifier.
+        bond: BondId,
+        /// Issuer whose units were burned.
+        issuer: AccountId,
+        /// Units burned by this retirement.
+        quantity: Quantity,
+        /// Outstanding units after the retirement.
+        outstanding_units: Quantity,
+        /// Units retired since registration, including this retirement.
+        retired_units: Quantity,
+        /// Scheduled cash flows cancelled because no unit remains outstanding.
+        cancelled_cashflows: u16,
+    }
+);
+
 /// Prelude exports for bond events.
 pub mod prelude {
     pub use super::{
         BondCalled, BondCashflowClaimed, BondCashflowClosed, BondCashflowFunded,
         BondCashflowRecorded, BondDefaulted, BondEvent, BondPayingAgentReplaced, BondRegistered,
+        BondTreasuryUnitsRetired,
     };
 }

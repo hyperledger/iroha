@@ -348,7 +348,11 @@ fn bond_values() -> Vec<Value> {
         capture(bond::CloseBondCashflow::new(id.clone(), 2)),
         capture(bond::CallBond::new(id.clone(), 1_799_971_200_000)),
         capture(bond::DeclareBondDefault::new(id.clone(), 2, [0x5d; 32])),
-        capture(bond::ReplaceBondPayingAgent::new(id, bond_account(3))),
+        capture(bond::ReplaceBondPayingAgent::new(
+            id.clone(),
+            bond_account(3),
+        )),
+        capture(bond::RetireBondTreasuryUnits::new(id, 250_u32)),
     ]
 }
 
@@ -378,7 +382,7 @@ pub(super) fn values() -> Vec<Value> {
         .expect("canonical pin-outbox generated record fixture");
     records.push(capture(pin_outbox_advance));
     records.extend(bond_values());
-    assert_eq!(records.len(), 38);
+    assert_eq!(records.len(), 39);
     records
 }
 

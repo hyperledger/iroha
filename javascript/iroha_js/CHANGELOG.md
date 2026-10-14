@@ -4,6 +4,10 @@ All notable changes to `@iroha/iroha-js` are documented in this file.
 
 ## [Unreleased]
 
+- Added `buildRetireBondTreasuryUnitsInstruction({ bondId, quantity })`
+  (`Bond.RetireTreasuryUnits`: the issuer burns units of its own balance) with
+  its review row; bond records carry `state.retired_units`, which
+  `getBond`/`listBonds` require.
 - Bond servicing follows the revised kernel: terms require `paymentGraceMs`
   and a regular coupon schedule (`validateBondTerms` refuses irregular coupon
   dates or counts with Core's messages); `buildReplaceBondPayingAgentInstruction`

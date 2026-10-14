@@ -5861,11 +5861,15 @@
             "type": "string"
           },
           "outstanding_units": {
-            "description": "Units in existence: the minted total minus redeemed units.",
+            "description": "Units in existence: the minted total minus redeemed and retired units.",
             "type": "string"
           },
           "redeemed_units": {
             "description": "Units burned by redemption claims.",
+            "type": "string"
+          },
+          "retired_units": {
+            "description": "Issuer-held units burned by RetireBondTreasuryUnits.",
             "type": "string"
           },
           "transfers_frozen": {
@@ -5877,6 +5881,7 @@
           "lifecycle",
           "outstanding_units",
           "redeemed_units",
+          "retired_units",
           "transfers_frozen",
           "cashflows"
         ],

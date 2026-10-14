@@ -20,6 +20,7 @@ fn instructions() -> Vec<BondInstructionBox> {
         CallBond::new(bond(), 1_799_971_200_000).into(),
         DeclareBondDefault::new(bond(), 1, [5; 32]).into(),
         ReplaceBondPayingAgent::new(bond(), account(3)).into(),
+        RetireBondTreasuryUnits::new(bond(), 250_u32).into(),
     ]
 }
 
@@ -46,6 +47,7 @@ fn bond_instruction_box_roundtrips_through_every_codec_path() {
     assert_slice_roundtrip(CallBond::new(bond(), 42));
     assert_slice_roundtrip(DeclareBondDefault::new(bond(), 3, [1; 32]));
     assert_slice_roundtrip(ReplaceBondPayingAgent::new(bond(), account(12)));
+    assert_slice_roundtrip(RetireBondTreasuryUnits::new(bond(), 7_u32));
 }
 
 #[test]
@@ -63,6 +65,7 @@ fn bond_registry_decodes_only_the_stable_box_id() {
         std::any::type_name::<CallBond>(),
         std::any::type_name::<DeclareBondDefault>(),
         std::any::type_name::<ReplaceBondPayingAgent>(),
+        std::any::type_name::<RetireBondTreasuryUnits>(),
         std::any::type_name::<BondInstructionBox>(),
     ] {
         assert!(!registry.contains(name), "{name} must remain boxed-only");
@@ -98,6 +101,13 @@ fn bond_instruction_json_is_strict_and_roundtrips() {
         norito::json::from_str::<RegisterBond>(&text).expect("decode register"),
         register
     );
+    let retire = RetireBondTreasuryUnits::new(bond(), 250_u32);
+    let text = norito::json::to_json(&retire).expect("retire JSON");
+    assert!(text.contains(r#""quantity":"250""#), "{text}");
+    assert_eq!(
+        norito::json::from_str::<RetireBondTreasuryUnits>(&text).expect("decode retire"),
+        retire
+    );
     let claim = ClaimBondCashflow::new(bond(), 0, account(10));
     let text = norito::json::to_json(&claim).expect("claim JSON");
     assert!(
@@ -121,6 +131,7 @@ fn bond_instruction_display_names_the_operation() {
         "BOND_CALL",
         "BOND_DEFAULT",
         "BOND_REPLACE_PAYING_AGENT",
+        "BOND_RETIRE_TREASURY",
     ]) {
         assert!(text.starts_with(prefix), "{text}");
     }
@@ -129,7 +140,7 @@ fn bond_instruction_display_names_the_operation() {
 #[test]
 fn unknown_bond_box_tag_is_rejected() {
     let mut bytes = BondInstructionBox::from(CloseBondCashflow::new(bond(), 0)).encode();
-    bytes[..4].copy_from_slice(&8_u32.to_le_bytes());
+    bytes[..4].copy_from_slice(&9_u32.to_le_bytes());
     assert!(
         <BondInstructionBox as norito::core::DecodeFromSlice>::decode_from_slice(&bytes).is_err()
     );

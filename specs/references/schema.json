@@ -3408,6 +3408,11 @@
         "discriminant": 7,
         "tag": "PayingAgentReplaced",
         "type": "BondPayingAgentReplaced"
+      },
+      {
+        "discriminant": 8,
+        "tag": "TreasuryUnitsRetired",
+        "type": "BondTreasuryUnitsRetired"
       }
     ]
   },
@@ -3476,6 +3481,11 @@
         "discriminant": 7,
         "tag": "ReplacePayingAgent",
         "type": "ReplaceBondPayingAgent"
+      },
+      {
+        "discriminant": 8,
+        "tag": "RetireTreasuryUnits",
+        "type": "RetireBondTreasuryUnits"
       }
     ]
   },
@@ -3602,6 +3612,10 @@
         "type": "Quantity"
       },
       {
+        "name": "retired_units",
+        "type": "Quantity"
+      },
+      {
         "name": "transfers_frozen",
         "type": "bool"
       },
@@ -3672,6 +3686,34 @@
       {
         "name": "terms_sha256",
         "type": "Array<u8, 32>"
+      }
+    ]
+  },
+  "BondTreasuryUnitsRetired": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "issuer",
+        "type": "AccountId"
+      },
+      {
+        "name": "quantity",
+        "type": "Quantity"
+      },
+      {
+        "name": "outstanding_units",
+        "type": "Quantity"
+      },
+      {
+        "name": "retired_units",
+        "type": "Quantity"
+      },
+      {
+        "name": "cancelled_cashflows",
+        "type": "u16"
       }
     ]
   },
@@ -25221,6 +25263,18 @@
       {
         "name": "governance_tag",
         "type": "GovernanceTag"
+      }
+    ]
+  },
+  "RetireBondTreasuryUnits": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "quantity",
+        "type": "Quantity"
       }
     ]
   },

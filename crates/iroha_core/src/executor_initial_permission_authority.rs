@@ -1693,8 +1693,9 @@ fn initial_native_instruction_is_explicitly_admitted(instruction: &InstructionBo
     }
     // The bond-servicing kernel is admitted only through its registered outer
     // box; leaf wire identifiers stay unregistered. Core binds registration,
-    // calls and paying-agent replacement to the issuer owning the scale-0
-    // definition, closing and defaults to the registered paying agent, funding to
+    // calls, paying-agent replacement and treasury retirement (a burn of the
+    // issuer's own balance) to the issuer owning the scale-0 definition,
+    // closing and defaults to the registered paying agent, funding to
     // the paying agent or issuer debiting its own balance, and claims to the
     // holder or a paying-agent push that always pays the holder. Recording is
     // open to any signer: the books are closed from the record date, so the

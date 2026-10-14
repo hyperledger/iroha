@@ -26,7 +26,7 @@ use iroha_data_model::{
             AcceptAssetEscrow, AttestEscrowCondition, CancelAssetEscrow, MarkEscrowPaymentSent,
             OpenAssetEscrow, OpenConditionalEscrow, ReleaseAssetEscrow,
         },
-        repo::RepoIsi,
+        repo::{RepoIsi, ReverseRepoIsi},
         settlement::{
             AtomicSettlementEscrow, AtomicSettlementEscrows, AtomicSettlementMovement,
             AtomicSettlementMovements, SettleAtomic,
@@ -875,6 +875,12 @@ fn recording_is_paged_and_unbounded_in_holders() {
         AGENT,
         DeclareBondDefault::new(h.bond.clone(), 0, [1; 32]),
         "complete the recording first",
+    );
+    h.exec_err(
+        record_0,
+        ISSUER,
+        RetireBondTreasuryUnits::new(h.bond.clone(), 1_u32),
+        "is being recorded",
     );
     let error = h
         .run(record_0, |stx| {
@@ -2019,6 +2025,309 @@ fn bond_records_retain_definitions_vaults_parties_and_holders() {
     .expect("re-register C");
     h.claim(COUPON_0, HOLDER_C, 0, HOLDER_C);
     assert_eq!(h.eur_of(HOLDER_C), q("1.62"));
+}
+
+fn retire(units: u32) -> RetireBondTreasuryUnits {
+    RetireBondTreasuryUnits::new(h_bond(), units)
+}
+
+/// The issuer burns units it holds directly; units it owes back as repo collateral and
+/// units of other holders stay untouched, and neither closed books nor the redemption
+/// freeze stop a retirement because treasury units are never entitled.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn treasury_retirement_burns_only_free_issuer_units() {
+    let mut h = Harness::new();
+    h.register();
+    assert_eq!(h.units_of(ISSUER), q("700"));
+    h.exec_err(
+        ISSUE + 1,
+        AGENT,
+        retire(1),
+        "bond.unauthorized: treasury units can only be retired by the issuer",
+    );
+    h.exec_err(ISSUE + 1, HOLDER_A, retire(1), "bond.unauthorized");
+    h.exec_err(
+        ISSUE + 1,
+        ISSUER,
+        retire(0),
+        "bond.invalid_state: a treasury retirement must burn a positive whole number of units",
+    );
+    h.exec_err(ISSUE + 1, ISSUER, retire(701), "cannot retire 701");
+    for fractional in ["1.5", "0.25"] {
+        h.exec_err(
+            ISSUE + 1,
+            ISSUER,
+            RetireBondTreasuryUnits::new(h.bond.clone(), q(fractional)),
+            "positive whole number of units",
+        );
+    }
+    let events = h
+        .run(ISSUE + 1, |stx| {
+            retire(100).execute(&accounts()[ISSUER], stx)?;
+            Ok(bond_events(stx))
+        })
+        .expect("retirement");
+    assert_eq!(
+        events,
+        [BondEvent::TreasuryUnitsRetired(BondTreasuryUnitsRetired {
+            bond: h.bond.clone(),
+            issuer: h.ids[ISSUER].clone(),
+            quantity: q("100"),
+            outstanding_units: q("900"),
+            retired_units: q("100"),
+            cancelled_cashflows: 0,
+        })]
+    );
+    assert_eq!(h.units_of(ISSUER), q("600"));
+    assert_eq!(h.total_units(), q("900"));
+    let record = h.record();
+    assert_eq!(record.state.outstanding_units, q("900"));
+    assert_eq!(record.state.retired_units, q("100"));
+    assert_eq!(record.state.lifecycle, BondLifecycle::Active);
+    // Ordinary burns stay locked.
+    let issuer = h.ids[ISSUER].clone();
+    let own = AssetId::new(h.bond.clone(), issuer.clone());
+    let error = h
+        .run(ISSUE + 1, |stx| {
+            Burn::asset_quantity(1_u32, own).execute(&issuer, stx)
+        })
+        .expect_err("ordinary burn");
+    assert!(error.to_string().contains("bond.supply_locked"), "{error}");
+
+    // The issuer lends cash against 10 of A's units: it must return them at reverse.
+    h.run(ISSUE + DAY, |stx| {
+        initiate_repo(stx, HOLDER_A, ISSUER, COUPON_0 - 2 * DAY)
+    })
+    .expect("repo with the issuer as cash lender");
+    assert_eq!(h.units_of(ISSUER), q("610"));
+    h.exec_err(
+        ISSUE + DAY,
+        ISSUER,
+        retire(601),
+        "10 of them owed back as repo collateral",
+    );
+    h.exec_ok(ISSUE + DAY, ISSUER, retire(500));
+    assert_eq!(h.units_of(ISSUER), q("110"));
+    let initiator = h.ids[HOLDER_A].clone();
+    h.run(COUPON_0 - 2 * DAY, |stx| {
+        ReverseRepoIsi::new(RepoAgreementId::new("bond_repo".parse().unwrap()))
+            .execute(&initiator, stx)
+    })
+    .expect("the collateral returns to A");
+    assert_eq!(h.units_of(HOLDER_A), q("200"));
+    assert_eq!(h.units_of(ISSUER), q("100"));
+
+    // Closed books: transfers wait for the recording, a retirement does not.
+    let record_0 = COUPON_0 - DAY;
+    let error = h
+        .transfer_units(record_0, ISSUER, HOLDER_A, 1)
+        .expect_err("books closed");
+    assert!(error.to_string().contains("bond.books_closed"), "{error}");
+    h.exec_ok(record_0, ISSUER, retire(50));
+    h.record_cashflow(record_0, OUTSIDER, 0);
+    assert_eq!(h.cashflow(0).entitled_units, q("300"));
+    assert_eq!(h.cashflow(0).amount_due, q("487.49"));
+    let source = AssetId::new(h.eur.clone(), h.ids[AGENT].clone());
+    h.exec_ok(
+        record_0,
+        AGENT,
+        FundBondCashflow::new(h.bond.clone(), 0, source),
+    );
+    h.claim_all(COUPON_0, 0);
+    h.exec_ok(COUPON_0, AGENT, CloseBondCashflow::new(h.bond.clone(), 0));
+    for index in 1..4 {
+        h.service_coupon(index);
+    }
+    // The redemption freezes movements; the issuer still retires its last units.
+    h.record_fund_cashflow(4, MATURITY - DAY);
+    assert!(h.record().state.transfers_frozen);
+    h.exec_ok(MATURITY - DAY, ISSUER, retire(50));
+    assert_eq!(h.units_of(ISSUER), Quantity::zero());
+    let record = h.record();
+    assert_eq!(record.state.outstanding_units, q("300"));
+    assert_eq!(record.state.retired_units, q("700"));
+    assert_eq!(record.state.lifecycle, BondLifecycle::Active);
+    h.claim_all(MATURITY, 4);
+    h.exec_ok(MATURITY, AGENT, CloseBondCashflow::new(h.bond.clone(), 4));
+    let record = h.record();
+    assert_eq!(record.state.lifecycle, BondLifecycle::Matured);
+    assert_eq!(record.state.outstanding_units, Quantity::zero());
+    assert_eq!(record.state.redeemed_units, q("300"));
+    assert_eq!(h.total_units(), Quantity::zero());
+    h.exec_err(MATURITY, ISSUER, retire(1), "cannot retire 1");
+}
+
+/// Cancelling the whole supply (a failed offering) cancels every cash flow not yet
+/// recorded, because each would record no holders; recorded ones stay owed.
+#[test]
+fn retiring_every_outstanding_unit_cancels_unrecorded_cashflows() {
+    let mut h = Harness::with_holdings(&[]);
+    h.register();
+    let events = h
+        .run(ISSUE + DAY, |stx| {
+            retire(1_000).execute(&accounts()[ISSUER], stx)?;
+            Ok(bond_events(stx))
+        })
+        .expect("cancel the unsold issue");
+    assert_eq!(
+        events,
+        [BondEvent::TreasuryUnitsRetired(BondTreasuryUnitsRetired {
+            bond: h.bond.clone(),
+            issuer: h.ids[ISSUER].clone(),
+            quantity: q("1000"),
+            outstanding_units: Quantity::zero(),
+            retired_units: q("1000"),
+            cancelled_cashflows: 5,
+        })]
+    );
+    let record = h.record();
+    assert_eq!(record.state.lifecycle, BondLifecycle::Matured);
+    assert!(
+        record
+            .state
+            .cashflows
+            .iter()
+            .all(|cashflow| cashflow.status == BondCashflowStatus::Cancelled)
+    );
+    assert_eq!(h.total_units(), Quantity::zero());
+    h.exec_err(
+        COUPON_0,
+        OUTSIDER,
+        RecordBondCashflow::new(h.bond.clone(), 0),
+        "is Matured",
+    );
+
+    // Holders of record of a recorded coupon keep their entitlement after selling back.
+    let mut h = Harness::new();
+    h.register();
+    let record_0 = COUPON_0 - DAY;
+    h.record_cashflow(record_0, OUTSIDER, 0);
+    for (holder, units) in [(HOLDER_A, 200), (HOLDER_B, 99), (HOLDER_C, 1)] {
+        h.transfer_units(record_0, holder, ISSUER, units)
+            .expect("buy back after the record date");
+    }
+    h.exec_ok(record_0, ISSUER, retire(1_000));
+    let record = h.record();
+    assert_eq!(record.state.lifecycle, BondLifecycle::Active);
+    assert_eq!(
+        record.state.cashflows[0].status,
+        BondCashflowStatus::Recorded
+    );
+    assert!(
+        record.state.cashflows[1..]
+            .iter()
+            .all(|cashflow| cashflow.status == BondCashflowStatus::Cancelled)
+    );
+    let source = AssetId::new(h.eur.clone(), h.ids[AGENT].clone());
+    h.exec_ok(
+        record_0,
+        AGENT,
+        FundBondCashflow::new(h.bond.clone(), 0, source),
+    );
+    h.claim_all(COUPON_0, 0);
+    assert_eq!(h.eur_of(HOLDER_A), q("325"));
+    h.exec_ok(COUPON_0, AGENT, CloseBondCashflow::new(h.bond.clone(), 0));
+    assert_eq!(h.record().state.lifecycle, BondLifecycle::Matured);
+    assert_eq!(h.vault_eur(), Quantity::zero());
+}
+
+/// A backdated schedule registers with every passed record date recorded without holders:
+/// the issuer held every unit, so nothing is owed for those cash flows, the books open at
+/// once, and later cash flows pay the investors of record.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn backdated_registration_records_passed_cashflows_without_holders() {
+    let mut h = Harness::new();
+    let terms = terms(&h.ids);
+    // At the redemption record date the bond would be born frozen.
+    h.exec_err(
+        MATURITY - DAY,
+        ISSUER,
+        RegisterBond::new(h.bond.clone(), terms.clone()),
+        "the bond would register frozen",
+    );
+    // Coupons 0 and 1 are paid and coupon 2's record date passed; its payment is pending.
+    let registered_at = COUPON_2 - DAY / 2;
+    let events = h
+        .run(registered_at, |stx| {
+            RegisterBond::new(h_bond(), terms.clone()).execute(&accounts()[ISSUER], stx)?;
+            Ok(bond_events(stx))
+        })
+        .expect("backdated registration");
+    assert_eq!(events.len(), 4);
+    for (event, index) in events[1..].iter().zip(0_u16..) {
+        assert_eq!(
+            event,
+            &BondEvent::CashflowRecorded(BondCashflowRecorded {
+                bond: h.bond.clone(),
+                index,
+                kind: BondCashflowKind::Coupon,
+                holders: 0,
+                entitled_units: Quantity::zero(),
+                amount_due: Quantity::zero(),
+            })
+        );
+    }
+    let record = h.record();
+    for index in 0..3 {
+        let cashflow = &record.state.cashflows[index];
+        assert_eq!(cashflow.status, BondCashflowStatus::Recorded);
+        assert_eq!(cashflow.recorded_at_ms, Some(registered_at));
+        assert_eq!(cashflow.holders, 0);
+    }
+    assert_eq!(
+        record.state.cashflows[3].status,
+        BondCashflowStatus::Scheduled
+    );
+    // The books are open: allotments settle in the registration block.
+    for (holder, units) in [(HOLDER_A, 200), (HOLDER_B, 99), (HOLDER_C, 1)] {
+        h.transfer_units(registered_at, ISSUER, holder, units)
+            .expect("allotment after a backdated registration");
+    }
+    // Nothing is owed for the passed cash flows, so none can default; they are funded
+    // without any movement and closed.
+    h.exec_err(
+        registered_at,
+        AGENT,
+        DeclareBondDefault::new(h.bond.clone(), 0, [1; 32]),
+        "owes nothing and cannot default",
+    );
+    let agent_eur = h.eur_of(AGENT);
+    let source = AssetId::new(h.eur.clone(), h.ids[AGENT].clone());
+    for index in 0..3 {
+        h.exec_ok(
+            registered_at,
+            AGENT,
+            FundBondCashflow::new(h.bond.clone(), index, source.clone()),
+        );
+    }
+    for index in 0..2 {
+        h.exec_ok(
+            registered_at,
+            AGENT,
+            CloseBondCashflow::new(h.bond.clone(), index),
+        );
+    }
+    h.exec_err(
+        registered_at,
+        AGENT,
+        CloseBondCashflow::new(h.bond.clone(), 2),
+        "bond.too_early",
+    );
+    h.exec_ok(COUPON_2, AGENT, CloseBondCashflow::new(h.bond.clone(), 2));
+    assert_eq!(h.eur_of(AGENT), agent_eur);
+    assert_eq!(h.vault_eur(), Quantity::zero());
+    // The final coupon and the redemption pay the holders of record.
+    h.service_coupon(3);
+    assert_eq!(h.eur_of(HOLDER_A), q("325"));
+    h.record_fund_cashflow(4, MATURITY - DAY);
+    h.claim_all(MATURITY, 4);
+    h.exec_ok(MATURITY, AGENT, CloseBondCashflow::new(h.bond.clone(), 4));
+    let record = h.record();
+    assert_eq!(record.state.lifecycle, BondLifecycle::Matured);
+    assert_eq!(record.state.redeemed_units, q("300"));
+    assert_eq!(h.eur_of(HOLDER_A), q("10325"));
 }
 
 #[test]

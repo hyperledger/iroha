@@ -13625,6 +13625,8 @@ export interface BondRecordJson {
     lifecycle: BondLifecycle;
     outstanding_units: string;
     redeemed_units: string;
+    /** Issuer-held units burned by `Bond::RetireTreasuryUnits`. */
+    retired_units: string;
     transfers_frozen: boolean;
     cashflows: Array<{
       terms: BondCashflowTermsJson;
@@ -13759,7 +13761,10 @@ export function buildCallBondInstruction(options: {
   bondId: string;
   callDateMs: NumericLike;
 }): { Bond: { Call: { bond: string; call_date_ms: number } } };
-/** `Bond::DeclareDefault` (paying agent) after an unfunded payment date and its grace period. */
+/**
+ * `Bond::DeclareDefault` (paying agent) after an unfunded payment date and its grace
+ * period; a recorded cash flow that owes nothing cannot default.
+ */
 export function buildDeclareBondDefaultInstruction(options: {
   bondId: string;
   index: number;
@@ -13770,6 +13775,16 @@ export function buildReplaceBondPayingAgentInstruction(options: {
   bondId: string;
   payingAgent: string;
 }): { Bond: { ReplacePayingAgent: { bond: string; paying_agent: string } } };
+/**
+ * `Bond::RetireTreasuryUnits` (issuer): burn a positive whole number of units the
+ * issuer holds in its own global balance (unsold inventory, returned tranches,
+ * treasury units after maturity). Refused while a cash flow is being recorded and
+ * for units owed back as repo collateral.
+ */
+export function buildRetireBondTreasuryUnitsInstruction(options: {
+  bondId: string;
+  quantity: QuantityInput;
+}): { Bond: { RetireTreasuryUnits: { bond: string; quantity: string } } };
 
 /** Random canonical asset-definition id (UUIDv4 Base58 address). */
 export function generateAssetDefinitionId(): string;

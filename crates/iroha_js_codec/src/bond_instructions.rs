@@ -4,8 +4,8 @@
 //! (`iroha.bond`); the leaf wire identifiers stay unregistered. The JSON
 //! envelope mirrors that box with exactly one variant:
 //! `{"Bond": {"Register": RegisterBond}}`, `"RecordCashflow"`, `"FundCashflow"`,
-//! `"ClaimCashflow"`, `"CloseCashflow"`, `"Call"`, `"DeclareDefault"` or
-//! `"ReplacePayingAgent"`. Each
+//! `"ClaimCashflow"`, `"CloseCashflow"`, `"Call"`, `"DeclareDefault"`,
+//! `"ReplacePayingAgent"` or `"RetireTreasuryUnits"`. Each
 //! payload must be exactly its canonical model JSON (`snake_case` fields, canonical
 //! quantities, lowercase 32-byte hex digests), so the decoded instruction is the
 //! signed one. Terms validation stays with Core (`specs/finance/bond_ops.md`);
@@ -67,6 +67,7 @@ pub fn from_json(value: &Value) -> Option<CodecResult<InstructionBox>> {
             "Call" => BondInstructionBox::Call(leaf(body, variant)?),
             "DeclareDefault" => BondInstructionBox::DeclareDefault(leaf(body, variant)?),
             "ReplacePayingAgent" => BondInstructionBox::ReplacePayingAgent(leaf(body, variant)?),
+            "RetireTreasuryUnits" => BondInstructionBox::RetireTreasuryUnits(leaf(body, variant)?),
             other => return Err(invalid(format!("unsupported Bond variant `{other}`"))),
         };
         Ok(InstructionBox::from(boxed))
@@ -88,6 +89,9 @@ pub fn to_json(instruction: &InstructionBox) -> Option<CodecResult<Value>> {
             BondInstructionBox::DeclareDefault(isi) => ("DeclareDefault", json::to_value(isi)),
             BondInstructionBox::ReplacePayingAgent(isi) => {
                 ("ReplacePayingAgent", json::to_value(isi))
+            }
+            BondInstructionBox::RetireTreasuryUnits(isi) => {
+                ("RetireTreasuryUnits", json::to_value(isi))
             }
         };
         Ok(crate::instruction_envelope(

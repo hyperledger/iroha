@@ -84,6 +84,15 @@ mod bond_admission {
         }
 
         fn build(fees: bool) -> Self {
+            Self::build_with(fees, 0)
+        }
+
+        /// A chain where every investor key slot also holds `investor_eur` EUR.
+        fn with_investor_eur(investor_eur: u32) -> Self {
+            Self::build_with(false, investor_eur)
+        }
+
+        fn build_with(fees: bool, investor_eur: u32) -> Self {
             let keys: Vec<KeyPair> = (0..FIRST_INVESTOR + MAX_INVESTORS)
                 .map(|slot| {
                     KeyPair::from_seed(
@@ -129,6 +138,14 @@ mod bond_admission {
                     Quantity::from(1_000_u32),
                 ),
             ];
+            if investor_eur > 0 {
+                assets.extend(accounts[FIRST_INVESTOR..].iter().map(|account| {
+                    Asset::new(
+                        AssetId::new(eur.clone(), account.clone()),
+                        Quantity::from(investor_eur),
+                    )
+                }));
+            }
             if let Some(fee_asset) = &fee_asset {
                 definitions.push(
                     AssetDefinition::numeric(
@@ -412,7 +429,7 @@ mod bond_admission {
                 .public_key()
                 .clone(),
         );
-        let instructions: [InstructionBox; 7] = [
+        let instructions: [InstructionBox; 8] = [
             BondInstructionBox::from(RecordBondCashflow::new(bond.clone(), 0)).into(),
             BondInstructionBox::from(FundBondCashflow::new(
                 bond.clone(),
@@ -424,6 +441,11 @@ mod bond_admission {
             BondInstructionBox::from(CloseBondCashflow::new(bond.clone(), 0)).into(),
             BondInstructionBox::from(CallBond::new(bond.clone(), 1)).into(),
             BondInstructionBox::from(DeclareBondDefault::new(bond.clone(), 0, [1; 32])).into(),
+            BondInstructionBox::from(iroha_data_model::isi::bond::RetireBondTreasuryUnits::new(
+                bond.clone(),
+                1_u32,
+            ))
+            .into(),
             BondInstructionBox::from(ReplaceBondPayingAgent::new(
                 bond,
                 AccountId::new(
@@ -842,5 +864,645 @@ mod bond_admission {
         assert_eq!(fixture.eur(Fixture::investor(1)), q("81.25"));
         assert_eq!(fixture.vault_eur(), Quantity::zero());
         assert_eq!(fixture.record().state.lifecycle, BondLifecycle::Defaulted);
+    }
+
+    /// The Silicon Alps demo flows on a registered bond: a backdated monthly bond is
+    /// issued with its tranche escrow in one transaction, sold through escrowed
+    /// subscriptions and an immediate purchase, pledged in a repo, serviced and
+    /// redeemed, and its treasury units are retired (`specs/finance/bond_ops.md` §11).
+    mod demo {
+        use super::*;
+        use core::num::{NonZeroU32, NonZeroU64};
+        use iroha_data_model::{
+            escrow::{
+                AssetEscrowStatus, ConditionalEscrowCondition, ConditionalEscrowOracleCondition,
+                ConditionalEscrowPredicate, ConditionalEscrowValue, EscrowId,
+            },
+            isi::{
+                bond::RetireBondTreasuryUnits,
+                escrow::{AttestEscrowCondition, ExpireConditionalEscrow, OpenConditionalEscrow},
+                repo::{RepoIsi, ReverseRepoIsi},
+                settlement::{
+                    AtomicSettlementEscrow, AtomicSettlementEscrows, AtomicSettlementMovement,
+                    AtomicSettlementMovements, SettleAtomic,
+                },
+            },
+            repo::{RepoAgreementId, RepoCashLeg, RepoCollateralLeg, RepoGovernance},
+        };
+        use iroha_model_base::metadata::Metadata;
+
+        const MINUTE: u64 = 60_000;
+        /// 2026-07-14T02:00Z, exactly three calendar months before maturity.
+        const DEMO_ISSUE: u64 = 1_783_994_400_000;
+        /// 2026-10-14T02:00Z.
+        const DEMO_MATURITY: u64 = 1_791_943_200_000;
+        /// One hour before maturity: the August and September coupons are already paid.
+        const REGISTER_AT: u64 = DEMO_MATURITY - 60 * MINUTE;
+        /// The final coupon and the redemption are recorded 20 minutes before maturity.
+        const DEMO_RECORD_OFFSET: u64 = 20 * MINUTE;
+        /// Offering deadline (escrow expiry), before the final record date.
+        const DEADLINE: u64 = REGISTER_AT + 30 * MINUTE;
+        const SUPPLY: u32 = 10_000;
+        const TRANCHE: u32 = 1_000;
+        const PRICE: u32 = 100;
+        const TRADE_FEE: u32 = 10;
+        /// The platform charges fees and attests the offering conditions.
+        const PLATFORM: usize = OUTSIDER;
+        /// The issuer's reserve account.
+        const RESERVE: usize = FIRST_INVESTOR + 15;
+        /// The repo cash lender.
+        const BANK: usize = FIRST_INVESTOR + 16;
+
+        fn buyer(n: usize) -> usize {
+            Fixture::investor(n)
+        }
+
+        /// Monthly 6 % on a 100 denomination (0.5 per unit per month), par redemption.
+        fn demo_terms(fixture: &Fixture) -> BondTerms {
+            let cashflows = fixed_rate_bullet_schedule(&BondScheduleRequest {
+                denomination: q("100"),
+                coupon_rate_bps: 600,
+                coupon_frequency: 12,
+                issue_date_ms: DEMO_ISSUE,
+                maturity_date_ms: DEMO_MATURITY,
+                redemption_price_bps: 10_000,
+                record_offset_ms: DEMO_RECORD_OFFSET,
+            })
+            .expect("regular monthly schedule");
+            assert_eq!(
+                cashflows.len(),
+                4,
+                "three monthly coupons and the redemption"
+            );
+            BondTerms {
+                issuer: fixture.accounts[ISSUER].clone(),
+                paying_agent: fixture.accounts[AGENT].clone(),
+                payment_asset: fixture.eur.clone(),
+                denomination: q("100"),
+                coupon_rate_bps: 600,
+                coupon_frequency: 12,
+                day_count: BondDayCount::ActActIcma,
+                issue_date_ms: DEMO_ISSUE,
+                maturity_date_ms: DEMO_MATURITY,
+                redemption_price_bps: 10_000,
+                payment_grace_ms: DAY,
+                call: None,
+                cashflows,
+                identifiers: BondIdentifiers {
+                    isin: Some("SI0032000001".to_owned()),
+                    cfi: Some("DBFTFB".to_owned()),
+                    issuer_lei: None,
+                    bdt_version: "bdt-1.0".to_owned(),
+                    bdt_document_sha256: None,
+                },
+                terms_sha256: [0x51; 32],
+            }
+        }
+
+        fn condition(id: &str, attestor: &AccountId) -> Vec<ConditionalEscrowCondition> {
+            vec![ConditionalEscrowCondition::Oracle(
+                ConditionalEscrowOracleCondition {
+                    id: id.parse().unwrap(),
+                    attestor: attestor.clone(),
+                    predicate: ConditionalEscrowPredicate::Equals(ConditionalEscrowValue::Bool(
+                        true,
+                    )),
+                    sequence: NonZeroU32::new(1).unwrap(),
+                },
+            )]
+        }
+
+        fn escrow(label: &str) -> EscrowId {
+            EscrowId::new(iroha_crypto::Hash::new(format!("silicon-alps:{label}")))
+        }
+
+        fn escrow_status(fixture: &Fixture, id: &EscrowId) -> AssetEscrowStatus {
+            fixture
+                .chain
+                .state()
+                .view()
+                .world()
+                .asset_escrows()
+                .get(id)
+                .cloned()
+                .expect("committed escrow")
+                .status
+        }
+
+        fn eur_at(fixture: &Fixture, slot: usize) -> AssetId {
+            AssetId::new(fixture.eur.clone(), fixture.accounts[slot].clone())
+        }
+
+        fn issuer_units(fixture: &Fixture) -> AssetId {
+            AssetId::new(fixture.bond.clone(), fixture.accounts[ISSUER].clone())
+        }
+
+        /// One issuer transaction: define and mint the bond, register its record and lock
+        /// the 10 % tranche in an issuer-to-issuer conditional escrow.
+        fn issue(fixture: &mut Fixture) {
+            let definition = AssetDefinition::new(
+                fixture.bond.clone(),
+                "Silicon Alps 6% 2026",
+                NumericSpec::integer(),
+                AssetBalancePolicy::Global,
+                Some(fixture.domain.clone()),
+            );
+            let tranche = OpenConditionalEscrow::new(
+                escrow("tranche"),
+                fixture.bond.clone(),
+                fixture.accounts[ISSUER].clone(),
+                TRANCHE,
+                condition("min_raise", &fixture.accounts[PLATFORM]),
+                DEADLINE,
+            );
+            let issuance = vec![
+                InstructionBox::from(Register::asset_definition(definition)),
+                Mint::asset_quantity(SUPPLY, issuer_units(fixture)).into(),
+                BondInstructionBox::from(RegisterBond::new(
+                    fixture.bond.clone(),
+                    demo_terms(fixture),
+                ))
+                .into(),
+                tranche.into(),
+            ];
+            fixture.submit_many(ISSUER, issuance, REGISTER_AT, None);
+        }
+
+        /// The paying agent funds (nothing moves) and closes the coupons recorded at
+        /// registration in one transaction.
+        fn close_backdated_coupons(fixture: &mut Fixture) {
+            let source = eur_at(fixture, AGENT);
+            let housekeeping: Vec<InstructionBox> = (0..2_u16)
+                .flat_map(|index| {
+                    [
+                        InstructionBox::from(FundBondCashflow::new(
+                            fixture.bond.clone(),
+                            index,
+                            source.clone(),
+                        )),
+                        CloseBondCashflow::new(fixture.bond.clone(), index).into(),
+                    ]
+                })
+                .collect();
+            fixture.submit_many(AGENT, housekeeping, REGISTER_AT, None);
+        }
+
+        /// The issuer consents to the exact settlement debiting its bond units; the buyer submits.
+        fn settle(fixture: &mut Fixture, buyer: usize, settlement: SettleAtomic, time: u64) {
+            let consent = executor_permission::settlement::CanExecuteSettlement {
+                debited_asset: issuer_units(fixture),
+                settlement_id: settlement.settlement_id().clone(),
+                intent_hash: settlement.intent_hash().expect("complete intent"),
+            };
+            fixture.submit(
+                ISSUER,
+                Grant::account_permission(consent, fixture.accounts[buyer].clone()),
+                time,
+                None,
+            );
+            fixture.submit(buyer, settlement, time, None);
+        }
+
+        fn atomic(
+            fixture: &Fixture,
+            label: &str,
+            mut movements: Vec<AtomicSettlementMovement>,
+            mut escrows: Vec<AtomicSettlementEscrow>,
+        ) -> SettleAtomic {
+            movements.sort_by(|a, b| (&a.source, &a.recipient).cmp(&(&b.source, &b.recipient)));
+            escrows.sort_by_key(|leg| leg.escrow_id);
+            SettleAtomic::new(
+                fixture.chain.network_id(),
+                label.parse().expect("settlement id"),
+                AtomicSettlementMovements::try_from(movements).expect("canonical movements"),
+                AtomicSettlementEscrows::try_from(escrows).expect("canonical escrows"),
+                NonZeroU64::new(1_000_000).unwrap(),
+                Metadata::default(),
+            )
+        }
+
+        fn leg(
+            fixture: &Fixture,
+            label: &str,
+            source: AssetId,
+            beneficiary: usize,
+            amount: u32,
+            condition_id: &str,
+            expires_at_ms: u64,
+        ) -> AtomicSettlementEscrow {
+            AtomicSettlementEscrow {
+                source,
+                escrow_id: escrow(label),
+                beneficiary: fixture.accounts[beneficiary].clone(),
+                amount: Quantity::from(amount),
+                conditions: condition(condition_id, &fixture.accounts[PLATFORM]),
+                expires_at_ms,
+                evidence_hashes: Vec::new(),
+            }
+        }
+
+        /// Subscription before the minimum raise: the trade fee moves at once; the
+        /// allotment, the payment, the success fee and the issuer reserve wait in four
+        /// escrow legs released by the platform's `min_raise` attestation. Returns the legs.
+        fn subscribe(
+            fixture: &mut Fixture,
+            buyer: usize,
+            units: u32,
+            label: &str,
+            time: u64,
+        ) -> Vec<EscrowId> {
+            let gross = units * PRICE;
+            let (reserve, success_fee) = (gross / 20, gross / 100);
+            let movements = vec![AtomicSettlementMovement {
+                source: eur_at(fixture, buyer),
+                recipient: fixture.accounts[PLATFORM].clone(),
+                quantity: Quantity::from(TRADE_FEE),
+            }];
+            let legs = vec![
+                leg(
+                    fixture,
+                    &format!("{label}:allotment"),
+                    issuer_units(fixture),
+                    buyer,
+                    units,
+                    "min_raise",
+                    DEADLINE,
+                ),
+                leg(
+                    fixture,
+                    &format!("{label}:payment"),
+                    eur_at(fixture, buyer),
+                    ISSUER,
+                    gross - reserve,
+                    "min_raise",
+                    DEADLINE,
+                ),
+                leg(
+                    fixture,
+                    &format!("{label}:success_fee"),
+                    eur_at(fixture, buyer),
+                    PLATFORM,
+                    success_fee,
+                    "min_raise",
+                    DEADLINE,
+                ),
+                leg(
+                    fixture,
+                    &format!("{label}:reserve"),
+                    eur_at(fixture, buyer),
+                    RESERVE,
+                    reserve,
+                    "min_raise",
+                    DEADLINE,
+                ),
+            ];
+            let escrows = legs.iter().map(|leg| leg.escrow_id).collect();
+            let settlement = atomic(fixture, label, movements, legs);
+            settle(fixture, buyer, settlement, time);
+            escrows
+        }
+
+        /// Purchase after the minimum raise: the units, the payment and the trade fee move
+        /// at once; only the issuer reserve waits in one escrow leg. Returns that leg.
+        fn purchase(
+            fixture: &mut Fixture,
+            buyer: usize,
+            units: u32,
+            label: &str,
+            time: u64,
+        ) -> EscrowId {
+            let gross = units * PRICE;
+            let reserve = gross / 20;
+            let movements = vec![
+                AtomicSettlementMovement {
+                    source: issuer_units(fixture),
+                    recipient: fixture.accounts[buyer].clone(),
+                    quantity: Quantity::from(units),
+                },
+                AtomicSettlementMovement {
+                    source: eur_at(fixture, buyer),
+                    recipient: fixture.accounts[ISSUER].clone(),
+                    quantity: Quantity::from(gross - reserve),
+                },
+                AtomicSettlementMovement {
+                    source: eur_at(fixture, buyer),
+                    recipient: fixture.accounts[PLATFORM].clone(),
+                    quantity: Quantity::from(TRADE_FEE),
+                },
+            ];
+            let reserve_leg = leg(
+                fixture,
+                &format!("{label}:reserve"),
+                eur_at(fixture, buyer),
+                RESERVE,
+                reserve,
+                "reserve_release",
+                DEMO_MATURITY + 30 * DAY,
+            );
+            let escrow_id = reserve_leg.escrow_id;
+            let settlement = atomic(fixture, label, movements, vec![reserve_leg]);
+            settle(fixture, buyer, settlement, time);
+            escrow_id
+        }
+
+        fn attest(fixture: &mut Fixture, escrows: &[EscrowId], condition_id: &str, time: u64) {
+            let attestations: Vec<InstructionBox> = escrows
+                .iter()
+                .map(|escrow| {
+                    AttestEscrowCondition::new(
+                        *escrow,
+                        condition_id.parse().unwrap(),
+                        ConditionalEscrowValue::Bool(true),
+                        None,
+                    )
+                    .into()
+                })
+                .collect();
+            fixture.submit_many(PLATFORM, attestations, time, None);
+        }
+
+        fn retire(fixture: &Fixture, units: u32) -> InstructionBox {
+            BondInstructionBox::from(RetireBondTreasuryUnits::new(fixture.bond.clone(), units))
+                .into()
+        }
+
+        fn status(fixture: &Fixture, index: usize) -> BondCashflowStatus {
+            fixture.record().state.cashflows[index].status
+        }
+
+        #[test]
+        #[allow(clippy::too_many_lines)]
+        fn initial_demo_offering_repo_and_backdated_servicing_on_a_registered_bond() {
+            let mut fixture = Fixture::with_investor_eur(100_000);
+            issue(&mut fixture);
+            let record = fixture.record();
+            assert_eq!(record.state.lifecycle, BondLifecycle::Active);
+            assert_eq!(record.state.outstanding_units, q("10000"));
+            // The August and September coupons were due before registration: the issuer
+            // held every unit, so they are recorded with no holders and the books are open.
+            for cashflow in &record.state.cashflows[..2] {
+                assert_eq!(cashflow.status, BondCashflowStatus::Recorded);
+                assert_eq!(cashflow.holders, 0);
+                assert_eq!(cashflow.amount_due, Quantity::zero());
+            }
+            assert_eq!(
+                record.state.cashflows[2].status,
+                BondCashflowStatus::Scheduled
+            );
+            assert_eq!(fixture.units(ISSUER), q("9000"));
+            assert_eq!(
+                escrow_status(&fixture, &escrow("tranche")),
+                AssetEscrowStatus::Locked
+            );
+            let agent_eur = fixture.eur(AGENT);
+            close_backdated_coupons(&mut fixture);
+            assert_eq!(status(&fixture, 0), BondCashflowStatus::Closed);
+            assert_eq!(status(&fixture, 1), BondCashflowStatus::Closed);
+            assert_eq!(fixture.eur(AGENT), agent_eur);
+
+            // Subscriptions before the minimum raise.
+            let b0 = subscribe(&mut fixture, buyer(0), 100, "sub_b0", REGISTER_AT + MINUTE);
+            let b1 = subscribe(
+                &mut fixture,
+                buyer(1),
+                100,
+                "sub_b1",
+                REGISTER_AT + 2 * MINUTE,
+            );
+            assert_eq!(fixture.units(ISSUER), q("8800"));
+            assert_eq!(fixture.units(buyer(0)), Quantity::zero());
+            assert_eq!(fixture.eur(buyer(0)), q("89890"));
+            assert_eq!(fixture.eur(PLATFORM), q("20"));
+            // The minimum raise is reached: one platform transaction releases every
+            // allotment and payment leg and returns the tranche to the issuer.
+            let mut released = b0;
+            released.extend(b1);
+            released.push(escrow("tranche"));
+            attest(
+                &mut fixture,
+                &released,
+                "min_raise",
+                REGISTER_AT + 3 * MINUTE,
+            );
+            for escrow_id in &released {
+                assert_eq!(
+                    escrow_status(&fixture, escrow_id),
+                    AssetEscrowStatus::Released
+                );
+            }
+            assert_eq!(fixture.units(buyer(0)), q("100"));
+            assert_eq!(fixture.units(buyer(1)), q("100"));
+            assert_eq!(fixture.units(ISSUER), q("9800"));
+            assert_eq!(fixture.eur(ISSUER), q("20000"));
+            assert_eq!(fixture.eur(PLATFORM), q("220"));
+            assert_eq!(fixture.eur(RESERVE), q("101000"));
+
+            // A purchase after the minimum raise settles at once; the reserve waits.
+            let reserve = purchase(
+                &mut fixture,
+                buyer(2),
+                50,
+                "buy_b2",
+                REGISTER_AT + 4 * MINUTE,
+            );
+            assert_eq!(fixture.units(buyer(2)), q("50"));
+            assert_eq!(fixture.units(ISSUER), q("9750"));
+            assert_eq!(fixture.eur(ISSUER), q("24750"));
+            assert_eq!(fixture.eur(buyer(2)), q("94990"));
+            assert_eq!(escrow_status(&fixture, &reserve), AssetEscrowStatus::Locked);
+
+            // Repo: buyer 0 pledges 50 units to the bank for 5 000 EUR and repays early.
+            let repo = RepoIsi::new(
+                RepoAgreementId::new("demo_repo".parse().unwrap()),
+                fixture.accounts[buyer(0)].clone(),
+                fixture.accounts[BANK].clone(),
+                None,
+                RepoCashLeg::new(fixture.eur.clone(), 5_000_u32),
+                RepoCollateralLeg::new(fixture.bond.clone(), 50_u32),
+                0,
+                DEMO_MATURITY + 30 * DAY,
+                RepoGovernance::new(0, 0, true),
+            );
+            for (definition, intent_hash) in [
+                (fixture.eur.clone(), repo.initiation_intent_hash()),
+                (fixture.bond.clone(), repo.maturity_intent_hash()),
+            ] {
+                let consent = executor_permission::settlement::CanExecuteSettlement {
+                    debited_asset: AssetId::new(definition, fixture.accounts[BANK].clone()),
+                    settlement_id: repo.settlement_id(),
+                    intent_hash,
+                };
+                fixture.submit(
+                    BANK,
+                    Grant::account_permission(consent, fixture.accounts[buyer(0)].clone()),
+                    REGISTER_AT + 5 * MINUTE,
+                    None,
+                );
+            }
+            let agreement = repo.agreement_id().clone();
+            fixture.submit(buyer(0), repo, REGISTER_AT + 5 * MINUTE, None);
+            assert_eq!(fixture.units(buyer(0)), q("50"));
+            assert_eq!(fixture.units(BANK), q("50"));
+            assert_eq!(fixture.eur(buyer(0)), q("94890"));
+            fixture.submit(
+                buyer(0),
+                ReverseRepoIsi::new(agreement),
+                REGISTER_AT + 6 * MINUTE,
+                None,
+            );
+            assert_eq!(fixture.units(buyer(0)), q("100"));
+            assert_eq!(fixture.units(BANK), Quantity::zero());
+            assert_eq!(fixture.eur(buyer(0)), q("89890"));
+            attest(
+                &mut fixture,
+                &[reserve],
+                "reserve_release",
+                REGISTER_AT + 7 * MINUTE,
+            );
+            assert_eq!(fixture.eur(RESERVE), q("101250"));
+
+            // The October coupon and the redemption share the record date 20 minutes before
+            // maturity: the books close until both are recorded, then the bond freezes.
+            let record_date = DEMO_MATURITY - DEMO_RECORD_OFFSET;
+            let closed = Transfer::asset_quantity(
+                AssetId::new(fixture.bond.clone(), fixture.accounts[buyer(1)].clone()),
+                1_u32,
+                fixture.accounts[buyer(2)].clone(),
+            );
+            fixture.submit(buyer(1), closed, record_date, Some("bond.books_closed"));
+            for index in [2_u16, 3] {
+                let mut steps = 0;
+                while status(&fixture, usize::from(index)) != BondCashflowStatus::Recorded {
+                    fixture.submit(
+                        OUTSIDER,
+                        BondInstructionBox::from(RecordBondCashflow::new(
+                            fixture.bond.clone(),
+                            index,
+                        )),
+                        record_date,
+                        None,
+                    );
+                    steps += 1;
+                    assert!(steps <= 4, "recording finishes");
+                }
+            }
+            let record = fixture.record();
+            assert!(record.state.transfers_frozen);
+            assert_eq!(record.state.cashflows[2].holders, 3);
+            assert_eq!(record.state.cashflows[2].entitled_units, q("250"));
+            assert_eq!(record.state.cashflows[2].amount_due, q("125"));
+            assert_eq!(record.state.cashflows[3].amount_due, q("25000"));
+            assert_eq!(fixture.units_entitled(3, buyer(0)), Some(q("100")));
+            assert_eq!(fixture.units_entitled(3, buyer(2)), Some(q("50")));
+            assert_eq!(fixture.units_entitled(3, ISSUER), None);
+            let source = eur_at(&fixture, AGENT);
+            let funding: Vec<InstructionBox> = (2..4_u16)
+                .map(|index| {
+                    BondInstructionBox::from(FundBondCashflow::new(
+                        fixture.bond.clone(),
+                        index,
+                        source.clone(),
+                    ))
+                    .into()
+                })
+                .collect();
+            fixture.submit_many(AGENT, funding, record_date, None);
+            assert_eq!(fixture.vault_eur(), q("25125"));
+
+            // At maturity: a holder claims its own coupon, the paying agent pushes the rest,
+            // and redemption claims burn the units and pay par.
+            let claim = fixture.claim(2, buyer(0));
+            fixture.submit_many(buyer(0), vec![claim], DEMO_MATURITY, None);
+            let pushes = vec![fixture.claim(2, buyer(1)), fixture.claim(2, buyer(2))];
+            fixture.submit_many(AGENT, pushes, DEMO_MATURITY, None);
+            fixture.close(2, DEMO_MATURITY);
+            let claim = fixture.claim(3, buyer(1));
+            fixture.submit_many(buyer(1), vec![claim], DEMO_MATURITY, None);
+            let pushes = vec![fixture.claim(3, buyer(0)), fixture.claim(3, buyer(2))];
+            fixture.submit_many(AGENT, pushes, DEMO_MATURITY, None);
+            fixture.close(3, DEMO_MATURITY);
+            let record = fixture.record();
+            assert_eq!(record.state.lifecycle, BondLifecycle::Matured);
+            assert_eq!(record.state.redeemed_units, q("250"));
+            assert_eq!(record.state.outstanding_units, q("9750"));
+            assert_eq!(fixture.vault_eur(), Quantity::zero());
+            assert_eq!(fixture.eur(buyer(0)), q("99940"));
+            assert_eq!(fixture.units(buyer(0)), Quantity::zero());
+
+            // After maturity the issuer retires its treasury units.
+            let retirement = retire(&fixture, 9_750);
+            fixture.submit_many(
+                AGENT,
+                vec![retirement.clone()],
+                DEMO_MATURITY,
+                Some("treasury units can only be retired by the issuer"),
+            );
+            fixture.submit_many(ISSUER, vec![retirement], DEMO_MATURITY, None);
+            let record = fixture.record();
+            assert_eq!(record.state.outstanding_units, Quantity::zero());
+            assert_eq!(record.state.retired_units, q("9750"));
+            assert_eq!(record.state.lifecycle, BondLifecycle::Matured);
+            assert_eq!(fixture.units(ISSUER), Quantity::zero());
+            let total = fixture
+                .chain
+                .state()
+                .view()
+                .world()
+                .asset_definitions()
+                .get(&fixture.bond)
+                .unwrap()
+                .total_quantity()
+                .clone();
+            assert_eq!(total, Quantity::zero());
+        }
+
+        #[test]
+        fn initial_demo_failed_offering_refunds_and_retires_the_unsold_issue() {
+            let mut fixture = Fixture::with_investor_eur(100_000);
+            issue(&mut fixture);
+            close_backdated_coupons(&mut fixture);
+            let mut legs = subscribe(&mut fixture, buyer(0), 100, "sub_b0", REGISTER_AT + MINUTE);
+            assert_eq!(fixture.eur(buyer(0)), q("89890"));
+            fixture.submit(
+                OUTSIDER,
+                ExpireConditionalEscrow::new(legs[0]),
+                REGISTER_AT + 2 * MINUTE,
+                Some("conditional escrow expiry has not been reached"),
+            );
+            // The minimum raise is missed: anyone expires every leg and the tranche at the
+            // deadline; units return to the issuer and euros to the buyer.
+            legs.push(escrow("tranche"));
+            let expiries: Vec<InstructionBox> = legs
+                .iter()
+                .map(|escrow| ExpireConditionalEscrow::new(*escrow).into())
+                .collect();
+            fixture.submit_many(OUTSIDER, expiries, DEADLINE, None);
+            for escrow_id in &legs {
+                assert_eq!(
+                    escrow_status(&fixture, escrow_id),
+                    AssetEscrowStatus::Expired
+                );
+            }
+            assert_eq!(fixture.units(ISSUER), q("10000"));
+            assert_eq!(fixture.eur(buyer(0)), q("99990"));
+            // The issuer cancels the unsold issue: every unrecorded cash flow is cancelled
+            // and, the backdated coupons being closed, the bond matures.
+            let retirement = retire(&fixture, SUPPLY);
+            fixture.submit_many(
+                buyer(0),
+                vec![retirement.clone()],
+                DEADLINE,
+                Some("treasury units can only be retired by the issuer"),
+            );
+            fixture.submit_many(ISSUER, vec![retirement], DEADLINE, None);
+            let record = fixture.record();
+            assert_eq!(record.state.outstanding_units, Quantity::zero());
+            assert_eq!(record.state.retired_units, q("10000"));
+            assert_eq!(record.state.lifecycle, BondLifecycle::Matured);
+            assert_eq!(status(&fixture, 0), BondCashflowStatus::Closed);
+            assert_eq!(status(&fixture, 2), BondCashflowStatus::Cancelled);
+            assert_eq!(status(&fixture, 3), BondCashflowStatus::Cancelled);
+            assert_eq!(fixture.units(ISSUER), Quantity::zero());
+        }
     }
 }

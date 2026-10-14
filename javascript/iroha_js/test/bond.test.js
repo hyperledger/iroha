@@ -16,6 +16,7 @@ import {
   buildRecordBondCashflowInstruction,
   buildRegisterBondInstruction,
   buildReplaceBondPayingAgentInstruction,
+  buildRetireBondTreasuryUnitsInstruction,
   validateBondTerms,
 } from "../src/bond.js";
 import * as builders from "../src/instructionBuilders.js";
@@ -123,6 +124,11 @@ function build(name, payload) {
         bondId: payload.bond,
         payingAgent: payload.paying_agent,
       });
+    case "RetireTreasuryUnits":
+      return buildRetireBondTreasuryUnitsInstruction({
+        bondId: payload.bond,
+        quantity: payload.quantity,
+      });
     default:
       throw new Error(`unknown vector ${name}`);
   }
@@ -138,6 +144,7 @@ baseTest("bond helpers are exported from the package and the instruction-builder
     "buildCallBondInstruction",
     "buildDeclareBondDefaultInstruction",
     "buildReplaceBondPayingAgentInstruction",
+    "buildRetireBondTreasuryUnitsInstruction",
   ]) {
     assert.equal(typeof builders[name], "function", name);
     assert.equal(sdk[name], builders[name], name);
@@ -268,7 +275,7 @@ test("schedules from buildBondSchedule register under validateBondTerms", () => 
 });
 
 test("bond builders reproduce the Rust envelopes, archives and frames exactly", () => {
-  assert.equal(FIXTURE.instructions.length, 9);
+  assert.equal(FIXTURE.instructions.length, 10);
   for (const vector of FIXTURE.instructions) {
     const [variant] = Object.keys(vector.json.Bond);
     const built = build(vector.name, vector.json.Bond[variant]);
@@ -393,6 +400,28 @@ test("bond builders normalize digests and refuse malformed or out-of-contract in
   assert.throws(
     () => buildReplaceBondPayingAgentInstruction({ bondId: replace.bond }),
     /payingAgent is required/u,
+  );
+  const retire = instructionVector("RetireTreasuryUnits").json.Bond.RetireTreasuryUnits;
+  assert.equal(retire.quantity, "250");
+  for (const quantity of [250n, "250", new KotodamaQuantity(250n, 0)]) {
+    assert.deepEqual(
+      buildRetireBondTreasuryUnitsInstruction({ bondId: retire.bond, quantity }),
+      { Bond: { RetireTreasuryUnits: retire } },
+    );
+  }
+  for (const quantity of ["0", 0n, "1.5", "250.0"]) {
+    assert.throws(
+      () => buildRetireBondTreasuryUnitsInstruction({ bondId: retire.bond, quantity }),
+      /quantity must be a positive whole number of bond units|canonical non-negative quantity/u,
+      String(quantity),
+    );
+  }
+  assert.throws(
+    () => buildRetireBondTreasuryUnitsInstruction({ bondId: retire.bond, quantity: 250 }),
+    /JavaScript numbers are not lossless quantity inputs/u,
+  );
+  assert.throws(
+    () => buildRetireBondTreasuryUnitsInstruction({ bondId: retire.bond, quantity: "1", holder: "x" }),
   );
 });
 

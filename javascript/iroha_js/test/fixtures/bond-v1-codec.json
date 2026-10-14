@@ -297,6 +297,19 @@
         }
       },
       "name": "ReplacePayingAgent"
+    },
+    {
+      "archive_hex": "0b0a69726f68612e626f6e64635b000000000000004e5254300000a7cc396b4b626e170e7e898610704b7700330000000000000091c7ceb6c6b1846402080000002e20018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d0c0602000000fa000400000000",
+      "frame_hex": "4e5254300000862a7d77075d4d23ff6c1261db0278110070000000000000005782e4335497ec2f020b0a69726f68612e626f6e64635b000000000000004e5254300000a7cc396b4b626e170e7e898610704b7700330000000000000091c7ceb6c6b1846402080000002e20018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d0c0602000000fa000400000000",
+      "json": {
+        "Bond": {
+          "RetireTreasuryUnits": {
+            "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+            "quantity": "250"
+          }
+        }
+      },
+      "name": "RetireTreasuryUnits"
     }
   ],
   "network_prefix": 369,
@@ -393,6 +406,7 @@
       "lifecycle": "Active",
       "outstanding_units": "1000",
       "redeemed_units": "0",
+      "retired_units": "0",
       "transfers_frozen": false
     },
     "terms": {

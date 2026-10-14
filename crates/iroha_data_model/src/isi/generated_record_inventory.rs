@@ -872,6 +872,11 @@ record!(
     "iroha_data_model::isi::bond::ReplaceBondPayingAgent"
 );
 record!(
+    bond_retire_bond_treasury_units,
+    crate::isi::bond::RetireBondTreasuryUnits,
+    "iroha_data_model::isi::bond::RetireBondTreasuryUnits"
+);
+record!(
     repo_repo_isi,
     crate::isi::repo::RepoIsi,
     "iroha_data_model::isi::repo::RepoIsi"

@@ -275,6 +275,7 @@ test("reviewTransactionPayload renders every bond instruction, enriched by its r
     buildRecordBondCashflowInstruction({ bondId: bond, index: 3 }),
     buildClaimBondCashflowInstruction({ bondId: bond, index: 3, holder }),
     vectors.ReplacePayingAgent,
+    vectors.RetireTreasuryUnits,
   ];
   const draft = draftFor(instructions, { authority: agent });
   const expected = { networkId: NETWORK_ID, authority: agent };
@@ -295,6 +296,7 @@ test("reviewTransactionPayload renders every bond instruction, enriched by its r
       "Record bond cash flow",
       "Claim bond cash flow",
       "Replace bond paying agent",
+      "Retire bond treasury units",
     ],
   );
   plain.instructions.forEach((row, index) => {
@@ -336,6 +338,10 @@ test("reviewTransactionPayload renders every bond instruction, enriched by its r
   assert.equal(fieldMap(plain.instructions[7])["evidence SHA-256"], "ab".repeat(32));
   assert.equal(fieldMap(plain.instructions[10])["paying agent"], BOND_FIXTURE.accounts.holder_b);
   assert.equal(fieldMap(plain.instructions[10]).replaces, "the current paying agent");
+  const plainRetire = fieldMap(plain.instructions[11]);
+  assert.equal(plainRetire.quantity, "250 unit(s)");
+  assert.equal(plainRetire.from, "the issuer's own balance (signer must be the issuer)");
+  assert.equal(plainRetire.outstanding, undefined);
 
   const record = structuredClone(BOND_FIXTURE.record);
   const redemption = record.state.cashflows[3];
@@ -367,7 +373,7 @@ test("reviewTransactionPayload renders every bond instruction, enriched by its r
     ...expected,
     bonds: [{ record, entitlements }],
   });
-  const [, recordRow, fundedRow, fundRow, claimRow, closeRow, callRow, defaultRow, recordRedemption, claimRedemption, replaceRow] =
+  const [, recordRow, fundedRow, fundRow, claimRow, closeRow, callRow, defaultRow, recordRedemption, claimRedemption, replaceRow, retireRow] =
     enriched.instructions.map(fieldMap);
   assert.equal(recordRow["cash flow kind"], "Coupon");
   assert.equal(recordRow["record date"], "2027-01-14T00:00:00.000Z");
@@ -394,6 +400,20 @@ test("reviewTransactionPayload renders every bond instruction, enriched by its r
   assert.equal(claimRedemption.amount, `150 of ${cash}`);
   assert.equal(claimRedemption.effect, "burns the holder's 3 units of the bond");
   assert.equal(replaceRow.replaces, agent);
+  assert.equal(retireRow.from, `the issuer's own balance (${BOND_FIXTURE.accounts.issuer})`);
+  assert.equal(retireRow.outstanding, "from 1000 to 750");
+  assert.equal(retireRow.effect, "burns the units; the outstanding supply falls by the same amount");
+  const cancelling = structuredClone(record);
+  cancelling.state.outstanding_units = "250";
+  const lastRetire = fieldMap(reviewTransactionPayload(draft.payloadBytes, {
+    ...expected,
+    bonds: [{ record: cancelling, entitlements }],
+  }).instructions[11]);
+  assert.equal(lastRetire.outstanding, "from 250 to 0");
+  assert.equal(
+    lastRetire.effect,
+    "no unit remains outstanding: every cash flow not yet recorded is cancelled",
+  );
 
   const withoutRows = reviewTransactionPayload(draft.payloadBytes, { ...expected, bonds: [{ record }] });
   assert.equal(fieldMap(withoutRows.instructions[4]).amount, "the holder's entitlement");

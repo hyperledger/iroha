@@ -22,7 +22,14 @@ const STATUSES = new Set([
   "Cancelled",
 ]);
 const RECORD_FIELDS = ["id", "vault", "terms", "state"];
-const STATE_FIELDS = ["lifecycle", "outstanding_units", "redeemed_units", "transfers_frozen", "cashflows"];
+const STATE_FIELDS = [
+  "lifecycle",
+  "outstanding_units",
+  "redeemed_units",
+  "retired_units",
+  "transfers_frozen",
+  "cashflows",
+];
 const CASHFLOW_STATE_FIELDS = [
   "terms",
   "status",
@@ -102,6 +109,9 @@ export function normalizeBondRecord(value, context = "bond record") {
   const state = requireFields(record.state, STATE_FIELDS, `${context}.state`);
   if (!LIFECYCLES.has(state.lifecycle)) {
     throw new TypeError(`${context}.state.lifecycle must be Active, Called, Matured or Defaulted`);
+  }
+  for (const field of ["outstanding_units", "redeemed_units", "retired_units"]) {
+    requireString(state[field], `${context}.state.${field}`);
   }
   if (typeof state.transfers_frozen !== "boolean") {
     throw new TypeError(`${context}.state.transfers_frozen must be a boolean`);

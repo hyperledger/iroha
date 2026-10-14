@@ -19,7 +19,7 @@ use iroha_data_model::{
     isi::{
         bond::{
             CallBond, ClaimBondCashflow, CloseBondCashflow, DeclareBondDefault, FundBondCashflow,
-            RecordBondCashflow, RegisterBond, ReplaceBondPayingAgent,
+            RecordBondCashflow, RegisterBond, ReplaceBondPayingAgent, RetireBondTreasuryUnits,
         },
         instruction_wire_id,
     },
@@ -199,6 +199,10 @@ fn native_instructions() -> Vec<(&'static str, InstructionBox)> {
         (
             "ReplacePayingAgent",
             BondInstructionBox::from(ReplaceBondPayingAgent::new(bond(), holder_b())).into(),
+        ),
+        (
+            "RetireTreasuryUnits",
+            BondInstructionBox::from(RetireBondTreasuryUnits::new(bond(), 250_u32)).into(),
         ),
     ]
 }
@@ -827,7 +831,24 @@ fn bond_json_rejects_noncanonical_missing_extra_and_ambiguous_payloads() {
     let register = fixture["instructions"][0]["json"].clone();
     let fund = fixture["instructions"][3]["json"].clone();
     let declare = fixture["instructions"][7]["json"].clone();
+    let retire = fixture["instructions"][9]["json"].clone();
+    assert!(
+        text(&retire).starts_with(r#"{"Bond":{"RetireTreasuryUnits":{"#),
+        "{retire:?}"
+    );
     let mut cases = vec![
+        edited(&retire, |payload| {
+            payload.insert("quantity".to_owned(), Value::String("250.0".to_owned()));
+        }),
+        edited(&retire, |payload| {
+            payload.insert("quantity".to_owned(), Value::from(250_u64));
+        }),
+        edited(&retire, |payload| {
+            payload.remove("quantity");
+        }),
+        edited(&retire, |payload| {
+            payload.insert("holder".to_owned(), Value::Null);
+        }),
         edited(&register, |payload| {
             payload.insert("legacy".to_owned(), Value::Null);
         }),

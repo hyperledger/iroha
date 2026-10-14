@@ -21,12 +21,13 @@ use iroha_data_model::{
         bond::{
             BondCalled, BondCashflowClaimed, BondCashflowClosed, BondCashflowFunded,
             BondCashflowRecorded, BondDefaulted, BondEvent, BondPayingAgentReplaced,
-            BondRegistered,
+            BondRegistered, BondTreasuryUnitsRetired,
         },
     },
     isi::bond::{
         BondInstructionBox, CallBond, ClaimBondCashflow, CloseBondCashflow, DeclareBondDefault,
         FundBondCashflow, RecordBondCashflow, RegisterBond, ReplaceBondPayingAgent,
+        RetireBondTreasuryUnits,
     },
 };
 use iroha_primitives::numeric::{NumericSpec, Quantity};
@@ -118,6 +119,19 @@ impl VerifiedBondRedemptionBurn {
             self.holder,
             self.units,
         )
+    }
+}
+
+/// Non-reusable proof that the issuer retires exact units of its own global balance.
+pub(in crate::smartcontracts::isi) struct VerifiedBondTreasuryRetirement {
+    authority: AccountId,
+    bond: BondId,
+    units: Quantity,
+}
+
+impl VerifiedBondTreasuryRetirement {
+    pub(in crate::smartcontracts::isi) fn into_parts(self) -> (AccountId, BondId, Quantity) {
+        (self.authority, self.bond, self.units)
     }
 }
 
@@ -238,12 +252,30 @@ fn books_closed_by(record: &BondRecord, now: u64) -> Option<&BondCashflowState> 
         .filter(|state| state.terms.record_date_ms <= now)
 }
 
-fn recording_in_progress(record: &BondRecord) -> Option<&BondCashflowState> {
+pub(in crate::smartcontracts::isi) fn recording_in_progress(
+    record: &BondRecord,
+) -> Option<&BondCashflowState> {
     record
         .state
         .cashflows
         .iter()
         .find(|state| state.status == BondCashflowStatus::Recording)
+}
+
+/// Mature a servicing bond once every effective cash flow is closed or cancelled.
+///
+/// An unpaid coupon keeps the bond servicing (and open to a default declaration).
+fn mature_if_complete(record: &mut BondRecord) {
+    if is_servicing(record)
+        && record.state.cashflows.iter().all(|state| {
+            matches!(
+                state.status,
+                BondCashflowStatus::Closed | BondCashflowStatus::Cancelled
+            )
+        })
+    {
+        record.state.lifecycle = BondLifecycle::Matured;
+    }
 }
 
 /// Running totals of one cash flow's entitlements during recording.
@@ -518,7 +550,41 @@ impl Execute for RegisterBond {
             .into());
         }
         let cashflows = u16::try_from(terms.cashflows.len()).map_err(arithmetic)?;
-        let record = BondRecord::registered(bond.clone(), terms, outstanding.clone());
+        let now = block_time_ms(state_transaction);
+        let redemption_record_date = terms
+            .cashflows
+            .last()
+            .map_or(0, |redemption| redemption.record_date_ms);
+        if redemption_record_date <= now {
+            return Err(BondError::InvalidState(format!(
+                "the redemption record date {redemption_record_date} is not after block time {now}; the bond would register frozen"
+            ))
+            .into());
+        }
+        let mut record = BondRecord::registered(bond.clone(), terms, outstanding.clone());
+        // A backdated schedule may already have passed record dates. The issuer
+        // holds every unit at registration and treasury units are excluded, so
+        // those cash flows are recorded now with no holders: exactly what a
+        // `RecordBondCashflow` in this block would record. The books therefore
+        // open immediately and subscriptions can follow in the same transaction.
+        let mut recorded = Vec::new();
+        for state in record
+            .state
+            .cashflows
+            .iter_mut()
+            .take_while(|state| state.terms.record_date_ms <= now)
+        {
+            state.status = BondCashflowStatus::Recorded;
+            state.recorded_at_ms = Some(now);
+            recorded.push(BondCashflowRecorded {
+                bond: bond.clone(),
+                index: state.terms.index,
+                kind: state.terms.kind,
+                holders: 0,
+                entitled_units: Quantity::zero(),
+                amount_due: Quantity::zero(),
+            });
+        }
         let event = BondRegistered {
             bond: bond.clone(),
             issuer: record.terms.issuer.clone(),
@@ -533,6 +599,9 @@ impl Execute for RegisterBond {
         store(state_transaction, record);
         iroha_logger::info!(%bond, "bond registered");
         emit(state_transaction, BondEvent::Registered(event));
+        for event in recorded {
+            emit(state_transaction, BondEvent::CashflowRecorded(event));
+        }
         Ok(())
     }
 }
@@ -886,18 +955,7 @@ impl Execute for CloseBondCashflow {
         let state = cashflow_mut(&mut record, index)?;
         state.status = BondCashflowStatus::Closed;
         state.closed_at_ms = Some(now);
-        // The bond matures once every effective cash flow is closed or cancelled;
-        // an unpaid coupon keeps it servicing (and open to a default declaration).
-        if is_servicing(&record)
-            && record.state.cashflows.iter().all(|state| {
-                matches!(
-                    state.status,
-                    BondCashflowStatus::Closed | BondCashflowStatus::Cancelled
-                )
-            })
-        {
-            record.state.lifecycle = BondLifecycle::Matured;
-        }
+        mature_if_complete(&mut record);
         store(state_transaction, record);
         emit(
             state_transaction,
@@ -1036,6 +1094,14 @@ impl Execute for DeclareBondDefault {
         let grace_ms = record.terms.payment_grace_ms;
         let state = cashflow_mut(&mut record, index)?;
         match state.status {
+            BondCashflowStatus::Recorded if state.amount_due.is_zero() => {
+                // Nobody is owed anything (for example a cash flow recorded at the
+                // registration of a backdated bond): there is no payment to miss.
+                return Err(BondError::InvalidState(format!(
+                    "cash flow {index} owes nothing and cannot default; fund and close it"
+                ))
+                .into());
+            }
             BondCashflowStatus::Scheduled | BondCashflowStatus::Recorded => {}
             BondCashflowStatus::Recording => {
                 return Err(BondError::InvalidState(format!(
@@ -1122,6 +1188,130 @@ impl Execute for ReplaceBondPayingAgent {
     }
 }
 
+/// Units of `bond` the issuer holds as repo collateral it must return.
+///
+/// A repo counterparty or custodian holds the collateral title and returns the
+/// same units at reverse; the supply lock means retired units could never be
+/// returned, so they are reserved against retirement.
+fn issuer_repo_collateral(
+    state_transaction: &StateTransaction<'_, '_>,
+    bond: &BondId,
+    issuer: &AccountId,
+) -> Result<Quantity, Error> {
+    let custody = AssetId::new(bond.clone(), issuer.clone());
+    let mut agreements = std::collections::BTreeSet::new();
+    for index in [
+        &state_transaction.world.repo_agreements_by_counterparty,
+        &state_transaction.world.repo_agreements_by_custodian,
+    ] {
+        if let Some(ids) = index.get(issuer) {
+            agreements.extend(ids.iter().cloned());
+        }
+    }
+    let mut reserved = Quantity::zero();
+    for id in agreements {
+        let Some(agreement) = state_transaction.world.repo_agreements.get(&id) else {
+            continue;
+        };
+        if agreement.is_active() && agreement.collateral_custody_asset() == &custody {
+            reserved = reserved
+                .checked_add(agreement.collateral_leg().quantity())
+                .map_err(arithmetic)?;
+        }
+    }
+    Ok(reserved)
+}
+
+impl Execute for RetireBondTreasuryUnits {
+    fn execute(
+        self,
+        authority: &AccountId,
+        state_transaction: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), Error> {
+        let RetireBondTreasuryUnits { bond, quantity } = self;
+        let mut record = load(state_transaction, &bond)?;
+        if authority != &record.terms.issuer {
+            return Err(BondError::Unauthorized(
+                "treasury units can only be retired by the issuer".to_owned(),
+            )
+            .into());
+        }
+        // Bond units are whole (scale 0); refuse fractional quantities with a bond error
+        // before the burn's numeric-spec check.
+        if quantity.is_zero() || quantity.as_numeric().scale() != 0 {
+            return Err(BondError::InvalidState(format!(
+                "a treasury retirement must burn a positive whole number of units, not {quantity}"
+            ))
+            .into());
+        }
+        // A recording cursor walks the balances; nothing may change them until it completes.
+        if let Some(recording) = recording_in_progress(&record) {
+            return Err(BondError::BooksClosed(format!(
+                "cash flow {} of bond {bond} is being recorded; complete it with RecordBondCashflow before retiring units",
+                recording.terms.index
+            ))
+            .into());
+        }
+        let held = global_balance(state_transaction.world(), &bond, authority);
+        let reserved = issuer_repo_collateral(state_transaction, &bond, authority)?;
+        let available = held
+            .checked_sub(&reserved)
+            .unwrap_or_else(|_| Quantity::zero());
+        if quantity > available {
+            return Err(BondError::InvalidState(format!(
+                "the issuer holds {held} units of bond {bond}, {reserved} of them owed back as repo collateral; it cannot retire {quantity}"
+            ))
+            .into());
+        }
+        crate::smartcontracts::isi::asset::isi::execute_verified_bond_treasury_retirement(
+            state_transaction,
+            VerifiedBondTreasuryRetirement {
+                authority: authority.clone(),
+                bond: bond.clone(),
+                units: quantity.clone(),
+            },
+        )?;
+        record.state.outstanding_units = record
+            .state
+            .outstanding_units
+            .checked_sub(&quantity)
+            .map_err(arithmetic)?;
+        record.state.retired_units = record
+            .state
+            .retired_units
+            .checked_add(&quantity)
+            .map_err(arithmetic)?;
+        // With no unit outstanding (and the supply locked) every cash flow not yet
+        // recorded would record no holders: cancel them, and mature the bond once
+        // the recorded ones are serviced.
+        let mut cancelled_cashflows = 0_u16;
+        if record.state.outstanding_units.is_zero() && is_servicing(&record) {
+            for state in record
+                .state
+                .cashflows
+                .iter_mut()
+                .filter(|state| state.status == BondCashflowStatus::Scheduled)
+            {
+                state.status = BondCashflowStatus::Cancelled;
+                cancelled_cashflows = cancelled_cashflows.saturating_add(1);
+            }
+            mature_if_complete(&mut record);
+        }
+        let event = BondTreasuryUnitsRetired {
+            bond: bond.clone(),
+            issuer: authority.clone(),
+            quantity: quantity.clone(),
+            outstanding_units: record.state.outstanding_units.clone(),
+            retired_units: record.state.retired_units.clone(),
+            cancelled_cashflows,
+        };
+        store(state_transaction, record);
+        iroha_logger::info!(%bond, %quantity, "bond treasury units retired");
+        emit(state_transaction, BondEvent::TreasuryUnitsRetired(event));
+        Ok(())
+    }
+}
+
 impl Execute for BondInstructionBox {
     fn execute(
         self,
@@ -1137,6 +1327,7 @@ impl Execute for BondInstructionBox {
             Self::Call(isi) => isi.execute(authority, state_transaction),
             Self::DeclareDefault(isi) => isi.execute(authority, state_transaction),
             Self::ReplacePayingAgent(isi) => isi.execute(authority, state_transaction),
+            Self::RetireTreasuryUnits(isi) => isi.execute(authority, state_transaction),
         }
     }
 }
@@ -1247,7 +1438,8 @@ pub(crate) fn ensure_bond_custody_supported(
 /// Reject ordinary supply changes of a registered bond.
 ///
 /// The registered outstanding amount equals the definition total; only
-/// redemption claims burn units afterwards.
+/// redemption claims and treasury retirements burn units afterwards, through
+/// their verified burn source policies.
 pub(crate) fn ensure_bond_supply_unlocked(
     world: &impl WorldReadOnly,
     definition: &AssetDefinitionId,

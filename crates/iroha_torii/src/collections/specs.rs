@@ -576,6 +576,7 @@ pub static BONDS: CollectionSpec = CollectionSpec {
         text("state.lifecycle"),
         number("state.outstanding_units"),
         number("state.redeemed_units"),
+        number("state.retired_units"),
         boolean("state.transfers_frozen"),
         json("terms"),
         json("state"),

@@ -43,6 +43,7 @@ export {
   buildCallBondInstruction,
   buildDeclareBondDefaultInstruction,
   buildReplaceBondPayingAgentInstruction,
+  buildRetireBondTreasuryUnitsInstruction,
   buildFinalizeSmartContractCodeUploadInstruction,
   buildForceTransferRwaInstruction,
   buildFreezeRwaInstruction,

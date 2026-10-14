@@ -790,7 +790,9 @@ export function buildCallBondInstruction(options) {
 
 /**
  * Build `Bond::DeclareDefault` (paying agent) for an unfunded cash flow after
- * its payment date and grace period, with the SHA-256 digest of the default evidence.
+ * its payment date and grace period, with the SHA-256 digest of the default
+ * evidence. A recorded cash flow that owes nothing (one recorded at a
+ * backdated registration) cannot default.
  * @param {{ bondId: string, index: number, evidenceSha256: string|Uint8Array }} options
  */
 export function buildDeclareBondDefaultInstruction(options) {
@@ -815,4 +817,30 @@ export function buildReplaceBondPayingAgentInstruction(options) {
       },
     },
   };
+}
+
+/**
+ * Build `Bond::RetireTreasuryUnits` (issuer): burn units the issuer holds in
+ * its own global balance, reducing the outstanding supply. It cancels the
+ * unsold inventory and returned tranche of a failed offering and treasury
+ * units after maturity. Core refuses it while a cash flow is being recorded and
+ * for units the issuer owes back as repo collateral; retiring the last
+ * outstanding unit cancels every cash flow not yet recorded.
+ * @param {{ bondId: string, quantity: KotodamaQuantity|string|bigint }} options
+ * @returns {{ Bond: { RetireTreasuryUnits: { bond: string, quantity: string } } }}
+ */
+export function buildRetireBondTreasuryUnitsInstruction(options) {
+  const context = "retireBondTreasuryUnits";
+  const source = plainObject(options, context);
+  assertExactFields(source, ["bondId", "quantity"], context);
+  const bond = bondId(source.bondId, `${context}.bondId`);
+  const quantity = quantityText(source.quantity, `${context}.quantity`);
+  if (!/^[1-9]\d*$/u.test(quantity)) {
+    fail(
+      ValidationErrorCode.VALUE_OUT_OF_RANGE,
+      `${context}.quantity must be a positive whole number of bond units`,
+      `${context}.quantity`,
+    );
+  }
+  return { Bond: { RetireTreasuryUnits: { bond, quantity } } };
 }

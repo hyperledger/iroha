@@ -9,6 +9,7 @@ use crate::{
     DeriveJsonDeserialize, DeriveJsonSerialize,
     bond::{BondId, BondTerms},
 };
+use iroha_primitives::numeric::Quantity;
 
 isi! {
     /// Register the typed bond record of an existing scale-0 asset definition.
@@ -131,6 +132,24 @@ isi! {
     }
 }
 
+isi! {
+    /// Retire (burn) units the issuer itself holds directly, reducing the outstanding supply.
+    ///
+    /// Signed by the issuer. Cancels unsold inventory and returned tranches of a
+    /// failed offering and treasury units after maturity. Refused while a cash
+    /// flow is being recorded and for units the issuer owes back as repo
+    /// collateral; units in escrow custody are not the issuer's balance.
+    #[derive(DeriveJsonSerialize, DeriveJsonDeserialize)]
+    #[norito(deny_unknown_fields)]
+    #[norito_schema(name = "iroha_data_model::isi::bond::RetireBondTreasuryUnits")]
+    pub struct RetireBondTreasuryUnits {
+        /// Bond asset definition.
+        pub bond: BondId,
+        /// Positive whole number of units burned from the issuer's global balance.
+        pub quantity: Quantity,
+    }
+}
+
 impl RegisterBond {
     /// Construct a registration.
     #[must_use]
@@ -201,6 +220,17 @@ impl ReplaceBondPayingAgent {
     }
 }
 
+impl RetireBondTreasuryUnits {
+    /// Construct a treasury retirement.
+    #[must_use]
+    pub fn new(bond: BondId, quantity: impl Into<Quantity>) -> Self {
+        Self {
+            bond,
+            quantity: quantity.into(),
+        }
+    }
+}
+
 impl core::fmt::Display for RegisterBond {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
@@ -262,6 +292,16 @@ impl core::fmt::Display for ReplaceBondPayingAgent {
     }
 }
 
+impl core::fmt::Display for RetireBondTreasuryUnits {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "BOND_RETIRE_TREASURY `{}` UNITS {}",
+            self.bond, self.quantity
+        )
+    }
+}
+
 impl crate::seal::Instruction for RegisterBond {}
 impl crate::seal::Instruction for RecordBondCashflow {}
 impl crate::seal::Instruction for FundBondCashflow {}
@@ -270,6 +310,7 @@ impl crate::seal::Instruction for CloseBondCashflow {}
 impl crate::seal::Instruction for CallBond {}
 impl crate::seal::Instruction for DeclareBondDefault {}
 impl crate::seal::Instruction for ReplaceBondPayingAgent {}
+impl crate::seal::Instruction for RetireBondTreasuryUnits {}
 
 isi_box! {
     /// Grouping enum for the native bond-servicing kernel.
@@ -295,10 +336,12 @@ isi_box! {
         DeclareDefault(DeclareBondDefault),
         /// Replace the paying agent.
         ReplacePayingAgent(ReplaceBondPayingAgent),
+        /// Retire units the issuer holds.
+        RetireTreasuryUnits(RetireBondTreasuryUnits),
     }
 }
 impl_into_box! {
-    RegisterBond | RecordBondCashflow | FundBondCashflow | ClaimBondCashflow | CloseBondCashflow | CallBond | DeclareBondDefault | ReplaceBondPayingAgent => BondInstructionBox
+    RegisterBond | RecordBondCashflow | FundBondCashflow | ClaimBondCashflow | CloseBondCashflow | CallBond | DeclareBondDefault | ReplaceBondPayingAgent | RetireBondTreasuryUnits => BondInstructionBox
 }
 impl crate::seal::Instruction for BondInstructionBox {}
 impl BondInstructionBox {
@@ -317,6 +360,7 @@ impl BondInstructionBox {
             Self::Call(isi) => &isi.bond,
             Self::DeclareDefault(isi) => &isi.bond,
             Self::ReplacePayingAgent(isi) => &isi.bond,
+            Self::RetireTreasuryUnits(isi) => &isi.bond,
         }
     }
 }
@@ -356,6 +400,10 @@ impl_aos_decode_from_slice!(ReplaceBondPayingAgent {
     bond: BondId,
     paying_agent: AccountId,
 });
+impl_aos_decode_from_slice!(RetireBondTreasuryUnits {
+    bond: BondId,
+    quantity: Quantity,
+});
 
 impl<'a> norito::core::DecodeFromSlice<'a> for BondInstructionBox {
     fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
@@ -385,6 +433,7 @@ impl<'a> norito::core::DecodeFromSlice<'a> for BondInstructionBox {
             5 => variant!(Call, CallBond),
             6 => variant!(DeclareDefault, DeclareBondDefault),
             7 => variant!(ReplacePayingAgent, ReplaceBondPayingAgent),
+            8 => variant!(RetireTreasuryUnits, RetireBondTreasuryUnits),
             _ => {
                 return Err(norito::core::Error::Message(format!(
                     "invalid BondInstructionBox tag {tag}"

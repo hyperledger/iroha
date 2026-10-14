@@ -582,6 +582,7 @@ export {
   buildRecordBondCashflowInstruction,
   buildRegisterBondInstruction,
   buildReplaceBondPayingAgentInstruction,
+  buildRetireBondTreasuryUnitsInstruction,
   validateBondTerms,
 } from "./bond.js";
 export {

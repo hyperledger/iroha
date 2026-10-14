@@ -643,10 +643,13 @@ pub struct BondEntitlement {
 pub struct BondState {
     /// Lifecycle.
     pub lifecycle: BondLifecycle,
-    /// Units in existence: the definition total minus units burned by redemption claims.
+    /// Units in existence: the definition total, which registration fixes and only
+    /// redemption claims and treasury retirements reduce.
     pub outstanding_units: Quantity,
     /// Units burned by redemption claims.
     pub redeemed_units: Quantity,
+    /// Issuer-held units burned by `RetireBondTreasuryUnits`.
+    pub retired_units: Quantity,
     /// Set when a redemption cash flow is recorded; every movement of the bond
     /// asset is then rejected, except an escrow returning custody to its seller
     /// (the holder of record), and only the redemption claim burn changes supply.
@@ -701,6 +704,7 @@ impl BondRecord {
                 lifecycle: BondLifecycle::Active,
                 outstanding_units,
                 redeemed_units: Quantity::zero(),
+                retired_units: Quantity::zero(),
                 transfers_frozen: false,
                 cashflows,
             },

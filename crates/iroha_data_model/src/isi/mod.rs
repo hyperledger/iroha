@@ -2829,6 +2829,7 @@ pub mod prelude {
         bond::{
             BondInstructionBox, CallBond, ClaimBondCashflow, CloseBondCashflow, DeclareBondDefault,
             FundBondCashflow, RecordBondCashflow, RegisterBond, ReplaceBondPayingAgent,
+            RetireBondTreasuryUnits,
         },
         bridge::{RecordBridgeReceipt, SubmitBridgeProof},
         confidential::{

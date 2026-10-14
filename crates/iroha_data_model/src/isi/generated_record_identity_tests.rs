@@ -93,14 +93,14 @@ fn missing_record_values() -> Vec<Value> {
     ));
     assert_eq!(
         records.len(),
-        57,
+        58,
         "complete missing record fixture inventory"
     );
     let names: std::collections::BTreeSet<_> = records
         .iter()
         .map(|row| row.get("nominal").and_then(Value::as_str).expect("nominal"))
         .collect();
-    assert_eq!(names.len(), 57, "one populated value per missing record");
+    assert_eq!(names.len(), 58, "one populated value per missing record");
     records.sort_by(|a, b| {
         a.get("nominal")
             .and_then(Value::as_str)
@@ -120,13 +120,13 @@ fn captured(nominal: &str) -> &'static Value {
             );
             assert_eq!(
                 hex(&Sha256::digest(source.as_bytes())),
-                "af9aac8c3ff93cda4522a4f94e0379da10ca08e8954271f246aaa59f3b2ecc92",
+                "7d138d366c8f82d82c9e19a94494216043a3af45bd8157604cdd81e21ffa73ef",
                 "instruction record capture digest drift"
             );
             let capture: Value =
                 json::from_str(source).expect("immutable instruction record capture");
             let rows = capture.as_array().expect("captured type rows");
-            assert_eq!(rows.len(), 340, "complete instantiated record inventory");
+            assert_eq!(rows.len(), 341, "complete instantiated record inventory");
             let mut previous = None;
             let mut case_count = 0;
             for row in rows {
@@ -144,12 +144,12 @@ fn captured(nominal: &str) -> &'static Value {
                     .expect("captured cases")
                     .len();
             }
-            assert_eq!(case_count, 383, "complete populated record case inventory");
+            assert_eq!(case_count, 384, "complete populated record case inventory");
             capture
         })
         .as_array()
         .expect("captured type rows");
-    assert_eq!(rows.len(), 340, "complete instantiated record inventory");
+    assert_eq!(rows.len(), 341, "complete instantiated record inventory");
     let mut matches = rows
         .iter()
         .filter(|row| row.get("nominal").and_then(Value::as_str) == Some(nominal));

@@ -260,6 +260,26 @@ function describeBond(body, bonds) {
           field("replaces", record?.terms?.paying_agent ?? "the current paying agent"),
         ],
       };
+    case "RetireTreasuryUnits": {
+      const fields = [
+        ...head,
+        field("quantity", `${payload.quantity} unit(s)`),
+        field("from", `the issuer's own balance (${record?.terms?.issuer ?? "signer must be the issuer"})`),
+        field("effect", "burns the units; the outstanding supply falls by the same amount"),
+      ];
+      const outstanding = record?.state?.outstanding_units;
+      if (typeof outstanding === "string" && /^\d+$/u.test(outstanding)
+        && /^\d+$/u.test(String(payload.quantity))) {
+        const remaining = BigInt(outstanding) - BigInt(payload.quantity);
+        fields.push(field("outstanding", remaining < 0n
+          ? `${outstanding} (fewer than the retired quantity)`
+          : `from ${outstanding} to ${remaining}`));
+        if (remaining === 0n) {
+          fields.push(field("effect", "no unit remains outstanding: every cash flow not yet recorded is cancelled"));
+        }
+      }
+      return { kind: "bond", title: "Retire bond treasury units", fields };
+    }
     default:
       return { kind: "bond", title: `Bond ${sanitizeReviewText(variant ?? "instruction", 64)}`, fields: head };
   }

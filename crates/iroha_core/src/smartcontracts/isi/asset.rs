@@ -3419,6 +3419,7 @@ pub mod isi {
         AccountAdmissionFee,
         FeeSponsorCustody,
         BondRedemption,
+        BondTreasuryRetirement,
     }
     // Created only while consuming the executor's original sponsor-charge
     // capability. This private value retains the original invocation and signed
@@ -3485,6 +3486,29 @@ pub mod isi {
                 ensure_not_kagemusha_reserve_source(state_transaction.world(), &source_id)?;
                 ensure_not_sccp_escrow_source(state_transaction, &source_id)?;
             }
+            NumericAssetBurnSourcePolicy::BondTreasuryRetirement => {
+                // The issuer burns units of its own global balance.
+                let authority = authority.ok_or_else(|| {
+                    InstructionExecutionError::InvariantViolation(
+                        "bond treasury retirement requires an exact authority".into(),
+                    )
+                })?;
+                ensure_user_numeric_asset_source_authority(
+                    state_transaction,
+                    authority,
+                    &source_id,
+                )?;
+                ensure_privacy_public_reserve_source_policy(
+                    state_transaction,
+                    &source_id,
+                    NumericAssetTransferSourcePolicy::User,
+                )?;
+                ensure_not_native_escrow_source(state_transaction, &source_id)?;
+                ensure_not_fx_corridor_escrow_source(state_transaction, &source_id)?;
+                ensure_not_sorafs_reserve_custody_source(state_transaction, &source_id)?;
+                ensure_not_kagemusha_reserve_source(state_transaction.world(), &source_id)?;
+                ensure_not_sccp_escrow_source(state_transaction, &source_id)?;
+            }
             NumericAssetBurnSourcePolicy::BondRedemption => {
                 // The bond kernel selected the holder's exact entitled units; the
                 // claim may be pushed by the paying agent, so no signer ownership
@@ -3500,7 +3524,12 @@ pub mod isi {
                 ensure_not_sccp_escrow_source(state_transaction, &source_id)?;
             }
         }
-        if !matches!(source_policy, NumericAssetBurnSourcePolicy::BondRedemption) {
+        // Only the bond kernel's verified burns change a registered bond's supply.
+        if !matches!(
+            source_policy,
+            NumericAssetBurnSourcePolicy::BondRedemption
+                | NumericAssetBurnSourcePolicy::BondTreasuryRetirement
+        ) {
             crate::smartcontracts::isi::bond::ensure_bond_supply_unlocked(
                 state_transaction.world(),
                 source_id.definition(),
@@ -3530,7 +3559,8 @@ pub mod isi {
             )?;
         }
         let (control_before, control_update) = match source_policy {
-            NumericAssetBurnSourcePolicy::AccountAdmissionFee => {
+            NumericAssetBurnSourcePolicy::AccountAdmissionFee
+            | NumericAssetBurnSourcePolicy::BondTreasuryRetirement => {
                 if !amount.is_zero() {
                     state_transaction
                         .world
@@ -3644,6 +3674,20 @@ pub mod isi {
                     false,
                     (
                         "bond-redemption-burn",
+                        Some(quantity_authorization::SupplyBinding::Bytes(&[])),
+                    ),
+                    apply,
+                )
+            }
+            (NumericAssetBurnSourcePolicy::BondTreasuryRetirement, Some(authority), None) => {
+                apply_with_supply_quantity_candidate(
+                    state_transaction,
+                    authority,
+                    &captured_source,
+                    &captured_amount,
+                    false,
+                    (
+                        "bond-treasury-retirement",
                         Some(quantity_authorization::SupplyBinding::Bytes(&[])),
                     ),
                     apply,
@@ -5391,6 +5435,34 @@ pub mod isi {
             AssetId::new(bond, holder),
             units,
             NumericAssetBurnSourcePolicy::BondRedemption,
+            None,
+        )
+    }
+    /// Burn exact units of the issuer's own global balance for `RetireBondTreasuryUnits`.
+    pub(in crate::smartcontracts::isi) fn execute_verified_bond_treasury_retirement(
+        state_transaction: &mut StateTransaction<'_, '_>,
+        retirement: crate::smartcontracts::isi::bond::VerifiedBondTreasuryRetirement,
+    ) -> Result<(), Error> {
+        let (authority, bond, units) = retirement.into_parts();
+        let record = state_transaction.world.bonds.get(&bond).ok_or_else(|| {
+            InstructionExecutionError::InvariantViolation(
+                "bond treasury retirement has no retained bond record".into(),
+            )
+        })?;
+        let matches_record = authority == record.terms.issuer
+            && crate::smartcontracts::isi::bond::recording_in_progress(record).is_none()
+            && !units.is_zero();
+        if !matches_record {
+            return Err(InstructionExecutionError::InvariantViolation(
+                "bond treasury retirement capability does not match its retained record".into(),
+            ));
+        }
+        execute_checked_numeric_asset_burn(
+            state_transaction,
+            Some(&authority),
+            AssetId::new(bond, authority.clone()),
+            units,
+            NumericAssetBurnSourcePolicy::BondTreasuryRetirement,
             None,
         )
     }

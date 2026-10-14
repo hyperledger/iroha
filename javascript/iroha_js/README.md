@@ -561,6 +561,7 @@ native snake_case fields, canonical decimal strings and lowercase hex digests.
 | `buildCallBondInstruction({ bondId, callDateMs })` | `Bond.Call { bond, call_date_ms }` | issuer |
 | `buildDeclareBondDefaultInstruction({ bondId, index, evidenceSha256 })` | `Bond.DeclareDefault { bond, index, evidence_sha256 }` | paying agent, after the payment date and grace period |
 | `buildReplaceBondPayingAgentInstruction({ bondId, payingAgent })` | `Bond.ReplacePayingAgent { bond, paying_agent }` | issuer |
+| `buildRetireBondTreasuryUnitsInstruction({ bondId, quantity })` | `Bond.RetireTreasuryUnits { bond, quantity }` | issuer, burning units of its own balance |
 
 From a cash flow's record date until it is recorded the bond's books are
 closed: its units cannot move, so the recorded entitlements are the holdings
@@ -568,6 +569,14 @@ of record whoever records and whenever. Recording is paged (at most
 `BOND_RECORDING_PAGE_ENTRIES` balances or escrow records per step). Units in
 escrow count for the escrow's seller; a repo's collateral for its holder.
 Closing a cash flow leaves unclaimed entitlements claimable from the vault.
+A backdated bond registers with every passed record date recorded without
+holders (the issuer held every unit), so its books open at once; fund (nothing
+moves) and close those cash flows. Retiring treasury units burns a positive
+whole number of units from the issuer's own balance (unsold inventory, a
+returned tranche, treasury units after maturity); it is refused while a cash
+flow is being recorded and for units the issuer owes back as repo collateral,
+and retiring the last outstanding unit cancels every cash flow not yet
+recorded.
 
 `terms` is camelCase: `{ issuer, payingAgent, paymentAsset, denomination,
 couponRateBps, couponFrequency, dayCount, issueDateMs, maturityDateMs,
@@ -623,7 +632,8 @@ const claim = buildClaimBondCashflowInstruction({ bondId: bond, index: 0, holder
 
 `ToriiClient.getBond(bondId)` (`GET /v1/bonds/{bond_id}`, null when not
 registered) returns the native `BondRecord` JSON: `{ id, vault, terms, state:
-{ lifecycle, outstanding_units, redeemed_units, transfers_frozen, cashflows }
+{ lifecycle, outstanding_units, redeemed_units, retired_units, transfers_frozen,
+cashflows }
 }`, each cash flow carrying its effective `terms`, `status`, the `recording`
 cursor while it is recorded, `holders`, `claimed_holders`, `entitled_units`,
 `amount_due`, `funded` and `paid`. `listBonds({ limit, cursor, filter })`

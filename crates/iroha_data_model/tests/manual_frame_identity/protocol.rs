@@ -28,6 +28,7 @@ use iroha_data_model::{
         bond::{
             BondInstructionBox, CallBond, ClaimBondCashflow, CloseBondCashflow, DeclareBondDefault,
             FundBondCashflow, RecordBondCashflow, RegisterBond, ReplaceBondPayingAgent,
+            RetireBondTreasuryUnits,
         },
         repo::{RepoInstructionBox, RepoIsi, RepoMarginCallIsi, ReverseRepoIsi},
     },
@@ -415,12 +416,13 @@ fn bond_values(rows: &mut Vec<Value>) {
         BondInstructionBox::from(CloseBondCashflow::new(bond.clone(), 2)),
         BondInstructionBox::from(CallBond::new(bond.clone(), 1_799_971_200_000)),
         BondInstructionBox::from(DeclareBondDefault::new(bond.clone(), 3, [0xDE; 32])),
-        BondInstructionBox::from(ReplaceBondPayingAgent::new(bond, account(0x44))),
+        BondInstructionBox::from(ReplaceBondPayingAgent::new(bond.clone(), account(0x44))),
+        BondInstructionBox::from(RetireBondTreasuryUnits::new(bond, 9_000_u32)),
     ];
-    for (tag, value) in (0u32..8).zip(&values) {
+    for (tag, value) in (0u32..9).zip(&values) {
         assert_eq!(&value.encode()[..4], &tag.to_le_bytes());
         let mut unknown = value.encode();
-        unknown[..4].copy_from_slice(&8_u32.to_le_bytes());
+        unknown[..4].copy_from_slice(&9_u32.to_le_bytes());
         reject_payload::<BondInstructionBox>(&unknown);
     }
     for length in 0..4 {
@@ -437,7 +439,7 @@ fn manual_protocol_evidence() -> Value {
     kagemusha_values(&mut rows);
     repo_values(&mut rows);
     bond_values(&mut rows);
-    assert_eq!(rows.len(), 66);
+    assert_eq!(rows.len(), 68);
     norito::json!({
         "format_version": 1,
         "purpose": "eight public manual protocol owners before identity declaration",

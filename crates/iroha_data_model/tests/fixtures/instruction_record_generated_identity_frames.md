@@ -1,12 +1,12 @@
 # Generated instruction record identities
 
 `instruction_record_generated_identity_frames.json` contains immutable captures
-for the current instruction records and concrete generic instantiations. Its 340
-type rows preserve 383 populated values and 1,532 complete root, vector, option
+for the current instruction records and concrete generic instantiations. Its 341
+type rows preserve 384 populated values and 1,536 complete root, vector, option
 and map frames.
 
 The fixture SHA-256 is
-`af9aac8c3ff93cda4522a4f94e0379da10ca08e8954271f246aaa59f3b2ecc92`.
+`7d138d366c8f82d82c9e19a94494216043a3af45bd8157604cdd81e21ffa73ef`.
 `ClaimPublicLaneRewards` contains one mandatory exact authenticated fee claim
 against funded XOR custody. The manual recipient instruction and its record-ledger
 claim fields are removed. The external `staking_reward_identity_capture` native
@@ -226,3 +226,6 @@ The eight bond-kernel leaf records (`RegisterBond`, `RecordBondCashflow`,
 populated value each from `generated_record_values.rs` (`bond_values`, printed by
 the ignored `print_bond_record_fixture_rows`). They travel only inside
 `BondInstructionBox`; these rows pin their leaf identities and frames.
+The ninth leaf, `RetireBondTreasuryUnits`, was added on 2026-10-15 with one
+populated value from the same producer; the eight earlier bond rows are
+unchanged.

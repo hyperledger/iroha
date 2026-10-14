@@ -48,7 +48,8 @@ intent hashes; generic base64 instruction literals cannot bypass the envelope.
 The native bond-servicing kernel uses one closed `Bond` envelope mirroring the
 registered `BondInstructionBox` (`iroha.bond`): exactly one of `Register`,
 `RecordCashflow`, `FundCashflow`, `ClaimCashflow`, `CloseCashflow`, `Call`,
-`DeclareDefault` or `ReplacePayingAgent`, each equal to its canonical model JSON (canonical quantities,
+`DeclareDefault`, `ReplacePayingAgent` or `RetireTreasuryUnits`, each equal to
+its canonical model JSON (canonical quantities,
 lowercase 32-byte hex digests, explicit `null` for absent optional terms).
 Terms validation and every state check stay with Core
 (`specs/finance/bond_ops.md`). `bond_vault_account_literal` renders the

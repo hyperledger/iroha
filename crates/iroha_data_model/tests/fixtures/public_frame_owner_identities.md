@@ -71,12 +71,15 @@ root/Option/Vec frames retain their individually observed identities.
 | Fixture | Coverage | SHA-256 |
 | --- | --- | --- |
 | `manual_scalar_identity_frames.json` | Five owners, 35 frames: X.509 key usage, contract argument, alias, address and manifest CID | `7326473b538f2ef1248d6c1c847fadccdc01a139bd199cec291479b8379c6ece` |
-| `manual_protocol_identity_frames.json` | Eight owners, 66 frames: privacy magic/digest/catalog, confidential memo, device key/signature, repo instruction and bond instruction | `4c3635b62741a5a9dfa183c17d6d4f8231167996f1c213f2e0ce56d622ed879e` |
+| `manual_protocol_identity_frames.json` | Eight owners, 68 frames: privacy magic/digest/catalog, confidential memo, device key/signature, repo instruction and bond instruction | `766d3045ffe172f697b75b05c018df1182b8a40b29f6b8f3a3a0217ad50434ae` |
 | `manual_proof_identity_frames.json` | Three owners, 29 frames: proof attachment/list and Kaigi authorization scalar | `dbaa4907c8c3076bf5fb3e436f6e1a8129de115734c31402c89b3a8f603e01d7` |
 
 The repo instruction rows were recaptured on 2026-10-13 after `RepoGovernance`
 gained its explicit `allow_early_repayment` term (`false` in this capture); only
-the three populated initiation frames changed.
+the three populated initiation frames changed. The bond instruction rows gained
+the `RetireTreasuryUnits` value (tag 8) on 2026-10-15; the two added frames are
+its root and Option frames, and the all-variants Vec frame now carries nine
+values; every other row is unchanged.
 
 `PrivacyX509KeyUsageRequirementV1` alone projects its root frame to `bool`.
 Its Option and Vec frames retain the wrapper's nominal identity and reject
