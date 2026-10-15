@@ -1323,6 +1323,76 @@ mod std_fs {
         ));
     }
 
+    // On Android run under the disposable app UID with TMPDIR selected from its
+    // private Context directory. Separate opens must contend even within one process.
+    #[cfg(any(target_os = "android", target_os = "linux", target_vendor = "apple"))]
+    #[test]
+    fn wallet_advance_v1_std_fs_lock_matches_kernel_flock_and_preserves_inode() {
+        use rustix::fs::{FlockOperation::NonBlockingLockExclusive, flock};
+        use std::os::unix::fs::MetadataExt as _;
+
+        #[cfg(target_os = "android")]
+        assert_ne!(rustix::process::geteuid().as_raw(), 0, "use the app UID");
+        let (temp, store) = std_store();
+        let root = temp.path().join("root");
+        let other = KagemushaWalletDurableStoreV1::new(
+            KagemushaWalletStdFsV1::open(&root).expect("independent owner"),
+        );
+        let held = store.lock_exclusive().expect("wallet kernel lock");
+        let before = std::fs::symlink_metadata(root.join("lock")).unwrap();
+        let directory = iroha_fs::PrivateDirectory::open(&root).unwrap();
+        let competing = directory.open_ownership_lock("lock").unwrap();
+        assert_eq!(
+            flock(&competing, NonBlockingLockExclusive),
+            Err(rustix::io::Errno::WOULDBLOCK)
+        );
+        assert_eq!(
+            other.lock_exclusive().err(),
+            Some(KagemushaWalletUnavailableV1::Busy)
+        );
+        assert_eq!(
+            store.lock_exclusive().err(),
+            Some(KagemushaWalletUnavailableV1::Busy)
+        );
+        drop(held);
+        flock(&competing, NonBlockingLockExclusive).expect("guard drop releases the kernel lock");
+        assert_eq!(
+            other.lock_exclusive().err(),
+            Some(KagemushaWalletUnavailableV1::Busy)
+        );
+        drop(competing);
+        let acquired = other
+            .lock_exclusive()
+            .expect("external descriptor drop releases the lock");
+        assert_eq!(
+            store.lock_exclusive().err(),
+            Some(KagemushaWalletUnavailableV1::Busy)
+        );
+        drop(acquired);
+        let _reacquired = store.lock_exclusive().expect("wallet can acquire again");
+        let after = std::fs::symlink_metadata(root.join("lock")).unwrap();
+        assert_eq!(
+            (
+                before.dev(),
+                before.ino(),
+                before.uid(),
+                before.gid(),
+                before.mode(),
+                before.nlink()
+            ),
+            (
+                after.dev(),
+                after.ino(),
+                after.uid(),
+                after.gid(),
+                after.mode(),
+                after.nlink()
+            )
+        );
+        assert_eq!(after.mode() & 0o7777, 0o600);
+        assert_eq!(after.nlink(), 1);
+    }
+
     #[test]
     fn wallet_advance_v1_std_fs_lock_space_and_noreplace_probe() {
         let (temp, store) = std_store();

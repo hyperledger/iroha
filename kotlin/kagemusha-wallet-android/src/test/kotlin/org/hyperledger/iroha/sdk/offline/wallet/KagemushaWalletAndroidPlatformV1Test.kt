@@ -118,7 +118,7 @@ class KagemushaWalletAndroidPlatformV1Test {
         )
     }
 
-    @Test fun `the custody root is the canonical credential-encrypted no-backup directory`() {
+    @Test fun `adapter returns the prepared credential-encrypted custody root and preserves refusal`() {
         val linked = File(directory, "no_backup").apply { mkdirs() }
         val environment = TestEnvironmentV1(File(directory, "./no_backup/../no_backup"))
         val adapter = adapter(environment)
@@ -138,7 +138,7 @@ class KagemushaWalletAndroidPlatformV1Test {
         )
     }
 
-    @Test fun `the custody root resolves symbolic links`() {
+    @Test fun `adapter preserves the environment resolved custody path`() {
         val target = File(directory, "target").apply { mkdirs() }
         val link = File(directory, "link")
         Files.createSymbolicLink(link.toPath(), target.toPath())

@@ -31,7 +31,7 @@ use crate::{
         },
         context::ContextPlan,
         own::OwnPolicy,
-        receive::{MAX_OMEGA_RAW_BYTES, MAX_SIGMA_RAW_BYTES},
+        receive::{MAX_OMEGA_RAW_BYTES, MAX_SIGMA_RAW_BYTES, PAYMENT_RAW_PROOF_BUDGET},
         schedule::sigma_selector,
     },
     admin_sigma::ArchiveWitness,
@@ -422,7 +422,7 @@ fn check_retained_sizes(omega: usize, sigma: usize) -> Result<(), Error> {
         || sigma > MAX_SIGMA_RAW_BYTES
         || omega
             .checked_add(sigma)
-            .is_none_or(|sum| sum > MAX_OMEGA_RAW_BYTES)
+            .is_none_or(|sum| sum > PAYMENT_RAW_PROOF_BUDGET)
     {
         return Err(Error::Input);
     }
@@ -434,14 +434,14 @@ mod tests {
     use super::*;
     #[test]
     fn retained_original_envelope_is_joint_inclusive_and_overflow_safe() {
-        assert_eq!(check_retained_sizes(320, 8277), Ok(()));
-        assert_eq!(check_retained_sizes(8597, 0), Ok(()));
+        assert_eq!(check_retained_sizes(5364, 3520), Ok(()));
+        assert_eq!(check_retained_sizes(5364, 0), Ok(()));
         assert_eq!(check_retained_sizes(0, 0), Ok(()));
         for (omega, sigma) in [
-            (321, 8277),
-            (8597, 1),
-            (8598, 0),
-            (0, 8278),
+            (5365, 3520),
+            (5364, 3521),
+            (5365, 0),
+            (0, 3521),
             (usize::MAX, 1),
         ] {
             assert_eq!(check_retained_sizes(omega, sigma), Err(Error::Input));

@@ -3,8 +3,8 @@
 //!
 //! - an honest witness is proved and verified, also through the
 //!   verifying-key allowlist by its `(tag, mask)` selector; a wrong public
-//!   input is rejected; a fixed recovery stream reproduces the proof bytes
-//!   and a different one changes them;
+//!   input is rejected; each fresh attempt changes the proof bytes and
+//!   retained originals remain verifiable;
 //! - a mutated witness (overdraft, a debit that ignores the lineage
 //!   `burned_total`, newer policy epoch, early accepted time, a blacklist
 //!   older than the maximum age or issued after the accepted time, a Send at
@@ -21,8 +21,8 @@
 //! too; a forged identity proves only its own head; a proof under one
 //! selector does not verify under another; a listed counterparty and the
 //! quota rule's violations have no accepted proof; the full mask proves and
-//! verifies at its single-lane `k = 14` shape; keys and proofs do not depend
-//! on the Rayon pool size. All tests here prove for real and are ignored in
+//! verifies at its single-lane `k = 14` shape; keys and verification of retained
+//! proof bytes do not depend on the Rayon pool size. All tests here prove for real and are ignored in
 //! debug builds.
 
 mod common;
@@ -31,8 +31,8 @@ use core::fmt::Write as _;
 
 use common::{
     CHECK_SEED, RECEIVE_BLACKLIST, RELATION_CASES, RELATION_CHECK_CASES, RELATIONS, SEND_BLACKLIST,
-    SEND_EVERY, SEND_QUOTAS, budget_shape, case_label, folded, forged_witness, pinned_shape,
-    recovery, relation_shapes, vesta_params, vesta_prover,
+    SEND_EVERY, SEND_QUOTAS, budget_shape, case_label, folded, forged_witness, fresh_randomness,
+    pinned_shape, relation_shapes, vesta_params, vesta_prover,
 };
 use ff::Field;
 use iroha_kagemusha_proof::{
@@ -52,7 +52,9 @@ fn relation_checks_as_real_proofs() {
         let prover = vesta_prover(shape);
         let verifier = prover.verifier();
         let honest = sample_witness::<Fp>(CHECK_SEED, relation.relation, Mutation::None);
-        let honest_proof = prover.prove(&honest, recovery(1)).expect("honest proof");
+        let honest_proof = prover
+            .prove(&honest, fresh_randomness())
+            .expect("honest proof");
         for (case, mutation, expected) in RELATION_CASES {
             if case != relation.relation {
                 continue;
@@ -60,7 +62,7 @@ fn relation_checks_as_real_proofs() {
             let label = case_label(relation, mutation);
             let witness = sample_witness::<Fp>(CHECK_SEED, case, mutation);
             if expected {
-                let proof = prover.prove(&witness, recovery(2)).expect("proof");
+                let proof = prover.prove(&witness, fresh_randomness()).expect("proof");
                 assert_eq!(
                     proof.bytes.len(),
                     shape.proof_length::<Eq>().expect("length")
@@ -73,11 +75,18 @@ fn relation_checks_as_real_proofs() {
                 let mut wrong = proof.public;
                 wrong.statement += Fp::ONE;
                 assert!(verifier.verify(&wrong, &proof.bytes).is_err(), "{label}");
-                assert_eq!(
-                    prover.prove(&witness, recovery(2)).expect("proof").bytes,
-                    proof.bytes,
-                    "{label}: a fixed stream reproduces the proof"
-                );
+                let fresh = prover
+                    .prove(&witness, fresh_randomness())
+                    .expect("fresh proof");
+                verifier
+                    .verify(&fresh.public, &fresh.bytes)
+                    .expect("fresh proof verifies");
+                assert_ne!(fresh.bytes, proof.bytes, "{label}: fresh entropy");
+                let retained = proof.bytes.clone();
+                verifier
+                    .verify(&proof.public, &retained)
+                    .expect("retained original verifies");
+                assert_eq!(retained, proof.bytes, "{label}: immutable original");
                 assert_ne!(honest_proof.bytes, proof.bytes, "{label}: fresh blinds");
                 println!(
                     "M12_REAL case={} k={} lanes={} mutation={mutation:?} accepted=true bytes={}",
@@ -88,7 +97,7 @@ fn relation_checks_as_real_proofs() {
                 );
             } else {
                 // The library refuses the witness with its violation.
-                match prover.prove(&witness, recovery(2)) {
+                match prover.prove(&witness, fresh_randomness()) {
                     Err(SigmaError::RelationViolated(violations)) => {
                         assert!(!violations.is_empty(), "{label}");
                     }
@@ -102,7 +111,7 @@ fn relation_checks_as_real_proofs() {
                     prover.proving_key(),
                     &circuit,
                     &[claimed.instance()],
-                    recovery(3),
+                    fresh_randomness(),
                     ProverConfig::default(),
                 );
                 assert!(
@@ -116,7 +125,7 @@ fn relation_checks_as_real_proofs() {
                     prover.params(),
                     prover.proving_key(),
                     &forged,
-                    recovery(4),
+                    fresh_randomness(),
                     ProverConfig::default(),
                 )
                 .expect("the engine proves the forged witness");
@@ -150,7 +159,7 @@ fn every_byte_is_bound(relation: iroha_kagemusha_proof::RelationShape) -> usize 
     let prover = vesta_prover(shape);
     let verifier = prover.verifier();
     let witness = sample_witness::<Fp>(CHECK_SEED, relation.relation, Mutation::None);
-    let proof = prover.prove(&witness, recovery(9)).expect("proof");
+    let proof = prover.prove(&witness, fresh_randomness()).expect("proof");
     assert_eq!(verifier.verify(&proof.public, &proof.bytes), Ok(()));
     let accepted: Vec<(usize, u8)> = (0..proof.bytes.len())
         .into_par_iter()
@@ -199,7 +208,9 @@ fn pallas_step_proofs_verify() {
         let shape = budget_shape(folded(case));
         let prover = SigmaProver::<Ep>::keygen(shape).expect("Pallas keys");
         let witness = sample_witness::<Fq>(CHECK_SEED, case, Mutation::None);
-        let proof = prover.prove(&witness, recovery(5)).expect("Pallas proof");
+        let proof = prover
+            .prove(&witness, fresh_randomness())
+            .expect("Pallas proof");
         assert_eq!(
             prover.verifier().verify(&proof.public, &proof.bytes),
             Ok(())
@@ -217,7 +228,7 @@ fn pallas_step_proofs_verify() {
             },
         );
         assert!(matches!(
-            prover.prove(&mutated, recovery(5)),
+            prover.prove(&mutated, fresh_randomness()),
             Err(SigmaError::RelationViolated(violations))
                 if violations.contains(&Violation::Overdraft)
                     || violations.contains(&Violation::BalanceOverflow)
@@ -276,7 +287,7 @@ fn proofs_verify_only_under_their_selector() {
     ));
     for (case, prover) in &provers {
         let witness = sample_witness::<Fp>(1, *case, Mutation::None);
-        let proof = prover.prove(&witness, recovery(1)).expect("proof");
+        let proof = prover.prove(&witness, fresh_randomness()).expect("proof");
         for (other, _) in &provers {
             let verdict = allowlist.verify(*other, &proof.public, &proof.bytes);
             assert_eq!(verdict.is_ok(), other == case, "{case:?} under {other:?}");
@@ -288,7 +299,9 @@ fn proofs_verify_only_under_their_selector() {
         };
         let foreign = sample_witness::<Fp>(1, other_step, Mutation::None);
         assert_eq!(
-            prover.prove(&foreign, recovery(1)).map(|proof| proof.bytes),
+            prover
+                .prove(&foreign, fresh_randomness())
+                .map(|proof| proof.bytes),
             Err(SigmaError::WrongRelation {
                 expected: case.step(),
                 found: other_step.step(),
@@ -317,7 +330,7 @@ fn engine_refuses(
         prover.proving_key(),
         &circuit,
         &[claimed.instance()],
-        recovery(3),
+        fresh_randomness(),
         ProverConfig::default(),
     );
     match engine {
@@ -341,7 +354,9 @@ fn a_listed_counterparty_has_no_accepted_proof() {
         let prover = vesta_prover(budget_shape(folded(case)));
         let listed = sample_witness::<Fp>(CHECK_SEED, case, Mutation::Listed);
         assert_eq!(
-            prover.prove(&listed, recovery(2)).map(|proof| proof.bytes),
+            prover
+                .prove(&listed, fresh_randomness())
+                .map(|proof| proof.bytes),
             Err(SigmaError::RelationViolated(vec![
                 Violation::BlacklistListed
             ]))
@@ -358,7 +373,7 @@ fn a_listed_counterparty_has_no_accepted_proof() {
             }
         };
         let proof = unheld_prover
-            .prove(&unheld, recovery(2))
+            .prove(&unheld, fresh_randomness())
             .expect("no list held");
         assert_eq!(
             unheld_prover.verifier().verify(&proof.public, &proof.bytes),
@@ -379,7 +394,9 @@ fn quota_relations_prove_at_k14() {
         let prover = vesta_prover(shape);
         let verifier = prover.verifier();
         let honest = sample_witness::<Fp>(CHECK_SEED + 1, case, Mutation::None);
-        let proof = prover.prove(&honest, recovery(2)).expect("honest proof");
+        let proof = prover
+            .prove(&honest, fresh_randomness())
+            .expect("honest proof");
         assert_eq!(verifier.verify(&proof.public, &proof.bytes), Ok(()));
         assert_eq!(
             proof.bytes.len(),
@@ -392,7 +409,9 @@ fn quota_relations_prove_at_k14() {
             let witness = sample_witness::<Fp>(CHECK_SEED, case, mutation);
             let label = format!("{} {mutation:?}", case.label());
             assert_eq!(
-                prover.prove(&witness, recovery(2)).map(|proof| proof.bytes),
+                prover
+                    .prove(&witness, fresh_randomness())
+                    .map(|proof| proof.bytes),
                 Err(SigmaError::RelationViolated(vec![violation])),
                 "{label}"
             );
@@ -409,7 +428,7 @@ fn quota_relations_prove_at_k14() {
             prover.params(),
             prover.proving_key(),
             &forged,
-            recovery(4),
+            fresh_randomness(),
             ProverConfig::default(),
         )
         .expect("the engine proves the forged witness");
@@ -439,7 +458,9 @@ fn forged_identities_prove_only_their_own_head() {
         let view = lineage_view_of(&honest).expect("send witness");
         let mut forged = honest.clone();
         forged.predecessor.core.identity.asset_digest[0] ^= 0xa5;
-        let proof = prover.prove(&forged, recovery(6)).expect("forged proof");
+        let proof = prover
+            .prove(&forged, fresh_randomness())
+            .expect("forged proof");
         assert_eq!(verifier.verify(&proof.public, &proof.bytes), Ok(()));
         let request = forged.request_body();
         let own = forged.statement(case).expect("statement");
@@ -459,11 +480,11 @@ fn forged_identities_prove_only_their_own_head() {
     }
 }
 
-/// Keys and proofs (with a fixed recovery stream) are identical on 1, 2, 4
-/// and 7 Rayon threads.
+/// Keys and verification of one retained proof are identical on 1, 2, 4
+/// and 7 Rayon threads; each fresh proving attempt draws independent entropy.
 #[test]
 #[ignore = "key generation and proofs on four pool sizes; run in release"]
-fn keys_and_proofs_do_not_depend_on_the_pool_size() {
+fn keys_and_retained_proof_verification_do_not_depend_on_the_pool_size() {
     for case in [SigmaRelation::SEND, SigmaRelation::RECEIVE] {
         let shape = budget_shape(folded(case));
         let witness = sample_witness::<Fp>(CHECK_SEED, case, Mutation::None);
@@ -476,9 +497,14 @@ fn keys_and_proofs_do_not_depend_on_the_pool_size() {
             let (vk, descriptor, proof) = pool.install(|| {
                 let prover = SigmaProver::<Eq>::keygen_with_params(shape, vesta_params(shape.k))
                     .expect("keys");
-                let proof = prover.prove(&witness, recovery(7)).expect("proof");
+                let proof = prover.prove(&witness, fresh_randomness()).expect("proof");
                 let verifier = prover.verifier();
                 assert_eq!(verifier.verify(&proof.public, &proof.bytes), Ok(()));
+                if let Some((_, _, retained)) = &seen {
+                    verifier
+                        .verify(&proof.public, retained)
+                        .expect("same retained original at each pool size");
+                }
                 (
                     verifier.vk_bytes().to_vec(),
                     verifier.descriptor_bytes().to_vec(),
@@ -487,15 +513,18 @@ fn keys_and_proofs_do_not_depend_on_the_pool_size() {
             });
             match &seen {
                 None => seen = Some((vk, descriptor, proof)),
-                Some(first) => assert_eq!(
-                    first,
-                    &(vk, descriptor, proof),
-                    "{case:?}: {threads} threads"
-                ),
+                Some(first) => {
+                    assert_eq!(
+                        (&first.0, &first.1),
+                        (&vk, &descriptor),
+                        "{case:?}: {threads} threads"
+                    );
+                    assert_ne!(first.2, proof, "fresh attempt on {threads} threads");
+                }
             }
         }
         println!(
-            "M12_POOLS relation={} threads=1,2,4,7 identical=true",
+            "M12_POOLS relation={} threads=1,2,4,7 keys_equal=true retained_proof_verified=true fresh_entropy=true",
             case.label()
         );
     }
@@ -570,7 +599,7 @@ fn installed_sigma_originals_prove_and_preserve_key_continuity() {
             let witness = sample_witness::<C::ScalarExt>(CHECK_SEED, relation, Mutation::None);
             let started = std::time::Instant::now();
             let proof = imported
-                .prove(&witness, recovery(81))
+                .prove(&witness, fresh_randomness())
                 .expect("genuine imported sigma proof");
             let prove_ms = started.elapsed().as_millis();
             verifier

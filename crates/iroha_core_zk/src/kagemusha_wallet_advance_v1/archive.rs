@@ -19,6 +19,9 @@ use std::{
     collections::{BTreeMap, VecDeque},
 };
 
+use crate::kagemusha_wallet_archive_bytes_v1::PrivateArchiveBytes;
+use zeroize::Zeroizing;
+
 use super::{
     KagemushaWalletProviderErrorV1 as Error, KagemushaWalletUnavailableV1 as Unavailable,
     advance::KagemushaWalletAdvanceCapsuleV1,
@@ -304,25 +307,33 @@ pub(crate) type KagemushaWalletArchiveObjectKeyV1 = [[u8; 32]; 3];
 /// probes) and bound to the exact durable marker bytes and verified enrollment phase that check
 /// saw; any difference ends it. It keeps, bounded, the content of archive objects authenticated
 /// during the phase (read with every check, or published durably), and drops them with the
-/// phase. A kept object is never evidence that a file is present on disk.
+/// phase. Every kept payload has a non-cloneable clearing owner: removal, eviction,
+/// invalidation and drop clear its allocation. A kept object is never evidence that
+/// a file is present on disk.
 #[derive(Debug)]
 pub(super) struct ArchivePhaseV1 {
     slot: Slot,
     marker: Vec<u8>,
     enrollment: Option<([u8; 32], [Vec<u8>; 4])>,
-    objects: BTreeMap<KagemushaWalletArchiveObjectKeyV1, Vec<u8>>,
+    objects: BTreeMap<KagemushaWalletArchiveObjectKeyV1, PrivateArchiveBytes>,
     order: VecDeque<KagemushaWalletArchiveObjectKeyV1>,
     bytes: usize,
 }
 
 impl ArchivePhaseV1 {
-    fn keep(&mut self, key: KagemushaWalletArchiveObjectKeyV1, content: &[u8]) {
+    fn keep(
+        &mut self,
+        key: KagemushaWalletArchiveObjectKeyV1,
+        content: &[u8],
+    ) -> Result<(), Error> {
         if content.len() > KAGEMUSHA_WALLET_ARCHIVE_PHASE_OBJECT_MAX_V1
             || self.objects.contains_key(&key)
         {
-            return;
+            return Ok(());
         }
-        self.objects.insert(key, content.to_vec());
+        // Each retained payload has its own clearing allocation. The owner is never cloned.
+        let owned = PrivateArchiveBytes::copy_from(content).map_err(private_copy_error)?;
+        self.objects.insert(key, owned);
         self.order.push_back(key);
         self.bytes = self.bytes.saturating_add(content.len());
         while self.bytes > KAGEMUSHA_WALLET_ARCHIVE_PHASE_OBJECT_BYTES_V1 {
@@ -337,6 +348,7 @@ impl ArchivePhaseV1 {
             let objects = &self.objects;
             self.order.retain(|key| objects.contains_key(key));
         }
+        Ok(())
     }
 
     fn forget(&mut self, key: &KagemushaWalletArchiveObjectKeyV1) {
@@ -527,40 +539,60 @@ where
 
     /// Authenticated content kept by the current archive phase of `slot` for `key`, when it
     /// is within `max_bytes` (any other bound is answered from disk).
+    /// A checked copy failure ends the phase and returns no content.
     pub(crate) fn archive_phase_object(
         &mut self,
         slot: &Slot,
         key: &KagemushaWalletArchiveObjectKeyV1,
         max_bytes: usize,
-    ) -> Option<Vec<u8>> {
+    ) -> Result<Option<PrivateArchiveBytes>, Error> {
         if !self.archive_phase_current(slot) {
             self.archive_phase = None;
-            return None;
+            return Ok(None);
         }
-        let content = self
+        let Some(content) = self
             .archive_phase
-            .as_ref()?
-            .objects
-            .get(key)
+            .as_ref()
+            .and_then(|phase| phase.objects.get(key))
             .filter(|content| content.len() <= max_bytes)
-            .cloned()?;
-        super::counters::count(super::counters::EventV1::ArchiveObjectCacheHit);
-        Some(content)
+        else {
+            return Ok(None);
+        };
+        // A hit returns a separate clearing owner; neither caller nor phase can expose
+        // an owning Vec or extend the other's private allocation lifetime.
+        let content = PrivateArchiveBytes::copy_from(content).map_err(private_copy_error);
+        match content {
+            Ok(content) => {
+                super::counters::count(super::counters::EventV1::ArchiveObjectCacheHit);
+                Ok(Some(content))
+            }
+            Err(error) => {
+                self.end_archive_phase();
+                Err(error)
+            }
+        }
     }
 
     /// Keep authenticated object content for the rest of the current archive phase of `slot`:
     /// content read with every archive and object check, or published durably by a put.
+    /// A checked copy failure ends the phase; any already durable publication remains durable.
     pub(crate) fn keep_archive_phase_object(
         &mut self,
         slot: &Slot,
         key: KagemushaWalletArchiveObjectKeyV1,
         content: &[u8],
-    ) {
-        if self.archive_phase_current(slot)
+    ) -> Result<(), Error> {
+        let result = if self.archive_phase_current(slot)
             && let Some(phase) = self.archive_phase.as_mut()
         {
-            phase.keep(key, content);
+            phase.keep(key, content)
+        } else {
+            Ok(())
+        };
+        if result.is_err() {
+            self.end_archive_phase();
         }
+        result
     }
 
     /// Drop `key` from the current archive phase before its object is removed.
@@ -603,7 +635,11 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletArchiveAccessV1<'_, F> {
     ///
     /// # Errors
     /// Unavailable or corrupt copies, conflicting valid copies, or a violated payload bound.
-    pub fn read_record(&self, key: &[u8; 32], max_bytes: usize) -> Result<Option<Vec<u8>>, Error> {
+    pub fn read_record(
+        &self,
+        key: &[u8; 32],
+        max_bytes: usize,
+    ) -> Result<Option<PrivateArchiveBytes>, Error> {
         super::counters::count(super::counters::EventV1::ArchiveGet);
         self.read_record_copies(key, max_bytes)
     }
@@ -621,7 +657,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletArchiveAccessV1<'_, F> {
         &self,
         key: &[u8; 32],
         max_bytes: usize,
-    ) -> Result<Option<Vec<u8>>, Error> {
+    ) -> Result<Option<PrivateArchiveBytes>, Error> {
         super::counters::count(super::counters::EventV1::ArchiveGet);
         let limit = record_limit(max_bytes)?;
         let directory = kagemusha_wallet_archive_dir_v1(self.slot);
@@ -632,10 +668,17 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletArchiveAccessV1<'_, F> {
                 KagemushaWalletReadV1::Absent => {}
                 KagemushaWalletReadV1::Oversized => corrupt = true,
                 KagemushaWalletReadV1::Unavailable(reason) => unavailable = Some(reason),
-                KagemushaWalletReadV1::Present(bytes) => match framed_payload(&bytes) {
-                    Some(payload) => return Ok(Some(payload.to_vec())),
-                    None => corrupt = true,
-                },
+                KagemushaWalletReadV1::Present(bytes) => {
+                    let bytes = Zeroizing::new(bytes);
+                    match framed_payload(&bytes) {
+                        Some(payload) => {
+                            return PrivateArchiveBytes::copy_from(payload)
+                                .map(Some)
+                                .map_err(private_copy_error);
+                        }
+                        None => corrupt = true,
+                    }
+                }
             }
         }
         no_valid_copy(unavailable, corrupt)
@@ -645,10 +688,10 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletArchiveAccessV1<'_, F> {
         &self,
         key: &[u8; 32],
         max_bytes: usize,
-    ) -> Result<Option<Vec<u8>>, Error> {
+    ) -> Result<Option<PrivateArchiveBytes>, Error> {
         let limit = record_limit(max_bytes)?;
         let directory = kagemusha_wallet_archive_dir_v1(self.slot);
-        let mut valid = None;
+        let mut valid: Option<PrivateArchiveBytes> = None;
         let mut unavailable = None;
         let mut corrupt = false;
         for name in record_names(key) {
@@ -657,12 +700,17 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletArchiveAccessV1<'_, F> {
                 KagemushaWalletReadV1::Oversized => corrupt = true,
                 KagemushaWalletReadV1::Unavailable(reason) => unavailable = Some(reason),
                 KagemushaWalletReadV1::Present(bytes) => {
+                    let bytes = Zeroizing::new(bytes);
                     let Some(payload) = framed_payload(&bytes) else {
                         corrupt = true;
                         continue;
                     };
-                    let bytes = payload.to_vec();
-                    if valid.as_ref().is_some_and(|old| *old != bytes) {
+                    let bytes =
+                        PrivateArchiveBytes::copy_from(payload).map_err(private_copy_error)?;
+                    if valid
+                        .as_ref()
+                        .is_some_and(|old| old.as_slice() != bytes.as_slice())
+                    {
                         return Err(Error::UnavailableCustodyData {
                             object: "conflicting archive records",
                         });
@@ -720,15 +768,15 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletArchiveAccessV1<'_, F> {
         if self
             .read_record_copies(key, bytes.len())?
             .as_ref()
-            .is_some_and(|old| *old != bytes)
+            .is_some_and(|old| old.as_slice() != bytes)
         {
             return Err(Error::Invalid {
                 field: "archive.immutable_record",
             });
         }
-        let mut framed = Vec::with_capacity(bytes.len() + 32);
-        framed.extend_from_slice(&frame);
-        framed.extend_from_slice(bytes);
+        let mut framed = Zeroizing::new(vec![0; record_limit(bytes.len())?]);
+        framed[..32].copy_from_slice(&frame);
+        framed[32..].copy_from_slice(bytes);
         let directory = kagemusha_wallet_archive_dir_v1(self.slot);
         let mut probed = false;
         for name in record_names(key) {
@@ -737,7 +785,13 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletArchiveAccessV1<'_, F> {
                     self.probe_before_create(&mut probed)?;
                     self.store().write_new(&directory, &name, &framed)
                 }
-                KagemushaWalletReadV1::Present(old) if old == framed => {
+                KagemushaWalletReadV1::Present(old) => {
+                    let old = Zeroizing::new(old);
+                    if old.as_slice() != framed.as_slice() {
+                        return Err(Error::UnavailableCustodyData {
+                            object: "archive immutable record",
+                        });
+                    }
                     self.store().rewrite_same(&directory, &name, &framed)
                 }
                 KagemushaWalletReadV1::Unavailable(reason) => {
@@ -768,6 +822,10 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletArchiveAccessV1<'_, F> {
     }
 }
 
+fn private_copy_error(error: std::io::Error) -> Error {
+    Error::Unavailable(Unavailable::from_io(&error))
+}
+
 fn record_limit(max_bytes: usize) -> Result<usize, Error> {
     max_bytes.checked_add(32).ok_or(Error::Invalid {
         field: "archive.record_size",
@@ -784,7 +842,7 @@ fn framed_payload(bytes: &[u8]) -> Option<&[u8]> {
 fn no_valid_copy(
     unavailable: Option<Unavailable>,
     corrupt: bool,
-) -> Result<Option<Vec<u8>>, Error> {
+) -> Result<Option<PrivateArchiveBytes>, Error> {
     if let Some(reason) = unavailable {
         return Err(Error::Unavailable(reason));
     }

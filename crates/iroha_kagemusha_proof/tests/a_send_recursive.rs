@@ -36,7 +36,7 @@ use iroha_kagemusha_proof::{
     },
     operation_relation::{map_effects::MapState, statement::StatementCells},
 };
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain};
+use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
     ProverConfig, VerifyingKey, Witness,
     check::{CheckMode, check},
@@ -180,7 +180,7 @@ fn sources(artifact: &load_outer::DiagnosticLoadOmega, q_buses: Option<usize>) -
         &params,
         &key,
         Witness::from_circuit(&key, &signature, &instances).unwrap(),
-        common::recovery(225),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -237,7 +237,7 @@ struct First {
     profile: SourceProfile,
     plan: ContextPlan,
     pallas: AccumulatorT<Ep>,
-    fold: Vec<u8>,
+    fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes,
     known: bool,
 }
 #[derive(Clone, Debug)]
@@ -271,7 +271,7 @@ impl First {
         region: &mut Region<'_, Fp>,
         input: &FoldInput<Ep>,
     ) -> Result<FoldInputCells<Ep>, Error> {
-        let g = chip.witness_point(region, self.value(Ep::from(*input.g())))?;
+        let g = chip.witness_generator(region, self.value(Ep::from(*input.g())))?;
         let challenges = input
             .challenges()
             .iter()
@@ -287,7 +287,7 @@ impl First {
         region: &mut Region<'_, Fp>,
         input: &AccumulatorT<Eq>,
     ) -> Result<VestaClaimCells, Error> {
-        let (x, y) = Option::from(input.g().coordinates()).ok_or(Error::Synthesis)?;
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(input.g());
         let coordinates = [self.scalar(chip, region, x)?, self.scalar(chip, region, y)?];
         let challenges = chip
             .uint()
@@ -626,7 +626,7 @@ struct Continuation {
     plan: iroha_kagemusha_proof::a_relation::split::SplitPlan,
     wrapper: Vec<u8>,
     vesta: AccumulatorT<Eq>,
-    fold: Vec<u8>,
+    fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes,
     pallas: AccumulatorT<Ep>,
     carried: AccumulatorT<Ep>,
     omit_q: Option<usize>,
@@ -896,7 +896,8 @@ impl Continuation {
             return internal_public(digest, &self.vesta.as_input());
         }
         let mut lineage = self.first.source.maps.witness.after.lineage.to_vec();
-        let (x, y) = self.pallas.g().coordinates().unwrap();
+        let (x, y) =
+            iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(self.pallas.g());
         lineage.extend([x, y]);
         for u in self.pallas.challenges() {
             lineage.extend(foreign_limbs(u).map(Fp::from_u128));
@@ -1022,7 +1023,6 @@ fn continue_schedule(
     let mut source_proof = first_proof;
     let mut source_public = first_public.to_vec();
     let mut carried = first.pallas.clone();
-    let mut part = first.source.part.clone();
     let mut intermediate_keys = vec![first_key.vk().clone()];
     let mut installed_a = if native_differential {
         vec![Arc::new(first_key.clone())]
@@ -1037,26 +1037,34 @@ fn continue_schedule(
     };
     let mut originals_w = Vec::new();
     for stage in 1..first.plan.stage_count() {
-        let own =
-            FoldInput::from_opening(*source_proof.opening.g(), source_proof.opening.challenges())
-                .unwrap();
-        let trivial = AccumulatorT::trivial(&vparams, MemoryBudget::DEFAULT)
-            .unwrap()
-            .as_input();
-        let (vfold, vesta) = create_fold(
-            &vparams,
-            &[part, own, trivial.clone(), trivial],
-            Fq::from(123 + u64::try_from(stage).unwrap()).to_repr(),
-            &FoldConfig::default(),
+        let terminal = iroha_plonk_recursion::terminal::TerminalPlan::new(
+            source_key.binding().encoded(),
+            &[source_key.vk().to_bytes().to_vec()],
+            vparams.clone(),
         )
         .unwrap();
+        let (vfold, vesta) = terminal
+            .read(
+                0,
+                &source_public,
+                &source_proof.proof,
+                &FoldConfig::default(),
+            )
+            .unwrap()
+            .create(
+                common::public_fixture_tape(123 + u64::try_from(stage).unwrap()),
+                &FoldConfig::default(),
+            )
+            .unwrap();
         vesta.decide(&vparams, MemoryBudget::DEFAULT).unwrap();
         let witness = iroha_kagemusha_proof::omega::OmegaWitness {
             key: source_key.vk().clone(),
             instances: source_public[0].clone(),
             length: source_proof.proof.len().try_into().unwrap(),
             proof: source_proof.proof,
-            fold: vfold.to_bytes(),
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                vfold.to_private_bytes(),
+            ),
         };
         assert!(
             WCircuit::new(
@@ -1101,7 +1109,7 @@ fn continue_schedule(
                 );
             }
         }
-        let (x, y) = vesta.g().coordinates().unwrap();
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(vesta.g());
         let wpublic = vec![
             vec![Fq::from_repr(source_public[0][0].to_repr()).unwrap()],
             vec![x, y],
@@ -1115,7 +1123,7 @@ fn continue_schedule(
             params,
             &wprover,
             Witness::from_circuit(&wprover, &circuit, &wpublic).unwrap(),
-            common::recovery(196 + u8::try_from(stage).unwrap()),
+            common::fresh_randomness(),
             ProverConfig::default(),
         )
         .unwrap();
@@ -1138,15 +1146,33 @@ fn continue_schedule(
             FoldInput::from_opening(*wopening.g(), wopening.challenges()).unwrap(),
         ];
         claims.extend(indices.iter().map(|i| first.source.q_openings[*i].clone()));
-        let salt = Fp::from(124 + u64::try_from(stage).unwrap()).to_repr();
-        let (fold, pallas) = create_fold(params, &claims, salt, &FoldConfig::default()).unwrap();
+        let required_count = claims.len();
+        let purpose = if stage + 1 == first.plan.stage_count() {
+            let filler = AccumulatorT::trivial(params, MemoryBudget::DEFAULT).unwrap();
+            while claims.len() < 4 {
+                claims.push(filler.as_input());
+            }
+            iroha_plonk_recursion::FoldPurpose::ATerminal
+        } else {
+            iroha_plonk_recursion::FoldPurpose::AContinuation
+        };
+        let (fold, pallas) = create_fold(
+            params,
+            &claims,
+            common::public_fixture_tape(124 + stage as u64),
+            purpose,
+            &FoldConfig::default(),
+        )
+        .unwrap();
         pallas.decide(params, MemoryBudget::DEFAULT).unwrap();
         let continuation = Continuation {
             first: first.clone(),
             plan: SplitPlan::new(first.plan.clone(), stage, wkey, params).unwrap(),
             wrapper: wrapper.proof,
             vesta: vesta.clone(),
-            fold: fold.to_bytes().to_vec(),
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                fold.to_private_bytes(),
+            ),
             pallas: pallas.clone(),
             carried: carried.clone(),
             omit_q: None,
@@ -1201,16 +1227,23 @@ fn continue_schedule(
                     "signature stage cannot substitute context-committed receipt tape"
                 );
             }
-            for omitted in 0..claims.len() {
-                let kept = claims
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, _)| *i != omitted)
-                    .map(|(_, c)| c.clone())
-                    .collect::<Vec<_>>();
-                let (fold, _) = create_fold(params, &kept, salt, &FoldConfig::default()).unwrap();
+            for omitted in 0..required_count {
+                let mut kept = claims.clone();
+                kept[omitted] = AccumulatorT::trivial(params, MemoryBudget::DEFAULT)
+                    .unwrap()
+                    .as_input();
+                let (fold, _) = create_fold(
+                    params,
+                    &kept,
+                    common::public_fixture_tape(124 + stage as u64),
+                    purpose,
+                    &FoldConfig::default(),
+                )
+                .unwrap();
                 let mut bad = continuation.clone();
-                bad.fold = fold.to_bytes().to_vec();
+                bad.fold = iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                    fold.to_private_bytes(),
+                );
                 assert!(
                     !iroha_plonk::check::check_circuit(&bad, k, &public, CheckMode::Strict)
                         .is_ok_and(|r| r.is_satisfied()),
@@ -1218,10 +1251,19 @@ fn continue_schedule(
                 );
             }
             let mut doubled = claims.clone();
-            doubled.push(claims[0].clone());
-            let (fold, _) = create_fold(params, &doubled, salt, &FoldConfig::default()).unwrap();
+            doubled[1] = claims[0].clone();
+            let (fold, _) = create_fold(
+                params,
+                &doubled,
+                common::public_fixture_tape(124 + stage as u64),
+                purpose,
+                &FoldConfig::default(),
+            )
+            .unwrap();
             let mut bad = continuation.clone();
-            bad.fold = fold.to_bytes().to_vec();
+            bad.fold = iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                fold.to_private_bytes(),
+            );
             assert!(
                 !iroha_plonk::check::check_circuit(&bad, k, &public, CheckMode::Strict)
                     .is_ok_and(|r| r.is_satisfied()),
@@ -1273,7 +1315,7 @@ fn continue_schedule(
             &vparams,
             &key,
             Witness::from_circuit(&key, &continuation, &public).unwrap(),
-            common::recovery(200 + u8::try_from(stage).unwrap()),
+            common::fresh_randomness(),
             ProverConfig::default(),
         )
         .unwrap();
@@ -1352,7 +1394,6 @@ fn continue_schedule(
         }
         intermediate_keys.push(key.vk().clone());
         carried = pallas;
-        part = vesta.as_input();
         source_key = key;
         source_proof = proof;
         source_public = public;
@@ -1361,14 +1402,14 @@ fn continue_schedule(
 }
 fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) {
     words.push(Fp::from(16));
-    let (x, y) = claim.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(claim.g());
     words.extend([x, y]);
     for u in claim.challenges() {
         words.extend(foreign_limbs(u).map(Fp::from_u128));
     }
 }
 fn vesta_words(claim: &FoldInput<Eq>) -> Vec<Fp> {
-    let (x, y) = claim.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(claim.g());
     let mut words = vec![];
     for v in [x, y] {
         words.extend(foreign_limbs(&v).map(Fp::from_u128));
@@ -1509,7 +1550,8 @@ pub(crate) fn run_send_from_load(
     let (fold, pallas) = create_fold(
         &source.params,
         &claims,
-        Fp::from(122).to_repr(),
+        common::public_fixture_tape(122),
+        iroha_plonk_recursion::FoldPurpose::AInitial,
         &FoldConfig::default(),
     )
     .unwrap();
@@ -1521,7 +1563,9 @@ pub(crate) fn run_send_from_load(
         profile,
         plan: context,
         pallas,
-        fold: fold.to_bytes().to_vec(),
+        fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+            fold.to_private_bytes(),
+        ),
         known: true,
     };
     let public = first_public(&first);
@@ -1574,7 +1618,7 @@ pub(crate) fn run_send_from_load(
         &params,
         &key,
         Witness::from_circuit(&key, &first, &public).unwrap(),
-        common::recovery(226),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -1837,7 +1881,7 @@ fn native_installed_send_differential(
     let budget = MemoryBudget::DEFAULT;
     let prepared = plan.prepare(input.clone(), budget).unwrap();
     let (actual_first, native_first_public) = prepared
-        .first_circuit(Fp::from(122), &FoldConfig::default())
+        .first_circuit(common::public_fixture_tape(122), &FoldConfig::default())
         .unwrap();
     // Witness construction compares exact source descriptor, fixed/selector tables
     // and copy mapping against the originals mounted by the installed owner.
@@ -1855,9 +1899,9 @@ fn native_installed_send_differential(
     assert!(matches!(
         session.first(
             &foreign,
-            Fp::from(122),
+            common::public_fixture_tape(122),
             &fold,
-            common::recovery(226),
+            common::fresh_randomness(),
             ProverConfig::default()
         ),
         Err(native::Error::Artifact)
@@ -1869,16 +1913,17 @@ fn native_installed_send_differential(
     let generated = session
         .first(
             &key,
-            Fp::from(122),
+            common::public_fixture_tape(122),
             &fold,
-            common::recovery(226),
+            common::fresh_randomness(),
             ProverConfig::default(),
         )
         .unwrap();
-    assert_eq!(generated.proof(), originals_a[0].0);
+    assert_ne!(generated.proof(), originals_a[0].0, "fresh proof attempt");
     let mut current = session
         .restore_first(originals_a[0].0.clone(), &originals_a[0].1, budget)
         .unwrap();
+    assert_eq!(current.proof(), originals_a[0].0, "exact retained original");
     let first_payload = session.encode_a_checkpoint(&current, budget).unwrap();
     assert_eq!(first_payload.len(), layouts[0].payload_bytes());
     assert!(
@@ -1918,9 +1963,9 @@ fn native_installed_send_differential(
                 session.wrapper(
                     &current,
                     &foreign,
-                    Fq::from(124),
+                    common::public_fixture_tape(124),
                     &fold,
-                    common::recovery(212),
+                    common::fresh_randomness(),
                     ProverConfig::default()
                 ),
                 Err(native::Error::Artifact)
@@ -1934,9 +1979,9 @@ fn native_installed_send_differential(
             .wrapper(
                 &current,
                 &key,
-                Fq::from(124 + stage as u64),
+                common::public_fixture_tape(124 + stage as u64),
                 &fold,
-                common::recovery(197 + u8::try_from(stage).unwrap()),
+                common::fresh_randomness(),
                 ProverConfig::default(),
             )
             .unwrap();
@@ -1963,9 +2008,18 @@ fn native_installed_send_differential(
             .restore_wrapper_checkpoint(&current, &payload, budget)
             .unwrap();
         payloads.push(payload);
-        assert_eq!(generated_w.proof(), originals_w[stage].0);
+        assert_ne!(
+            generated_w.proof(),
+            originals_w[stage].0,
+            "fresh proof attempt"
+        );
         assert_eq!(generated_w.vesta_bytes(), restored_w.vesta_bytes());
         assert_eq!(generated_w.stage(), stage);
+        assert_eq!(
+            restored_w.proof(),
+            originals_w[stage].0,
+            "exact retained original"
+        );
         // Retain the exact original W opening and proof bytes at every continuation.
         if stage == 0 {
             let foreign_seal = installed
@@ -1976,9 +2030,9 @@ fn native_installed_send_differential(
                 session.advance(
                     &restored_w,
                     &foreign,
-                    Fp::from(125),
+                    common::public_fixture_tape(125),
                     &fold,
-                    common::recovery(220),
+                    common::fresh_randomness(),
                     ProverConfig::default()
                 ),
                 Err(native::Error::Artifact)
@@ -1992,9 +2046,9 @@ fn native_installed_send_differential(
             .advance(
                 &restored_w,
                 &key,
-                Fp::from(125 + stage as u64),
+                common::public_fixture_tape(125 + stage as u64),
                 &fold,
-                common::recovery(201 + u8::try_from(stage).unwrap()),
+                common::fresh_randomness(),
                 ProverConfig::default(),
             )
             .unwrap();
@@ -2006,10 +2060,19 @@ fn native_installed_send_differential(
                 budget,
             )
             .unwrap();
-        assert_eq!(generated_a.proof(), originals_a[stage + 1].0);
+        assert_ne!(
+            generated_a.proof(),
+            originals_a[stage + 1].0,
+            "fresh proof attempt"
+        );
         assert_eq!(generated_a.instances(), restored_a.instances());
         assert_eq!(generated_a.pallas_bytes(), restored_a.pallas_bytes());
         assert_eq!(restored_a.stage(), stage + 1);
+        assert_eq!(
+            restored_a.proof(),
+            originals_a[stage + 1].0,
+            "exact retained original"
+        );
         assert!(
             unrelated_session
                 .restore_a(
@@ -2123,9 +2186,9 @@ fn native_installed_send_differential(
             .wrapper(
                 &current,
                 &key,
-                Fq::from(130),
+                common::public_fixture_tape(130),
                 &fold,
-                common::recovery(225),
+                common::fresh_randomness(),
                 ProverConfig::default()
             )
             .is_err()

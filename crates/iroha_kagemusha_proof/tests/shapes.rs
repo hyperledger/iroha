@@ -324,10 +324,23 @@ fn commitment_tables_change_no_key_or_proof_byte() {
     assert_eq!(tabled.verifier().vk_bytes(), plain.verifier().vk_bytes());
     let witness = sample_witness::<Fp>(3, SigmaRelation::RECEIVE, Mutation::None);
     let with_tables = tabled
-        .prove(&witness, common::recovery(4))
+        .prove(&witness, common::fresh_randomness())
         .expect("proof with tables");
-    let without = plain.prove(&witness, common::recovery(4)).expect("proof");
-    assert_eq!(with_tables, without);
+    let without = plain
+        .prove(&witness, common::fresh_randomness())
+        .expect("proof");
+    assert_eq!(with_tables.public, without.public);
+    assert_ne!(with_tables.bytes, without.bytes, "fresh attempts");
+    let retained = with_tables.bytes.clone();
+    tabled
+        .verifier()
+        .verify(&without.public, &without.bytes)
+        .unwrap();
+    tabled
+        .verifier()
+        .verify(&with_tables.public, &retained)
+        .unwrap();
+    assert_eq!(retained, with_tables.bytes, "exact original replay");
     assert_eq!(
         plain
             .verifier()

@@ -10,7 +10,7 @@ use crate::{
 };
 use ff::{Field, PrimeField};
 use iroha_pasta::{
-    Ep, EpAffine, Eq, EqAffine, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain,
+    Ep, EpAffine, Eq, EqAffine, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain,
 };
 use iroha_plonk::{DescriptorBinding, VerifyingKey, pcs::ipa::PinnedParams};
 use iroha_plonk_gadgets::{
@@ -161,7 +161,8 @@ pub(super) fn q_sigma_part(columns: &[Vec<Fq>], plan: &QSigmaPlan) -> Result<Fol
     if verdicts[0] != Fq::ONE || source.as_slice() != [Fq::from(u64::from(plan.part_source_k()))] {
         return Err(Error::Input);
     }
-    let g = Option::<EqAffine>::from(EqAffine::from_xy(point[0], point[1])).ok_or(Error::Input)?;
+    let g = iroha_plonk::transcript::generator_from_coordinates::<Eq>(point[0], point[1])
+        .map_err(|_| Error::Input)?;
     let u = bounded[plan.challenge_range()]
         .iter()
         .map(|v| Option::<Fp>::from(Fp::from_repr(v.to_repr())).ok_or(Error::Input))
@@ -321,7 +322,7 @@ pub(super) fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) -> Result<
     if claim.source_k() != 16 {
         return Err(Error::Input);
     }
-    let (x, y) = Option::<(Fp, Fp)>::from(claim.g().coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Ep>(claim.g());
     words.extend([Fp::from(16), x, y]);
     for u in claim.challenges() {
         words.extend(foreign_limbs(u).map(Fp::from_u128));
@@ -331,7 +332,7 @@ pub(super) fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) -> Result<
 
 /// Encode Vesta point limbs and all normalized challenges in context word order.
 pub(super) fn vesta_words(claim: &FoldInput<Eq>) -> Result<Vec<Fp>, Error> {
-    let (x, y) = Option::<(Fq, Fq)>::from(claim.g().coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(claim.g());
     let mut words = Vec::with_capacity(20);
     for v in [x, y] {
         words.extend(foreign_limbs(&v).map(Fp::from_u128));
@@ -351,7 +352,7 @@ pub(super) fn terminal_digest(public: &[Fp; 18], pallas: &FoldInput<Ep>) -> Resu
 
 /// Encode the canonical three-column Omega or W public input.
 pub(super) fn omega_instances(digest: Fp, vesta: &AccumulatorT<Eq>) -> Result<Vec<Vec<Fq>>, Error> {
-    let (x, y) = Option::<(Fq, Fq)>::from(vesta.g().coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(vesta.g());
     Ok(vec![
         vec![Option::<Fq>::from(Fq::from_repr(digest.to_repr())).ok_or(Error::Input)?],
         vec![x, y],

@@ -6,10 +6,13 @@
 //! binds the released capsule, predecessor and checkpoint ordinal. This component
 //! supplies neither a complete fold schedule nor Omega or wallet-open authority.
 
+use crate::private_fold::PrivateFoldBytes;
 use ff::PrimeField;
 use iroha_pasta::msm::MemoryBudget;
 use iroha_plonk::Protocol;
-use iroha_plonk_recursion::ACCUMULATOR_BYTES;
+use iroha_plonk_recursion::{
+    ACCUMULATOR_BYTES, FOLD_WITNESS_BYTES, FoldWitness, PrivateWitnessBytes,
+};
 use norito::{NoritoDeserialize, NoritoSchema, NoritoSerialize};
 
 use super::{Error, FirstCheckpoint, Prover, Session, Terminal, WrapperCheckpoint};
@@ -21,7 +24,7 @@ pub enum CheckpointKind {
     First,
     /// W0's original proof and canonical Vesta accumulator.
     Wrapper,
-    /// A2 original proof and exact retained fold salt, rederived against W0.
+    /// A2 original proof and exact retained private fold witness, verified against W0.
     Terminal,
 }
 impl CheckpointKind {
@@ -92,7 +95,7 @@ impl CheckpointLayout {
                 descriptor_digest,
                 verifying_key_digest,
                 source_context: [0; 32],
-                fold_salt: [0; 32],
+                fold: PrivateFoldBytes::unknown(),
                 proof,
             };
             let payload_bytes =
@@ -191,7 +194,7 @@ struct TerminalPayload {
     descriptor_digest: [u8; 32],
     verifying_key_digest: [u8; 32],
     source_context: [u8; 32],
-    fold_salt: [u8; 32],
+    fold: PrivateFoldBytes,
     proof: Vec<u8>,
 }
 impl TerminalPayload {
@@ -202,19 +205,26 @@ impl TerminalPayload {
             || self.verifying_key_digest != layout.verifying_key_digest
             || self.source_context != context
             || self.proof.len() != layout.proof_bytes
-            || Option::<super::Fp>::from(super::Fp::from_repr(self.fold_salt)).is_none()
+            || self.fold.len() != FOLD_WITNESS_BYTES
         {
             return Err(Error::Input);
         }
+        // Syntax is checked only after source/stage/key and fixed extent. This
+        // still grants no proof authority; Session restore verifies and decides.
+        FoldWitness::<super::Ep>::from_private_bytes(self.fold.as_slice())
+            .map_err(|_| Error::Input)?;
         Ok(())
     }
-    fn encode(self, layout: &CheckpointLayout, context: [u8; 32]) -> Result<Vec<u8>, Error> {
+    fn encode(
+        self,
+        layout: &CheckpointLayout,
+        context: [u8; 32],
+    ) -> Result<PrivateWitnessBytes, Error> {
         self.check(layout, context)?;
-        let bytes = norito::encode_canonical(&self).map_err(|_| Error::Input)?;
-        if bytes.len() != layout.payload_bytes {
-            return Err(Error::Input);
-        }
-        Ok(bytes)
+        PrivateWitnessBytes::try_write(layout.payload_bytes, |mut writer| {
+            norito::core::write_canonical_to_writer(&self, &mut writer)
+        })
+        .map_err(|_| Error::Input)
     }
     fn decode(bytes: &[u8], layout: &CheckpointLayout, context: [u8; 32]) -> Result<Self, Error> {
         if bytes.len() != layout.payload_bytes {
@@ -440,17 +450,16 @@ impl Session<'_> {
         self.restore_wrapper_cancellable(payload.proof, &vesta, budget, cancellation)
     }
 
-    /// Retain genuine A2 against the original W0, exact source context and canonical fold salt.
+    /// Retain genuine A2 against the original W0, exact source context and retained private fold witness.
     /// # Errors
-    /// Changed source/key/proof/frame/claim, malformed salt or failed full native verification.
+    /// Changed source/key/proof/frame/claim, malformed witness or failed full native verification.
     pub fn encode_terminal_checkpoint(
         &self,
         wrapper: &WrapperCheckpoint,
         terminal: &Terminal,
-        salt: super::Fp,
         budget: MemoryBudget,
-    ) -> Result<Vec<u8>, Error> {
-        self.encode_terminal_checkpoint_cancellable(wrapper, terminal, salt, budget, None)
+    ) -> Result<PrivateWitnessBytes, Error> {
+        self.encode_terminal_checkpoint_cancellable(wrapper, terminal, budget, None)
     }
     /// Execute the same native check with an explicit operation signal.
     /// # Errors
@@ -459,15 +468,14 @@ impl Session<'_> {
         &self,
         wrapper: &WrapperCheckpoint,
         terminal: &Terminal,
-        salt: super::Fp,
         budget: MemoryBudget,
         cancellation: Option<&iroha_pasta::CancellationToken>,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<PrivateWitnessBytes, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         let checked = self.restore_terminal_cancellable(
             wrapper,
             terminal.proof.clone(),
-            salt,
+            &terminal.fold,
             budget,
             cancellation,
         )?;
@@ -487,14 +495,14 @@ impl Session<'_> {
             descriptor_digest: layout.descriptor_digest,
             verifying_key_digest: layout.verifying_key_digest,
             source_context: context,
-            fold_salt: salt.to_repr(),
+            fold: checked.fold.clone(),
             proof: checked.proof,
         }
         .encode(&layout, context)
     }
-    /// Restore A2 by replaying its real fold from W0 and fully verifying the original A2.
+    /// Restore A2 by verifying its exact retained fold against W0 and fully verifying the original A2.
     /// # Errors
-    /// Wrong bounded original/source/key/salt, changed frame or failed proof/decide.
+    /// Wrong bounded original/source/key/witness, changed frame or failed proof/decide.
     pub fn restore_terminal_checkpoint(
         &self,
         wrapper: &WrapperCheckpoint,
@@ -520,9 +528,13 @@ impl Session<'_> {
             &layout,
             self.prepared.immutable_context_digest()?.to_repr(),
         )?;
-        let salt = Option::<super::Fp>::from(super::Fp::from_repr(payload.fold_salt))
-            .ok_or(Error::Input)?;
-        self.restore_terminal_cancellable(wrapper, payload.proof, salt, budget, cancellation)
+        self.restore_terminal_cancellable(
+            wrapper,
+            payload.proof,
+            &payload.fold,
+            budget,
+            cancellation,
+        )
     }
 }
 

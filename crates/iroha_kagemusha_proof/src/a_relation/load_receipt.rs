@@ -85,7 +85,8 @@ impl LoadReceiptCells {
         let wallet = identity(66)?;
         let request = identity(98)?;
         let transaction = identity(210)?;
-        for id in [&scheme, &asset, &wallet, &request, &transaction] {
+        let payer = identity(250)?;
+        for id in [&scheme, &asset, &wallet, &request, &transaction, &payer] {
             // Both halves are bounded by their tape segments, so their sum cannot
             // wrap in Fp and is zero exactly when both halves are zero.
             let sum = uint.glue().add(region, &id[0], &id[1])?;
@@ -115,7 +116,6 @@ impl LoadReceiptCells {
         let height = uint.range_check::<64>(region, &part(242, 8)?)?;
         let first = uint.constant::<64>(region, 2)?;
         uint.assert_le(region, &first, &height)?;
-        let payer = identity(250)?;
         let mut tape = PBytes::new();
         for segment in run.primary() {
             tape.push_bounded(segment.bounded().ok_or(Error::Synthesis)?)?;

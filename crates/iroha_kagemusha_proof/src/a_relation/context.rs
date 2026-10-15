@@ -22,11 +22,10 @@ use iroha_plonk_gadgets::{
         tape::{ByteOrder, ByteRun, SegmentSpec},
         variable::ActiveBytes,
     },
-    ecc::NonIdentityPoint,
 };
 use iroha_plonk_recursion::{
     accumulation_circuit::{FoldInputCells, FoldSource},
-    codec::ScalarCells,
+    codec::{GeneratorPoint, ScalarCells},
     obligation::{ModeCells, ledger::Variant},
     verifier::VerifierChip,
 };
@@ -375,7 +374,7 @@ pub struct ContextInputs<'a> {
     /// Global incoming modes: transported P, Omega opening, V, then sigma.
     pub modes: &'a [ModeCells<Fp>],
     /// Native corrections for incoming P and Omega opening, in that order.
-    pub pallas_corrections: &'a [NonIdentityPoint<Fp>],
+    pub pallas_corrections: &'a [GeneratorPoint<Fp>],
     /// Canonical foreign correction for incoming V, when present. Incoming
     /// sigma correction coordinates belong solely to the hard Q relation.
     pub vesta_corrections: &'a [[ScalarCells<Ep>; 2]],

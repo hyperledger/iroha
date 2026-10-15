@@ -465,11 +465,151 @@ fn generator_claim_rejects_malformed_or_undecided_values() {
         GeneratorClaim::<Ep>::new(1, g, vec![Fq::ZERO]),
         Err(IpaError::ZeroChallenge { round: 0 })
     ));
-    assert!(matches!(
-        GeneratorClaim::<Ep>::new(1, <Ep as PastaCurve>::AffineExt::identity(), vec![Fq::ONE]),
-        Err(IpaError::OpeningFailed)
-    ));
+    let identity =
+        GeneratorClaim::<Ep>::new(1, <Ep as PastaCurve>::AffineExt::identity(), vec![Fq::ONE])
+            .expect("canonical full-group G");
+    assert!(
+        identity
+            .decide(&PinnedParams::<Ep>::derive(1).unwrap(), BUDGET)
+            .is_err()
+    );
     let claim = GeneratorClaim::<Ep>::new(6, g, vec![Fq::ONE; 6]).expect("syntactic claim");
     let small = PinnedParams::<Ep>::derive(5).expect("small params");
     assert!(claim.decide(&small, BUDGET).is_err());
+}
+
+/// The closed frame retains the actual first raw squeeze and same undecided
+/// opening without introducing another transcript operation.
+fn closed_frame_coherence<C: PastaCurve>()
+where
+    C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
+{
+    use crate::transcript::{TranscriptRead, TranscriptReader};
+    let params = PinnedParams::<C>::derive(K).unwrap();
+    let pk = keygen_pk_v2(
+        &params,
+        &ARITHMETIC,
+        &KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]),
+    )
+    .unwrap();
+    let instances = ARITHMETIC.instances::<C::ScalarExt>();
+    let witness = Witness::from_circuit(&pk, &ARITHMETIC, &instances).unwrap();
+    let proof = create_proof(
+        &params,
+        &pk,
+        &witness,
+        ProverRandomness::fixed_seed_for_tests([81; 32]),
+        ProverConfig::default(),
+    )
+    .unwrap();
+    let (frame, frame_schedule) = record(|| {
+        crate::verifier::accumulate_frame_cancellable(
+            &params,
+            pk.binding(),
+            pk.vk(),
+            &instances,
+            &proof,
+            BUDGET,
+            None,
+        )
+        .unwrap()
+    });
+    let (claim, ordinary_schedule) = record(|| {
+        accumulate_generator(&params, pk.binding(), pk.vk(), &instances, &proof, BUDGET).unwrap()
+    });
+    assert_eq!(
+        frame_schedule, ordinary_schedule,
+        "no extra raw-prefix squeeze"
+    );
+    assert_eq!(frame.binding().encoded(), pk.binding().encoded());
+    assert_eq!(frame.instances(), instances);
+    assert_eq!(frame.own_claim(), &claim);
+    frame.own_claim().decide(&params, BUDGET).unwrap();
+    let d = pk.binding().descriptor();
+    let mut prefix =
+        TranscriptReader::<C, _>::new(DescriptorHash::production(d.transcript), &proof);
+    absorb_prelude_v2(
+        &mut prefix,
+        pk.vk().transcript_repr(),
+        &d.instance_lengths,
+        d.instance_types.as_ref().unwrap(),
+    )
+    .unwrap();
+    for value in instances.iter().flatten() {
+        prefix.common_scalar(value);
+    }
+    for _ in 0..d.num_advice_columns {
+        prefix.read_point().unwrap();
+    }
+    let (theta, raw) = prefix.squeeze_challenge_with_raw();
+    assert_eq!(raw.as_ref(), Some(frame.first_raw()));
+    assert_eq!(theta, challenge_from_base::<C>(frame.first_raw()));
+    assert_eq!(
+        format!("{frame:?}"),
+        "SuccinctFrame { private: [REDACTED], opening: undecided }"
+    );
+
+    let cancellation = iroha_pasta::CancellationToken::new();
+    cancellation.cancel();
+    assert!(
+        crate::verifier::accumulate_frame_cancellable(
+            &params,
+            pk.binding(),
+            pk.vk(),
+            &instances,
+            &proof,
+            BUDGET,
+            Some(&cancellation),
+        )
+        .is_err()
+    );
+    let mut trailing = proof.clone();
+    trailing.push(0);
+    assert!(
+        crate::verifier::accumulate_frame_cancellable(
+            &params,
+            pk.binding(),
+            pk.vk(),
+            &instances,
+            &trailing,
+            BUDGET,
+            None,
+        )
+        .is_err()
+    );
+    let mut wrong = instances.clone();
+    wrong[0][0] += C::ScalarExt::ONE;
+    assert!(
+        crate::verifier::accumulate_frame_cancellable(
+            &params,
+            pk.binding(),
+            pk.vk(),
+            &wrong,
+            &proof,
+            BUDGET,
+            None,
+        )
+        .is_err()
+    );
+    let scalar_profile =
+        crate::test_circuits::setup::<C, _>(&ARITHMETIC, crate::test_circuits::CHOICES[2]);
+    assert!(matches!(
+        crate::verifier::accumulate_frame_cancellable(
+            &scalar_profile.params,
+            scalar_profile.pk.binding(),
+            scalar_profile.pk.vk(),
+            &instances,
+            &proof,
+            BUDGET,
+            None,
+        ),
+        Err(VerifyError::Transcript(TranscriptError::ProfileMismatch))
+    ));
+}
+
+#[test]
+fn closed_frame_matches_actual_raw_prefix_and_decides_on_both_curves() {
+    closed_frame_coherence::<Ep>();
+    closed_frame_coherence::<Eq>();
 }

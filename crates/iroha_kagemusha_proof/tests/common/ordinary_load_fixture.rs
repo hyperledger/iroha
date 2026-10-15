@@ -17,7 +17,7 @@ use iroha_kagemusha_proof::{
     tree::{IndexedInsert, IndexedTree},
     witness::core_index as core,
 };
-use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
+use iroha_pasta::{Ep, Eq, Fp, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
     ProverConfig, Witness, create_proof_owned_with_claim,
     cs::InstanceType,
@@ -109,7 +109,7 @@ pub fn build(
         &sigma_params,
         &sigma_key,
         Witness::from_circuit(&sigma_key, &sigma, &sigma_instances).unwrap(),
-        common::recovery(191),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -139,14 +139,18 @@ pub fn build(
             },
             None,
             &vesta,
-            Fq::from(193),
+            iroha_kagemusha_proof::q_sigma::native::QSigmaFoldSource::NoIncoming,
             &FoldConfig::default(),
         )
         .unwrap();
     drop(sigma_key);
     let q_sigma = QSigmaProver::keygen_serialized_foreign(&prepared, pallas.clone(), 2).unwrap();
     let sigma_q_proof = q_sigma
-        .prove(&prepared, common::recovery(194), ProverConfig::default())
+        .prove(
+            &prepared,
+            common::fresh_randomness(),
+            ProverConfig::default(),
+        )
         .unwrap();
     let mut q_plans = vec![
         QProofPlan::new(
@@ -173,7 +177,7 @@ pub fn build(
     ];
     let signature_plans: [QSignaturePlan; 2] =
         std::array::from_fn(|i| signatures[i].0.plan().clone());
-    for (index, (circuit, instances)) in signatures.iter().enumerate() {
+    for (circuit, instances) in &signatures {
         let key = keygen_pk_v2(
             &pallas,
             circuit,
@@ -184,7 +188,7 @@ pub fn build(
             &pallas,
             &key,
             Witness::from_circuit(&key, circuit, instances).unwrap(),
-            common::recovery(u8::try_from(195 + index).unwrap()),
+            common::fresh_randomness(),
             ProverConfig::default(),
         )
         .unwrap();

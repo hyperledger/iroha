@@ -44,8 +44,8 @@ internal interface KagemushaWalletAndroidEnvironmentV1 {
     /** `UserManager.isUserUnlocked()`: credential-encrypted storage is available. */
     fun isUserUnlocked(): Boolean
 
-    /** `Context.getNoBackupFilesDir()` of the credential-encrypted application context. */
-    fun noBackupFilesDir(): File
+    /** Validated, durable fixed custody root under the credential-encrypted application context. */
+    fun preparedCustodyRoot(): File
 }
 
 /** One element of a parsed rules resource: its name, attributes and child elements. */
@@ -135,5 +135,5 @@ internal class KagemushaWalletAndroidSystemEnvironmentV1(context: Context) : Kag
         return users.isUserUnlocked
     }
 
-    override fun noBackupFilesDir(): File = context.noBackupFilesDir
+    override fun preparedCustodyRoot(): File = KagemushaWalletAndroidStorageV1.preparedCustodyRoot(context)
 }

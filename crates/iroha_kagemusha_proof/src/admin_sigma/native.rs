@@ -102,7 +102,7 @@ impl AdminProver {
         )?;
         // Witnessless import checks the operation's fixed tables, copy mapping,
         // selectors and commitments, not merely the shared descriptor class.
-        let key = ProvingKey::from_artifact_v2_cancellable(
+        let key = ProvingKey::from_masked_artifact_v2_cancellable(
             original,
             &binding,
             &params,
@@ -200,7 +200,7 @@ impl AdminProver {
         &self,
         circuit: &C,
         instances: [Vec<Fp>; 1],
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<AdminSigmaProof, AdminSigmaError> {
         let witness =
@@ -458,7 +458,7 @@ macro_rules! admin_prover {
             pub fn prove(
                 &self,
                 witness: &$witness,
-                randomness: ProverRandomness<'_>,
+                randomness: ProverRandomness,
                 config: ProverConfig,
             ) -> Result<AdminSigmaProof, AdminSigmaError> {
                 let circuit = $circuit::new(witness);

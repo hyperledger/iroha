@@ -4,7 +4,6 @@
 //! decoded fields and object semantics still require every compiled A owner.
 
 use ff::Field;
-use ff::PrimeField;
 use iroha_pasta::msm::MemoryBudget;
 use iroha_plonk_gadgets::bytes::p_bytes_native;
 use std::sync::Arc;
@@ -161,7 +160,7 @@ impl Prepared {
 
     pub(super) fn first(
         self: &Arc<Self>,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         config: &iroha_plonk_recursion::FoldConfig,
     ) -> Result<super::circuit::Stage, Error> {
         let (fold, pallas) = iroha_plonk_recursion::create_fold(
@@ -170,7 +169,8 @@ impl Prepared {
                 self.predecessor.0.as_input(),
                 self.predecessor_opening.clone(),
             ],
-            salt.to_repr(),
+            tape,
+            iroha_plonk_recursion::FoldPurpose::AInitial,
             config,
         )
         .map_err(|error| {
@@ -197,7 +197,7 @@ impl Prepared {
             source: Arc::clone(self),
             continuation: None,
             pallas: pallas.clone(),
-            fold: fold.to_bytes().to_vec(),
+            fold: crate::private_fold::PrivateFoldBytes::from_fold(fold),
             known: true,
         })
     }
@@ -208,10 +208,10 @@ impl Prepared {
     /// Failed two-input hard predecessor fold or public-frame conversion.
     pub fn first_circuit(
         self: &Arc<Self>,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         config: &iroha_plonk_recursion::FoldConfig,
     ) -> Result<(StageCircuit, Vec<Fp>), Error> {
-        let inner = self.first(salt, config)?;
+        let inner = self.first(tape, config)?;
         let public = inner.public()?;
         Ok((StageCircuit { inner }, public))
     }

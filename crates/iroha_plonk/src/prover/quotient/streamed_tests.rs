@@ -180,7 +180,7 @@ fn row_wise_reference<C: PastaCurve>(
                         );
                         push(
                             ConstraintTerm::PermutationLast,
-                            (last[row].square() - last[row]) * l_last[row],
+                            (last[row] - one) * l_last[row],
                         );
                         for (index, pair) in products.windows(2).enumerate() {
                             push(
@@ -197,11 +197,11 @@ fn row_wise_reference<C: PastaCurve>(
                         {
                             let mut left = set[r_next];
                             for (column, sigma) in set_columns.iter().zip(set_sigma) {
-                                left *= column[row] + beta * sigma[row] + gamma;
+                                left *= crate::norm_factor(column[row] + beta * sigma[row] + gamma);
                             }
                             let mut right = set[row];
                             for column in set_columns {
-                                right *= column[row] + current_delta + gamma;
+                                right *= crate::norm_factor(column[row] + current_delta + gamma);
                                 current_delta *= delta;
                             }
                             push(
@@ -223,7 +223,8 @@ fn row_wise_reference<C: PastaCurve>(
                             EvaluatedRow::new(&scratch, 1, 0),
                             theta,
                         );
-                        let table_value = (compressed_input + beta) * (compressed_table + gamma);
+                        let table_value = crate::norm_factor(compressed_input + beta)
+                            * crate::norm_factor(compressed_table + gamma);
                         let a_minus_s = input[row] - table[row];
                         let term = |part| ConstraintTerm::Lookup {
                             lookup: index,
@@ -235,11 +236,13 @@ fn row_wise_reference<C: PastaCurve>(
                         );
                         push(
                             term(LookupConstraint::Last),
-                            (product[row].square() - product[row]) * l_last[row],
+                            (product[row] - one) * l_last[row],
                         );
                         push(
                             term(LookupConstraint::Product),
-                            (product[r_next] * (input[row] + beta) * (table[row] + gamma)
+                            (product[r_next]
+                                * crate::norm_factor(input[row] + beta)
+                                * crate::norm_factor(table[row] + gamma)
                                 - product[row] * table_value)
                                 * l_active[row],
                         );

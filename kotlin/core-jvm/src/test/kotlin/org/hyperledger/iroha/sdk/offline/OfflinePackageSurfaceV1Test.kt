@@ -16,8 +16,9 @@ import org.junit.jupiter.api.Test
  * Eligibility middleware, native installation/admission and operation owners, ledger and output
  * projections, platform adapter, and private native replies remain. The retired coordinator,
  * ordinary-runtime, device-lifecycle, probe, provider and
- * Torii sources must not return under any source set, and neither Android module may register a
- * `ServiceLoader` provider. The `core-jvm` test task declares these file names as inputs.
+ * Torii sources must not return in production source sets. The explicit `androidTest` inventory
+ * includes the maintained enrollment and monetary qualification harness. Neither Android module
+ * may register a `ServiceLoader` provider. The `core-jvm` test task declares these file names as inputs.
  */
 class OfflinePackageSurfaceV1Test {
     @Test fun `only the wallet V1 KAGEMUSHA sources remain`() {
@@ -128,6 +129,33 @@ class OfflinePackageSurfaceV1Test {
             "$WALLET/test/kotlin/$WALLET_PACKAGE/KagemushaWalletSnapshotV1Test.kt",
             "$WALLET/test/kotlin/$WALLET_PACKAGE/KagemushaWalletHostNativeV1Test.kt",
             "$WALLET/androidTest/java/$WALLET_PACKAGE/KagemushaWalletAndroidPlatformDeviceV1Test.kt",
+            "$WALLET/androidTest/java/$WALLET_PACKAGE/KagemushaActivationRetention.kt",
+            "$WALLET/androidTest/java/$WALLET_PACKAGE/KagemushaEnrollmentAbandonmentContractTest.kt",
+            "$WALLET/androidTest/java/$WALLET_PACKAGE/KagemushaEnrollmentAbandonmentExport.kt",
+            "$WALLET/androidTest/java/$WALLET_PACKAGE/KagemushaEnrollmentDeadlineContractTest.kt",
+            "$WALLET/androidTest/java/$WALLET_PACKAGE/KagemushaEnrollmentDeviceDriver.kt",
+            "$WALLET/androidTest/java/$WALLET_PACKAGE/KagemushaEnrollmentPhysicalDeviceTest.kt",
+            "$WALLET/androidTest/java/$WALLET_PACKAGE/KagemushaEnrollmentProbeContractDeviceTest.kt",
+            "$WALLET/androidTest/java/$WALLET_PACKAGE/KagemushaEnrollmentProbeFiles.kt",
+            "$WALLET/androidTest/java/$WALLET_PACKAGE/KagemushaEnrollmentProbeManifest.kt",
+            "$WALLET/androidTest/java/$WALLET_PACKAGE/KagemushaMonetaryProbeContractTest.kt",
+            "$WALLET/androidTest/java/$WALLET_PACKAGE/KagemushaMonetaryProbeManifest.kt",
+            "$WALLET/androidTest/java/$WALLET_PACKAGE/KagemushaProbeConfirmationActivity.kt",
+            "$WALLET/androidTest/java/$WALLET_PACKAGE/KagemushaWalletDeviceStages.kt",
+            "kagemusha-wallet-android/src/androidTest/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaNearbyDeviceStages.kt",
+            "kagemusha-wallet-android/src/androidTest/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaNearbyIdentityContractTest.kt",
+            "kagemusha-wallet-android/src/androidTest/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaNearbyPairingActivity.kt",
+            "kagemusha-wallet-android/src/androidTest/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaNearbyPermissionsActivity.kt",
+            "kagemusha-wallet-android/src/androidTest/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaNearbyProbeIdentity.kt",
+            "kagemusha-wallet-android/src/androidTest/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletAndroidStorageDeviceV1Test.kt",
+            "kagemusha-wallet-android/src/main/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletAndroidStorageV1.kt",
+            "kagemusha-wallet-android/src/main/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletNativeCallsV1.kt",
+            "kagemusha-wallet-android/src/main/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletNativeWorkerV1.kt",
+            "kagemusha-wallet-android/src/test/kotlin/org/hyperledger/iroha/sdk/offline/wallet/KagemushaNearbyAttemptGateTest.kt",
+            "kagemusha-wallet-android/src/test/kotlin/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletAndroidCustodyStorageV1Test.kt",
+            "kagemusha-wallet-android/src/test/kotlin/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletAndroidStorageV1Test.kt",
+            "kagemusha-wallet-android/src/test/kotlin/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletNativeWorkerV1Test.kt",
+            "kagemusha-wallet-android/src/testSupport/kotlin/org/hyperledger/iroha/sdk/offline/wallet/KagemushaNearbyAttemptGate.kt",
         )
 
         /** The Gradle root holding the three SDK modules, found above the test working directory. */

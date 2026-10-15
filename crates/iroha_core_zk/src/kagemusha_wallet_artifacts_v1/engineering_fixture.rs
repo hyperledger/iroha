@@ -142,7 +142,7 @@ pub fn signed_inventory() -> (VerifierPackV1, InstallationV1) {
 pub(crate) fn signed_inventory_with_catalog(
     catalog: impl FnOnce(&VerifierPackV1) -> Option<Vec<u8>>,
 ) -> (VerifierPackV1, InstallationV1, Option<Vec<u8>>) {
-    build_inventory(Vec::new(), catalog)
+    build_inventory(Vec::new(), None, catalog)
 }
 
 /// Replace selected sigma originals before any allowlist or authority derivation.
@@ -151,7 +151,18 @@ pub(crate) fn signed_inventory_with_catalog(
 pub(crate) fn signed_inventory_with_step_originals(
     steps: Vec<StepOriginalV1>,
 ) -> (VerifierPackV1, InstallationV1) {
-    let (pack, installation, _) = build_inventory(steps, |_| None);
+    let (pack, installation, _) = build_inventory(steps, None, |_| None);
+    (pack, installation)
+}
+
+/// Install a test-generated genuine k16 Pallas key as the lineage original before any
+/// allowlist or authority derivation. The sixteen sigma selectors stay engineering fixtures;
+/// the replacement key must have the installed Omega profile, and it is no wallet relation.
+#[cfg(test)]
+pub(crate) fn signed_inventory_with_lineage(
+    lineage: ArtifactOriginalV1,
+) -> (VerifierPackV1, InstallationV1) {
+    let (pack, installation, _) = build_inventory(Vec::new(), Some(lineage), |_| None);
     (pack, installation)
 }
 
@@ -162,11 +173,12 @@ pub(crate) fn signed_inventory_with_sources(
     steps: Vec<StepOriginalV1>,
     catalog: impl FnOnce(&VerifierPackV1) -> Option<Vec<u8>>,
 ) -> (VerifierPackV1, InstallationV1, Option<Vec<u8>>) {
-    build_inventory(steps, catalog)
+    build_inventory(steps, None, catalog)
 }
 
 fn build_inventory(
     replacements: Vec<StepOriginalV1>,
+    lineage: Option<ArtifactOriginalV1>,
     catalog: impl FnOnce(&VerifierPackV1) -> Option<Vec<u8>>,
 ) -> (VerifierPackV1, InstallationV1, Option<Vec<u8>>) {
     let mut selected: [Option<StepOriginalV1>; 16] = core::array::from_fn(|_| None);
@@ -183,7 +195,6 @@ fn build_inventory(
         );
     }
     let eq = PinnedParams::<Eq>::derive(12).expect("actual Vesta params");
-    let ep = PinnedParams::<Ep>::derive(16).expect("actual Pallas params");
     let steps: Vec<_> = SIGMA_CATALOG_V1
         .iter()
         .enumerate()
@@ -202,7 +213,10 @@ fn build_inventory(
             }
         })
         .collect();
-    let lineage = original::<Ep, true>(&ep, 100);
+    let lineage = lineage.unwrap_or_else(|| {
+        let ep = PinnedParams::<Ep>::derive(16).expect("actual Pallas params");
+        original::<Ep, true>(&ep, 100)
+    });
     let omega = parse_artifact::<Ep>(&lineage, true).expect("actual Omega profile");
     let allowlist = KagemushaWalletVerifyingKeyAllowlistV1 {
         version: 1,

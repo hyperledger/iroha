@@ -128,6 +128,7 @@ dependencies {
     testImplementation(libs.junit.params)
     testRuntimeOnly(libs.junit.jupiter.engine)
     testRuntimeOnly(libs.junit.platform.launcher)
+    androidTestImplementation(libs.bcprov) // Dedicated raw IPN1 diagnostic identity, never payment-key signing.
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

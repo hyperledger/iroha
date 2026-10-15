@@ -1,12 +1,11 @@
 //! Shared helpers of the step-relation tests: the M7 relation-check cases,
 //! the relation shapes, strict constraint checks, in-circuit digests, key
-//! caches, deterministic prover randomness and the forged-witness builder.
+//! caches, fresh prover randomness and the forged-witness builder.
 
 #![allow(dead_code)]
 
 use std::{
     collections::BTreeMap,
-    convert::Infallible,
     path::PathBuf,
     sync::{Mutex, OnceLock},
 };
@@ -25,7 +24,6 @@ use iroha_plonk::{
     frontend::{Assembly, SingleChipLayouter, configure, synthesize},
     pcs::ipa::PinnedParams,
 };
-use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
 
 /// `sigma_send` with the blacklist control.
 pub const SEND_BLACKLIST: SigmaRelation = SigmaRelation::send(CONTROL_BLACKLIST);
@@ -201,11 +199,9 @@ pub fn in_circuit_digests<F: PoseidonField>(
     digests.expect("known digests")
 }
 
-/// A deterministic recovery stream (tests only: the derivation is public).
-pub fn recovery(seed: u8) -> ProverRandomness<'static> {
-    ProverRandomness::recovery(move |_context: &[u8; 32]| {
-        Ok::<_, Infallible>(ChaCha20Rng::from_seed([seed; 32]))
-    })
+/// Fresh OS-backed hedged randomness for each proving attempt.
+pub fn fresh_randomness() -> ProverRandomness {
+    ProverRandomness::hedged()
 }
 
 /// Vesta parameters, derived once per `k`.
@@ -363,4 +359,35 @@ pub fn case_label(relation: RelationShape, mutation: Mutation) -> String {
 /// A Vesta witness of the relation-check grid.
 pub fn check_witness_of(relation: SigmaRelation, mutation: Mutation) -> StepWitness<Fp> {
     iroha_kagemusha_proof::sample_witness(CHECK_SEED, relation, mutation)
+}
+
+/// Explicit public scalar specimen for fold relation tests, never private entropy.
+/// Every independent tape has the selected first value and incrementing public DATA.
+/// Actual proof randomness still comes from the fresh OS-backed owner above.
+pub fn public_fixture_tape<C: PastaCurve>(first: u64) -> iroha_plonk_recursion::FoldTape<C> {
+    let mut next = first;
+    iroha_plonk_recursion::FoldTape::try_fill::<core::convert::Infallible>(|coin| {
+        *coin = C::ScalarExt::from(next);
+        next += 1;
+        Ok(())
+    })
+    .expect("public scalar specimen")
+}
+
+/// Copy a single public diagnostic mutation directly into a guarded byte owner.
+pub fn mutated_private_fold(
+    original: &iroha_kagemusha_proof::private_fold::PrivateFoldBytes,
+    index: usize,
+) -> iroha_kagemusha_proof::private_fold::PrivateFoldBytes {
+    assert!(index < original.len());
+    let bytes = iroha_plonk_recursion::PrivateWitnessBytes::try_write::<std::io::Error>(
+        original.len(),
+        |writer| {
+            writer.write_all(&original[..index])?;
+            writer.write_all(&[original[index] ^ 1])?;
+            writer.write_all(&original[index + 1..])
+        },
+    )
+    .expect("exact public mutation extent");
+    iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(bytes)
 }

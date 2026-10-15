@@ -1,5 +1,12 @@
 # KAGEMUSHA Λ and Ω proof construction V1
 
+Construction status: the protocol descriptions reconciled here select the
+committed-mask C12 proposal. Historical [M]/[E] figures, source-specific proofs
+and the earlier design tables remain evidence for their recorded inputs only.
+They do not qualify the selected combined source, its catalog, fixtures,
+latency or physical-device behavior. See the [selected-source transfer
+boundary](kagemusha_recursion_soundness_v1.md#retained-arguments-and-selected-source-transfer).
+
 Status: design record, 2026-10-05, for [proposal](kagemusha_single_design_proposal.md)
 revision 2026-10-05 and the [wallet wire record](kagemusha_wallet_wire_v1.md). It fixes how
 the lineage relation Λ and its transport form Ω are proved on [PIPA-v1](plonk_ipa_v1.md):
@@ -7,10 +14,12 @@ circuit kinds, accumulation, the Ω bytes, the receiver's native work, per-opera
 memory, the soundness argument, the gadget set and milestones M3–M5. The proposal and the
 wire record govern protocol semantics and encodings; this record governs the proof
 construction. It applies the third set of owner answers of 2026-10-05 (B1–B8, §1.1), which
-the proposal and the wire record now carry (§12). Revision-4 native step proofs σ
-(k12 without quota, k14 with the fixed quota array) and the M3 gadgets exist.
-The recursive construction remains under implementation and unqualified. Every
-figure carries a label:
+the proposal and the wire record now carry (§12). The current candidate adds norm copy/lookup
+products, total role-specific challenge maps, full-group generator claims and committed-mask
+folds. It uses the sole compact Payment encoding with independent σ and Ω admission caps.
+The recursive construction remains under implementation and unqualified. The cost estimates
+below are planning inputs; they do not establish capacity, latency or release readiness for
+the changed candidate. Every figure carries a label:
 
 - **[M]** measured with the native engine on the shared Apple-silicon Mac (20 CPUs, timings
   ±25%), or where stated in the [checklist](kagemusha_evidence_gate.md) §8;
@@ -42,26 +51,26 @@ record.
 | **OQ-3 (B3), applied.** On the burn branch with a duplicate `credit_id`, the committed consumed-credit root equals the predecessor's root or is a structurally valid IMT insert of a fresh key | §2.7 |
 | **OQ-4 (B4), applied.** The QuotaShare refresh rule "keeps the end of every existing usage key" is checked only for the 64 quota-window slots | §5.1; with B5 it is part of the usage-array rebuild, whose budget §5.4 states |
 | **B5.** The quota-usage map is a depth-6 fixed array aligned one to one with the 64 quota-window slots; a Send charges its window slots in place | σ_send: ≈ 45 permutations per charge, ≈ 309 for the quota part and ≈ 346 with every control [E], a single-lane k14 shape (≈ 3,424 B [C]) or k13 with shared paths, replacing the k15 IMT estimate. Λ_refresh(QuotaShare): array rebuild ≈ 954 permutations instead of ≈ 4,734; the measured recursive composition requires split root/merge owners (§§5.1, 5.4) |
-| **B6.** The Request records the receiver blacklist version and root used at issuance; Receive (native and σ_recv) checks only that list | σ_recv proves the gap in the recorded root and its key is selected by the recorded version. Λ_recv looks the recorded pair up in the blacklist-history IMT of the rest (≈ 68 permutations); Refresh(Blacklist) inserts into it (≈ 264). F_payment +42 B, so R9 becomes 8,277 B (§3.5) |
+| **B6.** The Request records the receiver blacklist version and root used at issuance; Receive (native and σ_recv) checks only that list | σ_recv proves the gap in the recorded root and its key is selected by the recorded version. Λ_recv looks the recorded pair up in the blacklist-history IMT of the rest (≈ 68 permutations); Refresh(Blacklist) inserts into it (≈ 264). These fields are included in the compact Payment fixed overhead of 1,436 B; R9 permits 8,564 B of combined proofs (§3.5) |
 | **B7.** `quota_share_expires_at_ms` is a core field; σ_send enforces `U < expires_at_ms` with the quota control | σ only; one 64-bit comparison |
 | **B8.** `time_anchor_max_response_ms` < the shortest quota window, checked when a share is installed; σ_send checks `U − L ≤ time_anchor_max_response_ms` (a core field) with the quota control | Λ_refresh(QuotaShare): 64 length comparisons; σ_send: one comparison; two charge candidates per kind suffice |
-| Gate degree ≤ 6; k ≤ 16; ≤ 1 GiB fold memory with one sub-proof at a time; std Rust only; identical outputs on every hardware; no new external crates | §§2, 6, 9 |
+| The actual descriptor degree governs quotient size; k ≤ 16; ≤ 1 GiB fold memory with one sub-proof at a time; std Rust only; identical outputs on every hardware; no new external crates | §§2, 6, 9 |
 
 ### 1.2 Binding constraints and how they are met
 
 | Constraint | Met by | Status |
 |---|---|---|
-| 1–2 s to durable completion; Ω verified on the path unless pre-verified | §4: ≈ 35–140 ms of phone proof CPU when pre-verified, +0.29–0.75 s cold | met [E]; hardware signing and durable commit unmeasured |
-| R9: Ω + largest σ_send ≤ 10,000 − F_payment = 8,277 B (wire §4, F_payment = 1,723† with the B6 Request fields) | §3: Ω = 4,736 B; with the largest measured revision-4 σ_send (3,456 B) the Ω budget is 4,821 B | conditional [C], margin 85 B; Ω unbuilt |
-| Credited::Status ≤ 10,000 B, Ω ≤ 7,812 B (wire §4, F_status = 2,188†) | 2,188 + 4,736 = 6,924 B | met [C] |
-| Fold peak RAM ≤ 1 GiB | §6: one prover at a time, ≤ 0.85 GiB per sub-proof plus ≤ 0.15 GiB wallet core | met [E]; thresholds G3.6, G3.7, G4.6, G5.3 |
+| Two-second p95 to durable completion; Ω verified on the path unless pre-verified | Matching native/SDK/device campaign, initially Pixel 6 and the connected iPhone 17 Pro Max | open; the estimates in §4 do not qualify durable completion |
+| R9: Ω + largest σ_send ≤ 10,000 − 1,436 = 8,564 B | Independent role caps σ ≤ 3,520 B and Ω ≤ 5,044 B, plus the checked joint bound (§3.5) | model/SDK boundary rules implemented; current candidate validation and genuine complete-catalog artifact qualification are open |
+| Credited::Status ≤ 10,000 B | Fixed status overhead 2,188 B plus Ω ≤ 5,044 B gives at most 7,232 B; the carrier-derived 7,812 B budget does not replace the Ω role cap | envelope arithmetic [C]; genuine artifact qualification open |
+| Fold peak RAM ≤ 1 GiB | §6: one prover at a time, ≤ 0.85 GiB per sub-proof plus ≤ 0.15 GiB wallet core | estimate only; current candidate measurement remains open (G3.6, G3.7, G4.6, G5.3) |
 | First release; formats may be redesigned | PIPA-R profile and PIPA-AS-v1 (§8); σ moves to the base-field transcript at unchanged byte length | used |
 | std, deterministic, no new external crates, Pasta curves | only `iroha_pasta`, `iroha_plonk`, `iroha_plonk_gadgets` and a new workspace crate `iroha_plonk_recursion`; verifier MSMs stay `msm_complete` (PIPA S10) | met |
 | `credit_id`, `proof_digest` (σ only and Ω‖σ) and the Payment digest are `P` / `P_bytes` | spec-literal `P_bytes` over the bytes, linked in-circuit (§5.2) | met |
 | Wallet maps (the blacklist history included) and the credit-digest tree are depth-32 IMTs; the quota-usage map is the B5 depth-6 array | IMT chip in A; the array shares the depth-6 path layer of the quota-window tree | met |
 | Receiver matched by `wallet_id` and `payment_key`; continuity proven in Λ | A equalities; the Request's receiver credential is verified in Λ_recv and deduplicated with the current credential | met |
 | One Fp head commitment; one `relation_id`; σ keys selected by (tag, mask), Receive by its Request's recorded blacklist version | `relation_id` is carried in D_A, never a circuit constant; σ's key is selected in Q by one-hot digest and checked in A against the (tag, mask) table, with the Receive selector derived from the Request | met |
-| Enabled controls enforced in σ_send, the receiver's Request-recorded blacklist decision in σ_recv | Λ only selects σ's key; G-Ω2 bounds σ_send at 8,277 B minus the Ω length (3,541 B) | met; σ shape threshold |
+| Enabled controls enforced in σ_send, the receiver's Request-recorded blacklist decision in σ_recv | Λ only selects σ's key; G-Ω2 enforces σ_send ≤ 3,520 B, Ω ≤ 5,044 B and their independent joint cap of 8,564 B | met; σ shape threshold |
 | Proposal §3.2 containment: deferred failures burn or no-op, no poison | corrected-claim witness plus total soft verifiers (§2.7) | met |
 | Proposal §3.2: native and in-circuit verifiers accept exactly the same set | one table-driven predicate (PIPA S11), complete in-circuit arithmetic, total soft verifiers (§7 C7) | met deterministically |
 
@@ -72,7 +81,7 @@ record.
 Each Λ step is a fixed DAG of k16 circuits. Every consumed proof is verified completely in
 the circuit whose field is its base field, except its 2^16 generator MSM, so no deferred
 scalar crosses the cycle; the generator MSMs are accumulated by separate, local,
-non-hiding PIPA-AS-v1 fold proofs (§3.4).
+committed-mask PIPA-AS-v1 fold proofs (§3.4).
 
 | Kind | Circuit field / proof curve | k | Advice / fixed / equality / lookups [E] | Holds |
 |---|---|---:|---|---|
@@ -81,7 +90,7 @@ non-hiding PIPA-AS-v1 fold proofs (§3.4).
 | **A** aggregator | Fp / Vesta | 16 | 32 / ~44 / 10 / 3 | all `P` work (openings, IMT, digests, `P_bytes`, consumer checks, lineage-adjusted values, burn logic); succinct verification of Ω(pred) (hard), Ω_in or Ω(h) (soft) and every Q (hard); fold F_P |
 | **Ω** wrap | Fq / Pallas | 16 | 11 / ~18 / 4 / 1 | succinct verification of A (hard); fold F_V^Ω; selection of A's key; D_A passed through |
 | **W** (context wrap) | Fq / Pallas | 16 | Ω's descriptor, other context domain | intermediate wrap of the A-split (§2.8); never transported |
-| F_V^Q, F_P, F_V^Ω | PIPA-AS-v1 fold proofs | K = 16 | — | local, 1,088 B body plus 32 B salt each [C] |
+| F_V^Q, F_P, F_V^Ω | PIPA-AS-v1 fold proofs | K = 16 | — | local, 1,120 B body plus 1,056 B private tape each [C] |
 
 Field placement:
 
@@ -306,9 +315,9 @@ Why this meets proposal §3.2 (§7 C8):
 - **No poison.** On a completed burn, the only Payment-derived claim folded is a corrected
   claim, which decides because the honest receiver computes G*_j itself. The lineage stays
   decidable and its other value is unaffected. Algebraic correction is defined for every u_j,
-  but the exceptional G*_j = O cannot use the finite-point transport and returns an encoding
-  failure, not a completed burn. Liveness therefore has the IPA's computational/negligible-
-  exception scope, not an unconditional claim for every possible challenge vector.
+  including G*_j = O through the scoped generator codec; unrelated proof failures return an
+  error, not a completed burn. Complete operations remain fallible; admitting
+  a canonical identity correction does not establish unconditional liveness.
 - **Kernel diversity.** The honest prover locates a failing claim with `msm_public`; the
   receiver's native check used `msm_complete`. Poisoning needs both kernels wrong on the same
   input.
@@ -379,103 +388,92 @@ public transcript, the transported acc_P and the constant `vkΩ_digest`.
 
 ### 3.3 Accumulator semantics
 
-- **decide:** accept iff G = ⟨s(u), g[0..2^16)⟩ with s_i = Π_j u_j^{bit_{15−j}(i)} (PIPA §9.2).
-- **Fold-input padding:** an obligation of k < 16 enters as (G, 0^{16−k} ‖ u); then s_i = 0
-  for i ≥ 2^k, which is the k-round decide (prefix property, PIPA §3). Zero u_j occur only as
-  fold inputs, never in transported accumulators.
-- **Non-hiding fold completeness:** at least one input slot has source k16. If every
-  actual obligation is shorter, the caller supplies an explicit pinned `ACC_TRIV`
-  slot. Otherwise the upper half of h is identically zero, forcing the first IPA L
-  point to be the identity for every salt, which the point format rejects. Native
-  and circuit verifiers enforce this structural requirement. Full-length inputs
-  still use fallible proving for exceptional zero challenges or identity messages;
-  a salt retry cannot repair the all-short structural case.
+- **decide:** accept iff G = ⟨s(u), g[0..2^16)⟩ with
+  s_i = Π_j u_j^{bit_{15−j}(i)} (PIPA §9.2). G uses the scoped full-group
+  encoding, including zero32 / `(0,0)` for identity; decide is unchanged.
+- **Fold-input padding:** a source of k < 16 enters as `(G, 0^{16−k} ‖ u)`.
+  Its coefficient vector vanishes above `2^k`. Actual round challenges use the
+  total nonzero role map; zero prefix padding is not remapped.
+- **Slot policy:** at least one counted slot has source k16. If all actual
+  obligations are shorter, the caller supplies the authorized explicit
+  `ACC_TRIV` slot. The native and circuit checks retain this policy; it is not
+  inferred from the older non-hiding first-L identity argument.
 
 ### 3.4 PIPA-AS-v1 fold proof
 
-BCMS20 PC_DL accumulation, implemented in
-`iroha_plonk_recursion::accumulation`:
+The selected `iroha_plonk_recursion::accumulation` construction uses one private
+33-scalar tape, rho followed by 32 L/R masks. Its input digest binds the ordered
+sources, masks, parameters, closed purpose and count. D opens the digest as
+`h0*g[0]+h1*g[1]+rho*W`. `pipa-as1` absorbs the public context and finite D,
+then squeezes alpha,z,zeta. There is no external salt or recovery-seed API.
 
-- **Transcript.** A base-field sponge with tag `pipa-as1` absorbs a canonical prover salt
-  (one base-field element), r, and for each slot (finite G_i as [x, y], source k_i,
-  normalized 16-element u_i), then squeezes full-width α, z and ζ_ipa in that order.
-  The only permitted zero entries in input u_i are the checked prefix padding of §3.3.
-  For each of the 16 rounds it absorbs L_j, R_j and squeezes nonzero u'_j; it then
-  reads and absorbs c and reads the unabsorbed suffix G'. Challenge conversion and
-  scalar/point absorption follow PIPA-R (§8). A zero u'_j rejects the proof.
-- **Prover.** h(X) = Σ α^i h_{u_i}(X), C = Σ α^i G_i, v = h(z); a **non-hiding** 16-round IPA
-  opening of C at z (PIPA §9.2 without ξ·C_s and f·W): L_j, R_j, c and the suffix G'.
-  Its coefficient vector is `a = h − h(z)e_0`, so its evaluation is zero and its
-  initial commitment is `C − v g[0]`; ζ_ipa scales U in the IPA equation below.
-- **Verifier (succinct).** Recompute C with a complete Horner chain and v = Σ α^i Π_j (1 +
-  u_{i,15−j} z^{2^j}); check C − v·g[0] + Σ(u'^{-1}_j L_j + u'_j R_j) − c·G' − c·b(z)·ζ·U = O;
-  output (G', u').
-- **Bytes and time.** 32·(2·16 + 2) = **1,088 B** [C] for the IPA body. The canonical local
-  `FoldWitness` is `salt (32 B) ‖ proof_body (1,088 B)`, **1,120 B** in total; neither is
-  transported in a Payment. Time: 2.9–3.1 s on 1 Mac thread
-  [E: generator fold 1.92–2.03 s [M] + L/R MSMs ≈ 0.7 s].
+For `h=Σ alpha^i s_i`, `C=Σ alpha^i G_i` and `v=h(z)`, the IPA opens
+`h−v*e_0` with zero evaluation. L_j and R_j include their respective W masks;
+the actual challenge is `u'_j=nz(raw_j)`. The verifier checks the D opening and
+
+```text
+C − v*g[0] + Σ(L_j/u'_j + u'_j*R_j)
+  − c*G' − c*b(z)*zeta*U − gamma*W = O,
+gamma = Σ(ell_j/u'_j + r_j*u'_j).
+```
+
+It returns the undecided `(G',u')`. D/L/R are ordinary finite points; G' is
+scoped full-group. Final native acceptance decides Omega's own opening and
+both transported claims. The private body D/L/R/c/G' is 1,120 bytes; rho and
+the masks add 1,056, so `FoldWitness` is exactly 2,176 bytes. Neither tape nor
+body is a public Payment field. Prior salted-fold timings do not measure this
+construction.
+
+The WrapperVesta terminal projection is available only through its closed
+same-frame owner; it binds the actual V slot, descriptor, raw first Theta and
+masks while preserving the fixed four-slot derivation and own-opening
+obligation. The full binding, purpose and privacy scope is in the
+[recursion argument](kagemusha_recursion_soundness_v1.md#what-an-accumulation-fold-proves).
 
 ### 3.5 Byte budget and thresholds
 
-With PIPA §7, d = 6, k = 16 and the suffix, π_Ω is 32·(44 + V) bytes, where
-V = n_a + 8n_l + n_z + q_a + q_f + m + max(3n_z − 1, 0) + n_s. The Ω budget with the
-largest measured revision-4 σ_send is 8,277 − 3,456 = 4,821 B (B6 adds 42 B to
-F_payment), so 32·(44 + V) + 1,088 ≤ 4,821 requires **V ≤ 72**. The baseline Ω descriptor has V = 70 [E].
+The sole compact Payment frame has fixed overhead **1,436 B**. The model and
+both managed SDKs enforce all of these independent bounds before accepting its
+proof payloads:
 
-The captured degree-nine secondary-range component has V = 69 and the exact
-PIPA count 32·(47 + V) = 3,712 proof bytes, hence **4,800 transported bytes** [M].
-The unchanged 4,821 B cap therefore requires V ≤ 69 at degree nine; the separate
-G-Ω1 bound V ≤ 72 is also retained. Actual native Bootstrap-source proofs pass
-for witnessed-key and pinned-one-key layouts; the captured witnessed-key
-Bootstrap/Load/Send-mask0 catalog also passes its three-terminal rebuild. These
-are historical component results. The current native producer pins the complete
-catalog into its source; its fresh layout, proof size and signed-source rebuilding
-remain pending. Descriptor equality does not transfer source qualification.
-Ordinary-finality Load, the full catalog and every operation's qualification
-remain open.
+| Bound | Bytes [C] | Owner |
+|---|---:|---|
+| σ proof | 3,520 | Every admitted σ descriptor and decoded Payment |
+| Transported Ω, including both accumulator claims | 5,044 | Every admitted Ω descriptor, Lineage and Payment |
+| σ + transported Ω | 8,564 | Checked addition in Payment and artifact admission |
+| Complete Payment | 10,000 | 1,436 + 3,520 + 5,044 |
+| Credited::Status fixed overhead | 2,188 | Canonical wire encoder |
+| Credited::Status with Ω at its role cap | 7,232 | 2,188 + 5,044 |
 
+The status carrier's derived budget, 10,000 − 2,188 = 7,812 B, is a frame
+calculation only. It cannot be borrowed by an oversized Ω; spare Ω space cannot
+be borrowed by an oversized σ. The same applies when only one role's proof is
+present. The native raw carrier adds its own 320-byte prefix: a maximal raw Ω
+carrier is 5,364 B and a maximal raw Ω-plus-σ carrier is 8,884 B. These raw
+carriers are not the Payment transport encoding.
 
-| Ω descriptor [E] | Transport [C] | Margin to 4,821 B |
-|---|---:|---:|
-| n_a 11, n_l 1, m 4, q_a 22, q_f 18, n_s 4 (baseline) | **4,736** | 85 |
-| m 5 | 4,896 | −75 (fails) |
-| n_a 12, q_a 24 | 4,832 | −11 (fails) |
-| m 6, n_a 12, q_a 24 | 5,024 | −203 (fails) |
-| + 1 lookup argument | 5,024 | −203 (fails) |
-| Pow5 round constants share fixed columns with glue coefficients (q_f 13) | 4,576 | 245 |
-| no suffix (reserve) | 4,704 | 117 |
+Let `B(D)` be the exact proof length derived by `Protocol::proof_length` from
+the complete descriptor using PIPA §7. A transported Ω is `B(D_Ω) + 1,088`
+bytes, where each of its two generator claims occupies 544 bytes. Its proof
+body must therefore satisfy `B(D_Ω) ≤ 3,956`. Since that body consists of
+32-byte words, its effective bound is **3,936 B**. The σ role bound is exactly
+110 such words. These rules use the actual descriptor degree, permutation
+sets, query counts, point sets and lookup counts; a fixed historical degree or
+advice-column estimate is not an admission predicate.
 
-- **G-Ω1:** the measured Ω descriptor has V ≤ 72 and exactly one lookup argument.
-- **G-Ω2 (R9 joint):** |Ω| + max over allowlisted σ_send of |σ_send| ≤ 8,277 B, so with
-  Ω = 4,736 B every σ_send is ≤ **3,541 B** [C]. k12 with one lane (3,296 B [M]) passes; k14
-  with one lane (3,456 B [M]; the B5 quota-enabled shape, 309–345 permutations,
-  12,123–13,542 used rows [S]) and k15 with one lane (3,488 B [C]) pass; k16 with one lane (the measured pre-B5
-  quota shape, 3,584 B [M]) and k14 with two lanes (3,840 B [C]) fail. If no single-lane shape
-  fits an enabled control, proposal §8 requires a new owner decision (contingent question
-  C-1, §12).
-- **Credited::Status** = 2,188 + |Ω| = 6,924 B ≤ 10,000; the allowlist caps Ω at 7,812 B
-  (wire §§3.1, 4), a derived envelope bound that B1–B8 leave unchanged.
-- F_payment (1,723 B, computed from the B6 Request fields) and F_status are marked † in wire
-  §4 until `size_tests.rs` re-measures them; the thresholds follow those constants.
-
-The current revision-4 single-lane descriptor inventory is below. Real native proofs
-for quota-only and all-controls Send verify at 3,456 B; the remaining lengths are
-exact descriptor calculations checked against both curves. PIPA-R migration and
-actual Ω construction must preserve or re-establish these bounds before artifact
-freeze; this is not an end-to-end payment measurement.
-
-| Relation / mask | k | Poseidon permutations | Used rows | Folded proof bytes |
-|---|---:|---:|---:|---:|
-| Send 0 | 12 | 69 | 2,587 | 3,296 |
-| Send 1 | 12 | 106 | 4,041 | 3,296 |
-| Send 2 | 14 | 309 | 12,123 | 3,456 |
-| Send 3 | 14 | 345 | 13,541 | 3,456 |
-| Send 4 | 12 | 69 | 2,588 | 3,296 |
-| Send 5 | 12 | 106 | 4,042 | 3,296 |
-| Send 6 | 14 | 309 | 12,124 | 3,456 |
-| Send 7 | 14 | 345 | 13,542 | 3,456 |
-| Receive 0 | 12 | 67 | 2,510 | 3,296 |
-| Receive 1 (recorded blacklist) | 12 | 104 | 3,958 | 3,296 |
+- **G-Ω1:** regenerate the complete source catalog with the current norm
+  products, selector compression, total challenge maps, full-group claims and
+  committed-mask fold. Every Q, A and W stage and the outer Ω must fit the
+  configured domain, including secondary range rows, and pass real assignment
+  replay. Record the exact descriptors and generated artifact identities.
+- **G-Ω2:** prove and verify all admitted σ shapes, including all Send control
+  masks, and the current outer Ω. Check each role cap, their checked joint cap,
+  and the complete encoded Payment. A small proof from a different catalog or
+  source revision does not qualify the installed artifact set.
+- **Status:** the model's boundary fixtures and managed decoders implement the
+  stated byte limits; their current-candidate execution remains required. The current candidate's complete geometry census and
+  regenerated genuine artifacts remain open. Planning estimates and earlier
+  component proof sizes are not substituted for those results.
 
 ### 3.6 Ω contents and rows
 
@@ -733,27 +731,35 @@ Rules:
 
 ## 7. Soundness argument
 
-Each claim rests on published constructions except where marked **novel**.
+The claims below distinguish implemented source equations from conditional
+cryptographic implications. Published constructions motivate them; they do not
+automatically establish the selected norm-product or committed-mask transfers.
 
-**C1. Single proofs (PIPA-v1 and PIPA-R).** PLONKish arithmetization with the GWC19
-permutation, halo2 permuted lookups and the BGH19 IPA with succinct check and amortized
-generator. Fiat–Shamir uses RP57 Poseidon as a random oracle; multi-round soundness follows from
-state-restoration / round-by-round soundness. PIPA-R changes only absorption encodings, which
-stay injective, and the challenge map: points as native [x, y]; a Vesta proof's Fp scalar as one
-Fq element; a Pallas proof's Fq scalar as S6 limbs (lo < 2^128, hi < 2^127, lo + 2^128·hi <
-q); challenges map Fq → Fp by w mod p and Fp → Fq by identity, at distance ≤ (q − p)/q =
-2^−167.84 [C] from uniform. The [implementation argument](kagemusha_recursion_soundness_v1.md) records the
-framing and challenge-map derivation; its remaining composition and simulator
-review obligations must be closed before freezing (G4.1).
+**C1. Single proofs (PIPA-v1 and PIPA-R).** The selected construction combines
+PLONKish constraints, norm-product permutation/lookups and the BGH19 IPA.
+PIPA-R injectively absorbs ordinary point coordinates and canonical scalar
+limbs. Base-field conversion is followed by the role maps in PIPA §6.2b; their
+pushforward distributions, rather than a uniform-scalar approximation, govern
+the soundness experiment. The norm equations and changed degree/chunk geometry
+must be included in the reduction and exact native/circuit predicate review.
+Published linear-product constructions do not alone discharge that transfer.
 
-**C2. Accumulation (PIPA-AS-v1).** BCMS20 PC_DL accumulation (ePrint 2020/499 §7 and Appendix A) on BGH19 §3.
-If (G', u') decides then, except with probability about (r + 2^16)/|F| per hash query, the
-opened C = Commit(h) and every input decides, except with the computational soundness
-error: α is squeezed after every input is absorbed (cancelling inputs is a degree-r event)
-and z after those bound inputs and α determine C (a degree-2^16 event). C is not absorbed
-again. These are computational claims under Fiat–Shamir, not a literal equivalence for
-every possible challenge output. The format has no
-hiding term, so "G is the commitment" is enforced by the decide itself.
+**C2. Accumulation (PIPA-AS-v1).** The selected fold is the committed-mask
+construction of §3.4. Its opened D binds the prescribed private input/mask
+digest before alpha; the exact gamma subtraction accounts for all W masks.
+The closed terminal projection additionally requires its same-frame
+certificate and fixed-slot own-opening obligation. A deciding output is useful
+only together with those joins and accumulation soundness. The earlier
+non-hiding `(r+2^16)/|F|` sketch is not a bound for this different construction.
+The [logical composition argument](kagemusha_c12_composition_v1.md#private-originals-and-public-simulation)
+supplies the conditional privacy law for the selected committed-mask fold:
+for deciding inputs fixed before independent tape coins, the stopped D/L/R
+path and exported G/u law are input-independent for the unchanged transcript
+function. Its private materializer preserves the correlated tape and witness,
+including identity stops; independently sampled exported claims do not replace
+that witness. Authorization still relies on the selected accumulation-security
+premise and exact terminal/source joins. This privacy law is not an extraction
+or soundness theorem for arbitrary false inputs.
 
 **C3. PCD composition.** Each step is a constant-depth DAG (Q → A → Ω, or Q → A_1 → W → A_2 →
 Ω). BCMS20 PCD-from-accumulation and BCLMS21 (ePrint 2020/1618) motivate the composition;
@@ -763,8 +769,9 @@ oracle-dependent recursive relation. The first release explicitly accepts the
 for the pinned Pasta/Poseidon construction. This assumption also matters for a bounded
 recursive execution; it is not merely a caveat about an infinite lineage.
 **Unbounded lineage depth remains heuristic**, and PIPA §11's TODO remains.
-C12 joint privacy and the implementation's other composition obligations still require
-their own arguments and candidate evidence.
+C12 uses the separate conditional logical composition stated below. Its named
+privacy premises and current implementation evidence are distinct from this
+recursive soundness assumption.
 
 **C4. Full succinct verification in the base field.** Transcript and group operations of each
 consumed proof are native in its verifier circuit. Scalar arithmetic is CRT foreign-field
@@ -806,8 +813,8 @@ recomputed with the receiver's field.
 **C8. Containment (§2.7). Novel selection rule.** Accept is sound by C2 on every gated slot.
 Burn is sound because either a soft bit is false (by C7 the native verifier also rejects) or a
 corrected claim is folded, so by C2 G* = ⟨s(u_j), g⟩ ≠ G_j and the native decide of that
-obligation rejects. A representable corrected claim decides; exceptional identity corrections
-fail encoding as described in §2.7. For completed proofs, (accept ⇔ native accept)
+obligation rejects. The corrected claim, including identity under the scoped
+generator codec, must decide as described in §2.7. For completed proofs, (accept ⇔ native accept)
 ∧ (burn ⇔ native reject), so the branch is unique. A burn moves value only out of the
 receiver's spendable balance; it cannot create value. The OQ-3 root rule keeps the
 consumed-credit IMT invariant (C10) on the burn branch, so no later non-membership becomes
@@ -817,21 +824,20 @@ bad path. The [containment argument](kagemusha_recursion_soundness_v1.md#branch-
 reduces the selection rule to C2, C7 and C10; complete operation binding and
 independent review remain G4.1 work.
 
-**C9. Hard-verifier completeness and retries.** C7 gives native/circuit verdict agreement;
-it does not exclude zero challenges, identity messages or exceptional denominators for an
-honest witness. The native Q/A/Ω owners perform one proving attempt and propagate proof,
-self-verification, entropy, resource and cancellation failures. A failure does not establish
-payment completion or authorize a burn. PIPA-AS does not silently retry its salt,
-and a salt retry cannot repair an all-short input set (§3.3).
+**C9. Hard-verifier completeness and retries.** Native/circuit source equality
+does not imply successful completion of every attempt. Total x/x3/Xi/u maps
+and norm products remove their specified algebraic zero-denominator cases;
+ordinary finite D/L/R messages can still fail, as can entropy, resources,
+self-verification and cancellation. Q/A/Omega propagate those failures. A
+failure neither completes a payment nor authorizes burn.
 
-A retry of unpublished proof work is a new attempt; all hash queries and any fresh blinds
-or fold salts actually drawn enter the bounded experiment, including failed attempts.
-Q's capsule-derived public local-fold nonce is reused and is not fresh private entropy.
-Retained checkpoints and completed Ω records are restored from their exact bytes;
-payment retries return the retained Payment and never repeat irreversible Send. The
-[conditional failure bounds](kagemusha_recursion_soundness_v1.md#conditional-honest-fold-abort-bound)
-retain their independent-challenge premise and separate operational failures. Hiding and
-verdict parity alone establish no unconditional liveness or zero failure probability.
+Unpublished proof retries are fresh attempts, with every consumed coin/hash
+query counted, including failed attempts. There is no recovery-derived proof
+stream or reused capsule-derived fold nonce. Private fold tapes/checkpoints
+and completed Omega records restore by exact retained bytes and verification;
+payment retries return the retained Payment without repeating irreversible
+Send. Earlier salted-fold failure bounds keep their original hypotheses and
+do not supply a zero-failure or unconditional liveness claim here.
 
 **C10. Maps.** Every wallet map except the quota-usage array (below) and the credit-digest tree
 is the wire §3.2 depth-32 indexed Merkle tree (the Aztec construction): leaves `(key, value, next_key)` sorted and linked from a
@@ -876,15 +882,31 @@ existing generator-relation premise. A/Q continue to authenticate the opaque
 receipt field and payment-key signature; the trusted native provider verifies
 the full wrapper and opening before signing.
 
-These local facts do not prove privacy of the joint public transcript. The two exposed
-challenge vectors come from non-hiding folds and can share inputs correlated with
-public σ proofs and earlier accumulators. A simulator must handle both vectors and Ω
-under one random oracle, including adaptive queries, retained checkpoint reuse, retries
-and exceptional aborts. Independently sampling two vectors does not by itself produce
-an Ω witness or establish that distribution. Fresh private salts support a possible
-hidden-prefix argument, but that argument and the composed simulator remain M4 work
-([recursive soundness memo](kagemusha_recursion_soundness_v1.md), PIPA §13 TODO).
-No stronger privacy or linkability conclusion is established by this paragraph.
+The [C12 logical composition](kagemusha_c12_composition_v1.md) supplies the
+joint argument under its named premises: the M-admitted local proof law,
+matching valid source witnesses and exact retained originals, and the causal
+byte-state custody service. The public template and finite adaptive budgets
+are fixed before honest setup through one shared raw interface for both Pasta
+curves; RP57 remains unchanged. The private materializer follows P, terminal A
+on P, V derived from that exact A, then Omega on the same frame. It retains
+cryptographic refusals, fresh attempts, capsule publication and exact retries;
+independent marginal P/V samples do not supply this joint witness.
+
+With ideal independent coins the finite logical view distance is at most the
+composition's epsilon_setup. Applying the raw-setup model to deterministic
+BLAKE2b and replacing ideal proof coins use the separately stated
+instantiation and joint OS/hedge/PRG assumptions and reduction costs. The
+experiment does not condition on a literal installed key, and requires no
+new simulator executable against that fixed key. The recursive Fiat–Shamir
+soundness premise supplies none of these privacy premises.
+
+This conditional theorem does not qualify a current artifact catalog or a
+physical storage implementation. Genuine all-route native/circuit execution,
+matching source/key admission, fresh golden and SDK validation, physical
+resource/refusal refinement, and the payment-release durability boundary remain
+open implementation requirements. The
+[recursion memo](kagemusha_recursion_soundness_v1.md#retained-arguments-and-selected-source-transfer)
+keeps historical arguments and executions at their recorded source scope.
 
 ## 8. PIPA-v1 extensions (applied to `plonk_ipa_v1.md` in M4)
 
@@ -906,7 +928,9 @@ No stronger privacy or linkability conclusion is established by this paragraph.
   `B::from(u64::from_le_bytes(*b"pipa-rb1"))`; points as canonical [x, y] (O rejected);
   scalars as one element when |F| < |B| and as S6 limbs when |F| > |B|; challenges c = w − p
   if w ≥ p else w (Vesta proofs) and c = w (Pallas proofs); `common_base(transcript_repr)`
-  absorbed first. §6.3 absorbs one type code per instance column, and a value outside its type
+  absorbed first. Total x/x3/Xi/actual-u role maps are then applied as in
+  PIPA §6.2b, without changing raw first Theta or zero padding. §6.3 absorbs one
+  type code per instance column, and a value outside its type
   is rejected (`InstanceType`). The precise prelude is the key representation, the
   `pipainst` tag, column count, all column lengths, all column type codes and finally
   the column-major values. The tag, count, lengths and type codes are native base-field
@@ -921,8 +945,8 @@ No stronger privacy or linkability conclusion is established by this paragraph.
   `u_j^{-1}L_j` as witnessed Q_j with [u_j]Q_j = L_j; fixed bases (`g[0]`, `U`, `W`,
   `ACC_TRIV.G`) by 3-bit windows with a complete final window; soft mode as in §2.7. Foreign
   arithmetic is CRT with a written carry bound per modulus.
-- **§11.1 `AccumulatorT`** = `G ‖ u_0..u_{K−1}` (32 + 32K bytes), canonical G ≠ O and nonzero
-  canonical u_j. **§11.2 PIPA-AS-v1** as §3.4, with slot modes Accept, Trivial and Corrected
+- **§11.1 `AccumulatorT`** = `G ‖ u_0..u_{K−1}` (32 + 32K bytes), canonical scoped
+  full-group G and nonzero canonical actual u_j. **§11.2 PIPA-AS-v1** as §3.4, with slot modes Accept, Trivial and Corrected
   (G* ≠ G, same u), and acceptance of a lineage proof = the decide of each exposed accumulator
   plus its own opening, batched per curve.
 - **§12 invariants.** S6 and S11 extended to cross-cycle typed instances and the σ, Q, A, Ω, W
@@ -1128,12 +1152,12 @@ hard slot; MV14 skip the VK-digest equality in A; MV15 allow a Corrected slot wi
 |---|---|
 | G4.1 | Fiat–Shamir, CRT and PCD/containment memos written; PIPA-R and PIPA-AS text merged into `plonk_ipa_v1.md` with KATs |
 | G4.2 | In-circuit verify cells ≤ σ 191k; Q 297k + 0.45k per instance; A 337k; Ω 212k; PIPA-AS (r = 4) 91k |
-| G4.3 | Ω descriptor V ≤ 72 with exactly one lookup; transport ≤ 4,821 B with the measured largest σ_send of 3,456 B. The captured degree-nine Bootstrap component produces 3,712 B proof / 4,800 B transport; current pinned-catalog source measurement, full catalog, root continuity and qualification remain open |
+| G4.3 | Current complete-catalog Ω proof body ≤ 3,936 B, transported Ω ≤ 5,044 B; all main/range rows fit and actual assignments replay. Matching genuine artifact, source catalog and root continuity qualification remain open |
 | G4.4 | PIPA-AS prover ≤ 3.5 s Mac 1t, ≤ 1.2 s 4t |
 | G4.5 | `msm_complete` at 2^16 measured on 4 threads; two decides ≤ 0.35 s Mac 4t |
 | G4.6 | Measured peak RSS ≤ 0.85 GiB for the A shape under the owned-witness API |
 | G4.7 | Cycle demo prove time within ±30% of §5.3 per proof kind |
-| G4.8 | σ under PIPA-R: 3,296 B unchanged; prove ≤ 0.85 CPU-s 1t; verify ≤ 45 ms 1t |
+| G4.8 | Every admitted current σ ≤ 3,520 B; record actual prove/verify time and memory for regenerated norm-product and total-map artifacts |
 
 ### M5: Λ and Ω relations (`iroha_kagemusha_proof` and the canonical wallet state integration)
 
@@ -1192,8 +1216,8 @@ Named tests:
 | # | Risk | Effect | Mitigation |
 |---|---|---|---|
 | R1 | P-256 cost: estimated 0.2–0.4M cells, measured today at 1.47M | above 0.30M Receive needs the A-split (+48–65 s Mac); above 0.40M every operation gains a Q leaf | G3.1 first; window tables; precommitted own key |
-| R2 | The captured compact Bootstrap component produces 4,800 B, leaving 21 B under the 4,821 B cap; current pinned-catalog capacity and qualification remain open | any descriptor growth beyond 21 B breaks the current Payment bound | G4.3; preserve exactly one lookup and establish the full admitted catalog/root before artifact freeze |
-| R3 | σ_send with enabled controls grows; largest measured revision-4 proof is 3,456 B | with a 4,800 B Ω, σ_send above 3,477 B breaks R9; the threshold is always 8,277 − actual Ω bytes | B5 fixed64 usage array and measured k14 controls; remeasure every allowlisted mask and apply G-Ω2 at artifact freeze |
+| R2 | Current complete-catalog Ω geometry and genuine artifact qualification remain open | A row or proof-length overflow makes the candidate inadmissible | G4.3; measure all stages and the current outer Ω before freezing the catalog/root |
+| R3 | Norm products, masking and enabled controls change σ geometry | Any σ above 3,520 B fails admission even if its paired Ω is smaller | Prove every admitted mask and enforce both role caps and the independent 8,564 B joint bound at artifact freeze |
 | R4 | No native measurement wider than k14; quotient cost of the wide gate sets | fold times 1.5–2× the model | G3.6, G3.7, G4.7 |
 | R5 | RAM: A at 0.84 GiB under the owned-witness API, close to 0.85 | over the cap | streaming (0.64 GiB); A-split; global scratch cap |
 | R6 | Phone performance: per-core ratio 1.1–2.3, 4-core wide-circuit speedup unmeasured, thermals | Receive up to ≈ 4 min on a slow phone | G5.6; fold while charging or in the foreground; preemption |
@@ -1234,15 +1258,16 @@ last were applied to the proposal and the wire record with the third set of owne
   quota-usage array and its in-place charges, the Request-recorded receiver blacklist with
   its history and Request-derived Receive selector, the core quota share expiry and maximum
   anchor response time, and the Send time span.
-- **Pending (G4.3). Wire §3.2:** `lineage.proof = π_Ω (3,648) ‖ acc_P (544) ‖ acc_V (544)`,
-  4,736 bytes, once the Ω descriptor is measured.
+- **Pending (G4.3). Wire §3.2:** `lineage.proof = π_Ω ‖ acc_P (544) ‖ acc_V (544)`;
+  derive the exact `π_Ω` length from the regenerated descriptor and enforce the 5,044-byte
+  Ω role cap. No historical component length is fixed into the wire contract.
 
-Contingent owner questions, asked only if a threshold fails:
+Remaining design gates:
 
-- **C-1.** A σ_send shape for an enabled control exceeds 8,277 − |Ω| (3,477 B with the
-  current 4,800 B compact component), so Payment breaks R9 (proposal §8 requires a new
-  owner decision). The largest measured revision-4 σ_send is 3,456 B; the joint bound
-  must be rechecked against actual frozen Ω bytes (§3.5).
-- **C-2.** The Ω descriptor exceeds V = 72 after q_f sharing and dropping the suffix: approve
-  128-bit fold challenges (Ω −512 B, about 120-bit per-query Fiat–Shamir security for those
-  challenges)?
+- A current σ exceeding 3,520 B, Ω exceeding 5,044 B, combined proofs exceeding
+  8,564 B, or a complete Payment exceeding 10,000 B fails admission. Fix the
+  descriptor or relation design and regenerate the coherent artifact set.
+- A stage that exceeds its domain or memory bound must be split or optimized
+  while preserving its constraints, containment behavior and causal privacy
+  boundary. Shorter challenge widths and omitted generator suffixes are not
+  accepted substitutes in this candidate.

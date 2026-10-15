@@ -54,7 +54,6 @@ where
                 randomness(),
                 config,
                 Mode {
-                    oracle: false,
                     transcript_repr: *setup.pk.vk().transcript_repr(),
                 },
                 &mut lookup::VendoredPermutation,

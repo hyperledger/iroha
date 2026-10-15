@@ -278,6 +278,28 @@ pub(super) fn constrain_fused<F: PastaField>(
     witness: Value<FusedWitness<F>>,
     layout: CarryLayout,
 ) -> Result<[Word<F>; LIMBS], Error> {
+    constrain_fused_padding(
+        glue, range, region, mode, modulus, operands, witness, layout, false,
+    )
+}
+
+pub(super) fn constrain_fused_padding<F: PastaField>(
+    glue: &mut GlueChip<F>,
+    range: &mut RunningSumChip<F>,
+    region: &mut Region<'_, F>,
+    mode: Mode,
+    modulus: ForeignModulus,
+    operands: (&[Word<F>; LIMBS], &[Word<F>; LIMBS]),
+    witness: Value<FusedWitness<F>>,
+    layout: CarryLayout,
+    norm: bool,
+) -> Result<[Word<F>; LIMBS], Error> {
+    if norm && (mode != Mode::Mul || layout == CarryLayout::Full) {
+        return Err(Error::Synthesis);
+    }
+    if norm {
+        super::norm_padding(modulus)?;
+    }
     // The caller proves the operand envelope before discarding its metadata.
     // Recheck mode/modulus restrictions here so a layout cannot cross domains.
     if (layout != CarryLayout::Full && !modulus.nat().cmp_vartime(&Nat::pow2(254)).is_gt())
@@ -297,7 +319,7 @@ pub(super) fn constrain_fused<F: PastaField>(
         range,
         region,
         witness.map(|w| w.c),
-        [LIMB_BITS, LIMB_BITS, TOP_LIMB_BITS],
+        [LIMB_BITS, LIMB_BITS, if norm { 81 } else { TOP_LIMB_BITS }],
     )?;
     let quotient = ranged(
         range,
@@ -316,7 +338,16 @@ pub(super) fn constrain_fused<F: PastaField>(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let (factor_left, factor_right, subtracted, padding) = match mode {
-        Mode::Mul => (left, right, &result, [0; LIMBS]),
+        Mode::Mul => (
+            left,
+            right,
+            &result,
+            if norm {
+                super::norm_padding(modulus)?
+            } else {
+                [0; LIMBS]
+            },
+        ),
         Mode::Div => (
             right,
             &result,

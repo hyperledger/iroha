@@ -308,7 +308,7 @@ where
             cancellation,
         )?;
         let circuit = SigmaCircuit::<C::ScalarExt>::keygen(shape.params);
-        let pk = ProvingKey::from_artifact_v2_cancellable(
+        let pk = ProvingKey::from_masked_artifact_v2_cancellable(
             original,
             verifier.binding(),
             &verifier.params,
@@ -499,7 +499,7 @@ where
     pub fn prove(
         &self,
         witness: &StepWitness<C::ScalarExt>,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
     ) -> Result<SigmaProof<C::ScalarExt>, SigmaError> {
         let circuit = self.circuit(witness)?;
         let native = circuit

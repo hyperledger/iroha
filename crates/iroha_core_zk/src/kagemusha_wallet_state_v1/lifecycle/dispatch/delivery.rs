@@ -38,7 +38,9 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             .preparation_entry(&manifest, send_request)?
             .ok_or(Error::Invalid("unknown selected Send"))?;
         let (scheme, _) = self.proofs.ledger_scope()?;
-        let original = self.archive.read_object(&send.request, REQUEST_MAX_BYTES)?;
+        let original = self
+            .archive
+            .read_object(&send.retained_request()?, REQUEST_MAX_BYTES)?;
         let selected = NativeIntentV1::decode(&original, &scheme)?;
         let Some(OperationRequestV1 {
             request_id,
@@ -69,29 +71,39 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         // Its originals and operation mapping survive Send output/capsule collection.
         let (_, manifest) = self.manifest()?;
         if let Some(entry) = self.preparation_entry(&manifest, &archive_id)? {
-            let bytes = self
-                .archive
-                .read_object(&entry.request, REQUEST_MAX_BYTES)?;
-            let intent = NativeIntentV1::decode(&bytes, &scheme)?;
-            let archive = intent
-                .archive_request()
-                .ok_or(Error::WitnessLost("bound Archive intent kind"))?;
-            if intent.request_id() != archive_id
-                || archive.send_capsule != capsule
-                || archive.send_commitment != commitment
-                || archive.request != *request
-                || archive.credited != credited
-            {
-                return Err(Error::WitnessLost("bound Archive originals"));
+            let bytes = if let Some(address) = entry.request {
+                Some(
+                    crate::kagemusha_wallet_archive_bytes_v1::PrivateArchiveBytes::from_guarded(
+                        zeroize::Zeroizing::new(
+                            self.archive.read_object(&address, REQUEST_MAX_BYTES)?,
+                        ),
+                    ),
+                )
+            } else {
+                self.pending_intake_original(archive_id, &entry)?
+            };
+            if let Some(bytes) = bytes {
+                let intent = NativeIntentV1::decode(&bytes, &scheme)?;
+                let archive = intent
+                    .archive_request()
+                    .ok_or(Error::WitnessLost("bound Archive intent kind"))?;
+                if intent.request_id() != archive_id
+                    || archive.send_capsule != capsule
+                    || archive.send_commitment != commitment
+                    || archive.request != *request
+                    || archive.credited != credited
+                {
+                    return Err(Error::WitnessLost("bound Archive originals"));
+                }
+                require_bound_payment(
+                    &archive.payment,
+                    &self.scheme_id,
+                    &self.wallet_id,
+                    &commitment,
+                    &operation,
+                )?;
+                return Ok(intent);
             }
-            require_bound_payment(
-                &archive.payment,
-                &self.scheme_id,
-                &self.wallet_id,
-                &commitment,
-                &operation,
-            )?;
-            return Ok(intent);
         }
         let evidence: KagemushaWalletCreditedV1 = archive::decode(credited)?;
         valid(evidence.validate())?;
@@ -134,6 +146,29 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         send_request: &[u8; 32],
         credited: &[u8],
     ) -> Result<RequestStatusV1, Error> {
+        if *send_request == [0; 32]
+            || credited.is_empty()
+            || credited.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1
+        {
+            return Err(Error::Invalid("bound Credited input"));
+        }
+        let (_, manifest) = self.manifest()?;
+        let send = self
+            .preparation_entry(&manifest, send_request)?
+            .ok_or(Error::Invalid("unknown selected Send"))?;
+        if send.kind != KagemushaWalletOperationKindV1::Send {
+            return Err(Error::Invalid("selected request is not Send"));
+        }
+        let capsule = send.capsule.ok_or(Error::Pending)?;
+        let archive_id = NativeIntentV1::archive_identity(&capsule, &self.wallet_id, credited);
+        if let Some(entry) = self.preparation_entry(&manifest, &archive_id)? {
+            if entry.kind != KagemushaWalletOperationKindV1::ArchiveSent {
+                return Err(Error::WitnessLost("bound Archive kind"));
+            }
+            if entry.request.is_none() {
+                return Ok(RequestStatusV1::Preparing);
+            }
+        }
         let intent = self.bound_archive_intent(send_request, credited)?;
         self.retry_request(&intent.request_id())
     }
@@ -149,7 +184,11 @@ mod tests {
         // Canonical wire fixture exercises binding only, never installed proof qualification.
         let payment: KagemushaWalletPaymentV1 = fixture("KagemushaWalletPaymentV1");
         let original = payment.to_canonical_bytes().unwrap();
-        let wallet = payment.request.body.payer_wallet_id;
+        let wallet = payment
+            .signed_request()
+            .expect("fixture Request")
+            .body
+            .payer_wallet_id;
         let scheme = payment.send.statement.scheme_id;
         let capsule = payment.send.receipt.capsule_commitment;
         let operation = payment.send.statement.operation_id(&wallet).unwrap();
@@ -212,15 +251,9 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         request: NativeIntentV1,
     ) -> Result<(), Error> {
         let (mut selected, mut manifest) = self.manifest()?;
-        let entry = Entry {
-            request: self
-                .archive
-                .write_object(&archive::encode(&request)?, REQUEST_MAX_BYTES)?,
-            plan: None,
-            capsule: None,
-            capsule_commitment: None,
-            operation: None,
-        };
+        let bytes = archive::encode(&request)?;
+        let mut entry = Entry::bound(&self.scheme_id, &self.wallet_id, &request, &bytes);
+        entry.request = Some(self.archive.write_object(&bytes, REQUEST_MAX_BYTES)?);
         self.publish_preparation(&mut selected, &mut manifest, request.request_id(), &entry)
     }
 
@@ -232,15 +265,12 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         operation: [u8; 32],
     ) -> Result<(), Error> {
         let (mut selected, mut manifest) = self.manifest()?;
-        let entry = Entry {
-            request: self
-                .archive
-                .write_object(&archive::encode(&request)?, REQUEST_MAX_BYTES)?,
-            plan: None,
-            capsule: Some(capsule),
-            capsule_commitment: Some(commitment),
-            operation: Some(operation),
-        };
+        let bytes = archive::encode(&request)?;
+        let mut entry = Entry::bound(&self.scheme_id, &self.wallet_id, &request, &bytes);
+        entry.request = Some(self.archive.write_object(&bytes, REQUEST_MAX_BYTES)?);
+        entry.capsule = Some(capsule);
+        entry.capsule_commitment = Some(commitment);
+        entry.operation = Some(operation);
         self.publish_preparation(&mut selected, &mut manifest, request.request_id(), &entry)
     }
 }

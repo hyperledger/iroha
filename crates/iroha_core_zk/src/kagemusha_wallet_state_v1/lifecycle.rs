@@ -13,6 +13,10 @@ pub use request::{ChargeOriginalsV1, OperationActionV1, OperationRequestV1, REQU
 
 mod dispatch;
 pub use dispatch::CreditProjectionV1;
+pub(super) use dispatch::intake::{
+    BATCH_BYTES as INTAKE_BATCH_BYTES, DRAFT_BYTES as INTAKE_DRAFT_BYTES,
+    DRAFT_OBJECTS as INTAKE_DRAFT_OBJECTS,
+};
 mod intent;
 pub(crate) use intent::ArchiveIntentV1;
 pub use intent::NativeIntentV1;

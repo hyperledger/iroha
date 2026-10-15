@@ -10,7 +10,7 @@ use iroha_plonk::{
     DescriptorBinding, Protocol,
     cs::{CurveV1, ProofSuffixV1, TranscriptV2},
     protocol::schedule::{ProofMessage, TranscriptStep},
-    transcript::{decode_point, decode_scalar},
+    transcript::{decode_generator, decode_scalar},
 };
 use p256::ecdsa::signature::Signer as _;
 
@@ -21,7 +21,7 @@ fn increment_blinding(proof: &mut [u8]) {
     let f: [u8; 32] = proof[f_offset..f_offset + 32].try_into().unwrap();
     let suffix: [u8; 32] = proof[f_offset + 32..].try_into().unwrap();
     decode_scalar::<Fp>(&c).unwrap();
-    decode_point::<Eq>(&suffix).unwrap();
+    decode_generator::<Eq>(&suffix).unwrap();
     let changed = (decode_scalar::<Fp>(&f).unwrap() + Fp::ONE).to_repr();
     assert_ne!(changed, f);
     proof[f_offset..f_offset + 32].copy_from_slice(&changed);
@@ -135,21 +135,24 @@ fn blinding_mutation_preserves_canonical_tail_and_wraps_in_vesta_scalar_field() 
     use iroha_plonk::transcript::encode_point;
 
     let point = Option::<EqAffine>::from(EqAffine::from_xy(-Fq::ONE, Fq::from(2))).unwrap();
-    let suffix = encode_point::<Eq>(&point);
-    for before in [Fp::ZERO, Fp::from(23), -Fp::ONE] {
-        let mut proof = [77; 128];
-        proof[32..64].copy_from_slice(&Fp::from(19).to_repr());
-        proof[64..96].copy_from_slice(&before.to_repr());
-        proof[96..].copy_from_slice(&suffix);
-        let original = proof;
-        increment_blinding(&mut proof);
-        assert_eq!(&proof[..64], &original[..64]);
-        assert_eq!(&proof[96..], &original[96..]);
-        assert_eq!(
-            decode_scalar::<Fp>(&proof[64..96].try_into().unwrap()),
-            Ok(before + Fp::ONE)
-        );
-        assert_ne!(proof, original);
+    // These are tail-encoding fixtures, not accepted proofs. The actual claim path
+    // above still requires native verification to reject every f -> f+1 mutation.
+    for suffix in [encode_point::<Eq>(&point), [0; 32]] {
+        for before in [Fp::ZERO, Fp::from(23), -Fp::ONE] {
+            let mut proof = [77; 128];
+            proof[32..64].copy_from_slice(&Fp::from(19).to_repr());
+            proof[64..96].copy_from_slice(&before.to_repr());
+            proof[96..].copy_from_slice(&suffix);
+            let original = proof;
+            increment_blinding(&mut proof);
+            assert_eq!(&proof[..64], &original[..64]);
+            assert_eq!(&proof[96..], &original[96..]);
+            assert_eq!(
+                decode_scalar::<Fp>(&proof[64..96].try_into().unwrap()),
+                Ok(before + Fp::ONE)
+            );
+            assert_ne!(proof, original);
+        }
     }
 }
 
@@ -169,6 +172,14 @@ fn blinding_mutation_refuses_truncated_noncanonical_or_invalid_tail() {
         changed[offset..offset + 32].fill(255);
         assert!(std::panic::catch_unwind(move || increment_blinding(&mut changed)).is_err());
     }
-    canonical[64..].fill(0); // Identity is not a valid generator suffix.
-    assert!(std::panic::catch_unwind(move || increment_blinding(&mut canonical)).is_err());
+    // Scoped G identity is canonical; malformed field/point words above still fail.
+    canonical[64..].fill(0);
+    let original = canonical;
+    increment_blinding(&mut canonical);
+    assert_eq!(&canonical[..32], &original[..32]);
+    assert_eq!(&canonical[64..], &original[64..]);
+    assert_eq!(
+        decode_scalar::<Fp>(&canonical[32..64].try_into().unwrap()),
+        Ok(Fp::ONE)
+    );
 }

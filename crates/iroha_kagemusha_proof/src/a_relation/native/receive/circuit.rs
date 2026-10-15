@@ -32,7 +32,7 @@ use crate::{
     tree::IndexedInsert,
 };
 use ff::PrimeField;
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine};
+use iroha_pasta::{Ep, Eq, Fp, Fq};
 use iroha_plonk::{
     VerifyingKey,
     cs::{Column, ConstraintSystem, Instance, InstanceType},
@@ -169,7 +169,7 @@ impl Cells {
         region: &mut Region<'_, Fp>,
         value: &FoldInput<Ep>,
     ) -> Result<FoldInputCells<Ep>, Error> {
-        let point = chip.witness_point(region, self.value(Ep::from(*value.g())))?;
+        let point = chip.witness_generator(region, self.value(Ep::from(*value.g())))?;
         let scalars = value
             .challenges()
             .iter()
@@ -185,7 +185,7 @@ impl Cells {
         region: &mut Region<'_, Fp>,
         value: &AccumulatorT<Eq>,
     ) -> Result<VestaClaimCells, Error> {
-        let (x, y) = Option::from(value.g().coordinates()).ok_or(Error::Synthesis)?;
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(value.g());
         let coordinates = [self.scalar(chip, region, x)?, self.scalar(chip, region, y)?];
         let challenges = self.words(chip, region, value.challenges())?;
         VestaClaimCells::constrain(chip, region, 16, coordinates, challenges)
@@ -314,7 +314,7 @@ pub(super) struct Stage {
     pub(super) source: Arc<Source>,
     pub(super) continuation: Option<Continuation>,
     pub(super) pallas: AccumulatorT<Ep>,
-    pub(super) fold: Vec<u8>,
+    pub(super) fold: crate::private_fold::PrivateFoldBytes,
     pub(super) known: bool,
 }
 /// Fixed native Receive verifier, raw-tape and public-column configuration.
@@ -344,6 +344,7 @@ impl Circuit<Fp> for Stage {
     fn without_witnesses(&self) -> Self {
         Self {
             known: false,
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
             ..self.clone()
         }
     }
@@ -457,11 +458,11 @@ impl Circuit<Fp> for Stage {
                     .collect::<Result<Vec<_>, _>>()?;
                 let corrections = source
                     .pallas_corrections
-                    .map(|point| chip.witness_point(&mut region, cells.value(Ep::from(point))))
+                    .map(|point| chip.witness_generator(&mut region, cells.value(Ep::from(point))))
                     .into_iter()
                     .collect::<Result<Vec<_>, _>>()?;
                 let (x, y) =
-                    Option::from(source.vesta_correction.coordinates()).ok_or(Error::Synthesis)?;
+                    iroha_plonk::transcript::generator_coordinates::<Eq>(&source.vesta_correction);
                 let vcorrections = [[
                     cells.scalar(&mut chip, &mut region, x)?,
                     cells.scalar(&mut chip, &mut region, y)?,

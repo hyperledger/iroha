@@ -259,7 +259,11 @@ fn coordinator_run<F: KagemushaWalletFsV1>(
         KagemushaWalletEffectV1::Receive {
             credit_id: received_credit(),
             payer_wallet_id: [0x88; 32],
-            amount: template.request.body.amount,
+            amount: template
+                .signed_request()
+                .expect("fixture signed Request")
+                .body
+                .amount,
         },
     );
     recorder.record(&mut w, "receive_commit", |w| {
@@ -271,7 +275,7 @@ fn coordinator_run<F: KagemushaWalletFsV1>(
         Some(&receive),
         KagemushaWalletEffectV1::RefreshPolicy {
             update_kind: KagemushaWalletPolicyUpdateKindV1::SchemePolicy,
-            update: template.request.body.scheme_policy,
+            update: template.request.scheme_policy,
             accepted_time_floor_ms: receive
                 .capsule
                 .body()
@@ -281,8 +285,8 @@ fn coordinator_run<F: KagemushaWalletFsV1>(
         },
     );
     let mut body = policy_step.capsule.body().clone();
-    body.successor_state.core.policy_epoch = template.request.body.policy_epoch;
-    body.successor_state.rest.scheme_policy = template.request.body.scheme_policy;
+    body.successor_state.core.policy_epoch = template.request.policy_epoch;
+    body.successor_state.rest.scheme_policy = template.request.scheme_policy;
     rebind(&mut policy_step, body);
     recorder.record(&mut w, "refresh_policy_commit", |w| {
         w.commit(policy_step.clone()).expect("RefreshPolicy")
@@ -297,8 +301,8 @@ fn coordinator_run<F: KagemushaWalletFsV1>(
     bind_lineage(&mut w, &mut send);
     let mut body = send.capsule.body().clone();
     body.successor_state.core.pending_outgoing_root = pending.root();
-    body.successor_state.core.policy_epoch = template.request.body.policy_epoch;
-    body.successor_state.rest.scheme_policy = template.request.body.scheme_policy;
+    body.successor_state.core.policy_epoch = template.request.policy_epoch;
+    body.successor_state.rest.scheme_policy = template.request.scheme_policy;
     rebind(&mut send, body);
     let sent = recorder.record(&mut w, "send_commit", |w| {
         w.commit(send.clone()).expect("Send")
@@ -410,28 +414,30 @@ fn coordinator_storage_counts_are_deterministic_and_filesystem_independent() {
     );
     // Baseline per operation (Android policy): fsync-class calls, provider archive puts and
     // protected-storage probes, Advance excluded. Storage optimizations update this table.
+    // Archive phases: within one phase only the first access reconciles (with its probes) and
+    // kept objects answer repeated gets, so probes fall while writes and syncs stay as they were.
     const BASELINE: [(&str, u64, u64, u64); 21] = [
         ("coordinator_open", 0, 0, 31),
-        ("bootstrap_commit", 35, 7, 229),
-        ("bootstrap_fold_turn_0", 11, 1, 263),
-        ("bootstrap_fold_turn_1", 27, 5, 373),
-        ("receive_commit", 23, 4, 273),
-        ("receive_fold_turn_0", 11, 1, 197),
-        ("receive_fold_turn_1", 1_407, 350, 13_650),
-        ("refresh_policy_commit", 19, 3, 295),
-        ("refresh_policy_fold_turn_0", 11, 1, 219),
-        ("refresh_policy_fold_turn_1", 27, 5, 318),
-        ("send_commit", 35, 7, 350),
-        ("send_fold_turn_0", 11, 1, 230),
-        ("send_fold_turn_1", 35, 7, 384),
-        ("load_commit", 19, 3, 328),
-        ("load_fold_turn_0", 11, 1, 241),
-        ("load_fold_turn_1", 27, 5, 340),
-        ("unload_commit", 23, 4, 317),
-        ("unload_fold_turn_0", 11, 1, 230),
-        ("unload_fold_turn_1", 35, 7, 384),
-        ("snapshot", 0, 0, 194),
-        ("send_exact_retry", 0, 0, 66),
+        ("bootstrap_commit", 35, 7, 132),
+        ("bootstrap_fold_turn_0", 11, 1, 73),
+        ("bootstrap_fold_turn_1", 27, 5, 82),
+        ("receive_commit", 23, 4, 175),
+        ("receive_fold_turn_0", 11, 1, 108),
+        ("receive_fold_turn_1", 1_407, 350, 809),
+        ("refresh_policy_commit", 19, 3, 176),
+        ("refresh_policy_fold_turn_0", 11, 1, 110),
+        ("refresh_policy_fold_turn_1", 27, 5, 121),
+        ("send_commit", 35, 7, 184),
+        ("send_fold_turn_0", 11, 1, 111),
+        ("send_fold_turn_1", 35, 7, 128),
+        ("load_commit", 19, 3, 179),
+        ("load_fold_turn_0", 11, 1, 112),
+        ("load_fold_turn_1", 27, 5, 123),
+        ("unload_commit", 23, 4, 178),
+        ("unload_fold_turn_0", 11, 1, 111),
+        ("unload_fold_turn_1", 35, 7, 128),
+        ("snapshot", 0, 0, 134),
+        ("send_exact_retry", 0, 0, 36),
     ];
     let actual = simulated
         .iter()
@@ -553,17 +559,22 @@ fn storage_baseline_persistent_map_insertion() {
                 );
             }
             assert_eq!(
-                (same_phase.reads, same_phase.storage_probes, same_phase.reconciles),
+                (
+                    same_phase.reads,
+                    same_phase.storage_probes,
+                    same_phase.reconciles
+                ),
                 (0, 0, 0),
                 "within one phase the repeated derivation is answered from memory"
             );
             if policy == Policy::NotRequired {
                 // Baseline: fsync-class calls, provider archive puts and storage probes of one
-                // insertion into a map of `size` entries.
+                // insertion into a map of `size` entries. The phase reconciles once (ten probes),
+                // then each create-new write and each archive get that reaches storage probes once.
                 let expected = if size == 0 {
-                    (1_376, 344, 13_343)
+                    (1_376, 344, 698)
                 } else {
-                    (1_884, 471, 23_100)
+                    (1_884, 471, 1_029)
                 };
                 assert_eq!(
                     (

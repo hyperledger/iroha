@@ -1083,21 +1083,39 @@ fn small_domains_are_unpinned() {
 }
 
 #[test]
-fn unit_tests_can_inject_the_captured_transcript_repr() {
+fn decoding_derives_the_exact_descriptor_bound_transcript_repr() {
+    use crate::{cs::InstanceModeV1, transcript::TranscriptRepr};
     use iroha_pasta::Fq;
+
     let params = params::<Ep>();
-    let vk = keygen_vk(
+    let pk = keygen_pk(
         &params,
         &CIRCUIT,
         &config(TranscriptV1::Blake2bChallenge255, true),
     )
-    .expect("vk");
-    let injected = vk.clone().with_transcript_repr_for_oracle(Fq::from(5));
+    .expect("key");
+    let vk = VerifyingKey::<Ep>::read(pk.vk().to_bytes(), pk.binding()).expect("decoded key");
+    assert_eq!(vk.to_bytes(), pk.vk().to_bytes());
     assert_eq!(
-        *injected.transcript_repr(),
-        crate::transcript::TranscriptRepr::Scalar(Fq::from(5))
+        *vk.transcript_repr(),
+        TranscriptRepr::Scalar(transcript_repr::<Fq>(pk.binding().digest(), vk.to_bytes()))
     );
-    assert_eq!(injected.to_bytes(), vk.to_bytes());
+
+    // The same serialized key under another admitted instance mode gets a
+    // freshly derived representation; bytes never carry an injected override.
+    let mut descriptor = pk.binding().descriptor().arithmetic_layout();
+    descriptor.instance_mode = InstanceModeV1::Direct;
+    let changed_binding = DescriptorBinding::new(descriptor).expect("direct descriptor");
+    let changed = VerifyingKey::<Ep>::read(vk.to_bytes(), &changed_binding).expect("rebound key");
+    assert_eq!(changed.to_bytes(), vk.to_bytes());
+    assert_ne!(changed.transcript_repr(), vk.transcript_repr());
+    assert_eq!(
+        *changed.transcript_repr(),
+        TranscriptRepr::Scalar(transcript_repr::<Fq>(
+            changed_binding.digest(),
+            changed.to_bytes()
+        ))
+    );
 }
 
 fn wallet_digest<C: PastaCurve>() {

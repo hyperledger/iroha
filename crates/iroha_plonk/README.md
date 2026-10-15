@@ -2,8 +2,10 @@
 
 The Iroha-native PIPA-v1 PLONKish/IPA proof system (`specs/plonk_ipa_v1.md`),
 built on `iroha_pasta`. Independent captured vectors and native reference tests
-pin arithmetic and protocol behavior. The temporary vendored proof oracle is
-retired; there is no second production proof engine.
+pin the arithmetic and protocol behavior of their recorded source. Changes to
+challenge roles, norm products and masking require fresh full-proof captures;
+historical proof bytes do not qualify the changed protocol. The temporary
+vendored proof oracle is retired; there is no second production proof engine.
 
 PIPA-R uses explicit `CircuitDescriptorV2` admission (`DescriptorBinding::new_v2`
 or `decode_v2`) and `KeygenConfigV2::pipa_r`. Its RP57 transcript runs in the
@@ -11,6 +13,28 @@ proof curve's base field, with canonical point coordinates, injective scalar
 encodings and declared instance ranges. V1 retained consumers continue to choose
 their scalar transcript explicitly; a V2 frame is never retried as V1.
 `VerifyingKey::transcript_repr` returns an explicit scalar/base-field enum.
+
+Native prover and verifier apply total challenge-role maps after raw field
+conversion: `nz(0) = 1` and `nz(a) = a` otherwise; evaluation uses
+`5 * nz(a)^2`, multiopening uses `25 * nz(a)^4`, and actual IPA round and
+masking challenges use `nz(a)`. Evaluation points are nonzero nonsquares outside
+the supported power-of-two domains; multiopening points are squares but not
+fourth powers and cannot equal a rotated evaluation point. Source-k normalization
+padding remains exactly zero. Permutation and lookup products use the norm
+factor `N(t) = t^2 - 5`; the recursive constraints enforce the same equations.
+These are protocol choices, with no challenge or salt retry.
+
+`accumulate_frame_cancellable` returns a closed `SuccinctFrame` only after the
+complete succinct parse and equation check. It retains the exact descriptor,
+original typed instances, first raw base-field squeeze and same-proof opening
+claim. The consumer must authenticate the selected key and source, enforce its
+frame schema, and fold or decide the claim. A frame is not a final verdict or a
+caller-supplied transcript prefix.
+
+Deferred generator `G` values admit the full group, including the canonical
+all-zero identity encoding. This exception is scoped to the unabsorbed generator
+suffix and its claim carriers. Absorbed commitments and IPA `L`/`R` messages
+remain canonical finite nonidentity points.
 
 `create_proof_owned_with_claim` returns proof bytes and the same run's `(G, u)`
 opening obligation. `accumulate_generator` checks the succinct equation and
@@ -103,15 +127,13 @@ Stage ENGINE-3 (tasks T12 and T13) provides:
   Advice buffers are moved into the prover and transformed to coefficients
   in place after the lookup and permutation products consume evaluations.
   The borrowed `create_proof` remains available for callers reusing a
-  witness; both paths produce identical proof bytes, and the owned advice
-  and coefficient buffers are zeroized on success and errors. Randomness
-  comes only from an
-  opaque `ProverRandomness` (OS-keyed ChaCha20, a hedged derivation over OS
-  entropy, the statement digest and the witness digest, or a recovery stream:
-  the prover draws 32 bytes from the caller's derivation and keys ChaCha20
-  itself with them and the witness and statement context, so a derivation
-  cannot opt out of the binding) and is drawn in the `BlindingScheduleV1`
-  order. The quotient is evaluated on exactly `d - 1` cosets by a compiled,
+  witness; both paths use the same proof construction, and the owned advice
+  and coefficient buffers are zeroized on success and errors. Each new proof
+  consumes one opaque `ProverRandomness` owner from fresh OS entropy, either
+  directly through `os` or through `hedged` with statement and witness digests.
+  No shipping API accepts a seeded recovery stream or caller randomness callback.
+  Recovery verifies and restores retained original proof bytes; a new attempt
+  samples fresh randomness. Draws follow the `BlindingScheduleV1` order. The quotient is evaluated on exactly `d - 1` cosets by a compiled,
   hash-consed expression DAG and recombined with a Vandermonde solve.
   Gate terms use fixed groups of eight with shared public challenge powers;
   omitted gates keep their original zero-valued positions and the final partial
@@ -141,11 +163,15 @@ A cancelled operation consumes its witness and may have advanced its transcript
 and randomness. Retry with a fresh operation token, transcript, witness, and
 randomness owner. Do not continue or publish a partially written IPA transcript.
 The ordinary APIs invoke the same implementation with no token, and an
-uncancelled token preserves proof bytes and arithmetic ordering.
+uncancelled token preserves arithmetic ordering and verification behavior.
+Independent fresh attempts are not required to reproduce proof bytes.
 
-Unit-test-only `create_proof_oracle` and `verify_full_oracle` reproduce and
-check the retained independent proof vectors. These hooks are never compiled
-into shipping binaries.
+Proof construction and verification use ordinary descriptor-bound native
+framing; injected transcript representations and alternate proof entry points
+are absent. Historical Poseidon primitive known-answer vectors retain test-only
+reference absorption without a proof-mode selector. The current native-generated
+regression corpus is not an independent prover oracle and must be recaptured for
+the changed equations.
 
 For a singleton, unrotated fixed-table lookup, the prover derives a public bit
 bound from the entire authenticated fixed column. Membership-checked usable
@@ -168,10 +194,10 @@ Rules this crate enforces:
   or pinned parameters;
 - the zero-knowledge query budget (S7) is checked;
 - opening queries are grouped statically (S1) and never overwritten (S3);
-- every proof message decodes canonically, the identity is never absorbed,
-  the proof length is exact, `x = 0` and `x^n = 1` are rejected, instance
-  column counts and lengths are exact in both instance modes, and only
-  `verify_full`, `batch_verify`, `decide` and `batch_decide` accept;
+- every proof message decodes canonically and the identity is never absorbed;
+  only deferred generator claims admit the canonical identity. The proof length
+  and instance shapes are exact; total role maps keep evaluation points outside
+  the domain. Only `verify_full`, `batch_verify`, `decide` and `batch_decide` accept;
 - verifier MSMs use complete formulas only; memory budgets change speed,
   never verdicts;
 - provers draw randomness only from `ProverRandomness`; fixed seeds exist

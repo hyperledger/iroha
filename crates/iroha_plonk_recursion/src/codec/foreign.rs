@@ -18,12 +18,12 @@ use iroha_plonk_gadgets::{
     statement::foreign_limbs,
 };
 
-/// A canonical finite Vesta point represented by Fq limbs in Fp.
+/// A canonical Vesta generator point (including identity) represented by Fq limbs in Fp.
 #[derive(Clone, Debug)]
-pub struct ForeignVestaPoint {
+pub struct ForeignVestaGenerator {
     /// Canonical x and y; malformed bytes select the fixed point (-1,2).
     pub coordinates: [ScalarCells<Ep>; 2],
-    /// Exactly the native finite PIPA point decoder's verdict.
+    /// Exactly the native canonical generator decoder's verdict.
     pub valid: Bit<Fp>,
 }
 
@@ -31,11 +31,11 @@ pub struct ForeignVestaPoint {
 #[must_use = "include valid in the incoming soft predicate before choosing its mode"]
 #[derive(Clone, Debug)]
 pub struct ForeignVestaAccumulator {
-    /// Canonical finite x/y; invalid accumulators select the pinned trivial point.
+    /// Canonical generator x/y; invalid accumulators select the pinned trivial point.
     pub coordinates: [ScalarCells<Ep>; 2],
     /// Nonzero Fp challenges; invalid accumulators select sixteen ones.
     pub challenges: [Word<Fp>; K],
-    /// Exact length, finite point and canonical nonzero scalar verdict.
+    /// Exact length, canonical generator and canonical nonzero scalar verdict.
     pub valid: Bit<Fp>,
 }
 
@@ -81,11 +81,11 @@ impl VerifierChip<Ep> {
     ///
     /// # Errors
     /// Layout failure. Every fixed-size byte value has a satisfying output.
-    pub fn decode_vesta_point_soft(
+    pub fn decode_vesta_generator_soft(
         &mut self,
         region: &mut Region<'_, Fp>,
         message: &LeElement<Fp>,
-    ) -> Result<ForeignVestaPoint, Error> {
+    ) -> Result<ForeignVestaGenerator, Error> {
         let canonical = le_max(
             &mut self.uint(),
             region,
@@ -163,8 +163,25 @@ impl VerifierChip<Ep> {
             .is_equal(region, actual_sign.word(), message.top().word())?;
         let mut valid = self.glue.and(region, &canonical, &square)?;
         valid = self.glue.and(region, &valid, &sign_matches)?;
-        // The identity's all-zero encoding has x=0; x^3+5 is the nonsquare5,
-        // so square=false already rejects both identity and signed zero.
+        // The unique identity encoding has canonical x=0 and clear sign.
+        // This branch is disjoint from finite validity because 5 is nonsquare.
+        let limb_sum = self
+            .glue
+            .add(region, message.lo().word(), message.hi().word())?;
+        let x_zero = self.glue.is_zero(region, &limb_sum)?;
+        let clear = self.glue.not(region, message.top())?;
+        let identity = self.glue.and(region, &x_zero, &clear)?;
+        let identity = self.glue.and(region, &identity, &canonical)?;
+        let sum = self.glue.add(region, valid.word(), identity.word())?;
+        valid = self.glue.assert_bool(region, &sum)?;
+        let zero = self.constant(region, Fq::ZERO)?;
+        let y = self.arithmetic.select(
+            &mut UintChip::new(&mut self.glue, &mut self.range),
+            region,
+            &identity,
+            &zero,
+            &y,
+        )?;
         let dummy_x = self.constant(region, -Fq::ONE)?;
         let dummy_y = self.constant(region, Fq::from(2))?;
         let safe_x = self.arithmetic.select(
@@ -181,7 +198,7 @@ impl VerifierChip<Ep> {
             &y,
             &dummy_y,
         )?;
-        Ok(ForeignVestaPoint {
+        Ok(ForeignVestaGenerator {
             coordinates: [self.export(region, &safe_x)?, self.export(region, &safe_y)?],
             valid,
         })
@@ -202,7 +219,7 @@ impl VerifierChip<Ep> {
         if messages.len() != 17 {
             return Err(Error::Synthesis);
         }
-        let point = self.decode_vesta_point_soft(region, &messages[0])?;
+        let point = self.decode_vesta_generator_soft(region, &messages[0])?;
         let expected = self.glue.constant(region, Fp::from(544))?;
         let right_length = self.glue.is_equal(region, length.word(), &expected)?;
         let mut valid = self.glue.and(region, &point.valid, &right_length)?;

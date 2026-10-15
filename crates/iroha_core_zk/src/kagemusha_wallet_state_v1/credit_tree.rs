@@ -30,7 +30,7 @@ impl CreditTree {
 
     pub fn record(
         &mut self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         credit: &KagemushaWalletCreditDigestLeafV1,
     ) -> Result<KagemushaWalletCreditDigestRecordV1, Error> {
         valid(credit.field_items())?;
@@ -57,7 +57,7 @@ impl CreditTree {
 
     pub fn opening(
         &self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         credit_id: &[u8; 32],
     ) -> Result<
         (
@@ -230,18 +230,18 @@ mod tests {
             }
         }
     }
-    impl ObjectStore for FaultStore {
-        fn read_object(&mut self, key: &[u8; 32], max: usize) -> Result<Vec<u8>, Error> {
-            self.inner.read_object(key, max)
+    impl ObjectWorkspace for FaultStore {
+        fn read_staged_object(&mut self, key: &[u8; 32], max: usize) -> Result<Vec<u8>, Error> {
+            self.inner.read_staged_object(key, max)
         }
-        fn write_object(&mut self, bytes: &[u8], max: usize) -> Result<[u8; 32], Error> {
+        fn stage_object(&mut self, bytes: &[u8], max: usize) -> Result<[u8; 32], Error> {
             if self.fail == Some(self.writes) {
                 return Err(Error::Storage(std::io::Error::other(
                     "uncertain credit publication",
                 )));
             }
             self.writes += 1;
-            self.inner.write_object(bytes, max)
+            self.inner.stage_object(bytes, max)
         }
     }
     fn sample_credit() -> KagemushaWalletCreditDigestLeafV1 {

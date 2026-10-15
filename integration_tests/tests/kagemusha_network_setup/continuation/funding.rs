@@ -1,5 +1,30 @@
 //! Ordinary network Activate/IssueLoad after the same owner registered its scheme and pack.
 use super::*;
+use iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLoadReceiptV1;
+
+#[path = "funding/finality_tests.rs"]
+mod finality_tests;
+
+// Every compact certificate must authenticate under the independently selected root.
+// Different exact-quorum witnesses may certify the same canonical header and result.
+fn verify_captured_load_finality(
+    anchor: &SumeragiFinalityVerifier,
+    block: &VerifiedSumeragiBlock,
+    receipt: &KagemushaWalletLoadReceiptV1,
+    finality: &KagemushaWalletLoadFinalityV1,
+) -> Result<()> {
+    finality.verify(anchor, receipt)?;
+    let certificate = block
+        .block()
+        .commit_certificate()
+        .ok_or_else(|| eyre!("Load block certificate missing"))?;
+    ensure!(
+        finality.certificate.consensus_header.as_slice() == certificate.consensus_header()
+            && finality.certificate.result_preimage.as_slice() == certificate.result_preimage(),
+        "live Load finality differs from the original authenticated decision"
+    );
+    Ok(())
+}
 
 pub(super) fn run(
     network: &Network,
@@ -215,17 +240,7 @@ pub(super) fn run(
         // The service returns DATA; only the independently selected signed genesis
         // and original H5 certificate can authorize this receipt's event inclusion.
         let mut finality = client.kagemusha().load_finality(&receipt)?;
-        finality.verify(&anchor, &receipt)?;
-        let certificate = block
-            .block()
-            .commit_certificate()
-            .ok_or_else(|| eyre!("Load block certificate missing"))?;
-        ensure!(
-            finality.certificate.consensus_header.as_slice() == certificate.consensus_header()
-                && finality.certificate.commit_qc.as_slice() == certificate.commit_qc()
-                && finality.certificate.result_preimage.as_slice() == certificate.result_preimage(),
-            "live Load finality differs from the original authenticated block"
-        );
+        verify_captured_load_finality(&anchor, &block, &receipt, &finality)?;
         let previous_certificate =
             iroha_data_model::sumeragi_finality::SumeragiCommitCertificateV1::from_verified(
                 &previous,

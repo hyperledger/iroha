@@ -29,6 +29,7 @@ use crate::{
 
 mod admission_work;
 pub mod keygen;
+pub mod masking;
 pub mod pk;
 mod source_fingerprint;
 #[cfg(test)]

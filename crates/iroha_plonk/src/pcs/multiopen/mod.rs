@@ -43,6 +43,8 @@ use ff::Field;
 use super::ipa::IpaError;
 use crate::transcript::TranscriptError;
 
+mod regularity;
+
 pub mod prover;
 #[cfg(test)]
 mod soundness_tests;
@@ -136,7 +138,12 @@ pub enum MultiopenError {
         /// The repeated query.
         query: usize,
     },
-    /// `x_3` equals an opening point.
+    /// The polynomial domain exceeds the supported parameter extent.
+    UnsupportedDomain {
+        /// Requested log2 domain size.
+        k: u32,
+    },
+    /// `x_3` lies in the domain or equals an earlier opening point.
     DegenerateChallenge,
     /// The inner-product argument failed.
     Ipa(IpaError),
@@ -184,7 +191,10 @@ impl fmt::Display for MultiopenError {
                     "query {query} repeats a query with a different evaluation"
                 )
             }
-            Self::DegenerateChallenge => f.write_str("x_3 equals an opening point"),
+            Self::UnsupportedDomain { k } => write!(f, "unsupported multiopen domain k = {k}"),
+            Self::DegenerateChallenge => {
+                f.write_str("x_3 lies in the domain or equals an opening point")
+            }
             Self::Ipa(error) => write!(f, "IPA: {error}"),
         }
     }

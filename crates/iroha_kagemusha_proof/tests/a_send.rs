@@ -292,7 +292,7 @@ fn genuine_send_sigma_and_same_tape_depth32_maps() {
     let shape = common::pinned_shape(common::folded(SigmaRelation::SEND), (12, 1));
     let prover = SigmaProver::<Eq>::keygen_with_params(shape, common::vesta_params(12)).unwrap();
     let sigma = prover
-        .prove(&circuit.witness.step, common::recovery(221))
+        .prove(&circuit.witness.step, common::fresh_randomness())
         .unwrap();
     let opening = accumulate_generator(
         prover.params(),
@@ -421,7 +421,9 @@ pub(crate) fn genuine_send_source_with_q_layout(
     let witness = send_objects::from_load(before);
     let shape = common::pinned_shape(common::folded(SigmaRelation::SEND), (12, 1));
     let prover = SigmaProver::<Eq>::keygen_with_params(shape, common::vesta_params(12)).unwrap();
-    let proof = prover.prove(&witness.step, common::recovery(221)).unwrap();
+    let proof = prover
+        .prove(&witness.step, common::fresh_randomness())
+        .unwrap();
     let verifier = prover.verifier();
     let class = SigmaClass::from_verifiers(&[(sigma_selector(3, 0).unwrap(), &verifier)]).unwrap();
     let vparams = common::vesta_params(16);
@@ -437,7 +439,7 @@ pub(crate) fn genuine_send_source_with_q_layout(
             },
             None,
             &vparams,
-            iroha_pasta::Fq::from(72),
+            iroha_kagemusha_proof::q_sigma::native::QSigmaFoldSource::NoIncoming,
             &FoldConfig::default(),
         )
         .unwrap();
@@ -451,7 +453,7 @@ pub(crate) fn genuine_send_source_with_q_layout(
     let qproof = q
         .prove(
             &prepared,
-            common::recovery(222),
+            common::fresh_randomness(),
             iroha_plonk::ProverConfig::default(),
         )
         .unwrap();

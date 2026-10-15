@@ -6,6 +6,21 @@
 
 use super::*;
 
+// Only public grammar DATA: repeated pinned public points and zero scalar words.
+// This is canonical syntax, never a valid fold, session, or source authority.
+fn public_fold_data() -> PrivateFoldBytes {
+    let mut bytes = [0_u8; FOLD_WITNESS_BYTES];
+    for word in 0..=2 * iroha_plonk_recursion::K {
+        bytes[word * 32..(word + 1) * 32]
+            .copy_from_slice(&iroha_plonk_recursion::PALLAS_TRIVIAL_GENERATOR);
+    }
+    let last = 32 * (2 * iroha_plonk_recursion::K + 2);
+    bytes[last..last + 32].copy_from_slice(&iroha_plonk_recursion::PALLAS_TRIVIAL_GENERATOR);
+    PrivateFoldBytes::from_fold(
+        FoldWitness::<super::super::Ep>::from_private_bytes(&bytes).unwrap(),
+    )
+}
+
 fn data(kind: CheckpointKind) -> (CheckpointLayout, Payload, [u8; 32]) {
     // A bounded grammar specimen only; it never enters a native restore/prover.
     let layout = CheckpointLayout::new(kind, [1; 32], [2; 32], 64).unwrap();
@@ -149,7 +164,7 @@ fn impossible_installed_lengths_refuse_before_counting_allocation() {
 }
 
 #[test]
-fn terminal_data_carrier_binds_exact_source_key_salt_and_original_length() {
+fn terminal_data_carrier_binds_exact_source_key_fold_and_original_length() {
     let layout = CheckpointLayout::new(CheckpointKind::Terminal, [1; 32], [2; 32], 64).unwrap();
     let context = [3; 32];
     let make = || TerminalPayload {
@@ -157,18 +172,14 @@ fn terminal_data_carrier_binds_exact_source_key_salt_and_original_length() {
         descriptor_digest: [1; 32],
         verifying_key_digest: [2; 32],
         source_context: context,
-        fold_salt: super::super::Fp::from(7).to_repr(),
+        fold: public_fold_data(),
         proof: vec![4; 64],
     };
     let original = make().encode(&layout, context).unwrap();
     assert_eq!(original.len(), layout.payload_bytes());
-    assert_eq!(
-        TerminalPayload::decode(&original, &layout, context)
-            .unwrap()
-            .encode(&layout, context)
-            .unwrap(),
-        original
-    );
+    let restored = TerminalPayload::decode(&original, &layout, context).unwrap();
+    assert_eq!(restored.fold.as_slice(), public_fold_data().as_slice());
+    assert_eq!(&*restored.encode(&layout, context).unwrap(), &*original);
     for mutation in 0..7 {
         let mut payload = make();
         match mutation {
@@ -176,7 +187,7 @@ fn terminal_data_carrier_binds_exact_source_key_salt_and_original_length() {
             1 => payload.descriptor_digest[0] ^= 1,
             2 => payload.verifying_key_digest[0] ^= 1,
             3 => payload.source_context[0] ^= 1,
-            4 => payload.fold_salt = [255; 32],
+            4 => payload.fold = PrivateFoldBytes::unknown(),
             5 => {
                 payload.proof.pop();
             }
@@ -188,12 +199,13 @@ fn terminal_data_carrier_binds_exact_source_key_salt_and_original_length() {
             "mutation{mutation}"
         );
     }
-    let mut extra = original.clone();
+    // This specimen contains only the public grammar DATA above.
+    let mut extra = original.to_vec();
     extra.push(0);
     for bad in [&[][..], &original[..original.len() - 1], &extra[..]] {
         assert!(TerminalPayload::decode(bad, &layout, context).is_err());
     }
-    let mut bad_header = original.clone();
+    let mut bad_header = original.to_vec();
     bad_header[0] ^= 1;
     assert!(TerminalPayload::decode(&bad_header, &layout, context).is_err());
     assert!(Payload::decode(&original, &layout, context).is_err());
@@ -255,7 +267,7 @@ fn terminal_checkpoint_read_refusal_preserves_original_and_exact_retry() {
         descriptor_digest: [1; 32],
         verifying_key_digest: [2; 32],
         source_context: context,
-        fold_salt: super::super::Fp::from(7).to_repr(),
+        fold: public_fold_data(),
         proof: vec![4; 64],
     };
     let bytes = payload.encode(&layout, context).unwrap();
@@ -278,13 +290,11 @@ fn terminal_checkpoint_read_refusal_preserves_original_and_exact_retry() {
         assert_eq!(error.clone(), error);
         assert!(!error.is_cancelled());
         assert!(std::error::Error::source(&error).is_some());
-        assert_eq!(
-            TerminalPayload::decode(&bytes, &layout, context)
-                .unwrap()
-                .encode(&layout, context)
-                .unwrap(),
-            bytes
-        );
+        let retried = TerminalPayload::decode(&bytes, &layout, context)
+            .unwrap()
+            .encode(&layout, context)
+            .unwrap();
+        assert_eq!(&*retried, &*bytes);
         assert!(matches!(
             norito::with_decode_limits_scope(limits, || {
                 TerminalPayload::decode(&bytes[..bytes.len() - 1], &layout, context)
@@ -292,4 +302,58 @@ fn terminal_checkpoint_read_refusal_preserves_original_and_exact_retry() {
             Err(Error::Input)
         ));
     }
+}
+
+#[test]
+fn terminal_checkpoint_rejects_retired_salt_layout() {
+    // Explicitly retained only as a denylist specimen. No old decoder exists.
+    #[derive(NoritoSerialize, NoritoSchema)]
+    #[norito_schema(name = "iroha.kagemusha.native.bootstrap.terminal_checkpoint.v1")]
+    struct RetiredSaltData {
+        version: u16,
+        descriptor_digest: [u8; 32],
+        verifying_key_digest: [u8; 32],
+        source_context: [u8; 32],
+        fold_salt: [u8; 32],
+        proof: Vec<u8>,
+    }
+    let layout = CheckpointLayout::new(CheckpointKind::Terminal, [1; 32], [2; 32], 64).unwrap();
+    let old = RetiredSaltData {
+        version: 1,
+        descriptor_digest: [1; 32],
+        verifying_key_digest: [2; 32],
+        source_context: [3; 32],
+        fold_salt: [0; 32],
+        proof: vec![4; 64],
+    };
+    let bytes = norito::encode_canonical(&old).unwrap();
+    assert_ne!(bytes.len(), layout.payload_bytes());
+    assert!(matches!(
+        TerminalPayload::decode(&bytes, &layout, [3; 32]),
+        Err(Error::Input)
+    ));
+}
+
+#[test]
+fn guarded_terminal_output_refuses_wrong_extent_and_does_not_consume_original() {
+    let layout = CheckpointLayout::new(CheckpointKind::Terminal, [1; 32], [2; 32], 64).unwrap();
+    let make = || TerminalPayload {
+        version: 1,
+        descriptor_digest: [1; 32],
+        verifying_key_digest: [2; 32],
+        source_context: [3; 32],
+        fold: public_fold_data(),
+        proof: vec![4; 64],
+    };
+    let original = make().encode(&layout, [3; 32]).unwrap();
+    for delta in [-1_isize, 1] {
+        let mut wrong = layout;
+        wrong.payload_bytes = wrong.payload_bytes.checked_add_signed(delta).unwrap();
+        assert!(matches!(make().encode(&wrong, [3; 32]), Err(Error::Input)));
+    }
+    let retried = TerminalPayload::decode(&original, &layout, [3; 32])
+        .unwrap()
+        .encode(&layout, [3; 32])
+        .unwrap();
+    assert_eq!(&*retried, &*original);
 }

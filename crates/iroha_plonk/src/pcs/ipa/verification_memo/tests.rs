@@ -641,7 +641,11 @@ where
 /// Four valid statements (two proofs, another public input, another key) and every class of
 /// change to proof bytes, public inputs, verifying key, descriptor binding and transcript
 /// representation.
-fn corpus<'a, C: PastaCurve>(main: &'a Setup<C>, other: &'a Setup<C>) -> Vec<Statement<'a, C>>
+fn corpus<'a, C: PastaCurve>(
+    main: &'a Setup<C>,
+    other: &'a Setup<C>,
+    changed_binding: &'a crate::keys::DescriptorBinding,
+) -> Vec<Statement<'a, C>>
 where
     C::ScalarExt: PoseidonField,
     C::Base: PoseidonField,
@@ -679,7 +683,11 @@ where
     let mut all = vec![
         main_statement("valid", &instances, &proof),
         main_statement("valid second proof", &instances, &second),
-        main_statement("valid other public input", &shifted_instances, &shifted_proof),
+        main_statement(
+            "valid other public input",
+            &shifted_instances,
+            &shifted_proof,
+        ),
         statement(
             "valid other key".into(),
             other.pk.binding(),
@@ -767,8 +775,8 @@ where
     all.push(main_statement("extra public column", &extra, &proof));
     all.push(main_statement("no public columns", &[], &proof));
 
-    // Key identity: another VK, another binding, and the same VK bytes under another
-    // transcript representation (the oracle-only constructor).
+    // Key identity: another VK, another binding, and the same VK bytes admitted under
+    // a changed relation, deriving a different transcript representation.
     all.push(statement(
         "other verifying key".into(),
         main.pk.binding(),
@@ -792,13 +800,15 @@ where
             &proof,
         ));
     }
-    let foreign_repr = main_vk
-        .clone()
-        .with_transcript_repr_for_oracle(C::ScalarExt::from(7));
+    let foreign_repr = crate::keys::VerifyingKey::<C>::read(main_vk.to_bytes(), changed_binding)
+        .expect("same key bytes admitted under a changed relation");
+    assert_ne!(changed_binding.digest(), main.pk.binding().digest());
+    assert_eq!(foreign_repr.descriptor_digest(), changed_binding.digest());
+    assert_ne!(foreign_repr.transcript_repr(), main_vk.transcript_repr());
     assert_eq!(foreign_repr.to_bytes(), main_vk.to_bytes());
     all.push(statement(
-        "same key bytes under another transcript representation".into(),
-        main.pk.binding(),
+        "same key bytes under another admitted descriptor-derived representation".into(),
+        changed_binding,
         &foreign_repr,
         &instances,
         &proof,
@@ -820,7 +830,23 @@ where
     for choice in [CHOICES[0], CHOICES[1]] {
         let main = setup::<C, _>(&CIRCUIT, choice);
         let other = setup::<C, _>(&Arithmetic { rows: 5, ..CIRCUIT }, choice);
-        let corpus = corpus(&main, &other);
+        // Preserve every byte extent and exact key encoding while changing a relation
+        // coefficient. Ordinary admission derives the new representation; no override exists.
+        let mut descriptor = main.pk.binding().descriptor().arithmetic_layout();
+        let scaled = descriptor
+            .gates
+            .iter_mut()
+            .flatten()
+            .flatten()
+            .find_map(|node| match node {
+                crate::cs::descriptor::ExprNodeV1::Scaled(bytes) => Some(bytes),
+                _ => None,
+            })
+            .expect("scaled arithmetic gate");
+        *scaled = C::ScalarExt::from(8).to_repr();
+        let changed_binding =
+            crate::keys::DescriptorBinding::new(descriptor).expect("same-layout changed relation");
+        let corpus = corpus(&main, &other, &changed_binding);
         // Memo off: the unmemoized checklist on its own owner, which it never fills.
         let reference_owner = PinnedParams::<C>::derive(K).expect("params");
         let reference: Vec<_> = corpus

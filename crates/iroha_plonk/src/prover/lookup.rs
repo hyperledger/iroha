@@ -10,10 +10,10 @@
 //!
 //! ```text
 //! z(omega^0) = 1,
-//! z(omega^(i+1)) = z(omega^i) (A_i + beta)(S_i + gamma) / ((A'_i + beta)(S'_i + gamma))
+//! z(omega^(i+1)) = z(omega^i) N(A_i + beta) N(S_i + gamma) / (N(A'_i + beta) N(S'_i + gamma))
 //! ```
 //!
-//! for `i < u`, fills rows `n-b..n` with random values, draws its blind and
+//! where `N(t) = t^2 - 5`. For `i < u`, it fills rows `n-b..n` with random values, draws its blind and
 //! writes its commitment.
 //!
 //! # The permutation
@@ -432,8 +432,9 @@ where
                     .zip(&lookup.table_values[..u]),
             )
         {
-            *numerator = (*numerator + beta) * (*denominator + gamma);
-            *denominator = (*a + beta) * (*s + gamma);
+            *numerator =
+                crate::norm_factor(*numerator + beta) * crate::norm_factor(*denominator + gamma);
+            *denominator = crate::norm_factor(*a + beta) * crate::norm_factor(*s + gamma);
         }
         invert_column_cancellable(&mut lookup.compressed_table[..u], cancellation)?;
         let mut product = SecretPolynomial::new(core::mem::take(&mut lookup.compressed_input));
@@ -679,10 +680,10 @@ mod tests {
     /// The consuming transition preserves the old interpolation, random
     /// stream and commitment while reusing the compressed-input and both
     /// permuted-evaluation allocations. The reference uses independent scalar
-    /// inversions, including the specified zero-denominator behavior.
+    /// inversions, including affine factors forced to zero before the norm.
     fn check_product_consumes_evaluation_buffers<C: PastaCurve>(
         nontrivial: bool,
-        zero_denominator: bool,
+        zero_affine_factor: bool,
     ) {
         let circuit = Lookups {
             rows: 9,
@@ -708,7 +709,7 @@ mod tests {
         pk.domain().ifft(&mut expected_table).expect("table ifft");
         let input_blind = C::ScalarExt::from(13);
         let table_blind = C::ScalarExt::from(17);
-        let beta = if zero_denominator {
+        let beta = if zero_affine_factor {
             -input_values[2]
         } else {
             C::ScalarExt::from(19)
@@ -740,8 +741,11 @@ mod tests {
         let mut expected_product = vec![C::ScalarExt::ONE];
         let mut running = C::ScalarExt::ONE;
         for row in 0..shape.usable_rows {
-            let denominator = (input_values[row] + beta) * (table_values[row] + gamma);
-            let numerator = (compressed_input[row] + beta) * (compressed_table[row] + gamma);
+            let denominator = ((input_values[row] + beta).square() - C::ScalarExt::from(5))
+                * ((table_values[row] + gamma).square() - C::ScalarExt::from(5));
+            let numerator = ((compressed_input[row] + beta).square() - C::ScalarExt::from(5))
+                * ((compressed_table[row] + gamma).square() - C::ScalarExt::from(5));
+            assert!(!bool::from(denominator.is_zero()));
             running *= denominator.invert().unwrap_or(C::ScalarExt::ZERO) * numerator;
             expected_product.push(running);
         }
@@ -809,9 +813,9 @@ mod tests {
     #[test]
     fn product_consumes_evaluation_buffers_on_both_curves() {
         for nontrivial in [false, true] {
-            for zero_denominator in [false, true] {
-                check_product_consumes_evaluation_buffers::<Ep>(nontrivial, zero_denominator);
-                check_product_consumes_evaluation_buffers::<Eq>(nontrivial, zero_denominator);
+            for zero_affine_factor in [false, true] {
+                check_product_consumes_evaluation_buffers::<Ep>(nontrivial, zero_affine_factor);
+                check_product_consumes_evaluation_buffers::<Eq>(nontrivial, zero_affine_factor);
             }
         }
     }

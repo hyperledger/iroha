@@ -25,10 +25,9 @@ use iroha_plonk::{
 use iroha_plonk_gadgets::{
     Bit, GlueChip, U128, Uint, Word,
     bytes::element::{LeElement, decode_pipa_point_soft, le_max, modulus_max},
-    ecc::{EccChip, NonIdentityPoint},
+    ecc::{AssignedPoint, EccChip, NonIdentityPoint},
     ff::CanonicalS6,
     range::u128::UintChip,
-    statement::foreign_limbs,
 };
 
 /// Canonical scalar cells for one proof curve, including the injective S6 limbs.
@@ -41,6 +40,16 @@ pub struct ScalarCells<C: PastaCurve> {
 }
 
 impl<C: PastaCurve> ScalarCells<C> {
+    /// Assigns a private scalar with its complete canonical field certificate.
+    pub fn assign_value(
+        uint: &mut UintChip<'_, C::Base>,
+        region: &mut Region<'_, C::Base>,
+        value: iroha_plonk::frontend::Value<C::ScalarExt>,
+    ) -> Result<Self, Error> {
+        let canonical = CanonicalS6::assign_value(uint, region, value)?;
+        Self::from_canonical(uint, region, canonical)
+    }
+
     /// Embeds a canonical base-field word as the same scalar integer.
     /// This is not modular reduction: words outside the scalar field reject.
     ///
@@ -108,6 +117,18 @@ impl<C: PastaCurve> ScalarCells<C> {
     }
     pub(crate) const fn canonical(&self) -> &CanonicalS6<C::Base> {
         &self.canonical
+    }
+
+    /// Maps zero to one on the exact retained canonical cells without a new range proof.
+    /// # Errors
+    /// Layout errors or an invalid retained modulus certificate.
+    pub(crate) fn nonzero_or_one(
+        &self,
+        uint: &mut UintChip<'_, C::Base>,
+        region: &mut Region<'_, C::Base>,
+    ) -> Result<Self, Error> {
+        let canonical = self.canonical.clone().nonzero_or_one(uint, region)?;
+        Self::from_canonical(uint, region, canonical)
     }
 
     /// Proves whether this canonical scalar belongs to a descriptor instance type.
@@ -189,6 +210,76 @@ pub struct SoftScalar<C: PastaCurve> {
     pub value: ScalarCells<C>,
     /// Whether the bytes canonically encode a proof scalar.
     pub valid: Bit<C::Base>,
+}
+
+/// A generator claim point, including the canonical identity (0, 0).
+/// Ordinary transcript commitments retain their separate finite-point type.
+#[derive(Clone, Debug)]
+pub struct GeneratorPoint<F: PastaField>(AssignedPoint<F>);
+impl<F: PastaField> GeneratorPoint<F> {
+    pub(crate) fn from_assigned(value: AssignedPoint<F>) -> Self {
+        Self(value)
+    }
+    /// Exact constrained x coordinate; zero for identity.
+    pub const fn x(&self) -> &Word<F> {
+        self.0.x()
+    }
+    /// Exact constrained y coordinate; zero for identity.
+    pub const fn y(&self) -> &Word<F> {
+        self.0.y()
+    }
+    /// Complete curve-or-identity point on the same cells.
+    pub const fn point(&self) -> &AssignedPoint<F> {
+        &self.0
+    }
+    /// Assigned coordinates.
+    pub fn value(&self) -> iroha_plonk::frontend::Value<(F, F)> {
+        self.0.value()
+    }
+}
+/// Exact generator decode verdict and a safe complete-arithmetic point.
+#[derive(Clone, Debug)]
+pub struct SoftGenerator<C: PastaCurve> {
+    /// Original canonical generator or the fixed finite dummy (-1, 2).
+    pub value: GeneratorPoint<C::Base>,
+    /// Exact canonical GroupEncoding acceptance predicate, including zero32.
+    pub valid: Bit<C::Base>,
+}
+/// Decodes a generator claim or final suffix; ordinary messages use decode_point_soft.
+/// # Errors
+/// Layout failure only; malformed encodings select the fixed finite dummy.
+pub fn decode_generator_soft<C: PastaCurve>(
+    uint: &mut UintChip<'_, C::Base>,
+    ecc: &mut EccChip<C>,
+    region: &mut Region<'_, C::Base>,
+    element: &LeElement<C::Base>,
+) -> Result<SoftGenerator<C>, Error> {
+    let decoded = iroha_plonk_gadgets::bytes::element::decode_point_soft(uint, region, element)?;
+    let x = uint
+        .glue()
+        .select_constant(region, &decoded.valid, &decoded.x, -C::Base::ONE)?;
+    let y = uint
+        .glue()
+        .select_constant(region, &decoded.valid, &decoded.y, C::Base::from(2))?;
+    let value = GeneratorPoint::from_assigned(ecc.constrain_point(region, &x, &y)?);
+    Ok(SoftGenerator {
+        value,
+        valid: decoded.valid,
+    })
+}
+/// Hard canonical generator decode, admitting identity only as all-zero bytes.
+/// # Errors
+/// Layout failure; malformed encodings are unsatisfiable.
+pub fn decode_generator<C: PastaCurve>(
+    uint: &mut UintChip<'_, C::Base>,
+    ecc: &mut EccChip<C>,
+    region: &mut Region<'_, C::Base>,
+    element: &LeElement<C::Base>,
+) -> Result<GeneratorPoint<C::Base>, Error> {
+    let decoded = decode_generator_soft(uint, ecc, region, element)?;
+    uint.glue()
+        .enforce_constant(region, decoded.valid.word(), C::Base::ONE)?;
+    Ok(decoded.value)
 }
 
 /// A total finite-point decode: rejected bytes select `(-1, 2)`.
@@ -300,25 +391,6 @@ pub fn map_challenge<C: PastaCurve>(
         )?;
         return ScalarCells::from_canonical(uint, region, canonical);
     }
-    let below = le_max(
-        uint,
-        region,
-        canonical.lo(),
-        &UintChip::widen::<127, 128>(canonical.hi()),
-        modulus_max::<Fp>(),
-    )?;
-    let subtract = uint.glue().not(region, &below)?;
-    let p = C::Base::from_raw_reduced((-Fp::ONE).to_canonical_limbs()) + C::Base::ONE;
-    let result = uint.glue().linear(
-        region,
-        &[(C::Base::ONE, word), (-p, subtract.word())],
-        C::Base::ZERO,
-    )?;
-    let limbs = result.value().map(|value| foreign_limbs(&value));
-    let lo = uint.assign::<128>(region, limbs.map(|parts| parts[0]))?;
-    let hi = uint.assign::<127>(region, limbs.map(|parts| parts[1]))?;
-    let value = ScalarCells::from_limbs(uint, region, &lo, &hi)?;
-    let native = value.native_word().ok_or(Error::Synthesis)?;
-    GlueChip::assert_equal(region, native, &result)?;
-    Ok(value)
+    let canonical = canonical.reduce_fq_to_fp(uint, region)?;
+    ScalarCells::from_canonical(uint, region, canonical)
 }

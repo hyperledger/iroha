@@ -213,7 +213,7 @@ fn archive_record_access_counts_two_copies_and_their_syncs() {
     let (read, get) = Counters::observe(|| {
         provider.with_archive(&slot, |archive| archive.read_record(&[4; 32], 6))
     });
-    assert_eq!(read.expect("get"), Some(b"record".to_vec()));
+    assert_eq!(read.expect("get").as_deref(), Some(b"record".as_slice()));
     assert_eq!(
         (
             get.archive_gets,

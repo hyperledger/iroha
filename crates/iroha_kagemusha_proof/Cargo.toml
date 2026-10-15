@@ -45,8 +45,6 @@ iroha_data_model = { workspace = true, default-features = false }
 iroha_sumeragi = { workspace = true }
 # Independent native normal-validator signature and BLS program oracles.
 iroha_crypto = { workspace = true, default-features = false, features = ["bls"] }
-# Deterministic recovery streams for reproducible test proofs.
-rand_chacha = "0.3.1"
 # Thread pools for the measurement harness and the parallel tamper sweep.
 rayon = { workspace = true }
 # High-resolution process CPU time (`CLOCK_PROCESS_CPUTIME_ID`) for the

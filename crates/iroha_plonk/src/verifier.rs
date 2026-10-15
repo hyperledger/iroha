@@ -259,11 +259,11 @@ impl From<ProtocolError> for VerifyError {
     }
 }
 
-/// How the transcript is primed (production, or oracle mode with the
-/// vendored `transcript_repr`, spec 6.4).
+/// The canonical verifying-key transcript binding and test-only tape recording.
 #[derive(Clone, Copy, Debug)]
 struct Mode<C: PastaCurve> {
-    oracle: bool,
+    #[cfg(test)]
+    record_challenges: bool,
     transcript_repr: TranscriptRepr<C>,
 }
 
@@ -271,8 +271,19 @@ struct Mode<C: PastaCurve> {
 struct ReadProof<C: PastaCurve> {
     pending: PendingOpening<C>,
     suffix: Option<C::AffineExt>,
+    first_raw: PrivateRaw<C::Base>,
     #[cfg(test)]
     challenges: Vec<C::ScalarExt>,
+}
+
+// A retained raw challenge is private even when this invocation does not export it.
+struct PrivateRaw<F: PastaField>(Option<F>);
+impl<F: PastaField> Drop for PrivateRaw<F> {
+    fn drop(&mut self) {
+        if let Some(value) = self.0.as_mut() {
+            value.zeroize();
+        }
+    }
 }
 
 /// Checks the instance shape against the descriptor (S4).
@@ -429,7 +440,7 @@ impl<F: PastaField> ConstraintEvaluations<'_, F> {
             }
             ConstraintTerm::PermutationLast => {
                 let last = self.sets.last().ok_or(ProtocolError::Overflow)?.product;
-                masks.last * (last.square() - last)
+                masks.last * (last - one)
             }
             ConstraintTerm::PermutationLink { set } => {
                 let previous = set
@@ -458,11 +469,12 @@ impl<F: PastaField> ConstraintEvaluations<'_, F> {
                 let mut delta = self.beta * self.x * F::DELTA.pow_vartime([first]);
                 let mut left = evals.next;
                 for (column, sigma) in columns.iter().zip(sigmas) {
-                    left *= self.column(column)? + self.beta * sigma + self.gamma;
+                    left *=
+                        crate::norm_factor(self.column(column)? + self.beta * sigma + self.gamma);
                 }
                 let mut right = evals.product;
                 for column in columns {
-                    right *= self.column(column)? + delta + self.gamma;
+                    right *= crate::norm_factor(self.column(column)? + delta + self.gamma);
                     delta *= F::DELTA;
                 }
                 (left - right) * masks.active
@@ -473,14 +485,16 @@ impl<F: PastaField> ConstraintEvaluations<'_, F> {
                 let a_minus_s = evals.input - evals.table;
                 match part {
                     LookupConstraint::First => masks.first * (one - evals.product),
-                    LookupConstraint::Last => masks.last * (evals.product.square() - evals.product),
+                    LookupConstraint::Last => masks.last * (evals.product - one),
                     LookupConstraint::Product => {
                         let input = self.compress(&argument.inputs)?;
                         let table = self.compress(&argument.tables)?;
                         (evals.product_next
-                            * (evals.input + self.beta)
-                            * (evals.table + self.gamma)
-                            - evals.product * (input + self.beta) * (table + self.gamma))
+                            * crate::norm_factor(evals.input + self.beta)
+                            * crate::norm_factor(evals.table + self.gamma)
+                            - evals.product
+                                * crate::norm_factor(input + self.beta)
+                                * crate::norm_factor(table + self.gamma))
                             * masks.active
                     }
                     LookupConstraint::Start => masks.first * a_minus_s,
@@ -583,23 +597,13 @@ where
     let protocol = admit_statement(params, binding, vk, instances, proof)?;
     let shape = *protocol.shape();
 
-    let hash = if mode.oracle {
-        oracle_hash::<C>(descriptor)?
-    } else {
-        DescriptorHash::<C>::production(descriptor.transcript)
-    };
+    let hash = DescriptorHash::<C>::production(descriptor.transcript);
     let mut transcript = TranscriptReader::<C, _>::new(hash, proof);
     #[cfg(test)]
-    if mode.oracle {
+    if mode.record_challenges {
         transcript.record_challenges();
     }
-    if mode.oracle {
-        transcript.common_scalar(
-            mode.transcript_repr
-                .scalar()
-                .ok_or(TranscriptError::ProfileMismatch)?,
-        );
-    } else if let Some(types) = &descriptor.instance_types {
+    if let Some(types) = &descriptor.instance_types {
         absorb_prelude_v2::<C, _>(
             &mut transcript,
             &mode.transcript_repr,
@@ -645,7 +649,8 @@ where
 
     // Rows 1-6.
     let advice_commitments = read_points::<C, _>(&mut transcript, shape.num_advice)?;
-    let theta = transcript.squeeze_challenge();
+    let (theta, first_raw) = transcript.squeeze_challenge_with_raw();
+    let first_raw = PrivateRaw(first_raw);
     let mut permuted = Vec::with_capacity(shape.lookups);
     for _ in 0..shape.lookups {
         let input = transcript.read_point()?;
@@ -659,7 +664,7 @@ where
     let random_commitment = transcript.read_point()?;
     let y = transcript.squeeze_challenge();
     let h_commitments = read_points::<C, _>(&mut transcript, shape.quotient_pieces)?;
-    let x = transcript.squeeze_challenge();
+    let x = crate::transcript::pipa_r::evaluation_challenge(transcript.squeeze_challenge());
     let n = u64::try_from(shape.n).map_err(|_| ProtocolError::Overflow)?;
     let xn = x.pow_vartime([n]);
     check_challenge(x, xn)?;
@@ -823,7 +828,7 @@ where
         &mut transcript,
     )?;
     let suffix = if shape.folded_generator_suffix {
-        Some(transcript.read_unabsorbed_point()?)
+        Some(transcript.read_unabsorbed_generator()?)
     } else {
         None
     };
@@ -833,44 +838,17 @@ where
     Ok(ReadProof {
         pending,
         suffix,
+        first_raw,
         #[cfg(test)]
         challenges,
     })
 }
 
-/// The oracle-mode hash of the descriptor's transcript.
-#[cfg(test)]
-fn oracle_hash<C: PastaCurve>(
-    descriptor: &ProtocolDescriptor,
-) -> Result<DescriptorHash<C>, TranscriptError>
-where
-    C::ScalarExt: PoseidonField,
-    C::Base: PoseidonField,
-{
-    Ok(DescriptorHash::<C>::oracle(
-        descriptor
-            .transcript
-            .retained()
-            .ok_or(TranscriptError::ProfileMismatch)?,
-    ))
-}
-
-/// Oracle mode is unavailable in shipping builds and explicitly rejects use.
-#[cfg(not(test))]
-fn oracle_hash<C: PastaCurve>(
-    _descriptor: &ProtocolDescriptor,
-) -> Result<DescriptorHash<C>, TranscriptError>
-where
-    C::ScalarExt: PoseidonField,
-    C::Base: PoseidonField,
-{
-    Err(TranscriptError::ProfileMismatch)
-}
-
 /// The production mode of a verifying key.
 fn production<C: PastaCurve>(vk: &VerifyingKey<C>) -> Mode<C> {
     Mode {
-        oracle: false,
+        #[cfg(test)]
+        record_challenges: false,
         transcript_repr: *vk.transcript_repr(),
     }
 }
@@ -1149,81 +1127,6 @@ where
     verify_full(params, &binding, &vk, instances, proof, budget)
 }
 
-/// [`verify_full`] in oracle mode (spec 6.4): the vendored
-/// `transcript_repr`, `fe_to_fe` Poseidon point absorption, no instance
-/// frame. Unit tests only.
-///
-/// # Errors
-///
-/// As [`verify_full`].
-#[cfg(test)]
-#[doc(hidden)]
-pub fn verify_full_oracle<C: PastaCurve>(
-    params: &PinnedParams<C>,
-    binding: &DescriptorBinding,
-    vk: &VerifyingKey<C>,
-    instances: &[Vec<C::ScalarExt>],
-    proof: &[u8],
-    budget: MemoryBudget,
-    vendored_transcript_repr: C::ScalarExt,
-) -> Result<(), VerifyError>
-where
-    C::ScalarExt: PoseidonField,
-    C::Base: PoseidonField,
-{
-    let mode = Mode {
-        oracle: true,
-        transcript_repr: TranscriptRepr::Scalar(vendored_transcript_repr),
-    };
-    let read = read_proof(
-        params, binding, vk, instances, proof, mode, budget, &AllTerms, None,
-    )?;
-    Ok(read
-        .pending
-        .verify_full(params, read.suffix.as_ref(), budget)?)
-}
-
-/// Deferred oracle verification with the vendored transcript framing.
-///
-/// This exposes the same unchecked generator obligation as
-/// [`accumulate_succinct`] solely for independent oracle comparisons. A returned
-/// claim must still be decided; it is never a proof acceptance.
-/// The second tuple element records every actual native transcript squeeze.
-///
-/// # Errors
-/// As [`accumulate_succinct`], using the supplied vendored transcript scalar.
-#[cfg(test)]
-#[doc(hidden)]
-pub fn accumulate_succinct_oracle<C: PastaCurve>(
-    params: &PinnedParams<C>,
-    binding: &DescriptorBinding,
-    vk: &VerifyingKey<C>,
-    instances: &[Vec<C::ScalarExt>],
-    proof: &[u8],
-    budget: MemoryBudget,
-    vendored_transcript_repr: C::ScalarExt,
-) -> Result<(PendingAccumulator<C>, Vec<C::ScalarExt>), VerifyError>
-where
-    C::ScalarExt: PoseidonField,
-    C::Base: PoseidonField,
-{
-    if binding.descriptor().proof_suffix != ProofSuffixV1::FoldedGenerator {
-        return Err(VerifyError::SuffixRequired);
-    }
-    let mode = Mode {
-        oracle: true,
-        transcript_repr: TranscriptRepr::Scalar(vendored_transcript_repr),
-    };
-    let read = read_proof(
-        params, binding, vk, instances, proof, mode, budget, &AllTerms, None,
-    )?;
-    let folded = read.suffix.ok_or(VerifyError::SuffixRequired)?;
-    let pending = read
-        .pending
-        .accumulate(params, &folded, &vendored_transcript_repr, budget)?;
-    Ok((pending, read.challenges))
-}
-
 /// [`verify_full`] with a constraint filter (malicious-prover tests only):
 /// a verifier that omits the filtered terms, used to show that a forgery is
 /// rejected exactly because of the terms it violates.
@@ -1401,7 +1304,7 @@ where
 }
 
 #[cfg(test)]
-mod captured_succinct_tests;
+pub(crate) mod captured_succinct_tests;
 #[cfg(test)]
 mod tests;
 
@@ -1483,4 +1386,104 @@ where
     let binding = DescriptorBinding::decode_v2(descriptor)?;
     let vk = VerifyingKey::read(vk, &binding)?;
     verify_full(params, &binding, &vk, instances, proof, budget)
+}
+
+/// One exact successful succinct parse, retaining the same original typed frame,
+/// descriptor, raw first base-field squeeze and undecided opening obligation.
+/// No caller can construct or retarget this owner. It is not full acceptance:
+/// the returned opening must be folded or decided by the consuming relation.
+#[must_use = "the owned opening remains undecided; fold or decide it"]
+pub struct SuccinctFrame<C: PastaCurve> {
+    binding: DescriptorBinding,
+    instances: Vec<Vec<C::ScalarExt>>,
+    first_raw: C::Base,
+    claim: crate::pcs::ipa::GeneratorClaim<C>,
+}
+impl<C: PastaCurve> core::fmt::Debug for SuccinctFrame<C> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("SuccinctFrame { private: [REDACTED], opening: undecided }")
+    }
+}
+impl<C: PastaCurve> Drop for SuccinctFrame<C> {
+    fn drop(&mut self) {
+        fn clear<F: PastaField>(x: &mut F) {
+            x.zeroize();
+        }
+        clear(&mut self.first_raw);
+        for column in &mut self.instances {
+            for scalar in column {
+                clear(scalar);
+            }
+        }
+        self.claim.clear_private_owner();
+    }
+}
+impl<C: PastaCurve> SuccinctFrame<C> {
+    /// The exact descriptor selected by the successful verifier call.
+    pub fn binding(&self) -> &DescriptorBinding {
+        &self.binding
+    }
+    /// The exact original typed public instance values read by that verifier.
+    pub fn instances(&self) -> &[Vec<C::ScalarExt>] {
+        &self.instances
+    }
+    /// The raw first base-field squeeze, before the noninjective scalar map.
+    pub fn first_raw(&self) -> &C::Base {
+        &self.first_raw
+    }
+    /// The same proof's undecided own opening; this is not a final verdict.
+    pub fn own_claim(&self) -> &crate::pcs::ipa::GeneratorClaim<C> {
+        &self.claim
+    }
+}
+
+/// Retains the raw first squeeze and exact frame from actual succinct parsing.
+/// The consuming closed owner must additionally authorize this descriptor and
+/// key, enforce its frame schema, and fold/decide the owned opening exactly once.
+///
+/// # Errors
+/// Non-base transcript, wrong suffix, malformed descriptor/key/frame/proof,
+/// failed succinct equation or cancellation. No frame is returned on failure.
+pub fn accumulate_frame_cancellable<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    binding: &DescriptorBinding,
+    vk: &VerifyingKey<C>,
+    instances: &[Vec<C::ScalarExt>],
+    proof: &[u8],
+    budget: MemoryBudget,
+    cancellation: Option<&iroha_pasta::CancellationToken>,
+) -> Result<SuccinctFrame<C>, VerifyError> {
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    if binding.descriptor().transcript != crate::cs::TranscriptV2::KagemushaPoseidonRp57Base {
+        return Err(TranscriptError::ProfileMismatch.into());
+    }
+    if binding.descriptor().proof_suffix != ProofSuffixV1::FoldedGenerator {
+        return Err(VerifyError::SuffixRequired);
+    }
+    let mut read = read_proof(
+        params,
+        binding,
+        vk,
+        instances,
+        proof,
+        production(vk),
+        budget,
+        &AllTerms,
+        cancellation,
+    )?;
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    let folded = read.suffix.ok_or(VerifyError::SuffixRequired)?;
+    if read.first_raw.0.is_none() {
+        return Err(TranscriptError::ProfileMismatch.into());
+    }
+    let claim = read.pending.into_generator_claim(params, &folded, budget)?;
+    let raw = read.first_raw.0.take().expect("validated base transcript");
+    let frame = SuccinctFrame {
+        binding: binding.clone(),
+        instances: instances.to_vec(),
+        first_raw: raw,
+        claim,
+    };
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    Ok(frame)
 }

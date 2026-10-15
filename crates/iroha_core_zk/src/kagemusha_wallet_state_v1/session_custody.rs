@@ -62,7 +62,7 @@ impl DirectTimeExchangeV1 {
     }
 }
 
-pub(super) fn retain_request<A: ObjectStore>(
+pub(super) fn retain_request<A: ObjectWorkspace>(
     store: &mut A,
     index: IndexRoot,
     request: &KagemushaWalletRequestV1,
@@ -83,10 +83,10 @@ pub(super) fn retain_request<A: ObjectStore>(
         return Err(Error::Invalid("issued Request size"));
     }
     let record = IssuedRequestCustodyV1 {
-        request: store.write_object(&bytes, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?,
+        request: store.stage_object(&bytes, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?,
         gap: gap
             .map(|opening| {
-                store.write_object(
+                store.stage_object(
                     &opening.transcript(),
                     KAGEMUSHA_WALLET_BLACKLIST_GAP_OPENING_TRANSCRIPT_BYTES_V1,
                 )
@@ -104,12 +104,12 @@ pub(super) fn retain_request<A: ObjectStore>(
     index.set(store, key, &value)
 }
 
-fn retain_anchor<A: ObjectStore>(
+fn retain_anchor<A: ObjectWorkspace>(
     store: &mut A,
     index: IndexRoot,
     anchored: &KagemushaWalletAnchoredTimeV1,
 ) -> Result<IndexRoot, Error> {
-    let address = store.write_object(&archive::encode(anchored)?, ANCHOR_CUSTODY_MAX_BYTES)?;
+    let address = store.stage_object(&archive::encode(anchored)?, ANCHOR_CUSTODY_MAX_BYTES)?;
     let key = anchored.anchor.time_anchor_digest();
     if let Some(previous) = index.get(store, &key)? {
         if previous != address {

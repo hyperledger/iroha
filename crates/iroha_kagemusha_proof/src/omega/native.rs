@@ -15,9 +15,7 @@
 use core::fmt;
 
 use ff::{Field, PrimeField};
-use iroha_pasta::{
-    Ep, Eq, EqAffine, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain,
-};
+use iroha_pasta::{Ep, Eq, EqAffine, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
     DescriptorBinding, Protocol, ProverConfig, ProverRandomness, VerifyingKey, Witness,
     create_proof_owned_with_claim,
@@ -32,8 +30,8 @@ use iroha_plonk::{
 };
 use iroha_plonk_gadgets::{range::secondary::SecondaryPlan, statement::foreign_limbs};
 use iroha_plonk_recursion::{
-    ACCUMULATOR_BYTES, AccumulatorT, FOLD_WITNESS_BYTES, FoldConfig, FoldInput, FoldWitness, K,
-    VESTA_TRIVIAL_GENERATOR, create_fold, verifier::CompactSpans,
+    ACCUMULATOR_BYTES, AccumulatorT, FoldConfig, FoldInput, K, VESTA_TRIVIAL_GENERATOR,
+    verifier::CompactSpans,
 };
 
 use super::{OmegaCircuit, OmegaPlan, OmegaWitness};
@@ -75,27 +73,6 @@ impl Error {
     pub fn is_cancelled(self) -> bool {
         matches!(self, Self::Cancelled)
     }
-}
-
-fn fold_terminal_slots(
-    params: &PinnedParams<Eq>,
-    slots: &[FoldInput<Eq>],
-    salt: [u8; 32],
-    budget: MemoryBudget,
-    cancellation: Option<&iroha_pasta::CancellationToken>,
-) -> Result<(FoldWitness<Eq>, AccumulatorT<Eq>), Error> {
-    let config = FoldConfig {
-        kernel_budget: budget,
-        cancellation: cancellation.cloned(),
-        ..FoldConfig::default()
-    };
-    create_fold(params, slots, salt, &config).map_err(|error| {
-        if error.is_cancelled() {
-            Error::Cancelled
-        } else {
-            Error::Proof
-        }
-    })
 }
 
 /// Fixed outer source layout, supplied by the authenticated producer catalog owner.
@@ -241,7 +218,7 @@ impl Program {
             instances: vec![Fp::ZERO; 69],
             proof: vec![0; length],
             length: u32::try_from(length).map_err(|_| Error::Artifact)?,
-            fold: [0; FOLD_WITNESS_BYTES],
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
         })
         .map(|circuit| circuit.without_witnesses())
     }
@@ -425,10 +402,10 @@ impl Prover {
     pub fn prepare(
         &self,
         input: Input,
-        salt: [u8; 32],
+        tape: iroha_plonk_recursion::FoldTape<Eq>,
         budget: MemoryBudget,
     ) -> Result<Session<'_>, Error> {
-        self.view().prepare(input, salt, budget)
+        self.view().prepare(input, tape, budget)
     }
     /// Prepare with cooperative cancellation and no partial session on refusal.
     /// # Errors
@@ -436,12 +413,12 @@ impl Prover {
     pub fn prepare_cancellable(
         &self,
         input: Input,
-        salt: [u8; 32],
+        tape: iroha_plonk_recursion::FoldTape<Eq>,
         budget: MemoryBudget,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Session<'_>, Error> {
         self.view()
-            .prepare_cancellable(input, salt, budget, cancellation)
+            .prepare_cancellable(input, tape, budget, cancellation)
     }
 }
 
@@ -494,10 +471,10 @@ impl<'a> ProverView<'a> {
     pub fn prepare(
         &self,
         input: Input,
-        salt: [u8; 32],
+        tape: iroha_plonk_recursion::FoldTape<Eq>,
         budget: MemoryBudget,
     ) -> Result<Session<'a>, Error> {
-        self.prepare_cancellable(input, salt, budget, None)
+        self.prepare_cancellable(input, tape, budget, None)
     }
     /// Execute the same native check with an explicit operation signal.
     /// # Errors
@@ -505,7 +482,7 @@ impl<'a> ProverView<'a> {
     pub fn prepare_cancellable(
         &self,
         input: Input,
-        salt: [u8; 32],
+        tape: iroha_plonk_recursion::FoldTape<Eq>,
         budget: MemoryBudget,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Session<'a>, Error> {
@@ -571,8 +548,23 @@ impl<'a> ProverView<'a> {
                     }
                 })?;
         }
-        let (fold, vesta) =
-            fold_terminal_slots(&program.vesta, &slots, salt, budget, cancellation)?;
+        let config = terminal_fold_config(budget, cancellation);
+        let (fold, vesta) = crate::private_fold::wrapper(
+            &program.vesta,
+            &program.source_binding,
+            key,
+            &source_public,
+            &input.proof,
+            tape,
+            &config,
+        )
+        .map_err(|error| {
+            if error.is_cancelled() {
+                Error::Cancelled
+            } else {
+                Error::Proof
+            }
+        })?;
         vesta
             .decide_cancellable(&program.vesta, budget, cancellation)
             .map_err(|error| {
@@ -588,7 +580,7 @@ impl<'a> ProverView<'a> {
             instances: input.frame.to_vec(),
             length: u32::try_from(input.proof.len()).map_err(|_| Error::Input)?,
             proof: input.proof,
-            fold: fold.to_bytes(),
+            fold: crate::private_fold::PrivateFoldBytes::from_fold(fold),
         };
         let circuit = program.circuit(witness)?;
         Ok(Session {
@@ -630,7 +622,7 @@ impl Session<'_> {
     /// Actual witness assignment, installed proof generation or full native decisions fail.
     pub fn prove(
         &self,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<Output, Error> {
         let owner = self.owner;
@@ -661,6 +653,8 @@ impl Session<'_> {
                     Error::Prover
                 }
             })?;
+            #[cfg(test)]
+            crate::proof_entry_probe::reached();
             let output = create_proof_owned_with_claim(
                 &owner.program.pallas,
                 &key,
@@ -789,17 +783,11 @@ fn point(words: &[Fp]) -> Result<EqAffine, Error> {
     if words.len() != 4 {
         return Err(Error::Input);
     }
-    let point = Option::<EqAffine>::from(EqAffine::from_xy(
+    iroha_plonk::transcript::generator_from_coordinates::<Eq>(
         foreign_coordinate(&words[..2])?,
         foreign_coordinate(&words[2..])?,
-    ))
-    .ok_or(Error::Input)?;
-    // Pasta encodes the identity as (0, 0); a transported fold claim requires
-    // a nonidentity affine point, including in an unselected incoming slot.
-    if bool::from(point.coordinates().is_none()) {
-        return Err(Error::Input);
-    }
-    Ok(point)
+    )
+    .map_err(|_| Error::Input)
 }
 fn claim(point_words: &[Fp], challenges: &[Fp], source_k: u32) -> Result<FoldInput<Eq>, Error> {
     FoldInput::from_normalized(
@@ -849,7 +837,7 @@ pub fn terminal_fold_inputs(
     Ok([part, opening, predecessor, selected])
 }
 fn lineage_digest(public: &[Fp; 18], pallas: &AccumulatorT<Ep>) -> Result<Fp, Error> {
-    let (x, y) = Option::<(Fp, Fp)>::from(pallas.g().coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Ep>(pallas.g());
     let mut fields = public.to_vec();
     fields.extend([x, y]);
     for challenge in pallas.challenges() {
@@ -861,7 +849,7 @@ fn lineage_digest(public: &[Fp; 18], pallas: &AccumulatorT<Ep>) -> Result<Fp, Er
     Ok(hash_with_domain(LINEAGE_DOMAIN, &fields))
 }
 fn outer_instances(context: Fp, vesta: &AccumulatorT<Eq>) -> Result<Vec<Vec<Fq>>, Error> {
-    let (x, y) = Option::<(Fq, Fq)>::from(vesta.g().coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(vesta.g());
     let context = Option::<Fq>::from(Fq::from_repr(context.to_repr())).ok_or(Error::Input)?;
     let challenges = vesta
         .challenges()
@@ -869,4 +857,17 @@ fn outer_instances(context: Fp, vesta: &AccumulatorT<Eq>) -> Result<Vec<Vec<Fq>>
         .map(|value| Option::<Fq>::from(Fq::from_repr(value.to_repr())).ok_or(Error::Input))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(vec![vec![context], vec![x, y], challenges])
+}
+
+// One configuration owner for the actual closed terminal fold. The shared token
+// remains live if cancellation arrives after this structure is constructed.
+fn terminal_fold_config(
+    budget: MemoryBudget,
+    cancellation: Option<&iroha_pasta::CancellationToken>,
+) -> FoldConfig {
+    FoldConfig {
+        kernel_budget: budget,
+        cancellation: cancellation.cloned(),
+        ..FoldConfig::default()
+    }
 }

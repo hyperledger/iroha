@@ -4,6 +4,9 @@
 //! A → B → C exchange and network Unload before claiming monetary acceptance.
 use super::*;
 use eyre::{ensure, eyre};
+
+#[path = "kagemusha_network_setup/collections.rs"]
+mod collections;
 use iroha_crypto::{Algorithm, Hash, KeyPair};
 use iroha_data_model::{
     asset::{AssetBalancePolicy, AssetDefinition},
@@ -263,11 +266,7 @@ fn export(network: &Network, root: &Path) -> Result<()> {
             }
             selected = prefix;
         }
-        let definitions = native.query(FindAssetDefinitions::new()).execute_all()?;
-        let registered = definitions
-            .iter()
-            .find(|candidate| candidate.id() == &definition_id())
-            .ok_or_else(|| eyre!("asset absent on peer"))?;
+        let registered = native.query_single(FindAssetDefinitionById::new(definition_id()))?;
         ensure!(
             registered.spec().scale() == Some(SCALE)
                 && registered.balance_scope_policy() == AssetBalancePolicy::Global,
@@ -277,43 +276,35 @@ fn export(network: &Network, root: &Path) -> Result<()> {
             registered.total_quantity() == &quantity(),
             "registered total supply differs"
         );
-        let assets = native.query(FindAssets::new()).execute_all()?;
         let fee_asset: AssetDefinitionId =
             iroha_config::parameters::defaults::nexus::fees::fee_asset_id().parse()?;
         let fee_quantity =
             Quantity::from_canonical_numeric(Numeric::new(u128::from(ROLE_FEE_UNITS), 0))?;
         for seed in [41, 42, 43, 95] {
             let bucket = AssetId::of(fee_asset.clone(), account(seed));
-            let balance = assets.iter().find(|asset| asset.id() == &bucket);
+            let balance = native.query_single(FindAssetById::new(bucket))?;
             ensure!(
-                balance.is_some_and(|asset| asset.value() == &fee_quantity),
+                balance.value() == &fee_quantity,
                 "ordinary fee funding differs for role {seed}"
             );
         }
-        let balances = assets
-            .iter()
-            .filter(|asset| asset.id().definition() == &definition_id())
-            .collect::<Vec<_>>();
+        let balances = collections::holders(&client)?;
         ensure!(
-            balances.len() == 1
-                && balances[0].id() == &AssetId::of(definition_id(), account(41))
-                && balances[0].value() == &quantity(),
+            balances.len() == 1 && balances.get(&account(41)) == Some(&quantity()),
             "supply must exist only in A's universal asset bucket"
         );
-        let permissions = native
-            .query(FindPermissionsByAccountId::new(account(95)))
-            .execute_all()?;
+        let permissions = native.read_effective_permissions(&account(95))?;
         ensure!(
             permissions.contains(&permission()),
             "reserve permission missing"
         );
-        let accounts = native.query(FindAccounts::new()).execute_all()?;
-        ensure!(
-            [41, 42, 43, 95].iter().all(|seed| accounts
-                .iter()
-                .any(|registered| registered.id() == &account(*seed))),
-            "registered role account missing"
-        );
+        for seed in [41, 42, 43, 95] {
+            let registered = native.query_single(FindAccountById::new(account(seed)))?;
+            ensure!(
+                registered.id() == &account(seed),
+                "registered role account differs"
+            );
+        }
     }
     let proofs: [SumeragiFinalityProof; 2] = selected
         .try_into()

@@ -48,11 +48,11 @@
 //!   distinct multiples), looked up with 4-bit digits of
 //!   `k* = u2 - C mod n` as `e_w = d_w + 1` (`d_top + 3` in the top
 //!   window), so `sum e_w 2^pos_w = k* + C = k'' = u2 (mod n)` with
-//!   `C < k'' < 2^256 + C < 2n - 16`. The chain starts at `[e_top] Q` and per
+//!   `C <= k'' < 2^256 + C < 2n - 16`. The chain starts at `[e_top] Q` and per
 //!   window doubles `shift - 1` times and then computes `2 P + [e_w] Q`
 //!   (Eisentraeger-Lauter-Montgomery). With `a` the multiple held by the
 //!   accumulator before a window, every intermediate multiple is below `n`
-//!   (it is at most `k'' / 2`), `a >= 3`, so `(shift / 2) a > 16 >= e_w`, and
+//!   (it is at most `k'' / 2`), `a >= 3`, so `2^(shift - 1) a > 16 >= e_w`, and
 //!   the window's result is `0 mod n` only for the last window with
 //!   `k'' = n`, i.e. `u2 = 0`, which `r != 0` excludes. So every
 //!   incomplete operation of the chain is exception-free for every key of

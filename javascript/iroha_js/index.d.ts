@@ -1887,10 +1887,13 @@ export interface ToriiExplorerRwa {
 }
 
 export interface ToriiExplorerBlock {
+  /** Canonical uppercase hash:<HEX>#<CRC> literal, with checksum validated. */
   hash: string;
   height: number;
   createdAt: string;
+  /** Canonical hash literal, or null for genesis. */
   prevBlockHash: string | null;
+  /** Canonical hash literal, or null when the transaction root is unavailable. */
   transactionsHash: string | null;
   transactionsRejected: number;
   transactionsTotal: number;
@@ -8767,7 +8770,8 @@ export interface UaidPortfolioAccount {
 }
 
 export interface UaidPortfolioDataspace {
-  dataspace_id: number;
+  /** Unsigned 64-bit JSON integer; bigint above Number.MAX_SAFE_INTEGER. */
+  dataspace_id: number | bigint;
   dataspace_alias: string | null;
   accounts: ReadonlyArray<UaidPortfolioAccount>;
 }
@@ -8784,7 +8788,8 @@ export interface UaidPortfolioQueryOptions {
 }
 
 export interface UaidBindingsDataspace {
-  dataspace_id: number;
+  /** Unsigned 64-bit JSON integer; bigint above Number.MAX_SAFE_INTEGER. */
+  dataspace_id: number | bigint;
   dataspace_alias: string | null;
   accounts: ReadonlyArray<string>;
 }
@@ -8797,20 +8802,20 @@ export interface UaidBindingsResponse {
 export type UaidManifestStatus = "Pending" | "Active" | "Expired" | "Revoked";
 
 export interface UaidManifestLifecycleRevocation {
-  epoch: number;
+  epoch: number | bigint;
   reason: string | null;
 }
 
 export interface UaidManifestLifecycle {
-  activated_epoch: number | null;
-  expired_epoch: number | null;
+  activated_epoch: number | bigint | null;
+  expired_epoch: number | bigint | null;
   revocation: UaidManifestLifecycleRevocation | null;
 }
 
 export type UaidManifestRole = "Initiator" | "Participant";
 
 export interface UaidManifestScope {
-  dataspace?: number;
+  dataspace?: number | bigint;
   program?: string;
   method?: string;
   asset?: string;
@@ -8842,18 +8847,19 @@ export interface UaidManifestEntry {
   notes?: string;
 }
 
+/** u64 fields accept safe numbers or bigint; responses use bigint above Number.MAX_SAFE_INTEGER. */
 export interface UaidAssetPermissionManifest {
   version: 1;
   uaid: string;
-  dataspace: number;
-  issued_ms: number;
-  activation_epoch: number;
-  expiry_epoch?: number;
+  dataspace: number | bigint;
+  issued_ms: number | bigint;
+  activation_epoch: number | bigint;
+  expiry_epoch?: number | bigint;
   entries: ReadonlyArray<UaidManifestEntry>;
 }
 
 export interface UaidManifestRecord {
-  dataspace_id: number;
+  dataspace_id: number | bigint;
   dataspace_alias: string | null;
   manifest_hash: string;
   status: UaidManifestStatus;

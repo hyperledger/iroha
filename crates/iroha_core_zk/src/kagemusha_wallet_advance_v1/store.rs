@@ -241,8 +241,15 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
             EventV1::ReplaceExact
         });
         match self.read(dir, name, expected.len()) {
-            KagemushaWalletReadV1::Present(existing) if existing == expected => {}
-            KagemushaWalletReadV1::Present(_) | KagemushaWalletReadV1::Oversized => {
+            KagemushaWalletReadV1::Present(existing) => {
+                let existing = zeroize::Zeroizing::new(existing);
+                if existing.as_slice() != expected {
+                    return KagemushaWalletPublishOutcomeV1::NotPublished(
+                        KagemushaWalletNotPublishedV1::ContentMismatch,
+                    );
+                }
+            }
+            KagemushaWalletReadV1::Oversized => {
                 return KagemushaWalletPublishOutcomeV1::NotPublished(
                     KagemushaWalletNotPublishedV1::ContentMismatch,
                 );
@@ -399,7 +406,10 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
     ) -> KagemushaWalletReadV1 {
         counters::count(EventV1::Read);
         match self.fs.read(dir, name.as_str(), max.saturating_add(1)) {
-            Ok(bytes) if bytes.len() > max => KagemushaWalletReadV1::Oversized,
+            Ok(bytes) if bytes.len() > max => {
+                drop(zeroize::Zeroizing::new(bytes));
+                KagemushaWalletReadV1::Oversized
+            }
             Ok(bytes) => KagemushaWalletReadV1::Present(bytes),
             Err(error) if error.kind() == io::ErrorKind::NotFound => KagemushaWalletReadV1::Absent,
             Err(error) => KagemushaWalletReadV1::Unavailable(unavailable(&error)),
@@ -995,7 +1005,22 @@ mod std_fs {
             let file = self
                 .root
                 .open_ownership_lock(KAGEMUSHA_WALLET_LOCK_NAME_V1)?;
-            match file.try_lock() {
+            // Rust 1.93.1's std file-lock implementation excludes Android. Use
+            // its kernel flock on the same authenticated descriptor; never reopen
+            // by path or substitute process-scoped fcntl record locks.
+            #[cfg(target_os = "android")]
+            let locked =
+                rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive)
+                    .map_err(|error| {
+                        if error == rustix::io::Errno::WOULDBLOCK {
+                            TryLockError::WouldBlock
+                        } else {
+                            TryLockError::Error(error.into())
+                        }
+                    });
+            #[cfg(not(target_os = "android"))]
+            let locked = file.try_lock();
+            match locked {
                 Ok(()) => {
                     self.root.revalidate().map_err(custody_changed)?;
                     Ok(KagemushaWalletStdFsLockV1 {

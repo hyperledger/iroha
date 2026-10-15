@@ -50,8 +50,8 @@ pub(crate) fn dataspace(
         Action::ClaimFee(bytes) => {
             KagemushaWalletFeeClaimV1::decode_canonical(bytes, &scheme)?
                 .payment
-                .request
-                .body
+                .send
+                .statement
                 .asset_digest
         }
         Action::InstallVerifierPack { asset, .. } | Action::RetainCertificate { asset, .. } => {

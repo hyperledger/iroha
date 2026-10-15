@@ -154,7 +154,7 @@ are rebuilt and accepted against that pair. The selected native handoffs are
 `apple-sdk-current-source-20261015-v5` under
 `../bpng/png2-deploy/output/compact-wallet-20261012/`.
 
-The current binaries pass 93 focused tests: three complete-graph/wrapper/H4
+These captured binaries pass 93 focused tests: three complete-graph/wrapper/H4
 regressions, 43 private-store controls plus one verification-count baseline,
 and 46 Kotlin host-native SDK tests. With network access denied, the genuine
 production carrier passes native admission in 6.513 seconds and reaches the
@@ -177,12 +177,17 @@ export, actual local Core registration/Activate/Load, and finality export.
 An application/session interruption stopped its transfer stage without a
 terminal result. Its custody and logs remain unchanged as `native-journey-v2`;
 unknown monetary state is not counted as success or retried in place. A fresh
-isolated `native-journey-v3` runs the same seven stages with the same verified
-binaries, public engineering inputs and network denial, using separate wallet
-storage and a detached runner. It includes simulated hardware and an engineering
-issuer, not physical-phone or live Taira acceptance.
+isolated `native-journey-v3` passed the first four stages using the same verified
+binaries, public engineering inputs and network denial, separate wallet storage
+and a detached runner. The owner then prioritized the coordinated efficiency
+changes and requested that this run stop. Its existing guard is armed to stop
+after the active exchange stage, retaining the child result and all custody;
+the prepared continuation is cancelled. No complete seven-stage result is
+claimed. These results concern captured source `021e4f7f`, simulated hardware
+and an engineering issuer; they do not qualify later Train A/Train B changes
+or physical-phone and live Taira acceptance.
 
-Current strict/native/test records are indexed by
+The earlier strict/native/test records are indexed by
 `output/current-source-wallet-20261014/current-source-validation-v37-selection.json`.
 The production and engineering exports are `production-strict-v6/` and
 `engineering-strict-v6/`; native admission is `native-admission-v37/`, and the
@@ -191,7 +196,71 @@ The production and engineering exports are `production-strict-v6/` and
 The signed generation-4 runtime and carrier are unchanged; these source/native
 updates do not require a new carrier publication. App captures, distribution,
 and physical-device monetary acceptance remain separately recorded by their
-release owners. No current-source phone latency or storage result is inferred.
+release owners. Those earlier records establish no phone latency or storage result.
+
+The subsequent captured Train A source `ad0a46c8` (HEAD `91af1517`) passed fresh
+production and engineering strict exports, complete parity across all 908 members
+of each profile, and matched production Android builds for ARM64, ARMv7 and x86_64.
+The installed generated registry is `22958a26`; all three libraries retain the
+production profile, native trust, ABI and alignment checks. The complete existing
+5,017,539-byte carrier remains unchanged. This captured-cut result is indexed by
+`output/current-source-wallet-20261014/android-native-lock-fix-v1/native-build-v38-done.json`;
+it does not qualify later source edits. The native source and build-lane reservation
+was released on 2026-10-15 at 06:39 UTC. Full app delivery and monetary lifecycle
+acceptance remain separate outstanding outcomes.
+
+Read-only inspection of Android 41's final AAB and Play-signed APK and both
+iOS `20261014213158` exports confirms that all four packages contain the same
+complete 1,033-file carrier, byte for byte. Their carrier payload is approximately
+4.00 MB inside ZIP compression and 5,017,539 bytes when extracted. All three
+Android native libraries match the accepted v10 handoff. The observation is
+`output/current-source-wallet-20261014/mobile-release-carrier-observation-20261015-v1.json`.
+It establishes package contents, not private phone storage or successful
+monetary operations. The shared Android SDK's private-directory repair now passes
+13 focused controls with unchanged test cases and rejection rules; the sole
+repair tightens the verified app-owned directory through its descriptor and
+syncs the change. A disposable physical Android probe then confirmed the 0771 to
+0700 change preserves directory identity and existing data. Its second test,
+real native installation using accepted originals, failed with status -5; the
+fixed custody child was absent. The accepted native implementation requires an
+existing custody root, while the tested Android adapter only returned its path.
+The SDK first-initialization repair now passes 23 focused controls and creates
+the fixed private root with a durable sibling witness on the disposable phone;
+missing witnessed custody remains a refusal. This witness does not detect
+deletion of both the witness and root. The second native-install attempt failed
+after creating its native lock file. The accepted Rust 1.93.1 implementation
+unconditionally returns `Unsupported` for `std::fs::File::try_lock` on Android,
+which the wallet calls before initializing the root sentinel. An Android kernel
+`flock` repair and contention/release regression are now applied in canonical
+source, preserving the authenticated descriptor and all custody checks. The
+phone's standalone syscall probe reproduced the unsupported Rust call and
+verified kernel-lock contention and release under the shell UID; it does not
+qualify app custody. The matched v11 ARM64 library then passed actual native
+installation, registration and cleanup under the disposable app UID 10384 on the
+Pixel, preserving custody-directory and witness inodes. The complete test took
+27.282 seconds, including copying and syncing originals; this is not isolated
+native installation or payment latency. Each public-originals copy occupied
+7,224 KiB of allocated filesystem space and native custody occupied 15 KiB; the
+retained probe also contains earlier diagnostic copies, so its total directory
+size is not production wallet usage. No 18 GB expansion occurred. The initial
+wrapper verdict incorrectly rejected Android's singular `OK (1 test)` summary;
+the corrected report reparses the preserved successful log without a device rerun.
+The source-bound observation is
+`output/current-source-wallet-20261014/android-native-lock-fix-v1/physical-arm64-v38-observation.json`.
+Full physical monetary acceptance remains unproven. The earlier physical failure
+and source binding are
+recorded in
+`output/current-source-wallet-20261014/android-storage-device2-triage-20261015-v1.json`.
+The earlier focused helper check is
+`output/current-source-wallet-20261014/android-storage-helper-green-review-20261015-v1.json`.
+The iOS expired-activation
+repair reproduced the refusal and then passed seven focused simulator tests:
+retained attempts remain unchanged, valid retries resend the exact bytes,
+known reservations retain their recovery identity, and only Native confirmation
+completes activation. The native implementation in these tests is a probe;
+updated app delivery and physical acceptance remain pending. The independently
+checked source/result record is
+`output/current-source-wallet-20261014/ios-activation-expiry-review-20261015-v1.json`.
 
 ### Earlier SDK and delivery observations
 

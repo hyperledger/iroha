@@ -23,7 +23,15 @@ func irohaPeerWalletStructuralEnvelopeV1(
     switch kind {
     case .offer, .request:
         variant = irohaPeerWalletField(irohaPeerWalletField(leaf))
-    case .payment, .lineage:
+    case .payment:
+        let emptyVector = [UInt8](repeating: 0, count: 8)
+        let lineage = irohaPeerWalletField([]) + irohaPeerWalletField(emptyVector)
+        let present = [UInt8]([1, 0, 0, 0]) + irohaPeerWalletField(lineage)
+        let step = irohaPeerWalletField(emptyVector)
+        let send = version + irohaPeerWalletField(leaf) + irohaPeerWalletField(present)
+            + irohaPeerWalletField(step) + irohaPeerWalletField([])
+        variant = irohaPeerWalletField(version + irohaPeerWalletField([]) + irohaPeerWalletField(send))
+    case .lineage:
         variant = irohaPeerWalletField(version + irohaPeerWalletField(irohaPeerWalletField(leaf)))
     case .credited, .sessionControl, .policyData:
         variant = irohaPeerWalletField(leaf)
@@ -144,15 +152,15 @@ func irohaPeerWalletExchangeEnvelopeV1(
         fields.flatMap { irohaPeerWalletField([UInt8]($0)) }
     }
     let version = Data([1, 0])
-    let body = Data(record([version, schemeID, Data([requestBodyByte])] + Array(repeating: Data(), count: 16)))
+    let bodyFields = [version, schemeID, Data([requestBodyByte])] + Array(repeating: Data(), count: 16)
+    let body = Data(record(bodyFields))
     let signature = Data(repeating: requestSignatureByte, count: 64)
     let fields: [Data]
     switch kind {
     case .request:
         fields = [body, payload, Data(), Data(), signature]
     case .payment:
-        fields = [version, Data(record([body, signature])), Data(repeating: 0x42, count: 65),
-                  Data(repeating: 0x24, count: 32), payload]
+        fields = irohaPeerWalletPaymentFieldsV1(body: bodyFields, signature: signature, proof: payload)
     case .credited:
         fields = [version, schemeID, payload]
     default:
@@ -188,4 +196,29 @@ func irohaPeerWalletExchangeMessageV1(
         schemeID: schemeID, requestBodyByte: requestBodyByte, requestSignatureByte: requestSignatureByte)
     return try IrohaPeerKagemushaWalletAdapterV1.wrap(envelope,
         destinationAccountOriginal: kind == .request ? irohaPeerWalletRequestAccountOriginalV1() : nil)
+}
+
+/// Structural Payment DATA with each signed Request field in its sole canonical owner.
+func irohaPeerWalletPaymentFieldsV1(body: [Data], signature: Data, proof: Data) -> [Data] {
+    precondition(body.count == 19)
+    func record(_ fields: [Data]) -> Data {
+        Data(fields.flatMap { irohaPeerWalletField(Array($0)) })
+    }
+    let unique = [4, 6, 8, 10, 12, 13, 14, 15, 16, 17, 18].map { body[$0] } + [signature]
+    var omega = Array(repeating: Data(), count: 13)
+    omega[4] = body[3]
+    omega[5] = Data(repeating: 0x24, count: 32)
+    omega[6] = Data(repeating: 0x42, count: 65)
+    func byteVector(_ value: Data) -> Data {
+        withUnsafeBytes(of: UInt64(value.count).littleEndian) { Data($0) } + value
+    }
+    let lineage = record([record(omega), byteVector(Data())])
+    let effect = [Data(), body[5], body[7], body[9], body[11], Data(), Data(), Data()]
+    var statement = Array(repeating: Data(), count: 14)
+    statement[0] = body[0]
+    statement[1] = body[1]
+    statement[4] = body[2]
+    statement[13] = Data([3, 0, 0, 0]) + record(effect)
+    let send = record([body[0], record(statement), Data([1, 0, 0, 0]) + record([lineage]), record([byteVector(proof)]), Data()])
+    return [body[0], record(unique), send]
 }

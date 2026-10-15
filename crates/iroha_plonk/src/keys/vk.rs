@@ -24,9 +24,8 @@
 //!
 //! `transcript_repr = F::from_uniform_bytes(BLAKE2b(64, "Iroha-PlonkVK-v1",
 //! descriptor_digest || vk_bytes))` binds the relation, the params digest, the
-//! instance shape and the keys. It replaces the vendored hash of the `Debug`
-//! rendering. Unit tests may inject the
-//! vendored value with `VerifyingKey::with_transcript_repr_for_oracle`.
+//! instance shape and the keys. Decoding derives this representation from the
+//! admitted descriptor and exact key bytes; there is no caller override.
 
 use core::fmt;
 use std::sync::Arc;
@@ -491,16 +490,6 @@ impl<C: PastaCurve> VerifyingKey<C> {
             bytes.to_vec(),
             cancellation,
         )
-    }
-
-    /// Replaces `transcript_repr` with the vendored value (unit tests
-    /// only, spec 6.4). Never compiled into shipping binaries.
-    #[cfg(test)]
-    #[doc(hidden)]
-    #[must_use]
-    pub fn with_transcript_repr_for_oracle(mut self, transcript_repr: C::ScalarExt) -> Self {
-        self.transcript_repr = TranscriptRepr::Scalar(transcript_repr);
-        self
     }
 
     /// `log2` of the domain size.

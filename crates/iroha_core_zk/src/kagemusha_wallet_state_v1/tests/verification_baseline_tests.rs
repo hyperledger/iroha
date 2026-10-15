@@ -63,7 +63,8 @@ fn coordinator_lineage_verifications_stay_within_the_baseline() {
             credit_id: received_credit(),
             payer_wallet_id: [0x88; 32],
             amount: fixture::<KagemushaWalletPaymentV1>("KagemushaWalletPaymentV1")
-                .request
+                .signed_request()
+                .expect("fixture signed Request")
                 .body
                 .amount,
         },
@@ -191,7 +192,10 @@ fn warm_fold_caches_never_admit_changed_records_heads_or_custody() {
     let original: RecordedFold = archive::decode(&recorded).expect("decode");
     let lineage = original.record.lineage.bytes();
     assert!(w.read_fold(&step).expect("read").is_some());
-    assert_eq!(w.verified_folds.get(&0), Some(&recorded));
+    assert_eq!(
+        w.verified_folds.get(&0).map(Vec::as_slice),
+        Some(recorded.as_slice())
+    );
     let signatures = w.custody.signatures;
     let folded = w.manifest().expect("manifest").1.folded;
     let before = verifies(&w);
@@ -209,8 +213,12 @@ fn warm_fold_caches_never_admit_changed_records_heads_or_custody() {
         ("lifecycle", |f| {
             f.record.lineage.public.lifecycle = KagemushaWalletLifecycleV1::Retiring;
         }),
-        ("policy epoch", |f| f.record.lineage.public.policy_epoch += 1),
-        ("controls", |f| f.record.lineage.public.enabled_controls ^= 1),
+        ("policy epoch", |f| {
+            f.record.lineage.public.policy_epoch += 1
+        }),
+        ("controls", |f| {
+            f.record.lineage.public.enabled_controls ^= 1
+        }),
         ("burn on a non-Receive head", |f| f.burned = true),
     ];
     for (label, mutate) in mutations {
@@ -224,9 +232,17 @@ fn warm_fold_caches_never_admit_changed_records_heads_or_custody() {
             ),
             "{label}"
         );
-        assert_eq!(w.verified_folds.get(&0), Some(&recorded), "{label}");
+        assert_eq!(
+            w.verified_folds.get(&0).map(Vec::as_slice),
+            Some(recorded.as_slice()),
+            "{label}"
+        );
     }
-    assert_eq!(verifies(&w), before, "no binding failure reaches verification");
+    assert_eq!(
+        verifies(&w),
+        before,
+        "no binding failure reaches verification"
+    );
 
     // A changed lineage is verified in full and refused, whatever the caches hold.
     let mut changed = original.clone();
@@ -237,7 +253,10 @@ fn warm_fold_caches_never_admit_changed_records_heads_or_custody() {
         Err(Error::Proof(_))
     ));
     assert_eq!(verifies(&w), before + 1);
-    assert_eq!(w.verified_folds.get(&0), Some(&recorded));
+    assert_eq!(
+        w.verified_folds.get(&0).map(Vec::as_slice),
+        Some(recorded.as_slice())
+    );
     // The exact original record is reused from the session cache.
     assert!(w.verify_fold_bytes(&step, &recorded, None, None).is_ok());
     assert_eq!(verifies(&w), before + 1);

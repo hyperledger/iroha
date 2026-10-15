@@ -199,8 +199,8 @@ pub(super) fn configure_variable_base_phased<C: PastaCurve>(
         init_guarded: code(2, 2, 4),
         incomplete: code(3, 1, 3),
         select: code(3, 2, 3),
-        tail: code(4, 1, 2),
-        add: code(4, 2, 2),
+        tail: code(4, 1, 3),
+        add: code(4, 2, 3),
         guard_out: code(5, 1, 5),
         split: code(5, 2, 5),
     };

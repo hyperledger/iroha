@@ -4,10 +4,9 @@
 //! validating helper runs the unchanged native preparation before the proof-entry
 //! cut. Only the ignored genuine test constructs parameters, keys or proofs.
 
+use ff::PrimeField;
 use group::prime::PrimeCurveAffine;
 use iroha_pasta::EqAffine;
-
-use rand_chacha::rand_core::{CryptoRng, RngCore};
 
 use super::*;
 
@@ -89,9 +88,9 @@ fn decode_load(frame: &Frame, proof_length: usize) -> Result<LoadData, &'static 
     for (output, input) in challenges.iter_mut().zip(&instances[0][1 + chunks..]) {
         *output = fp(*input)?;
     }
-    let g = EqAffine::from_xy(instances[1][0], instances[1][1])
-        .into_option()
-        .ok_or("invalid part coordinates")?;
+    let g =
+        iroha_plonk::transcript::generator_from_coordinates::<Eq>(instances[1][0], instances[1][1])
+            .map_err(|_| "invalid part coordinates")?;
     let part = FoldInput::from_normalized(g, LOAD_SOURCE_K, challenges)
         .map_err(|_| "noncanonical normalized part")?;
     Ok(LoadData {
@@ -111,7 +110,6 @@ fn validate_load(
     catalog_key: &VerifyingKey<Eq>,
     public: &Frame,
     params: &PinnedParams<Eq>,
-    salt: Fq,
     config: &FoldConfig,
 ) -> Result<PreparedQSigma, QSigmaError> {
     if plan.incoming.is_some()
@@ -132,7 +130,7 @@ fn validate_load(
         },
         None,
         params,
-        salt,
+        QSigmaFoldSource::NoIncoming,
         config,
     )?;
     // prepare derives the transcript opening and decides it. A finite proposed
@@ -159,7 +157,7 @@ fn data_frame(proof_length: usize) -> (Frame, Vec<u8>, FoldInput<Eq>) {
     u[..4].fill(Fp::ZERO);
     first.extend(u.map(scalar));
     let g = EqAffine::generator();
-    let (x, y) = g.coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(&g);
     let part = FoldInput::from_normalized(g, LOAD_SOURCE_K, u).unwrap();
     (
         frame(&[
@@ -284,7 +282,18 @@ fn load_public_rejects_invalid_points_and_noncanonical_normalization() {
     let (original, _, _) = data_frame(32);
     let mut public = original.clone();
     public[1] = vec![Fq::ZERO.to_repr(); 2];
-    assert!(decode_load(&public, 32).is_err());
+    let identity = decode_load(&public, 32).unwrap();
+    assert_eq!(
+        *identity.part.g(),
+        iroha_plonk::transcript::decode_generator::<Eq>(&[0; 32]).unwrap()
+    );
+    assert_eq!(identity.part.source_k(), LOAD_SOURCE_K);
+    let mut public = original.clone();
+    public[1] = vec![Fq::ZERO.to_repr(), Fq::ONE.to_repr()];
+    assert_eq!(
+        decode_load(&public, 32).unwrap_err(),
+        "invalid part coordinates"
+    );
     for row in [3, 3 + 3, 3 + 4, 3 + 15] {
         let mut public = original.clone();
         public[0][row] = if row < 7 { Fq::ONE } else { Fq::ZERO }.to_repr();
@@ -294,7 +303,7 @@ fn load_public_rejects_invalid_points_and_noncanonical_normalization() {
         );
     }
     let mut public = original;
-    let (x, y) = (-EqAffine::generator()).coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(&-EqAffine::generator());
     public[1] = vec![x.to_repr(), y.to_repr()];
     assert!(decode_load(&public, 32).is_ok()); // finite DATA, still not decided
 }
@@ -384,66 +393,6 @@ fn load_witness() -> crate::admin_sigma::LoadWitness {
     }
 }
 
-// Record the real recovery provider boundary, not the prover's internal
-// ChaCha scalar consumption. Current recovery requests one 32-byte draw.
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum RecoveryEvent {
-    Context([u8; 32]),
-    NextU32(u32),
-    NextU64(u64),
-    Fill(Vec<u8>),
-    TryFill(Vec<u8>),
-}
-type RecoveryLog = std::sync::Arc<std::sync::Mutex<Vec<RecoveryEvent>>>;
-struct RecordedRng {
-    inner: rand_chacha::ChaCha20Rng,
-    log: RecoveryLog,
-}
-impl RngCore for RecordedRng {
-    fn next_u32(&mut self) -> u32 {
-        let value = self.inner.next_u32();
-        self.log.lock().unwrap().push(RecoveryEvent::NextU32(value));
-        value
-    }
-    fn next_u64(&mut self) -> u64 {
-        let value = self.inner.next_u64();
-        self.log.lock().unwrap().push(RecoveryEvent::NextU64(value));
-        value
-    }
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.inner.fill_bytes(dest);
-        self.log
-            .lock()
-            .unwrap()
-            .push(RecoveryEvent::Fill(dest.to_vec()));
-    }
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_chacha::rand_core::Error> {
-        self.inner.try_fill_bytes(dest)?;
-        self.log
-            .lock()
-            .unwrap()
-            .push(RecoveryEvent::TryFill(dest.to_vec()));
-        Ok(())
-    }
-}
-impl CryptoRng for RecordedRng {}
-fn recovery(seed: u8, log: RecoveryLog) -> ProverRandomness<'static> {
-    use rand_chacha::rand_core::SeedableRng as _;
-    ProverRandomness::recovery(move |context: &[u8; 32]| {
-        log.lock().unwrap().push(RecoveryEvent::Context(*context));
-        Ok::<_, std::convert::Infallible>(RecordedRng {
-            inner: rand_chacha::ChaCha20Rng::from_seed([seed; 32]),
-            log,
-        })
-    })
-}
-fn assert_recovery(log: &RecoveryLog) {
-    let events = log.lock().unwrap();
-    assert!(
-        matches!(events.as_slice(), [RecoveryEvent::Context(_), RecoveryEvent::TryFill(bytes)] if bytes.len() == 32)
-    );
-}
-
 #[test]
 #[ignore = "genuine Load sigma k12 plus two serialized-bus2 Q0 k16 proofs; explicit resource handoff"]
 fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
@@ -458,7 +407,7 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
         &sigma_params,
         &sigma_key,
         Witness::from_circuit(&sigma_key, &sigma_circuit, &sigma_instances).unwrap(),
-        recovery(189, RecoveryLog::default()),
+        ProverRandomness::hedged(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -497,18 +446,17 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
     drop(sigma_key);
     let plan = QSigmaPlan::new(class, None, &inner).unwrap();
     let original = plan
-        .prepare(own, None, &inner, Fq::from(97), &FoldConfig::default())
+        .prepare(
+            own,
+            None,
+            &inner,
+            QSigmaFoldSource::NoIncoming,
+            &FoldConfig::default(),
+        )
         .unwrap();
     let public = frame(original.instances());
-    let restored = validate_load(
-        &plan,
-        &catalog_key,
-        &public,
-        &inner,
-        Fq::from(97),
-        &FoldConfig::default(),
-    )
-    .unwrap();
+    let restored =
+        validate_load(&plan, &catalog_key, &public, &inner, &FoldConfig::default()).unwrap();
     assert!(original.circuit.known && restored.circuit.known);
     assert!(
         original.circuit.witness.incoming.is_none() && restored.circuit.witness.incoming.is_none()
@@ -552,17 +500,7 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
         &(-catalog_key.fixed_commitments()[0]),
     ));
     let foreign = VerifyingKey::<Eq>::read(&foreign, plan.own.verifier.binding()).unwrap();
-    assert!(
-        validate_load(
-            &plan,
-            &foreign,
-            &public,
-            &inner,
-            Fq::from(97),
-            &FoldConfig::default()
-        )
-        .is_err()
-    );
+    assert!(validate_load(&plan, &foreign, &public, &inner, &FoldConfig::default()).is_err());
     for (column, row) in [(0, 0), (0, 1)] {
         let mut changed = original.instances.clone();
         changed[column][row] += Fq::ONE;
@@ -572,7 +510,6 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
                 &catalog_key,
                 &frame(&changed),
                 &inner,
-                Fq::from(97),
                 &FoldConfig::default()
             )
             .is_err()
@@ -587,7 +524,6 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
             &catalog_key,
             &changed,
             &inner,
-            Fq::from(97),
             &FoldConfig::default()
         )
         .is_err()
@@ -606,13 +542,12 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
             &catalog_key,
             &frame(&changed),
             &inner,
-            Fq::from(97),
             &FoldConfig::default()
         )
         .is_err()
     );
     let mut changed = original.instances.clone();
-    let (x, y) = (-*original.part.g()).coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(&-*original.part.g());
     changed[1] = vec![x, y];
     assert!(decode_load(&frame(&changed), original.circuit.witness.own.proof.len()).is_ok());
     assert!(
@@ -621,7 +556,6 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
             &catalog_key,
             &frame(&changed),
             &inner,
-            Fq::from(97),
             &FoldConfig::default()
         )
         .is_err()
@@ -652,26 +586,60 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
     .unwrap();
     drop(q_key);
     drop(q_original);
-    let first_log = RecoveryLog::default();
-    let second_log = RecoveryLog::default();
+    crate::proof_entry_probe::assert_owner_cancellation(
+        |token| {
+            prover.prove(
+                &original,
+                ProverRandomness::hedged(),
+                ProverConfig {
+                    cancellation: Some(token),
+                    ..ProverConfig::default()
+                },
+            )
+        },
+        |error| error.is_cancelled(),
+    );
+
+    let refused = crate::proof_entry_probe::Guard::new(None);
+    let mut wrong_source = original.clone();
+    wrong_source.circuit.plan.own.entries[0].0 = 2;
+    assert!(matches!(
+        prover.prove(
+            &wrong_source,
+            ProverRandomness::hedged(),
+            ProverConfig::default()
+        ),
+        Err(QSigmaError::Rebuild(_))
+    ));
+    assert_eq!(
+        refused.entries(),
+        0,
+        "different fixed selector graph never enters prover"
+    );
+    drop(refused);
+
+    let entries = crate::proof_entry_probe::Guard::new(None);
+
     let first = prover
         .prove(
             &original,
-            recovery(82, first_log.clone()),
+            ProverRandomness::hedged(),
             ProverConfig::default(),
         )
         .unwrap();
     let second = prover
         .prove(
             &restored,
-            recovery(82, second_log.clone()),
+            ProverRandomness::hedged(),
             ProverConfig::default(),
         )
         .unwrap();
-    assert_eq!(*first_log.lock().unwrap(), *second_log.lock().unwrap());
-    assert_recovery(&first_log);
-    assert_recovery(&second_log);
-    assert_eq!(first.bytes, second.bytes);
+
+    assert_eq!(entries.entries(), 2);
+    assert_ne!(
+        first.bytes, second.bytes,
+        "fresh proofs use independent OS draws"
+    );
     assert_eq!(first.instances, second.instances);
     assert_eq!(first.part, second.part);
     for proof in [&first, &second] {
@@ -688,6 +656,28 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
         .unwrap();
         proof.part.decide(&inner, MemoryBudget::DEFAULT).unwrap();
     }
+    let retained = first.bytes.clone();
+    for _ in 0..2 {
+        iroha_plonk::verify_full(
+            prover.params(),
+            prover.binding(),
+            prover.verifying_key(),
+            &first.instances,
+            &retained,
+            iroha_pasta::msm::MemoryBudget::DEFAULT,
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        retained, first.bytes,
+        "retained original replay preserves exact bytes"
+    );
+    assert_eq!(
+        entries.entries(),
+        2,
+        "verifier replay never re-enters a producer"
+    );
+
     println!(
         "LOAD_PUBLIC_INVERSE sigma_proofs=1 q0_proofs=2 keygens=2 strict_imports=1 serialized_buses=2 selector=1 complete_native_verification=true qualification=false"
     );

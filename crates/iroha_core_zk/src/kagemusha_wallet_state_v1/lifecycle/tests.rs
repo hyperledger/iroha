@@ -2,14 +2,41 @@
 
 use super::*;
 
+#[path = "intake_tests.rs"]
+mod intake;
+
 impl NativePreparation for TestProofs {
     fn plan_preparation(
         &self,
         request: &NativeIntentV1,
         source: &PreparationSourceV1<'_>,
-        _: &mut PreparationCustodyV1<'_>,
+        custody: &mut PreparationCustodyV1<'_>,
     ) -> Result<Vec<u8>, Error> {
         self.preparations.fetch_add(1, Ordering::SeqCst);
+        if !self.preparation_payload.is_empty() {
+            custody
+                .maps()
+                .store()
+                .stage_object(&self.preparation_payload, self.preparation_payload.len())?;
+        }
+        if self.fail_preparation_plan {
+            return Err(Error::Invalid("test native plan refusal"));
+        }
+        if let Some(OperationActionV1::Load { finality, .. }) =
+            request.user_request().map(|request| &request.action)
+        {
+            // This mock routes through the actual canonical decoder and epoch selector only.
+            // It grants no finality, installation or proof authority.
+            let evidence = KagemushaWalletLoadFinalityV1::decode_canonical(finality)
+                .map_err(|_| Error::Invalid("test Load outer shape"))?;
+            evidence.certificate.epoch_id().map_err(|error| {
+                crate::kagemusha_wallet_state_v1::finality_read_error(
+                    error,
+                    Error::Proof("Load native epoch selector"),
+                )
+            })?;
+            return Err(Error::Invalid("mock Load cannot accept finality"));
+        }
         if request.user_request().map(|request| &request.action) != Some(&OperationActionV1::Retire)
         {
             return Err(Error::Invalid("test action"));
@@ -46,9 +73,18 @@ impl NativePreparation for TestProofs {
         &self,
         request: &NativeIntentV1,
         source: &PreparationSourceV1<'_>,
-        _: &mut PreparationCustodyV1<'_>,
+        custody: &mut PreparationCustodyV1<'_>,
         plan: &[u8],
     ) -> Result<(), Error> {
+        if !self.preparation_payload.is_empty() {
+            custody
+                .maps()
+                .store()
+                .stage_object(&self.preparation_payload, self.preparation_payload.len())?;
+        }
+        if self.fail_preparation_validation {
+            return Err(Error::Invalid("test native validation refusal"));
+        }
         let prepared: FrozenTransition = archive::decode(plan)?;
         prepared.validate()?;
         if request.user_request().map(|request| &request.action) != Some(&OperationActionV1::Retire)
@@ -64,9 +100,15 @@ impl NativePreparation for TestProofs {
         &self,
         _: &NativeIntentV1,
         _: &PreparationSourceV1<'_>,
-        _: &mut PreparationCustodyV1<'_>,
+        custody: &mut PreparationCustodyV1<'_>,
         plan: &[u8],
     ) -> Result<FrozenTransition, Error> {
+        if !self.preparation_payload.is_empty() {
+            custody
+                .maps()
+                .store()
+                .stage_object(&self.preparation_payload, self.preparation_payload.len())?;
+        }
         self.preparation_proofs.fetch_add(1, Ordering::SeqCst);
         if self.fail_preparation_proof {
             return Err(Error::Proof("injected preparation stop"));
@@ -146,18 +188,18 @@ fn exact_request_replay_survives_restart_without_reproving_or_resigning() {
 }
 
 #[test]
-fn runtime_capacity_refuses_before_proving_with_typed_results_and_keeps_the_plan() {
+fn runtime_capacity_refuses_before_planning_with_typed_results_and_keeps_the_binding() {
     use crate::kagemusha_wallet_capacity_v1::{
         KagemushaWalletRuntimeCapacityV1, KagemushaWalletRuntimeResourcesV1,
     };
-    use crate::kagemusha_wallet_state_v1::capacity::OPERATION_RESERVATION_BYTES;
+    use crate::kagemusha_wallet_state_v1::capacity::INTAKE_STORAGE_RESERVATION_BYTES;
     let mut wallet = prepared_wallet();
     let signatures = wallet.custody.signatures;
     wallet.proofs.capacity = KagemushaWalletRuntimeCapacityV1 {
         storage_bytes: 1_000,
         memory_bytes: 2_000,
     };
-    let enough_storage = OPERATION_RESERVATION_BYTES + 1_000;
+    let enough_storage = INTAKE_STORAGE_RESERVATION_BYTES + 1_000;
     wallet.custody.resources = KagemushaWalletRuntimeResourcesV1 {
         storage_bytes: enough_storage - 1,
         memory_bytes: Some(u64::MAX),
@@ -168,7 +210,7 @@ fn runtime_capacity_refuses_before_proving_with_typed_results_and_keeps_the_plan
     ));
     assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
     assert_eq!(wallet.custody.signatures, signatures, "nothing debited");
-    // The durable plan stays: the request is still preparing, never performed or refused.
+    // The fixed binding stays; private planning has not started and no plan was published.
     assert_eq!(
         wallet.retry_request(&request().request_id).unwrap(),
         RequestStatusV1::Preparing
@@ -190,7 +232,7 @@ fn runtime_capacity_refuses_before_proving_with_typed_results_and_keeps_the_plan
     assert!(matches!(complete, Completion::Complete(_)));
     assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 1);
     assert_eq!(wallet.custody.signatures, signatures + 1);
-    assert_eq!(wallet.custody.resource_queries, queries + 2);
+    assert_eq!(wallet.custody.resource_queries, queries + 4);
     // A retained outcome never depends on current capacity.
     wallet.custody.resources = KagemushaWalletRuntimeResourcesV1 {
         storage_bytes: 0,

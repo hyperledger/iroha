@@ -253,19 +253,22 @@ object KagemushaWalletWireV1 {
     /**
      * Maximum complete envelope frame for Request, Payment, Credited, PolicyData and Lineage.
      *
-     * σ and Ω byte caps are the exact proof lengths of the frozen σ verifying-key allowlist
-     * (owner answer Q6), with Ω plus the largest σ_send at most [PAYMENT_PROOF_BUDGET_BYTES] and
-     * σ_recv at most [CREDITED_RECEIVE_PROOF_BUDGET_BYTES] and Ω at most [LINEAGE_PROOF_CAP_BYTES].
-     * Until the artifacts freeze (TODO(G3)) only the carrying frame bounds them, which is all a
-     * structural carrier check enforces.
+     * Payment structural admission enforces both source role maxima and the joint proof budget.
+     * Native additionally checks exact admitted proof lengths and verifies the complete messages.
      */
     const val MESSAGE_MAX_BYTES: Int = 10_000
 
     /** `F_payment`: the bytes of a Payment envelope frame other than its Ω and σ_send proofs. */
-    const val PAYMENT_FIXED_BYTES: Int = 1_723
+    const val PAYMENT_FIXED_BYTES: Int = 1_436
 
     /** Joint budget of the Ω transport proof and the largest σ_send (R9): `10,000 − F_payment`. */
     const val PAYMENT_PROOF_BUDGET_BYTES: Int = MESSAGE_MAX_BYTES - PAYMENT_FIXED_BYTES
+
+    /** Source role maximum for a Payment's σ_send proof. */
+    const val PAYMENT_SIGMA_PROOF_CAP_BYTES: Int = 3_520
+
+    /** Source role maximum for a Payment's Ω predecessor transport proof. */
+    const val PAYMENT_OMEGA_PROOF_CAP_BYTES: Int = 5_044
 
     /** Bytes of a Credited::Receive envelope other than its σ proof. */
     const val CREDITED_RECEIVE_FIXED_BYTES: Int = 679
@@ -355,11 +358,8 @@ object KagemushaWalletWireV1 {
     private const val REQUEST_BODY_FIELDS: Int = 19
     private const val REQUEST_BODY_SCHEME_FIELD: Int = 1
     private const val REQUEST_BODY_AMOUNT_FIELD: Int = 9
-    private const val PAYMENT_FIELDS: Int = 5
+    private const val PAYMENT_FIELDS: Int = 3
     private const val PAYMENT_REQUEST_FIELD: Int = 1
-    private const val SIGNED_REQUEST_FIELDS: Int = 2
-    private const val SIGNED_REQUEST_BODY_FIELD: Int = 0
-    private const val SIGNED_REQUEST_SIGNATURE_FIELD: Int = 1
     private const val CREDITED_FIELDS: Int = 3
     private const val CREDITED_SCHEME_FIELD: Int = 1
 
@@ -614,10 +614,10 @@ object KagemushaWalletWireV1 {
      * Each frame is first checked by [inspectEnvelope], must have the kind of its parameter and
      * must split into exactly the record fields of its message (wire record section 3.4: Request
      * `{body, receiver_credential, fee_schedule, certificates, signature}` with a 19-field body,
-     * compact Payment `{version, request: {body, signature}, payer_payment_key,
-     * payer_credential_digest, send}`, Credited `{version, scheme_id, evidence}`). The comparisons
-     * are over exact canonical field bytes: the Payment's signed Request body and signature are
-     * the Request's, and the Credited `scheme_id` is the Request body's `scheme_id`. A carrier thus
+     * Payment `{version, request: PaymentRequest, send}` and Credited `{version, scheme_id,
+     * evidence}`). Payment reconstructs the exact 19 signed Request fields from its unique
+     * Request fields and the Send statement/effect/lineage, then compares every field and the
+     * original signature. Credited's scheme must match the Request. A carrier thus
      * rejects a Payment that belongs to another Request, and Credited evidence under another
      * scheme, before handing either to the wallet. No digest or signature is checked here and
      * nothing grants monetary authority.
@@ -636,17 +636,11 @@ object KagemushaWalletWireV1 {
         val requestFields = messageFields(request, KagemushaWalletMessageKindV1.REQUEST, REQUEST_FIELDS)
         val requestBody = recordFields(requestFields[REQUEST_BODY_FIELD], REQUEST_BODY_FIELDS, "Request body")
         val paymentFields = messageFields(payment, KagemushaWalletMessageKindV1.PAYMENT, PAYMENT_FIELDS)
-        val signedRequest = recordFields(
-            paymentFields[PAYMENT_REQUEST_FIELD],
-            SIGNED_REQUEST_FIELDS,
-            "Payment signed Request",
-        )
-        require(
-            signedRequest[SIGNED_REQUEST_BODY_FIELD].contentEquals(requestFields[REQUEST_BODY_FIELD]) &&
-                signedRequest[SIGNED_REQUEST_SIGNATURE_FIELD].contentEquals(
-                    requestFields[REQUEST_SIGNATURE_FIELD],
-                ),
-        ) { "KAGEMUSHA wallet V1 Payment does not carry this Request" }
+        val (body, signature) = paymentSignedRequestFields(paymentFields)
+        require(body.indices.all { body[it].contentEquals(requestBody[it]) } &&
+            signature.contentEquals(requestFields[REQUEST_SIGNATURE_FIELD])) {
+            "KAGEMUSHA wallet V1 Payment does not carry this Request"
+        }
         if (credited != null) {
             val creditedFields = messageFields(credited, KagemushaWalletMessageKindV1.CREDITED, CREDITED_FIELDS)
             require(creditedFields[CREDITED_SCHEME_FIELD].contentEquals(requestBody[REQUEST_BODY_SCHEME_FIELD])) {
@@ -663,11 +657,31 @@ object KagemushaWalletWireV1 {
     @JvmStatic
     fun paymentAmountData(payment: ByteArray): BigInteger {
         val fields = messageFields(payment, KagemushaWalletMessageKindV1.PAYMENT, PAYMENT_FIELDS)
-        val signed = recordFields(fields[PAYMENT_REQUEST_FIELD], SIGNED_REQUEST_FIELDS, "Payment signed Request")
-        val body = recordFields(signed[SIGNED_REQUEST_BODY_FIELD], REQUEST_BODY_FIELDS, "Request body")
+        val (body, _) = paymentSignedRequestFields(fields)
         val amount = body[REQUEST_BODY_AMOUNT_FIELD]
         require(amount.size == 16) { "Payment amount must be canonical LE128" }
         return BigInteger(1, amount.reversedArray()).also { require(it.signum() > 0) { "Payment amount must be positive" } }
+    }
+
+    /** Reconstruct exact signed field bytes; this structural operation authenticates nothing. */
+    private fun paymentSignedRequestFields(payment: List<ByteArray>): Pair<List<ByteArray>, ByteArray> {
+        val unique = recordFields(payment[PAYMENT_REQUEST_FIELD], 12, "Payment Request")
+        val send = recordFields(payment[2], 5, "Payment Send package")
+        val statement = recordFields(send[1], 14, "Send statement")
+        val effect = taggedRecordFields(statement[13], 3, 8, "Send effect")
+        val lineage = recordFields(taggedRecordFields(send[2], 1, 1, "Present lineage")[0], 2, "lineage")
+        val omega = recordFields(lineage[0], 13, "lineage public")
+        val body = listOf(payment[0], statement[1], statement[4], omega[4], unique[0],
+            effect[1], unique[1], effect[2], unique[2], effect[3], unique[3], effect[4],
+            unique[4], unique[5], unique[6], unique[7], unique[8], unique[9], unique[10])
+        return body to unique[11]
+    }
+
+    private fun taggedRecordFields(bytes: ByteArray, tag: Int, count: Int, label: String): List<ByteArray> {
+        require(bytes.size >= TAG_BYTES && readIntLe(bytes, 0) == tag) {
+            "KAGEMUSHA wallet V1 $label has an invalid tag"
+        }
+        return recordFields(bytes.copyOfRange(TAG_BYTES, bytes.size), count, label)
     }
 
     /**
@@ -756,13 +770,36 @@ object KagemushaWalletWireV1 {
         }
         val schemePath = when (kind) {
             KagemushaWalletMessageKindV1.OFFER, KagemushaWalletMessageKindV1.REQUEST -> intArrayOf(0, 1)
-            KagemushaWalletMessageKindV1.PAYMENT, KagemushaWalletMessageKindV1.LINEAGE -> intArrayOf(1, 0, 1)
+            KagemushaWalletMessageKindV1.PAYMENT -> intArrayOf(2, 1, 1)
+            KagemushaWalletMessageKindV1.LINEAGE -> intArrayOf(1, 0, 1)
             else -> intArrayOf(1)
         }
         require(messageField(message, schemePath, "scheme identity").size == DIGEST_BYTES) {
             "KAGEMUSHA wallet V1 decode-time scheme field is not 32 bytes"
         }
+        if (kind == KagemushaWalletMessageKindV1.PAYMENT) requirePaymentProofCaps(message)
         return kind
+    }
+
+    /** Structural role bounds only; Native owns exact admitted lengths and verification. */
+    private fun requirePaymentProofCaps(message: ByteArray) {
+        val payment = recordFields(message, 3, "Payment")
+        val send = recordFields(payment[2], 5, "Payment Send package")
+        val step = recordFields(send[3], 1, "Payment sigma proof")
+        val present = taggedRecordFields(send[2], 1, 1, "Payment Present lineage")
+        val lineage = recordFields(present[0], 2, "Payment lineage")
+        val sigma = proofVectorLength(step[0], "Payment sigma proof")
+        val omega = proofVectorLength(lineage[1], "Payment Omega proof")
+        require(sigma <= PAYMENT_SIGMA_PROOF_CAP_BYTES) { "Payment sigma proof exceeds its source role maximum" }
+        require(omega <= PAYMENT_OMEGA_PROOF_CAP_BYTES) { "Payment Omega proof exceeds its source role maximum" }
+        require(sigma + omega <= PAYMENT_PROOF_BUDGET_BYTES) { "Payment proofs exceed their joint budget" }
+    }
+
+    private fun proofVectorLength(bytes: ByteArray, label: String): Int {
+        require(bytes.size >= 8 && readLongLe(bytes, 0) == (bytes.size - 8).toLong()) {
+            "KAGEMUSHA wallet V1 $label is not a canonical byte vector"
+        }
+        return bytes.size - 8
     }
 
     /** Read only the fixed field path needed for structural version or scheme admission. */

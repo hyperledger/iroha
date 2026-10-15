@@ -112,7 +112,7 @@ pub(crate) fn sources(
         &lp,
         &key,
         Witness::from_circuit(&key, &leaf, &leaf.instances()).unwrap(),
-        common::recovery(241),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap()
@@ -153,7 +153,7 @@ pub(crate) fn sources(
             },
             None,
             &v,
-            Fq::from(402),
+            iroha_kagemusha_proof::q_sigma::native::QSigmaFoldSource::NoIncoming,
             &FoldConfig::default(),
         )
         .unwrap();
@@ -166,7 +166,11 @@ pub(crate) fn sources(
         .unwrap(),
     ];
     let q0_proof = q0
-        .prove(&prepared, common::recovery(242), ProverConfig::default())
+        .prove(
+            &prepared,
+            common::fresh_randomness(),
+            ProverConfig::default(),
+        )
         .unwrap();
     let claim = accumulate_generator(
         &p,
@@ -201,7 +205,7 @@ pub(crate) fn sources(
             &p,
             &key,
             Witness::from_circuit(&key, &circuit, &instances).unwrap(),
-            common::recovery(243),
+            common::fresh_randomness(),
             ProverConfig::default(),
         )
         .unwrap()
@@ -661,7 +665,7 @@ impl Circuit<Fp> for Owner {
                     &iroha_plonk_recursion::PALLAS_TRIVIAL_GENERATOR,
                 )
                 .map_err(|_| Error::Synthesis)?;
-                let point = chip.constant_point(&mut r, &Ep::from(point))?;
+                let point = chip.constant_generator(&mut r, &Ep::from(point))?;
                 let one = self.scalar(&mut chip, &mut r, Fq::ONE)?;
                 let pallas = FoldInputCells::from_normalized(
                     &mut chip,

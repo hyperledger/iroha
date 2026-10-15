@@ -1,6 +1,7 @@
 //! Canonical golden blacklist custody and storage faults; these confer no issuer authority.
 
 use super::*;
+use crate::kagemusha_wallet_archive_bytes_v1::PrivateArchiveBytes;
 use crate::kagemusha_wallet_state_v1::{
     ArchiveKey, ArchiveStore,
     tests::{MemoryArchive, fixture},
@@ -51,15 +52,20 @@ impl ArchiveStore for StorageProbe {
     fn binding(&self) -> ([u8; 32], [u8; 32]) {
         self.inner.binding()
     }
-    fn get(&mut self, key: ArchiveKey, maximum: usize) -> Result<Option<Vec<u8>>, Error> {
+    fn get(
+        &mut self,
+        key: ArchiveKey,
+        maximum: usize,
+    ) -> Result<Option<PrivateArchiveBytes>, Error> {
         self.reads += 1;
         match self.fault {
             Fault::Missing => Ok(None),
             Fault::Corrupt => {
-                let mut original = self.inner.get(key, maximum)?.unwrap();
+                let retained = self.inner.get(key, maximum)?.unwrap();
+                let mut original = zeroize::Zeroizing::new(retained.as_slice().to_vec());
                 let last = original.len() - 1;
                 original[last] ^= 1;
-                Ok(Some(original))
+                Ok(Some(PrivateArchiveBytes::from_guarded(original)))
             }
             Fault::Unavailable => Err(Error::Storage(std::io::Error::from(
                 std::io::ErrorKind::WouldBlock,

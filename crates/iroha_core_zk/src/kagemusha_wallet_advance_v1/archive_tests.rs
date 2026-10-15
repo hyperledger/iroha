@@ -338,8 +338,8 @@ fn provider_archive_adapter_shares_custody_and_brackets_named_records() {
     archive.put(key, b"immutable witness").expect("write");
     archive.put(key, b"immutable witness").expect("exact retry");
     assert_eq!(
-        archive.get(key, 32).expect("read"),
-        Some(b"immutable witness".to_vec())
+        archive.get(key, 32).expect("read").as_deref(),
+        Some(b"immutable witness".as_slice())
     );
     assert!(archive.put(key, b"changed witness").is_err());
     assert!(archive.get(key, 3).is_err());
@@ -372,8 +372,8 @@ fn provider_archive_adapter_shares_custody_and_brackets_named_records() {
     assert!(archive.get(key, 32).is_err());
     device.platform.clear_faults();
     assert_eq!(
-        archive.get(key, 32).expect("restored access"),
-        Some(b"immutable witness".to_vec())
+        archive.get(key, 32).expect("restored access").as_deref(),
+        Some(b"immutable witness".as_slice())
     );
 }
 
@@ -402,8 +402,9 @@ fn scoped_archive_record_collection_keeps_protected_storage_and_exact_key() {
     assert_eq!(
         provider
             .with_archive(&slot, |archive| archive.read_record(&[2; 32], 9))
-            .unwrap(),
-        Some(b"claim two".to_vec())
+            .unwrap()
+            .as_deref(),
+        Some(b"claim two".as_slice())
     );
     device
         .platform
@@ -416,7 +417,8 @@ fn scoped_archive_record_collection_keeps_protected_storage_and_exact_key() {
     assert_eq!(
         provider
             .with_archive(&slot, |archive| archive.read_record(&[2; 32], 9))
-            .unwrap(),
-        Some(b"claim two".to_vec())
+            .unwrap()
+            .as_deref(),
+        Some(b"claim two".as_slice())
     );
 }

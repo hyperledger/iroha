@@ -13,7 +13,7 @@
 pub mod native;
 
 use crate::a_relation::AFramePlan;
-use ff::{Field, PrimeField};
+use ff::Field;
 use iroha_pasta::{Eq, Fp, Fq, PastaCurve};
 use iroha_plonk::{
     DescriptorBinding, VerifyingKey,
@@ -22,17 +22,11 @@ use iroha_plonk::{
     pcs::ipa::PinnedParams,
     transcript::TranscriptRepr,
 };
-use iroha_plonk_gadgets::{
-    GlueChip, Uint, Word,
-    bytes::element::{LeElement, assert_le_max, modulus_max},
-    ecc::NonIdentityPoint,
-    statement::foreign_limbs,
-};
+use iroha_plonk_gadgets::{GlueChip, Uint, Word, bytes::element::LeElement};
 use iroha_plonk_recursion::{
-    FOLD_WITNESS_BYTES, K,
-    accumulation_circuit::{FoldInputCells, FoldPlan, FoldSource},
+    K,
+    accumulation_circuit::{FoldPlan, FoldSource},
     codec::ScalarCells,
-    obligation::ModeCells,
     verifier::{
         CompactPublicConfig, CompactSpans, PinnedKeyCatalog, VerificationMode, VerifierChip,
         VerifierConfig, VerifierPlan,
@@ -106,6 +100,7 @@ impl OmegaPlan {
                 FoldSource::Fixed(16),
                 FoldSource::Incoming(16),
             ],
+            iroha_plonk_recursion::FoldPurpose::WrapperVesta,
         )
         .map_err(|_| Error::Synthesis)?;
         let verifier = VerifierPlan::new(binding, params).map_err(|_| Error::Synthesis)?;
@@ -158,8 +153,8 @@ pub struct OmegaWitness {
     pub proof: Vec<u8>,
     /// Original LE32 proof carrier length, linked to the same byte tape.
     pub length: u32,
-    /// Canonical salt and non-hiding IPA body for the four explicit obligations.
-    pub fold: [u8; FOLD_WITNESS_BYTES],
+    /// Committed fold body and private tape for the four exact frame obligations.
+    pub fold: crate::private_fold::PrivateFoldBytes,
 }
 /// Shared complete verifier lanes and three fixed public columns.
 #[derive(Clone, Debug)]
@@ -261,60 +256,6 @@ impl OmegaCircuit {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(ProofMessages { messages, length })
     }
-    fn coordinate(
-        chip: &mut VerifierChip<Eq>,
-        region: &mut Region<'_, Fq>,
-        words: &[Word<Fq>],
-    ) -> Result<Word<Fq>, Error> {
-        if words.len() != 2 {
-            return Err(Error::Synthesis);
-        }
-        let lo = chip.uint().range_check::<128>(region, &words[0])?;
-        let hi = chip.uint().range_check::<127>(region, &words[1])?;
-        let hi = iroha_plonk_gadgets::range::u128::UintChip::widen::<127, 128>(&hi);
-        assert_le_max(
-            &mut chip.uint(),
-            region,
-            lo.word(),
-            &hi,
-            modulus_max::<Fq>(),
-        )?;
-        chip.uint().glue().linear(
-            region,
-            &[
-                (Fq::ONE, lo.word()),
-                (Fq::from_u128(u128::MAX) + Fq::ONE, hi.word()),
-            ],
-            Fq::ZERO,
-        )
-    }
-    fn point(
-        chip: &mut VerifierChip<Eq>,
-        region: &mut Region<'_, Fq>,
-        words: &[Word<Fq>],
-    ) -> Result<NonIdentityPoint<Fq>, Error> {
-        if words.len() != 4 {
-            return Err(Error::Synthesis);
-        }
-        let x = Self::coordinate(chip, region, &words[..2])?;
-        let y = Self::coordinate(chip, region, &words[2..])?;
-        chip.constrain_point(region, &x, &y)
-    }
-    fn claim(
-        chip: &mut VerifierChip<Eq>,
-        region: &mut Region<'_, Fq>,
-        words: &[Word<Fq>],
-        scalars: &[ScalarCells<Eq>],
-    ) -> Result<FoldInputCells<Eq>, Error> {
-        let g = Self::point(chip, region, words)?;
-        FoldInputCells::from_normalized(
-            chip,
-            region,
-            16,
-            g,
-            scalars.to_vec().try_into().map_err(|_| Error::Synthesis)?,
-        )
-    }
 }
 struct ProofMessages {
     messages: Vec<LeElement<Fq>>,
@@ -331,10 +272,10 @@ impl Circuit<Fq> for OmegaCircuit {
         (self.compact, self.secondary.clone())
     }
     fn without_witnesses(&self) -> Self {
-        Self {
-            known: false,
-            ..self.clone()
-        }
+        let mut source = self.clone();
+        source.known = false;
+        source.witness.fold = crate::private_fold::PrivateFoldBytes::unknown();
+        source
     }
     fn configure(meta: &mut ConstraintSystem<Fq>) -> Self::Config {
         Self::configure_with_params(meta, (None, None))
@@ -389,17 +330,13 @@ impl Circuit<Fq> for OmegaCircuit {
                     &self.witness.proof,
                     self.witness.length,
                 )?;
-                let fold = self.messages(&mut chip, &mut region, &self.witness.fold, 1120)?;
+                let fold = self.messages(&mut chip, &mut region, &self.witness.fold, 2176)?;
                 let mut scalars = Vec::new();
                 for value in &self.witness.instances {
-                    let [lo, hi] = foreign_limbs(value);
-                    let lo = chip.uint().assign::<128>(&mut region, self.value(lo))?;
-                    let hi = chip.uint().assign::<127>(&mut region, self.value(hi))?;
-                    scalars.push(ScalarCells::from_limbs(
+                    scalars.push(ScalarCells::<Eq>::assign_value(
                         &mut chip.uint(),
                         &mut region,
-                        &lo,
-                        &hi,
+                        self.value(*value),
                     )?);
                 }
                 let a = if let Some(catalog) = &self.plan.catalog {
@@ -460,48 +397,14 @@ impl Circuit<Fq> for OmegaCircuit {
                     &a.key_digest,
                     &self.plan.allowlist,
                 )?;
-                let words = scalars
-                    .iter()
-                    .map(|value| value.native_word().cloned().ok_or(Error::Synthesis))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let part_point = Self::point(&mut chip, &mut region, &words[2..6])?;
-                let part = FoldInputCells::from_sigma_part(
-                    &mut chip,
-                    &mut region,
-                    &words[1],
-                    part_point,
-                    scalars[6..22]
-                        .to_vec()
-                        .try_into()
-                        .map_err(|_| Error::Synthesis)?,
-                )?;
-                let a_claim = FoldInputCells::from_claim(&mut chip, &mut region, &a.claim)?;
-                let predecessor =
-                    Self::claim(&mut chip, &mut region, &words[22..26], &scalars[26..42])?;
-                let incoming =
-                    Self::claim(&mut chip, &mut region, &words[42..46], &scalars[46..62])?;
-                let modes: [Word<Fq>; 3] = words[62..65]
-                    .to_vec()
-                    .try_into()
-                    .map_err(|_| Error::Synthesis)?;
-                let modes = ModeCells::constrain(chip.uint().glue(), &mut region, &modes)?;
-                let corrected = Self::point(&mut chip, &mut region, &words[65..69])?;
-                let selected = FoldInputCells::select_incoming(
-                    &mut chip,
-                    &mut region,
-                    &incoming,
-                    &corrected,
-                    &modes,
-                )?;
-                let inputs = vec![part, a_claim, predecessor, selected];
-                let output = chip.verify_fold(
+                let terminal = chip.verify_terminal_frame_fold(
                     &mut region,
                     &self.plan.fold,
-                    &inputs,
+                    a.into_hard_frame()?,
                     &fold.messages,
                     &fold.length,
-                    VerificationMode::Hard,
                 )?;
+                let output = terminal.fold;
                 let challenges = output
                     .claim
                     .challenges()
@@ -509,7 +412,7 @@ impl Circuit<Fq> for OmegaCircuit {
                     .map(|value| value.native_word().cloned().ok_or(Error::Synthesis))
                     .collect::<Result<Vec<_>, _>>()?;
                 let output = [
-                    vec![words[0].clone()],
+                    vec![terminal.lineage],
                     vec![output.claim.g().x().clone(), output.claim.g().y().clone()],
                     challenges,
                 ];

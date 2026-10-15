@@ -1007,7 +1007,7 @@ fn kagemusha_wallet_v1_fee_claim_pays_the_schedule_beneficiary() {
         KagemushaWalletFeePayoutV1 {
             credit_id: digests.credit_id,
             fee: 6,
-            fee_schedule: payment.request.body.fee_schedule,
+            fee_schedule: payment.signed_request().unwrap().body.fee_schedule,
             beneficiary_account_digest: kagemusha_wallet_account_digest_v1(&test_account(0x5b))
                 .expect("beneficiary"),
             payment: digests.payment,

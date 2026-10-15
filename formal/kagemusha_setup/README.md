@@ -1,5 +1,15 @@
 # Source-bound setup and fixed-Poseidon algebra controls
 
+**Retained formal experiment.** This package and its source inventories remain
+bound to the reviewed bodies named in its receipts and CURRENT_SOURCE.md. The
+selected first-release C12 construction changes norm products, role maps and
+committed-fold ownership; the tests below are not an alternate production
+protocol or qualification of those changes. The common raw-oracle
+setup-before-pins result retains its explicit mathematical assumptions. Exact
+selected-source joins, concrete installed-BLAKE2b/physical-storage refinement
+and the full committed-mask public-view theorem remain separate obligations.
+No manifest or execution is promoted by this documentation notice.
+
 This standard-library Python package exercises an exact-source Pasta setup
 simulation in an **ideal raw-hash model**, followed by fourteen small complete PIPA
 proofs checked with the unchanged reference verifier and fixed RP57 transcript.

@@ -227,13 +227,16 @@ fn continue_retained_b_archive_then_unload_without_repeating_transfers() {
             &f,
             &frames_a,
             &credited_ab,
-            ab.request.credit_id()
+            ab.signed_request().unwrap().body.credit_id()
         ),
         archived_ab
     );
     // C's unchanged folded head reconstructs the same authenticated public status.
     let status_bc = c
-        .credit_status(&bc.request.credit_id(), &bc.payment_digest().unwrap())
+        .credit_status(
+            &bc.signed_request().unwrap().body.credit_id(),
+            &bc.payment_digest().unwrap(),
+        )
         .unwrap();
     assert_eq!(status_bc.lineage.public.wallet_id, before_c.wallet_id);
     let credited_bc =
@@ -245,7 +248,7 @@ fn continue_retained_b_archive_then_unload_without_repeating_transfers() {
         &f_b,
         &frames_b,
         &credited_bc,
-        bc.request.credit_id(),
+        bc.signed_request().unwrap().body.credit_id(),
     );
     assert_eq!(a.snapshot().unwrap(), before_a);
     assert_eq!(b.snapshot().unwrap(), before_b);
@@ -324,7 +327,7 @@ fn continue_retained_b_archive_then_unload_without_repeating_transfers() {
             &f_b,
             &frames_b,
             &credited_bc,
-            bc.request.credit_id()
+            bc.signed_request().unwrap().body.credit_id()
         ),
         archived_bc
     );

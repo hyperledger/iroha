@@ -263,7 +263,7 @@ pub(crate) fn fixture_from(
         &params,
         &key,
         Witness::from_circuit(&key, &sigma, &sigma.instances()).unwrap(),
-        common::recovery(191),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();

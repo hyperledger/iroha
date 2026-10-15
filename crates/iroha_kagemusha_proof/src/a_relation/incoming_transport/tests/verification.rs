@@ -201,13 +201,13 @@ fn actual_foreign_key_proof_soft_fails_but_substituted_verifier_key_is_hard_reje
         let mut fields = vec![Fp::ZERO; 18];
         fields[0] = Fp::ONE;
         fields[17] = digest;
-        let (x, y) = p.g().coordinates().unwrap();
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<Ep>(p.g());
         fields.extend([x, y]);
         for challenge in p.challenges() {
             fields.extend(foreign_limbs(challenge).map(Fp::from_u128));
         }
         let digest = hash_with_domain(LINEAGE_DOMAIN, &fields);
-        let (x, y) = v.g().coordinates().unwrap();
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(v.g());
         vec![
             vec![Fq::from_repr(digest.to_repr()).unwrap()],
             vec![x, y],

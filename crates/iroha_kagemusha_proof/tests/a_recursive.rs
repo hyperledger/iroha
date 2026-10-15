@@ -90,7 +90,7 @@ fn send_frame_binds_predecessor_key_and_both_generator_obligations() {
         .as_input();
     let vparams = common::vesta_params(16);
     let vtrivial = AccumulatorT::trivial(&vparams, MemoryBudget::DEFAULT).unwrap();
-    let (x, y) = vtrivial.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(vtrivial.g());
     let mut predecessor = OmegaFrame {
         instances: vec![vec![Fq::ZERO], vec![x, y], vec![Fq::ONE; 16]],
         known: true,
@@ -111,7 +111,7 @@ fn send_frame_binds_predecessor_key_and_both_generator_obligations() {
         &base.params,
         &key,
         witness,
-        common::recovery(73),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -120,7 +120,8 @@ fn send_frame_binds_predecessor_key_and_both_generator_obligations() {
     let (fold, output) = create_fold(
         &base.params,
         &inputs,
-        Fp::from(29).to_repr(),
+        common::public_fixture_tape(29),
+        iroha_plonk_recursion::FoldPurpose::AInitial,
         &FoldConfig::default(),
     )
     .unwrap();
@@ -140,8 +141,10 @@ fn send_frame_binds_predecessor_key_and_both_generator_obligations() {
         pallas: trivial,
         proof: proof.proof.clone(),
         length: u32::try_from(proof.proof.len()).unwrap(),
-        fold: fold.to_bytes().to_vec(),
-        fold_length: 1120,
+        fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+            fold.to_private_bytes(),
+        ),
+        fold_length: u32::try_from(iroha_plonk_recursion::FOLD_WITNESS_BYTES).unwrap(),
     });
     let values = [public(&base.circuit.fields, &output.as_input(), &base.part)];
     let honest =
@@ -174,7 +177,10 @@ fn send_frame_binds_predecessor_key_and_both_generator_obligations() {
             1 => bad.fields[17] += Fp::ONE,
             2 => bad.predecessor.as_mut().unwrap().fields[17] += Fp::ONE,
             3 => bad.predecessor.as_mut().unwrap().proof[100] ^= 1,
-            4 => bad.predecessor.as_mut().unwrap().fold[100] ^= 1,
+            4 => {
+                let previous = bad.predecessor.as_mut().unwrap();
+                previous.fold = common::mutated_private_fold(&previous.fold, 100);
+            }
             _ => bad.predecessor.as_mut().unwrap().length -= 1,
         }
         assert!(!satisfied(&bad, &values), "mutation {mutation}");

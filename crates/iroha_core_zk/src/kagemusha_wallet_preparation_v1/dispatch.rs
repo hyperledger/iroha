@@ -656,8 +656,10 @@ impl PreparationV1<'_> {
                             Ok((request.request_digest(), original.bytes.as_slice()))
                         })
                         .transpose()?;
-                    let digest = frozen_request
-                        .map_or_else(|| decoded.request.request_digest(), |(digest, _)| digest);
+                    let digest = match frozen_request {
+                        Some((digest, _)) => digest,
+                        None => model(decoded.signed_request())?.request_digest(),
+                    };
                     let request_original = custody.issued_request(&digest)?;
                     if frozen_request.is_some_and(|(_, bytes)| bytes != request_original) {
                         return Err(state::Error::WitnessLost(

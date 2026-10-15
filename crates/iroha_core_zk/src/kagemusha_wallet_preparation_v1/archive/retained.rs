@@ -56,8 +56,8 @@ pub(super) fn originals(
         ],
         payment: kagemusha_wallet_payment_transcript_v1(
             &digests.request,
-            &payment.payer_payment_key,
-            &payment.payer_credential_digest,
+            &payer.body.payment_key,
+            &digests.payer_credential,
             &digests.package.package,
         ),
         statement: fields(authority(payment.send.statement.field_items())?)?,

@@ -1,5 +1,16 @@
 # Non-hiding IPA polynomial and transcript controls
 
+**Retained model scope.** This package models the earlier non-hiding salted
+fold, with the source versions and hashes named below. The selected C12
+construction instead uses an opened D commitment and 32 W masks, total actual
+round challenges, and a scoped full-group suffix; its private witness is 2,176
+bytes. The recurrence, first-L argument and transcript counts below retain
+their original hypotheses. They are not tests or a privacy theorem for that
+selected construction. Existing source manifests must continue to refuse
+changed bodies until the model and its source joins are independently updated;
+do not refresh their pins as a documentation fix. See the
+[transfer boundary](../../specs/kagemusha_recursion_soundness_v1.md#retained-arguments-and-selected-source-transfer).
+
 Run the standard-library Python controls from the repository root:
 
 ```sh

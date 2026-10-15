@@ -229,6 +229,10 @@ fn plan_with_overlap(
     mut overlaps: impl FnMut(usize, usize) -> Result<bool, CompressionError>,
 ) -> Result<Vec<Vec<usize>>, CompressionError> {
     iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    // The canonical first-release packing budget is independent of spare
+    // quotient degree: both expanded and packed VK admission call this owner.
+    let max_simple = selectors.iter().map(|s| s.1).max().unwrap_or(0);
+    let max_degree = max_degree.min(7.max(max_simple));
     // Complex (and unused) selectors cannot share a column.
     let mut combinations: Vec<Vec<usize>> = selectors
         .iter()
@@ -605,3 +609,22 @@ mod tests {
 
 #[cfg(test)]
 mod packed_tests;
+
+#[cfg(test)]
+mod canonical_packing_tests {
+    use super::*;
+    #[test]
+    fn packing_budget_is_seven_or_the_largest_simple_expression() {
+        for degree in [3, 7, 9] {
+            let selectors: Vec<_> = (0..12).map(|i| (i, degree)).collect();
+            let cap = degree.max(7);
+            let baseline = plan_with_overlap(&selectors, cap, None, |_, _| Ok(false)).unwrap();
+            let spare = plan_with_overlap(&selectors, cap + 8, None, |_, _| Ok(false)).unwrap();
+            assert_eq!(
+                baseline, spare,
+                "spare quotient degree must not re-key selector packing"
+            );
+            assert!(baseline.iter().all(|group| group.len() + degree - 1 <= cap));
+        }
+    }
+}

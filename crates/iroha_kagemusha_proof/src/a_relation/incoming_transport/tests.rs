@@ -1,5 +1,6 @@
 //! Fixed-view carrier integration; these tests do not qualify variable ingestion.
 
+mod generator_identity;
 mod verification;
 
 use super::*;
@@ -8,7 +9,7 @@ use crate::{
     operation_relation::incoming_statement::IncomingStatementCells,
 };
 use ff::{Field, PrimeField};
-use iroha_pasta::{Eq, Fq, PastaAffine};
+use iroha_pasta::{Eq, Fq};
 use iroha_plonk::{
     DescriptorBinding,
     check::{CheckMode, check_circuit},
@@ -412,12 +413,12 @@ impl Carrier {
             Fp::from(u64::from(p_valid)),
             Fp::from(u64::from(v_valid)),
         ]);
-        let (x, y) = Option::from(p.g().coordinates()).unwrap();
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<Ep>(p.g());
         output.extend([x, y]);
         for challenge in p.challenges() {
             output.extend(foreign_limbs(challenge).map(Fp::from_u128));
         }
-        let (x, y) = Option::from(v.g().coordinates()).unwrap();
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(v.g());
         for coordinate in [x, y] {
             output.extend(foreign_limbs(&coordinate).map(Fp::from_u128));
         }
@@ -461,6 +462,12 @@ fn fixed_carrier_preserves_slices_and_soft_claim_failures() {
         bad.omega[offset..offset + 32].fill(0);
         cases.push(bad);
     }
+    for offset in [start, start + 544] {
+        let mut malformed = honest.clone();
+        malformed.omega[offset..offset + 32].fill(0);
+        malformed.omega[offset + 31] = 128;
+        cases.push(malformed);
+    }
     let mut short = honest.clone();
     short.omega[..4].copy_from_slice(&1_u32.to_le_bytes());
     cases.push(short);
@@ -487,9 +494,10 @@ fn fixed_carrier_preserves_slices_and_soft_claim_failures() {
                 "substitution {index}"
             );
         }
-        if (1..=4).contains(&index) {
+        // Zero32 is the canonical G identity; a zero real challenge is invalid.
+        if [2, 4, 5, 6].contains(&index) {
             let mut forged = public;
-            forged[0][19 + usize::from(index > 2)] = Fp::ONE;
+            forged[0][if [2, 5].contains(&index) { 19 } else { 20 }] = Fp::ONE;
             assert!(
                 !check_circuit(circuit, 16, &forged, CheckMode::Strict)
                     .unwrap()

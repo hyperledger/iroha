@@ -2798,13 +2798,20 @@ manifests.items.forEach((manifest) => {
 Each helper validates the response payloads:
 
 - `getUaidPortfolio` enforces numeric totals and returns the deterministically
-  sorted dataspace/account tree.
+  sorted dataspace/account tree. Data space IDs preserve the full unsigned
+  64-bit range as `number` for safe integers and `bigint` for larger values.
 - `getUaidBindings` mirrors the Space Directory bindings map so tooling can
-  confirm which Torii account IDs are active per dataspace.
+  confirm which Torii account IDs are active per data space. Its `dataspace_id`
+  preserves the full unsigned 64-bit JSON integer: safe values are `number`,
+  and values above `Number.MAX_SAFE_INTEGER` are `bigint`.
 - `uaidManifests(uaid).list()` requires the exact shared page envelope, numeric
   manifest version `1`, lifecycle metadata, lower-case hashes, canonical
   accounts, and exact allow/deny entry shapes. Use the shared `filter`, `sort`,
-  `select`, `limit`, `cursor`, and `includeTotal` controls.
+  `select`, `limit`, `cursor`, and `includeTotal` controls. Data space IDs,
+  timestamps, and epochs preserve the same `number`/`bigint` u64 contract.
+- `publishSpaceDirectoryManifest` accepts safe numbers or `bigint` for those
+  manifest fields and emits exact JSON integer tokens. Decimal strings,
+  unsafe numbers, and values outside the u64 range are rejected.
 
 The helpers require exact lower-case `uaid:<64-hex>` literals with LSB=1 and
 throw on whitespace, raw hashes, or case variants, ensuring automation scripts
@@ -4568,6 +4575,8 @@ console.log(qr.svg); // inline SVG (192x192) ready to drop into your UI
 
 const block = await torii.getBlock(42);
 console.log(block?.height); // null when the block is missing
+// hash, prevBlockHash, and transactionsHash retain canonical hash:<HEX>#<CRC>
+// literals after checksum and marker validation; optional hash fields may be null.
 
 const recentBlocks = await torii.explorerBlocks.list({ limit: 5 });
 console.log(

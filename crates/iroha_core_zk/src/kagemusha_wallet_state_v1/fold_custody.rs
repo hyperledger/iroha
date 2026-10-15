@@ -15,13 +15,13 @@ pub(super) struct FoldSourcesV1 {
     pub(super) epochs: IndexRoot,
 }
 
-struct Store<'a>(&'a mut dyn ObjectStore);
-impl ObjectStore for Store<'_> {
-    fn read_object(&mut self, key: &[u8; 32], maximum: usize) -> Result<Vec<u8>, Error> {
-        self.0.read_object(key, maximum)
+struct Store<'a>(&'a mut dyn ObjectWorkspace);
+impl ObjectWorkspace for Store<'_> {
+    fn read_staged_object(&mut self, key: &[u8; 32], maximum: usize) -> Result<Vec<u8>, Error> {
+        self.0.read_staged_object(key, maximum)
     }
-    fn write_object(&mut self, bytes: &[u8], maximum: usize) -> Result<[u8; 32], Error> {
-        self.0.write_object(bytes, maximum)
+    fn stage_object(&mut self, bytes: &[u8], maximum: usize) -> Result<[u8; 32], Error> {
+        self.0.stage_object(bytes, maximum)
     }
 }
 
@@ -50,7 +50,7 @@ pub struct FoldCustodyV1<'a> {
 
 impl<'a> FoldCustodyV1<'a> {
     pub(super) fn new(
-        store: &'a mut dyn ObjectStore,
+        store: &'a mut dyn ObjectWorkspace,
         before: Option<&'a ReleasedStep>,
         after: &'a ReleasedStep,
         sources: FoldSourcesV1,

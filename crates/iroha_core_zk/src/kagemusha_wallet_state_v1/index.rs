@@ -28,6 +28,36 @@ pub trait ObjectStore {
     fn write_object(&mut self, bytes: &[u8], max_bytes: usize) -> Result<[u8; 32], Error>;
 }
 
+/// Content-addressed object view for constructing unpublished roots.
+/// A staged digest proves content identity only; it does not acknowledge durability.
+/// The owner must materialize every staged object before publishing a root.
+pub trait ObjectWorkspace {
+    /// Read staged or durable bytes with the caller's allocation bound.
+    /// # Errors
+    /// Missing, corrupt, oversized or unavailable content is never absence.
+    fn read_staged_object(&mut self, digest: &[u8; 32], max_bytes: usize)
+    -> Result<Vec<u8>, Error>;
+    /// Make exact content available in this view and return its digest.
+    /// # Errors
+    /// Invalid size, bounded workspace exhaustion, content conflict or unavailable storage.
+    fn stage_object(&mut self, bytes: &[u8], max_bytes: usize) -> Result<[u8; 32], Error>;
+}
+
+// Durable stores also supply a logical view. Their existing acknowledgment
+// contract remains stronger; an unpublished workspace never implements ObjectStore.
+impl<T: ObjectStore + ?Sized> ObjectWorkspace for T {
+    fn read_staged_object(
+        &mut self,
+        digest: &[u8; 32],
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, Error> {
+        self.read_object(digest, max_bytes)
+    }
+    fn stage_object(&mut self, bytes: &[u8], max_bytes: usize) -> Result<[u8; 32], Error> {
+        self.write_object(bytes, max_bytes)
+    }
+}
+
 #[derive(Debug, Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::IndexNode")]
 enum Node {
@@ -85,9 +115,9 @@ fn prefix(key: &[u8; 32], length: u16) -> [u8; 32] {
     result
 }
 
-fn load(store: &mut impl ObjectStore, root: [u8; 32], minimum: u16) -> Result<Node, Error> {
+fn load(store: &mut impl ObjectWorkspace, root: [u8; 32], minimum: u16) -> Result<Node, Error> {
     counters::count(EventV1::IndexNodeLoad);
-    let bytes = store.read_object(&root, NODE_LIMIT)?;
+    let bytes = store.read_staged_object(&root, NODE_LIMIT)?;
     if digest(&bytes) != root {
         return Err(Error::WitnessLost("index node hash"));
     }
@@ -114,11 +144,11 @@ fn load(store: &mut impl ObjectStore, root: [u8; 32], minimum: u16) -> Result<No
     Ok(node)
 }
 
-fn save(store: &mut impl ObjectStore, node: &Node) -> Result<[u8; 32], Error> {
+fn save(store: &mut impl ObjectWorkspace, node: &Node) -> Result<[u8; 32], Error> {
     counters::count(EventV1::IndexNodeSave);
     let bytes = archive::encode(node)?;
     let expected = digest(&bytes);
-    let saved = store.write_object(&bytes, NODE_LIMIT)?;
+    let saved = store.stage_object(&bytes, NODE_LIMIT)?;
     if saved != expected {
         return Err(Error::WitnessLost("index publication digest"));
     }
@@ -132,7 +162,7 @@ impl IndexRoot {
     /// Any unavailable, corrupt or oversized node on the authenticated path.
     pub fn get(
         self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         key: &[u8; 32],
     ) -> Result<Option<Vec<u8>>, Error> {
         let _walk = IndexWalkV1::start(true);
@@ -158,14 +188,14 @@ impl IndexRoot {
         Ok(None)
     }
 
-    /// Insert or replace one value and return a new durable root. Publication alone changes no
+    /// Insert or replace one value and return a new view root. Staging alone changes no
     /// authority; the caller commits the resulting manifest through the source provider.
     ///
     /// # Errors
     /// Oversized values, corrupted/unavailable paths or uncertain publication.
     pub fn set(
         self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         key: [u8; 32],
         value: &[u8],
     ) -> Result<Self, Error> {
@@ -257,7 +287,7 @@ impl IndexRoot {
     ///
     /// # Errors
     /// Corrupted/unavailable paths or uncertain publication.
-    pub fn remove(self, store: &mut impl ObjectStore, key: &[u8; 32]) -> Result<Self, Error> {
+    pub fn remove(self, store: &mut impl ObjectWorkspace, key: &[u8; 32]) -> Result<Self, Error> {
         let _walk = IndexWalkV1::start(true);
         let mut path = Vec::new();
         let mut root = self.0;
@@ -322,7 +352,7 @@ impl IndexRoot {
     /// Any unavailable, corrupt or oversized node on the selected authenticated paths.
     pub fn predecessor(
         self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         key: &[u8; 32],
     ) -> Result<Option<([u8; 32], Vec<u8>)>, Error> {
         let _walk = IndexWalkV1::start(false);

@@ -78,7 +78,7 @@ pub enum IpaError {
         /// The `k` of the parameters.
         available: u32,
     },
-    /// A round challenge `u_j` is zero (spec section 8, step 8).
+    /// A claimed round challenge `u_j` is zero.
     ZeroChallenge {
         /// The round.
         round: usize,

@@ -55,7 +55,7 @@ pub fn bounded_word(
 }
 
 /// Foreign Vesta claim carried through A, with canonical coordinates and scalars.
-/// Its curve/finite check belongs to the hard Q/Omega source relation and the
+/// Its canonical group encoding check belongs to the hard Q/Omega source relation and the
 /// native Vesta fold in Omega; A preserves the exact canonical coordinate limbs.
 #[derive(Clone, Debug)]
 pub struct VestaClaimCells {
@@ -105,7 +105,7 @@ impl VestaClaimCells {
     }
     /// Checks a claim copied from an authenticated recursive public frame.
     /// No accumulator validity is asserted here; the consuming native-curve
-    /// fold checks its finite point and retains its generator obligation.
+    /// fold checks its full-group point and retains its generator obligation.
     ///
     /// # Errors
     /// Invalid source metadata/layout; bad padding or zero suffix is unsatisfiable.
@@ -627,7 +627,7 @@ pub struct IncomingVestaCells {
     pub claim: VestaClaimCells,
     /// Same modes included in A's global incoming-mode constraint.
     pub mode: ModeCells<Fp>,
-    /// Canonical corrected coordinates, finite/different checked by Omega.
+    /// Canonical corrected coordinates; full-group syntax and distinctness checked by Omega.
     pub corrected: [ScalarCells<Ep>; 2],
 }
 impl AOutputCells {

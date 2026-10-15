@@ -26,11 +26,23 @@ fn send_terminal(source: &send_chain::AuthenticatedSend) -> Terminal<'_> {
 fn forged_succinct_fold_requires_a_distinct_same_challenges_correction() {
     let params = PinnedParams::<Eq>::derive(16).unwrap();
     let honest = AccumulatorT::trivial(&params, MemoryBudget::DEFAULT).unwrap();
-    let inputs = [honest.as_input(), honest.as_input()];
-    let proof = forged_fold(&params, &inputs);
-    let original =
-        iroha_plonk_recursion::verify_fold(&params, &inputs, &proof, &FoldConfig::default())
-            .unwrap();
+    let inputs = [honest.as_input(), honest.as_input(), honest.as_input()];
+    let proof = forged_fold(&params, &inputs, FoldPurpose::SigmaBatch, |tape| {
+        iroha_plonk_recursion::accumulation::input_digest(
+            &params,
+            &inputs,
+            tape,
+            FoldPurpose::SigmaBatch,
+        )
+    });
+    let original = iroha_plonk_recursion::verify_fold(
+        &params,
+        &inputs,
+        &proof,
+        FoldPurpose::SigmaBatch,
+        &FoldConfig::default(),
+    )
+    .unwrap();
     assert!(original.decide(&params, MemoryBudget::DEFAULT).is_err());
     let correction = deciding_correction(&params, &original);
     assert_ne!(&correction, original.g());

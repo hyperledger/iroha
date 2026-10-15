@@ -258,6 +258,8 @@ pub struct GlueChip<F: PastaField> {
     rows: RowCursor,
     shared_rows: Option<SharedRows>,
     constants: Option<ConstantCache<F>>,
+    free_witnesses: Option<Rc<RefCell<Option<(usize, usize)>>>>,
+    spare_witnesses: Option<Rc<RefCell<std::collections::VecDeque<(Column<Advice>, usize)>>>>,
     _marker: core::marker::PhantomData<F>,
 }
 
@@ -284,6 +286,8 @@ impl<F: PastaField> GlueChip<F> {
             rows,
             shared_rows: None,
             constants: None,
+            free_witnesses: None,
+            spare_witnesses: None,
             _marker: core::marker::PhantomData,
         }
     }
@@ -297,6 +301,8 @@ impl<F: PastaField> GlueChip<F> {
             rows: RowCursor::starting_at(0),
             shared_rows: Some(rows.clone()),
             constants: None,
+            free_witnesses: None,
+            spare_witnesses: None,
             _marker: core::marker::PhantomData,
         }
     }
@@ -316,6 +322,54 @@ impl<F: PastaField> GlueChip<F> {
             return Err(Error::Synthesis);
         }
         self.constants = Some(Rc::new(RefCell::new(BTreeMap::new())));
+        Ok(self)
+    }
+
+    /// Packs independently allocated free witnesses in shared four-cell rows.
+    /// The pool is structural and shared by all clones; consumers keep exact
+    /// returned cells, so all later copy/range/arithmetic constraints remain.
+    /// Kernel roots allocated through reserve_shared_rows never enter this pool.
+    ///
+    /// # Errors
+    /// The chip must own a bounded, constant-column-free shared arithmetic lane.
+    pub fn with_shared_witness_pool(mut self) -> Result<Self, Error> {
+        if self.config.constant_column
+            || !self
+                .shared_rows
+                .as_ref()
+                .is_some_and(SharedRows::is_bounded)
+        {
+            return Err(Error::Synthesis);
+        }
+        self.free_witnesses = Some(Rc::new(RefCell::new(None)));
+        Ok(self)
+    }
+
+    /// Packs free witnesses in exact cells on an ordinary shared arithmetic lane.
+    /// The four ports are owned by this Glue configuration; freshly reserved
+    /// rows have no arithmetic or specialized selector enabled. Fixed constants
+    /// occupy their separate column and do not alias these advice cells.
+    /// # Errors
+    /// A shared row reservation owner is required for every clone and kernel.
+    pub fn with_shared_ordinary_witness_pool(mut self) -> Result<Self, Error> {
+        if self.shared_rows.is_none() || self.config.s_standard.is_some() {
+            return Err(Error::Synthesis);
+        }
+        self.free_witnesses = Some(Rc::new(RefCell::new(None)));
+        Ok(self)
+    }
+
+    /// Reuses empty, coefficient-unqueried ports of completed standard Glue rows.
+    /// Every offered cell remains outside the phase's secondary range ports.
+    /// # Errors
+    /// The bounded phase-zero free-witness owner was not established first.
+    pub fn with_shared_glue_spare_pool(mut self) -> Result<Self, Error> {
+        if self.free_witnesses.is_none()
+            || !matches!(self.config.s_standard, Some(Enable::Phase { phase: 0, .. }))
+        {
+            return Err(Error::Synthesis);
+        }
+        self.spare_witnesses = Some(Rc::new(RefCell::new(std::collections::VecDeque::new())));
         Ok(self)
     }
 
@@ -402,6 +456,19 @@ impl<F: PastaField> GlueChip<F> {
         if let Some(selector) = selector {
             selector.enable(region, row)?;
         }
+        if selector.is_none()
+            && let Some(pool) = &self.spare_witnesses
+        {
+            let mut pool = pool.borrow_mut();
+            for (i, coefficient) in [a, b, c, d].into_iter().enumerate() {
+                if words[i].is_none()
+                    && bool::from(coefficient.is_zero())
+                    && (i >= 2 || bool::from(m.is_zero()))
+                {
+                    pool.push_back((self.config.advice[i], row));
+                }
+            }
+        }
         Ok(words)
     }
 
@@ -434,6 +501,35 @@ impl<F: PastaField> GlueChip<F> {
         values: &[Value<F>],
     ) -> Result<Vec<Word<F>>, Error> {
         let mut out = Vec::with_capacity(values.len());
+        if let Some(pool) = self.free_witnesses.clone() {
+            for value in values {
+                let spare = self
+                    .spare_witnesses
+                    .as_ref()
+                    .and_then(|p| p.borrow_mut().pop_front());
+                if let Some((column, row)) = spare {
+                    out.push(assign_word(region, column, row, *value)?);
+                    continue;
+                }
+                let mut slot = pool.borrow_mut();
+                let (row, index) = if let Some(place) = *slot {
+                    place
+                } else {
+                    let row = self.take_rows(1)?;
+                    if let Some(enabled) = self.config.s_standard {
+                        enabled.enable(region, row)?;
+                    }
+                    (row, 0)
+                };
+                out.push(assign_word(region, self.config.advice[index], row, *value)?);
+                *slot = if index + 1 == GLUE_WIDTH {
+                    None
+                } else {
+                    Some((row, index + 1))
+                };
+            }
+            return Ok(out);
+        }
         for chunk in values.chunks(GLUE_WIDTH) {
             let mut slots = [Slot::Empty; GLUE_WIDTH];
             for (slot, value) in slots.iter_mut().zip(chunk) {
@@ -971,3 +1067,7 @@ mod tests {
 #[cfg(test)]
 #[path = "arith_constant_cache_tests.rs"]
 mod constant_cache_tests;
+
+#[cfg(test)]
+#[path = "arith_spare_pool_tests.rs"]
+mod spare_pool_tests;

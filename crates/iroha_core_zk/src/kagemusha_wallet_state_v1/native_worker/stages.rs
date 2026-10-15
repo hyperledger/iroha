@@ -102,7 +102,7 @@ macro_rules! chain {
                 $cancel.check()?;
                 let source = proof(session.first(
                     &key,
-                    fresh_fold_salt::<Fp>($cancel.prover_token())?,
+                    fresh_fold_tape::<Ep>($cancel.prover_token())?,
                     &fold,
                     ProverRandomness::os(),
                     config,
@@ -159,7 +159,9 @@ macro_rules! chain {
                 return Err(Error::Proof("native output length"));
             }
             $cancel.check()?;
-            NativeStageProgressV1::Checkpoint(encoded)
+            NativeStageProgressV1::Checkpoint(PrivateArchiveBytes::from_guarded(
+                zeroize::Zeroizing::new(encoded),
+            ))
         }
     }};
 }
@@ -168,7 +170,7 @@ macro_rules! call_wrapper {
         $session.wrapper(
             $source,
             &$key,
-            fresh_fold_salt::<Fq>($cancel.prover_token())?,
+            fresh_fold_tape::<Eq>($cancel.prover_token())?,
             &$fold,
             ProverRandomness::os(),
             $config,
@@ -178,7 +180,7 @@ macro_rules! call_wrapper {
         $session.wrapper(
             &$key,
             $source,
-            fresh_fold_salt::<Fq>($cancel.prover_token())?,
+            fresh_fold_tape::<Eq>($cancel.prover_token())?,
             &$fold,
             ProverRandomness::os(),
             $config,
@@ -190,7 +192,7 @@ macro_rules! call_advance {
         $session.advance(
             $source,
             &$key,
-            fresh_fold_salt::<Fp>($cancel.prover_token())?,
+            fresh_fold_tape::<Ep>($cancel.prover_token())?,
             &$fold,
             ProverRandomness::os(),
             $config,
@@ -200,7 +202,7 @@ macro_rules! call_advance {
         $session.advance(
             &$key,
             $source,
-            fresh_fold_salt::<Fp>($cancel.prover_token())?,
+            fresh_fold_tape::<Ep>($cancel.prover_token())?,
             &$fold,
             ProverRandomness::os(),
             $config,
@@ -217,7 +219,7 @@ impl NativeFoldWorkerV1 {
         route: OperationRoute,
         inputs: OperationInputsV1,
         public: [Fp; 18],
-        checkpoints: &[Vec<u8>],
+        checkpoints: &[PrivateArchiveBytes],
         originals: &mut dyn OriginalSourceV1,
         cancellation: &Cancellation,
     ) -> Result<NativeStageProgressV1, Error> {
@@ -301,11 +303,13 @@ impl NativeFoldWorkerV1 {
                             cancellation.check()?;
                             let source =
                                 proof(session.first(&key, ProverRandomness::os(), config))?;
-                            proof(session.encode_first_checkpoint_cancellable(
-                                &source,
-                                self.budget,
-                                Some(cancellation.prover_token()),
-                            ))?
+                            PrivateArchiveBytes::from_guarded(zeroize::Zeroizing::new(proof(
+                                session.encode_first_checkpoint_cancellable(
+                                    &source,
+                                    self.budget,
+                                    Some(cancellation.prover_token()),
+                                ),
+                            )?))
                         }
                         1 => {
                             let key = self
@@ -322,16 +326,18 @@ impl NativeFoldWorkerV1 {
                             let source = proof(session.wrapper(
                                 first.as_ref().ok_or(Error::Proof("Bootstrap A source"))?,
                                 &key,
-                                fresh_fold_salt::<Fq>(cancellation.prover_token())?,
+                                fresh_fold_tape::<Eq>(cancellation.prover_token())?,
                                 &fold,
                                 ProverRandomness::os(),
                                 config,
                             ))?;
-                            proof(session.encode_wrapper_checkpoint_cancellable(
-                                &source,
-                                self.budget,
-                                Some(cancellation.prover_token()),
-                            ))?
+                            PrivateArchiveBytes::from_guarded(zeroize::Zeroizing::new(proof(
+                                session.encode_wrapper_checkpoint_cancellable(
+                                    &source,
+                                    self.budget,
+                                    Some(cancellation.prover_token()),
+                                ),
+                            )?))
                         }
                         2 => {
                             let key = self
@@ -347,22 +353,23 @@ impl NativeFoldWorkerV1 {
                             cancellation.check()?;
                             let prior =
                                 wrapper.as_ref().ok_or(Error::Proof("Bootstrap W source"))?;
-                            let salt = fresh_fold_salt::<Fp>(cancellation.prover_token())?;
+                            let tape = fresh_fold_tape::<Ep>(cancellation.prover_token())?;
                             let source = proof(session.terminal(
                                 prior,
                                 &key,
-                                salt,
+                                tape,
                                 &fold,
                                 ProverRandomness::os(),
                                 config,
                             ))?;
-                            proof(session.encode_terminal_checkpoint_cancellable(
-                                prior,
-                                &source,
-                                salt,
-                                self.budget,
-                                Some(cancellation.prover_token()),
-                            ))?
+                            PrivateArchiveBytes::from_witness(proof(
+                                session.encode_terminal_checkpoint_cancellable(
+                                    prior,
+                                    &source,
+                                    self.budget,
+                                    Some(cancellation.prover_token()),
+                                ),
+                            )?)
                         }
                         _ => return Err(Error::Proof("Bootstrap stage")),
                     };

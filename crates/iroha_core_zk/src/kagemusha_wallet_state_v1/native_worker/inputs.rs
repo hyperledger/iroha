@@ -427,7 +427,7 @@ impl NativeFoldWorkerV1 {
         &self,
         step: &ReleasedStep,
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
-        checkpoints: &[Vec<u8>],
+        checkpoints: &[PrivateArchiveBytes],
         cancellation: &Cancellation,
         originals: &mut dyn OriginalSourceV1,
         custody: &mut FoldCustodyV1<'_>,

@@ -328,7 +328,11 @@ rows do not replace consumers' verification of authenticated finality.
   is rejected with `query_scan_limit_exceeded`. Transaction and account movement
   visibility uses that same authenticated carrier, without rereading and verifying
   the block for each visibility check. The captured canonical prefix is rechecked
-  before publishing the page.
+  before publishing the page. Account movement projection borrows the input and
+  result from that carrier, avoiding unused per-transaction Merkle proof DTOs,
+  encoding and clones. Its byte allowance charges the exact authenticated source
+  frames; collection limits separately bound retained display rows. Proof-bearing
+  transaction queries still charge their additional owned proof DTO bytes.
 - Bounds on `block_height` in the filter's top-level `and` bound the rows a
   page examines: `block_height >= 1200` ends the walk below height 1200, and
   `block_height <= 1500` starts the walk just above height 1500. `filter=block_height >= 1200 and result_ok = true`

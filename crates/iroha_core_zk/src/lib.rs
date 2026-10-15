@@ -88,6 +88,7 @@ pub use verification::{ProofRelation, ProofVerificationError, VerifiedProof, ver
 #[cfg(test)]
 pub(crate) mod frame_test_support;
 pub mod kagemusha_wallet_advance_v1;
+pub mod kagemusha_wallet_archive_bytes_v1;
 /// Complete installed wallet verifier inventory and native artifact identity owner.
 pub mod kagemusha_wallet_artifacts_v1;
 /// Design §5.3 runtime capacity check: storage and memory bounds from installed relations.

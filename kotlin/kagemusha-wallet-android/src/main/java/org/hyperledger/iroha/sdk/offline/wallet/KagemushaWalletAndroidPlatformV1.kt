@@ -302,12 +302,13 @@ internal class KagemushaWalletAndroidPlatformAdapterV1(
     /**
      * The custody root: `<canonical noBackupFilesDir>/kagemusha-wallet-v1` of the
      * credential-encrypted context. It is available only after the user unlocked the device; the
-     * Rust provider creates and syncs the directory itself.
+     * SDK prepares the fixed directory and its durable first-initialization witness before
+     * Native opens the existing root. Missing witnessed custody is never recreated.
      */
     fun custodyRoot(): KagemushaWalletAndroidCustodyRootV1 {
         storageState()?.let { return KagemushaWalletAndroidCustodyRootV1.Unavailable(it) }
-        val parent = try {
-            environment.noBackupFilesDir().canonicalPath
+        val root = try {
+            environment.preparedCustodyRoot().path
         } catch (error: IOException) {
             return KagemushaWalletAndroidCustodyRootV1.Unavailable(KagemushaWalletAndroidUnavailableV1.io(0))
         } catch (error: Throwable) {
@@ -315,12 +316,12 @@ internal class KagemushaWalletAndroidPlatformAdapterV1(
                 KagemushaWalletAndroidUnavailableV1.platform(KagemushaWalletAndroidUnavailableV1.PLATFORM_STORAGE),
             )
         }
-        if (!File(parent).isAbsolute) {
+        if (!File(root).isAbsolute) {
             return KagemushaWalletAndroidCustodyRootV1.Unavailable(
                 KagemushaWalletAndroidUnavailableV1.platform(KagemushaWalletAndroidUnavailableV1.PLATFORM_STORAGE),
             )
         }
-        return KagemushaWalletAndroidCustodyRootV1.Present(File(parent, KAGEMUSHA_WALLET_ANDROID_CUSTODY_DIR_NAME_V1).path)
+        return KagemushaWalletAndroidCustodyRootV1.Present(root)
     }
 }
 

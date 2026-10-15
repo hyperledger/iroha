@@ -381,7 +381,8 @@ impl KagemushaWalletFeeClaimV1 {
     pub fn validate(&self) -> WalletResult<()> {
         require_version_v1("fee_claim.version", self.version)?;
         self.payment.digests()?;
-        let body = &self.payment.request.body;
+        let request = self.payment.signed_request()?;
+        let body = &request.body;
         if is_zero_v1(&body.fee_schedule) {
             return Err(invalid_v1("fee_claim.fee_schedule"));
         }
@@ -405,7 +406,8 @@ impl KagemushaWalletFeeClaimV1 {
     ) -> WalletResult<KagemushaWalletFeePayoutV1> {
         self.validate()?;
         let digests = self.payment.digests()?;
-        let body = &self.payment.request.body;
+        let request = self.payment.signed_request()?;
+        let body = &request.body;
         schedule.validate()?;
         if schedule.fee_schedule_digest() != body.fee_schedule {
             return Err(invalid_v1("fee_claim.fee_schedule"));
@@ -480,7 +482,7 @@ impl KagemushaWalletFeeClaimV1 {
         claim.require_versions()?;
         require_scheme_v1(
             "fee_claim.scheme_id",
-            &claim.payment.request.body.scheme_id,
+            &claim.payment.send.statement.scheme_id,
             expected_scheme_id,
         )?;
         claim.validate()?;

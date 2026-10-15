@@ -21,7 +21,6 @@ use iroha_plonk::{
 };
 use iroha_plonk_gadgets::{bytes::element::le_message_segments, p256::VerifyMode};
 use iroha_plonk_recursion::{codec::ScalarCells, obligation::ModeCells, verifier::VerifierPlan};
-use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
 
 #[derive(Clone)]
 struct Binding {
@@ -250,9 +249,7 @@ fn actual_bound_invalid_signature_forces_trivial_without_auxiliary_substitution(
             &params,
             &pk,
             Witness::from_circuit(&pk, &q, &instances).unwrap(),
-            ProverRandomness::recovery(|_: &[u8; 32]| {
-                Ok::<_, core::convert::Infallible>(ChaCha20Rng::from_seed([79; 32]))
-            }),
+            ProverRandomness::hedged(),
             ProverConfig::default(),
         )
         .unwrap();
@@ -396,9 +393,7 @@ fn actual_renewed_three_variable_one_fixed_leaf_preserves_every_signature() {
         &params,
         &pk,
         Witness::from_circuit(&pk, &circuit, &instances).unwrap(),
-        ProverRandomness::recovery(|_: &[u8; 32]| {
-            Ok::<_, core::convert::Infallible>(ChaCha20Rng::from_seed([81; 32]))
-        }),
+        ProverRandomness::hedged(),
         ProverConfig::default(),
     )
     .unwrap();

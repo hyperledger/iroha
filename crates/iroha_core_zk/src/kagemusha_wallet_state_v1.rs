@@ -21,6 +21,7 @@
 //! Collection records a source-selected intent before deleting historical witness objects.
 //! A newer verified Ω supplies coverage; Send additionally needs pending-map nonmembership.
 //! Earned-fee Payments have separate custody until their exact finalized payout is verified.
+use crate::kagemusha_wallet_archive_bytes_v1::PrivateArchiveBytes;
 // TODO(G3/G4): qualify the installed full-catalog native owner through wallet/SDK delivery and
 // the complete custody/proof lifetime on stock phones. Run relations remain artifact-dependent.
 // Persistent replay metadata and unreachable immutable index nodes remain retained; a future
@@ -79,7 +80,8 @@ pub use custody::{
 pub use fee_claims::{FEE_CLAIM_MAX_BYTES_V1, FinalizedPayoutEvidence, RetainedFeeClaim};
 pub use fold_custody::FoldCustodyV1;
 pub use folding::{FoldStatus, LineageCache};
-pub use index::{IndexRoot, ObjectStore};
+pub use index::{IndexRoot, ObjectStore, ObjectWorkspace};
+mod object_workspace;
 pub(crate) use lifecycle::ArchiveIntentV1;
 pub use lifecycle::{
     ChargeOriginalsV1, CreditProjectionV1, NativeIntentV1, NativePreparation, OperationActionV1,
@@ -385,7 +387,7 @@ pub trait NativeProofs {
         &self,
         witness: &ReleasedStep,
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
-        checkpoints: &[Vec<u8>],
+        checkpoints: &[PrivateArchiveBytes],
         custody: Option<&mut FoldCustodyV1<'_>>,
         cancellation: &Cancellation,
     ) -> Result<FoldProgress, Error>;
@@ -425,10 +427,10 @@ impl CheckpointLayout {
 }
 
 /// One sub-proof result, checked against the authenticated native stage's exact layout.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum FoldProgress {
     /// Persist this result before asking for the next sub-proof.
-    Checkpoint(Vec<u8>),
+    Checkpoint(PrivateArchiveBytes),
     /// Final Ω. A Receive's burn result determines its first credit-digest leaf.
     Complete {
         /// Candidate lineage, verified natively before it becomes folded.
@@ -469,7 +471,7 @@ pub struct ConsumedCredit {
     pub sequence: u128,
 }
 
-#[derive(Debug, Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
+#[derive(Debug, norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::Checkpoint")]
 struct Checkpoint {
     layout: CheckpointLayout,
@@ -477,7 +479,7 @@ struct Checkpoint {
     predecessor_fold: [u8; 32],
     previous: [u8; 32],
     ordinal: u32,
-    proof: Vec<u8>,
+    proof: PrivateArchiveBytes,
 }
 
 #[derive(Debug, Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
@@ -702,7 +704,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 if credit.payment_digest != c.body().payment_digest
                     || identity.payment != credit.payment_digest
                     || identity.credit_id != credit_id
-                    || payment.request.body.amount != credit.amount
+                    || valid(payment.signed_request())?.body.amount != credit.amount
                 {
                     return Err(Error::CreditConflict);
                 }

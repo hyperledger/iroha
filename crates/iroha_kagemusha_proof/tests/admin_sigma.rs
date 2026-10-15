@@ -119,7 +119,7 @@ fn native_bootstrap_sigma_proof_and_complete_opening() {
         &params,
         &key,
         Witness::from_circuit(&key, &circuit, &instances).unwrap(),
-        common::recovery(188),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -281,7 +281,7 @@ fn native_load_sigma_proof_and_complete_opening() {
         &params,
         &key,
         Witness::from_circuit(&key, &circuit, &instances).unwrap(),
-        common::recovery(189),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -402,7 +402,11 @@ fn installed_admin_sigma_originals_prove_bootstrap_and_reject_rehashed_value() {
     assert_eq!(installed.binding(), key.binding());
     assert_eq!(installed.verifying_key().to_bytes(), key.vk().to_bytes());
     let proof = installed
-        .prove(&witness, common::recovery(201), ProverConfig::default())
+        .prove(
+            &witness,
+            common::fresh_randomness(),
+            ProverConfig::default(),
+        )
         .unwrap();
     check_imported_admin_proof(
         installed.params(),
@@ -415,7 +419,7 @@ fn installed_admin_sigma_originals_prove_bootstrap_and_reject_rehashed_value() {
     bootstrap::rebind(&mut wrong);
     assert!(
         installed
-            .prove(&wrong, common::recovery(202), ProverConfig::default())
+            .prove(&wrong, common::fresh_randomness(), ProverConfig::default())
             .is_err()
     );
 }
@@ -456,7 +460,11 @@ fn installed_admin_sigma_originals_prove_load_and_reject_rehashed_value() {
     assert_eq!(installed.binding(), key.binding());
     assert_eq!(installed.verifying_key().to_bytes(), key.vk().to_bytes());
     let proof = installed
-        .prove(&witness, common::recovery(203), ProverConfig::default())
+        .prove(
+            &witness,
+            common::fresh_randomness(),
+            ProverConfig::default(),
+        )
         .unwrap();
     check_imported_admin_proof(
         installed.params(),
@@ -469,7 +477,7 @@ fn installed_admin_sigma_originals_prove_load_and_reject_rehashed_value() {
     rebind_load(&mut wrong);
     assert!(
         installed
-            .prove(&wrong, common::recovery(204), ProverConfig::default())
+            .prove(&wrong, common::fresh_randomness(), ProverConfig::default())
             .is_err()
     );
 }

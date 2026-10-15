@@ -166,8 +166,8 @@ fn acknowledgement_retries_reverify_and_never_delete_before_durable_payout() {
         }
         assert!(wallet.acknowledge_fee_payout([2; 32], &evidence).is_err());
         assert_eq!(
-            wallet.archive.get(key, 128).unwrap(),
-            Some(b"retained originals".to_vec())
+            wallet.archive.get(key, 128).unwrap().as_deref(),
+            Some(b"retained originals".as_slice())
         );
         let (_, manifest) = wallet.manifest().unwrap();
         let selected: FeeClaimEntry = archive::decode(
@@ -274,7 +274,7 @@ fn native_fee_transport_roundtrips_exact_pair_and_refuses_foreign_beneficiary_or
     let claim: KagemushaWalletFeeClaimV1 =
         super::super::tests::fixture("KagemushaWalletFeeClaimV1");
     let request = retained_request_fixture();
-    let scheme = claim.payment.request.body.scheme_id;
+    let scheme = claim.payment.signed_request().unwrap().body.scheme_id;
     let retained = RetainedFeeClaim {
         payment: claim.payment.to_canonical_bytes().unwrap(),
         request: archive::encode(&request).unwrap(),
@@ -320,7 +320,11 @@ fn native_fee_transport_roundtrips_exact_pair_and_refuses_foreign_beneficiary_or
         .is_err()
     );
     let mut zero = claim.payment;
-    zero.request.body.fee = 0;
+    if let KagemushaWalletEffectV1::Send { fee, .. } = &mut zero.send.statement.effect {
+        *fee = 0;
+    } else {
+        panic!("Send fixture");
+    }
     let zero = RetainedFeeClaim {
         payment: archive::encode(&zero).unwrap(),
         request: retained.request,
@@ -378,7 +382,7 @@ fn fee_transport_encoding_fits_existing_cap_at_large_original_boundaries() {
     assert!(
         KagemushaWalletFeeClaimV1::decode_canonical(
             &overflow,
-            &claim.payment.request.body.scheme_id
+            &claim.payment.signed_request().unwrap().body.scheme_id
         )
         .is_err()
     );
@@ -399,7 +403,7 @@ fn fee_transport_encoding_fits_existing_cap_at_large_original_boundaries() {
 fn fee_original_read_refusals_preserve_exact_pair_and_ledger_transport_retry() {
     let claim: KagemushaWalletFeeClaimV1 =
         super::super::tests::fixture("KagemushaWalletFeeClaimV1");
-    let scheme = claim.payment.request.body.scheme_id;
+    let scheme = claim.payment.signed_request().unwrap().body.scheme_id;
     let retained = RetainedFeeClaim {
         payment: claim.payment.to_canonical_bytes().unwrap(),
         request: archive::encode(&retained_request_fixture()).unwrap(),

@@ -6,7 +6,7 @@ use iroha_plonk::{
     check::{CheckMode, check_circuit},
     cs::{Column, ConstraintSystem, Instance},
     frontend::{Circuit, Error, Layouter, SimpleFloorPlanner, Value, synthesize},
-    transcript::{decode_point, encode_point},
+    transcript::{decode_generator, decode_point, encode_point, generator_coordinates},
 };
 use iroha_plonk_gadgets::{
     bytes::{
@@ -57,7 +57,7 @@ impl Decode {
                         .coordinates()
                         .unwrap()
                 },
-                |v| v.g().coordinates().unwrap(),
+                |v| generator_coordinates::<Eq>(v.g()),
             );
             (
                 valid,
@@ -65,10 +65,12 @@ impl Decode {
                 decoded.map_or([Fp::ONE; K], |v| *v.challenges()),
             )
         } else {
-            let point = decode_point::<Eq>(&self.bytes[..32].try_into().unwrap()).ok();
+            let point = decode_generator::<Eq>(&self.bytes[..32].try_into().unwrap()).ok();
             let valid = point.is_some();
-            let (x, y) =
-                point.map_or_else(|| (-Fq::ONE, Fq::from(2)), |p| p.coordinates().unwrap());
+            let (x, y) = point.map_or_else(
+                || (-Fq::ONE, Fq::from(2)),
+                |p| generator_coordinates::<Eq>(&p),
+            );
             (valid, [x, y], [Fp::ZERO; K])
         }
     }
@@ -170,7 +172,7 @@ impl Circuit<Fp> for Decode {
                             .map(iroha_plonk_gadgets::Word::cell),
                     );
                 } else {
-                    let decoded = chip.decode_vesta_point_soft(&mut region, &messages[0])?;
+                    let decoded = chip.decode_vesta_generator_soft(&mut region, &messages[0])?;
                     out.push(decoded.valid.cell());
                     for coordinate in decoded.coordinates {
                         out.extend([coordinate.lo().cell(), coordinate.hi().cell()]);
@@ -216,7 +218,7 @@ fn modulus<F: PrimeField<Repr = [u8; 32]>>() -> [u8; 32] {
 
 #[test]
 #[ignore = "k16 foreign decoder matrix; run optimized with --include-ignored"]
-fn vesta_points_decode_totally_in_fp_without_optional_rejection() {
+fn vesta_generators_decode_totally_in_fp_without_optional_rejection() {
     assert!(!bool::from(Fq::from(5).sqrt().is_some()));
     let mut vectors = vec![
         VESTA_TRIVIAL_GENERATOR,
@@ -361,4 +363,34 @@ fn vesta_accumulators_decode_totally_with_exact_bytes_and_length() {
         bad.length = length;
         check(&bad);
     }
+}
+
+#[test]
+fn foreign_native_oracle_accepts_only_canonical_generator_identity() {
+    let identity = Decode {
+        bytes: vec![0; 32],
+        length: 32,
+        accumulator: false,
+        known: true,
+    };
+    assert_eq!(identity.native(), (true, [Fq::ZERO; 2], [Fp::ZERO; K]));
+    let mut signed_zero = identity;
+    signed_zero.bytes[31] = 128;
+    assert!(!signed_zero.native().0);
+
+    let mut accumulator = Decode {
+        bytes: vec![0; 544],
+        length: 544,
+        accumulator: true,
+        known: true,
+    };
+    for scalar in accumulator.bytes[32..].chunks_exact_mut(32) {
+        scalar.copy_from_slice(&Fp::ONE.to_repr());
+    }
+    assert_eq!(accumulator.native(), (true, [Fq::ZERO; 2], [Fp::ONE; K]));
+    accumulator.bytes[32..64].fill(0);
+    assert!(
+        !accumulator.native().0,
+        "actual challenges must stay nonzero"
+    );
 }

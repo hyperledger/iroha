@@ -9,18 +9,22 @@ pub(super) struct Pause {
     armed: AtomicBool,
     entered: mpsc::Sender<()>,
     released: Arc<AtomicUsize>,
-    expected_checkpoint: Vec<u8>,
+    expected_checkpoint: PrivateArchiveBytes,
 }
 impl Pause {
     pub(super) fn run(
         &self,
-        checkpoints: &[Vec<u8>],
+        checkpoints: &[PrivateArchiveBytes],
         cancellation: &Cancellation,
     ) -> Result<(), Error> {
         if !self.armed.swap(false, Ordering::SeqCst) {
             return Ok(());
         }
-        assert_eq!(checkpoints, std::slice::from_ref(&self.expected_checkpoint));
+        assert_eq!(checkpoints.len(), 1);
+        assert_eq!(
+            checkpoints[0].as_slice(),
+            self.expected_checkpoint.as_slice()
+        );
         struct Workspace(Arc<AtomicUsize>, Vec<u8>);
         impl Drop for Workspace {
             fn drop(&mut self) {

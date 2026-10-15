@@ -1,27 +1,50 @@
 //! Source-frame mutations and resumed fold cancellation. No fixture is an admitted operation.
 use super::*;
 
+#[path = "tests/source_ownership.rs"]
+mod source_ownership;
+
 #[test]
 fn restored_terminal_fold_observes_cancellation_after_configuration() {
+    // Canonical public grammar DATA only. No specimen claims to decide, and the
+    // deliberately short parameters refuse before the fold algebra is reached.
     let params = PinnedParams::<Ep>::derive(1).unwrap();
+    let point = decode_point::<Ep>(&iroha_plonk_recursion::PALLAS_TRIVIAL_GENERATOR).unwrap();
+    let input = FoldInput::from_opening(point, &[Fq::ONE; K]).unwrap();
+    let inputs = vec![input; 4];
+    let mut raw = [0_u8; iroha_plonk_recursion::FOLD_WITNESS_BYTES];
+    for word in 0..=2 * K {
+        raw[word * 32..(word + 1) * 32]
+            .copy_from_slice(&iroha_plonk_recursion::PALLAS_TRIVIAL_GENERATOR);
+    }
+    let last = 32 * (2 * K + 2);
+    raw[last..last + 32].copy_from_slice(&iroha_plonk_recursion::PALLAS_TRIVIAL_GENERATOR);
+    let witness = FoldWitness::<Ep>::from_private_bytes(&raw).unwrap();
     let cancellation = iroha_pasta::CancellationToken::new();
     let config = terminal_restore_fold_config(MemoryBudget::default(), Some(&cancellation));
     assert!(matches!(
-        create_fold(&params, &[], Fp::ZERO.to_repr(), &config),
+        verify_fold(&params, &inputs, &witness, FoldPurpose::ATerminal, &config),
         Err(iroha_plonk_recursion::Error::Parameters(_))
     ));
     cancellation.cancel();
-    // Cancellation after configuration must reach the resumed recursive fold
-    // through the same shared signal, before its deliberately short parameters.
+    // The retained path consumes no tape or entropy; the same signal reaches
+    // verify_fold before its deliberately short parameters.
     assert!(matches!(
-        create_fold(&params, &[], Fp::ZERO.to_repr(), &config),
+        verify_fold(&params, &inputs, &witness, FoldPurpose::ATerminal, &config),
         Err(iroha_plonk_recursion::Error::Cancelled)
     ));
     let independent = terminal_restore_fold_config(MemoryBudget::default(), None);
     assert!(matches!(
-        create_fold(&params, &[], Fp::ZERO.to_repr(), &independent),
+        verify_fold(
+            &params,
+            &inputs,
+            &witness,
+            FoldPurpose::ATerminal,
+            &independent
+        ),
         Err(iroha_plonk_recursion::Error::Parameters(_))
     ));
+    assert_eq!(&*witness.to_private_bytes(), &raw);
 }
 
 fn original() -> Inputs {
@@ -93,13 +116,22 @@ fn malformed_q_exports_never_select_a_scalar_alias_or_short_padding() {
     input.instances[1] = vec![x, y];
     let n = input.instances[0].len();
     input.instances[0][n - K..n - K + 4].fill(Fq::ZERO);
-    assert!(q_sigma_part(&input, 12).is_ok());
+    let finite = q_sigma_part(&input, 12).unwrap();
+    let mut identity_input = input.clone();
+    identity_input.instances[1] = vec![Fq::ZERO; 2];
+    let identity = q_sigma_part(&identity_input, 12).unwrap();
+    assert_eq!(identity.source_k(), finite.source_k());
+    assert_eq!(identity.challenges(), finite.challenges());
+    assert_eq!(
+        *identity.g(),
+        iroha_plonk::transcript::decode_generator::<Eq>(&[0; 32]).unwrap()
+    );
     for mutation in 0..5 {
         let mut bad = input.clone();
         match mutation {
             0 => bad.instances[0][n - K] = Fq::ONE,
             1 => bad.instances[0][n - 1] = Fq::ZERO,
-            2 => bad.instances[1] = vec![Fq::ZERO, Fq::ZERO],
+            2 => bad.instances[1] = vec![Fq::ZERO, Fq::ONE],
             3 => bad.instances[3][0] = Fq::ZERO,
             _ => bad.instances[4][0] = Fq::from(16),
         }
@@ -181,4 +213,26 @@ fn original_bounds_reject_missing_oversized_and_over_domain_tables() {
     );
     assert_eq!(original_bounds(&[0; 16], 1 << 16, config), Ok(()));
     // Passing these bounds alone never parses or admits an original proving key.
+}
+
+#[test]
+fn identity_generator_claims_preserve_public_word_and_frame_encoding() {
+    let p = iroha_plonk::transcript::decode_generator::<Ep>(&[0; 32]).unwrap();
+    let v = iroha_plonk::transcript::decode_generator::<Eq>(&[0; 32]).unwrap();
+    let p = FoldInput::<Ep>::from_normalized(p, 16, [Fq::ONE; K]).unwrap();
+    let v = FoldInput::<Eq>::from_normalized(v, 16, [Fp::ONE; K]).unwrap();
+    let mut pwords = Vec::new();
+    push_pallas(&mut pwords, &p).unwrap();
+    assert_eq!(&pwords[..3], &[Fp::from(16), Fp::ZERO, Fp::ZERO]);
+    assert_eq!(pwords.len(), 35);
+    let public_frame = frame(&[Fp::ZERO; 18], &p, &v).unwrap();
+    assert_eq!(public_frame.len(), 69);
+    let vwords = &public_frame[2..22];
+    assert_eq!(&vwords[..4], &[Fp::ZERO; 4]);
+    assert_eq!(&vwords[4..], &[Fp::ONE; K]);
+    let accumulated = AccumulatorT::<Eq>::new(*v.g(), [Fp::ONE; K]).unwrap();
+    let public = omega_instances(Fp::from(23), &accumulated).unwrap();
+    assert_eq!(public[0], [Fq::from(23)]);
+    assert_eq!(public[1], [Fq::ZERO; 2]);
+    assert_eq!(public[2], [Fq::ONE; K]);
 }

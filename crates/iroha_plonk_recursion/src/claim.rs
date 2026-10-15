@@ -1,11 +1,10 @@
 //! Canonical accumulator claims and explicit, checked fold-slot construction.
 
 use ff::{Field, PrimeField};
-use group::prime::PrimeCurveAffine;
 use iroha_pasta::{PastaCurve, msm::MemoryBudget};
 use iroha_plonk::{
     pcs::ipa::{IpaError, PinnedParams},
-    transcript::{decode_point, decode_scalar, encode_point},
+    transcript::{decode_generator, decode_scalar, encode_point},
 };
 
 use crate::{ACCUMULATOR_BYTES, Error, K, K_U32};
@@ -19,10 +18,10 @@ pub struct AccumulatorT<C: PastaCurve> {
 }
 
 impl<C: PastaCurve> AccumulatorT<C> {
-    /// Checks that G is finite and all sixteen challenges are nonzero.
+    /// Checks a full-group G and sixteen nonzero actual challenges.
     ///
     /// # Errors
-    /// Identity G or a zero challenge is rejected.
+    /// A zero actual challenge is rejected; G remains an undecided claim.
     pub fn new(g: C::AffineExt, challenges: [C::ScalarExt; K]) -> Result<Self, Error> {
         let input = FoldInput::<C>::from_normalized(g, K_U32, challenges)?;
         Ok(Self {
@@ -34,7 +33,7 @@ impl<C: PastaCurve> AccumulatorT<C> {
     /// Decodes exactly `G || u[0..16]` for the statically selected curve.
     ///
     /// # Errors
-    /// Wrong length, noncanonical/identity G, noncanonical scalars or zero challenges.
+    /// Wrong length, noncanonical G, noncanonical scalars or zero challenges.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() != ACCUMULATOR_BYTES {
             return Err(Error::Length {
@@ -42,7 +41,7 @@ impl<C: PastaCurve> AccumulatorT<C> {
                 actual: bytes.len(),
             });
         }
-        let g = decode_point::<C>(&message(bytes, 0)?)?;
+        let g = decode_generator::<C>(&message(bytes, 0)?)?;
         let mut challenges = [C::ScalarExt::ZERO; K];
         for (round, challenge) in challenges.iter_mut().enumerate() {
             *challenge = decode_scalar(&message(bytes, (round + 1) * 32)?)?;
@@ -105,7 +104,7 @@ impl<C: PastaCurve> AccumulatorT<C> {
     /// Constructs the pinned trivial claim `(sum g_i, [1;16])` explicitly.
     ///
     /// # Errors
-    /// Insufficient pinned parameters or an identity commitment.
+    /// Insufficient pinned parameters.
     pub fn trivial(params: &PinnedParams<C>, budget: MemoryBudget) -> Result<Self, Error> {
         Self::trivial_cancellable(params, budget, None)
     }
@@ -137,11 +136,24 @@ pub struct FoldInput<C: PastaCurve> {
 }
 
 impl<C: PastaCurve> FoldInput<C> {
+    pub(crate) fn clear_private_owner(&mut self) {
+        fn clear_point<A: iroha_pasta::PastaAffine>(p: &mut A) {
+            p.zeroize();
+        }
+        fn clear_field<F: iroha_pasta::PastaField>(f: &mut F) {
+            f.zeroize();
+        }
+        clear_point(&mut self.g);
+        for scalar in &mut self.challenges {
+            clear_field(scalar);
+        }
+    }
+
     /// Checks a source opening with one to sixteen nonzero challenges, then
-    /// adds the required leading zero prefix. G must be finite.
+    /// adds the required leading zero prefix. G may be the canonical identity.
     ///
     /// # Errors
-    /// Unsupported source k, identity G or a zero source challenge.
+    /// Unsupported source k or a zero source challenge.
     pub fn from_opening(g: C::AffineExt, source: &[C::ScalarExt]) -> Result<Self, Error> {
         if source.is_empty() || source.len() > K {
             return Err(Error::SourceK);
@@ -159,7 +171,7 @@ impl<C: PastaCurve> FoldInput<C> {
     /// followed by k nonzero values. Interior or suffix zeros are forbidden.
     ///
     /// # Errors
-    /// Unsupported k, identity G, malformed padding or a zero real challenge.
+    /// Unsupported k, malformed padding or a zero real challenge.
     pub fn from_normalized(
         g: C::AffineExt,
         source_k: u32,
@@ -167,11 +179,6 @@ impl<C: PastaCurve> FoldInput<C> {
     ) -> Result<Self, Error> {
         if !(1..=K_U32).contains(&source_k) {
             return Err(Error::SourceK);
-        }
-        if bool::from(g.is_identity()) {
-            return Err(Error::Encoding(
-                iroha_plonk::transcript::TranscriptError::IdentityPoint,
-            ));
         }
         let prefix = K - source_k as usize;
         if challenges[..prefix]
@@ -192,7 +199,7 @@ impl<C: PastaCurve> FoldInput<C> {
         })
     }
 
-    /// The finite claimed generator.
+    /// The claimed full-group generator.
     #[must_use]
     pub const fn g(&self) -> &C::AffineExt {
         &self.g
@@ -247,7 +254,7 @@ impl<C: PastaCurve> FoldInput<C> {
     /// the witness; the consuming circuit must authorize Corrected mode.
     ///
     /// # Errors
-    /// Insufficient parameters, an identity replacement or an already deciding original.
+    /// Insufficient parameters or an already deciding original.
     pub fn corrected(
         &self,
         params: &PinnedParams<C>,
@@ -330,7 +337,7 @@ pub fn message(bytes: &[u8], offset: usize) -> Result<[u8; 32], Error> {
 
 #[cfg(test)]
 mod counter_tests {
-    use group::Curve;
+    use group::{Curve, prime::PrimeCurveAffine};
     use iroha_pasta::{CancellationToken, Ep, Fq};
     use iroha_plonk::{
         VerificationCounts,
@@ -417,6 +424,69 @@ mod counter_tests {
             VerificationCounts::current_thread().since(start),
             counts(7, 5, 4)
         );
+    }
+
+    // Identity is a permitted encoding for an undecided claim. It must still
+    // compare against the exact generator on a cold owner and every memo hit.
+    fn identity_claim_reuse<C: PastaCurve>() {
+        let budget = MemoryBudget::DEFAULT;
+        let owner = PinnedParams::<C>::derive(4).expect("params");
+        let source = [3_u64, 5, 7, 11].map(C::ScalarExt::from);
+        let expected = msm_complete::<C>(
+            &fold_scalars(&source, C::ScalarExt::ONE),
+            &owner.params().g()[..16],
+            budget,
+        )
+        .to_affine();
+        assert!(!bool::from(expected.is_identity()));
+        let identity = FoldInput::<C>::from_opening(C::AffineExt::identity(), &source)
+            .expect("full-group identity claim");
+        let start = VerificationCounts::current_thread();
+        assert_eq!(identity.decide(&owner, budget), Err(Error::Undecidable));
+        let first = identity.corrected(&owner, budget).expect("cold correction");
+        assert_eq!(first.original(), &identity);
+        assert_eq!(first.replacement().g(), &expected);
+        assert_eq!(
+            VerificationCounts::current_thread().since(start),
+            counts(1, 2, 0)
+        );
+
+        assert_eq!(first.replacement().decide(&owner, budget), Ok(()));
+        let clone = owner.clone();
+        assert_eq!(identity.decide(&clone, budget), Err(Error::Undecidable));
+        let warm = identity.corrected(&clone, budget).expect("warm correction");
+        assert_eq!(warm.original(), first.original());
+        assert_eq!(warm.replacement(), first.replacement());
+        assert_eq!(
+            VerificationCounts::current_thread().since(start),
+            counts(3, 3, 2)
+        );
+
+        let token = CancellationToken::new();
+        token.cancel();
+        assert_eq!(
+            identity.decide_cancellable(&owner, budget, Some(&token)),
+            Err(Error::Cancelled)
+        );
+        assert_eq!(
+            identity.corrected_cancellable(&owner, budget, Some(&token)),
+            Err(Error::Cancelled)
+        );
+        assert_eq!(
+            VerificationCounts::current_thread().since(start),
+            counts(4, 3, 2)
+        );
+        assert_eq!(first.replacement().decide(&clone, budget), Ok(()));
+        assert_eq!(
+            VerificationCounts::current_thread().since(start),
+            counts(5, 3, 3)
+        );
+    }
+
+    #[test]
+    fn identity_claim_still_requires_the_exact_generator_on_both_curves() {
+        identity_claim_reuse::<Ep>();
+        identity_claim_reuse::<iroha_pasta::Eq>();
     }
 
     /// Memo-on/memo-off differential: every decide and correction on an owner, warm or cold,

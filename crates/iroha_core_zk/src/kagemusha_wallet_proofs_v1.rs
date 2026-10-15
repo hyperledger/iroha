@@ -15,11 +15,12 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use ff::PrimeField;
 use iroha_data_model::kagemusha::kagemusha_wallet_v1::*;
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, PastaCurve, msm::MemoryBudget};
+use iroha_pasta::{Ep, Eq, Fp, Fq, PastaCurve, msm::MemoryBudget};
 use iroha_plonk::{
     DescriptorBinding, Protocol, VerifyingKey,
     cs::{CurveV1, InstanceModeV1, InstanceType, ProofSuffixV1, TranscriptV2},
     pcs::ipa::PinnedParams,
+    transcript::generator_coordinates,
     verifier::verify_full_cancellable,
 };
 use iroha_plonk_recursion::{ACCUMULATOR_BYTES, AccumulatorT, K};
@@ -674,7 +675,7 @@ impl ArtifactSet {
             self.allowlist.lineage_verifying_key_digest,
             &pallas,
         )?;
-        let (x, y) = Option::<(Fq, Fq)>::from(vesta.g().coordinates()).ok_or(Error::Proof)?;
+        let (x, y) = generator_coordinates::<Eq>(vesta.g());
         let mut challenges = Vec::with_capacity(K);
         for value in vesta.challenges() {
             challenges
@@ -776,7 +777,7 @@ fn lineage_digest(
 ) -> Result<[u8; 32], Error> {
     let mut fields = Vec::with_capacity(52);
     fields.extend(lineage_public_fields(public, omega_key_digest)?.map(|field| field.to_repr()));
-    let (x, y) = Option::<(Fp, Fp)>::from(pallas.g().coordinates()).ok_or(Error::Proof)?;
+    let (x, y) = generator_coordinates::<Ep>(pallas.g());
     fields.extend([x.to_repr(), y.to_repr()]);
     for challenge in pallas.challenges() {
         fields.extend(limbs(&challenge.to_repr()));

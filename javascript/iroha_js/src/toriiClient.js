@@ -177,9 +177,9 @@ import {
   normalizeValidationFeeLedgerBindingV1,
 } from "./validationFeeTrust.js";
 import { SorafsOrderbookSubmissionAmbiguousError } from "./sorafsOrderbookAmbiguousError.js";
-import { ToriiHttpError, extractToriiErrorFields } from "./toriiErrors.js";
+import { ToriiError, ToriiHttpError, extractToriiErrorFields } from "./toriiErrors.js";
 import { createToriiCollections } from "./query/collections.js";
-import { decodePageText, stringifyRequestJson } from "./query/page.js";
+import { decodePage, decodePageText, stringifyRequestJson } from "./query/page.js";
 import { filterQueryText } from "./query/listQuery.js";
 import { decodeEventFrames } from "./toriiEventStream.js";
 export { SorafsOrderbookSubmissionAmbiguousError };
@@ -1719,6 +1719,23 @@ export class ToriiClient {
       text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch (error) {
       rejectType(`${target} response must be valid UTF-8`, { cause: error });
+    }
+    if (/^\/v1\/space-directory\/uaids\/[^/]+\/manifests$/u.test(path)
+      && query.aggregate === undefined) {
+      // Manifest rows and projections contain exact integer tokens. Decode them
+      // before a fractional/exponent token can round into a valid u64 value.
+      let payload;
+      try {
+        payload = parseStrictLosslessIntegerJson(text, `${target} response`);
+      } catch (error) {
+        throw new ToriiError(`${target} response is not valid JSON: ${error.message}`, {
+          code: "invalid_response", cause: error,
+        });
+      }
+      // Define every raw key as an own data property so exact validators see
+      // reserved names such as __proto__ instead of silently dropping them.
+      const page = cloneJsonValue(payload, `${target} response`, { preserveBigInt: true });
+      return decodePage(page, `${target} response`);
     }
     return decodePageText(text, `${target} response`);
   }
@@ -4614,7 +4631,12 @@ export class ToriiClient {
       },
     );
     await this._expectStatus(response, [200]);
-    const payload = await this._maybeJson(response);
+    const payload = await this._readBoundedLosslessIntegerJson(
+      response,
+      JSON_RESPONSE_MAX_BYTES,
+      "uaid portfolio response",
+      { signal },
+    );
     if (!payload) {
       rejectError("uaid portfolio endpoint returned no payload");
     }
@@ -4639,7 +4661,12 @@ export class ToriiClient {
       },
     );
     await this._expectStatus(response, [200]);
-    const payload = await this._maybeJson(response);
+    const payload = await this._readBoundedLosslessIntegerJson(
+      response,
+      JSON_RESPONSE_MAX_BYTES,
+      "uaid bindings response",
+      { signal },
+    );
     if (!payload) {
       rejectError("uaid bindings endpoint returned no payload");
     }
@@ -4659,7 +4686,7 @@ export class ToriiClient {
     payload.authority = requireCanonicalApplicationAuthority(canonicalAuth, request.authority, "publishSpaceDirectoryManifest");
     const response = await this._request("POST", "/v1/space-directory/manifests", {
       headers: JSON_REQUEST_HEADERS,
-      body: JSON.stringify(payload),
+      body: stringifyStrictLosslessIntegerJson(payload, "publishSpaceDirectoryManifest request"),
       signal,
       canonicalAuth,
     });
@@ -14834,12 +14861,20 @@ function normalizeExplorerAccountQrResponse(payload, context) {
   };
 }
 
+function requireCanonicalHashLiteral(value, context) {
+  if (typeof value !== JS_TYPE_STRING || !/^hash:[0-9A-F]{64}#[0-9A-F]{4}$/u.test(value)) {
+    rejectType(`${context} must be a canonical uppercase Norito Hash literal`);
+  }
+  parseHashLiteralToHex(value, context);
+  return value;
+}
+
 function normalizeExplorerBlockRecord(payload, context) {
   const record = ensureRecord(payload ?? {}, context);
   const prevBlockHashRaw = record.prev_block_hash ?? null;
   const transactionsHashRaw = record.transactions_hash ?? null;
   return {
-    hash: requireHexString(record.hash ?? "", `${context}.hash`),
+    hash: requireCanonicalHashLiteral(record.hash ?? "", `${context}.hash`),
     height: ToriiClient._normalizeUnsignedInteger(record.height ?? 1, `${context}.height`, {
       allowZero: false,
     }),
@@ -14850,11 +14885,11 @@ function normalizeExplorerBlockRecord(payload, context) {
     prevBlockHash:
       prevBlockHashRaw === null || prevBlockHashRaw === undefined
         ? null
-        : requireHexString(prevBlockHashRaw, `${context}.prev_block_hash`),
+        : requireCanonicalHashLiteral(prevBlockHashRaw, `${context}.prev_block_hash`),
     transactionsHash:
       transactionsHashRaw === null || transactionsHashRaw === undefined
         ? null
-        : requireHexString(transactionsHashRaw, `${context}.transactions_hash`),
+        : requireCanonicalHashLiteral(transactionsHashRaw, `${context}.transactions_hash`),
     transactionsRejected: ToriiClient._normalizeUnsignedInteger(
       record.transactions_rejected ?? 0,
       `${context}.transactions_rejected`,
@@ -15281,7 +15316,7 @@ function requireJsonNullableString(value, context) {
 function requireExactNullableUnsignedInteger(value, context) {
   return value === null
     ? null
-    : requireExactJsonUnsignedInteger(value, context, { allowZero: true });
+    : normalizeGovernanceUint64Integer(value, context, { allowZero: true });
 }
 
 function requireExactAssetHoldingId(value, context) {
@@ -15391,7 +15426,7 @@ function normalizeUaidPortfolioDataspace(value, context) {
     [],
     context,
   );
-  const dataspaceId = requireExactJsonUnsignedInteger(
+  const dataspaceId = normalizeGovernanceUint64Integer(
     record.dataspace_id,
     `${context}.dataspace_id`,
     { allowZero: true },
@@ -15505,7 +15540,7 @@ function normalizeUaidBindingsDataspace(value, context) {
     rejectType(`${context}.accounts must contain at most one universal account`);
   }
   return {
-    dataspace_id: requireExactJsonUnsignedInteger(
+    dataspace_id: normalizeGovernanceUint64Integer(
       record.dataspace_id,
       `${context}.dataspace_id`,
       { allowZero: true },
@@ -15538,7 +15573,7 @@ function normalizeUaidManifestRecord(value, expectedUaid, context) {
     UAID_MANIFEST_STATUS_VALUES,
     `${context}.status`,
   );
-  const dataspaceId = requireExactJsonUnsignedInteger(
+  const dataspaceId = normalizeGovernanceUint64Integer(
     record.dataspace_id,
     `${context}.dataspace_id`,
     { allowZero: true },
@@ -15607,7 +15642,7 @@ function normalizeUaidManifestLifecycle(value, context) {
       `${context}.revocation`,
     );
     revocation = {
-      epoch: requireExactJsonUnsignedInteger(
+      epoch: normalizeGovernanceUint64Integer(
         rev.epoch,
         `${context}.revocation.epoch`,
         { allowZero: true },
@@ -15638,17 +15673,17 @@ function normalizeUaidManifest(value, context) {
   const normalized = {
     version: 1,
     uaid: normalizeUaidLiteral(record.uaid, `${context}.uaid`),
-    dataspace: requireExactJsonUnsignedInteger(
+    dataspace: normalizeGovernanceUint64Integer(
       record.dataspace,
       `${context}.dataspace`,
       { allowZero: true },
     ),
-    issued_ms: requireExactJsonUnsignedInteger(
+    issued_ms: normalizeGovernanceUint64Integer(
       record.issued_ms,
       `${context}.issued_ms`,
       { allowZero: true },
     ),
-    activation_epoch: requireExactJsonUnsignedInteger(
+    activation_epoch: normalizeGovernanceUint64Integer(
       record.activation_epoch,
       `${context}.activation_epoch`,
       { allowZero: true },
@@ -15661,7 +15696,7 @@ function normalizeUaidManifest(value, context) {
     if (record.expiry_epoch === null) {
       rejectType(`${context}.expiry_epoch must be omitted instead of null`);
     }
-    normalized.expiry_epoch = requireExactJsonUnsignedInteger(
+    normalized.expiry_epoch = normalizeGovernanceUint64Integer(
       record.expiry_epoch,
       `${context}.expiry_epoch`,
       { allowZero: true },
@@ -15708,7 +15743,7 @@ function normalizeUaidManifestScope(value, context) {
       rejectType(`${fieldContext} must be omitted instead of null`);
     }
     if (field === "dataspace") {
-      normalized[field] = requireExactJsonUnsignedInteger(record[field], fieldContext, {
+      normalized[field] = normalizeGovernanceUint64Integer(record[field], fieldContext, {
         allowZero: true,
       });
     } else if (field === "program" || field === "method") {
@@ -18033,11 +18068,12 @@ function parseHashLiteralToHex(literal, name) {
   return hex;
 }
 
-function cloneJsonValue(value, path, { nullPrototype = false } = {}) {
+function cloneJsonValue(value, path, { nullPrototype = false, preserveBigInt = false } = {}) {
   return cloneJsonValueInternal(value, path, {
     ancestors: new Set(),
     nodes: 0,
     nullPrototype,
+    preserveBigInt,
   }, 0);
 }
 
@@ -18063,7 +18099,7 @@ function cloneJsonValueInternal(value, path, state, depth) {
     return value;
   }
   if (typeof value === JS_TYPE_BIGINT) {
-    return value.toString(10);
+    return state.preserveBigInt ? value : value.toString(10);
   }
   if (typeof value !== JS_TYPE_OBJECT) {
     rejectType(`${path} contains unsupported value type: ${typeof value}`);
@@ -18136,7 +18172,7 @@ function cloneJsonValueInternal(value, path, state, depth) {
 }
 
 function normalizeSpaceDirectoryManifestPayload(input, context) {
-  const manifest = cloneJsonValue(input, context);
+  const manifest = cloneJsonValue(input, context, { preserveBigInt: true });
   return normalizeUaidManifest(manifest, context);
 }
 

@@ -118,7 +118,7 @@ pub(super) struct SourceCustodyV1 {
 impl SourceCustodyV1 {
     /// Called only by the native enrollment owner after issuer admission.
     pub(super) fn bootstrap(
-        store: &mut dyn ObjectStore,
+        store: &mut dyn ObjectWorkspace,
         state: &KagemushaWalletStateV1,
         credential: &[u8],
         certificates: &[u8],
@@ -135,7 +135,7 @@ impl SourceCustodyV1 {
             (PreparationOriginalV1::EnrollmentCertificates, certificates),
         ] {
             role.digest(bytes, &state.core.scheme_id)?;
-            value.originals[role.index()] = Some(store.write_object(bytes, role.maximum())?);
+            value.originals[role.index()] = Some(store.stage_object(bytes, role.maximum())?);
         }
         value.require(store, state)?;
         Ok(value)
@@ -146,7 +146,7 @@ impl SourceCustodyV1 {
     // binds the credential digest; no caller-selected state or map snapshot is introduced.
     pub(super) fn unload_identity(
         &self,
-        store: &mut dyn ObjectStore,
+        store: &mut dyn ObjectWorkspace,
         package: &KagemushaWalletPackageV1,
         scheme: &[u8; 32],
         wallet: &[u8; 32],
@@ -159,7 +159,7 @@ impl SourceCustodyV1 {
         let mut read = |role: PreparationOriginalV1| {
             let address = self.originals[role.index()]
                 .ok_or(Error::WitnessLost("Unload identity original"))?;
-            store.read_object(&address, role.maximum())
+            store.read_staged_object(&address, role.maximum())
         };
         let original = read(PreparationOriginalV1::CurrentCredential)?;
         let credential = read_model_original(
@@ -191,7 +191,7 @@ impl SourceCustodyV1 {
 
     pub(super) fn original(
         &self,
-        store: &mut dyn ObjectStore,
+        store: &mut dyn ObjectWorkspace,
         state: &KagemushaWalletStateV1,
         role: PreparationOriginalV1,
     ) -> Result<Option<Vec<u8>>, Error> {
@@ -232,7 +232,7 @@ impl SourceCustodyV1 {
             }
             bytes
         } else {
-            store.read_object(&address, role.maximum())?
+            store.read_staged_object(&address, role.maximum())?
         };
         if role
             .digest(&bytes, &state.core.scheme_id)
@@ -251,7 +251,7 @@ impl SourceCustodyV1 {
 
     pub(super) fn require(
         &self,
-        store: &mut dyn ObjectStore,
+        store: &mut dyn ObjectWorkspace,
         state: &KagemushaWalletStateV1,
     ) -> Result<(), Error> {
         if self.version != 1 {
@@ -263,7 +263,7 @@ impl SourceCustodyV1 {
 
     fn require_originals(
         &self,
-        store: &mut dyn ObjectStore,
+        store: &mut dyn ObjectWorkspace,
         state: &KagemushaWalletStateV1,
     ) -> Result<(), Error> {
         for role in PreparationOriginalV1::ALL {
@@ -303,12 +303,13 @@ pub(super) struct IssuedRequestCustodyV1 {
 impl IssuedRequestCustodyV1 {
     pub(super) fn read(
         &self,
-        store: &mut dyn ObjectStore,
+        store: &mut dyn ObjectWorkspace,
         scheme: &[u8; 32],
         wallet: &[u8; 32],
         digest: &[u8; 32],
     ) -> Result<(KagemushaWalletRequestV1, Vec<u8>), Error> {
-        let bytes = store.read_object(&self.request, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?;
+        let bytes =
+            store.read_staged_object(&self.request, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?;
         let request: KagemushaWalletRequestV1 = archive::decode(&bytes)?;
         request
             .validate()
@@ -327,12 +328,12 @@ impl IssuedRequestCustodyV1 {
 
     pub(super) fn gap(
         &self,
-        store: &mut dyn ObjectStore,
+        store: &mut dyn ObjectWorkspace,
         request: &KagemushaWalletRequestV1,
     ) -> Result<Option<KagemushaWalletBlacklistGapOpeningV1>, Error> {
         self.gap
             .map(|address| {
-                let bytes = store.read_object(
+                let bytes = store.read_staged_object(
                     &address,
                     KAGEMUSHA_WALLET_BLACKLIST_GAP_OPENING_TRANSCRIPT_BYTES_V1,
                 )?;
@@ -352,13 +353,13 @@ impl IssuedRequestCustodyV1 {
 
 // The object-store adapter avoids exposing a second archive or changing IndexRoot's
 // bounded generic implementation merely to accept this internally erased store.
-struct Store<'a>(&'a mut dyn ObjectStore);
-impl ObjectStore for Store<'_> {
-    fn read_object(&mut self, key: &[u8; 32], maximum: usize) -> Result<Vec<u8>, Error> {
-        self.0.read_object(key, maximum)
+struct Store<'a>(&'a mut dyn ObjectWorkspace);
+impl ObjectWorkspace for Store<'_> {
+    fn read_staged_object(&mut self, key: &[u8; 32], maximum: usize) -> Result<Vec<u8>, Error> {
+        self.0.read_staged_object(key, maximum)
     }
-    fn write_object(&mut self, bytes: &[u8], maximum: usize) -> Result<[u8; 32], Error> {
-        self.0.write_object(bytes, maximum)
+    fn stage_object(&mut self, bytes: &[u8], maximum: usize) -> Result<[u8; 32], Error> {
+        self.0.stage_object(bytes, maximum)
     }
 }
 
@@ -387,7 +388,7 @@ impl<'a> PreparationCustodyV1<'a> {
         }
     }
     pub(super) fn new(
-        store: &'a mut dyn ObjectStore,
+        store: &'a mut dyn ObjectWorkspace,
         selected: &SourceCustodyV1,
         state: &KagemushaWalletStateV1,
         kind: KagemushaWalletOperationKindV1,
@@ -440,7 +441,7 @@ impl<'a> PreparationCustodyV1<'a> {
             let bytes = self
                 .maps
                 .store()
-                .read_object(&entry.checkpoint, MAX_COMMIT_CHECKPOINT_BYTES)?;
+                .read_staged_object(&entry.checkpoint, MAX_COMMIT_CHECKPOINT_BYTES)?;
             SumeragiCommitCheckpointV1::decode_canonical(&bytes).map_err(|error| {
                 super::finality_read_error(
                     error,
@@ -506,7 +507,7 @@ impl<'a> PreparationCustodyV1<'a> {
         let address = if let Some(reference) = reference.as_ref() {
             reference.object_key()
         } else {
-            self.maps.store().write_object(bytes, role.maximum())?
+            self.maps.store().stage_object(bytes, role.maximum())?
         };
         if self.updated[role.index()]
             && (self.originals[role.index()] != Some(address)
@@ -579,7 +580,7 @@ impl<'a> PreparationCustodyV1<'a> {
         let bytes = self
             .maps
             .store()
-            .read_object(&address, KAGEMUSHA_WALLET_TIME_ANCHOR_MAX_BYTES_V1 + 1024)?;
+            .read_staged_object(&address, KAGEMUSHA_WALLET_TIME_ANCHOR_MAX_BYTES_V1 + 1024)?;
         let anchored: KagemushaWalletAnchoredTimeV1 = archive::decode(&bytes)?;
         anchored
             .validate(self.state.core.time_anchor_max_response_ms)

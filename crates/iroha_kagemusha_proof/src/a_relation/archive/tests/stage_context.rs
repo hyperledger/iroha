@@ -70,7 +70,7 @@ impl Circuit<Fp> for StageContext {
                     .uint()
                     .glue()
                     .witness(&mut region, value(self.context))?;
-                let point = chip.witness_point(
+                let point = chip.witness_generator(
                     &mut region,
                     if self.known {
                         Value::known(self.point)

@@ -708,6 +708,8 @@ impl<F: PoseidonField> Circuit<F> for SigmaCircuit<F> {
     }
 
     fn configure_with_params(meta: &mut ConstraintSystem<F>, params: SigmaParams) -> Self::Config {
+        // Separate norm factors retain two copy sets in compact Send.
+        meta.set_minimum_degree(10);
         let plan = params.plan();
         let lanes: Vec<Pow5Columns> = (0..params.lanes)
             .map(|_| Pow5Columns::allocate(meta))

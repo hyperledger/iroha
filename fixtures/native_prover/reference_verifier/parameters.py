@@ -39,7 +39,7 @@ def _decide(params: Parameters, encoded_point: bytes, challenges):
     """Enforce G = <s(u),g>; a succinct equation alone never accepts a proof."""
     curve = params.curve
     require(isinstance(encoded_point, bytes), 'encoded generator claim required')
-    point = curve.decode(encoded_point)
+    point = curve.decode_generator(encoded_point)
     require(isinstance(challenges, (list, tuple)) and len(challenges) == params.k and
             all(type(u) is int and 0 < u < curve.scalar for u in challenges),
             'generator claim challenges')

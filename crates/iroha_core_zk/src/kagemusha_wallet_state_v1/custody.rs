@@ -1,5 +1,6 @@
 //! Concrete adapter and deterministic G1 assembly for the existing Advance provider.
 
+use crate::kagemusha_wallet_archive_bytes_v1::PrivateArchiveBytes;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use iroha_data_model::kagemusha::*;
@@ -521,7 +522,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> ProviderArchive<F, P>
         key: super::ArchiveKey,
         bytes: &[u8],
         max_bytes: usize,
-    ) -> Result<Vec<u8>, super::Error> {
+    ) -> Result<PrivateArchiveBytes, super::Error> {
         use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_provider_digest_v1 as digest;
         let envelope: super::archive::Envelope = super::archive::decode(bytes)?;
         if envelope.version != 1
@@ -547,13 +548,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> super::ArchiveStore
         &mut self,
         key: super::ArchiveKey,
         max_bytes: usize,
-    ) -> Result<Option<Vec<u8>>, super::Error> {
+    ) -> Result<Option<PrivateArchiveBytes>, super::Error> {
         let identity = Self::identity(key)?;
         let limit = Self::record_limit(max_bytes)?;
         let mut provider = self.lock()?;
-        let Some(bytes) = provider.with_archive_phase(&self.slot, |archive| {
-            archive.read_record(&identity, limit)
-        })?
+        let Some(bytes) = provider
+            .with_archive_phase(&self.slot, |archive| archive.read_record(&identity, limit))?
         else {
             return Ok(None);
         };
@@ -565,7 +565,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> super::ArchiveStore
         &mut self,
         digest: [u8; 32],
         max_bytes: usize,
-    ) -> Result<Option<Vec<u8>>, super::Error> {
+    ) -> Result<Option<PrivateArchiveBytes>, super::Error> {
         let key = super::ArchiveKey::Object(digest);
         let identity = Self::identity(key)?;
         let object = self.object_key(identity);
@@ -573,7 +573,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> super::ArchiveStore
         let mut provider = self.lock()?;
         // Kept content is the authenticated content of this exact key; any other bound is
         // answered from disk with today's exact error.
-        if let Some(content) = provider.archive_phase_object(&self.slot, &object, max_bytes) {
+        if let Some(content) = provider.archive_phase_object(&self.slot, &object, max_bytes)? {
             return Ok(Some(content));
         }
         let Some(bytes) = provider.with_archive_phase(&self.slot, |archive| {
@@ -597,7 +597,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> super::ArchiveStore
                 }
             })
             .inspect_err(|_| provider.end_archive_phase())?;
-        provider.keep_archive_phase_object(&self.slot, object, &content);
+        provider.keep_archive_phase_object(&self.slot, object, &content)?;
         Ok(Some(content))
     }
     fn remove(&mut self, key: super::ArchiveKey) -> Result<(), super::Error> {
@@ -618,9 +618,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> super::ArchiveStore
             wallet_id: self.wallet_id,
             key,
             content_digest: digest("wallet-archive-content", bytes),
-            content: bytes.to_vec(),
+            content: PrivateArchiveBytes::copy_from(bytes)?,
         };
-        let encoded = super::archive::encode(&envelope)?;
+        let encoded = PrivateArchiveBytes::encode(&envelope)
+            .map_err(|_| super::Error::Invalid("private archive encoding"))?;
+        drop(envelope);
         let mut provider = self.lock()?;
         provider.with_archive_phase(&self.slot, |archive| {
             archive.write_record(&identity, &encoded)
@@ -630,7 +632,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> super::ArchiveStore
             && crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(bytes)
                 == object
         {
-            provider.keep_archive_phase_object(&self.slot, self.object_key(identity), bytes);
+            provider.keep_archive_phase_object(&self.slot, self.object_key(identity), bytes)?;
         }
         Ok(())
     }

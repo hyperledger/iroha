@@ -151,7 +151,7 @@ fn sources() -> Sources {
         &lp,
         &key,
         Witness::from_circuit(&key, &leaf, &leaf.instances()).unwrap(),
-        common::recovery(221),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap()
@@ -187,13 +187,17 @@ fn sources() -> Sources {
             },
             None,
             &v,
-            Fq::from(403),
+            iroha_kagemusha_proof::q_sigma::native::QSigmaFoldSource::NoIncoming,
             &FoldConfig::default(),
         )
         .unwrap();
     let q0 = QSigmaProver::keygen_serialized_foreign(&prepared, p.clone(), 2).unwrap();
     let q0_proof = q0
-        .prove(&prepared, common::recovery(222), ProverConfig::default())
+        .prove(
+            &prepared,
+            common::fresh_randomness(),
+            ProverConfig::default(),
+        )
         .unwrap();
     accumulate_generator(
         &p,
@@ -223,7 +227,7 @@ fn sources() -> Sources {
         &p,
         &qkey,
         Witness::from_circuit(&qkey, &circuit, &instances).unwrap(),
-        common::recovery(223),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap()
@@ -491,7 +495,7 @@ impl Circuit<Fp> for Owner {
                     &iroha_plonk_recursion::PALLAS_TRIVIAL_GENERATOR,
                 )
                 .map_err(|_| Error::Synthesis)?;
-                let point = chip.constant_point(&mut r, &Ep::from(point))?;
+                let point = chip.constant_generator(&mut r, &Ep::from(point))?;
                 let one = self.scalar(&mut chip, &mut r, Fq::ONE)?;
                 let pallas = FoldInputCells::from_normalized(
                     &mut chip,
@@ -730,7 +734,7 @@ fn incoming_signature_sources(own: Arc<Sources>, valid: bool) -> IncomingSignatu
         &params,
         &key,
         Witness::from_circuit(&key, &circuit, &public).unwrap(),
-        common::recovery(if valid { 224 } else { 225 }),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap()
@@ -889,7 +893,7 @@ impl Circuit<Fp> for IncomingSignatureOwner {
                     &iroha_plonk_recursion::PALLAS_TRIVIAL_GENERATOR,
                 )
                 .map_err(|_| Error::Synthesis)?;
-                let point = chip.constant_point(&mut r, &Ep::from(point))?;
+                let point = chip.constant_generator(&mut r, &Ep::from(point))?;
                 let one = helper.scalar(&mut chip, &mut r, Fq::ONE)?;
                 let opening = FoldInputCells::from_normalized(
                     &mut chip,

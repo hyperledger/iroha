@@ -1,11 +1,12 @@
 //! Real sigma proofs composed in the `Q_sigma` relation, with byte, key, mode,
 //! fold, public-input and known/unknown-shape adversaries.
 
+#[path = "../tests/common/mod.rs"]
 mod common;
-#[path = "q_sigma/serialized.rs"]
+#[path = "../tests/q_sigma/serialized.rs"]
 mod serialized;
 
-use ff::{Field, PrimeField};
+use ff::Field;
 use iroha_kagemusha_proof::{
     Mutation, SigmaRelation,
     q_sigma::{
@@ -14,7 +15,7 @@ use iroha_kagemusha_proof::{
     },
     sample_witness,
 };
-use iroha_pasta::{Eq, Fp, Fq, PastaAffine, PastaField, msm::MemoryBudget};
+use iroha_pasta::{Eq, Fp, Fq, PastaField, msm::MemoryBudget};
 use iroha_plonk::{
     Protocol,
     check::{CheckMode, check},
@@ -26,7 +27,7 @@ use iroha_plonk::{
     verifier::accumulate_generator,
 };
 use iroha_plonk_gadgets::bytes::tape::{ByteOrder, segment_value};
-use iroha_plonk_recursion::{AccumulatorT, FoldConfig, FoldInput, create_fold};
+use iroha_plonk_recursion::{AccumulatorT, FoldConfig, FoldInput, FoldPurpose, create_fold};
 
 fn scalar(value: Fp) -> Fq {
     Fq::from_canonical_limbs(value.to_canonical_limbs()).unwrap()
@@ -39,7 +40,7 @@ fn slot(
     let prover = common::vesta_prover(common::pinned_shape(common::folded(relation), (k, 1)));
     let witness = sample_witness::<Fp>(common::CHECK_SEED + 2, relation, Mutation::None);
     let proof = prover
-        .prove(&witness, common::recovery(37 + index))
+        .prove(&witness, common::fresh_randomness())
         .expect("actual sigma proof");
     let verifier = prover.verifier();
     verifier
@@ -97,7 +98,7 @@ fn public(
     }
     bounded.extend(bytes);
     bounded.extend(part.challenges().iter().copied().map(scalar));
-    let (x, y) = part.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(part.g());
     vec![
         bounded,
         vec![x, y],
@@ -191,7 +192,8 @@ fn single_sigma_byte_key_and_forwarded_obligation() {
     let params = common::vesta_params(16);
     for (relation, k) in [(SigmaRelation::SEND, 12), (common::SEND_EVERY, 14)] {
         let (class, own, claim) = slot(relation, k, 5);
-        assert_eq!(class.chunks(), if k == 12 { 107 } else { 112 });
+        // Four-byte length plus canonical proof, packed into 31-byte words.
+        assert_eq!(class.chunks(), if k == 12 { 109 } else { 114 });
         let class_copy = class.clone();
         let plan = QSigmaPlan::new(class, None, &params).unwrap();
         let circuit = QSigmaCircuit::new(
@@ -275,7 +277,8 @@ fn two_sigmas_fold_exact_sources_and_soft_trivial_mode() {
         let (fold, part) = create_fold(
             &params,
             &[own_claim.clone(), selected, trivial.as_input()],
-            Fq::from(73).to_repr(),
+            common::public_fixture_tape::<Eq>(73),
+            FoldPurpose::SigmaBatch,
             &FoldConfig::default(),
         )
         .unwrap();
@@ -284,7 +287,7 @@ fn two_sigmas_fold_exact_sources_and_soft_trivial_mode() {
             sigma,
             mode: [is_valid, !is_valid, false],
             corrected: Eq::from(*trivial.g()),
-            fold: fold.to_bytes(),
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_fold(fold),
         };
         let circuit = QSigmaCircuit::new(
             plan.clone(),
@@ -322,7 +325,8 @@ fn two_sigmas_fold_exact_sources_and_soft_trivial_mode() {
         forged[3][1] = Fq::from(u64::from(!is_valid));
         assert_result(&circuit, &forged, false);
         let mut bad = circuit.clone();
-        bad.witness.incoming.as_mut().unwrap().fold[32] ^= 1;
+        let incoming = bad.witness.incoming.as_mut().unwrap();
+        incoming.fold = common::mutated_private_fold(&incoming.fold, 32);
         assert_result(&bad, &instances, false);
         let mut bad = circuit.clone();
         bad.witness.incoming.as_mut().unwrap().mode = [true, true, false];
@@ -363,36 +367,17 @@ fn check_producer_rebuild<C: Circuit<Fq>>(
     assert_eq!(rebuilt.artifact_bytes_v2().unwrap(), original);
 }
 
-type RecoveryLog = std::sync::Arc<std::sync::Mutex<Vec<[u8; 32]>>>;
-fn recorded_recovery(seed: u8, log: RecoveryLog) -> iroha_plonk::ProverRandomness<'static> {
-    use rand_chacha::rand_core::SeedableRng as _;
-    iroha_plonk::ProverRandomness::recovery(move |context: &[u8; 32]| {
-        log.lock().unwrap().push(*context);
-        Ok::<_, std::convert::Infallible>(rand_chacha::ChaCha20Rng::from_seed([seed; 32]))
-    })
-}
-fn no_recovery_draw() -> iroha_plonk::ProverRandomness<'static> {
-    iroha_plonk::ProverRandomness::recovery(
-        |_: &[u8; 32]| -> Result<rand_chacha::ChaCha20Rng, ()> {
-            panic!("refused Q source consumed recovery entropy")
-        },
-    )
-}
 fn check_prover_cancellation(
     prover: &iroha_kagemusha_proof::q_sigma::native::QSigmaProverView<'_>,
     prepared: &iroha_kagemusha_proof::q_sigma::native::PreparedQSigma,
 ) {
-    use rand_chacha::rand_core::SeedableRng as _;
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    };
     let cancelled = iroha_pasta::CancellationToken::new();
     cancelled.cancel();
+    let early = crate::proof_entry_probe::Guard::new(None);
     let error = prover
         .prove(
             prepared,
-            no_recovery_draw(),
+            common::fresh_randomness(),
             iroha_plonk::ProverConfig {
                 cancellation: Some(&cancelled),
                 ..iroha_plonk::ProverConfig::default()
@@ -400,18 +385,12 @@ fn check_prover_cancellation(
         )
         .unwrap_err();
     assert!(error.is_cancelled());
-    // Opening the recovery stream follows reconstruction and witness assignment.
-    // Cancellation there must discard the temporary key; a later normal proof
-    // below reuses this metadata owner, not a partial/cached proving key.
+    assert_eq!(early.entries(), 0);
+    drop(early);
+    // Private owner entry occurs after reconstruction and witness assignment.
     let after_rebuild = iroha_pasta::CancellationToken::new();
-    let signal = after_rebuild.clone();
-    let calls = Arc::new(AtomicUsize::new(0));
-    let observed = calls.clone();
-    let randomness = iroha_plonk::ProverRandomness::recovery(move |_: &[u8; 32]| {
-        observed.fetch_add(1, Ordering::SeqCst);
-        signal.cancel();
-        Ok::<_, ()>(rand_chacha::ChaCha20Rng::from_seed([131; 32]))
-    });
+    let entry = crate::proof_entry_probe::Guard::new(Some(after_rebuild.clone()));
+    let randomness = iroha_plonk::ProverRandomness::hedged();
     let error = prover
         .prove(
             prepared,
@@ -423,14 +402,14 @@ fn check_prover_cancellation(
         )
         .unwrap_err();
     assert!(error.is_cancelled());
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(entry.entries(), 1);
 }
 
 #[test]
 #[ignore = "actual k16 Q_sigma proof over real k12/k14 sigma and local AS; run in release"]
 fn actual_two_sigma_q_proof_verifies() {
     use iroha_kagemusha_proof::q_sigma::native::{
-        IncomingMode, IncomingSigma, QSigmaProver, QSigmaSource,
+        IncomingMode, IncomingSigma, QSigmaFoldSource, QSigmaProver, QSigmaSource,
     };
     rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap().install(|| {
         let inner_params = common::vesta_params(16);
@@ -438,22 +417,41 @@ fn actual_two_sigma_q_proof_verifies() {
         let (incoming_class, sigma, _) = slot(common::SEND_EVERY, 14, 9);
         let plan = QSigmaPlan::new(own_class, Some(incoming_class), &inner_params).unwrap();
         assert_eq!(plan.slot_count(), 2);
-        assert_eq!(plan.chunk_range(0), Some(2..109));
-        assert_eq!(plan.chunk_range(1), Some(109..221));
+        assert_eq!(plan.chunk_range(0), Some(2..111));
+        assert_eq!(plan.chunk_range(1), Some(111..225));
         assert_eq!(plan.chunk_range(2), None);
-        assert_eq!(plan.challenge_range(), 221..237);
+        assert_eq!(plan.challenge_range(), 225..241);
         assert_eq!(plan.part_source_k(), 16);
         // Installation metadata is created before any prepared operation exists.
         let source = QSigmaSource::new(plan.clone(), own.key.clone(), Some(sigma.key.clone())).unwrap();
         let input = IncomingSigma { sigma, mode: IncomingMode::Accept };
-        let prepared = plan.prepare(own.clone(), Some(input.clone()), &inner_params, Fq::from(73), &FoldConfig::default()).unwrap();
+        let prepared = plan.prepare(own.clone(), Some(input.clone()), &inner_params, QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)), &FoldConfig::default()).unwrap();
         assert_eq!(prepared.instances(), public(prepared.circuit(), prepared.part(), &[3,9],true));
+        assert!(plan.requires_private_fold());
+        let original_fold = prepared.retained_fold().unwrap().clone();
+        let restored = plan.prepare(own.clone(), Some(input.clone()), &inner_params,
+            QSigmaFoldSource::Retained(&original_fold), &FoldConfig::default()).unwrap();
+        assert_eq!(restored.instances(), prepared.instances());
+        assert_eq!(restored.part(), prepared.part());
+        assert_eq!(restored.retained_fold().unwrap().as_slice(), original_fold.as_slice());
+        assert_eq!(restored.retained_fold().unwrap().as_slice().as_ptr(), original_fold.as_slice().as_ptr());
+        for index in [0, 1056, 2144] {
+            let altered = common::mutated_private_fold(&original_fold, index);
+            assert!(plan.prepare(own.clone(), Some(input.clone()), &inner_params,
+                QSigmaFoldSource::Retained(&altered), &FoldConfig::default()).is_err());
+        }
+        let mut wrong_source = input.clone();
+        wrong_source.sigma.statement += Fp::ONE;
+        assert!(plan.prepare(own.clone(), Some(wrong_source), &inner_params,
+            QSigmaFoldSource::Retained(&original_fold), &FoldConfig::default()).is_err());
+        assert_eq!(original_fold.as_slice(), prepared.retained_fold().unwrap().as_slice());
+
         let mut invalid_own = own.clone(); invalid_own.length -= 1;
-        assert!(plan.prepare(invalid_own,Some(input.clone()),&inner_params,Fq::from(73),&FoldConfig::default()).is_err());
+        assert!(plan.prepare(invalid_own,Some(input.clone()),&inner_params,QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)),&FoldConfig::default()).is_err());
         let mut invalid = input.clone(); invalid.sigma.proof[0] ^= 1;
-        assert!(plan.prepare(own.clone(),Some(invalid.clone()),&inner_params,Fq::from(73),&FoldConfig::default()).is_err());
+        assert!(plan.prepare(own.clone(),Some(invalid.clone()),&inner_params,QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)),&FoldConfig::default()).is_err());
         invalid.mode = IncomingMode::Trivial;
-        let burned = plan.prepare(own.clone(),Some(invalid),&inner_params,Fq::from(73),&FoldConfig::default()).unwrap();
+        let burned = plan.prepare(own.clone(),Some(invalid),&inner_params,QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)),&FoldConfig::default()).unwrap();
         assert_eq!(burned.instances()[3],[Fq::ONE,Fq::ZERO,Fq::ZERO,Fq::ONE,Fq::ZERO]);
         assert_result(burned.circuit(),burned.instances(),true);
         // Native total verification must match the circuit for a changed direct
@@ -468,12 +466,12 @@ fn actual_two_sigma_q_proof_verifies() {
                 let end = malformed.sigma.proof.len();
                 malformed.sigma.proof[end - 32..].fill(0xff);
             }
-            let retained = plan.prepare(own.clone(), Some(malformed), &inner_params, Fq::from(79), &FoldConfig::default()).unwrap();
+            let retained = plan.prepare(own.clone(), Some(malformed), &inner_params, QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(79)), &FoldConfig::default()).unwrap();
             assert_eq!(retained.instances()[3], [Fq::ONE,Fq::ZERO,Fq::ZERO,Fq::ONE,Fq::ZERO]);
             assert_result(retained.circuit(), retained.instances(), true);
         }
         let mut not_correctable = input; not_correctable.mode = IncomingMode::Corrected;
-        assert!(plan.prepare(own,Some(not_correctable),&inner_params,Fq::from(73),&FoldConfig::default()).is_err());
+        assert!(plan.prepare(own,Some(not_correctable),&inner_params,QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)),&FoldConfig::default()).is_err());
         let params = iroha_plonk::pcs::ipa::PinnedParams::<iroha_pasta::Ep>::derive(16).unwrap();
         // Artifact production is explicit; the runtime owner retains no PK.
         let mut keygen = iroha_plonk::keys::KeygenConfigV2::pipa_r(QSigmaPlan::instance_types().to_vec());
@@ -556,26 +554,35 @@ fn actual_two_sigma_q_proof_verifies() {
             prepared.circuit().witness.own.clone(),
             prepared.circuit().witness.incoming.as_ref().map(|slot| IncomingSigma {
                 sigma: slot.sigma.clone(), mode: IncomingMode::Accept,
-            }), &inner_params, Fq::from(73), &FoldConfig::default(),
+            }), &inner_params, QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)), &FoldConfig::default(),
         ).unwrap();
-        assert!(matches!(prover.prove(&changed_prepared, no_recovery_draw(), iroha_plonk::ProverConfig::default()),
+        let refused = crate::proof_entry_probe::Guard::new(None);
+        assert!(matches!(prover.prove(&changed_prepared, common::fresh_randomness(), iroha_plonk::ProverConfig::default()),
             Err(iroha_kagemusha_proof::q_sigma::native::QSigmaError::Rebuild(_))));
+        assert_eq!(refused.entries(), 0);
+        drop(refused);
         check_prover_cancellation(&prover, &prepared);
-        let direct_log = RecoveryLog::default();
-        let installed_log = RecoveryLog::default();
+
+
         let direct = iroha_plonk::create_proof_owned(
             &params, &producer, iroha_plonk::Witness::from_circuit(&producer, prepared.circuit(), prepared.instances()).unwrap(),
-            recorded_recovery(99, direct_log.clone()), iroha_plonk::ProverConfig::default(),
+            common::fresh_randomness(), iroha_plonk::ProverConfig::default(),
         ).unwrap();
         iroha_plonk::verify_full(&params, producer.binding(), producer.vk(), prepared.instances(), &direct, MemoryBudget::DEFAULT).unwrap();
         let start = std::time::Instant::now();
-        let proof = prover.prove(&prepared,recorded_recovery(99, installed_log.clone()),iroha_plonk::ProverConfig::default()).expect("actual Q proof");
+        let installed_entry = crate::proof_entry_probe::Guard::new(None);
+        let proof = prover.prove(&prepared,common::fresh_randomness(),iroha_plonk::ProverConfig::default()).expect("actual Q proof");
+        assert_eq!(installed_entry.entries(), 1);
+        drop(installed_entry);
         let prove_elapsed = start.elapsed();
-        assert_eq!(proof.bytes, direct);
+        assert_ne!(proof.bytes, direct, "new attempt uses fresh entropy");
+        let retained = direct.clone();
+        iroha_plonk::verify_full(&params, producer.binding(), producer.vk(),
+            prepared.instances(), &retained, MemoryBudget::DEFAULT).unwrap();
+        assert_eq!(retained, direct, "original bytes remain immutable");
         assert_eq!(proof.instances, prepared.instances());
-        assert_eq!(*direct_log.lock().unwrap(), *installed_log.lock().unwrap());
-        assert_eq!(installed_log.lock().unwrap().len(), 1);
-        assert_eq!(proof.bytes.len(),10_496);
+
+        assert_eq!(proof.bytes.len(),10_464);
         assert_eq!(proof.part, *prepared.part());
         let mut wrong = proof.instances.clone(); wrong[0][1] += Fq::ONE;
         assert!(iroha_plonk::verify_full(prover.params(),prover.binding(),prover.verifying_key(),&wrong,&proof.bytes,MemoryBudget::DEFAULT).is_err());
@@ -586,7 +593,7 @@ fn actual_two_sigma_q_proof_verifies() {
 #[test]
 #[ignore = "genuine installed serialized Q PK and imported proof; run in release"]
 fn installed_serialized_q_originals_prove_and_reject_default_profile() {
-    use iroha_kagemusha_proof::q_sigma::native::{QSigmaProver, QSigmaSource};
+    use iroha_kagemusha_proof::q_sigma::native::{QSigmaFoldSource, QSigmaProver, QSigmaSource};
     use iroha_pasta::Ep;
     use iroha_plonk::{
         keys::{CosetCachePolicy, pk::artifact::ReadConfig},
@@ -597,7 +604,13 @@ fn installed_serialized_q_originals_prove_and_reject_default_profile() {
     let plan = QSigmaPlan::new(class, None, &inner).unwrap();
     let source = QSigmaSource::new(plan.clone(), own.key.clone(), None).unwrap();
     let prepared = plan
-        .prepare(own, None, &inner, Fq::from(97), &FoldConfig::default())
+        .prepare(
+            own,
+            None,
+            &inner,
+            QSigmaFoldSource::NoIncoming,
+            &FoldConfig::default(),
+        )
         .unwrap();
     let params = PinnedParams::<Ep>::derive(16).unwrap();
     // Fixture production selects the explicit frozen profile; installation never keygens.
@@ -696,13 +709,12 @@ fn installed_serialized_q_originals_prove_and_reject_default_profile() {
         .is_cancelled()
     );
     check_prover_cancellation(&imported, &prepared);
-    let direct_log = RecoveryLog::default();
-    let installed_log = RecoveryLog::default();
+
     let direct = iroha_plonk::create_proof_owned(
         &params,
         &producer,
         iroha_plonk::Witness::from_circuit(&producer, &circuit, prepared.instances()).unwrap(),
-        recorded_recovery(82, direct_log.clone()),
+        common::fresh_randomness(),
         iroha_plonk::ProverConfig::default(),
     )
     .unwrap();
@@ -715,13 +727,16 @@ fn installed_serialized_q_originals_prove_and_reject_default_profile() {
         MemoryBudget::DEFAULT,
     )
     .unwrap();
+    let installed_entry = crate::proof_entry_probe::Guard::new(None);
     let proof = imported
         .prove(
             &prepared,
-            recorded_recovery(82, installed_log.clone()),
+            common::fresh_randomness(),
             iroha_plonk::ProverConfig::default(),
         )
         .expect("genuine imported serialized Q proof");
+    assert_eq!(installed_entry.entries(), 1);
+    drop(installed_entry);
     iroha_plonk::verify_full(
         &params,
         producer.binding(),
@@ -731,10 +746,20 @@ fn installed_serialized_q_originals_prove_and_reject_default_profile() {
         MemoryBudget::DEFAULT,
     )
     .expect("original installed Q key");
-    assert_eq!(proof.bytes, direct);
+    assert_ne!(proof.bytes, direct, "new attempt uses fresh entropy");
+    let retained = direct.clone();
+    iroha_plonk::verify_full(
+        &params,
+        producer.binding(),
+        producer.vk(),
+        prepared.instances(),
+        &retained,
+        MemoryBudget::DEFAULT,
+    )
+    .unwrap();
+    assert_eq!(retained, direct, "original bytes remain immutable");
     assert_eq!(proof.instances, prepared.instances());
-    assert_eq!(*direct_log.lock().unwrap(), *installed_log.lock().unwrap());
-    assert_eq!(installed_log.lock().unwrap().len(), 1);
+
     assert_eq!(proof.part, *prepared.part());
     let mut wrong = proof.instances.clone();
     wrong[0][0] += Fq::ONE;

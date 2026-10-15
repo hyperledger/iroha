@@ -316,16 +316,21 @@ impl ArchiveStore for StorageProbe {
         self.inner.binding()
     }
 
-    fn get(&mut self, key: ArchiveKey, maximum: usize) -> Result<Option<Vec<u8>>, Error> {
+    fn get(
+        &mut self,
+        key: ArchiveKey,
+        maximum: usize,
+    ) -> Result<Option<PrivateArchiveBytes>, Error> {
         self.reads += 1;
         match self.read_fault {
             ReadFault::None => self.inner.get(key, maximum),
             ReadFault::Missing => Ok(None),
             ReadFault::Corrupt => {
-                let mut bytes = self.inner.get(key, maximum)?.unwrap();
+                let retained = self.inner.get(key, maximum)?.unwrap();
+                let mut bytes = zeroize::Zeroizing::new(retained.as_slice().to_vec());
                 let last = bytes.len() - 1;
                 bytes[last] ^= 1;
-                Ok(Some(bytes))
+                Ok(Some(PrivateArchiveBytes::from_guarded(bytes)))
             }
             ReadFault::Unavailable => Err(Error::Storage(std::io::Error::from(
                 std::io::ErrorKind::WouldBlock,

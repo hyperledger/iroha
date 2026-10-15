@@ -9,8 +9,11 @@ use iroha_kagemusha_proof::{
     a_relation::native::artifact::KeyArtifact,
     q_sigma::native::{IncomingMode, incoming_proof_failure as invalid_proof},
 };
-use iroha_pasta::{Ep, Eq, PastaAffine, PastaCurve, poseidon::hash_with_domain};
-use iroha_plonk::{Protocol, pcs::ipa::PinnedParams, verifier::accumulate_generator_cancellable};
+use iroha_pasta::{Ep, Eq, PastaCurve, poseidon::hash_with_domain};
+use iroha_plonk::{
+    Protocol, pcs::ipa::PinnedParams, transcript::generator_coordinates,
+    verifier::accumulate_generator_cancellable,
+};
 use iroha_plonk_gadgets::statement::foreign_limbs;
 use iroha_plonk_recursion::{ACCUMULATOR_BYTES, AccumulatorT, FoldInput};
 
@@ -121,15 +124,13 @@ pub(super) fn transport(
     let pallas = pallas.unwrap_or_else(|_| trivial_p.clone());
     let vesta = vesta.unwrap_or(trivial_v);
     let mut words = public.to_vec();
-    let (x, y) =
-        Option::<(Fp, Fp)>::from(pallas.g().coordinates()).ok_or(Error::Proof("incoming point"))?;
+    let (x, y) = generator_coordinates::<Ep>(pallas.g());
     words.extend([x, y]);
     for challenge in pallas.challenges() {
         words.extend(foreign_limbs(challenge).map(Fp::from_u128));
     }
     let digest = hash_with_domain(u64::from_le_bytes(*b"kgwomg_1"), &words);
-    let (x, y) =
-        Option::<(Fq, Fq)>::from(vesta.g().coordinates()).ok_or(Error::Proof("incoming point"))?;
+    let (x, y) = generator_coordinates::<Eq>(vesta.g());
     let instances = vec![
         vec![
             Option::<Fq>::from(Fq::from_repr(digest.to_repr()))

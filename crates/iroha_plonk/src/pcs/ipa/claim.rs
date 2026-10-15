@@ -6,7 +6,6 @@
 
 use super::{IpaError, PinnedParams};
 use ff::Field;
-use group::prime::PrimeCurveAffine;
 use iroha_pasta::{PastaCurve, msm::MemoryBudget};
 
 /// The undecided equality `G = <s(u), g[0..2^k)>`.
@@ -18,12 +17,26 @@ pub struct GeneratorClaim<C: PastaCurve> {
     challenges: Vec<C::ScalarExt>,
 }
 impl<C: PastaCurve> GeneratorClaim<C> {
+    /// Clears this claim when held inside a private succinct-frame owner.
+    pub(crate) fn clear_private_owner(&mut self) {
+        fn field<F: iroha_pasta::PastaField>(value: &mut F) {
+            value.zeroize();
+        }
+        fn point<A: iroha_pasta::PastaAffine>(value: &mut A) {
+            value.zeroize();
+        }
+        point(&mut self.g);
+        for value in &mut self.challenges {
+            field(value);
+        }
+    }
+
     pub(crate) fn new(
         k: u32,
         g: C::AffineExt,
         challenges: Vec<C::ScalarExt>,
     ) -> Result<Self, IpaError> {
-        if challenges.len() != k as usize || bool::from(g.is_identity()) {
+        if challenges.len() != k as usize {
             return Err(IpaError::OpeningFailed);
         }
         for (round, value) in challenges.iter().enumerate() {

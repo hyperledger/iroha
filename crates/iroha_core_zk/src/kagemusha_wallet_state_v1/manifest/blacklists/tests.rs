@@ -83,16 +83,21 @@ impl ArchiveStore for Probe {
     fn binding(&self) -> ([u8; 32], [u8; 32]) {
         self.archive.binding()
     }
-    fn get(&mut self, key: ArchiveKey, maximum: usize) -> Result<Option<Vec<u8>>, Error> {
+    fn get(
+        &mut self,
+        key: ArchiveKey,
+        maximum: usize,
+    ) -> Result<Option<PrivateArchiveBytes>, Error> {
         self.reads += 1;
         if matches!(key, ArchiveKey::Object(digest) if Some(digest) == self.selected) {
             match self.fault {
                 Fault::Missing => return Ok(None),
                 Fault::Corrupt => {
-                    let mut bytes = self.archive.get(key, maximum)?.unwrap();
+                    let retained = self.archive.get(key, maximum)?.unwrap();
+                    let mut bytes = zeroize::Zeroizing::new(retained.as_slice().to_vec());
                     let last = bytes.len() - 1;
                     bytes[last] ^= 1;
-                    return Ok(Some(bytes));
+                    return Ok(Some(PrivateArchiveBytes::from_guarded(bytes)));
                 }
                 Fault::Unavailable => {
                     return Err(Error::Storage(std::io::ErrorKind::WouldBlock.into()));

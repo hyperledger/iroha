@@ -831,6 +831,8 @@ async fn execute_prepared_collection_local(
 }
 
 /// Page movements inside authenticated transactions without indexing the full chain.
+/// Borrow the input/result from each authenticated carrier: display rows do not
+/// need the proof-bearing query DTO, its per-row encoding, or cloned instructions.
 /// The third cursor coordinate keeps multiple movements from one transaction on
 /// separate pages; only caller-visible movements may provide a continuation.
 fn account_subrow_page(
@@ -842,7 +844,7 @@ fn account_subrow_page(
 ) -> Result<RowPage> {
     use iroha_core::smartcontracts::isi::tx::{
         TransactionHistoryPageEnd, TransactionHistoryPosition, transaction_history_byte_limit,
-        visit_committed_transaction_page,
+        visit_borrowed_committed_transaction_page,
     };
     let after = prepared.resume_subrow_position();
     // Revisit the cursor transaction, then skip movements at or above its
@@ -889,12 +891,17 @@ fn account_subrow_page(
     let work = app_query_limits().max_fetch_size;
     let mut multisig_budget =
         MultisigHistoryBudget::new(work, transaction_history_byte_limit(work));
-    let end = visit_committed_transaction_page(
+    let end = visit_borrowed_committed_transaction_page(
         &view,
         resume,
         work,
         transaction_history_byte_limit(work),
-        |transaction, position, block| {
+        |entrypoint, result, position, block| {
+            let transaction = BorrowedNetworkTransaction {
+                entrypoint,
+                entrypoint_hash: entrypoint.hash(),
+                result,
+            };
             if scanned >= work {
                 return std::ops::ControlFlow::Break(());
             }

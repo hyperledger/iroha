@@ -101,7 +101,7 @@ impl CompactPublicConfig {
 }
 impl<C: PastaCurve> VerifierConfig<C> {
     /// Configures the same complete interpreter on 11 advice columns, one range
-    /// lookup and 12 fixed columns, using explicit degree-nine phase gates.
+    /// lookup and 12 fixed columns, using explicit degree-ten phase gates.
     /// Returned direct public gates have the fixed Omega `[1,2,16]` schema.
     pub fn configure_compact(
         meta: &mut ConstraintSystem<C::Base>,
@@ -134,7 +134,7 @@ impl<C: PastaCurve> VerifierConfig<C> {
         secondary_component: bool,
         plan: Option<SecondaryPlan>,
     ) -> (Self, CompactPublicConfig) {
-        meta.set_minimum_degree(9);
+        meta.set_minimum_degree(iroha_plonk_gadgets::phase::MAX_COMPACT_GATE_DEGREE);
         let advice: [Column<Advice>; 11] = core::array::from_fn(|_| meta.advice_column());
         let phases = if secondary_component {
             PhaseColumns::allocate_with_idle_ecc(meta)
@@ -146,12 +146,13 @@ impl<C: PastaCurve> VerifierConfig<C> {
             [advice[0], advice[1], advice[2], advice[3]],
             phases,
         );
-        let kernel = RotatedFfConfig::configure_staged_phased(
+        let kernel = RotatedFfConfig::configure_staged_packed_phased(
             meta,
             glue.advice(),
-            [advice[4], advice[6], advice[7], advice[8], advice[9]],
+            [advice[5], advice[6], advice[7], advice[8], advice[9]],
             Arithmetic::<C>::modulus(),
             phases,
+            advice[4],
         );
         let range = RunningSumConfig::configure_tagged(meta, advice[10]);
         let secondary = if secondary_component {
@@ -235,7 +236,11 @@ impl<C: PastaCurve> VerifierChip<C> {
         let range_rows = SharedRows::new(RowCursor::starting_at(16));
         let glue = GlueChip::with_shared_cursor(glue, &arithmetic_rows)
             .with_shared_constant_cache()
-            .expect("bounded compact arithmetic lane");
+            .expect("bounded compact arithmetic lane")
+            .with_shared_witness_pool()
+            .expect("same bounded compact free-witness lane")
+            .with_shared_glue_spare_pool()
+            .expect("same structural Glue spare owner");
         let mut range = RunningSumChip::with_shared_cursor(range, &range_rows);
         let has_secondary = secondary.is_some();
         if let Some((config, plan)) = secondary {

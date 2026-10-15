@@ -395,7 +395,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         &self,
         witness: &ReleasedStep,
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
-        checkpoints: &[Vec<u8>],
+        checkpoints: &[PrivateArchiveBytes],
         custody: Option<&mut FoldCustodyV1<'_>>,
         cancellation: &Cancellation,
     ) -> Result<FoldProgress, Error> {

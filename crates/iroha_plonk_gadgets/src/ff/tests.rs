@@ -7,7 +7,7 @@
 //!
 //! Every circuit runs at `k = 16` (the range table has `2^15` rows).
 
-use std::{convert::Infallible, time::Instant};
+use std::time::Instant;
 
 use ::ff::{Field, PrimeField};
 use iroha_pasta::{Ep, Fp, Fq, msm::MemoryBudget};
@@ -2021,9 +2021,7 @@ fn ff_gate_shape_measurement_release() {
     let pk = keygen_pk(&params, &circuit.without_witnesses(), &config).expect("keys");
     let keygen_ms = started.elapsed().as_millis();
     let started = Instant::now();
-    let randomness = ProverRandomness::recovery(move |_context: &[u8; 32]| {
-        Ok::<_, Infallible>(ChaCha20Rng::from_seed([9; 32]))
-    });
+    let randomness = ProverRandomness::hedged();
     let proof = prove_circuit(
         &params,
         &pk,

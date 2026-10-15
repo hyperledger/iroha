@@ -23,7 +23,16 @@ pub(super) fn action(payment_bytes: &[u8], offer_bytes: &[u8]) -> Result<state::
     // Authenticate the session signature before deriving the carried originals. Scheme/root
     // certification, permanent credit deduplication and all A/proof predicates remain with Receive.
     offer.validate().map_err(|_| Failure::code(INVALID))?;
-    let requested = &payment.request.body;
+    let signed_request = payment
+        .signed_request()
+        .map_err(|_| Failure::code(INVALID))?;
+    let requested = &signed_request.body;
+    let omega = &payment
+        .send
+        .lineage
+        .lineage()
+        .ok_or_else(|| Failure::code(INVALID))?
+        .public;
     let payer = &offer.payer_credential.body;
     if offer.body.scheme_id != requested.scheme_id
         || offer.body.asset_digest != requested.asset_digest
@@ -31,8 +40,8 @@ pub(super) fn action(payment_bytes: &[u8], offer_bytes: &[u8]) -> Result<state::
         || payer.account_digest != requested.payer_account_digest
         || offer.body.next_send != requested.send_ordinal
         || offer.body.amount != requested.amount
-        || offer.body.payer_credential_digest != payment.payer_credential_digest
-        || payer.payment_key != payment.payer_payment_key
+        || offer.body.payer_credential_digest != omega.credential_digest
+        || payer.payment_key != omega.payment_key
     {
         return Err(Failure::code(INVALID));
     }
@@ -110,17 +119,48 @@ mod tests {
         for binding in 0..8 {
             let mut changed = payment.clone();
             match binding {
-                0 => changed.request.body.scheme_id[0] ^= 1,
-                1 => changed.request.body.asset_digest[0] ^= 1,
-                2 => changed.request.body.payer_wallet_id[0] ^= 1,
-                3 => changed.request.body.payer_account_digest[0] ^= 1,
-                4 => changed.request.body.send_ordinal += 1,
-                5 => changed.request.body.amount += 1,
-                6 => changed.payer_credential_digest[0] ^= 1,
+                0 => changed.send.statement.scheme_id[0] ^= 1,
+                1 => changed.send.statement.asset_digest[0] ^= 1,
+                2 => {
+                    if let KagemushaWalletLineageSlotV1::Present { lineage } =
+                        &mut changed.send.lineage
+                    {
+                        lineage.public.wallet_id[0] ^= 1;
+                    }
+                }
+                3 => changed.request.payer_account_digest[0] ^= 1,
+                4 => {
+                    if let KagemushaWalletEffectV1::Send { send_ordinal, .. } =
+                        &mut changed.send.statement.effect
+                    {
+                        *send_ordinal += 1;
+                    }
+                }
+                5 => {
+                    if let KagemushaWalletEffectV1::Send { amount, .. } =
+                        &mut changed.send.statement.effect
+                    {
+                        *amount += 1;
+                    }
+                }
+                6 => {
+                    if let KagemushaWalletLineageSlotV1::Present { lineage } =
+                        &mut changed.send.lineage
+                    {
+                        lineage.public.credential_digest[0] ^= 1;
+                    }
+                }
                 _ => {
                     let request: KagemushaWalletRequestV1 = decode(&original("Request")).unwrap();
-                    changed.payer_payment_key = request.receiver_credential.body.payment_key;
-                    assert_ne!(changed.payer_payment_key, payment.payer_payment_key);
+                    if let KagemushaWalletLineageSlotV1::Present { lineage } =
+                        &mut changed.send.lineage
+                    {
+                        lineage.public.payment_key = request.receiver_credential.body.payment_key;
+                    }
+                    assert_ne!(
+                        changed.send.lineage.lineage().unwrap().public.payment_key,
+                        payment.send.lineage.lineage().unwrap().public.payment_key
+                    );
                 }
             }
             let bytes = norito::encode_canonical(&changed).unwrap();

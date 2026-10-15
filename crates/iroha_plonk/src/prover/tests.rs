@@ -6,8 +6,6 @@
 //! malicious prover that commits two advice columns identically is caught
 //! by static grouping (S1).
 
-use std::sync::{Arc, Mutex};
-
 use ff::{Field, PrimeField};
 use group::Curve;
 use iroha_pasta::{Ep, Eq, Fp, Fq, PastaCurve, PastaField, poseidon::PoseidonField};
@@ -123,8 +121,8 @@ fn permutation_heavy_proofs_verify_on_both_curves() {
     let shape = *Protocol::new(setup.pk.binding().descriptor())
         .expect("protocol")
         .shape();
-    // Degree 3: one column per set, eight linked sets.
-    assert_eq!((shape.degree, shape.chunk_len), (3, 1));
+    // Norm degree 4: one column per set, eight linked sets.
+    assert_eq!((shape.degree, shape.chunk_len), (4, 1));
     assert_eq!(shape.permutation_sets, 8);
     round_trip::<Ep, _>(&PERMUTATIONS, &PERMUTATIONS.instances::<Fq>());
     round_trip::<Eq, _>(&PERMUTATIONS, &PERMUTATIONS.instances::<Fp>());
@@ -236,7 +234,7 @@ fn proofs_do_not_depend_on_the_thread_count() {
 }
 
 /// Compares reusable and consuming witnesses under every protocol option,
-/// with a recovery stream bound to the statement and secret witness.
+/// with the same explicitly test-only random stream.
 fn owned_proof_parity<C, Ci>(circuit: &Ci, instances: &[Vec<C::ScalarExt>])
 where
     C: PastaCurve,
@@ -247,9 +245,7 @@ where
     for choice in CHOICES {
         let setup = setup::<C, _>(circuit, choice);
         let witness = Witness::from_circuit(&setup.pk, circuit, instances).expect("witness");
-        let context_log = Arc::new(Mutex::new(Vec::new()));
-        let randomness =
-            || ProverRandomness::recovery(recording_derivation([73; 32], Arc::clone(&context_log)));
+        let randomness = || ProverRandomness::fixed_seed_for_tests([73; 32]);
         let reference = create_proof(
             &setup.params,
             &setup.pk,
@@ -284,9 +280,6 @@ where
             assert_eq!(setup.verify(instances, &proof), Ok(()));
         }
         assert_eq!(witness.digest(usable_rows, None).unwrap(), digest);
-        let contexts = context_log.lock().expect("contexts");
-        assert_eq!(contexts.len(), 3);
-        assert!(contexts.iter().all(|context| *context == contexts[0]));
     }
 }
 
@@ -501,10 +494,10 @@ where
             &setup.params,
             &setup.pk,
             witness(),
-            ProverRandomness::recovery(|_: &[u8; 32]| Err::<ChaCha20Rng, _>(())),
+            ProverRandomness::entropy_failure_for_tests(),
             ProverConfig::default(),
         ),
-        Err(ProverError::RecoveryStream)
+        Err(ProverError::Entropy)
     );
     assert!(matches!(
         create_proof_owned(
@@ -622,175 +615,11 @@ fn fresh_randomness_changes_every_message() {
     }
 }
 
-/// A recovery derivation that records its contexts.
-fn recording_derivation(
-    seed: [u8; 32],
-    log: Arc<Mutex<Vec<[u8; 32]>>>,
-) -> impl FnOnce(&[u8; 32]) -> Result<ChaCha20Rng, ()> + Send {
-    move |context: &[u8; 32]| {
-        log.lock().map_err(|_| ())?.push(*context);
-        let key =
-            crate::cs::descriptor::blake2b_personal::<32>(b"recovery-test-v1", &[&seed, context]);
-        Ok(ChaCha20Rng::from_seed(key))
-    }
-}
-
-#[test]
-fn recovery_streams_bind_the_witness() {
-    let setup = setup::<Ep, _>(&LOOKUPS, CHOICES[0]);
-    let other = Lookups {
-        offset: 4,
-        ..LOOKUPS
-    };
-    let log = Arc::new(Mutex::new(Vec::new()));
-    let prove = |circuit: &Lookups| {
-        prove_circuit(
-            &setup.params,
-            &setup.pk,
-            circuit,
-            &[],
-            ProverRandomness::recovery(recording_derivation([9; 32], Arc::clone(&log))),
-            ProverConfig::default(),
-        )
-        .expect("proof")
-    };
-    let first = prove(&LOOKUPS);
-    let again = prove(&LOOKUPS);
-    let different = prove(&other);
-    // Deterministic for one witness and statement (recovery).
-    assert_eq!(first, again);
-    assert_eq!(setup.verify(&[], &first), Ok(()));
-    assert_eq!(setup.verify(&[], &different), Ok(()));
-    let contexts = log.lock().expect("log").clone();
-    assert_eq!(contexts.len(), 3);
-    assert_eq!(contexts[0], contexts[1]);
-    assert_ne!(contexts[0], contexts[2]);
-    // The statement is the same (no instances), so the context separates the
-    // witnesses: the R commitment, a pure function of the stream position,
-    // differs.
-    let protocol = Protocol::new(setup.pk.binding().descriptor()).expect("protocol");
-    let shape = protocol.shape();
-    let r_index = shape.num_advice + 3 * shape.lookups + shape.permutation_sets;
-    assert_ne!(messages(&first)[r_index], messages(&different)[r_index]);
-    // A failing derivation is a typed error.
-    assert_eq!(
-        prove_circuit(
-            &setup.params,
-            &setup.pk,
-            &LOOKUPS,
-            &[],
-            ProverRandomness::recovery(|_: &[u8; 32]| Err::<ChaCha20Rng, ()>(())),
-            ProverConfig::default(),
-        ),
-        Err(ProverError::RecoveryStream)
-    );
-}
-
-/// A stream whose every read fails.
-struct FailingRng;
-
-impl rand_core_06::RngCore for FailingRng {
-    fn next_u32(&mut self) -> u32 {
-        0
-    }
-    fn next_u64(&mut self) -> u64 {
-        0
-    }
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        dest.fill(0);
-    }
-    fn try_fill_bytes(&mut self, _dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
-        Err(rand_core_06::Error::from(
-            core::num::NonZeroU32::new(rand_core_06::Error::CUSTOM_START).expect("nonzero"),
-        ))
-    }
-}
-
-impl rand_core_06::CryptoRng for FailingRng {}
-
-/// S8 regression (spec section 10): a recovery derivation that ignores its
-/// context and returns one constant stream cannot make two witnesses share
-/// blinds, because this crate keys the stream it proves with from the
-/// context itself. With the context only advisory, both proofs below would
-/// reuse every blind (and `C_a - C_b` would be an unblinded commitment to the
-/// witness difference).
-#[test]
-fn a_constant_recovery_derivation_still_separates_witnesses() {
-    let setup = setup::<Ep, _>(&LOOKUPS, CHOICES[0]);
-    let other = Lookups {
-        offset: 4,
-        ..LOOKUPS
-    };
-    let prove = |circuit: &Lookups| {
-        prove_circuit(
-            &setup.params,
-            &setup.pk,
-            circuit,
-            &[],
-            ProverRandomness::recovery(|_: &[u8; 32]| Ok::<_, ()>(ChaCha20Rng::from_seed([0; 32]))),
-            ProverConfig::default(),
-        )
-        .expect("proof")
-    };
-    let first = prove(&LOOKUPS);
-    let again = prove(&LOOKUPS);
-    let different = prove(&other);
-    assert_eq!(first, again, "recovery stays deterministic per witness");
-    assert_eq!(setup.verify(&[], &first), Ok(()));
-    assert_eq!(setup.verify(&[], &different), Ok(()));
-    // R is drawn at a fixed stream position, so equal streams would give
-    // equal R commitments; the bound streams differ. So does every blinded
-    // commitment and evaluation of the two proofs.
-    let protocol = Protocol::new(setup.pk.binding().descriptor()).expect("protocol");
-    let shape = protocol.shape();
-    let r_index = shape.num_advice + 3 * shape.lookups + shape.permutation_sets;
-    assert_ne!(messages(&first)[r_index], messages(&different)[r_index]);
-    for (index, (a, b)) in messages(&first)
-        .iter()
-        .zip(messages(&different))
-        .enumerate()
-    {
-        assert_ne!(*a, b, "message {index}");
-    }
-    // A stream that fails is a typed error, not a fallback.
-    assert_eq!(
-        prove_circuit(
-            &setup.params,
-            &setup.pk,
-            &LOOKUPS,
-            &[],
-            ProverRandomness::recovery(|_: &[u8; 32]| Ok::<_, ()>(FailingRng)),
-            ProverConfig::default(),
-        ),
-        Err(ProverError::RecoveryStream)
-    );
-}
-
-#[test]
-fn recovery_stream_keys_bind_the_drawn_bytes_and_the_context() {
-    // Python: hashlib.blake2b(bytes([1] * 32) + bytes([2] * 32),
-    // digest_size=32, person=b"PIPA-v1-RecovKey").
-    let key = recovery_stream_key(&[1; 32], &[2; 32]);
-    let hex = key.iter().fold(String::new(), |mut out, byte| {
-        use core::fmt::Write as _;
-        let _ = write!(out, "{byte:02x}");
-        out
-    });
-    assert_eq!(
-        hex,
-        "ad11af26d312c03851c876361564593989fa05d1918cf760b9d890e254d781bc"
-    );
-    assert_ne!(recovery_stream_key(&[1; 32], &[3; 32]), key);
-    assert_ne!(recovery_stream_key(&[3; 32], &[2; 32]), key);
-    // Distinct from the context persona.
-    assert_ne!(recovery_context(&[1; 32], &[2; 32]), key);
-}
-
 #[test]
 fn production_randomness_sources_prove() {
     let setup = setup::<Eq, _>(&ARITHMETIC, CHOICES[1]);
     let instances = ARITHMETIC.instances::<Fp>();
-    let prove = |randomness: ProverRandomness<'_>| {
+    let prove = |randomness: ProverRandomness| {
         prove_circuit(
             &setup.params,
             &setup.pk,
@@ -893,45 +722,91 @@ fn setup_lookups() -> Setup<Ep> {
 }
 
 #[test]
-fn oracle_mode_binds_the_injected_repr() {
+fn ordinary_proof_binds_descriptor_and_exact_key_bytes() {
+    use crate::{
+        cs::descriptor::ExprNodeV1,
+        keys::{DescriptorBinding, VerifyingKey, vk::VK_HEADER_BYTES},
+    };
+    use group::GroupEncoding;
+
+    // Vesta/Poseidon complements the Pallas/BLAKE2b descriptor-binding test.
     let setup = setup::<Eq, _>(&ARITHMETIC, CHOICES[1]);
     let instances = ARITHMETIC.instances::<Fp>();
-    let witness = Witness::from_circuit(&setup.pk, &ARITHMETIC, &instances).expect("witness");
-    let vendored = Fp::from(0x5eed);
-    let proof = create_proof_oracle(
-        &setup.params,
-        &setup.pk,
-        &witness,
-        ProverRandomness::fixed_seed_for_tests([4; 32]),
-        ProverConfig::default(),
-        vendored,
-    )
-    .expect("proof");
+    let proof = setup
+        .prove(&ARITHMETIC, &instances, 4)
+        .expect("native proof");
+    let original = VerifyingKey::<Eq>::read(setup.pk.vk().to_bytes(), setup.pk.binding())
+        .expect("admitted canonical key");
     assert_eq!(
-        crate::verifier::verify_full_oracle(
+        verify_full(
             &setup.params,
             setup.pk.binding(),
-            setup.pk.vk(),
+            &original,
             &instances,
             &proof,
-            BUDGET,
-            vendored,
+            BUDGET
         ),
         Ok(())
     );
-    // Not a production proof, and not for another injected value.
-    assert!(setup.verify(&instances, &proof).is_err());
-    assert!(
-        crate::verifier::verify_full_oracle(
+
+    // Preserve the layout and exact key bytes while changing only the relation.
+    // Admission succeeds, so rejection exercises the transcript/opening boundary.
+    let mut descriptor = setup.pk.binding().descriptor().arithmetic_layout();
+    let scaled = descriptor
+        .gates
+        .iter_mut()
+        .flatten()
+        .flatten()
+        .find_map(|node| match node {
+            ExprNodeV1::Scaled(bytes) => Some(bytes),
+            _ => None,
+        })
+        .expect("scaled arithmetic gate");
+    *scaled = Fp::from(8).to_repr();
+    let changed_binding = DescriptorBinding::new(descriptor).expect("same-layout descriptor");
+    let changed_relation = VerifyingKey::<Eq>::read(original.to_bytes(), &changed_binding)
+        .expect("same key bytes admitted under changed relation");
+    assert_eq!(changed_relation.to_bytes(), original.to_bytes());
+    assert_ne!(
+        changed_relation.transcript_repr(),
+        original.transcript_repr()
+    );
+    assert_eq!(
+        verify_full(
             &setup.params,
-            setup.pk.binding(),
-            setup.pk.vk(),
+            &changed_binding,
+            &changed_relation,
             &instances,
             &proof,
-            BUDGET,
-            vendored + Fp::ONE,
-        )
-        .is_err()
+            BUDGET
+        ),
+        Err(VerifyError::Ipa(IpaError::FoldedGeneratorMismatch))
+    );
+
+    // Keep the admitted descriptor and all extents unchanged but alter one
+    // finite fixed commitment. The new key decodes and derives its own binding.
+    let mut changed_bytes = original.to_bytes().to_vec();
+    let changed_point = -original.fixed_commitments()[0];
+    changed_bytes[VK_HEADER_BYTES..VK_HEADER_BYTES + MESSAGE_BYTES]
+        .copy_from_slice(changed_point.to_bytes().as_ref());
+    let changed_key = VerifyingKey::<Eq>::read(&changed_bytes, setup.pk.binding())
+        .expect("same-layout key with a different finite commitment");
+    assert_ne!(changed_key.to_bytes(), original.to_bytes());
+    assert_eq!(
+        changed_key.descriptor_digest(),
+        original.descriptor_digest()
+    );
+    assert_ne!(changed_key.transcript_repr(), original.transcript_repr());
+    assert_eq!(
+        verify_full(
+            &setup.params,
+            setup.pk.binding(),
+            &changed_key,
+            &instances,
+            &proof,
+            BUDGET
+        ),
+        Err(VerifyError::Ipa(IpaError::FoldedGeneratorMismatch))
     );
 }
 
@@ -1018,7 +893,7 @@ fn equal_advice_commitments_with_different_evaluations_are_rejected() {
         None,
     )
     .expect("pieces");
-    let x = transcript.squeeze_challenge();
+    let x = crate::transcript::pipa_r::evaluation_challenge(transcript.squeeze_challenge());
     let xn = x.pow_vartime([shape.n as u64]);
     let combined = quotient.combine(xn);
     let h_at_x = evaluate_polynomial(&combined.coeffs, x);
@@ -1187,7 +1062,6 @@ where
         ProverRandomness::fixed_seed_for_tests([21; 32]),
         ProverConfig::default(),
         Mode {
-            oracle: false,
             transcript_repr: *setup.pk.vk().transcript_repr(),
         },
         &mut forged,
@@ -1427,10 +1301,6 @@ fn statement_digests_frame_the_instances() {
         base,
         statement_digest(&digest, &repr, &[vec![Fq::ONE], vec![]])
     );
-    assert_ne!(
-        recovery_context(&[1; 32], &[2; 32]),
-        recovery_context(&[2; 32], &[1; 32])
-    );
 }
 
 #[test]
@@ -1439,7 +1309,6 @@ fn errors_display_their_cause() {
         ProverError::CircuitMismatch,
         ProverError::ParamsMismatch,
         ProverError::Entropy,
-        ProverError::RecoveryStream,
         ProverError::DegenerateChallenge,
         ProverError::IdentityInstanceCommitment { column: 1 },
         ProverError::from(TranscriptError::IdentityPoint),
@@ -1518,3 +1387,77 @@ fn measure_prove_and_verify() {
 
 #[path = "fixed_only_tests.rs"]
 mod fixed_only;
+
+#[test]
+fn fresh_sources_propagate_entropy_failure_once() {
+    for randomness in [ProverRandomness::os(), ProverRandomness::hedged()] {
+        let calls = std::cell::Cell::new(0);
+        let result = randomness.into_stream_with_entropy(
+            Some(Binding {
+                statement: [1; 32],
+                witness: [2; 32],
+            }),
+            || {
+                calls.set(calls.get() + 1);
+                Err(ProverError::Entropy)
+            },
+        );
+        assert!(matches!(result, Err(ProverError::Entropy)));
+        assert_eq!(calls.get(), 1, "no retry or fallback");
+    }
+}
+
+#[test]
+fn fresh_streams_consume_one_new_seed_and_hedge_exact_bindings() {
+    fn output(hedged: bool, entropy: u8, statement: u8, witness: u8) -> [u8; 64] {
+        let calls = std::cell::Cell::new(0);
+        let owner = if hedged {
+            ProverRandomness::hedged()
+        } else {
+            ProverRandomness::os()
+        };
+        let mut stream = owner
+            .into_stream_with_entropy(
+                Some(Binding {
+                    statement: [statement; 32],
+                    witness: [witness; 32],
+                }),
+                || {
+                    calls.set(calls.get() + 1);
+                    Ok(zeroize::Zeroizing::new([entropy; 32]))
+                },
+            )
+            .unwrap();
+        let mut output = [0; 64];
+        stream.fill_bytes(&mut output);
+        assert_eq!(calls.get(), 1);
+        output
+    }
+    for hedged in [false, true] {
+        assert_ne!(output(hedged, 1, 2, 3), output(hedged, 4, 2, 3));
+    }
+    assert_ne!(output(true, 1, 2, 3), output(true, 1, 4, 3));
+    assert_ne!(output(true, 1, 2, 3), output(true, 1, 2, 4));
+    assert_ne!(output(true, 1, 2, 3), output(false, 1, 2, 3));
+    // OS mode remains independent of the witness/statement digest.
+    assert_eq!(output(false, 1, 2, 3), output(false, 1, 4, 5));
+}
+
+#[test]
+fn missing_hedge_binding_fails_before_entropy() {
+    let result = ProverRandomness::hedged().into_stream_with_entropy(None, || {
+        panic!("invalid binding must fail before OS entropy");
+    });
+    assert!(matches!(result, Err(ProverError::Entropy)));
+}
+
+#[test]
+fn test_only_seeded_stream_never_requests_os_entropy() {
+    let mut stream = ProverRandomness::fixed_seed_for_tests([9; 32])
+        .into_stream_with_entropy(None, || panic!("unit-test stream is explicit"))
+        .unwrap();
+    assert_eq!(
+        stream.next_u64(),
+        ChaCha20Rng::from_seed([9; 32]).next_u64()
+    );
+}

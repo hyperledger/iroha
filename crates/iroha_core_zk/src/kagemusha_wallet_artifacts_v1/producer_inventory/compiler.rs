@@ -313,7 +313,7 @@ impl<'a> OfflineCompilerV1<'a> {
         // commitment. A captured row set never substitutes for native admission.
         let _ = record;
         Ok(
-            iroha_plonk::keys::SourceBoundVerifyingKeyV2::from_artifact_v2(
+            iroha_plonk::keys::SourceBoundVerifyingKeyV2::from_masked_artifact_v2(
                 original,
                 binding,
                 params,

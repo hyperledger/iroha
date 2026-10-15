@@ -12,7 +12,7 @@ struct FoldSeed {
 impl FoldSeed {
     fn view<'a>(
         &self,
-        store: &'a mut dyn ObjectStore,
+        store: &'a mut dyn ObjectWorkspace,
         before: Option<&'a ReleasedStep>,
         after: &'a ReleasedStep,
     ) -> Result<FoldCustodyV1<'a>, Error> {
@@ -260,7 +260,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
         schedule: &[CheckpointLayout],
         manifest: &manifest::Manifest,
-    ) -> Result<(u32, [u8; 32], Vec<Vec<u8>>), Error> {
+    ) -> Result<(u32, [u8; 32], Vec<PrivateArchiveBytes>), Error> {
         if usize::try_from(manifest.checkpoint_count)
             .ok()
             .is_none_or(|count| count > schedule.len())
@@ -430,10 +430,11 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                     ordinal,
                     proof,
                 };
-                let bytes = archive::encode(&checkpoint)?;
+                let bytes = PrivateArchiveBytes::encode(&checkpoint)
+                    .map_err(|_| Error::Invalid("private checkpoint encoding"))?;
                 if existing_checkpoint
                     .as_ref()
-                    .is_some_and(|existing| *existing != bytes)
+                    .is_some_and(|existing| existing.as_slice() != bytes.as_slice())
                 {
                     return Err(Error::WitnessLost("interrupted checkpoint binding"));
                 }
@@ -508,7 +509,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 self.verify_fold_bytes(&step, &bytes, Some(&verified), Some(&guard.token))?;
                 if existing_fold
                     .as_ref()
-                    .is_some_and(|existing| *existing != bytes)
+                    .is_some_and(|existing| existing.as_slice() != bytes.as_slice())
                 {
                     return Err(Error::WitnessLost("interrupted Ω identity"));
                 }

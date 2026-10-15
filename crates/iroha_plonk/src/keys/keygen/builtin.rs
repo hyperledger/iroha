@@ -344,10 +344,8 @@ impl BuiltinSourceMemberV1 {
             || d.curve != entry.curve
             || d.k != entry.k
             || d.params_digest != entry.params_digest
+            || key.descriptor_digest() != binding.digest()
         {
-            return Err(artifact::Error::Profile.into());
-        }
-        if key.descriptor_digest() != binding.digest() {
             return Err(artifact::Error::Profile.into());
         }
         if !equal_bytes(key.to_bytes(), installed_vk, cancellation)? {

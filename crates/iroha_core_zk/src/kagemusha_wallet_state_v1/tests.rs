@@ -373,8 +373,10 @@ pub(super) struct MemoryArchive {
     wallet: [u8; 32],
     records: Arc<Mutex<BTreeMap<ArchiveKey, Vec<u8>>>>,
     reads: Arc<AtomicUsize>,
+    draft_reads: Arc<AtomicUsize>,
     pub(super) fail_remove: bool,
     capsule_writes: Arc<AtomicUsize>,
+    fail_put: Arc<Mutex<Option<(ArchiveKey, bool)>>>,
 }
 impl MemoryArchive {
     pub(super) fn new() -> Self {
@@ -384,8 +386,10 @@ impl MemoryArchive {
             wallet: c.body.wallet_id,
             records: Arc::default(),
             reads: Arc::default(),
+            draft_reads: Arc::default(),
             fail_remove: false,
             capsule_writes: Arc::default(),
+            fail_put: Arc::default(),
         }
     }
 }
@@ -412,8 +416,15 @@ impl ArchiveStore for MemoryArchive {
     fn binding(&self) -> ([u8; 32], [u8; 32]) {
         (self.scheme, self.wallet)
     }
-    fn get(&mut self, key: ArchiveKey, max_bytes: usize) -> Result<Option<Vec<u8>>, Error> {
+    fn get(
+        &mut self,
+        key: ArchiveKey,
+        max_bytes: usize,
+    ) -> Result<Option<PrivateArchiveBytes>, Error> {
         self.reads.fetch_add(1, Ordering::SeqCst);
+        if matches!(key, ArchiveKey::PreparationDraft(_)) {
+            self.draft_reads.fetch_add(1, Ordering::SeqCst);
+        }
         if self
             .records
             .lock()
@@ -423,9 +434,25 @@ impl ArchiveStore for MemoryArchive {
         {
             return Err(Error::WitnessLost("record size"));
         }
-        Ok(self.records.lock().expect("records").get(&key).cloned())
+        self.records
+            .lock()
+            .expect("records")
+            .get(&key)
+            .map(|bytes| PrivateArchiveBytes::copy_from(bytes).map_err(Error::Storage))
+            .transpose()
     }
     fn put(&mut self, key: ArchiveKey, bytes: &[u8]) -> Result<(), Error> {
+        let fault = {
+            let mut fault = self.fail_put.lock().unwrap();
+            if fault.as_ref().is_some_and(|(selected, _)| *selected == key) {
+                fault.take().map(|(_, after)| after)
+            } else {
+                None
+            }
+        };
+        if fault == Some(false) {
+            return Err(Error::Storage(std::io::ErrorKind::Other.into()));
+        }
         let mut records = self.records.lock().expect("records");
         if records.get(&key).is_some_and(|old| old != bytes) {
             return Err(Error::WitnessLost("immutable conflict"));
@@ -433,6 +460,9 @@ impl ArchiveStore for MemoryArchive {
         records.insert(key, bytes.to_vec());
         if matches!(key, ArchiveKey::Capsule(_)) {
             self.capsule_writes.fetch_add(1, Ordering::SeqCst);
+        }
+        if fault == Some(true) {
+            return Err(Error::Storage(std::io::ErrorKind::Other.into()));
         }
         Ok(())
     }
@@ -449,6 +479,8 @@ pub(super) struct TestCustody {
     unavailable: bool,
     delivery_lost: bool,
     pub(super) fail_publication: Option<bool>,
+    publication_calls: usize,
+    fail_publication_at: Option<(usize, bool)>,
     status_calls: usize,
     status_replacement: Option<(usize, SlotStatus)>,
     status_unavailable_at: Option<usize>,
@@ -456,6 +488,7 @@ pub(super) struct TestCustody {
     checkpoint_replacement: Option<(usize, ([u8; 32], Vec<u8>))>,
     pub(super) resources: crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1,
     pub(super) resource_queries: usize,
+    fail_resources: bool,
 }
 impl TestCustody {
     fn new() -> Self {
@@ -470,6 +503,8 @@ impl TestCustody {
             unavailable: false,
             delivery_lost: false,
             fail_publication: None,
+            publication_calls: 0,
+            fail_publication_at: None,
             status_calls: 0,
             status_replacement: None,
             status_unavailable_at: None,
@@ -480,6 +515,7 @@ impl TestCustody {
                 memory_bytes: Some(u64::MAX / 2),
             },
             resource_queries: 0,
+            fail_resources: false,
         }
     }
 }
@@ -489,6 +525,11 @@ impl Custody for TestCustody {
     ) -> Result<crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1, ProviderError>
     {
         self.resource_queries += 1;
+        if self.fail_resources {
+            return Err(ProviderError::Unavailable(
+                crate::kagemusha_wallet_advance_v1::KagemushaWalletUnavailableV1::Locked,
+            ));
+        }
         Ok(self.resources)
     }
     fn collect_capsule(
@@ -535,7 +576,15 @@ impl Custody for TestCustody {
         expected: [u8; 32],
         bytes: &[u8],
     ) -> Result<[u8; 32], ProviderError> {
-        let fail = self.fail_publication.take();
+        self.publication_calls += 1;
+        let fail = if self
+            .fail_publication_at
+            .is_some_and(|(at, _)| at == self.publication_calls)
+        {
+            self.fail_publication_at.take().map(|(_, after)| after)
+        } else {
+            self.fail_publication.take()
+        };
         if fail == Some(false) {
             return Err(ProviderError::Invalid {
                 field: "test publication before commit",
@@ -695,6 +744,9 @@ pub(super) struct TestProofs {
     preparations: Arc<AtomicUsize>,
     preparation_proofs: Arc<AtomicUsize>,
     fail_preparation_proof: bool,
+    fail_preparation_plan: bool,
+    fail_preparation_validation: bool,
+    preparation_payload: Vec<u8>,
     advance_checks: Arc<AtomicUsize>,
     capsule_writes: Option<Arc<AtomicUsize>>,
     expire_during_publication: bool,
@@ -826,7 +878,7 @@ impl NativeProofs for TestProofs {
         &self,
         witness: &ReleasedStep,
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
-        checkpoints: &[Vec<u8>],
+        checkpoints: &[PrivateArchiveBytes],
         _custody: Option<&mut FoldCustodyV1<'_>>,
         cancellation: &Cancellation,
     ) -> Result<FoldProgress, Error> {
@@ -846,13 +898,15 @@ impl NativeProofs for TestProofs {
         assert!(checkpoints.len() <= stages);
         for (stage, original_bytes) in checkpoints.iter().enumerate() {
             assert_eq!(
-                original_bytes,
-                &original(stage),
+                original_bytes.as_slice(),
+                original(stage).as_slice(),
                 "all original source checkpoints"
             );
         }
         if checkpoints.len() < stages {
-            return Ok(FoldProgress::Checkpoint(original(checkpoints.len())));
+            return Ok(FoldProgress::Checkpoint(PrivateArchiveBytes::copy_from(
+                &original(checkpoints.len()),
+            )?));
         }
         let c = &witness.frozen.capsule;
         let mut tree = KagemushaWalletIndexedTreeV1::new();
@@ -1050,7 +1104,8 @@ fn checkpoint_restart_credit_status_and_duplicate_receive_preserve_first_digest(
                 credit_id: received_credit(),
                 payer_wallet_id: [0x88; 32],
                 amount: fixture::<KagemushaWalletPaymentV1>("KagemushaWalletPaymentV1")
-                    .request
+                    .signed_request()
+                    .unwrap()
                     .body
                     .amount,
             },
@@ -1062,7 +1117,8 @@ fn checkpoint_restart_credit_status_and_duplicate_receive_preserve_first_digest(
                 .expect("present")
                 .amount,
             fixture::<KagemushaWalletPaymentV1>("KagemushaWalletPaymentV1")
-                .request
+                .signed_request()
+                .unwrap()
                 .body
                 .amount
         );
@@ -1273,8 +1329,8 @@ fn fs_archive_is_canonical_bound_redundant_and_immutable() {
     store.put(key, b"proof checkpoint").expect("put");
     fs.power_loss(PowerLoss::DropUnsynced);
     assert_eq!(
-        store.get(key, 100).expect("get"),
-        Some(b"proof checkpoint".to_vec())
+        store.get(key, 100).expect("get").as_deref(),
+        Some(b"proof checkpoint".as_slice())
     );
     assert_eq!(store.keys().expect("keys"), [key]);
     assert!(store.put(key, b"different proof").is_err());
@@ -1286,8 +1342,8 @@ fn fs_archive_is_canonical_bound_redundant_and_immutable() {
     fs.unlink(&directory, &primary).expect("remove first copy");
     fs.sync_dir(&directory).expect("sync");
     assert_eq!(
-        store.get(key, 100).expect("replica"),
-        Some(b"proof checkpoint".to_vec())
+        store.get(key, 100).expect("replica").as_deref(),
+        Some(b"proof checkpoint".as_slice())
     );
     store.put(key, b"proof checkpoint").expect("repair");
     let mut other = FsArchive::new(fs.clone(), Slot([0x55; 32]), c.body.scheme_id, [0x99; 32])
@@ -1334,8 +1390,11 @@ fn every_archive_write_crash_resumes_only_identical_bytes() {
             .expect("resume identical");
         fs.power_loss(PowerLoss::DropUnsynced);
         assert_eq!(
-            store.get(ArchiveKey::Fold(2), 20_000).expect("read"),
-            Some(b"exact recorded proof".to_vec())
+            store
+                .get(ArchiveKey::Fold(2), 20_000)
+                .expect("read")
+                .as_deref(),
+            Some(b"exact recorded proof".as_slice())
         );
     }
 }
@@ -1371,7 +1430,7 @@ fn checkpoint_binding_gap_and_interrupted_fold_publication_fail_closed() {
                 sequence: 0,
                 ordinal: 1,
             },
-            original.clone(),
+            original.as_slice().to_vec(),
         );
     }
     assert!(matches!(w.fold_once(), Err(Error::WitnessLost(_))));
@@ -1381,7 +1440,7 @@ fn checkpoint_binding_gap_and_interrupted_fold_publication_fail_closed() {
             sequence: 0,
             ordinal: 1,
         });
-        records.insert(key, original);
+        records.insert(key, original.as_slice().to_vec());
     }
     let prior_checkpoint = w.custody.checkpoint.clone();
     assert_eq!(w.fold_once().expect("fold"), FoldStatus::Folded(0));
@@ -1580,7 +1639,7 @@ fn exact_authenticated_checkpoint_layout_accepts_large_real_stage_shapes() {
         .records
         .lock()
         .expect("records")
-        .insert(key, saved);
+        .insert(key, saved.as_slice().to_vec());
     assert_eq!(w.fold_once().expect("fold"), FoldStatus::Folded(0));
 }
 
@@ -1691,7 +1750,8 @@ fn collection_is_source_selected_bounded_restartable_and_keeps_credit_replay() {
             credit_id: received_credit(),
             payer_wallet_id: [0x88; 32],
             amount: fixture::<KagemushaWalletPaymentV1>("KagemushaWalletPaymentV1")
-                .request
+                .signed_request()
+                .unwrap()
                 .body
                 .amount,
         },
@@ -1787,7 +1847,7 @@ fn collection_is_source_selected_bounded_restartable_and_keeps_credit_replay() {
     let exact_fold = w.archive.get(covering, 100_000).unwrap().unwrap();
     w.archive.remove(covering).unwrap();
     assert!(w.collect_retained_step(1).is_err(), "missing covering fold");
-    let mut forged_fold = exact_fold.clone();
+    let mut forged_fold = zeroize::Zeroizing::new(exact_fold.as_slice().to_vec());
     forged_fold[0] ^= 1;
     w.archive.put(covering, &forged_fold).unwrap();
     assert!(w.collect_retained_step(1).is_err(), "forged covering fold");
@@ -1871,7 +1931,8 @@ fn collection_is_source_selected_bounded_restartable_and_keeps_credit_replay() {
             credit_id: received_credit(),
             payer_wallet_id: [0x88; 32],
             amount: fixture::<KagemushaWalletPaymentV1>("KagemushaWalletPaymentV1")
-                .request
+                .signed_request()
+                .unwrap()
                 .body
                 .amount,
         },
@@ -1916,7 +1977,7 @@ fn earned_fee_payment_has_independent_exact_custody_and_missing_copy_is_not_paid
     let boot = bootstrap();
     w.commit(boot.clone()).unwrap();
     let payment: KagemushaWalletPaymentV1 = fixture("KagemushaWalletPaymentV1");
-    assert!(payment.request.body.fee > 0);
+    assert!(payment.signed_request().unwrap().body.fee > 0);
     let bytes = payment.to_canonical_bytes().unwrap();
     let digests = payment.digests().unwrap();
     let send = frozen(Some(&boot), payment.send.statement.effect);
@@ -2053,7 +2114,10 @@ fn every_archive_collection_crash_resumes_only_the_selected_object() {
             store.remove(key).unwrap();
             fs.power_loss(PowerLoss::DropUnsynced);
             assert_eq!(store.get(key, 64).unwrap(), None);
-            assert_eq!(store.get(keep, 64).unwrap(), Some(b"unpaid claim".to_vec()));
+            assert_eq!(
+                store.get(keep, 64).unwrap().as_deref(),
+                Some(b"unpaid claim".as_slice())
+            );
         }
     }
 }
@@ -2104,7 +2168,7 @@ fn send_collection_requires_latest_pending_root_absence_and_keeps_unpaid_fee() {
         Some(&boot),
         KagemushaWalletEffectV1::RefreshPolicy {
             update_kind: KagemushaWalletPolicyUpdateKindV1::SchemePolicy,
-            update: template.request.body.scheme_policy,
+            update: template.request.scheme_policy,
             accepted_time_floor_ms: boot
                 .capsule
                 .body()
@@ -2114,8 +2178,8 @@ fn send_collection_requires_latest_pending_root_absence_and_keeps_unpaid_fee() {
         },
     );
     let mut body = policy.capsule.body().clone();
-    body.successor_state.core.policy_epoch = template.request.body.policy_epoch;
-    body.successor_state.rest.scheme_policy = template.request.body.scheme_policy;
+    body.successor_state.core.policy_epoch = template.request.policy_epoch;
+    body.successor_state.rest.scheme_policy = template.request.scheme_policy;
     rebind(&mut policy, body);
     w.commit(policy.clone()).unwrap();
     w.fold_once().unwrap();
@@ -2134,8 +2198,8 @@ fn send_collection_requires_latest_pending_root_absence_and_keeps_unpaid_fee() {
     body.statement.lineage_burned_total = fold.record.lineage.public.burned_total;
     body.statement.lineage_pending_outgoing_root = fold.record.lineage.public.pending_outgoing_root;
     body.successor_state.core.pending_outgoing_root = pending.root();
-    body.successor_state.core.policy_epoch = template.request.body.policy_epoch;
-    body.successor_state.rest.scheme_policy = template.request.body.scheme_policy;
+    body.successor_state.core.policy_epoch = template.request.policy_epoch;
+    body.successor_state.rest.scheme_policy = template.request.scheme_policy;
     rebind(&mut send, body);
     let Completion::Complete(payment) = w.commit(send.clone()).unwrap() else {
         panic!("committed Send")

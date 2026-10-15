@@ -289,7 +289,7 @@ fn blacklist_successor(
 }
 
 fn retain_blacklist(
-    store: &mut dyn ObjectStore,
+    store: &mut dyn ObjectWorkspace,
     state: &KagemushaWalletStateV1,
     source: &SourceCustodyV1,
     list: &KagemushaWalletBlacklistV1,

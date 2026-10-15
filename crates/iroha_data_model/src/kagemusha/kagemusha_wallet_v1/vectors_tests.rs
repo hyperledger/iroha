@@ -519,13 +519,13 @@ fn build_world() -> VectorWorld {
 
     let request = f.request(true);
     let payment = f.payment(true, VECTOR_PROOF_LEN);
-    assert_eq!(payment.request, request.signed());
+    assert_eq!(payment.signed_request().unwrap(), request.signed());
     assert_eq!(
-        payment.request.body.scheme_policy,
+        payment.signed_request().unwrap().body.scheme_policy,
         scheme_policy.scheme_policy_digest()
     );
     assert_eq!(
-        payment.request.body.fee_schedule,
+        payment.signed_request().unwrap().body.fee_schedule,
         fee_schedule.fee_schedule_digest()
     );
     let payer_issuer = KagemushaWalletCertificateSetV1::new(vec![f.payer.enrollment_certificate])
@@ -3365,6 +3365,14 @@ fn bounds_json() -> Value {
             json_number(KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1),
         ),
         (
+            "sigma_proof_cap_bytes",
+            json_number(KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1),
+        ),
+        (
+            "omega_proof_cap_bytes",
+            json_number(KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1),
+        ),
+        (
             "credited_receive_fixed_bytes",
             json_number(KAGEMUSHA_WALLET_CREDITED_RECEIVE_FIXED_BYTES_V1),
         ),
@@ -3385,8 +3393,9 @@ fn bounds_json() -> Value {
             json_text(
                 "the exact σ and Ω transport lengths of the frozen verifying-key allowlist, with \
                  Ω + the largest σ_send <= payment_proof_budget_bytes, σ_recv <= \
-                 credited_receive_proof_budget_bytes and Ω <= lineage_proof_cap_bytes; until \
-                 the artifacts freeze only the carrying frames bound them",
+                 credited_receive_proof_budget_bytes and Ω <= lineage_proof_cap_bytes; every \
+                 σ <= sigma_proof_cap_bytes and Ω <= omega_proof_cap_bytes; structural \
+                 Payment admission enforces both role capacities independently of the joint budget",
             ),
         ),
         (
@@ -3847,7 +3856,7 @@ fn poseidon_json(w: &VectorWorld) -> Value {
     let receive_proof_body = length_prefixed(&[&w.receive.step_proof.bytes]);
     let payment_transcript = kagemusha_wallet_payment_transcript_v1(
         &digests.request,
-        &payment.payer_payment_key,
+        &payment.send.lineage.lineage().unwrap().public.payment_key,
         &digests.payer_credential,
         &digests.package.package,
     );
@@ -3984,7 +3993,8 @@ fn poseidon_json(w: &VectorWorld) -> Value {
         window_kind: KagemushaWalletQuotaWindowKindV1::Daily,
         window_start_ms: QUOTA_START_MS,
         window_end_ms: QUOTA_START_MS + DAY_MS,
-        used: payment.request.body.amount + payment.request.body.fee,
+        used: payment.signed_request().unwrap().body.amount
+            + payment.signed_request().unwrap().body.fee,
     };
     let map_values = json_object(vec![
         (
@@ -5138,7 +5148,7 @@ fn kagemusha_wallet_v1_every_version_field_precedes_the_scheme() {
     );
     let mut fee = l.fee_claim.clone();
     fee.payment.send.statement.version = 2;
-    fee.payment.request.body.scheme_id = foreign;
+    fee.payment.send.statement.scheme_id = foreign;
     assert_version_error(
         KagemushaWalletFeeClaimV1::decode_canonical(
             &norito::encode_canonical(&fee).expect("encode"),

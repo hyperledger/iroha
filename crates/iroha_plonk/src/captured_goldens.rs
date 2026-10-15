@@ -1,8 +1,10 @@
-//! Fresh native re-proving of the independent Sigma/Wide source corpus.
+//! Current first-release Sigma/Wide source corpus and deterministic native replay.
 //!
-//! The source capture is produced by the retiring independent implementation.
-//! Native circuits regenerate every witness, descriptor and key; only historical
-//! transcript representatives and expected bytes are supplied by the corpus.
+//! Synthetic circuit families retain their source identity. Proofs, keys and
+//! descriptors are regenerated for the sole norm/total-map algorithm. The
+//! fixture provenance records its actual generator; this is not an independent
+//! implementation oracle. Worker-count, complete decision and mutation controls
+//! remain mandatory for every case.
 
 use ff::Field;
 use iroha_pasta::{Ep, Eq, PastaCurve, PastaField, msm::MemoryBudget, poseidon::PoseidonField};
@@ -14,12 +16,14 @@ use crate::{
     frontend::Circuit,
     keys::{DescriptorBinding, KeygenConfig, keygen_pk},
     pcs::ipa::PinnedParams,
-    prover::{ProverConfig, ProverRandomness, Witness, create_proof_oracle},
-    verifier::verify_full_oracle,
+    prover::{ProverConfig, ProverRandomness, Witness, create_proof},
+    verifier::verify_full,
 };
 
 #[path = "captured_goldens/circuits.rs"]
-mod circuits;
+pub(crate) mod circuits;
+#[path = "captured_goldens/export.rs"]
+pub(crate) mod export;
 use circuits::{SigmaCircuit, WideCircuit};
 
 fn bytes(value: &Value) -> Vec<u8> {
@@ -45,7 +49,7 @@ fn corpus() -> Value {
     let document: Value = norito::json::from_str(include_str!(
         "../../../fixtures/native_prover/golden_sources_v1.json"
     ))
-    .expect("independent golden source corpus");
+    .expect("current golden source corpus");
     assert_eq!(
         document["format"].as_str(),
         Some("iroha.native_prover.golden_sources.v1")
@@ -54,6 +58,11 @@ fn corpus() -> Value {
         document["original_circuit_source_sha256"].as_str(),
         Some("f17349f2880f818be27f6508950cfaf909354b4a14e3f55bf7375a0fa3d03129")
     );
+    validate_matrix(&document);
+    document
+}
+
+fn validate_matrix(document: &Value) {
     let cases = document["cases"].as_array().expect("cases");
     let actual = cases
         .iter()
@@ -80,9 +89,8 @@ fn corpus() -> Value {
         }
         expected.insert((curve, "wide", 13, "blake", 0xa7));
     }
-    assert_eq!(cases.len(), 42, "complete original golden matrix");
+    assert_eq!(cases.len(), 42, "complete current golden matrix");
     assert_eq!(actual, expected, "no missing, duplicate or unknown source");
-    document
 }
 
 fn replay_circuit<C: PastaCurve, Ci: Circuit<C::ScalarExt> + Sync>(
@@ -107,7 +115,7 @@ fn replay_circuit<C: PastaCurve, Ci: Circuit<C::ScalarExt> + Sync>(
         _ => panic!("unknown fixed profile"),
     };
     let binding = DescriptorBinding::decode(&bytes(&first["descriptor"]))
-        .expect("original canonical descriptor");
+        .expect("current canonical descriptor");
     config.compress_selectors = binding.descriptor().selectors.compress;
     let instances = vec![public];
     let pools = [1, 2, 4, 7].map(|threads| {
@@ -125,6 +133,7 @@ fn replay_circuit<C: PastaCurve, Ci: Circuit<C::ScalarExt> + Sync>(
             let witness = Witness::from_circuit(&pk, circuit, &instances)
                 .expect("native circuit and key correspond exactly");
             for case in cases {
+                assert_eq!(bytes(&case["params_sha256"]), params.digest());
                 assert_eq!(case["descriptor"], first["descriptor"]);
                 assert_eq!(case["verifying_key"], first["verifying_key"]);
                 assert_eq!(case["transcript_repr"], first["transcript_repr"]);
@@ -152,29 +161,31 @@ fn replay_circuit<C: PastaCurve, Ci: Circuit<C::ScalarExt> + Sync>(
                 );
                 let seed = u8::try_from(case["seed_byte"].as_u64().expect("seed"))
                     .expect("single-byte seed");
-                let repr = scalar::<C::ScalarExt>(&case["transcript_repr"]);
-                let proof = create_proof_oracle(
+                assert_eq!(
+                    pk.vk().transcript_repr_bytes().as_slice(),
+                    bytes(&case["transcript_repr"]),
+                    "current descriptor-bound native transcript representation"
+                );
+                let proof = create_proof(
                     &params,
                     &pk,
                     &witness,
                     ProverRandomness::fixed_seed_for_tests([seed; 32]),
                     ProverConfig::default(),
-                    repr,
                 )
                 .expect("fresh native proof");
                 assert_eq!(
                     proof, expected,
-                    "exact independent bytes at every worker count"
+                    "exact recorded bytes at every worker count"
                 );
                 let verify = |values: &[Vec<C::ScalarExt>], candidate: &[u8]| {
-                    verify_full_oracle(
+                    verify_full(
                         &params,
                         pk.binding(),
                         pk.vk(),
                         values,
                         candidate,
                         MemoryBudget::DEFAULT,
-                        repr,
                     )
                 };
                 verify(&instances, &proof).expect("every generated proof verifies");
@@ -231,11 +242,11 @@ where
 }
 
 #[test]
-fn fresh_native_pallas_proofs_reproduce_every_independent_golden() {
+fn fresh_native_pallas_proofs_reproduce_every_recorded_golden() {
     replay::<Ep>("ep");
 }
 
 #[test]
-fn fresh_native_vesta_proofs_reproduce_every_independent_golden() {
+fn fresh_native_vesta_proofs_reproduce_every_recorded_golden() {
     replay::<Eq>("eq");
 }

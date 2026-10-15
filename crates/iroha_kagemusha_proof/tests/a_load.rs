@@ -83,7 +83,7 @@ fn actual_load_signature_q_proves_own_receipt_and_current_enrollment() {
         &params,
         &key,
         Witness::from_circuit(&key, &signature, &instances).unwrap(),
-        common::recovery(192),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();

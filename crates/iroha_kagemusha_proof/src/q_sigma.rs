@@ -167,6 +167,7 @@ impl QSigmaPlan {
                         FoldSource::Incoming(u32::from(incoming.verifier.binding().descriptor().k)),
                         FoldSource::Fixed(16),
                     ],
+                    iroha_plonk_recursion::FoldPurpose::SigmaBatch,
                 )
                 .map_err(|_| Error::Synthesis)
             })
@@ -226,10 +227,10 @@ pub struct IncomingSigmaWitness {
     pub sigma: SigmaSlotWitness,
     /// Accept, Trivial and Corrected bits, checked one-hot.
     pub mode: [bool; 3],
-    /// Finite replacement point; constrained different when Corrected is selected.
+    /// Canonical full-group replacement; constrained different in Corrected mode.
     pub corrected: Eq,
     /// Exact local AS witness over own, selected incoming and explicit trivial.
-    pub fold: [u8; FOLD_WITNESS_BYTES],
+    pub fold: crate::private_fold::PrivateFoldBytes,
 }
 /// Complete local relation witness, with fixed slot presence determined by the plan.
 #[derive(Clone, Debug)]
@@ -495,10 +496,12 @@ impl Circuit<Fq> for QSigmaCircuit {
     type FloorPlanner = SimpleFloorPlanner;
     type Params = ([usize; 5], usize);
     fn without_witnesses(&self) -> Self {
-        Self {
-            known: false,
-            ..self.clone()
+        let mut source = self.clone();
+        source.known = false;
+        if let Some(incoming) = source.witness.incoming.as_mut() {
+            incoming.fold = crate::private_fold::PrivateFoldBytes::unknown();
         }
+        source
     }
     fn params(&self) -> Self::Params {
         let bytes = 4
@@ -611,7 +614,7 @@ impl Circuit<Fq> for QSigmaCircuit {
                     let mode = ModeCells::constrain(chip.uint().glue(), &mut region, &modes)?;
                     verdicts.extend(modes);
                     let corrected =
-                        chip.witness_point(&mut region, self.value(incoming.corrected))?;
+                        chip.witness_generator(&mut region, self.value(incoming.corrected))?;
                     let selected = FoldInputCells::select_incoming(
                         &mut chip,
                         &mut region,
@@ -619,7 +622,7 @@ impl Circuit<Fq> for QSigmaCircuit {
                         &corrected,
                         &mode,
                     )?;
-                    let g = chip.constant_point(&mut region, &self.plan.trivial)?;
+                    let g = chip.constant_generator(&mut region, &self.plan.trivial)?;
                     let one = chip.uint().constant::<128>(&mut region, 1)?;
                     let zero = chip.uint().constant::<127>(&mut region, 0)?;
                     let one = ScalarCells::from_limbs(&mut chip.uint(), &mut region, &one, &zero)?;

@@ -38,7 +38,6 @@
 //! ```
 
 use std::{
-    convert::Infallible,
     fmt::Write as _,
     io::Read as _,
     ops::Range,
@@ -354,14 +353,7 @@ fn measure_in_pool<C, Ci>(
     let instances = vec![public.to_vec()];
     let mut samples = Vec::with_capacity(PROVES);
     let mut quotient_workspace = QuotientWorkspace::new(QUOTIENT_WORKSPACE_BYTES);
-    let seed = std::env::var("M3_SEED")
-        .map_or(Ok(7), |value| value.parse::<u64>())
-        .expect("M3_SEED must be a u64");
     for index in 0..PROVES {
-        let mut seed_bytes = [0; 32];
-        seed_bytes[..8].copy_from_slice(&seed.to_le_bytes());
-        seed_bytes[8..16]
-            .copy_from_slice(&u64::try_from(index).expect("proof index").to_le_bytes());
         let workspace_before_bytes = quotient_workspace.allocated_bytes();
         let before = ProcessSnapshot::capture().expect("valid pre-proof resource probes");
         let started = Instant::now();
@@ -370,9 +362,7 @@ fn measure_in_pool<C, Ci>(
         let rss_after_witness = ProcessSnapshot::capture()
             .expect("post-witness probes")
             .peak_rss_bytes;
-        let randomness = ProverRandomness::recovery(move |_context: &[u8; 32]| {
-            Ok::<_, Infallible>(ChaCha20Rng::from_seed(seed_bytes))
-        });
+        let randomness = ProverRandomness::hedged();
         let proving = Instant::now();
         let output = create_proof_owned_with_workspace(
             &params,
@@ -440,7 +430,7 @@ fn measure_in_pool<C, Ci>(
         "compiled_nodes": (compiled.node_count()), "compiled_gate_polys": (compiled.gate_count()),
         "descriptor_digest": (hex(pk.vk().descriptor_digest())),
         "descriptor_hash": "blake2b256-pipa-v2-circdesc", "transcript_profile": "pipa-r",
-        "binary_sha256": binary_sha256, "seed": seed,
+        "binary_sha256": binary_sha256, "randomness": "fresh-hedged",
         "witness_api": "owned", "coset_cache": "on_demand",
         "quotient_workspace": "caller_owned",
         "quotient_workspace_budget_bytes": QUOTIENT_WORKSPACE_BYTES,

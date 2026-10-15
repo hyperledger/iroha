@@ -97,7 +97,7 @@ pub struct CircuitDescriptorV2 {
     pub degree: u8,
     /// The blinding factors `b`.
     pub blinding_factors: u16,
-    /// Columns per permutation set, `d - 2`.
+    /// Columns per permutation set, `floor((d - 2) / 2)`.
     pub permutation_chunk_len: u8,
     /// Quotient pieces, `d - 1`.
     pub quotient_pieces: u8,
@@ -152,7 +152,7 @@ pub struct ProtocolDescriptor {
     pub degree: u8,
     /// The blinding factors `b`.
     pub blinding_factors: u16,
-    /// Columns per permutation set, `d - 2`.
+    /// Columns per permutation set, `floor((d - 2) / 2)`.
     pub permutation_chunk_len: u8,
     /// Quotient pieces, `d - 1`.
     pub quotient_pieces: u8,

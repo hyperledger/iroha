@@ -464,6 +464,7 @@ fn admit_artifact_v2<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
     source_digest: [u8; 32],
     config: super::pk::artifact::ReadConfig,
     cancellation: Option<&iroha_pasta::CancellationToken>,
+    require_masking: bool,
 ) -> Result<AdmittedSource<C>, super::pk::artifact::Error> {
     use super::pk::artifact::Error;
     iroha_pasta::CancellationToken::checkpoint(cancellation)?;
@@ -536,6 +537,14 @@ fn admit_artifact_v2<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
     if fingerprint.digest() != &source_digest {
         return Err(Error::Source);
     }
+    if require_masking {
+        super::masking::validate_tables(
+            &source.binding,
+            &source.fixed,
+            &source.sigma,
+            cancellation,
+        )?;
+    }
     for (column, expected) in columns.iter().zip(
         vk.fixed_commitments()
             .iter()
@@ -570,6 +579,7 @@ pub(super) fn import_artifact_v2<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
     source_digest: [u8; 32],
     config: super::pk::artifact::ReadConfig,
     cancellation: Option<&iroha_pasta::CancellationToken>,
+    require_masking: bool,
 ) -> Result<ProvingKey<C>, super::pk::artifact::Error> {
     let AdmittedSource { vk, source, .. } = admit_artifact_v2(
         params,
@@ -580,6 +590,7 @@ pub(super) fn import_artifact_v2<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
         source_digest,
         config,
         cancellation,
+        require_masking,
     )?;
     ProvingKey::new_cancellable(
         vk,
@@ -606,6 +617,7 @@ pub(super) fn import_artifact_metadata_v2<C: PastaCurve, Ci: Circuit<C::ScalarEx
     source_digest: [u8; 32],
     config: super::pk::artifact::ReadConfig,
     cancellation: Option<&iroha_pasta::CancellationToken>,
+    require_masking: bool,
 ) -> Result<SourceBoundVerifyingKeyV2<C>, super::pk::artifact::Error> {
     let admitted = admit_artifact_v2(
         params,
@@ -616,6 +628,7 @@ pub(super) fn import_artifact_metadata_v2<C: PastaCurve, Ci: Circuit<C::ScalarEx
         source_digest,
         config,
         cancellation,
+        require_masking,
     )?;
     rebuild::from_admitted_source(admitted, cancellation).map_err(super::pk::artifact::Error::from)
 }

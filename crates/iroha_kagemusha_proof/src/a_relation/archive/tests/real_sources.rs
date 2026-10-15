@@ -18,7 +18,7 @@ use iroha_plonk::{
     transcript::decode_point,
 };
 use iroha_plonk_gadgets::p256::native::{self, Affine};
-use iroha_plonk_recursion::{FOLD_WITNESS_BYTES, VESTA_TRIVIAL_GENERATOR};
+use iroha_plonk_recursion::VESTA_TRIVIAL_GENERATOR;
 
 use super::{Metadata, PhantomData};
 use crate::{
@@ -159,7 +159,7 @@ fn with_predecessor(
         sigma: slot(1, key),
         mode: [false; 3],
         corrected: Eq::from(decode_point::<Eq>(&VESTA_TRIVIAL_GENERATOR).unwrap()),
-        fold: [0; FOLD_WITNESS_BYTES],
+        fold: crate::private_fold::PrivateFoldBytes::unknown(),
     });
     let circuit = QSigmaCircuit::new(sigma.clone(), QSigmaWitness { own, incoming })
         .unwrap()

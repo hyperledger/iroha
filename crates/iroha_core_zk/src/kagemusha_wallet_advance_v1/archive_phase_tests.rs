@@ -61,7 +61,11 @@ fn archive_phase_reconciles_once_and_probes_after_each_storage_access() {
     let second = ArchiveKey::Capsule([2; 32]);
     let ((), opened) = Counters::observe(|| archive.put(first, b"first record").expect("put"));
     assert_eq!(
-        (opened.reconciles, opened.write_new, opened.fsync_class_calls()),
+        (
+            opened.reconciles,
+            opened.write_new,
+            opened.fsync_class_calls()
+        ),
         (1, 2, 4)
     );
     assert_eq!(
@@ -111,8 +115,7 @@ fn archive_phase_reconciles_once_and_probes_after_each_storage_access() {
     // slot's write memo, and the original bytes are then adopted again on fresh inodes.
     let (_, full) = Counters::observe(|| Custody::status(&mut handle).expect("full reconcile"));
     assert_eq!(full.full_reconciles, 1);
-    let ((), adopted) =
-        Counters::observe(|| archive.put(second, b"second record").expect("adopt"));
+    let ((), adopted) = Counters::observe(|| archive.put(second, b"second record").expect("adopt"));
     assert_eq!(
         (
             adopted.full_reconciles,
@@ -124,14 +127,17 @@ fn archive_phase_reconciles_once_and_probes_after_each_storage_access() {
         (0, 0, 0, 2, 4)
     );
     let (read, get) = Counters::observe(|| archive.get(first, 64).expect("get"));
-    assert_eq!(read, Some(b"first record".to_vec()));
+    assert_eq!(read.as_deref(), Some(b"first record".as_slice()));
     assert_eq!(
         (get.reads, get.storage_probes, get.reconciles),
         (2, 1, 0),
         "a named record reads and compares both copies, then probes"
     );
-    let (absent, miss) =
-        Counters::observe(|| archive.get(ArchiveKey::Capsule([3; 32]), 64).expect("absent"));
+    let (absent, miss) = Counters::observe(|| {
+        archive
+            .get(ArchiveKey::Capsule([3; 32]), 64)
+            .expect("absent")
+    });
     assert!(absent.is_none());
     assert_eq!(
         (miss.reads, miss.storage_probes),
@@ -268,10 +274,7 @@ fn object_reads_accept_one_verified_copy_and_fail_closed() {
         small,
         Err(StateError::WitnessLost("provider archive authentication"))
     ));
-    assert_eq!(
-        (bounded.reads, bounded.archive_object_cache_hits),
-        (1, 0)
-    );
+    assert_eq!((bounded.reads, bounded.archive_object_cache_hits), (1, 0));
     // A torn primary is skipped for the redundant copy.
     let replica = device.fs.visible_file(&dir, &names[1]).expect("replica");
     device.fs.place_unsynced(&dir, &names[0], b"torn");
@@ -316,8 +319,11 @@ fn object_reads_accept_one_verified_copy_and_fail_closed() {
         archive.read_object(&digest, 64),
         Err(StateError::WitnessLost("index object"))
     ));
-    let (_, rewritten) =
-        Counters::observe(|| archive.write_object(b"index node", 64).expect("write again"));
+    let (_, rewritten) = Counters::observe(|| {
+        archive
+            .write_object(b"index node", 64)
+            .expect("write again")
+    });
     assert_eq!(
         (rewritten.archive_put_memo_hits, rewritten.write_new),
         (0, 2),
@@ -341,7 +347,11 @@ fn archive_write_memo_is_bounded_oldest_first_and_forgets_exactly() {
         memo.insert(&slot, &key(index), frame(index));
     }
     assert_eq!(memo.len(), limit);
-    assert_eq!(memo.get(&slot, &key(9)), None, "the oldest are forgotten first");
+    assert_eq!(
+        memo.get(&slot, &key(9)),
+        None,
+        "the oldest are forgotten first"
+    );
     assert_eq!(memo.get(&slot, &key(10)), Some(frame(10)));
     assert_eq!(memo.get(&slot, &key(limit + 9)), Some(frame(limit + 9)));
     memo.forget(&slot, &key(limit + 9));
@@ -365,13 +375,73 @@ fn archive_phase_objects_are_bounded() {
     let content = vec![7; KAGEMUSHA_WALLET_ARCHIVE_PHASE_OBJECT_MAX_V1];
     let count = KAGEMUSHA_WALLET_ARCHIVE_PHASE_OBJECT_BYTES_V1 / content.len();
     for index in 0..=count {
-        phase.keep([[u8::try_from(index).expect("index"); 32]; 3], &content);
+        phase
+            .keep([[u8::try_from(index).expect("index"); 32]; 3], &content)
+            .expect("retain bounded object");
     }
     assert!(phase.bytes <= KAGEMUSHA_WALLET_ARCHIVE_PHASE_OBJECT_BYTES_V1);
     assert_eq!(phase.objects.len(), count);
     assert!(!phase.objects.contains_key(&[[0; 32]; 3]));
-    phase.keep([[0xff; 32]; 3], &[0; KAGEMUSHA_WALLET_ARCHIVE_PHASE_OBJECT_MAX_V1 + 1]);
-    assert!(!phase.objects.contains_key(&[[0xff; 32]; 3]), "oversized objects are never kept");
+    phase
+        .keep(
+            [[0xff; 32]; 3],
+            &[0; KAGEMUSHA_WALLET_ARCHIVE_PHASE_OBJECT_MAX_V1 + 1],
+        )
+        .expect("oversized objects are ignored");
+    assert!(
+        !phase.objects.contains_key(&[[0xff; 32]; 3]),
+        "oversized objects are never kept"
+    );
     phase.forget(&[[1; 32]; 3]);
     assert_eq!(phase.objects.len(), count - 1);
+}
+
+#[test]
+fn archive_cache_returns_separate_private_owners_across_phase_invalidation_and_removal() {
+    let (_device, _slot, mut handle, mut archive) = wallet(0x95);
+    let payload = b"private cache payload";
+    let digest = archive.write_object(payload, 64).expect("durable payload");
+    let (first, warm) = Counters::observe(|| {
+        archive
+            .get_object(digest, 64)
+            .expect("cache hit")
+            .expect("present")
+    });
+    let second = archive
+        .get_object(digest, 64)
+        .expect("second cache hit")
+        .expect("present");
+    assert_eq!(first.as_slice(), payload);
+    assert_eq!(second.as_slice(), payload);
+    assert_ne!(
+        first.as_ptr(),
+        second.as_ptr(),
+        "each reader owns its clearing allocation"
+    );
+    assert_eq!((warm.reads, warm.archive_object_cache_hits), (0, 1));
+    assert_eq!(
+        format!("{first:?}"),
+        "PrivateArchiveBytes(PrivateWitnessBytes { private: [REDACTED] })"
+    );
+
+    // A custody call drops the phase's owners; caller-owned copies remain independent.
+    fresh_phase(&mut handle, &mut archive);
+    let (cold, counts) = Counters::observe(|| {
+        archive
+            .get_object(digest, 64)
+            .expect("new phase read")
+            .expect("present")
+    });
+    assert_eq!(cold.as_slice(), payload);
+    assert_ne!(cold.as_ptr(), first.as_ptr());
+    assert_eq!((counts.reads, counts.archive_object_cache_hits), (1, 0));
+    assert_eq!(first.as_slice(), payload);
+    drop(cold);
+
+    // Collection drops only the retained phase owner and forgets its write memo.
+    archive.remove(ArchiveKey::Object(digest)).expect("collect");
+    assert!(archive.get_object(digest, 64).expect("absent").is_none());
+    assert_eq!(second.as_slice(), payload);
+    drop(first);
+    drop(second);
 }

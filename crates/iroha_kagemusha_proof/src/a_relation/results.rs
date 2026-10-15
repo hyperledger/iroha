@@ -191,7 +191,7 @@ impl ReceiveResultClaims {
     /// verifier output, even when its validity bit is false. This constructor
     /// alone does not certify that equality or decide the pending claim.
     /// # Errors
-    /// Anything except a checked finite canonical full-k16 original claim.
+    /// Anything except a checked canonical full-group full-k16 original claim.
     pub fn with_opening(mut self, opening: &FoldInputCells<Ep>) -> Result<Self, Error> {
         if opening.source() != FoldSource::Fixed(16) {
             return Err(Error::Synthesis);
@@ -478,13 +478,13 @@ mod tests {
                         plan,
                         [value; 5],
                     )?;
-                    let expected_g = chip.constant_point(&mut region, &generator::<Ep>())?;
+                    let expected_g = chip.constant_generator(&mut region, &generator::<Ep>())?;
                     let point = if self.point_mutation {
                         -generator::<Ep>()
                     } else {
                         generator::<Ep>()
                     };
-                    let actual_g = chip.constant_point(&mut region, &point)?;
+                    let actual_g = chip.constant_generator(&mut region, &point)?;
                     let mut expected = Vec::new();
                     let mut actual = Vec::new();
                     for i in 0..16 {

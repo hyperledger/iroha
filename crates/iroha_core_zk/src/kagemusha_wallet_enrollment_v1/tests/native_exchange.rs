@@ -36,6 +36,12 @@ use std::{
 
 #[path = "native_exchange/archive.rs"]
 mod archive;
+#[path = "native_exchange/controls.rs"]
+mod controls;
+#[path = "native_exchange/fee.rs"]
+mod fee;
+#[path = "native_exchange/fee_confirmation.rs"]
+mod fee_confirmation;
 #[path = "native_exchange/load.rs"]
 mod load;
 #[path = "native_exchange/load_seam.rs"]
@@ -44,6 +50,10 @@ mod load_seam;
 mod message_census;
 #[path = "native_exchange/network_settlement.rs"]
 mod network_settlement;
+#[path = "native_exchange/omega_replay.rs"]
+mod omega_replay;
+#[path = "native_exchange/online_charge.rs"]
+mod online_charge;
 #[path = "native_exchange/proof_negative.rs"]
 mod proof_negative;
 #[path = "native_exchange/send_recovery.rs"]
@@ -921,7 +931,10 @@ fn finish_exchange(
     let credited_ab = credited(&received_ab);
     let bc: KagemushaWalletPaymentV1 = decode(&payment_bc);
     let status_bc = c
-        .credit_status(&bc.request.credit_id(), &bc.payment_digest().unwrap())
+        .credit_status(
+            &bc.signed_request().unwrap().body.credit_id(),
+            &bc.payment_digest().unwrap(),
+        )
         .unwrap();
     assert_eq!(
         status_bc.lineage.public.wallet_id,
@@ -1029,7 +1042,10 @@ fn finish_unload(
     // pending-outgoing root after folding the independently verified C evidence.
     let ab: KagemushaWalletPaymentV1 = decode(&payment_ab);
     let b_status = b
-        .credit_status(&ab.request.credit_id(), &ab.payment_digest().unwrap())
+        .credit_status(
+            &ab.signed_request().unwrap().body.credit_id(),
+            &ab.payment_digest().unwrap(),
+        )
         .unwrap();
     assert_eq!(
         b_status.lineage.public.pending_outgoing_root,

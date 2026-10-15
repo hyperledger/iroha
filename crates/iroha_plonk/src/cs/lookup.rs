@@ -51,7 +51,7 @@ impl<F> LookupArgument<F> {
     }
 
     /// The degree the lookup constraints need:
-    /// `max(4, 2 + max(1, deg a) + max(1, deg s))`.
+    /// `max(6, 2 + 2 max(1, deg a) + 2 max(1, deg s))`.
     #[must_use]
     pub fn required_degree(&self) -> usize {
         let input_degree = self
@@ -64,7 +64,12 @@ impl<F> LookupArgument<F> {
             .iter()
             .map(Expression::degree)
             .fold(1, usize::max);
-        4.max(input_degree.saturating_add(table_degree).saturating_add(2))
+        6.max(
+            input_degree
+                .saturating_add(table_degree)
+                .saturating_mul(2)
+                .saturating_add(2),
+        )
     }
 
     /// Mutable access for selector substitution.
@@ -82,11 +87,11 @@ mod tests {
     use crate::cs::expression::{Advice, Column, Fixed};
 
     #[test]
-    fn required_degree_matches_halo2() {
+    fn required_degree_accounts_for_norm_factors() {
         let a = Column::new(0, Advice).cur::<Fp>();
         let t = Column::new(0, Fixed).cur::<Fp>();
         let simple = LookupArgument::new("simple", vec![(a.clone(), t.clone())]);
-        assert_eq!(simple.required_degree(), 4);
+        assert_eq!(simple.required_degree(), 6);
         assert_eq!(simple.width(), 1);
         assert_eq!(simple.name(), "simple");
         let quadratic = LookupArgument::new(
@@ -96,14 +101,14 @@ mod tests {
                 (a.clone(), t.clone() * t.clone()),
             ],
         );
-        assert_eq!(quadratic.required_degree(), 6);
+        assert_eq!(quadratic.required_degree(), 10);
         assert_eq!(quadratic.input_expressions().len(), 2);
         assert_eq!(quadratic.table_expressions()[1], t.clone() * t);
         let constant = LookupArgument::new(
             "constant",
             vec![(Expression::Constant(Fp::ONE), Expression::Constant(Fp::ONE))],
         );
-        assert_eq!(constant.required_degree(), 4);
+        assert_eq!(constant.required_degree(), 6);
     }
 
     #[test]

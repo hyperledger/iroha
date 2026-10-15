@@ -14,7 +14,7 @@
 //!
 //! `66 + 32k` bytes; the curve byte is [`CURVE_BYTE_PALLAS`] or
 //! [`CURVE_BYTE_VESTA`]; `1 <= k <= 28`. Decoding is canonical: every scalar
-//! is below the modulus, `G` is a canonical non-identity point, every
+//! is below the modulus, `G` is a canonical full-group point, every
 //! `u_j != 0`, and no bytes follow.
 //!
 //! # Deterministic batch weights
@@ -47,7 +47,7 @@ use crate::{
     cs::{CurveV1, constraint_system::MAX_K, descriptor::blake2b_personal},
     pcs::curve_v1,
     transcript::{
-        MESSAGE_BYTES, Transcript, TranscriptError, decode_point, decode_scalar, encode_point,
+        MESSAGE_BYTES, Transcript, TranscriptError, decode_generator, decode_scalar, encode_point,
     },
 };
 
@@ -240,7 +240,7 @@ impl<C: PastaCurve> PendingAccumulator<C> {
     ///
     /// [`AccumulatorError::Length`], [`AccumulatorError::UnsupportedK`],
     /// [`AccumulatorError::CurveMismatch`], [`AccumulatorError::Encoding`]
-    /// (non-canonical scalars, an invalid or identity `G`) or
+    /// (non-canonical scalars, an invalid `G`) or
     /// [`AccumulatorError::ZeroChallenge`].
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, AccumulatorError> {
         let header = bytes
@@ -273,7 +273,7 @@ impl<C: PastaCurve> PendingAccumulator<C> {
             });
         }
         let transcript_repr = decode_scalar::<C::ScalarExt>(&message(0))?;
-        let g = decode_point::<C>(&message(34))?;
+        let g = decode_generator::<C>(&message(34))?;
         let mut challenges = Vec::with_capacity(usize::from(k));
         for round in 0..usize::from(k) {
             let challenge = decode_scalar::<C::ScalarExt>(&message(
@@ -551,9 +551,15 @@ mod tests {
         );
         let mut bad = bytes.clone();
         bad[34..66].fill(0);
-        assert_eq!(
-            PendingAccumulator::<Eq>::from_bytes(&bad),
-            Err(AccumulatorError::Encoding(TranscriptError::IdentityPoint))
+        let identity = PendingAccumulator::<Eq>::from_bytes(&bad).expect("canonical full-group G");
+        assert_eq!(identity.to_bytes(), bad);
+        assert!(
+            identity
+                .decide(
+                    &PinnedParams::<Eq>::derive(3).unwrap(),
+                    MemoryBudget::DEFAULT
+                )
+                .is_err()
         );
         let mut bad = bytes.clone();
         bad[34..66].fill(0);

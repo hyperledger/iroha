@@ -60,7 +60,7 @@ use iroha_plonk::frontend::{Error, Region, Value};
 
 use crate::{
     arith::GlueChip,
-    cells::{Bit, U128, Uint, Word},
+    cells::{U128, Uint, Word},
     poseidon::{AbsorbInput, SpongeChip},
     range::u128::UintChip,
 };
@@ -357,12 +357,25 @@ pub fn assign_foreign_scalar<F: PastaField, G: PastaField>(
 ) -> Result<ForeignScalar<F>, Error> {
     let [max_lo, max_hi] = foreign_limbs(&-G::ONE);
     let lo = uint.assign::<128>(region, limbs.map(|[lo, _]| lo))?;
-    let hi = uint.assign::<127>(region, limbs.map(|[_, hi]| hi))?;
-    let max_hi_cell = uint.constant::<127>(region, max_hi)?;
-    uint.assert_le(region, &hi, &max_hi_cell)?;
+    if max_hi != 1_u128 << 126 {
+        return Err(Error::Synthesis);
+    }
+    let hi_low = uint.assign::<126>(region, limbs.map(|[_, hi]| hi & ((1_u128 << 126) - 1)))?;
     let glue = uint.glue();
-    let offset = glue.add_constant(region, hi.word(), -F::from_u128(max_hi))?;
-    let at_max: Bit<F> = glue.is_zero(region, &offset)?;
+    let hi = glue.witness(region, limbs.map(|[_, hi]| F::from_u128(hi)))?;
+    let at_max = glue.boolean(region, limbs.map(|[_, hi]| hi >> 126 == 1))?;
+    let recomposed = glue.linear(
+        region,
+        &[
+            (F::ONE, hi_low.word()),
+            (F::from_u128(max_hi), at_max.word()),
+        ],
+        F::ZERO,
+    )?;
+    GlueChip::assert_equal(region, &hi, &recomposed)?;
+    let forbidden = glue.mul(region, at_max.word(), hi_low.word())?;
+    glue.enforce_constant(region, &forbidden, F::ZERO)?;
+    let hi = Uint::new(hi);
     let slack = glue.linear(region, &[(-F::ONE, lo.word())], F::from_u128(max_lo))?;
     let bounded = glue.mul(region, at_max.word(), &slack)?;
     uint.range().range_check(region, &bounded, 128)?;

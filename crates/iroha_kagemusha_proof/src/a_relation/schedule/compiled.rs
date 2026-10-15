@@ -63,26 +63,14 @@ impl OperationSchedule {
                     vec![],
                 ],
                 vec![
-                    if variant == Variant::ReceiveRenewed {
-                        vec![ReceiveOwnProof, ReceiveConsumedEffects]
-                    } else {
-                        vec![
-                            ReceiveOwnProof,
-                            ReceiveConsumedEffects,
-                            ReceiveCreditEffects,
-                        ]
-                    },
+                    vec![ReceiveOwnProof, ReceiveConsumedEffects],
                     vec![],
                     vec![ReceiveProofs],
                     vec![ReceiveProofDigest],
                     vec![ReceiveObjects],
                     vec![ReceiveAuthorization],
                     vec![],
-                    if variant == Variant::ReceiveRenewed {
-                        vec![ReceiveSignatures, ReceiveCreditEffects]
-                    } else {
-                        vec![ReceiveSignatures]
-                    },
+                    vec![ReceiveSignatures, ReceiveCreditEffects],
                     vec![ReceiveNonmembership, ReceiveBlacklist],
                     vec![ReceiveEffects],
                 ],
@@ -362,20 +350,23 @@ mod tests {
         }
     }
     #[test]
-    fn renewed_receive_moves_only_credit_owner_and_preserves_every_obligation() {
+    fn receive_variants_share_credit_owner_and_preserve_every_obligation() {
         let plain = OperationSchedule::for_variant(Variant::Receive);
         let renewed = OperationSchedule::for_variant(Variant::ReceiveRenewed);
         assert_eq!(plain.q, renewed.q);
         assert_eq!(plain.predecessor, renewed.predecessor);
-        let mut expected = plain.tasks.clone();
-        assert_eq!(expected[0].pop(), Some(OperationTask::ReceiveCreditEffects));
-        expected[7].push(OperationTask::ReceiveCreditEffects);
-        assert_eq!(renewed.tasks, expected);
+        assert_eq!(plain.tasks, renewed.tasks);
         assert_eq!(
             plain.tasks[0],
             [
                 OperationTask::ReceiveOwnProof,
-                OperationTask::ReceiveConsumedEffects,
+                OperationTask::ReceiveConsumedEffects
+            ]
+        );
+        assert_eq!(
+            plain.tasks[7],
+            [
+                OperationTask::ReceiveSignatures,
                 OperationTask::ReceiveCreditEffects
             ]
         );

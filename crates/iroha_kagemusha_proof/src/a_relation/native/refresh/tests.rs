@@ -1,6 +1,7 @@
 //! Native Refresh artifact and exact-original rejection coverage.
 
 use super::*;
+use iroha_pasta::PastaAffine;
 
 #[test]
 fn fixed_refresh_schedules_require_each_owner_exactly_once() {
@@ -150,13 +151,22 @@ fn refresh_q_sigma_normalization_rejects_wrong_selector_source_or_scalar_alias()
     input.instances[1] = vec![x, y];
     let n = input.instances[0].len();
     input.instances[0][n - K..n - K + 4].fill(Fq::ZERO);
-    assert!(q_sigma_part(&input, 12, Variant::RefreshCredential).is_ok());
+    let finite = q_sigma_part(&input, 12, Variant::RefreshCredential).unwrap();
+    let mut identity_input = input.clone();
+    identity_input.instances[1] = vec![Fq::ZERO; 2];
+    let identity = q_sigma_part(&identity_input, 12, Variant::RefreshCredential).unwrap();
+    assert_eq!(identity.source_k(), finite.source_k());
+    assert_eq!(identity.challenges(), finite.challenges());
+    assert_eq!(
+        *identity.g(),
+        iroha_plonk::transcript::decode_generator::<Eq>(&[0; 32]).unwrap()
+    );
     for mutation in 0..6 {
         let mut bad = input.clone();
         match mutation {
             0 => bad.instances[0][n - K] = Fq::ONE,
             1 => bad.instances[0][n - 1] = Fq::ZERO,
-            2 => bad.instances[1] = vec![Fq::ZERO, Fq::ZERO],
+            2 => bad.instances[1] = vec![Fq::ZERO, Fq::ONE],
             3 => bad.instances[3][0] = Fq::ZERO,
             4 => bad.instances[4][0] = Fq::from(16),
             _ => bad.instances[2][0] = Fq::ZERO,
@@ -469,4 +479,24 @@ fn typed_refresh_context_schema_rejects_foreign_operations_and_cross_kind_update
             Err(LayoutError::Synthesis)
         );
     }
+}
+
+#[test]
+fn identity_generator_claims_preserve_public_word_and_frame_encoding() {
+    let p = iroha_plonk::transcript::decode_generator::<Ep>(&[0; 32]).unwrap();
+    let v = iroha_plonk::transcript::decode_generator::<Eq>(&[0; 32]).unwrap();
+    let p = FoldInput::<Ep>::from_normalized(p, 16, [Fq::ONE; K]).unwrap();
+    let v = FoldInput::<Eq>::from_normalized(v, 16, [Fp::ONE; K]).unwrap();
+    let mut pwords = Vec::new();
+    push_pallas(&mut pwords, &p).unwrap();
+    assert_eq!(&pwords[..3], &[Fp::from(16), Fp::ZERO, Fp::ZERO]);
+    assert_eq!(pwords.len(), 35);
+    let vwords = vesta_words(&v).unwrap();
+    assert_eq!(&vwords[..4], &[Fp::ZERO; 4]);
+    assert_eq!(&vwords[4..], &[Fp::ONE; K]);
+    let accumulated = AccumulatorT::<Eq>::new(*v.g(), [Fp::ONE; K]).unwrap();
+    let public = omega_instances(Fp::from(23), &accumulated).unwrap();
+    assert_eq!(public[0], [Fq::from(23)]);
+    assert_eq!(public[1], [Fq::ZERO; 2]);
+    assert_eq!(public[2], [Fq::ONE; K]);
 }
