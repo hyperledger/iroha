@@ -411,7 +411,7 @@ fn execute_actual_send_fee_without_receive_and_with_permanent_replay() {
 fn fee_inventory_requires_exact_original_roles_and_canonical_pins() {
     let rows =
         FEE_NAMES.map(|name| norito::json!({"name":name,"bytes":1,"sha256":(hex::encode([7;32]))}));
-    let valid = norito::json!({"schema":FEE_SCHEMA,"originals":rows});
+    let valid = norito::json!({"schema":FEE_SCHEMA,"originals":(rows.to_vec())});
     require_fee_inventory(&valid);
     for mode in 0..5 {
         let mut changed = valid.clone();

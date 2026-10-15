@@ -12,7 +12,7 @@ use iroha_data_model::{
     ValidationFail,
     isi::{
         error::{InstructionExecutionError, MathError},
-        kagemusha_wallet::KagemushaWalletLoadChargeV1,
+        kagemusha_wallet::{KagemushaWalletLoadChargeV1, KagemushaWalletLoadReceiptV1},
     },
     transaction::error::TransactionRejectionReason,
 };
