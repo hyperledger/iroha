@@ -418,4 +418,77 @@ mod counter_tests {
             counts(7, 5, 4)
         );
     }
+
+    /// Memo-on/memo-off differential: every decide and correction on an owner, warm or cold,
+    /// equals the direct complete-kernel reference for the same claim.
+    fn decide_differential<C: PastaCurve>() {
+        let budget = MemoryBudget::DEFAULT;
+        let owner = PinnedParams::<C>::derive(4).expect("params");
+        let direct = |source: &[C::ScalarExt]| {
+            msm_complete::<C>(
+                &fold_scalars(source, C::ScalarExt::ONE),
+                &owner.params().g()[..1 << source.len()],
+                budget,
+            )
+            .to_affine()
+        };
+        let honest: Vec<C::ScalarExt> = [3_u64, 5, 7, 11].map(C::ScalarExt::from).to_vec();
+        let mut sources = vec![honest.clone(), honest[1..].to_vec()];
+        for round in 0..honest.len() {
+            let mut changed = honest.clone();
+            changed[round] += C::ScalarExt::ONE;
+            sources.push(changed);
+        }
+        let mut claims = Vec::new();
+        for source in &sources {
+            let point = direct(source);
+            for g in [point, -point, owner.params().g()[1], direct(&honest)] {
+                claims.push((
+                    FoldInput::<C>::from_opening(g, source).expect("claim"),
+                    point,
+                ));
+            }
+        }
+        let token = CancellationToken::new();
+        token.cancel();
+        let check = |params: &PinnedParams<C>| {
+            for (claim, point) in &claims {
+                let accepts = claim.g() == point;
+                assert_eq!(
+                    claim.decide(params, budget),
+                    if accepts {
+                        Ok(())
+                    } else {
+                        Err(Error::Undecidable)
+                    }
+                );
+                assert_eq!(
+                    claim.decide_cancellable(params, budget, Some(&token)),
+                    Err(Error::Cancelled)
+                );
+                match claim.corrected(params, budget) {
+                    Ok(correction) => {
+                        assert!(!accepts);
+                        assert_eq!(correction.replacement().g(), point);
+                        assert_eq!(correction.original(), claim);
+                    }
+                    Err(error) => {
+                        assert!(accepts);
+                        assert_eq!(error, Error::NotCorrected);
+                    }
+                }
+            }
+        };
+        // Cold, warm, a clone sharing the memo, and a restarted owner.
+        check(&owner);
+        check(&owner);
+        check(&owner.clone());
+        check(&PinnedParams::<C>::derive(4).expect("params"));
+    }
+
+    #[test]
+    fn memoized_decides_and_corrections_match_the_direct_kernel_on_both_curves() {
+        decide_differential::<Ep>();
+        decide_differential::<iroha_pasta::Eq>();
+    }
 }

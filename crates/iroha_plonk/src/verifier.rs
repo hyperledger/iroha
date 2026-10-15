@@ -952,6 +952,44 @@ where
     Ok(())
 }
 
+/// [`verify_full_cancellable`] without the parameter owner's memos: the production
+/// checklist as it ran before memoization (`G'_0` computed by the complete kernel,
+/// nothing looked up or retained). The memo-on/memo-off differential tests compare
+/// every memoized verdict against it.
+#[cfg(test)]
+pub(crate) fn verify_full_unmemoized<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    binding: &DescriptorBinding,
+    vk: &VerifyingKey<C>,
+    instances: &[Vec<C::ScalarExt>],
+    proof: &[u8],
+    cancellation: Option<&iroha_pasta::CancellationToken>,
+) -> Result<(), VerifyError>
+where
+    C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
+{
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    let read = read_proof(
+        params,
+        binding,
+        vk,
+        instances,
+        proof,
+        production(vk),
+        MemoryBudget::DEFAULT,
+        &AllTerms,
+        cancellation,
+    )?;
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    Ok(read.pending.verify_full_cancellable(
+        params,
+        read.suffix.as_ref(),
+        MemoryBudget::DEFAULT,
+        cancellation,
+    )?)
+}
+
 /// Full verification of a proof with a `FoldedGenerator` suffix that also
 /// returns the proof's own opening `G = <s(u), g>` as decided by it.
 ///

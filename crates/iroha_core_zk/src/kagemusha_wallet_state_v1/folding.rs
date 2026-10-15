@@ -152,7 +152,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
     /// Decode and bind a recorded Ω to its head, verifying the Ω in full unless these exact
     /// record bytes were verified in this session, or `verified` holds the canonical bytes of
     /// the exact lineage that `fold_once` just verified in full and the record carries it.
-    fn verify_fold_bytes(
+    pub(super) fn verify_fold_bytes(
         &mut self,
         step: &ReleasedStep,
         bytes: &[u8],

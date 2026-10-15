@@ -288,25 +288,28 @@ where
             assert_eq!(trace, expected);
             assert_eq!(output.proof.len(), protocol.proof_length());
             assert_eq!(output.opening.decide(&params, BUDGET), Ok(()));
-            let (result, trace) = record(|| {
+            // Every worker count replays the complete verifier schedule: the recorded
+            // verification runs on an owner whose memo has never seen these inputs, so the
+            // byte-identical proof of the second worker count is verified in full too.
+            let cold = PinnedParams::<C>::derive(K).expect("params");
+            let verified = || {
                 verify_full(
-                    &params,
+                    &cold,
                     pk.binding(),
                     pk.vk(),
                     instances,
                     &output.proof,
                     BUDGET,
                 )
-            });
-            assert_eq!(result, Ok(()));
-            // The owner remembers accepted exact inputs: the identical proof of the
-            // second worker count is answered without replaying its transcript.
-            let replayed = if first.is_none() {
-                expected.clone()
-            } else {
-                Vec::new()
             };
-            assert_eq!(trace, replayed);
+            let (result, trace) = record(verified);
+            assert_eq!(result, Ok(()));
+            assert_eq!(trace, expected);
+            // That owner now remembers the accepted exact inputs: the same verdict, answered
+            // without replaying the transcript.
+            let (result, trace) = record(verified);
+            assert_eq!(result, Ok(()));
+            assert!(trace.is_empty());
             assert_eq!(
                 verify_full_from_bytes_v2(
                     &params,

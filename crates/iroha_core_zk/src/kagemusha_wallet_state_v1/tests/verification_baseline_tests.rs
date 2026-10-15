@@ -173,3 +173,154 @@ fn fold_completion_and_adoption_verify_each_new_omega_once() {
     assert_eq!(verifies(&w) - before, 1);
     assert_eq!(w.manifest().expect("source manifest").1.folded, None);
 }
+
+/// Prime the coordinator's verification caches, then present a recorded Ω whose record, head,
+/// credential or custody binding changed: every binding is checked before any reuse, a changed
+/// lineage is verified in full even when the original is cached and offered as just verified,
+/// record bytes that differ from the manifest digest are refused before verification, and
+/// nothing is recorded, published or advanced.
+#[test]
+fn warm_fold_caches_never_admit_changed_records_heads_or_custody() {
+    let (mut w, ..) = folded_bootstrap();
+    let step = w.released_steps().expect("steps").remove(0);
+    let recorded = w
+        .archive
+        .get(ArchiveKey::Fold(0), 20_000)
+        .expect("get")
+        .expect("recorded Omega");
+    let original: RecordedFold = archive::decode(&recorded).expect("decode");
+    let lineage = original.record.lineage.bytes();
+    assert!(w.read_fold(&step).expect("read").is_some());
+    assert_eq!(w.verified_folds.get(&0), Some(&recorded));
+    let signatures = w.custody.signatures;
+    let folded = w.manifest().expect("manifest").1.folded;
+    let before = verifies(&w);
+
+    let mutations: [(&str, fn(&mut RecordedFold)); 11] = [
+        ("first sequence", |f| f.record.first_sequence += 1),
+        ("sequence", |f| f.record.sequence += 1),
+        ("head", |f| f.record.head.value[0] ^= 1),
+        ("capsule digest", |f| f.record.capsule_digest[0] ^= 1),
+        ("scheme", |f| f.record.scheme_id[0] ^= 1),
+        ("wallet", |f| f.record.wallet_id[0] ^= 1),
+        ("credential", |f| {
+            f.record.lineage.public.credential_digest[0] ^= 1;
+        }),
+        ("lifecycle", |f| {
+            f.record.lineage.public.lifecycle = KagemushaWalletLifecycleV1::Retiring;
+        }),
+        ("policy epoch", |f| f.record.lineage.public.policy_epoch += 1),
+        ("controls", |f| f.record.lineage.public.enabled_controls ^= 1),
+        ("burn on a non-Receive head", |f| f.burned = true),
+    ];
+    for (label, mutate) in mutations {
+        let mut changed = original.clone();
+        mutate(&mut changed);
+        let bytes = archive::encode(&changed).expect("encode");
+        assert!(
+            matches!(
+                w.verify_fold_bytes(&step, &bytes, Some(&lineage), None),
+                Err(Error::WitnessLost(_) | Error::Invalid(_))
+            ),
+            "{label}"
+        );
+        assert_eq!(w.verified_folds.get(&0), Some(&recorded), "{label}");
+    }
+    assert_eq!(verifies(&w), before, "no binding failure reaches verification");
+
+    // A changed lineage is verified in full and refused, whatever the caches hold.
+    let mut changed = original.clone();
+    changed.record.lineage.proof = vec![1, 2, 4];
+    let changed = archive::encode(&changed).expect("encode");
+    assert!(matches!(
+        w.verify_fold_bytes(&step, &changed, Some(&lineage), None),
+        Err(Error::Proof(_))
+    ));
+    assert_eq!(verifies(&w), before + 1);
+    assert_eq!(w.verified_folds.get(&0), Some(&recorded));
+    // The exact original record is reused from the session cache.
+    assert!(w.verify_fold_bytes(&step, &recorded, None, None).is_ok());
+    assert_eq!(verifies(&w), before + 1);
+
+    // Custody: stored record bytes that differ from the manifest-bound digest are refused
+    // before any verification, with the cache warm or cold.
+    w.archive
+        .records
+        .lock()
+        .expect("records")
+        .insert(ArchiveKey::Fold(0), changed);
+    for clear in [false, true] {
+        if clear {
+            w.verified_folds.clear();
+        }
+        assert!(matches!(
+            w.read_fold(&step),
+            Err(Error::WitnessLost("source-bound Ω identity"))
+        ));
+    }
+    assert_eq!(verifies(&w), before + 1);
+    assert!(w.verified_folds.is_empty());
+
+    // Nothing was recorded, published or advanced.
+    assert_eq!(w.custody.signatures, signatures);
+    assert_eq!(w.manifest().expect("manifest").1.folded, folded);
+}
+
+/// A fold completion that fails or is cancelled at its single Ω verification records nothing;
+/// the next attempt verifies again from nothing, and a restarted coordinator verifies the
+/// recorded Ω once.
+#[test]
+fn failed_or_cancelled_completion_verification_records_nothing() {
+    let mut w = wallet();
+    w.commit(bootstrap()).expect("Bootstrap");
+    let scheduler = w.scheduler();
+    scheduler.set_activity(true, false);
+    assert!(matches!(
+        w.fold_once().expect("checkpoint"),
+        FoldStatus::Checkpoint { .. }
+    ));
+    let checkpoint = w.custody.checkpoint.clone();
+    let signatures = w.custody.signatures;
+
+    // The single completion verification fails: nothing is recorded or published.
+    w.proofs.reject = true;
+    let before = verifies(&w);
+    assert!(matches!(w.fold_once(), Err(Error::Proof(_))));
+    assert_eq!(verifies(&w) - before, 1);
+    assert_eq!(w.manifest().expect("manifest").1.folded, None);
+    assert!(w.verified_folds.is_empty());
+    assert!(
+        w.archive
+            .get(ArchiveKey::Fold(0), 20_000)
+            .expect("get")
+            .is_none()
+    );
+    assert_eq!(w.custody.checkpoint, checkpoint);
+
+    // A cancelled turn has no verdict and records nothing.
+    w.proofs.reject = false;
+    let step = w.released_steps().expect("steps").remove(0);
+    let running = scheduler.start().expect("background permit");
+    scheduler.set_activity(false, false);
+    assert!(matches!(
+        w.read_fold_cancellable(&step, Some(&running.token)),
+        Err(Error::Cancelled)
+    ));
+    drop(running);
+    scheduler.set_activity(true, false);
+    assert!(w.verified_folds.is_empty());
+    assert_eq!(w.manifest().expect("manifest").1.folded, None);
+
+    // The next attempt verifies once and records.
+    let before = verifies(&w);
+    assert_eq!(w.fold_once().expect("fold"), FoldStatus::Folded(0));
+    assert_eq!(verifies(&w) - before, 1);
+    assert_eq!(w.custody.signatures, signatures);
+
+    // A restarted coordinator shares no cache: it verifies the recorded Ω once when it opens.
+    let before = verifies(&w);
+    let mut w = Coordinator::new(w.custody, w.archive, w.proofs, w.scheme_id, w.wallet_id)
+        .expect("restart");
+    assert_eq!(verifies(&w) - before, 1);
+    assert_eq!(w.manifest().expect("manifest").1.folded, Some(0));
+}

@@ -319,6 +319,93 @@ fn actual_bootstrap_omega_rebuild_preserves_proof_restore_and_cancellation() {
         transport.len(),
         expected_proof_bytes + 2 * iroha_plonk_recursion::ACCUMULATOR_BYTES
     );
+    // Transport acceptance is the installed verifier's complete lineage verification
+    // (`kagemusha_wallet_proofs_v1::verify_lineage`), which replaced the prover-session
+    // restore. This mirrors its checks on the exact transport: the exact length split, two
+    // canonical claims, the context D_A that binds acc_P (D_A is a hash over the source
+    // public fields and acc_P, so a different acc_P yields a different context), full
+    // verification of Omega under the instances that bind the carried Vesta claim, then both
+    // complete decides on independent owners. The corruption cases of the deleted restore are
+    // checked at that boundary.
+    let installed_pallas = PinnedParams::<Ep>::derive(16).unwrap();
+    let installed_vesta = PinnedParams::<Eq>::derive(16).unwrap();
+    let verify_transport = |bytes: &[u8], cancellation: Option<&CancellationToken>| {
+        let accumulator = iroha_plonk_recursion::ACCUMULATOR_BYTES;
+        if bytes.len() != expected_proof_bytes + 2 * accumulator {
+            return Err("length");
+        }
+        let (proof, claims) = bytes.split_at(expected_proof_bytes);
+        let (pallas, vesta) = claims.split_at(accumulator);
+        let pallas = AccumulatorT::<Ep>::from_bytes(pallas).map_err(|_| "Pallas claim")?;
+        let vesta = AccumulatorT::<Eq>::from_bytes(vesta).map_err(|_| "Vesta claim")?;
+        if pallas != artifact.source.pallas {
+            return Err("context");
+        }
+        let (x, y) = vesta.g().coordinates().unwrap();
+        let instances = vec![
+            public[0].clone(),
+            vec![x, y],
+            vesta
+                .challenges()
+                .iter()
+                .map(|value| Fq::from_repr(value.to_repr()).unwrap())
+                .collect(),
+        ];
+        iroha_plonk::verifier::verify_full_cancellable(
+            &installed_pallas,
+            &artifact.binding,
+            &artifact.key,
+            &instances,
+            proof,
+            MemoryBudget::DEFAULT,
+            cancellation,
+        )
+        .map_err(|error| if error.is_cancelled() { "cancelled" } else { "Omega" })?;
+        pallas
+            .decide_cancellable(&installed_pallas, MemoryBudget::DEFAULT, cancellation)
+            .map_err(|_| "Pallas decide")?;
+        vesta
+            .decide_cancellable(&installed_vesta, MemoryBudget::DEFAULT, cancellation)
+            .map_err(|_| "Vesta decide")?;
+        Ok(())
+    };
+    assert_eq!(verify_transport(&transport, Some(&token)), Err("cancelled"));
+    assert_eq!(verify_transport(&transport, None), Ok(()));
+    assert_eq!(verify_transport(&transport, None), Ok(()));
+    assert_eq!(verify_transport(&transport, Some(&token)), Err("cancelled"));
+    assert_eq!(
+        verify_transport(&transport[..transport.len() - 1], None),
+        Err("length")
+    );
+    let mut trailing = transport.clone();
+    trailing.push(0);
+    assert_eq!(verify_transport(&trailing, None), Err("length"));
+    // Canonical but foreign P and V are refused: P by its context binding, V by the Omega
+    // instances that bind it (and its own decide).
+    for (offset, point, refusal) in [
+        (
+            expected_proof_bytes,
+            iroha_plonk::transcript::encode_point::<Ep>(&(-*rebuilt.pallas.g())),
+            "context",
+        ),
+        (
+            expected_proof_bytes + iroha_plonk_recursion::ACCUMULATOR_BYTES,
+            iroha_plonk::transcript::encode_point::<Eq>(&(-*rebuilt.vesta.g())),
+            "Omega",
+        ),
+    ] {
+        let mut foreign = transport.clone();
+        assert_ne!(&foreign[offset..offset + 32], point.as_slice());
+        foreign[offset..offset + 32].copy_from_slice(&point);
+        assert_eq!(verify_transport(&foreign, None), Err(refusal));
+    }
+    for index in [0, expected_proof_bytes / 2, expected_proof_bytes - 1] {
+        let mut corrupt = transport.clone();
+        corrupt[index] ^= 1;
+        assert!(verify_transport(&corrupt, None).is_err(), "proof byte {index}");
+    }
+    // The exact transport is still accepted after every refusal (nothing negative is kept).
+    assert_eq!(verify_transport(&transport, None), Ok(()));
     assert_eq!(
         owner
             .verifying_key()

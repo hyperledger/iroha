@@ -22,8 +22,13 @@
 //! Rejections, undecidable claims and cancelled or failed computations are never
 //! inserted. Prover-side MSMs, batch decisions and caller-supplied points, digests
 //! or flags cannot populate either memo: there is no insert or seed API. Entries
-//! are digests and public points only; they are never serialized, persisted or
-//! exposed, and confer no authority beyond the exact check they memoize. Locks
+//! are SHA-256 digests, exact challenge bytes and the folded generators derived
+//! from them. A verifier that fully verifies a proof the wallet keeps private (a
+//! retained Q checkpoint) on a shared owner can therefore retain that proof's
+//! transcript challenges and folded generator; no proof body, witness or private
+//! fold tape is stored. Entries are bounded, process-local verification data:
+//! never serialized, persisted or exposed, and they confer no authority beyond
+//! the exact check they memoize. Locks
 //! are never held while hashing or computing; a poisoned lock is ignored, the work
 //! is recomputed and nothing is inserted. Both memos are bounded with
 //! least-recently-used eviction.
@@ -121,7 +126,8 @@ impl<C: PastaCurve> Default for VerificationMemo<C> {
     }
 }
 
-// Entries are public, but they are runtime state, not parameter identity: print sizes only.
+// Entries are runtime state, not parameter identity, and challenge keys may come from privately
+// retained proofs: print sizes only.
 impl<C: PastaCurve> fmt::Debug for VerificationMemo<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("VerificationMemo")

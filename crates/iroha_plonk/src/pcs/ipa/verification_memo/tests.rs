@@ -578,3 +578,486 @@ fn wallet_call_sequences_compute_each_proof_and_claim_once_per_owner() {
         line(receive)
     );
 }
+
+// Memo-on/memo-off differential (DEC-41 evidence): for every input and every memo state the
+// memoized verifier returns exactly the verdict of the production checklist without memos, so
+// owners with and without these memos (phones and validators) never disagree.
+
+/// One full-verification input of the differential corpus.
+struct Statement<'a, C: PastaCurve> {
+    label: String,
+    binding: &'a crate::keys::DescriptorBinding,
+    vk: crate::keys::VerifyingKey<C>,
+    instances: Vec<Vec<C::ScalarExt>>,
+    proof: Vec<u8>,
+}
+
+impl<C: PastaCurve> Statement<'_, C>
+where
+    C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
+{
+    fn memo_off(&self, params: &PinnedParams<C>) -> Result<(), VerifyError> {
+        crate::verifier::verify_full_unmemoized(
+            params,
+            self.binding,
+            &self.vk,
+            &self.instances,
+            &self.proof,
+            None,
+        )
+    }
+
+    fn memo_on(
+        &self,
+        params: &PinnedParams<C>,
+        cancellation: Option<&CancellationToken>,
+    ) -> Result<(), VerifyError> {
+        verify_full_cancellable(
+            params,
+            self.binding,
+            &self.vk,
+            &self.instances,
+            &self.proof,
+            BUDGET,
+            cancellation,
+        )
+    }
+
+    fn opening(&self, params: &PinnedParams<C>) -> Result<(), VerifyError> {
+        verify_full_opening_cancellable(
+            params,
+            self.binding,
+            &self.vk,
+            &self.instances,
+            &self.proof,
+            BUDGET,
+            None,
+        )
+        .map(|_| ())
+    }
+}
+
+/// Four valid statements (two proofs, another public input, another key) and every class of
+/// change to proof bytes, public inputs, verifying key, descriptor binding and transcript
+/// representation.
+fn corpus<'a, C: PastaCurve>(main: &'a Setup<C>, other: &'a Setup<C>) -> Vec<Statement<'a, C>>
+where
+    C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
+{
+    let instances = CIRCUIT.instances::<C::ScalarExt>();
+    let proof = main.prove(&CIRCUIT, &instances, 41).expect("proof");
+    let second = main.prove(&CIRCUIT, &instances, 42).expect("proof");
+    assert_ne!(proof, second);
+    let shifted = Arithmetic {
+        start: 9,
+        ..CIRCUIT
+    };
+    let shifted_instances = shifted.instances::<C::ScalarExt>();
+    let shifted_proof = main.prove(&shifted, &shifted_instances, 43).expect("proof");
+    let other_circuit = Arithmetic { rows: 5, ..CIRCUIT };
+    let other_instances = other_circuit.instances::<C::ScalarExt>();
+    let other_proof = other
+        .prove(&other_circuit, &other_instances, 44)
+        .expect("proof");
+    let main_vk = main.pk.vk();
+    let statement = |label: String,
+                     binding: &'a crate::keys::DescriptorBinding,
+                     vk: &crate::keys::VerifyingKey<C>,
+                     instances: &[Vec<C::ScalarExt>],
+                     proof: &[u8]| Statement {
+        label,
+        binding,
+        vk: vk.clone(),
+        instances: instances.to_vec(),
+        proof: proof.to_vec(),
+    };
+    let main_statement = |label: &str, instances: &[Vec<C::ScalarExt>], proof: &[u8]| {
+        statement(label.into(), main.pk.binding(), main_vk, instances, proof)
+    };
+    let mut all = vec![
+        main_statement("valid", &instances, &proof),
+        main_statement("valid second proof", &instances, &second),
+        main_statement("valid other public input", &shifted_instances, &shifted_proof),
+        statement(
+            "valid other key".into(),
+            other.pk.binding(),
+            other.pk.vk(),
+            &other_instances,
+            &other_proof,
+        ),
+    ];
+
+    // Proof bytes: single bits across every region (including the suffix), whole words,
+    // truncation, extension and proofs of other statements.
+    let length = proof.len();
+    let mut offsets = vec![
+        0,
+        1,
+        31,
+        32,
+        33,
+        length / 3,
+        length / 2,
+        length - 65,
+        length - 64,
+        length - 33,
+        length - 32,
+        length - 1,
+    ];
+    offsets.sort_unstable();
+    offsets.dedup();
+    for offset in offsets {
+        let mut changed = proof.clone();
+        changed[offset] ^= 1;
+        all.push(main_statement(
+            &format!("proof bit at {offset}"),
+            &instances,
+            &changed,
+        ));
+    }
+    for offset in [0, length / 2 / 32 * 32, length - 32] {
+        let mut changed = proof.clone();
+        changed[offset..offset + 32].fill(255);
+        all.push(main_statement(
+            &format!("proof word at {offset}"),
+            &instances,
+            &changed,
+        ));
+    }
+    all.push(main_statement(
+        "truncated proof",
+        &instances,
+        &proof[..length - 1],
+    ));
+    let mut extended = proof.clone();
+    extended.push(0);
+    all.push(main_statement("extended proof", &instances, &extended));
+    all.push(main_statement("empty proof", &instances, &[]));
+    all.push(main_statement(
+        "proof of another public input",
+        &shifted_instances,
+        &proof,
+    ));
+    all.push(main_statement(
+        "another key's proof",
+        &other_instances,
+        &other_proof,
+    ));
+
+    // Public inputs: each value, a negation, and every shape change.
+    for row in 0..instances[0].len() {
+        let mut changed = instances.clone();
+        changed[0][row] += C::ScalarExt::ONE;
+        all.push(main_statement(
+            &format!("public input {row}"),
+            &changed,
+            &proof,
+        ));
+    }
+    let mut negated = instances.clone();
+    negated[0][0] = -negated[0][0];
+    all.push(main_statement("negated public input", &negated, &proof));
+    let mut longer = instances.clone();
+    longer[0].push(C::ScalarExt::ONE);
+    all.push(main_statement("extra public value", &longer, &proof));
+    let mut extra = instances.clone();
+    extra.push(Vec::new());
+    all.push(main_statement("extra public column", &extra, &proof));
+    all.push(main_statement("no public columns", &[], &proof));
+
+    // Key identity: another VK, another binding, and the same VK bytes under another
+    // transcript representation (the oracle-only constructor).
+    all.push(statement(
+        "other verifying key".into(),
+        main.pk.binding(),
+        other.pk.vk(),
+        &instances,
+        &proof,
+    ));
+    if other.pk.binding().digest() != main.pk.binding().digest() {
+        all.push(statement(
+            "other descriptor binding".into(),
+            other.pk.binding(),
+            main_vk,
+            &instances,
+            &proof,
+        ));
+        all.push(statement(
+            "other binding and key".into(),
+            other.pk.binding(),
+            other.pk.vk(),
+            &instances,
+            &proof,
+        ));
+    }
+    let foreign_repr = main_vk
+        .clone()
+        .with_transcript_repr_for_oracle(C::ScalarExt::from(7));
+    assert_eq!(foreign_repr.to_bytes(), main_vk.to_bytes());
+    all.push(statement(
+        "same key bytes under another transcript representation".into(),
+        main.pk.binding(),
+        &foreign_repr,
+        &instances,
+        &proof,
+    ));
+    all
+}
+
+fn cancelled() -> CancellationToken {
+    let token = CancellationToken::new();
+    token.cancel();
+    token
+}
+
+fn full_verification_differential<C: PastaCurve>()
+where
+    C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
+{
+    for choice in [CHOICES[0], CHOICES[1]] {
+        let main = setup::<C, _>(&CIRCUIT, choice);
+        let other = setup::<C, _>(&Arithmetic { rows: 5, ..CIRCUIT }, choice);
+        let corpus = corpus(&main, &other);
+        // Memo off: the unmemoized checklist on its own owner, which it never fills.
+        let reference_owner = PinnedParams::<C>::derive(K).expect("params");
+        let reference: Vec<_> = corpus
+            .iter()
+            .map(|statement| statement.memo_off(&reference_owner))
+            .collect();
+        assert_eq!(reference_owner.verification_memo_sizes(), (0, 0));
+        let accepted = reference.iter().filter(|verdict| verdict.is_ok()).count();
+        assert_eq!(accepted, 4, "exactly the four valid statements accept");
+        let token = cancelled();
+
+        // Memo on, cold: every input once in corpus order. A cancelled call before and after
+        // each verdict has no verdict and fills nothing.
+        let owner = PinnedParams::<C>::derive(K).expect("params");
+        for (statement, expected) in corpus.iter().zip(&reference) {
+            assert_eq!(
+                statement.memo_on(&owner, Some(&token)),
+                Err(VerifyError::Cancelled)
+            );
+            assert_eq!(
+                &statement.memo_on(&owner, None),
+                expected,
+                "cold: {}",
+                statement.label
+            );
+            assert_eq!(
+                statement.memo_on(&owner, Some(&token)),
+                Err(VerifyError::Cancelled)
+            );
+        }
+        assert_eq!(owner.verification_memo_sizes().1, accepted);
+
+        // Memo on, warm: every acceptance remembered; every input again in reverse order, on the
+        // owner and on a clone sharing its memo. Only accepted exact inputs are answered from the
+        // memo, and the unmemoized checklist on the warm owner still agrees.
+        let clone = owner.clone();
+        for params in [&owner, &clone] {
+            for (statement, expected) in corpus.iter().zip(&reference).rev() {
+                let start = current();
+                assert_eq!(
+                    &statement.memo_on(params, None),
+                    expected,
+                    "warm: {}",
+                    statement.label
+                );
+                assert_eq!(
+                    current().since(start).reused_verifications,
+                    u64::from(expected.is_ok()),
+                    "warm reuse: {}",
+                    statement.label
+                );
+                assert_eq!(&statement.memo_off(params), expected);
+            }
+        }
+        assert_eq!(owner.verification_memo_sizes().1, accepted);
+
+        // The single-read opening verification decides exactly the same, cold and warm.
+        if choice.2 == crate::cs::ProofSuffixV1::FoldedGenerator {
+            let fresh = PinnedParams::<C>::derive(K).expect("params");
+            for params in [&fresh, &fresh, &owner] {
+                for (statement, expected) in corpus.iter().zip(&reference) {
+                    assert_eq!(
+                        &statement.opening(params),
+                        expected,
+                        "opening: {}",
+                        statement.label
+                    );
+                }
+            }
+            assert_eq!(fresh.verification_memo_sizes().1, accepted);
+        }
+
+        // A restart (an independent owner) and a poisoned owner agree without reusing anything;
+        // the poisoned owner retains nothing.
+        let restarted = PinnedParams::<C>::derive(K).expect("params");
+        let poisoned = PinnedParams::<C>::derive(K).expect("params");
+        poisoned.poison_verification_memo();
+        for params in [&restarted, &poisoned, &poisoned] {
+            let start = current();
+            for (statement, expected) in corpus.iter().zip(&reference) {
+                assert_eq!(
+                    &statement.memo_on(params, None),
+                    expected,
+                    "restart/poison: {}",
+                    statement.label
+                );
+            }
+            if std::ptr::eq(params, &poisoned) {
+                assert_eq!(current().since(start).reused_verifications, 0);
+            }
+        }
+        assert_eq!(poisoned.verification_memo_sizes(), (0, 0));
+        assert!(!restarted.shares_verification_memo(&owner));
+    }
+}
+
+#[test]
+fn memoized_full_verification_matches_the_unmemoized_checklist_for_every_input_and_state() {
+    full_verification_differential::<Eq>();
+    full_verification_differential::<Ep>();
+}
+
+fn generator_differential<C: PastaCurve>() {
+    let owner = PinnedParams::<C>::derive(K).expect("params");
+    let honest: Vec<C::ScalarExt> = (3..3 + u64::from(K)).map(C::ScalarExt::from).collect();
+    // Challenge vectors: the honest one, each challenge changed, a prefix and a suffix.
+    let mut vectors = vec![honest.clone()];
+    for round in 0..honest.len() {
+        let mut changed = honest.clone();
+        changed[round] += C::ScalarExt::ONE;
+        vectors.push(changed);
+    }
+    vectors.push(honest[1..].to_vec());
+    vectors.push(honest[..honest.len() - 1].to_vec());
+    // Memo off: each true point directly from the complete kernel.
+    let points: Vec<C::AffineExt> = vectors
+        .iter()
+        .map(|challenges| folded_generator_of(&owner, challenges, BUDGET).to_affine())
+        .collect();
+    let mut claims = Vec::new();
+    for (challenges, point) in vectors.iter().zip(&points) {
+        for g in [*point, -*point, owner.params().g()[0], points[0]] {
+            claims.push((challenges.clone(), g, g == *point));
+        }
+    }
+    let honest_point = points[0];
+    assert!(claims.iter().any(|claim| !claim.2));
+    let token = cancelled();
+    let check = |params: &PinnedParams<C>, challenges: &[C::ScalarExt], g, accepts: bool| {
+        let expected = if accepts {
+            Ok(())
+        } else {
+            Err(IpaError::OpeningFailed)
+        };
+        let k = u32::try_from(challenges.len()).expect("k");
+        assert_eq!(
+            params.decide_folded_generator_cancellable(challenges, &g, BUDGET, None),
+            expected
+        );
+        let claim = GeneratorClaim::new(k, g, challenges.to_vec()).expect("claim");
+        assert_eq!(claim.decide(params, BUDGET), expected);
+        assert_eq!(
+            claim.decide_cancellable(params, BUDGET, Some(&token)),
+            Err(IpaError::Cancelled)
+        );
+        let accumulator = crate::pcs::ipa::accumulator::PendingAccumulator::new(
+            C::ScalarExt::ONE,
+            k,
+            g,
+            challenges.to_vec(),
+        );
+        assert_eq!(accumulator.decide(params, BUDGET).is_ok(), accepts);
+        // The value path returns the exact point whatever the memo holds.
+        let index = vectors
+            .iter()
+            .position(|vector| vector.as_slice() == challenges)
+            .expect("vector");
+        assert_eq!(
+            params.folded_generator_cancellable(challenges, BUDGET, None),
+            Ok(points[index])
+        );
+    };
+    // Cold in claim order, warm in reverse order, then on a clone sharing the memo.
+    let clone = owner.clone();
+    for (round, params) in [&owner, &owner, &clone].into_iter().enumerate() {
+        let ordered: Vec<_> = if round == 1 {
+            claims.iter().rev().collect()
+        } else {
+            claims.iter().collect()
+        };
+        for (challenges, g, accepts) in ordered {
+            check(params, challenges, *g, *accepts);
+        }
+    }
+    // Only accepted challenge vectors are remembered: one per distinct vector.
+    assert_eq!(owner.verification_memo_sizes(), (vectors.len(), 0));
+    // A restarted owner decides identically from nothing.
+    let restarted = PinnedParams::<C>::derive(K).expect("params");
+    for (challenges, g, accepts) in claims.iter().rev() {
+        check(&restarted, challenges, *g, *accepts);
+    }
+    assert_eq!(
+        restarted.decide_folded_generator_cancellable(&honest, &honest_point, BUDGET, None),
+        Ok(())
+    );
+}
+
+#[test]
+fn memoized_decides_match_the_direct_kernel_for_every_claim_and_state() {
+    generator_differential::<Ep>();
+    generator_differential::<Eq>();
+}
+
+#[test]
+fn eviction_at_the_proof_bound_never_changes_a_verdict() {
+    // PROOF_ENTRIES + 1 distinct accepted statements (one public input each) on one owner.
+    let main = setup::<Eq, _>(&CIRCUIT, CHOICES[0]);
+    let owner = &main.params;
+    let statements: Vec<_> = (0..=PROOF_ENTRIES)
+        .map(|index| {
+            let circuit = Arithmetic {
+                start: 5 + index as u64,
+                ..CIRCUIT
+            };
+            let instances = circuit.instances::<iroha_pasta::Fp>();
+            let proof = main.prove(&circuit, &instances, 1).expect("proof");
+            (instances, proof)
+        })
+        .collect();
+    for (instances, proof) in &statements {
+        assert_eq!(verify(owner, &main, instances, proof, None), Ok(()));
+    }
+    assert_eq!(owner.verification_memo_sizes().1, PROOF_ENTRIES);
+    // The least recently used acceptance was forgotten: it is verified in full again and
+    // accepted, and a changed copy of it still rejects whatever the memo holds.
+    let (instances, proof) = &statements[0];
+    let start = current();
+    assert_eq!(verify(owner, &main, instances, proof, None), Ok(()));
+    let work = current().since(start);
+    assert_eq!((work.reused_verifications, work.generator_msms), (0, 1));
+    let mut changed = proof.clone();
+    changed[0] ^= 1;
+    assert_eq!(
+        verify(owner, &main, instances, &changed, None),
+        crate::verifier::verify_full_unmemoized(
+            owner,
+            main.pk.binding(),
+            main.pk.vk(),
+            instances,
+            &changed,
+            None
+        )
+    );
+    // The most recent acceptances are still answered from the memo.
+    let (instances, proof) = statements.last().expect("statement");
+    let start = current();
+    assert_eq!(verify(owner, &main, instances, proof, None), Ok(()));
+    assert_eq!(current().since(start).reused_verifications, 1);
+    assert_eq!(owner.verification_memo_sizes().1, PROOF_ENTRIES);
+}
