@@ -5,7 +5,7 @@
 `Option` and `BTreeMap<u8, T>` frames (692 frames in total), together with the
 actual native compiler name and both directional codec identity hashes.
 
-Fixture SHA-256: `226e7a863907d2af89fe7f8a878eb59b82d18401c583d0157fdc3a433cb60868`.
+Fixture SHA-256: `dad58b68ffcd197b336236527e383dec9a061c1dade40d8487b3781edfb835ec`.
 
 The scoped contract-manifest query is `FindContractManifestByArtifactId`. Its
 native capture binds `DataSpaceId::new(u64::MAX)` and the canonical contract hash

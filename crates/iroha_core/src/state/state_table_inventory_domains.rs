@@ -149,7 +149,7 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Name,
-        reason: "Norito schema names for eligibility authority/policy/request/observation/response records and pre-key permit records. They describe bounded DTO layouts; decoding or naming them establishes no authenticated provider, signing or State authority",
+        reason: "Norito schema names for eligibility authority/policy/request/observation/response records, pre-key permit records and issuer expiry-proof bodies and envelopes. They describe bounded DTO layouts; decoding or naming them establishes no authenticated provider, signing or State authority",
         literals: &[
             r"iroha.kagemusha.eligibility.authority.v1",
             r"iroha.kagemusha.eligibility.decision.v1",
@@ -160,6 +160,8 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha.kagemusha.eligibility.request.v1",
             r"iroha.kagemusha.eligibility.response.v1",
             r"iroha.kagemusha.eligibility.response_body.v1",
+            r"iroha.kagemusha.enrollment.expiry-proof.body.v1",
+            r"iroha.kagemusha.enrollment.expiry-proof.v1",
             r"iroha.kagemusha.enrollment.permit.body.v1",
             r"iroha.kagemusha.enrollment.permit.platform.v1",
             r"iroha.kagemusha.enrollment.permit.purpose.v1",
@@ -183,12 +185,13 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Record,
-        reason: "Enrollment eligibility policy/request identities, signed response preimage and exact operation-original binding; pre-key permit signing preimage, selected scope data and seven original input frames. Each hashes one supplied record or message, with independent current provider, registration, role and original-journal checks still required",
+        reason: "Enrollment eligibility policy/request identities, signed response preimage and exact operation-original binding; pre-key permit and issuer expiry-proof signing preimages, selected scope data and seven original input frames. Each hashes one supplied record or message, with independent current provider, registration, role and original-journal checks still required. The expiry proof binds narrow pre-E2 cleanup only, not a permit or ledger action",
         literals: &[
             r"iroha:kagemusha:eligibility:policy:v1\0",
             r"iroha:kagemusha:eligibility:request:v1\0",
             r"iroha:kagemusha:eligibility:response:v1\0",
             r"iroha:kagemusha:issuer-eligibility-operation:v1\0",
+            r"iroha:kagemusha:pre-key-expired:v1\0",
             r"iroha:kagemusha:pre-key-originals:v1\0",
             r"iroha:kagemusha:pre-key-permit:v1\0",
             r"iroha:kagemusha:pre-key-scope:v1\0",

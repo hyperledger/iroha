@@ -148,6 +148,15 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         UseOwner::Other(Use::Record, RECORD_IDENTITY),
     ),
     function(
+        "crates/iroha_core/src/retail_fee/native_maintenance.rs",
+        "into_entries",
+        1,
+        UseOwner::Other(
+            Use::Record,
+            "Returns original retail maintenance receipt identities and transfer deltas after rechecking their exact retained receipt journal. The internal ordered receipt digest checks local preparation custody; it is not a State root or independent authority",
+        ),
+    ),
+    function(
         "crates/iroha_core/src/smartcontracts/code.rs",
         "fetch_instance_binding",
         1,

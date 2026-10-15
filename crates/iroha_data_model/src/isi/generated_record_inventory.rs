@@ -1714,7 +1714,6 @@ record!(
     crate::isi::staking::RegisterPublicLaneCandidate,
     "iroha_data_model::isi::staking::RegisterPublicLaneCandidate"
 );
-}
 
 record!(
     sccp_accept_sccp_pause_panel_seat_v1,
@@ -1726,3 +1725,4 @@ record!(
     crate::isi::sccp::EndorseSccpFastPauseV1,
     "iroha_data_model::isi::sccp::EndorseSccpFastPauseV1"
 );
+}

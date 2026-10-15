@@ -21,7 +21,7 @@
     "application_accumulators": 6,
     "classified_domain_literals": 1044,
     "construction_users": 53,
-    "state_hash_functions": 213,
+    "state_hash_functions": 214,
     "protocol_carriers": 9,
     "witness_families": 9,
     "open_defects": 11
@@ -158,6 +158,7 @@
       {"path":"crates/iroha_core/src/query/native_receipts/amx_read.rs","function":"complete","count":1,"roots":["execution_witness_roots"]},
       {"path":"crates/iroha_core/src/query/native_receipts/reward_history.rs","function":"committed_fee_evidence","count":1,"roots":["execution_witness_roots","fee_evidence_record_root"]},
       {"path":"crates/iroha_core/src/query/topology_authority.rs","function":"digest","count":1,"use":"record","reason":"Returns the identifier, content hash or stored digest of one record, transaction or message: no digest over a table or cell"},
+      {"path":"crates/iroha_core/src/retail_fee/native_maintenance.rs","function":"into_entries","count":1,"use":"record","reason":"Returns original retail maintenance receipt identities and transfer deltas after rechecking their exact retained receipt journal. The internal ordered receipt digest checks local preparation custody; it is not a State root or independent authority"},
       {"path":"crates/iroha_core/src/smartcontracts/code.rs","function":"fetch_instance_binding","count":1,"use":"record","reason":"Returns the identifier, content hash or stored digest of one record, transaction or message: no digest over a table or cell"},
       {"path":"crates/iroha_core/src/smartcontracts/code.rs","function":"register_code_bytes","count":1,"use":"record","reason":"Returns the identifier, content hash or stored digest of one record, transaction or message: no digest over a table or cell"},
       {"path":"crates/iroha_core/src/smartcontracts/isi/asset.rs","function":"bound_retail_identity","count":1,"use":"record","reason":"Returns the identifier, content hash or stored digest of one record, transaction or message: no digest over a table or cell"},
@@ -567,6 +568,8 @@
       {"literal":"iroha.kagemusha.eligibility.request.v1","owner":"use:name","sources":{"crates/iroha_data_model/src/kagemusha/enrollment_eligibility_v1.rs":1}},
       {"literal":"iroha.kagemusha.eligibility.response.v1","owner":"use:name","sources":{"crates/iroha_data_model/src/kagemusha/enrollment_eligibility_v1.rs":1}},
       {"literal":"iroha.kagemusha.eligibility.response_body.v1","owner":"use:name","sources":{"crates/iroha_data_model/src/kagemusha/enrollment_eligibility_v1.rs":1}},
+      {"literal":"iroha.kagemusha.enrollment.expiry-proof.body.v1","owner":"use:name","sources":{"crates/iroha_data_model/src/kagemusha/kagemusha_enrollment_permit_v1.rs":1}},
+      {"literal":"iroha.kagemusha.enrollment.expiry-proof.v1","owner":"use:name","sources":{"crates/iroha_data_model/src/kagemusha/kagemusha_enrollment_permit_v1.rs":1}},
       {"literal":"iroha.kagemusha.enrollment.permit.body.v1","owner":"use:name","sources":{"crates/iroha_data_model/src/kagemusha/kagemusha_enrollment_permit_v1.rs":1}},
       {"literal":"iroha.kagemusha.enrollment.permit.platform.v1","owner":"use:name","sources":{"crates/iroha_data_model/src/kagemusha/kagemusha_enrollment_permit_v1.rs":1}},
       {"literal":"iroha.kagemusha.enrollment.permit.purpose.v1","owner":"use:name","sources":{"crates/iroha_data_model/src/kagemusha/kagemusha_enrollment_permit_v1.rs":1}},
@@ -937,6 +940,7 @@
       {"literal":"iroha:kagemusha:issuer-permit-dispatch:v1\\0","owner":"use:seed","sources":{"crates/iroha_core/src/kagemusha_wallet_v1/enrollment_journal/permits.rs":1}},
       {"literal":"iroha:kagemusha:ledger-custody-index:v1\\0","owner":"use:seed","sources":{"crates/iroha_core/src/kagemusha_wallet_v1/storage.rs":1}},
       {"literal":"iroha:kagemusha:ordinary-load-event-path:v1\\0","owner":"use:seed","sources":{"crates/iroha_core/src/kagemusha_wallet_v1/event_evidence.rs":1}},
+      {"literal":"iroha:kagemusha:pre-key-expired:v1\\0","owner":"use:record","sources":{"crates/iroha_data_model/src/kagemusha/kagemusha_enrollment_permit_v1.rs":1}},
       {"literal":"iroha:kagemusha:pre-key-originals:v1\\0","owner":"use:record","sources":{"crates/iroha_data_model/src/kagemusha/kagemusha_enrollment_permit_v1.rs":1}},
       {"literal":"iroha:kagemusha:pre-key-permit:v1\\0","owner":"use:record","sources":{"crates/iroha_data_model/src/kagemusha/kagemusha_enrollment_permit_v1.rs":1}},
       {"literal":"iroha:kagemusha:pre-key-scope:v1\\0","owner":"use:record","sources":{"crates/iroha_data_model/src/kagemusha/kagemusha_enrollment_permit_v1.rs":1}},
@@ -1456,7 +1460,7 @@
       {"use":"name","reason":"Exact Keepalive instruction wire identifier in the built-in dispatch registry; it names one instruction layout and computes no digest","literals":[
         "iroha.chain.keepalive.v1"
       ]},
-      {"use":"name","reason":"Norito schema names for eligibility authority/policy/request/observation/response records and pre-key permit records. They describe bounded DTO layouts; decoding or naming them establishes no authenticated provider, signing or State authority","literals":[
+      {"use":"name","reason":"Norito schema names for eligibility authority/policy/request/observation/response records, pre-key permit records and issuer expiry-proof bodies and envelopes. They describe bounded DTO layouts; decoding or naming them establishes no authenticated provider, signing or State authority","literals":[
         "iroha.kagemusha.eligibility.authority.v1",
         "iroha.kagemusha.eligibility.decision.v1",
         "iroha.kagemusha.eligibility.observation.v1",
@@ -1466,6 +1470,8 @@
         "iroha.kagemusha.eligibility.request.v1",
         "iroha.kagemusha.eligibility.response.v1",
         "iroha.kagemusha.eligibility.response_body.v1",
+        "iroha.kagemusha.enrollment.expiry-proof.body.v1",
+        "iroha.kagemusha.enrollment.expiry-proof.v1",
         "iroha.kagemusha.enrollment.permit.body.v1",
         "iroha.kagemusha.enrollment.permit.platform.v1",
         "iroha.kagemusha.enrollment.permit.purpose.v1",
@@ -1482,11 +1488,12 @@
         "iroha_core.kagemusha.enrollment.worker_preparation.v1",
         "iroha_core.kagemusha.enrollment.worker_prepared.v1"
       ]},
-      {"use":"record","reason":"Enrollment eligibility policy/request identities, signed response preimage and exact operation-original binding; pre-key permit signing preimage, selected scope data and seven original input frames. Each hashes one supplied record or message, with independent current provider, registration, role and original-journal checks still required","literals":[
+      {"use":"record","reason":"Enrollment eligibility policy/request identities, signed response preimage and exact operation-original binding; pre-key permit and issuer expiry-proof signing preimages, selected scope data and seven original input frames. Each hashes one supplied record or message, with independent current provider, registration, role and original-journal checks still required. The expiry proof binds narrow pre-E2 cleanup only, not a permit or ledger action","literals":[
         "iroha:kagemusha:eligibility:policy:v1\\0",
         "iroha:kagemusha:eligibility:request:v1\\0",
         "iroha:kagemusha:eligibility:response:v1\\0",
         "iroha:kagemusha:issuer-eligibility-operation:v1\\0",
+        "iroha:kagemusha:pre-key-expired:v1\\0",
         "iroha:kagemusha:pre-key-originals:v1\\0",
         "iroha:kagemusha:pre-key-permit:v1\\0",
         "iroha:kagemusha:pre-key-scope:v1\\0"
