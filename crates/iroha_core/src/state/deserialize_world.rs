@@ -10010,6 +10010,8 @@ fn build_state(
                 execution_budget.clone(),
             ),
         )),
+        finality_prefix_checkpoints:
+            crate::sumeragi::certified_chain::FinalityPrefixCheckpoints::new(),
         ivm_execution_budget: execution_budget.clone(),
         pipeline_ivm_prepared_cache: PublicationRwLock::try_new(
             PreparedContractCache::with_execution_budget(

@@ -2843,6 +2843,7 @@
     {"id":"state.stateless_validation_cache","role":"local","shape":null,"current_root":null,"commitment":"local"},
     {"id":"state.trigger_ivm_cache","role":"local","shape":null,"current_root":null,"commitment":"local"},
     {"id":"state.contract_query_ivm_cache","role":"local","shape":null,"current_root":null,"commitment":"local"},
+    {"id":"state.finality_prefix_checkpoints","role":"local","shape":null,"current_root":null,"commitment":"local"},
     {"id":"state.pipeline_ivm_prepared_cache","role":"local","shape":null,"current_root":null,"commitment":"local"},
     {"id":"state.ivm_execution_budget","role":"local","shape":null,"current_root":null,"commitment":"local"},
     {"id":"state.oracle","role":"canonical","shape":"cell","value":"semantic:iroha:state:oracle:v1@0.0.2","current_root":null,"commitment":"uncommitted"},

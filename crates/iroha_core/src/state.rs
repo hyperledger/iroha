@@ -12273,6 +12273,11 @@ pub struct State {
     /// Keeping public query traffic separate prevents an untrusted stream of
     /// distinct contracts from evicting consensus-path trigger runtimes.
     contract_query_ivm_cache: parking_lot::Mutex<IvmCache>,
+    /// Bounded completed native prefixes that finite finality proof walks resume from.
+    ///
+    /// Process-local memory only; every use rechecks the pinned frame against the
+    /// captured hash generation and verifies all later heights natively.
+    finality_prefix_checkpoints: crate::sumeragi::certified_chain::FinalityPrefixCheckpoints,
     /// Process-persistent immutable artifacts and runtimes shared by pipeline workers.
     pipeline_ivm_prepared_cache: PublicationRwLock<PreparedContractCache>,
     /// Original immutable pool identity; looking it up acquires no notifying reader.
@@ -27610,6 +27615,8 @@ impl State {
                     pipeline_cache_size, execution_budget.clone(),
                 ),
             )),
+            finality_prefix_checkpoints:
+                crate::sumeragi::certified_chain::FinalityPrefixCheckpoints::new(),
             ivm_execution_budget: execution_budget.clone(),
             pipeline_ivm_prepared_cache: PublicationRwLock::try_new(
                 PreparedContractCache::with_execution_budget(pipeline_cache_size, execution_budget.clone()),
