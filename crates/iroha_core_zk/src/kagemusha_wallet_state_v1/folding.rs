@@ -149,10 +149,14 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             pending,
         }))
     }
+    /// Decode and bind a recorded Ω to its head, verifying the Ω in full unless these exact
+    /// record bytes were verified in this session, or `verified` holds the canonical bytes of
+    /// the exact lineage that `fold_once` just verified in full and the record carries it.
     fn verify_fold_bytes(
         &mut self,
         step: &ReleasedStep,
         bytes: &[u8],
+        verified: Option<&[u8]>,
         cancellation: Option<&Cancellation>,
     ) -> Result<RecordedFold, Error> {
         if let Some(token) = cancellation {
@@ -179,12 +183,13 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         {
             return Err(Error::WitnessLost("fold head binding"));
         }
-        if self
+        let reused = self
             .verified_folds
             .get(&c.body().statement.sequence)
             .map(Vec::as_slice)
-            != Some(bytes)
-        {
+            == Some(bytes)
+            || verified.is_some_and(|lineage| r.lineage.bytes() == lineage);
+        if !reused {
             self.proofs.verify_lineage(&r.lineage, cancellation)?;
         }
         // Only the most recently used Ω is cached; history must not accumulate in RAM.
@@ -225,7 +230,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         if expected != digest("wallet-recorded-fold", &bytes) {
             return Err(Error::WitnessLost("source-bound Ω identity"));
         }
-        let fold = self.verify_fold_bytes(step, &bytes, cancellation)?;
+        let fold = self.verify_fold_bytes(step, &bytes, None, cancellation)?;
         Ok(Some(fold))
     }
     fn record_credit(
@@ -375,8 +380,11 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         } else {
             None
         };
+        // Canonical bytes of an adopted Ω that verify_fold_bytes just verified in full.
+        let mut adopted = None;
         let result = if let Some(bytes) = existing_fold.as_ref() {
-            let fold = self.verify_fold_bytes(&step, bytes, Some(&guard.token))?;
+            let fold = self.verify_fold_bytes(&step, bytes, None, Some(&guard.token))?;
+            adopted = Some(fold.record.lineage.bytes());
             FoldProgress::Complete {
                 lineage: fold.record.lineage,
                 burned: fold.burned,
@@ -441,7 +449,13 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 if usize::try_from(ordinal).ok() != Some(schedule.len()) {
                     return Err(Error::Proof("premature final Ω"));
                 }
-                self.proofs.verify_lineage(&lineage, Some(&guard.token))?;
+                // Exactly one full verification of this Ω, before any credit, pending-map,
+                // archive or manifest effect. An adopted record was verified above; reuse
+                // requires its exact canonical lineage bytes.
+                let verified = lineage.bytes();
+                if adopted.as_ref() != Some(&verified) {
+                    self.proofs.verify_lineage(&lineage, Some(&guard.token))?;
+                }
                 if let Some(seed) = &seed {
                     let mut view =
                         seed.view(&mut self.archive, predecessor_step.as_ref(), &step)?;
@@ -491,7 +505,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                     lineage,
                 };
                 let bytes = archive::encode(&RecordedFold { record, burned })?;
-                self.verify_fold_bytes(&step, &bytes, Some(&guard.token))?;
+                self.verify_fold_bytes(&step, &bytes, Some(&verified), Some(&guard.token))?;
                 if existing_fold
                     .as_ref()
                     .is_some_and(|existing| *existing != bytes)

@@ -642,15 +642,12 @@ impl NativeFoldWorkerV1 {
             NativeStageProgressV1::Checkpoint(bytes) => Ok(FoldProgress::Checkpoint(bytes)),
             NativeStageProgressV1::Terminal(input) => {
                 let proof_bytes = self.finish(input, originals, cancellation)?;
+                // A candidate: the coordinator verifies this exact lineage in full before
+                // any credit, pending-map, archive or manifest effect.
                 let lineage = KagemushaWalletLineageV1 {
                     public,
                     proof: proof_bytes,
                 };
-                proof(self.installed.verifier().verify_lineage_cancellable(
-                    &lineage,
-                    self.budget,
-                    Some(cancellation.prover_token()),
-                ))?;
                 let burned =
                     route.variant == Variant::Receive || route.variant == Variant::ReceiveRenewed;
                 let burned = burned

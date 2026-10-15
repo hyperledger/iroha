@@ -131,6 +131,12 @@ pub struct KagemushaWalletProviderV1<
     /// Bytes are the phase, Client, Accepted permit and Slot selection, in that order.
     pub(super) slot_phases:
         std::cell::RefCell<BTreeMap<KagemushaWalletSlotIdV1, ([u8; 32], [Vec<u8>; 4])>>,
+    /// Exact archive records this process published durably (`archive.rs`): bounded, in memory
+    /// only, forgotten before removal and on full reconciliation.
+    pub(super) archive_writes: std::cell::RefCell<super::archive::ArchiveWritesV1>,
+    /// Current archive phase (`archive.rs`). Every custody call, poison, remembered status and
+    /// reconcile ends it, so its skipped reconcile never spans a custody operation.
+    pub(super) archive_phase: Option<super::archive::ArchivePhaseV1>,
     sentinel: KagemushaWalletRootSentinelV1,
     _lock: F::Lock,
     _frames: PhantomData<fn() -> (C, R)>,
@@ -205,6 +211,8 @@ where
             generation_dispatches: BTreeMap::new(),
             adopted: std::cell::RefCell::new(BTreeMap::new()),
             slot_phases: std::cell::RefCell::new(BTreeMap::new()),
+            archive_writes: std::cell::RefCell::default(),
+            archive_phase: None,
             sentinel,
             _lock: lock,
             _frames: PhantomData,
@@ -554,8 +562,10 @@ where
             .insert((dir.clone(), name.as_str().to_owned()), bytes.to_vec());
     }
 
-    /// Forget the verified state of `slot`; the next operation reconciles it fully.
+    /// Forget the verified state of `slot`; the next operation reconciles it fully. This ends
+    /// the current archive phase.
     pub(super) fn poison(&mut self, slot: &KagemushaWalletSlotIdV1) {
+        self.archive_phase = None;
         self.cache.remove(slot);
     }
 
@@ -568,13 +578,14 @@ where
         self.pending_reasons.insert(*slot, reason);
     }
 
-    /// Remember a verified stable state of `slot`.
+    /// Remember a verified stable state of `slot`. This ends the current archive phase.
     pub(super) fn remember(
         &mut self,
         slot: &KagemushaWalletSlotIdV1,
         durable: KagemushaWalletDurableMarkerV1,
         status: KagemushaWalletSlotStatusV1,
     ) {
+        self.archive_phase = None;
         self.cache.insert(*slot, CachedSlotV1 { durable, status });
     }
 

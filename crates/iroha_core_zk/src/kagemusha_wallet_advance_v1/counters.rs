@@ -20,6 +20,11 @@ pub struct KagemushaWalletStorageCountersV1 {
     pub archive_puts: u64,
     /// `ArchiveStore::remove` calls on the provider archive.
     pub archive_removes: u64,
+    /// Archive puts of bytes this process already published durably at the same key: answered
+    /// by the exact-bytes memo without a read, a write or a sync.
+    pub archive_put_memo_hits: u64,
+    /// Archive object reads answered from the current archive phase's authenticated objects.
+    pub archive_object_cache_hits: u64,
     /// Durable-store file reads.
     pub reads: u64,
     /// Durable-store directory listings.
@@ -84,6 +89,8 @@ pub(crate) enum EventV1 {
     ArchiveGet,
     ArchivePut,
     ArchiveRemove,
+    ArchivePutMemoHit,
+    ArchiveObjectCacheHit,
     Read,
     Listing,
     WriteNew(u64),
@@ -103,6 +110,8 @@ const ZERO: KagemushaWalletStorageCountersV1 = KagemushaWalletStorageCountersV1 
     archive_gets: 0,
     archive_puts: 0,
     archive_removes: 0,
+    archive_put_memo_hits: 0,
+    archive_object_cache_hits: 0,
     reads: 0,
     listings: 0,
     write_new: 0,
@@ -151,6 +160,8 @@ pub(crate) fn count(event: EventV1) {
         EventV1::ArchiveGet => bump(&mut c.archive_gets, 1),
         EventV1::ArchivePut => bump(&mut c.archive_puts, 1),
         EventV1::ArchiveRemove => bump(&mut c.archive_removes, 1),
+        EventV1::ArchivePutMemoHit => bump(&mut c.archive_put_memo_hits, 1),
+        EventV1::ArchiveObjectCacheHit => bump(&mut c.archive_object_cache_hits, 1),
         EventV1::Read => bump(&mut c.reads, 1),
         EventV1::Listing => bump(&mut c.listings, 1),
         EventV1::WriteNew(names) => bump(&mut c.write_new, names),
@@ -274,11 +285,13 @@ impl KagemushaWalletStorageCountersV1 {
 
     /// Named public counts and durations, in declaration order, for logs.
     #[must_use]
-    pub fn fields(&self) -> [(&'static str, u64); 26] {
+    pub fn fields(&self) -> [(&'static str, u64); 28] {
         [
             ("archive_gets", self.archive_gets),
             ("archive_puts", self.archive_puts),
             ("archive_removes", self.archive_removes),
+            ("archive_put_memo_hits", self.archive_put_memo_hits),
+            ("archive_object_cache_hits", self.archive_object_cache_hits),
             ("reads", self.reads),
             ("listings", self.listings),
             ("write_new", self.write_new),
@@ -311,6 +324,11 @@ impl KagemushaWalletStorageCountersV1 {
             archive_gets: sum(self.archive_gets, other.archive_gets),
             archive_puts: sum(self.archive_puts, other.archive_puts),
             archive_removes: sum(self.archive_removes, other.archive_removes),
+            archive_put_memo_hits: sum(self.archive_put_memo_hits, other.archive_put_memo_hits),
+            archive_object_cache_hits: sum(
+                self.archive_object_cache_hits,
+                other.archive_object_cache_hits,
+            ),
             reads: sum(self.reads, other.reads),
             listings: sum(self.listings, other.listings),
             write_new: sum(self.write_new, other.write_new),

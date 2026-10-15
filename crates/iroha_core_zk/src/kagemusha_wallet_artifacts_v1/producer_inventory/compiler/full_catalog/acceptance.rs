@@ -241,6 +241,20 @@ fn qualify_authenticated(
     let qualified = authenticated
         .qualify_wallet(&installed, native, &mut originals, config)
         .unwrap();
+    // The observation-only stage split counts exactly the opens this independent wrapper saw.
+    let stages = qualified.qualification_metrics();
+    let stage_opens = [
+        stages.binding,
+        stages.sigma,
+        stages.q,
+        stages.routes,
+        stages.omega,
+    ]
+    .iter()
+    .map(|stage| stage.work.originals_opened)
+    .sum::<u64>();
+    assert_eq!(stage_opens, u64::try_from(originals.reads).unwrap());
+    assert!(stages.sigma.work.descriptor_decodes > 0 && stages.routes.work.originals_opened > 0);
     assert_eq!(
         qualified.installation(),
         (installation.scheme_id, installation.manifest_digest)

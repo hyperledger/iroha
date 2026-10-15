@@ -49,11 +49,12 @@ pub mod accumulator;
 mod bundled;
 pub mod claim;
 mod generator_prefix;
-pub use claim::GeneratorClaim;
+pub use claim::{GeneratorClaim, VerifiedOpening};
 pub mod commit;
 pub mod prover;
 mod public_column_cache;
 pub(crate) use public_column_cache::HashedPublicColumn;
+mod verification_memo;
 pub mod verifier;
 
 /// An IPA operation failed.
@@ -219,9 +220,11 @@ pub struct PinnedParams<C: PastaCurve> {
     curve: CurveV1,
     public_columns: Arc<Mutex<public_column_cache::PublicColumnCache<C>>>,
     generator_prefix_sums: Arc<generator_prefix::GeneratorPrefixSums<C>>,
+    verification_memo: verification_memo::SharedVerificationMemo<C>,
 }
 
-// Runtime memos of already computed public points are not parameter identity.
+// Runtime memos of already computed public points and accepted verifications
+// are not parameter identity.
 impl<C: PastaCurve> PartialEq for PinnedParams<C> {
     fn eq(&self, other: &Self) -> bool {
         self.params == other.params && self.curve == other.curve
@@ -245,6 +248,7 @@ impl<C: PastaCurve> PinnedParams<C> {
             curve,
             public_columns: Arc::default(),
             generator_prefix_sums: Arc::default(),
+            verification_memo: Arc::default(),
         })
     }
 
@@ -275,6 +279,7 @@ impl<C: PastaCurve> PinnedParams<C> {
             curve,
             public_columns: Arc::default(),
             generator_prefix_sums: Arc::default(),
+            verification_memo: Arc::default(),
         })
     }
 

@@ -248,6 +248,12 @@ impl<R: StoredSource> Read for StoredReader<R> {
         Ok(count)
     }
 }
+impl<R> Drop for StoredReader<R> {
+    fn drop(&mut self) {
+        // Observation only: one count per stored reader, never per hashed chunk.
+        super::opening_metrics::record_stored_hashed(self.bytes);
+    }
+}
 
 type Decoder<R> = zstd::stream::read::Decoder<'static, BufReader<StoredReader<R>>>;
 struct DecodedOriginal<R = SealedPrivateFile> {
@@ -312,11 +318,18 @@ impl<R: StoredSource> Read for DecodedOriginal<R> {
         })
     }
 }
+impl<R> Drop for DecodedOriginal<R> {
+    fn drop(&mut self) {
+        // Observation only: one count per decoded original, never per hashed chunk.
+        super::opening_metrics::record_raw_hashed(self.bytes);
+    }
+}
 
 fn decode_stored<R: StoredSource>(
     file: R,
     identity: EncodedOriginalV1,
 ) -> io::Result<DecodedOriginal<R>> {
+    super::opening_metrics::record_zstd_decode();
     let stored = StoredReader {
         file,
         expected: identity.stored,
@@ -386,6 +399,7 @@ impl EncodedDirectoryOriginalsV1 {
             }
             return Ok(None);
         };
+        super::opening_metrics::record_stored_file_opened();
         if file.len()? != identity.stored.bytes {
             return Err(invalid("encoded file extent differs"));
         }

@@ -694,10 +694,14 @@ To make a transition:
 4. Release the new complete package only after durable completion.
 5. In the background, prove Λ over the steps no Ω covers yet, in order, wrap
    it as Ω (§3.2), natively verify Ω including the decide, and record it
-   durably. One Λ may cover a contiguous run of steps where the artifact set has
-   a relation for that run length. It verifies each step's σ and τ, and only
-   the last head of the run receives Ω and becomes folded. Each head has at most
-   one recorded Ω. Every Lineage message, Payment and ledger package from that
+   durably. The fold owner verifies each new Ω exactly once, through the
+   installed verifier, before any credit, pending-map, archive or manifest
+   effect; the recorded bytes reuse that verification only on exact canonical
+   byte identity, and an adopted interrupted publication reuses the full
+   verification of its exact record bytes. One Λ may cover a contiguous run
+   of steps where the artifact set has a relation for that run length. It
+   verifies each step's σ and τ, and only the last head of the run receives Ω
+   and becomes folded. Each head has at most one recorded Ω. Every Lineage message, Payment and ledger package from that
    head carries those exact bytes.
 
 A head whose Ω is durable and self-verified is **folded**. Verifiers reject a
@@ -1856,6 +1860,23 @@ parameter owner may reuse previously computed commitments for identical public
 columns; original VK points and declared fingerprints cannot populate it.
 Every source and VK commitment is still checked, and the complete operation
 graph is admitted before granting the wallet capability.
+Each pinned parameter owner also keeps two bounded, process-local
+verification memos (least recently used first out), filled only after
+acceptance and never from rejected, undecidable or cancelled work, prover-side
+MSMs, batch decisions or caller-supplied points, digests or flags. The first
+holds `<s(u), g>` keyed by the exact canonical challenge bytes, inserted only
+by an accepted generator-claim or accumulator decide or production full
+verification; every decide still compares its claimed `G` on every call, so a
+false claim with the same challenges is rejected and a correction still obtains
+the true point. The second holds full SHA-256 keys over the curve, `k`, the
+descriptor profile and digest, the key's `transcript_repr` and SHA-256 of its
+bytes, every length-framed instance and the exact proof bytes; production full
+verification of byte-identical inputs on the same owner returns that earlier
+acceptance after the structural checks and a cancellation checkpoint. Oracle,
+filtered, succinct and batch paths never use either memo. Neither memo is
+serialized, persisted, exposed over FFI or shared by independently admitted
+parameters, and neither changes a verdict: every wallet, custody, binding and
+allowlist check above the proof system still runs on every call.
 This representation changes original hashes and therefore requires a newly
 authenticated catalogue and scheme; it does not change the monetary circuits
 or proof verification. Dense proving-key originals have no production fallback.

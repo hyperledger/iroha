@@ -319,71 +319,6 @@ fn actual_bootstrap_omega_rebuild_preserves_proof_restore_and_cancellation() {
         transport.len(),
         expected_proof_bytes + 2 * iroha_plonk_recursion::ACCUMULATOR_BYTES
     );
-    let restored = session
-        .restore_transport(&transport, MemoryBudget::DEFAULT)
-        .unwrap();
-    assert_eq!(restored.transport(), transport);
-    assert_eq!(restored.proof, rebuilt.proof);
-    assert_eq!(restored.instances, rebuilt.instances);
-    assert_eq!(restored.pallas, rebuilt.pallas);
-    assert_eq!(restored.vesta, rebuilt.vesta);
-    assert_eq!(restored.opening, rebuilt.opening);
-    assert_eq!(
-        session
-            .restore_transport(&restored.transport(), MemoryBudget::DEFAULT)
-            .unwrap()
-            .transport(),
-        transport
-    );
-    assert_eq!(
-        session
-            .restore_transport_cancellable(&transport, MemoryBudget::DEFAULT, Some(&token))
-            .err(),
-        Some(Error::Cancelled)
-    );
-    assert_eq!(
-        session
-            .restore_transport(&transport[..transport.len() - 1], MemoryBudget::DEFAULT)
-            .err(),
-        Some(Error::Input)
-    );
-    let mut trailing = transport.clone();
-    trailing.push(0);
-    assert_eq!(
-        session
-            .restore_transport(&trailing, MemoryBudget::DEFAULT)
-            .err(),
-        Some(Error::Input)
-    );
-    // Canonical but foreign P and V must fail the prepared-source equality check
-    // independently, before either can be treated as an accepted carried claim.
-    for (offset, point) in [
-        (
-            expected_proof_bytes,
-            iroha_plonk::transcript::encode_point::<Ep>(&(-*rebuilt.pallas.g())),
-        ),
-        (
-            expected_proof_bytes + iroha_plonk_recursion::ACCUMULATOR_BYTES,
-            iroha_plonk::transcript::encode_point::<Eq>(&(-*rebuilt.vesta.g())),
-        ),
-    ] {
-        let mut foreign = transport.clone();
-        assert_ne!(&foreign[offset..offset + 32], point.as_slice());
-        foreign[offset..offset + 32].copy_from_slice(&point);
-        assert_eq!(
-            session
-                .restore_transport(&foreign, MemoryBudget::DEFAULT)
-                .err(),
-            Some(Error::Input)
-        );
-    }
-    let mut corrupt = transport.clone();
-    corrupt[0] ^= 1;
-    assert!(
-        session
-            .restore_transport(&corrupt, MemoryBudget::DEFAULT)
-            .is_err()
-    );
     assert_eq!(
         owner
             .verifying_key()
@@ -395,9 +330,10 @@ fn actual_bootstrap_omega_rebuild_preserves_proof_restore_and_cancellation() {
     assert_eq!(owner.verifying_key().to_bytes(), artifact.key.to_bytes());
     assert_eq!(contexts(&rebuilt_log), contexts(&direct_log));
     assert_eq!(rebuilt_log.bytes.load(Ordering::SeqCst), 32);
-    // Restores have no randomness argument and the production call graph has no
-    // rebuild edge. These checks do not claim an allocator/RSS observation.
+    // The production call graph has no rebuild edge. These checks do not claim an
+    // allocator/RSS observation. Transport acceptance is the installed verifier's
+    // complete lineage verification, not a prover-session restore.
     eprintln!(
-        "OMEGA_METADATA_REBUILD_PARITY complete_additional_outer_proofs=2 cancelled_after_rebuild=1 exact_proof_bytes=true exact_transport_bytes=true recovery_context_and_32_bytes_equal=true transport_restore_exact=true full_catalog=false release_qualified=false"
+        "OMEGA_METADATA_REBUILD_PARITY complete_additional_outer_proofs=2 cancelled_after_rebuild=1 exact_proof_bytes=true exact_transport_bytes=true recovery_context_and_32_bytes_equal=true full_catalog=false release_qualified=false"
     );
 }

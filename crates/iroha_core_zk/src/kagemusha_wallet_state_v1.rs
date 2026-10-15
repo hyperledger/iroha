@@ -11,9 +11,10 @@
 //! SDKs should own I/O and call this shared state machine rather than reproduce its rules.
 //!
 //! Archive storage must share the provider's non-backup custody root and exclusive lifetime.
-//! [`ProviderArchive`] and [`AdvanceHandle`] share one exclusive provider. Every archive call
-//! uses its protected-data bracket; fixed manifests bind index roots in source-selected
-//! metadata generations and the existing iOS rollback anchor. [`FsArchive`] is a low-level
+//! [`ProviderArchive`] and [`AdvanceHandle`] share one exclusive provider. Archive calls between
+//! two custody calls share one protected-data bracket (an archive phase: one reconcile, then a
+//! storage probe after every call that touches storage); fixed manifests bind index roots in
+//! source-selected metadata generations and the existing iOS rollback anchor. [`FsArchive`] is a low-level
 //! standalone store for tests/diagnostics and does not itself provide those brackets.
 //! No archive record grants monetary authority independently of Advance.
 //!

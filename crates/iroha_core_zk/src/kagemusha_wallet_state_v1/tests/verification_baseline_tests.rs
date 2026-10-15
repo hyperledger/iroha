@@ -3,8 +3,9 @@
 //! `TestProofs` stands in for native proving, so these count only the coordinator's own
 //! `NativeProofs::verify_lineage` calls: recorded-Omega reads and the completion checks of
 //! `fold_once`. The installed native owner's verification inside preparation and the fold
-//! worker is counted by `kagemusha_wallet_proofs_v1::verification_counts`. The values are the
-//! 2026-10-15 baseline and act as ceilings: an optimization may lower them, never raise them.
+//! worker is counted by `kagemusha_wallet_proofs_v1::verification_counts`. The 2026-10-15
+//! baseline allowed two coordinator verifications per completion turn; each new Omega is now
+//! verified exactly once before anything is recorded, and only exact canonical bytes reuse it.
 
 use super::*;
 
@@ -100,24 +101,75 @@ fn coordinator_lineage_verifications_stay_within_the_baseline() {
     assert_eq!(receive_turns.len(), 4, "three checkpoints and a completion");
     assert_eq!(bootstrap_commit, 0);
     assert!(bootstrap_turns[..3].iter().all(|count| *count == 0));
-    assert!(
-        bootstrap_turns[3] <= 2,
-        "completion check and recorded-Omega read"
+    assert_eq!(
+        bootstrap_turns[3], 1,
+        "one completion check; the recorded bytes reuse it"
     );
     assert_eq!(
         receive_commit, 0,
         "the just-folded predecessor Omega is reused"
     );
     assert!(receive_turns[..3].iter().all(|count| *count == 0));
-    assert!(
-        receive_turns[3] <= 2,
-        "completion check and recorded-Omega read"
+    assert_eq!(
+        receive_turns[3], 1,
+        "one completion check; the recorded bytes reuse it"
     );
     assert_eq!(caught_up, 0);
     assert_eq!(lineage_operation_warm, 0, "the just-folded Omega is reused");
-    assert!(reopen <= 1, "one recorded-Omega read when the owner opens");
+    assert_eq!(reopen, 1, "one recorded-Omega read when the owner opens");
     assert_eq!(
         lineage_operation_after_restart, 0,
         "the Omega verified at open is reused"
     );
+}
+
+#[test]
+fn fold_completion_and_adoption_verify_each_new_omega_once() {
+    let mut w = wallet();
+    w.commit(bootstrap()).expect("Bootstrap");
+    w.scheduler().set_activity(true, false);
+    assert!(matches!(
+        w.fold_once().expect("checkpoint"),
+        FoldStatus::Checkpoint { .. }
+    ));
+    let unpublished = w.custody.checkpoint.clone();
+    let before = verifies(&w);
+    assert_eq!(w.fold_once().expect("fold"), FoldStatus::Folded(0));
+    assert_eq!(
+        verifies(&w) - before,
+        1,
+        "one verification before recording"
+    );
+    let recorded = w
+        .archive
+        .get(ArchiveKey::Fold(0), 20_000)
+        .expect("get")
+        .expect("recorded Omega");
+
+    // Publication interrupted after the exact Omega bytes: adoption reuses the verification
+    // of the same record bytes from this session.
+    w.custody.checkpoint = unpublished.clone();
+    let before = verifies(&w);
+    assert_eq!(w.fold_once().expect("adopt"), FoldStatus::Folded(0));
+    assert_eq!(verifies(&w) - before, 0);
+
+    // Without that session entry, adoption verifies the record once; completion reuses it.
+    w.custody.checkpoint = unpublished.clone();
+    w.verified_folds.clear();
+    let before = verifies(&w);
+    assert_eq!(w.fold_once().expect("adopt"), FoldStatus::Folded(0));
+    assert_eq!(verifies(&w) - before, 1);
+
+    // Record bytes that changed after verification are verified again, never reused.
+    w.custody.checkpoint = unpublished;
+    let mut changed: RecordedFold = archive::decode(&recorded).expect("decode");
+    changed.record.lineage.proof = vec![1, 2, 4];
+    w.archive.records.lock().expect("records").insert(
+        ArchiveKey::Fold(0),
+        archive::encode(&changed).expect("encode"),
+    );
+    let before = verifies(&w);
+    assert!(matches!(w.fold_once(), Err(Error::Proof(_))));
+    assert_eq!(verifies(&w) - before, 1);
+    assert_eq!(w.manifest().expect("source manifest").1.folded, None);
 }

@@ -769,7 +769,9 @@ mod std_fs {
                 .ok_or_else(|| {
                     io::Error::other("publication requires the live original staged file")
                 })?;
-            self.directory(dir)?.revalidate()?;
+            // `directory` revalidates the complete retained chain of `dir`, and the original's
+            // own rename revalidates it again before the native rename.
+            self.directory(dir)?;
             let mut held = original.lock().map_err(|_| poisoned())?;
             held.as_mut()
                 .ok_or_else(|| io::Error::other("staged original was consumed"))?

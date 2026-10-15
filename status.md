@@ -669,11 +669,19 @@ passes.
   finalized registration transactions. The iPhone has resumed its saved
   activation after user authentication, but Core wallet-ledger recovery returns
   HTTP 503; direct activation proofs checked by its owner are served successfully.
-  Closed-stage Core diagnostics pass and await deployment. A foreground iPhone
+  Closed-stage Core diagnostics pass. Stale signed server validator pins caused
+  the new service build's startup current-asset cut failure. After verifying all
+  four current validator attestations against the existing checkpoint, the
+  deployment owner installed corrected signed pins and Core starts successfully.
+  Live payment verification remains pending. A foreground iPhone
   profile identifies repeated native directory ancestry validation during cursor
-  advancement. A narrow retained-directory cache selection optimization is under
-  host comparison with replacement, mode and ACL refusal controls; fresh strict
-  exports and matched native consumers are required before it ships.
+  advancement. The retained-directory selection optimization passes all 43 store
+  tests, including replacement, mode and ACL refusal controls. Alternating host
+  runs reduce median cached read time by 23–47% at depths 1, 3 and 8; phone speed
+  remains unmeasured. Concurrent native instrumentation edits superseded that
+  tested candidate during the generator build; no new exports or DATA were
+  accepted. Validate the settled combined source, then produce fresh strict
+  exports and matched native consumers before shipping.
   Neither phone has completed
   current hardware wallet activation, Load and offline transfer acceptance.
   Current-phone opening time, memory and post-proof

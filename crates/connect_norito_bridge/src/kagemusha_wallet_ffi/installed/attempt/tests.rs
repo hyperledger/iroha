@@ -11,7 +11,8 @@ use open::installation_data;
 fn all_registration_refusals_retain_the_same_pair_until_single_real_registry_transfer() {
     let drops = Arc::new(Mutex::new(Vec::new()));
     let original = installation_data::owner(&drops);
-    let mut attempt = WalletInstallationAttempt::new(Arc::clone(&original));
+    let mut attempt =
+        WalletInstallationAttempt::new(Arc::clone(&original), OpeningMetricsV1::start());
     let selected = Mutex::new(Registry::default());
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _held = selected.lock().unwrap();
@@ -61,7 +62,8 @@ fn close_refusal_retains_both_owners_and_fences_registration_until_zero_ack() {
     for finished in [false, true] {
         let drops = Arc::new(Mutex::new(Vec::new()));
         let owner = installation_data::owner(&drops);
-        let mut attempt = WalletInstallationAttempt::new(Arc::clone(&owner));
+        let mut attempt =
+            WalletInstallationAttempt::new(Arc::clone(&owner), OpeningMetricsV1::start());
         installation_data::poison(&owner, finished);
         assert_eq!(attempt.close().unwrap_err().status, INTERNAL);
         assert!(Arc::ptr_eq(attempt.owner.as_ref().unwrap(), &owner));
@@ -85,7 +87,10 @@ fn close_refusal_retains_both_owners_and_fences_registration_until_zero_ack() {
 fn c_close_clears_the_exact_slot_only_after_acknowledged_same_owner_join() {
     let drops = Arc::new(Mutex::new(Vec::new()));
     let owner = installation_data::owner(&drops);
-    let mut slot = Box::into_raw(Box::new(WalletInstallationAttempt::new(Arc::clone(&owner))));
+    let mut slot = Box::into_raw(Box::new(WalletInstallationAttempt::new(
+        Arc::clone(&owner),
+        OpeningMetricsV1::start(),
+    )));
     let original = slot;
     installation_data::poison(&owner, true);
     // SAFETY: unique Native-shaped DATA allocation and exclusive pointer slot; no installation.
@@ -122,4 +127,30 @@ fn invalid_c_outputs_and_absent_attempts_never_acquire_or_register_custody() {
         assert_eq!(close(std::ptr::null_mut()), INVALID);
         assert_eq!(close(&mut slot), INVALID);
     }
+}
+
+#[test]
+fn opening_metrics_stay_retained_data_through_refusal_and_acknowledged_close() {
+    let drops = Arc::new(Mutex::new(Vec::new()));
+    let owner = installation_data::owner(&drops);
+    let mut opening = OpeningMetricsV1::start();
+    opening.lap("selection");
+    opening.finish();
+    let expected = opening.to_json();
+    let mut attempt = WalletInstallationAttempt::new(Arc::clone(&owner), opening);
+    installation_data::poison(&owner, true);
+    // Observation DATA neither changes a refusal nor survives as an owner.
+    assert_eq!(attempt.close().unwrap_err().status, INTERNAL);
+    assert_eq!(attempt.opening_metrics().to_json(), expected);
+    installation_data::repair(&owner);
+    attempt.close().unwrap();
+    assert!(attempt.owner.is_none());
+    assert_eq!(*drops.lock().unwrap(), vec![1, 2]);
+    let names: Vec<_> = attempt
+        .opening_metrics()
+        .phases()
+        .iter()
+        .map(|(name, _)| *name)
+        .collect();
+    assert_eq!(names, ["selection", "total"]);
 }

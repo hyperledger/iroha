@@ -83,6 +83,15 @@ pub trait ArchiveStore {
     /// # Errors
     /// Storage failure, conflicting copies, malformed record or wrong binding.
     fn get(&mut self, key: ArchiveKey, max_bytes: usize) -> Result<Option<Vec<u8>>, Error>;
+    /// Read the content-addressed object `ArchiveKey::Object(digest)`, authenticated as by
+    /// [`Self::get`]. An implementation that also binds the content to `digest` may accept the
+    /// first redundant copy passing every check, failing closed on any other first copy.
+    ///
+    /// # Errors
+    /// As [`Self::get`].
+    fn get_object(&mut self, digest: [u8; 32], max_bytes: usize) -> Result<Option<Vec<u8>>, Error> {
+        self.get(ArchiveKey::Object(digest), max_bytes)
+    }
     /// Publish one immutable record, or adopt exactly matching existing bytes durably.
     ///
     /// # Errors
@@ -326,7 +335,7 @@ where
 impl<A: ArchiveStore> super::ObjectStore for A {
     fn read_object(&mut self, expected: &[u8; 32], max_bytes: usize) -> Result<Vec<u8>, Error> {
         let bytes = self
-            .get(ArchiveKey::Object(*expected), max_bytes)?
+            .get_object(*expected, max_bytes)?
             .ok_or(Error::WitnessLost("index object"))?;
         if crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(&bytes)
             != *expected

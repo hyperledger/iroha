@@ -299,7 +299,14 @@ where
                 )
             });
             assert_eq!(result, Ok(()));
-            assert_eq!(trace, expected);
+            // The owner remembers accepted exact inputs: the identical proof of the
+            // second worker count is answered without replaying its transcript.
+            let replayed = if first.is_none() {
+                expected.clone()
+            } else {
+                Vec::new()
+            };
+            assert_eq!(trace, replayed);
             assert_eq!(
                 verify_full_from_bytes_v2(
                     &params,

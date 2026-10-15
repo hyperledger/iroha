@@ -4,7 +4,7 @@ use ff::{Field, PrimeField};
 use group::prime::PrimeCurveAffine;
 use iroha_pasta::{PastaCurve, msm::MemoryBudget};
 use iroha_plonk::{
-    pcs::ipa::{PinnedParams, commit::msm_complete_cancellable, fold_scalars},
+    pcs::ipa::{IpaError, PinnedParams},
     transcript::{decode_point, decode_scalar, encode_point},
 };
 
@@ -212,6 +212,11 @@ impl<C: PastaCurve> FoldInput<C> {
 
     /// Decides the source prefix with an independent complete MSM kernel.
     ///
+    /// The pinned parameter owner decides it
+    /// ([`PinnedParams::decide_folded_generator_cancellable`]): the comparison
+    /// runs on every call, and the owner reuses only `<s(u), g>` values that an
+    /// earlier accepted decision of the same exact challenges computed.
+    ///
     /// # Errors
     /// Insufficient pinned parameters or an undecidable source claim.
     pub fn decide(&self, params: &PinnedParams<C>, budget: MemoryBudget) -> Result<(), Error> {
@@ -229,11 +234,12 @@ impl<C: PastaCurve> FoldInput<C> {
         iroha_plonk::verification_counters::record_decide();
         iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         let source = &self.challenges[K - self.source_k as usize..];
-        if expected_generator(params, source, budget, cancellation)? == self.g {
-            Ok(())
-        } else {
-            Err(Error::Undecidable)
-        }
+        params
+            .decide_folded_generator_cancellable(source, &self.g, budget, cancellation)
+            .map_err(|error| match error {
+                IpaError::OpeningFailed => Error::Undecidable,
+                other => owner_error(other),
+            })
     }
 
     /// Computes and checks a correction with the same source k and challenges.
@@ -291,31 +297,26 @@ impl<C: PastaCurve> CorrectedInput<C> {
     }
 }
 
+/// `<s(u), g>` from the pinned parameter owner: computed with its complete
+/// kernel, or an exact value an earlier accepted decision retained. Never decides.
 fn expected_generator<C: PastaCurve>(
     params: &PinnedParams<C>,
     challenges: &[C::ScalarExt],
     budget: MemoryBudget,
     cancellation: Option<&iroha_pasta::CancellationToken>,
 ) -> Result<C::AffineExt, Error> {
-    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
     params
-        .require_k(u32::try_from(challenges.len()).map_err(|_| Error::SourceK)?)
-        .map_err(Error::Parameters)?;
-    let coefficients = fold_scalars(challenges, C::ScalarExt::ONE);
-    let generators = params
-        .params()
-        .g()
-        .get(..coefficients.len())
-        .ok_or(Error::SourceK)?;
-    iroha_plonk::verification_counters::record_generator_msm(generators.len());
-    Ok(msm_complete_cancellable::<C>(
-        &coefficients,
-        generators,
-        budget,
-        &iroha_pasta::msm::SharedMemoryBudget::process_default(),
-        cancellation,
-    )?
-    .to_affine())
+        .folded_generator_cancellable(challenges, budget, cancellation)
+        .map_err(owner_error)
+}
+
+/// A pinned parameter owner's failure to compute: never an invalid claim.
+fn owner_error(error: IpaError) -> Error {
+    match error {
+        IpaError::Msm(error) => Error::from(error),
+        IpaError::Cancelled => Error::Cancelled,
+        other => Error::Parameters(other),
+    }
 }
 
 pub fn message(bytes: &[u8], offset: usize) -> Result<[u8; 32], Error> {
@@ -330,14 +331,25 @@ pub fn message(bytes: &[u8], offset: usize) -> Result<[u8; 32], Error> {
 #[cfg(test)]
 mod counter_tests {
     use group::Curve;
-    use iroha_pasta::{Ep, Fq};
-    use iroha_plonk::{VerificationCounts, pcs::ipa::commit::msm_complete};
+    use iroha_pasta::{CancellationToken, Ep, Fq};
+    use iroha_plonk::{
+        VerificationCounts,
+        pcs::ipa::{commit::msm_complete, fold_scalars},
+    };
 
     use super::*;
 
-    #[test]
-    fn decides_and_corrections_count_one_source_generator_msm_each() {
-        let params = PinnedParams::<Ep>::derive(4).expect("params");
+    fn counts(decides: u64, generator_msms: u64, reused_generators: u64) -> VerificationCounts {
+        VerificationCounts {
+            decides,
+            generator_msms,
+            generator_msm_bases: 16 * generator_msms,
+            reused_generators,
+            ..VerificationCounts::default()
+        }
+    }
+
+    fn honest_and_wrong(params: &PinnedParams<Ep>) -> (FoldInput<Ep>, FoldInput<Ep>) {
         let source = [Fq::from(3), Fq::from(5), Fq::from(7), Fq::from(11)];
         let g = msm_complete::<Ep>(
             &fold_scalars(&source, Fq::ONE),
@@ -345,32 +357,65 @@ mod counter_tests {
             MemoryBudget::DEFAULT,
         )
         .to_affine();
-        let honest = FoldInput::<Ep>::from_opening(g, &source).expect("claim");
-        let wrong = FoldInput::<Ep>::from_opening(params.params().g()[1], &source).expect("claim");
+        (
+            FoldInput::<Ep>::from_opening(g, &source).expect("claim"),
+            FoldInput::<Ep>::from_opening(params.params().g()[1], &source).expect("claim"),
+        )
+    }
+
+    #[test]
+    fn only_accepted_decides_retain_the_source_generator_for_later_decides_and_corrections() {
+        let budget = MemoryBudget::DEFAULT;
+        let params = PinnedParams::<Ep>::derive(4).expect("params");
+        let (honest, wrong) = honest_and_wrong(&params);
         let start = VerificationCounts::current_thread();
-        assert_eq!(honest.decide(&params, MemoryBudget::DEFAULT), Ok(()));
+        // A false claim and its correction compute the point and retain nothing.
+        assert_eq!(wrong.decide(&params, budget), Err(Error::Undecidable));
+        let correction = wrong.corrected(&params, budget).expect("correction");
+        assert_eq!(correction.replacement().g(), honest.g());
         assert_eq!(
             VerificationCounts::current_thread().since(start),
-            VerificationCounts {
-                decides: 1,
-                generator_msms: 1,
-                generator_msm_bases: 16,
-                ..VerificationCounts::default()
-            }
+            counts(1, 2, 0)
         );
+        // A cancelled decide has no verdict and retains nothing.
+        let token = CancellationToken::new();
+        token.cancel();
         assert_eq!(
-            wrong.decide(&params, MemoryBudget::DEFAULT),
-            Err(Error::Undecidable)
+            honest.decide_cancellable(&params, budget, Some(&token)),
+            Err(Error::Cancelled)
         );
-        assert!(wrong.corrected(&params, MemoryBudget::DEFAULT).is_ok());
         assert_eq!(
             VerificationCounts::current_thread().since(start),
-            VerificationCounts {
-                decides: 2,
-                generator_msms: 3,
-                generator_msm_bases: 48,
-                ..VerificationCounts::default()
-            }
+            counts(2, 2, 0)
+        );
+        // The first accepted decide computes and retains the point.
+        assert_eq!(honest.decide(&params, budget), Ok(()));
+        assert_eq!(
+            VerificationCounts::current_thread().since(start),
+            counts(3, 3, 0)
+        );
+        // Later decides and corrections on this owner and its clones compare against it.
+        let clone = params.clone();
+        assert_eq!(honest.decide(&clone, budget), Ok(()));
+        assert_eq!(wrong.decide(&params, budget), Err(Error::Undecidable));
+        let correction = wrong.corrected(&clone, budget).expect("correction");
+        assert_eq!(correction.replacement().g(), honest.g());
+        assert_eq!(correction.original(), &wrong);
+        assert_eq!(
+            honest.corrected(&params, budget).err(),
+            Some(Error::NotCorrected)
+        );
+        assert_eq!(
+            VerificationCounts::current_thread().since(start),
+            counts(5, 3, 4)
+        );
+        // An independently derived owner of the same k shares nothing.
+        let independent = PinnedParams::<Ep>::derive(4).expect("params");
+        assert_eq!(wrong.decide(&independent, budget), Err(Error::Undecidable));
+        assert_eq!(honest.decide(&independent, budget), Ok(()));
+        assert_eq!(
+            VerificationCounts::current_thread().since(start),
+            counts(7, 5, 4)
         );
     }
 }

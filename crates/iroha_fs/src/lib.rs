@@ -21,6 +21,9 @@ use zeroize::Zeroizing;
 mod custody_io;
 pub use custody_io::CustodyEntryKind;
 
+mod custody_work;
+pub use custody_work::CustodyWorkV1;
+
 mod private_files;
 pub use private_files::{BorrowedPendingPrivateFile, BorrowedSealedPrivateFile};
 pub use private_files::{PendingPrivateFile, PrivateFileMetadata, SealedPrivateFile};

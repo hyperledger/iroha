@@ -147,6 +147,8 @@ where
         slot: &KagemushaWalletSlotIdV1,
         owner: Option<&dyn KagemushaWalletTransitionOwnerV1<C, R>>,
     ) -> Result<KagemushaWalletSlotStatusV1, KagemushaWalletProviderErrorV1> {
+        // Every reconciliation ends the current archive phase before it reads anything.
+        self.end_archive_phase();
         self.recover_generated_key(slot)?;
         self.reconcile_slot_after_generation(slot, owner)
     }
@@ -356,6 +358,8 @@ where
     ) -> Result<KagemushaWalletSlotStatusV1, KagemushaWalletProviderErrorV1> {
         super::counters::count(super::counters::EventV1::FullReconcile);
         self.poison(slot);
+        // A full reconcile re-derives the slot from disk, its remembered archive writes included.
+        self.forget_archive_writes(slot);
         let boot = self.boot();
         // R2: read-only selection and checks before anything is written.
         let Some(current) =

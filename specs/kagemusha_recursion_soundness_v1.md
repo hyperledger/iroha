@@ -123,6 +123,17 @@ Native acceptance must decide all three claims with pinned parameters.
 which decides Omega's own Pallas opening, then separately decides `acc_P` and
 `acc_V`. Checking only the two exposed accumulators is insufficient. The generic
 V1 batch API is not this V2 wallet acceptance boundary.
+Every decide runs through the pinned parameter owner, which compares the
+claimed `G` with `<s(u), g>` on every call. The owner may take that point from
+its bounded process-local memo, which only an accepted decision or production
+full verification of the same exact challenges on the same owner fills; a full
+verification of byte-identical inputs that the same owner accepted earlier may
+return that acceptance. Rejections, undecidable claims and cancellations are
+never retained, Corrected-mode selection still compares every claim in order,
+and a correction is still the exact point. A caller that needs a fully verified
+proof's own opening as a decided claim obtains it from the same single read
+(`verify_full_opening_cancellable`), and a prover-returned opening must equal it
+exactly.
 
 Short-only non-hiding folds have a structural liveness problem: the upper
 coefficient half is zero and the first-round L commitment is identity for

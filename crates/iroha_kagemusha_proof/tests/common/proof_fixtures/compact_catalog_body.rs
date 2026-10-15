@@ -242,15 +242,8 @@ impl Program {
         assert_eq!(output.pallas, *source.pallas);
         assert_eq!(output.vesta, vesta);
         let transport = output.transport();
-        let restored = session
-            .restore_transport(&transport, MemoryBudget::DEFAULT)
-            .unwrap();
-        assert_eq!(restored.transport(), transport);
-        assert_eq!(restored.proof, output.proof);
-        assert_eq!(restored.instances, output.instances);
-        assert_eq!(restored.pallas, output.pallas);
-        assert_eq!(restored.vesta, output.vesta);
-        assert_eq!(restored.opening, output.opening);
+        assert_eq!(&transport[..output.proof.len()], output.proof.as_slice());
+        assert_eq!(transport.len(), 4800);
         assert_eq!(output.proof.len(), 3712);
         let opened = accumulate_generator(
             &params,
@@ -280,7 +273,7 @@ impl Program {
             );
         }
         eprintln!(
-            "COMPACT_CATALOG_OUTER terminal={label} catalog_size={} actual_proof=3712 transport=4800 native_original_import=true native_transport_restore=true known_unknown_equal=true immutable_key=true decides=2 full_catalog=false release_qualified=false",
+            "COMPACT_CATALOG_OUTER terminal={label} catalog_size={} actual_proof=3712 transport=4800 native_original_import=true known_unknown_equal=true immutable_key=true decides=2 full_catalog=false release_qualified=false",
             self.catalog.len()
         );
         Outer {
@@ -457,7 +450,7 @@ impl BootstrapCatalogSeed {
 }
 
 /// Build a genuine zero-balance receiver under a one-terminal native catalog.
-/// Native original import, exact native transport replay and both decisions are checked.
+/// Native original import, the exact native transport and both decisions are checked.
 pub fn compact_bootstrap_catalog_seed() -> (BootstrapCatalogSeed, Program, RootedBootstrapOmega) {
     let mut receiver = bootstrap_outer::compact_bootstrap::rooted_compact_bootstrap_with_identity(
         bootstrap_chain::BootstrapIdentity::Receiver,

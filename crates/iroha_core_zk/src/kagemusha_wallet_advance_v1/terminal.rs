@@ -486,6 +486,8 @@ where
                 return Err(KagemushaWalletProviderErrorV1::Unavailable(reason));
             }
         }
+        // Archive records are forgotten by the exact-bytes write memo before any is removed.
+        self.forget_archive_writes(slot);
         for dir in [
             kagemusha_wallet_capsules_dir_v1(slot),
             kagemusha_wallet_completion_dir_v1(slot),

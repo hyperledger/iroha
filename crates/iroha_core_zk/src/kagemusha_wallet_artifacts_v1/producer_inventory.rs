@@ -82,6 +82,13 @@ pub use omega::{OmegaQualificationErrorV1, QualifiedOmegaProgramV1};
 mod wallet;
 pub use wallet::{QualifiedWalletSourcesV1, WalletSourcesErrorV1};
 
+#[path = "producer_inventory/opening_metrics.rs"]
+mod opening_metrics;
+pub use opening_metrics::{
+    OPENING_METRICS_SCHEMA_V1, OpeningClockV1, OpeningMetricsV1, OpeningPhaseV1, OpeningWorkV1,
+    QualificationMetricsV1,
+};
+
 /// Largest design §5.3 peak proving memory over the installed descriptors of `keys`.
 /// Metadata only: no proving key is read and no artifact field is added.
 fn peak_proving_memory<'a, C: PastaCurve + 'a>(
@@ -470,6 +477,7 @@ fn scan_cancellable<T>(
     let maximum = blob.bytes.checked_add(1).ok_or(Error::Inventory)?;
     // The original source retains its locator/inode checks; this layer bounds each
     // read and hashes those exact bytes without a second uncancellable whole-PK pass.
+    opening_metrics::record_original_opened();
     let opened = source.open(blob.sha256);
     check()?;
     let mut reader = opened?.take(maximum);
@@ -504,6 +512,7 @@ fn scan_cancellable<T>(
         accept(&mut output, &buffer[..count]);
         consumed += count;
     }
+    opening_metrics::record_raw_hashed(consumed as u64);
     check()?;
     let actual: [u8; 32] = hash.finalize().into();
     if consumed != length || actual != blob.sha256 {

@@ -34,9 +34,7 @@ use group::prime::PrimeCurveAffine;
 use iroha_pasta::{PastaCurve, msm::MemoryBudget};
 
 use super::{
-    GeneratorClaim, IpaError, PinnedParams,
-    accumulator::PendingAccumulator,
-    commit::{Msm, msm_complete},
+    GeneratorClaim, IpaError, PinnedParams, accumulator::PendingAccumulator, commit::Msm,
     fold_evaluation, fold_scalars,
 };
 use crate::transcript::TranscriptRead;
@@ -235,10 +233,40 @@ impl<C: PastaCurve> PendingOpening<C> {
     ) -> Result<(), IpaError> {
         iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         let folded = self.folded_generator_cancellable(params, budget, cancellation)?;
-        if suffix.is_some_and(|claimed| *claimed != folded) {
+        self.check_full(params, suffix, &folded, budget, cancellation)
+    }
+
+    /// [`Self::verify_full_cancellable`] for production full verification: `G'_0`
+    /// comes from the parameter owner's memo of accepted folded generators or is
+    /// computed now, and is retained only after this verification accepted.
+    pub(crate) fn verify_full_memoized_cancellable(
+        self,
+        params: &PinnedParams<C>,
+        suffix: Option<&C::AffineExt>,
+        budget: MemoryBudget,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(), IpaError> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+        let folded =
+            params.folded_generator_entry_cancellable(&self.challenges, budget, cancellation)?;
+        self.check_full(params, suffix, folded.point(), budget, cancellation)?;
+        params.remember_folded_generator(folded);
+        Ok(())
+    }
+
+    /// The suffix equality and the opening equation with `G'_0 = folded`.
+    fn check_full(
+        &self,
+        params: &PinnedParams<C>,
+        suffix: Option<&C::AffineExt>,
+        folded: &C::AffineExt,
+        budget: MemoryBudget,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(), IpaError> {
+        if suffix.is_some_and(|claimed| claimed != folded) {
             return Err(IpaError::FoldedGeneratorMismatch);
         }
-        let identity = bool::from(self.left_hand_side(params, &folded, budget).is_identity());
+        let identity = bool::from(self.left_hand_side(params, folded, budget).is_identity());
         iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         if identity {
             Ok(())
@@ -315,8 +343,9 @@ impl<C: PastaCurve> PendingOpening<C> {
     }
 }
 
-/// The folded generator of `challenges` against `params` without a pending
-/// opening (tests and accumulator decisions).
+/// The folded generator of `challenges` against `params`, computed directly
+/// without a pending opening or the owner's memo (tests only).
+#[cfg(test)]
 pub(crate) fn folded_generator_of<C: PastaCurve>(
     params: &PinnedParams<C>,
     challenges: &[C::ScalarExt],
@@ -324,7 +353,7 @@ pub(crate) fn folded_generator_of<C: PastaCurve>(
 ) -> C {
     let s = fold_scalars(challenges, C::ScalarExt::ONE);
     crate::verification_counters::record_generator_msm(s.len());
-    msm_complete::<C>(&s, &params.params().g()[..s.len()], budget)
+    super::commit::msm_complete::<C>(&s, &params.params().g()[..s.len()], budget)
 }
 
 #[cfg(test)]

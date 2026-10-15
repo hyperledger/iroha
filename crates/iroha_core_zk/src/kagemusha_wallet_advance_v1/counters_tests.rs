@@ -201,12 +201,14 @@ fn archive_record_access_counts_two_copies_and_their_syncs() {
     written.expect("exact retry");
     assert_eq!(
         (
+            retry.archive_puts,
+            retry.archive_put_memo_hits,
             retry.write_new,
             retry.rewrite_same,
             retry.fsync_class_calls()
         ),
-        (0, 2, 4),
-        "an exact retry adopts both copies on fresh inodes"
+        (1, 1, 0, 0, 0),
+        "an exact retry of bytes this process published durably is answered by the write memo"
     );
     let (read, get) = Counters::observe(|| {
         provider.with_archive(&slot, |archive| archive.read_record(&[4; 32], 6))
@@ -224,6 +226,23 @@ fn archive_record_access_counts_two_copies_and_their_syncs() {
     assert_eq!(
         get.storage_probes, put.storage_probes,
         "both accesses use the same protected-storage brackets"
+    );
+    // Another process has no memo: it adopts the visible identical copies on fresh inodes.
+    drop(provider);
+    let mut provider = device.open();
+    provider.status(&slot).expect("full reconcile");
+    let (written, adopted) = Counters::observe(|| {
+        provider.with_archive(&slot, |archive| archive.write_record(&[4; 32], b"record"))
+    });
+    written.expect("adopt");
+    assert_eq!(
+        (
+            adopted.archive_put_memo_hits,
+            adopted.write_new,
+            adopted.rewrite_same,
+            adopted.fsync_class_calls()
+        ),
+        (0, 0, 2, 4)
     );
 }
 
@@ -327,19 +346,28 @@ fn provider_unit_costs<F: KagemushaWalletFsV1 + Clone>(fs: F, label: &str, polic
             advance.write_new,
             advance.removals
         ),
-        (14, 6, 4)
+        (12, 6, 2),
+        "Advance A8 removes no definitively absent completion copy"
     );
     assert_eq!(unit("publish_archive_checkpoint_1").fsync_class_calls(), 7);
     let cached = unit("status_cached");
     assert_eq!((cached.fsync_class_calls(), cached.storage_probes), (0, 10));
-    for operation in ["archive_put_new", "archive_put_retry"] {
-        let put = unit(operation);
-        assert_eq!(
-            (put.fsync_class_calls(), put.storage_probes, put.reconciles),
-            (4, 11, 1),
-            "{operation}"
-        );
-    }
+    let put = unit("archive_put_new");
+    assert_eq!(
+        (put.fsync_class_calls(), put.storage_probes, put.reconciles),
+        (4, 11, 1)
+    );
+    let retry = unit("archive_put_retry");
+    assert_eq!(
+        (
+            retry.fsync_class_calls(),
+            retry.archive_put_memo_hits,
+            retry.storage_probes,
+            retry.reconciles
+        ),
+        (0, 1, 11, 1),
+        "an exact retry keeps the with_archive bracket and skips the rewrite"
+    );
     let get = unit("archive_get_hit");
     assert_eq!(
         (get.fsync_class_calls(), get.storage_probes, get.reconciles),

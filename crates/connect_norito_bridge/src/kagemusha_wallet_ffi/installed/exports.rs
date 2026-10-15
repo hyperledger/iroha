@@ -147,8 +147,8 @@ pub unsafe extern "C" fn connect_norito_kagemusha_wallet_installation_begin_v1(
         let root = platform
             .custody_root()
             .map_err(|error| Failure::unavailable(UNAVAILABLE, error))?;
-        let owner = prepared.runtime(platform, root, false)?;
-        Ok(Box::new(WalletInstallationAttempt::new(owner)))
+        let (owner, opening) = prepared.runtime(platform, root, false)?;
+        Ok(Box::new(WalletInstallationAttempt::new(owner, opening)))
     });
     match result {
         Ok(attempt) => {

@@ -481,6 +481,9 @@ fn storage_baseline_persistent_map_insertion() {
             let mut key = field(0);
             key[..4].copy_from_slice(&(size + 1_000).to_le_bytes());
             key[4] = 2;
+            // Each measurement starts a fresh archive phase, as a derivation after a custody
+            // call does: nothing is answered from an earlier phase.
+            Custody::status(&mut handle).expect("custody call");
             let mut next = map.clone();
             let (_, insertion) = Counters::observe(|| {
                 next.insert(&mut archive, key, field(9))
@@ -488,9 +491,29 @@ fn storage_baseline_persistent_map_insertion() {
             });
             let (_, membership) =
                 Counters::observe(|| next.membership(&mut archive, &key).expect("member"));
+            // The same insertion derived again in the same phase (plan, validate and prove run
+            // without an intervening custody call) and in a new phase (a later derivation or a
+            // fold-turn replay).
+            let mut again = map.clone();
+            let (_, same_phase) = Counters::observe(|| {
+                again
+                    .insert(&mut archive, key, field(9))
+                    .expect("same-phase derivation")
+            });
+            assert_eq!(again.root(), next.root());
+            Custody::status(&mut handle).expect("custody call");
+            let mut replay = map.clone();
+            let (_, new_phase) = Counters::observe(|| {
+                replay
+                    .insert(&mut archive, key, field(9))
+                    .expect("new-phase derivation")
+            });
+            assert_eq!(replay.root(), next.root());
             for (operation, counters) in [
                 (format!("map_insert_at_{size}"), insertion),
                 (format!("map_membership_at_{size}"), membership),
+                (format!("map_reinsert_same_phase_at_{size}"), same_phase),
+                (format!("map_reinsert_new_phase_at_{size}"), new_phase),
             ] {
                 let fields = counters
                     .fields()
@@ -513,8 +536,26 @@ fn storage_baseline_persistent_map_insertion() {
             );
             assert_eq!(
                 insertion.fsync_class_calls(),
-                4 * insertion.archive_puts,
-                "each put publishes two copies with a staged and a parent sync"
+                4 * (insertion.archive_puts - insertion.archive_put_memo_hits),
+                "each new put publishes two copies with a staged and a parent sync"
+            );
+            for repeat in [same_phase, new_phase] {
+                assert_eq!(
+                    (
+                        repeat.archive_puts,
+                        repeat.archive_put_memo_hits,
+                        repeat.fsync_class_calls(),
+                        repeat.write_new,
+                        repeat.rewrite_same,
+                    ),
+                    (insertion.archive_puts, insertion.archive_puts, 0, 0, 0),
+                    "a repeated derivation re-puts only remembered exact bytes"
+                );
+            }
+            assert_eq!(
+                (same_phase.reads, same_phase.storage_probes, same_phase.reconciles),
+                (0, 0, 0),
+                "within one phase the repeated derivation is answered from memory"
             );
             if policy == Policy::NotRequired {
                 // Baseline: fsync-class calls, provider archive puts and storage probes of one

@@ -141,21 +141,59 @@ carrier is about 3,725 times smaller. Neither that count nor the streamed
 decoded total is an estimate of the whole app's installed storage.
 
 Both independent complete strict exports pass for canonical native source
-`491cc207bdaf92af72cf07c21b95c0455d9ad081aca1240a1e7511f8774cd1ae`.
-Each contains 908 members and 2,725 original bindings; every member matches the
-preceding qualified profile except source identity and equivalent numeric
-formatting. Matching generated DATA has SHA-256
-`dffe37c171f8bf6c17377d564678acff31fbc4b792bb77be32fc0b5801dcc10d`.
+`021e4f7fb78b3f3e74a31ef989241cec8aa068b039113261a1d7e1b075182047`
+at HEAD `9393152d0a3c51f2511d931d8c3f2f0fc3680792`. Each contains 908
+members and 2,725 original bindings; every member matches the preceding
+qualified profile except source identity and equivalent numeric formatting.
+Matching generated DATA has SHA-256
+`2e0876c7fb0693c1608cee3064956dd82abca6f717d55eec237319ab7dc29df5`.
 The ABI 29 Android three-ABI and host libraries and both Apple iOS 18 slices
-are rebuilt and accepted against that pair. The maintained source evaluator
-still matches at 2026-10-14 16:08 UTC; SDK worker changes do not alter native inputs.
+are rebuilt and accepted against that pair. The selected native handoffs are
+`android-sdk-current-source-20261015-v10`,
+`android-host-current-source-20261015-v5` and
+`apple-sdk-current-source-20261015-v5` under
+`../bpng/png2-deploy/output/compact-wallet-20261012/`.
 
-Current host tests pass complete graph reuse and original/role controls, typed
-wrapper and compact-key reconstruction controls, and H4 Install/Activate layout
-selection. With network access denied, the production carrier passes native
-admission in 10.298 seconds and reaches the first unavailable custody-root
-callback; a changed signature is rejected before any platform callback. This
-is host admission evidence, not a phone opening time or successful enrollment.
+The current binaries pass 93 focused tests: three complete-graph/wrapper/H4
+regressions, 43 private-store controls plus one verification-count baseline,
+and 46 Kotlin host-native SDK tests. With network access denied, the genuine
+production carrier passes native admission in 6.513 seconds and reaches the
+first unavailable custody-root callback; a changed signature is rejected before
+any platform callback. This establishes host admission, not phone opening time,
+hardware enrollment or a successful production payment.
+
+The cached-ancestry change is committed in `c246436080`. It selects the exact
+cached directory and revalidates its complete native ancestor chain once,
+preserving leaf checks and every mutation boundary. All 43 current-source store
+tests pass, including replacement, symlink, mode and Apple ACL controls.
+Earlier alternating host binaries measured median read-time reductions of 23%,
+34% and 47% at directory depths 1, 3 and 8; these remain historical host timings.
+There are no further performance edits pending from this catalogue owner;
+subsequent efficiency work has a separate coordinated owner.
+
+The current-source engineering lifecycle rerun is still incomplete. The first
+attempt passed complete source admission, fresh native Bootstrap/activation
+export, actual local Core registration/Activate/Load, and finality export.
+An application/session interruption stopped its transfer stage without a
+terminal result. Its custody and logs remain unchanged as `native-journey-v2`;
+unknown monetary state is not counted as success or retried in place. A fresh
+isolated `native-journey-v3` runs the same seven stages with the same verified
+binaries, public engineering inputs and network denial, using separate wallet
+storage and a detached runner. It includes simulated hardware and an engineering
+issuer, not physical-phone or live Taira acceptance.
+
+Current strict/native/test records are indexed by
+`output/current-source-wallet-20261014/current-source-validation-v37-selection.json`.
+The production and engineering exports are `production-strict-v6/` and
+`engineering-strict-v6/`; native admission is `native-admission-v37/`, and the
+93 focused tests are in `matched-zk-v37-regressions/`,
+`matched-store-controls-v37/` and `matched-host-v37/` under that output directory.
+The signed generation-4 runtime and carrier are unchanged; these source/native
+updates do not require a new carrier publication. App captures, distribution,
+and physical-device monetary acceptance remain separately recorded by their
+release owners. No current-source phone latency or storage result is inferred.
+
+### Earlier SDK and delivery observations
 
 The shared Swift and Kotlin SDKs now execute heavy native calls on bounded
 8 MiB workers after a physical iPhone finality decoder exhausted its dispatch
@@ -171,22 +209,24 @@ current validators and all six public readiness endpoints; the deployment owner
 released the phone-test hold. The earlier successful engineering journey below
 retains its original binary identity and is not current-source phone evidence.
 
-The iPhone has completed user authentication and resumed its saved activation,
-but has not completed Load. A foreground profile finds repeated native directory
-ancestry validation dominating cursor advancement. The next candidate narrows
-cached directory selection while preserving complete ancestry and leaf checks;
-host before/after measurements and replacement, mode and ACL controls are in
-progress. It requires fresh strict exports and matched native libraries before
-phone acceptance. The installed phones still use the accepted source above.
+The previously installed iPhone had completed user authentication and resumed
+its saved activation, but had not completed Load. Its foreground profile
+identified repeated native directory ancestry validation as a bottleneck;
+the subsequently rebuilt source above contains the cached-ancestry repair.
 Core wallet-ledger recovery also returns HTTP 503; closed-stage diagnostics pass
-their unchanged-response regression and await service deployment. Direct
+their unchanged-response regression. The new service build's startup
+current-asset cut failed because retained server-deployment originals selected
+the old validator source. The deployment owner verified all four current
+validator attestations from the existing checkpoint and installed the corrected
+signed server pins; the new Core build now starts. Direct
 activation finality proofs checked by the device owner are being served
 successfully. The separate incoming-payment signer-restricted lookup is repaired
-and passes its public-proof HTTP regressions; deployment is in progress.
+and passes its public-proof HTTP regressions; live payment verification remains
+pending after service recovery.
 Android 40's three registration transactions have finalized. These observations
 do not yet establish hardware wallet activation or an offline transfer.
 
-Exact current results are retained in
+Earlier source `491cc207` / generated DATA `dffe37c1` results are retained in
 `output/current-source-wallet-20261014/current-source-validation-handoff-v1.json`,
 `production-strict-v5/`, `engineering-strict-v5/`,
 `native-admission-current-v5/` and `completion-source-audit-v1/` under the same
@@ -458,6 +498,13 @@ change the native source census or relabel an earlier binary.
 - Reduce the measured 14.201-second catalogue opening further while preserving
   complete source admission; repeat phone loading, memory and disk measurements
   for the selected binary and measure actual app/package sizes.
+- Every native opening records an observation-only phase split (selection,
+  verifier pack, carrier intake, snapshot capture, binding, sigma, Q, routes,
+  Omega, closing, runtime) with per-phase counts of originals and encoded files
+  opened, stored and raw bytes hashed, zstd and descriptor decodes and ancestry
+  walks. The installation attempt retains it in memory and compiled inspection
+  prints it; nothing decides on it, persists it or signs it. Order the remaining
+  opening work by these phone records, not host estimates.
 - Keep complete payment latency, the two-second durable-completion target,
   low-memory devices and physical-device recovery explicitly unqualified until
   their own measurements pass. Small downloads alone do not establish them.

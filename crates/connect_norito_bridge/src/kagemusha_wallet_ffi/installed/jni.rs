@@ -65,8 +65,8 @@ pub extern "system" fn Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWa
         let root = platform
             .custody_root()
             .map_err(|error| Failure::unavailable(UNAVAILABLE, error))?;
-        let owner = prepared.runtime(platform, root, true)?;
-        Ok(Box::new(WalletInstallationAttempt::new(owner)))
+        let (owner, opening) = prepared.runtime(platform, root, true)?;
+        Ok(Box::new(WalletInstallationAttempt::new(owner, opening)))
     });
     match result {
         Ok(attempt) => Box::into_raw(attempt) as usize as jlong,

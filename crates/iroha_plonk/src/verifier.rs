@@ -35,6 +35,13 @@
 //!
 //! Every failure is a typed [`VerifyError`]; the verifier never panics. A
 //! memory budget only slows public MSMs down; it never rejects (S10).
+//!
+//! Production [`verify_full_cancellable`] and [`verify_full_opening_cancellable`]
+//! reuse the parameter owner's process-local memos of accepted verifications and
+//! accepted folded generators `<s(u), g>` (bounded, filled only after acceptance,
+//! never serialized); a hit returns the verdict of an earlier full verification
+//! of byte-identical inputs on the same owner. The oracle, filtered, succinct and
+//! batch paths never use them.
 
 use core::fmt;
 
@@ -43,13 +50,13 @@ use iroha_pasta::{PastaCurve, PastaField, msm::MemoryBudget, poseidon::PoseidonF
 
 use crate::{
     cs::{
-        DescriptorError, DescriptorRule, ProofSuffixV1, ProtocolDescriptor,
+        CurveV1, DescriptorError, DescriptorRule, ProofSuffixV1, ProtocolDescriptor,
         descriptor::ColumnKindV1,
     },
     keys::{DescriptorBinding, VerifyingKey, VkError},
     pcs::{
         ipa::{
-            IpaError, PinnedParams,
+            IpaError, PinnedParams, VerifiedOpening,
             accumulator::{
                 BATCH_KIND_ACCUMULATOR, BATCH_KIND_PROOF, PendingAccumulator, batch_item_digest,
                 batch_weights, proof_item_body,
@@ -486,6 +493,72 @@ impl<F: PastaField> ConstraintEvaluations<'_, F> {
     }
 }
 
+/// The structural checks of steps 1-2 that need no proof message: the key is
+/// bound to the descriptor, the parameters are its curve and `k`, the instance
+/// columns have their exact shape (S4) and the proof has its exact length.
+fn admit_statement<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    binding: &DescriptorBinding,
+    vk: &VerifyingKey<C>,
+    instances: &[Vec<C::ScalarExt>],
+    proof: &[u8],
+) -> Result<Protocol, VerifyError> {
+    let descriptor = binding.descriptor();
+    if vk.descriptor_digest() != binding.digest() {
+        return Err(VerifyError::KeyMismatch);
+    }
+    if params.curve() != descriptor.curve || params.k() != u32::from(descriptor.k) {
+        return Err(VerifyError::ParamsMismatch);
+    }
+    check_instances(descriptor, instances)?;
+    let protocol = Protocol::new(descriptor)?;
+    if proof.len() != protocol.proof_length() {
+        return Err(VerifyError::ProofLength {
+            expected: protocol.proof_length(),
+            actual: proof.len(),
+        });
+    }
+    Ok(protocol)
+}
+
+/// The key of production full verification of exact inputs in the parameter
+/// owner's memo of accepted verifications: a full SHA-256 over a domain tag,
+/// the curve, `k`, the descriptor profile and digest, the key's
+/// `transcript_repr` and the SHA-256 of its bytes, every length-framed
+/// instance column of canonical scalars and the length-framed proof bytes.
+fn full_verification_key<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    binding: &DescriptorBinding,
+    vk: &VerifyingKey<C>,
+    instances: &[Vec<C::ScalarExt>],
+    proof: &[u8],
+) -> [u8; 32] {
+    use ff::PrimeField;
+    use sha2::{Digest, Sha256};
+
+    let mut hash = Sha256::new();
+    hash.update(b"iroha:pipa:verify-full:production:all-terms:v1\0");
+    hash.update([match params.curve() {
+        CurveV1::Pallas => 0,
+        CurveV1::Vesta => 1,
+    }]);
+    hash.update(params.k().to_le_bytes());
+    hash.update([u8::from(binding.is_v2())]);
+    hash.update(binding.digest());
+    hash.update(vk.transcript_repr_bytes());
+    hash.update(Sha256::digest(vk.to_bytes()));
+    hash.update((instances.len() as u64).to_le_bytes());
+    for column in instances {
+        hash.update((column.len() as u64).to_le_bytes());
+        for value in column {
+            hash.update(value.to_repr().as_ref());
+        }
+    }
+    hash.update((proof.len() as u64).to_le_bytes());
+    hash.update(proof);
+    hash.finalize().into()
+}
+
 /// Steps 1-8 of the checklist; returns the pending opening and the suffix.
 /// `filter` is [`AllTerms`] for every real verification; the
 /// malicious-prover tests omit terms to show which one rejects.
@@ -507,21 +580,8 @@ where
 {
     iroha_pasta::CancellationToken::checkpoint(cancellation)?;
     let descriptor = binding.descriptor();
-    if vk.descriptor_digest() != binding.digest() {
-        return Err(VerifyError::KeyMismatch);
-    }
-    if params.curve() != descriptor.curve || params.k() != u32::from(descriptor.k) {
-        return Err(VerifyError::ParamsMismatch);
-    }
-    check_instances(descriptor, instances)?;
-    let protocol = Protocol::new(descriptor)?;
+    let protocol = admit_statement(params, binding, vk, instances, proof)?;
     let shape = *protocol.shape();
-    if proof.len() != protocol.proof_length() {
-        return Err(VerifyError::ProofLength {
-            expected: protocol.proof_length(),
-            actual: proof.len(),
-        });
-    }
 
     let hash = if mode.oracle {
         oracle_hash::<C>(descriptor)?
@@ -838,6 +898,14 @@ where
 
 /// Verifies with explicit cancellation and no partial acceptance verdict.
 ///
+/// The parameter owner remembers, in process memory only, the exact inputs it
+/// accepted (bounded, least recently used first out). Byte-identical inputs
+/// accepted earlier on the same owner are answered from that memo after the
+/// structural checks and a cancellation checkpoint; every other input is
+/// verified in full and remembered only when accepted. Rejections and
+/// cancellations are never remembered, so the verdict is that of full
+/// verification in every case.
+///
 /// # Errors
 /// As [`verify_full`], or [`VerifyError::Cancelled`].
 pub fn verify_full_cancellable<C: PastaCurve>(
@@ -855,6 +923,13 @@ where
 {
     crate::verification_counters::record_verify_full();
     iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    admit_statement(params, binding, vk, instances, proof)?;
+    let key = full_verification_key(params, binding, vk, instances, proof);
+    if params.remembers_verified_proof(&key) {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+        crate::verification_counters::record_reused_verification();
+        return Ok(());
+    }
     let read = read_proof(
         params,
         binding,
@@ -867,9 +942,68 @@ where
         cancellation,
     )?;
     iroha_pasta::CancellationToken::checkpoint(cancellation)?;
-    Ok(read
-        .pending
-        .verify_full_cancellable(params, read.suffix.as_ref(), budget, cancellation)?)
+    read.pending.verify_full_memoized_cancellable(
+        params,
+        read.suffix.as_ref(),
+        budget,
+        cancellation,
+    )?;
+    params.remember_verified_proof(key);
+    Ok(())
+}
+
+/// Full verification of a proof with a `FoldedGenerator` suffix that also
+/// returns the proof's own opening `G = <s(u), g>` as decided by it.
+///
+/// The proof is read once: the verdict is that of [`verify_full_cancellable`]
+/// (the suffix must equal `<s(u), g>` and the opening equation must hold with
+/// it), and the returned [`VerifiedOpening`] is that suffix with the round
+/// challenges of the same read, constructed only after acceptance. A caller
+/// that needs the opening as a decided claim therefore neither reads the proof
+/// a second time nor decides the same point again. Accepted inputs are
+/// remembered as by [`verify_full_cancellable`].
+///
+/// # Errors
+/// [`VerifyError::SuffixRequired`] without a `FoldedGenerator` suffix, the
+/// typed [`VerifyError`] of the first failed check, or
+/// [`VerifyError::Cancelled`].
+pub fn verify_full_opening_cancellable<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    binding: &DescriptorBinding,
+    vk: &VerifyingKey<C>,
+    instances: &[Vec<C::ScalarExt>],
+    proof: &[u8],
+    budget: MemoryBudget,
+    cancellation: Option<&iroha_pasta::CancellationToken>,
+) -> Result<VerifiedOpening<C>, VerifyError>
+where
+    C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
+{
+    crate::verification_counters::record_verify_full();
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    if binding.descriptor().proof_suffix != ProofSuffixV1::FoldedGenerator {
+        return Err(VerifyError::SuffixRequired);
+    }
+    let read = read_proof(
+        params,
+        binding,
+        vk,
+        instances,
+        proof,
+        production(vk),
+        budget,
+        &AllTerms,
+        cancellation,
+    )?;
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    let suffix = read.suffix.ok_or(VerifyError::SuffixRequired)?;
+    let k = read.pending.k();
+    let challenges = read.pending.challenges().to_vec();
+    read.pending
+        .verify_full_memoized_cancellable(params, Some(&suffix), budget, cancellation)?;
+    params.remember_verified_proof(full_verification_key(params, binding, vk, instances, proof));
+    Ok(VerifiedOpening::new(k, suffix, challenges))
 }
 
 /// Succinct accumulation (spec section 11): steps 1-8, then the opening

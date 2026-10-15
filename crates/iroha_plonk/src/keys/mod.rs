@@ -27,6 +27,7 @@ use crate::{
     frontend,
 };
 
+mod admission_work;
 pub mod keygen;
 pub mod pk;
 mod source_fingerprint;
@@ -34,6 +35,7 @@ mod source_fingerprint;
 mod tests;
 pub mod vk;
 
+pub use admission_work::AdmissionWorkV1;
 pub use keygen::{
     BuiltinSourceErrorV1, BuiltinSourceMemberV1, BuiltinSourceProfileV1, KeygenConfig,
     KeygenConfigV2, RebuildError, SourceAdmissionSealV2, SourceBoundVerifyingKeyV2,
@@ -80,6 +82,7 @@ impl DescriptorBinding {
     ///
     /// [`DescriptorError`] naming the failed rule.
     pub fn decode(bytes: &[u8]) -> Result<Self, DescriptorError> {
+        admission_work::record_descriptor_decode();
         let descriptor = CircuitDescriptorV1::decode(bytes)?;
         Ok(Self {
             descriptor: descriptor.into(),
@@ -110,6 +113,7 @@ impl DescriptorBinding {
     pub fn decode_v2(bytes: &[u8]) -> Result<Self, DescriptorError> {
         // Decode already validates the descriptor and compares its canonical
         // encoding to these bytes; retain that checked frame without a second pass.
+        admission_work::record_descriptor_decode();
         let descriptor = CircuitDescriptorV2::decode(bytes)?;
         Ok(Self {
             descriptor: descriptor.into(),

@@ -40,6 +40,16 @@ fn counts(
         batches,
         generator_msms,
         generator_msm_bases,
+        reused_verifications: 0,
+        reused_generators: 0,
+    }
+}
+
+fn reused(counts: VerificationCounts, verifications: u64, generators: u64) -> VerificationCounts {
+    VerificationCounts {
+        reused_verifications: verifications,
+        reused_generators: generators,
+        ..counts
     }
 }
 
@@ -81,7 +91,8 @@ where
     assert_eq!(current().since(before), counts(1, 0, 0, 0, 0));
 
     // With a FoldedGenerator suffix, verify_full still computes G'_0 once;
-    // the succinct paths compute no MSM and each decide computes one.
+    // the succinct paths compute no MSM, and deciding the opening that full
+    // verification accepted reuses that G'_0 on the same parameter owner.
     let folded = setup::<C, _>(&CIRCUIT, CHOICES[1]);
     let proof = folded.prove(&CIRCUIT, &instances, 2).expect("proof");
     let start = current();
@@ -107,9 +118,12 @@ where
     .expect("claim");
     assert_eq!(current().since(start), counts(1, 0, 0, 1, N));
     assert_eq!(pending.decide(&folded.params, BUDGET), Ok(()));
-    assert_eq!(current().since(start), counts(1, 1, 0, 2, 2 * N));
+    assert_eq!(current().since(start), reused(counts(1, 1, 0, 1, N), 0, 1));
     assert_eq!(claim.decide(&folded.params, BUDGET), Ok(()));
-    assert_eq!(current().since(start), counts(1, 2, 0, 3, 3 * N));
+    assert_eq!(current().since(start), reused(counts(1, 2, 0, 1, N), 0, 2));
+    // Byte-identical accepted inputs are answered without another MSM.
+    assert_eq!(folded.verify(&instances, &proof), Ok(()));
+    assert_eq!(current().since(start), reused(counts(2, 2, 0, 1, N), 1, 2));
 
     // A batch of two proofs is one batch and one merged generator MSM.
     let other = Arithmetic {

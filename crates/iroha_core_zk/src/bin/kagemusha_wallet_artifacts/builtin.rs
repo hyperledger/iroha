@@ -2,8 +2,8 @@
 
 use super::*;
 use iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::{
-    EncodedDirectoryOriginalsV1, EncodedTransportV1, ProducerInventoryV1, TRANSPORT_MAX_BYTES_V1,
-    WalletSourcesErrorV1,
+    EncodedDirectoryOriginalsV1, EncodedTransportV1, OpeningMetricsV1, ProducerInventoryV1,
+    TRANSPORT_MAX_BYTES_V1, WalletSourcesErrorV1,
 };
 
 struct InspectionSummary {
@@ -12,9 +12,11 @@ struct InspectionSummary {
     peak_proving_bytes: u64,
 }
 
+/// Records `catalog_intake` and `snapshot_capture`; the body's own owner reports its stages.
 fn with_encoded_snapshot<T>(
     root: &PrivateDirectory,
     inventory: &ProducerInventoryV1,
+    opening: &mut OpeningMetricsV1,
     body: impl FnOnce(&mut dyn OriginalSourceV1) -> Result<T, WalletSourcesErrorV1>,
 ) -> io::Result<(T, Original)> {
     let transport_original = Original::open(
@@ -31,7 +33,15 @@ fn with_encoded_snapshot<T>(
         root.path().join("wallet-originals"),
         &transport,
     )?;
-    let result = source.with_snapshot(body).map_err(io::Error::other);
+    opening.lap("catalog_intake");
+    let result = source
+        .with_snapshot(|snapshot| {
+            opening.lap("snapshot_capture");
+            let result = body(snapshot);
+            opening.restart();
+            result
+        })
+        .map_err(io::Error::other);
     // Metadata remains under its own retained original, also on body failure.
     transport_original.recheck()?;
     Ok((result?, transport_original))
@@ -106,6 +116,7 @@ fn parse_request(bytes: &[u8]) -> io::Result<BuiltinRequest> {
 /// the unconditional strict path and never looks up an existing registry entry.
 pub(super) fn run(path: &str, export: bool) -> io::Result<()> {
     let total = std::time::Instant::now();
+    let mut opening = OpeningMetricsV1::start();
     let request_original = Original::open(path, REQUEST_MAX, None)?;
     let request = parse_request(&request_original.bytes)?;
     let root = PrivateDirectory::open_exact(&request.carrier_directory)?;
@@ -139,6 +150,7 @@ pub(super) fn run(path: &str, export: bool) -> io::Result<()> {
         &request.genesis_public_key,
         &genesis.bytes,
     )?;
+    opening.lap("selection");
     let pack_start = std::time::Instant::now();
     let installed = InstalledVerifierPackV1::load(
         &pack.bytes,
@@ -152,6 +164,7 @@ pub(super) fn run(path: &str, export: bool) -> io::Result<()> {
         "BUILTIN_PROFILE_PHASE stage=pack_and_parameters elapsed_ms={}",
         pack_start.elapsed().as_millis()
     );
+    opening.lap("verifier_pack");
     let inventory = installed
         .authenticate_producer_inventory(&catalog.bytes)
         .map_err(io::Error::other)?;
@@ -204,20 +217,25 @@ pub(super) fn run(path: &str, export: bool) -> io::Result<()> {
             // Retain the exact authenticated DATA closure while the callback
             // consumes its opaque authenticated owner into the complete wallet.
             let expected = inventory.inventory().clone();
-            let (wallet, transport) = with_encoded_snapshot(&root, &expected, |source| {
-                inventory.qualify_wallet_builtin(&installed, &native, source, config)
-            })?;
+            let (wallet, transport) =
+                with_encoded_snapshot(&root, &expected, &mut opening, |source| {
+                    inventory.qualify_wallet_builtin(&installed, &native, source, config)
+                })?;
             (wallet, Some(transport))
         } else {
             let mut originals = DirectoryOriginalsV1::open_existing(
                 root.path().join(&request.originals_name),
                 PROVING_KEY_MAX_BYTES_V1,
             )?;
+            opening.lap("catalog_intake");
             let wallet = inventory
                 .qualify_wallet_builtin(&installed, &native, &mut originals, config)
                 .map_err(io::Error::other)?;
+            opening.restart();
             (wallet, None)
         };
+        opening.qualification(wallet.qualification_metrics());
+        opening.lap("closing");
         let summary = InspectionSummary {
             routes: wallet.inventory().routes.len(),
             programs: wallet.inventory().operations.len(),
@@ -245,7 +263,13 @@ pub(super) fn run(path: &str, export: bool) -> io::Result<()> {
             root.revalidate()
         },
         &mut io::stdout().lock(),
-    )
+    )?;
+    if !export {
+        // Observation only, printed after every final custody check passed.
+        opening.finish();
+        println!("OPENING_METRICS {}", opening.to_json());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -302,7 +326,8 @@ mod tests {
     #[test]
     fn compiled_inspection_snapshot_requires_complete_originals_before_body() {
         let (_temp, root, inventory) = encoded_fixture();
-        with_encoded_snapshot(&root, &inventory, |source| {
+        let mut opening = OpeningMetricsV1::start();
+        with_encoded_snapshot(&root, &inventory, &mut opening, |source| {
             let row = inventory.originals[0];
             for original in [row.descriptor, row.verifying_key, row.proving_key] {
                 let mut bytes = Vec::new();
@@ -315,6 +340,10 @@ mod tests {
             Ok(())
         })
         .unwrap();
+        let names: Vec<_> = opening.phases().iter().map(|(name, _)| *name).collect();
+        assert_eq!(names, ["catalog_intake", "snapshot_capture"]);
+        let capture = opening.phase("snapshot_capture").unwrap().work;
+        assert_eq!((capture.stored_files_opened, capture.zstd_decodes), (3, 3));
         let path = root
             .path()
             .join("wallet-originals")
@@ -322,7 +351,7 @@ mod tests {
         std::fs::remove_file(path).unwrap();
         let mut entered = false;
         assert!(
-            with_encoded_snapshot(&root, &inventory, |_| {
+            with_encoded_snapshot(&root, &inventory, &mut OpeningMetricsV1::start(), |_| {
                 entered = true;
                 Ok(())
             })
@@ -342,10 +371,11 @@ mod tests {
                     .join("wallet-originals")
                     .join(hex::encode(inventory.originals[0].descriptor.sha256))
             };
-            let result = with_encoded_snapshot(&root, &inventory, |_| {
-                std::fs::rename(&path, root.path().join("retained-old")).unwrap();
-                Ok("must not escape failed final custody")
-            });
+            let result =
+                with_encoded_snapshot(&root, &inventory, &mut OpeningMetricsV1::start(), |_| {
+                    std::fs::rename(&path, root.path().join("retained-old")).unwrap();
+                    Ok("must not escape failed final custody")
+                });
             assert!(result.is_err());
         }
     }
@@ -494,5 +524,114 @@ mod tests {
         }
         let bounded = replace_string(&text, "chain_id", "test-only", &"a".repeat(256));
         assert!(parse_request(bounded.as_bytes()).is_ok());
+    }
+
+    // One complete public-carrier opening as inspection runs it, with the encoded
+    // admission snapshot, closing custody and every phase recorded. A source build
+    // without a fresh compiled profile refuses the compiled graph exactly as phones
+    // would; the strict graph then runs through the same snapshot so every stage is
+    // measured. Observation DATA only: no custody root, key, enrollment or ledger action.
+    fn public_carrier_opening(
+        request: &BuiltinRequest,
+        strict: bool,
+    ) -> (String, OpeningMetricsV1) {
+        let mut opening = OpeningMetricsV1::start();
+        let root = PrivateDirectory::open_exact(&request.carrier_directory).unwrap();
+        let read = |name: &str, maximum| {
+            Original::open(root.path().join(name).to_str().unwrap(), maximum, None).unwrap()
+        };
+        let pack = read(
+            &request.verifier_pack_name,
+            iroha_core_zk::kagemusha_wallet_artifacts_v1::VERIFIER_PACK_MAX_BYTES_V1,
+        );
+        let catalog = read(
+            "producer-inventory.norito",
+            iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::CATALOG_MAX_BYTES_V1,
+        );
+        let genesis = Original::open(
+            &request.signed_genesis.path,
+            GENESIS_MAX,
+            Some(digest(&request.signed_genesis.sha256).unwrap()),
+        )
+        .unwrap();
+        let native = native_finality(
+            &request.chain_id,
+            &request.network_id_hex,
+            &request.genesis_public_key,
+            &genesis.bytes,
+        )
+        .unwrap();
+        opening.lap("selection");
+        let installed = InstalledVerifierPackV1::load(
+            &pack.bytes,
+            InstallationV1 {
+                scheme_id: digest(&request.scheme_id).unwrap(),
+                manifest_digest: digest(&request.manifest_digest).unwrap(),
+            },
+        )
+        .unwrap();
+        opening.lap("verifier_pack");
+        let inventory = installed
+            .authenticate_producer_inventory(&catalog.bytes)
+            .unwrap();
+        let expected = inventory.inventory().clone();
+        let config = ReadConfig {
+            maximum_bytes: PROVING_KEY_MAX_BYTES_V1,
+            maximum_rows: 1 << 16,
+            coset_cache: CosetCachePolicy::OnDemand,
+            msm_budget: MemoryBudget::DEFAULT,
+        };
+        let result = with_encoded_snapshot(&root, &expected, &mut opening, |source| {
+            if strict {
+                inventory.qualify_wallet(&installed, &native, source, config)
+            } else {
+                inventory.qualify_wallet_builtin(&installed, &native, source, config)
+            }
+        });
+        let outcome = match result {
+            Ok((wallet, transport)) => {
+                opening.qualification(wallet.qualification_metrics());
+                transport.recheck().unwrap();
+                "accepted".to_owned()
+            }
+            Err(error) => error.to_string(),
+        };
+        opening.lap("closing");
+        for original in [&pack, &catalog, &genesis] {
+            original.recheck().unwrap();
+        }
+        root.revalidate().unwrap();
+        opening.finish();
+        (outcome, opening)
+    }
+
+    #[test]
+    #[ignore = "complete public carrier opening; set KAGEMUSHA_OPENING_BASELINE_REQUEST and KAGEMUSHA_OPENING_BASELINE_OUTPUT"]
+    fn public_carrier_opening_baseline() {
+        let path = std::env::var("KAGEMUSHA_OPENING_BASELINE_REQUEST").unwrap();
+        let output = std::env::var_os("KAGEMUSHA_OPENING_BASELINE_OUTPUT").unwrap();
+        let request =
+            parse_request(&Original::open(&path, REQUEST_MAX, None).unwrap().bytes).unwrap();
+        assert!(request.encoded, "phones open the encoded carrier");
+        let mut records = Vec::new();
+        let mut accepted = false;
+        for (mode, strict) in [("compiled", false), ("strict", true)] {
+            let (outcome, opening) = public_carrier_opening(&request, strict);
+            println!(
+                "OPENING_BASELINE mode={mode} outcome={outcome:?} {}",
+                opening.to_json()
+            );
+            accepted = outcome == "accepted";
+            records.push(format!(
+                "{{\"mode\":\"{mode}\",\"outcome\":{},\"metrics\":{}}}",
+                json::to_string(&outcome).unwrap(),
+                opening.to_json()
+            ));
+            if accepted {
+                break;
+            }
+        }
+        std::fs::write(output, format!("[{}]\n", records.join(","))).unwrap();
+        assert!(accepted, "no complete graph qualified the public carrier");
     }
 }

@@ -1549,16 +1549,17 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
               case .iso7816(let isoTag) = tag else {
             lock.lock()
             let operationEpoch = operationGate.activeEpoch
-            let isCurrent = !completed
-                && self.session === session
-                && operationGate.mayMutate(capturedEpoch: operationEpoch)
-            let disposition = isCurrent
-                ? retryGate?.recordInvalidDetection()
-                : nil
-            let platformCallGate = isCurrent ? self.platformCallGate : nil
+            guard !completed,
+                  self.session === session,
+                  operationGate.mayMutate(capturedEpoch: operationEpoch) else {
+                lock.unlock()
+                return
+            }
+            let disposition = retryGate?.recordInvalidDetection()
+            let platformCallGate = self.platformCallGate
             let retryTimeoutTask = self.retryTimeoutTask
             self.retryTimeoutTask = nil
-            let reporter = isCurrent ? progressReporter : nil
+            let reporter = progressReporter
             lock.unlock()
             retryTimeoutTask?.cancel()
             reporter?.emit(.tagDetected)

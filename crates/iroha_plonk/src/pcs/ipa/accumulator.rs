@@ -42,7 +42,7 @@ use core::fmt;
 use ff::{Field, FromUniformBytes, PrimeField};
 use iroha_pasta::{PastaCurve, PastaField, msm::MemoryBudget};
 
-use super::{IpaError, PinnedParams, commit::msm_complete, fold_scalars, verifier};
+use super::{IpaError, PinnedParams, commit::msm_complete, fold_scalars};
 use crate::{
     cs::{CurveV1, constraint_system::MAX_K, descriptor::blake2b_personal},
     pcs::curve_v1,
@@ -323,12 +323,14 @@ impl<C: PastaCurve> PendingAccumulator<C> {
     ) -> Result<(), AccumulatorError> {
         crate::verification_counters::record_decide();
         params.require_k(self.k)?;
-        let expected = verifier::folded_generator_of(params, &self.challenges, budget);
-        if expected.to_affine() == self.g {
-            Ok(())
-        } else {
-            Err(AccumulatorError::Rejected)
-        }
+        params
+            .decide_folded_generator_cancellable(&self.challenges, &self.g, budget, None)
+            .map_err(|error| match error {
+                IpaError::ParamsTooSmall { needed, available } => {
+                    AccumulatorError::ParamsTooSmall { needed, available }
+                }
+                _ => AccumulatorError::Rejected,
+            })
     }
 }
 
@@ -473,7 +475,8 @@ pub(crate) fn honest_accumulator<C: PastaCurve>(
     transcript_repr: C::ScalarExt,
 ) -> PendingAccumulator<C> {
     let k = u32::try_from(challenges.len()).expect("k fits u32");
-    let g = verifier::folded_generator_of(params, &challenges, MemoryBudget::DEFAULT).to_affine();
+    let g = super::verifier::folded_generator_of(params, &challenges, MemoryBudget::DEFAULT)
+        .to_affine();
     PendingAccumulator::new(transcript_repr, k, g, challenges)
 }
 

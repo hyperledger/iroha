@@ -14,30 +14,45 @@ class IrohaPeerAndroidPermissionContractV1Test {
     fun `merged manifest preserves exact wifi permission boundaries`() {
         val accessWifi = permission("android.permission.ACCESS_WIFI_STATE")
         assertEquals(null, accessWifi.minimumSdk)
-        assertEquals(31, accessWifi.maximumSdk)
+        assertEquals(32, accessWifi.maximumSdk)
 
         val changeWifi = permission("android.permission.CHANGE_WIFI_STATE")
         assertEquals(null, changeWifi.minimumSdk)
-        assertEquals(31, changeWifi.maximumSdk)
+        assertEquals(32, changeWifi.maximumSdk)
 
         val nearbyWifi = permission("android.permission.NEARBY_WIFI_DEVICES")
-        assertEquals(32, nearbyWifi.minimumSdk)
+        assertEquals(33, nearbyWifi.minimumSdk)
         assertEquals(null, nearbyWifi.maximumSdk)
         assertEquals("neverForLocation", nearbyWifi.flags)
     }
 
     @Test
-    fun `api 31 and older use legacy wifi while api 32 and newer use nearby wifi`() {
-        for (api in intArrayOf(24, 28, 29, 30, 31)) {
+    fun `api 32 and older use legacy wifi while api 33 and newer use nearby wifi`() {
+        for (api in intArrayOf(24, 28, 29, 30, 31, 32)) {
             assertTrue(permission("android.permission.ACCESS_WIFI_STATE").appliesTo(api))
             assertTrue(permission("android.permission.CHANGE_WIFI_STATE").appliesTo(api))
             assertFalse(permission("android.permission.NEARBY_WIFI_DEVICES").appliesTo(api))
         }
-        for (api in intArrayOf(32, 33, 34, 35, 36, 37)) {
+        for (api in intArrayOf(33, 34, 35, 36, 37)) {
             assertFalse(permission("android.permission.ACCESS_WIFI_STATE").appliesTo(api))
             assertFalse(permission("android.permission.CHANGE_WIFI_STATE").appliesTo(api))
             assertTrue(permission("android.permission.NEARBY_WIFI_DEVICES").appliesTo(api))
         }
+    }
+
+    @Test
+    fun `api 32 retains location and api 33 switches to nearby wifi`() {
+        val coarse = permission("android.permission.ACCESS_COARSE_LOCATION")
+        val fine = permission("android.permission.ACCESS_FINE_LOCATION")
+        assertEquals(32, coarse.maximumSdk)
+        assertEquals(29, fine.minimumSdk)
+        assertEquals(32, fine.maximumSdk)
+        assertTrue(coarse.appliesTo(32))
+        assertTrue(fine.appliesTo(32))
+        assertFalse(coarse.appliesTo(33))
+        assertFalse(fine.appliesTo(33))
+        assertFalse(permission("android.permission.NEARBY_WIFI_DEVICES").appliesTo(32))
+        assertTrue(permission("android.permission.NEARBY_WIFI_DEVICES").appliesTo(33))
     }
 
     private class Permission(

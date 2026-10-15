@@ -141,6 +141,7 @@ fn digest(
     bytes: &[u8],
     cancellation: Option<&CancellationToken>,
 ) -> Result<[u8; 32], BuiltinSourceErrorV1> {
+    crate::keys::admission_work::record_builtin_hash(bytes.len());
     let mut hash = Sha256::new();
     for chunk in bytes.chunks(4096) {
         CancellationToken::checkpoint(cancellation)?;

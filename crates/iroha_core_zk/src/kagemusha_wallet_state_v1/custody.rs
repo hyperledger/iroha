@@ -123,9 +123,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> AdvanceHandle<F, P> {
 
     fn lock(&self) -> Result<MutexGuard<'_, KagemushaWalletProviderV1<F, P>>, ProviderError> {
         self.require_custody_operations()?;
-        self.provider.lock().map_err(|_| ProviderError::Invalid {
+        let mut provider = self.provider.lock().map_err(|_| ProviderError::Invalid {
             field: "provider handle poisoned",
-        })
+        })?;
+        // Every custody call ends the current archive phase; the next archive access reconciles.
+        provider.end_archive_phase();
+        Ok(provider)
     }
     pub(crate) fn sign_setup(
         &self,
@@ -164,7 +167,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> AdvanceHandle<F, P> {
     }
 
     /// Create the matching archive capability. Both adapters share one provider and its
-    /// exclusive custody lifetime; every archive call uses its protected-storage bracket.
+    /// exclusive custody lifetime. Archive calls between two custody calls share one archive
+    /// phase: the first reconciles the slot, and every call that touches storage is followed
+    /// by a protected-storage probe.
     #[must_use]
     pub fn archive(&self, scheme_id: [u8; 32], wallet_id: [u8; 32]) -> ProviderArchive<F, P> {
         ProviderArchive {
@@ -472,12 +477,66 @@ impl
 
 /// State-owner archive under the same provider lock, directory capability and storage probes
 /// as monetary custody. Create through [`AdvanceHandle::archive`].
+///
+/// Accesses run inside the provider's current archive phase (reconciled once, ended by every
+/// custody call). Content-addressed objects read through [`super::ObjectStore`] accept the first
+/// redundant copy that passes every check and are kept, authenticated, for the rest of the
+/// phase; every other key reads and compares both copies.
 pub struct ProviderArchive<F: KagemushaWalletFsV1, P> {
     provider: Arc<Mutex<KagemushaWalletProviderV1<F, P>>>,
     slot: KagemushaWalletSlotIdV1,
     scheme_id: [u8; 32],
     wallet_id: [u8; 32],
 }
+
+impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> ProviderArchive<F, P> {
+    fn lock(&self) -> Result<MutexGuard<'_, KagemushaWalletProviderV1<F, P>>, super::Error> {
+        self.provider
+            .lock()
+            .map_err(|_| super::Error::Invalid("provider handle poisoned"))
+    }
+
+    // Provider record key of one archive key.
+    fn identity(key: super::ArchiveKey) -> Result<[u8; 32], super::Error> {
+        use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_provider_digest_v1 as digest;
+        Ok(digest("wallet-archive-key", &super::archive::encode(&key)?))
+    }
+
+    // Phase identity of one authenticated object of this incarnation.
+    fn object_key(&self, identity: [u8; 32]) -> [[u8; 32]; 3] {
+        [self.scheme_id, self.wallet_id, identity]
+    }
+
+    fn record_limit(max_bytes: usize) -> Result<usize, super::Error> {
+        Ok(max_bytes
+            .checked_add(super::archive::METADATA_BOUND)
+            .ok_or(ProviderError::Invalid {
+                field: "archive size",
+            })?)
+    }
+
+    // Authenticate one record's canonical envelope: incarnation, key, bound and content digest.
+    fn authenticate(
+        &self,
+        key: super::ArchiveKey,
+        bytes: &[u8],
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, super::Error> {
+        use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_provider_digest_v1 as digest;
+        let envelope: super::archive::Envelope = super::archive::decode(bytes)?;
+        if envelope.version != 1
+            || envelope.scheme_id != self.scheme_id
+            || envelope.wallet_id != self.wallet_id
+            || envelope.key != key
+            || envelope.content.len() > max_bytes
+            || envelope.content_digest != digest("wallet-archive-content", &envelope.content)
+        {
+            return Err(super::Error::WitnessLost("provider archive authentication"));
+        }
+        Ok(envelope.content)
+    }
+}
+
 impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> super::ArchiveStore
     for ProviderArchive<F, P>
 {
@@ -489,50 +548,70 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> super::ArchiveStore
         key: super::ArchiveKey,
         max_bytes: usize,
     ) -> Result<Option<Vec<u8>>, super::Error> {
-        use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_provider_digest_v1 as digest;
-        let identity = digest("wallet-archive-key", &super::archive::encode(&key)?);
-        let mut provider = self
-            .provider
-            .lock()
-            .map_err(|_| super::Error::Invalid("provider handle poisoned"))?;
-        let Some(bytes) = provider.with_archive(&self.slot, |archive| {
-            archive.read_record(
-                &identity,
-                max_bytes
-                    .checked_add(super::archive::METADATA_BOUND)
-                    .ok_or(ProviderError::Invalid {
-                        field: "archive size",
-                    })?,
-            )
+        let identity = Self::identity(key)?;
+        let limit = Self::record_limit(max_bytes)?;
+        let mut provider = self.lock()?;
+        let Some(bytes) = provider.with_archive_phase(&self.slot, |archive| {
+            archive.read_record(&identity, limit)
         })?
         else {
             return Ok(None);
         };
-        let envelope: super::archive::Envelope = super::archive::decode(&bytes)?;
-        if envelope.version != 1
-            || envelope.scheme_id != self.scheme_id
-            || envelope.wallet_id != self.wallet_id
-            || envelope.key != key
-            || envelope.content.len() > max_bytes
-            || envelope.content_digest != digest("wallet-archive-content", &envelope.content)
-        {
-            return Err(super::Error::WitnessLost("provider archive authentication"));
+        self.authenticate(key, &bytes, max_bytes)
+            .inspect_err(|_| provider.end_archive_phase())
+            .map(Some)
+    }
+    fn get_object(
+        &mut self,
+        digest: [u8; 32],
+        max_bytes: usize,
+    ) -> Result<Option<Vec<u8>>, super::Error> {
+        let key = super::ArchiveKey::Object(digest);
+        let identity = Self::identity(key)?;
+        let object = self.object_key(identity);
+        let limit = Self::record_limit(max_bytes)?;
+        let mut provider = self.lock()?;
+        // Kept content is the authenticated content of this exact key; any other bound is
+        // answered from disk with today's exact error.
+        if let Some(content) = provider.archive_phase_object(&self.slot, &object, max_bytes) {
+            return Ok(Some(content));
         }
-        Ok(Some(envelope.content))
+        let Some(bytes) = provider.with_archive_phase(&self.slot, |archive| {
+            archive.read_record_first(&identity, limit)
+        })?
+        else {
+            return Ok(None);
+        };
+        // The first copy whose prefix verifies must pass every check; a failure is never
+        // retried with the redundant copy.
+        let content = self
+            .authenticate(key, &bytes, max_bytes)
+            .and_then(|content| {
+                if crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(
+                    &content,
+                ) == digest
+                {
+                    Ok(content)
+                } else {
+                    Err(super::Error::WitnessLost("index object digest"))
+                }
+            })
+            .inspect_err(|_| provider.end_archive_phase())?;
+        provider.keep_archive_phase_object(&self.slot, object, &content);
+        Ok(Some(content))
     }
     fn remove(&mut self, key: super::ArchiveKey) -> Result<(), super::Error> {
-        use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_provider_digest_v1 as digest;
-        let identity = digest("wallet-archive-key", &super::archive::encode(&key)?);
-        let mut provider = self
-            .provider
-            .lock()
-            .map_err(|_| super::Error::Invalid("provider handle poisoned"))?;
-        provider.with_archive(&self.slot, |archive| archive.remove_record(&identity))?;
+        let identity = Self::identity(key)?;
+        let object = self.object_key(identity);
+        let mut provider = self.lock()?;
+        // Forgotten by the phase (and, in `remove_record`, by the write memo) before any unlink.
+        provider.forget_archive_phase_object(&object);
+        provider.with_archive_phase(&self.slot, |archive| archive.remove_record(&identity))?;
         Ok(())
     }
     fn put(&mut self, key: super::ArchiveKey, bytes: &[u8]) -> Result<(), super::Error> {
         use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_provider_digest_v1 as digest;
-        let identity = digest("wallet-archive-key", &super::archive::encode(&key)?);
+        let identity = Self::identity(key)?;
         let envelope = super::archive::Envelope {
             version: 1,
             scheme_id: self.scheme_id,
@@ -541,14 +620,18 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> super::ArchiveStore
             content_digest: digest("wallet-archive-content", bytes),
             content: bytes.to_vec(),
         };
-        let bytes = super::archive::encode(&envelope)?;
-        let mut provider = self
-            .provider
-            .lock()
-            .map_err(|_| super::Error::Invalid("provider handle poisoned"))?;
-        provider.with_archive(&self.slot, |archive| {
-            archive.write_record(&identity, &bytes)
+        let encoded = super::archive::encode(&envelope)?;
+        let mut provider = self.lock()?;
+        provider.with_archive_phase(&self.slot, |archive| {
+            archive.write_record(&identity, &encoded)
         })?;
+        // Both copies are durable: an object's exact content stays readable for the phase.
+        if let super::ArchiveKey::Object(object) = key
+            && crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(bytes)
+                == object
+        {
+            provider.keep_archive_phase_object(&self.slot, self.object_key(identity), bytes);
+        }
         Ok(())
     }
 }

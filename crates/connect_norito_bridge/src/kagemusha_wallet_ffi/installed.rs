@@ -5,7 +5,8 @@ use super::*;
 use iroha_core_zk::kagemusha_wallet_artifacts_v1::{
     InstallationV1, InstalledVerifierPackV1, VERIFIER_PACK_MAX_BYTES_V1,
     producer_inventory::{
-        BlobV1, CATALOG_MAX_BYTES_V1, PROVING_KEY_MAX_BYTES_V1, QualifiedWalletSourcesV1,
+        BlobV1, CATALOG_MAX_BYTES_V1, OpeningMetricsV1, PROVING_KEY_MAX_BYTES_V1,
+        QualifiedWalletSourcesV1,
     },
 };
 use iroha_pasta::msm::MemoryBudget;
@@ -175,14 +176,22 @@ struct PreparedInstallation {
     installed: Arc<InstalledVerifierPackV1>,
     sources: Arc<QualifiedWalletSourcesV1>,
     originals: CatalogOriginals,
+    // Observation only: public phase durations and counts; no decision reads them.
+    opening: OpeningMetricsV1,
 }
 impl PreparedInstallation {
     fn load(input: RuntimeOriginals<'_>) -> Result<Self> {
         input.validate_bounds()?;
+        let mut opening = OpeningMetricsV1::start();
         let selected = Arc::new(Selection::installed(&input)?);
-        Self::from_selected(input, selected)
+        opening.lap("selection");
+        Self::from_selected(input, selected, opening)
     }
-    fn from_selected(input: RuntimeOriginals<'_>, selected: Arc<Selection>) -> Result<Self> {
+    fn from_selected(
+        input: RuntimeOriginals<'_>,
+        selected: Arc<Selection>,
+        mut opening: OpeningMetricsV1,
+    ) -> Result<Self> {
         // Both closed application adapters have authenticated their whole base here.
         // Complete financial absence never acquires a platform, custody root or owner.
         input.validate_bounds()?;
@@ -206,6 +215,7 @@ impl PreparedInstallation {
         {
             return Err(Failure::code(INVALID));
         }
+        opening.lap("verifier_pack");
         let base = selected.authenticated_base()?;
         base.require_producer_selection(&installed)?;
         let inventory = installed
@@ -218,14 +228,19 @@ impl PreparedInstallation {
             input.producer_inventory,
             base,
         )?;
+        opening.lap("catalog_intake");
         let sources = originals
             .with_snapshot(|snapshot| {
-                inventory.qualify_wallet_builtin(
+                opening.lap("snapshot_capture");
+                let sources = inventory.qualify_wallet_builtin(
                     &installed,
                     &selected.genesis,
                     snapshot,
                     read_config(),
-                )
+                );
+                // The qualified owner reports its own stage split below.
+                opening.restart();
+                sources
             })
             .map_err(|error| {
                 Failure::code(if error.is_unavailable() {
@@ -234,19 +249,24 @@ impl PreparedInstallation {
                     INVALID
                 })
             })?;
+        opening.qualification(sources.qualification_metrics());
+        opening.lap("closing");
         Ok(Self {
             selected,
             installed: Arc::new(installed),
             sources: Arc::new(sources),
             originals,
+            opening,
         })
     }
+    /// Returns the runtime owner with the complete observation-only opening record.
     fn runtime<P: advance::KagemushaWalletPlatformV1 + 'static>(
         self,
         platform: P,
         custody_root: std::path::PathBuf,
         android: bool,
-    ) -> Result<Arc<open::RuntimeOwner>> {
+    ) -> Result<(Arc<open::RuntimeOwner>, OpeningMetricsV1)> {
+        let mut opening = self.opening;
         let fs = advance::KagemushaWalletStdFsV1::open(custody_root)
             .map_err(|error| Failure::unavailable(UNAVAILABLE, error))?;
         let provider = advance::KagemushaWalletProviderV1::open(
@@ -268,7 +288,10 @@ impl PreparedInstallation {
             selected: self.selected,
             android,
         };
-        Ok(open::bound_runtime_owner(runtime, binding))
+        let owner = open::bound_runtime_owner(runtime, binding);
+        opening.lap("runtime");
+        opening.finish();
+        Ok((owner, opening))
     }
 }
 

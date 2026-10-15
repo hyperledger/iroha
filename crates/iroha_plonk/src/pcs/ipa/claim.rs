@@ -1,9 +1,10 @@
-//! A pending generator equality, independent of descriptor/transcript provenance.
+//! A pending generator equality, independent of descriptor/transcript provenance,
+//! and the decided own opening of a fully verified proof.
 //!
 //! Recursive statements bind provenance through their obligation ledger and VK
-//! checks. This value alone is never a proof or an acceptance verdict.
+//! checks. A [`GeneratorClaim`] alone is never a proof or an acceptance verdict.
 
-use super::{IpaError, PinnedParams, fold_scalars};
+use super::{IpaError, PinnedParams};
 use ff::Field;
 use group::prime::PrimeCurveAffine;
 use iroha_pasta::{PastaCurve, msm::MemoryBudget};
@@ -65,22 +66,46 @@ impl<C: PastaCurve> GeneratorClaim<C> {
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<(), IpaError> {
         crate::verification_counters::record_decide();
-        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
-        params.require_k(self.k)?;
-        let s = fold_scalars(&self.challenges, C::ScalarExt::ONE);
-        crate::verification_counters::record_generator_msm(s.len());
-        let expected = super::commit::msm_complete_cancellable::<C>(
-            &s,
-            &params.params().g()[..s.len()],
-            budget,
-            &iroha_pasta::msm::SharedMemoryBudget::process_default(),
-            cancellation,
-        )?
-        .to_affine();
-        if expected == self.g {
-            Ok(())
-        } else {
-            Err(IpaError::OpeningFailed)
-        }
+        // `k` is the challenge count (checked at construction), so the owner's
+        // decide checks cancellation, then this claim's `k`, then the equality.
+        params.decide_folded_generator_cancellable(&self.challenges, &self.g, budget, cancellation)
+    }
+}
+
+/// The own opening `G = <s(u), g[0..2^k)>` of a proof that production full
+/// verification accepted, read from the same proof bytes in the same call.
+///
+/// Only [`crate::verifier::verify_full_opening_cancellable`] constructs this
+/// value, after the opening equation held with the decided `G`; it is not a
+/// transported or prover-supplied claim.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedOpening<C: PastaCurve> {
+    k: u32,
+    g: C::AffineExt,
+    challenges: Vec<C::ScalarExt>,
+}
+impl<C: PastaCurve> VerifiedOpening<C> {
+    pub(crate) fn new(k: u32, g: C::AffineExt, challenges: Vec<C::ScalarExt>) -> Self {
+        Self { k, g, challenges }
+    }
+    /// The number of IPA rounds.
+    #[must_use]
+    pub const fn k(&self) -> u32 {
+        self.k
+    }
+    /// The decided folded generator.
+    #[must_use]
+    pub const fn g(&self) -> &C::AffineExt {
+        &self.g
+    }
+    /// The IPA challenges in top-index-bit order.
+    #[must_use]
+    pub fn challenges(&self) -> &[C::ScalarExt] {
+        &self.challenges
+    }
+    /// Whether `claim` is exactly this opening: the same `k`, `G` and every challenge.
+    #[must_use]
+    pub fn matches(&self, claim: &GeneratorClaim<C>) -> bool {
+        self.k == claim.k && self.g == claim.g && self.challenges == claim.challenges
     }
 }

@@ -115,6 +115,8 @@ pub struct QualifiedWalletSourcesV1 {
     omega: QualifiedOmegaProgramV1,
     sigma_parameters: [Arc<PinnedParams<Eq>>; 2],
     q_parameters: Arc<PinnedParams<Ep>>,
+    // Observation only: no capability, check or returned verdict reads this split.
+    qualification: QualificationMetricsV1,
 }
 
 fn route_index(route: OperationRoute) -> Result<usize, Error> {
@@ -152,6 +154,7 @@ impl AuthenticatedProducerInventoryV1 {
         originals: &mut dyn OriginalSourceV1,
         config: ReadConfig,
     ) -> Result<QualifiedWalletSourcesV1, WalletSourcesErrorV1> {
+        let mut clock = OpeningClockV1::start();
         require_installation(
             self.installation(),
             (
@@ -171,6 +174,7 @@ impl AuthenticatedProducerInventoryV1 {
             Arc::clone(installed.verifier().vesta_parameters(14)?),
         ];
         let q_parameters = Arc::clone(installed.verifier().pallas_parameters());
+        let binding = clock.lap();
         let sigmas = self.qualify_sigmas_with_admission(
             originals,
             config,
@@ -178,6 +182,7 @@ impl AuthenticatedProducerInventoryV1 {
             &sigma_parameters[1],
             admission,
         )?;
+        let sigma = clock.lap();
         let q = self.qualify_q_programs_with_admission(
             installed,
             &sigmas,
@@ -186,6 +191,7 @@ impl AuthenticatedProducerInventoryV1 {
             |_| {},
             admission,
         )?;
+        let q_stage = clock.lap();
         let routes = self.qualify_operation_routes_with_admission(
             installed,
             &q,
@@ -194,8 +200,16 @@ impl AuthenticatedProducerInventoryV1 {
             |_| {},
             admission,
         )?;
+        let routes_stage = clock.lap();
         let omega =
             self.qualify_omega_with_admission(installed, &routes, originals, config, admission)?;
+        let qualification = QualificationMetricsV1 {
+            binding,
+            sigma,
+            q: q_stage,
+            routes: routes_stage,
+            omega: clock.lap(),
+        };
         Ok(QualifiedWalletSourcesV1 {
             authenticated: self,
             scope,
@@ -206,6 +220,7 @@ impl AuthenticatedProducerInventoryV1 {
             omega,
             sigma_parameters,
             q_parameters,
+            qualification,
         })
     }
 
@@ -228,6 +243,7 @@ impl AuthenticatedProducerInventoryV1 {
         originals: &mut dyn OriginalSourceV1,
         config: ReadConfig,
     ) -> Result<QualifiedWalletSourcesV1, WalletSourcesErrorV1> {
+        let mut clock = OpeningClockV1::start();
         require_installation(
             self.installation(),
             (
@@ -245,10 +261,21 @@ impl AuthenticatedProducerInventoryV1 {
         let q_parameters = Arc::clone(installed.verifier().pallas_parameters());
         // Native genesis binding happens before any source-original read.
         let finality = self.qualify_finality(installed, native_finality)?;
+        let binding = clock.lap();
         let sigmas = self.qualify_sigmas_for_installation(installed, originals, config)?;
+        let sigma = clock.lap();
         let q = self.qualify_q_programs(installed, &sigmas, originals, config, |_| {})?;
+        let q_stage = clock.lap();
         let routes = self.qualify_operation_routes(installed, &q, originals, config, |_| {})?;
+        let routes_stage = clock.lap();
         let omega = self.qualify_omega(installed, &routes, originals, config)?;
+        let qualification = QualificationMetricsV1 {
+            binding,
+            sigma,
+            q: q_stage,
+            routes: routes_stage,
+            omega: clock.lap(),
+        };
         Ok(QualifiedWalletSourcesV1 {
             authenticated: self,
             scope,
@@ -259,6 +286,7 @@ impl AuthenticatedProducerInventoryV1 {
             omega,
             sigma_parameters,
             q_parameters,
+            qualification,
         })
     }
 }
@@ -290,6 +318,11 @@ impl QualifiedWalletSourcesV1 {
     /// Complete sole Omega source; partial owners cannot construct this grant.
     pub const fn omega(&self) -> &QualifiedOmegaProgramV1 {
         &self.omega
+    }
+    /// Observation-only stage durations and work of the qualification that built this
+    /// graph. Public counts only; it grants nothing and nothing may branch on it.
+    pub const fn qualification_metrics(&self) -> &QualificationMetricsV1 {
+        &self.qualification
     }
     /// Design §5.3: the largest peak proving memory over every installed relation the wallet
     /// proves, namely each σ, every Q key, every route's A and W stages, and Ω. One prover

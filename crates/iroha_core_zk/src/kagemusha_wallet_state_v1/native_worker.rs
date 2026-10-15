@@ -290,6 +290,9 @@ impl NativeFoldWorkerV1 {
     }
 
     /// One final Omega proof from the verified terminal and complete installed catalog.
+    /// `prove` self-verifies the proof and decides its opening and both carried claims;
+    /// the returned transport is a candidate that the coordinator verifies in full
+    /// through the installed verifier before anything is recorded.
     pub(crate) fn finish(
         &self,
         input: omega::Input,
@@ -312,14 +315,8 @@ impl NativeFoldWorkerV1 {
         cancellation.check()?;
         let output =
             proof(session.prove(ProverRandomness::os(), self.prover_config(cancellation)))?;
-        let bytes = output.transport();
-        proof(session.restore_transport_cancellable(
-            &bytes,
-            self.budget,
-            Some(cancellation.prover_token()),
-        ))?;
         cancellation.check()?;
-        Ok(bytes)
+        Ok(output.transport())
     }
 }
 
