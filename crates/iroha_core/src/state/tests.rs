@@ -12136,6 +12136,115 @@ state_test! { sync set_nexus_prunes_removed_dataspace_permissions_from_accounts_
             .any(|permission| permission == &stale_daily_limit)
     );
 }
+state_test! { sync set_nexus_preserves_cross_dataspace_manifest_scope_until_either_scope_is_removed
+    for (target, domain_namespace) in [
+        (DataSpaceId::UNIVERSAL, "historical"),
+        (DataSpaceId::new(7), "universal"),
+    ] {
+        let retained = DataSpaceId::UNIVERSAL;
+        let removed = DataSpaceId::new(7);
+        let unrelated = DataSpaceId::new(9);
+        let mut initial_nexus = dataspace_retirement_nexus!(initial retained, removed);
+        let mut entries = initial_nexus.dataspace_catalog.entries().to_vec();
+        entries.push(DataSpaceMetadata {
+            id: unrelated,
+            alias: "unrelated".into(),
+            description: None,
+            fault_tolerance: 1,
+        });
+        initial_nexus.dataspace_catalog = DataSpaceCatalog::new(entries).unwrap();
+        let mut state = State::new_with_pre_genesis_nexus_for_testing(
+            World::default(),
+            initial_nexus,
+            LiveQueryStore::start_test(),
+        );
+        let cross: Permission = iroha_executor_data_model::permission::nexus::CanPublishSpaceDirectoryManifestForAccountDomain {
+            dataspace: target, domain: DomainId::try_new("retail", domain_namespace).unwrap(),
+        }.into();
+        let unknown_domain: Permission = iroha_executor_data_model::permission::nexus::CanPublishSpaceDirectoryManifestForAccountDomain {
+            dataspace: retained, domain: DomainId::try_new("retail", "unknown").unwrap(),
+        }.into();
+        let role_id: RoleId = "CROSS_DATASPACE_MANIFEST".parse().unwrap();
+        let role = Role::new(role_id.clone(), ALICE_ID.clone())
+            .add_permission(cross.clone())
+            .add_permission(unknown_domain.clone())
+            .build(&ALICE_ID);
+        let mut world = state.world.block();
+        world.account_permissions.insert(
+            ALICE_ID.clone(),
+            BTreeSet::from([cross.clone(), unknown_domain.clone()]),
+        );
+        world.roles.insert(role_id.clone(), role);
+        world.commit();
+        let mut keep_both = dataspace_retirement_nexus!(initial retained, removed);
+        keep_both.configured_dataspace_catalog = keep_both.dataspace_catalog.clone();
+        state
+            .set_nexus_from_config(keep_both)
+            .expect("retire unrelated dataspace only");
+        assert!(
+            state
+                .world
+                .account_permissions
+                .view()
+                .get(&ALICE_ID)
+                .unwrap()
+                .contains(&cross)
+        );
+        assert!(
+            !state
+                .world
+                .account_permissions
+                .view()
+                .get(&ALICE_ID)
+                .unwrap()
+                .contains(&unknown_domain)
+        );
+        assert!(
+            state
+                .world
+                .roles
+                .view()
+                .get(&role_id)
+                .unwrap()
+                .permissions()
+                .any(|p| p == &cross)
+        );
+        assert!(
+            !state
+                .world
+                .roles
+                .view()
+                .get(&role_id)
+                .unwrap()
+                .permissions()
+                .any(|p| p == &unknown_domain)
+        );
+        let mut retire_scope = dataspace_retirement_nexus!(retained retained);
+        retire_scope.configured_dataspace_catalog = retire_scope.dataspace_catalog.clone();
+        state
+            .set_nexus_from_config(retire_scope)
+            .expect("retire alias namespace or manifest target");
+        assert!(
+            state
+                .world
+                .account_permissions
+                .view()
+                .get(&ALICE_ID)
+                .is_none_or(|p| !p.contains(&cross))
+        );
+        assert!(
+            !state
+                .world
+                .roles
+                .view()
+                .get(&role_id)
+                .unwrap()
+                .permissions()
+                .any(|p| p == &cross)
+        );
+    }
+}
+
 state_test! { sync set_nexus_prunes_axt_policies_for_removed_dataspaces
     let retained = DataSpaceId::UNIVERSAL;
     let removed = DataSpaceId::new(7);

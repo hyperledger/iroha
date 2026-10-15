@@ -33047,10 +33047,10 @@ impl State {
             if let Ok(permission) = iroha_executor_data_model::permission::nexus::CanPublishSpaceDirectoryManifestForAccountDomain::try_from(
                 permission,
             ) {
+                // The manifest target and account-alias namespace are independent scopes.
+                // Both must remain in the current catalog; equality is not required.
                 return !dataspace_ids.contains(&permission.dataspace)
-                    || dataspace_ids_by_alias
-                        .get(permission.domain.dataspace().as_ref())
-                        .is_none_or(|dataspace| *dataspace != permission.dataspace);
+                    || !dataspace_aliases.contains(permission.domain.dataspace().as_ref());
             }
             false
         };
