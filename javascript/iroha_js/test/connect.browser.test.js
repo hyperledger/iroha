@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { build } from "esbuild";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { ed25519, x25519 } from "@noble/curves/ed25519";
@@ -31,6 +32,7 @@ import {
   toHex,
 } from "../src/connect.browser.js";
 import { AccountAddress } from "../src/address.js";
+import { inspectToriiAccountIdentityViaNativeTransport } from "../src/nativeAccountInspection.js";
 import {
   buildCanonicalJsonRequest,
   canonicalRequestSignatureMessage,
@@ -1612,4 +1614,150 @@ test("createConnectCanonicalRequestAuth rejects valid multisig and non-Ed25519 a
     assert.equal(approvalCalls, 1, kind);
     assert.equal(signCalls, 0, kind);
   }
+});
+
+async function inspectedTestIdentity(account, networkId = CANONICAL_NETWORK_ID) {
+  return inspectToriiAccountIdentityViaNativeTransport({
+    networkId, baseUrl: "https://taira.sora.org", accountId: account.accountId,
+  }, async ({ body }) => ({
+    ...JSON.parse(body), canonical_hex: AccountAddress.fromI105(account.accountId).canonicalHex().toLowerCase(),
+    controller: { kind: "single", algorithm: "ed25519", public_key_hex: Buffer.from(account.publicKey).toString("hex") },
+  }));
+}
+
+function nativeInspectedTestSession(inspectAccountIdentity) {
+  RecordingWebSocket.instances.length = 0;
+  const preview = makePreview();
+  const account = makeAccount();
+  const walletPublicKey = x25519.getPublicKey(new Uint8Array(32).fill(0x55));
+  const session = createConnectAppSession({
+    baseUrl: "https://taira.sora.org", preview,
+    session: { sid: preview.sidBase64Url, token_app: "token-app", token_relay: "relay-token" },
+    webSocketImpl: RecordingWebSocket, inspectAccountIdentity,
+  });
+  const socket = RecordingWebSocket.instances[0];
+  socket.open();
+  const approve = (sequence = 1, privateKey = account.privateKey) => socket.receive(encodeControlFrame({
+    sidBytes: preview.sidBytes, dir: 1, seq: sequence,
+    control: encodeApproveControl(preview, walletPublicKey, account.accountId, privateKey, "relay-token"),
+  }));
+  return { account, preview, session, socket, approve };
+}
+
+test("Connect verifies native-inspected approval and retains the exact identity", async () => {
+  let identity;
+  const { account, session, approve } = nativeInspectedTestSession(async (accountId, { signal }) => {
+    assert.equal(signal.aborted, false);
+    assert.equal(accountId, account.accountId);
+    identity = await inspectedTestIdentity(account);
+    return identity;
+  });
+  approve();
+  const approved = await session.waitForApproval();
+  assert.equal(approved.nativeIdentity, identity);
+  assert.deepEqual(approved.signingPublicKey, account.publicKey);
+  assert.equal((await createConnectCanonicalRequestAuth(session)).nativeIdentity, identity);
+  session.close();
+});
+
+test("Connect rejects incorrect approval signature against native-inspected key", async () => {
+  const { account, session, approve } = nativeInspectedTestSession(() => inspectedTestIdentity(account));
+  approve(1, new Uint8Array(32).fill(0x12));
+  await assert.rejects(session.waitForApproval(), /signature verification failed/u);
+});
+
+test("Connect cannot reopen when native inspection finishes after close", async () => {
+  let release;
+  let inspectionSignal;
+  let entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  const { account, session, approve } = nativeInspectedTestSession((_id, { signal }) => {
+    inspectionSignal = signal;
+    entered();
+    return new Promise(resolve => { release = resolve; });
+  });
+  approve();
+  await started;
+  session.close("inspection canceled");
+  assert.equal(inspectionSignal.aborted, true);
+  release(await inspectedTestIdentity(account));
+  await assert.rejects(session.waitForApproval(), /inspection canceled/u);
+  assert.equal(session.approvedAccountId, null);
+});
+
+test("Connect serializes duplicate approvals while native inspection is pending", async () => {
+  let release;
+  let entered;
+  let inspectionCalls = 0;
+  const started = new Promise(resolve => { entered = resolve; });
+  const { account, session, socket, approve } = nativeInspectedTestSession(() => {
+    inspectionCalls++;
+    entered();
+    return new Promise(resolve => { release = resolve; });
+  });
+  approve();
+  await started;
+  approve(2);
+  release(await inspectedTestIdentity(account));
+  await session.waitForApproval();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(inspectionCalls, 1);
+  assert.equal(socket.readyState, 3);
+  await assert.rejects(session.waitForApproval(), /more than one wallet approval/u);
+});
+
+test("explicit native inspector cannot silently use a local codec on empty result", async () => {
+  const { session, approve } = nativeInspectedTestSession(async () => undefined);
+  approve();
+  await assert.rejects(session.waitForApproval(), /must be inspected/u);
+});
+
+test("browser-only Connect verifies approval and raw signature using native Torii inspection", async () => {
+  const compiled = await build({
+    stdin: { contents: [
+      'export * from "@iroha/iroha-js/connect-browser";',
+      'export { ToriiBrowserClient } from "@iroha/iroha-js/torii-browser";',
+    ].join("\n"), resolveDir: process.cwd() },
+    platform: "browser", format: "esm", bundle: true, write: false, metafile: true,
+  });
+  assert.ok(!Object.keys(compiled.metafile.inputs).some(path => /(?:^|\/)native\.js$/u.test(path)));
+  const browser = await import(`data:text/javascript;base64,${Buffer.from(`${compiled.outputFiles[0].text}\n//# sourceURL=browser-connect-native-inspection.mjs`).toString("base64")}`);
+  const account = makeAccount();
+  const preview = browser.createConnectSessionPreview({
+    networkId: browser.NetworkId.parse(CANONICAL_NETWORK_ID.toString()),
+    node: "https://taira.sora.org", nonce: new Uint8Array(16).fill(0x11),
+    appKeyPair: { privateKey: new Uint8Array(32).fill(0x33), publicKey: x25519.getPublicKey(new Uint8Array(32).fill(0x33)) },
+  });
+  const publicClient = new browser.ToriiBrowserClient("https://taira.sora.org", {
+    networkId: preview.networkId,
+    fetchImpl: async (_url, init) => new Response(JSON.stringify({
+      ...JSON.parse(init.body), canonical_hex: AccountAddress.fromI105(account.accountId).canonicalHex().toLowerCase(),
+      controller: { kind: "single", algorithm: "ed25519", public_key_hex: Buffer.from(account.publicKey).toString("hex") },
+    }), { headers: { "content-type": "application/json" } }),
+  });
+  RecordingWebSocket.instances.length = 0;
+  const session = browser.createConnectAppSession({
+    baseUrl: "https://taira.sora.org", preview,
+    session: { sid: preview.sidBase64Url, token_app: "token-app", token_relay: "relay-token" },
+    webSocketImpl: RecordingWebSocket,
+    inspectAccountIdentity: (accountId, options) => publicClient.inspectAccountIdentity(accountId, options),
+  });
+  const socket = RecordingWebSocket.instances[0];
+  const walletPrivateKey = new Uint8Array(32).fill(0x55);
+  socket.open();
+  socket.receive(encodeControlFrame({
+    sidBytes: preview.sidBytes, dir: 1, seq: 1,
+    control: encodeApproveControl(preview, x25519.getPublicKey(walletPrivateKey), account.accountId, account.privateKey, "relay-token"),
+  }));
+  const approval = await session.waitForApproval();
+  assert.equal(approval.accountId, account.accountId);
+  const auth = await browser.createConnectCanonicalRequestAuth(session);
+  const message = Uint8Array.of(1, 2, 3);
+  const signature = auth.sign({ message });
+  await Promise.resolve();
+  const keys = deriveKeys(preview, walletPrivateKey);
+  const request = decodeAppSignRequest(preview, keys, socket.sent[1]);
+  socket.receive(encodeSignResultOk(preview, keys, request.seq, ed25519.sign(message, account.privateKey)));
+  assert.deepEqual(await signature, ed25519.sign(message, account.privateKey));
+  session.close();
 });

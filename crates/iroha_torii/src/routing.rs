@@ -18,6 +18,8 @@ pub mod collection_sources;
 #[cfg(feature = "app_api")]
 mod contract_return_attempt;
 #[cfg(feature = "app_api")]
+pub(crate) mod explorer_transaction_proof;
+#[cfg(feature = "app_api")]
 mod public_lane_rewards;
 use iroha_executor_data_model::isi::multisig::{MultisigProposalId, MultisigProposalNonce};
 #[cfg(feature = "app_api")]
@@ -38286,6 +38288,109 @@ mod explorer_lookup_tests {
         );
         assert_eq!(items[0]["kind"].as_str(), Some(dm::CustomInstruction::WIRE_ID));
     }
+    routing_test! { async explorer_transaction_proof_is_selective_and_preserves_native_inclusion
+        use base64::Engine as _;
+        use iroha_data_model::sumeragi_finality::{CertifiedResultScope, CertifiedResultV1};
+        let (state, hashes) = build_state_with_transactions(vec![
+            vec![dm::Log::new(dm::Level::INFO, "selected-proof-marker".to_owned()).into()],
+            vec![dm::Log::new(dm::Level::INFO, "unrelated-private-marker".to_owned()).into()],
+        ]);
+        let visibility = DataspaceReadVisibility::new(BTreeSet::from([DataSpaceId::UNIVERSAL]), false);
+        let response = crate::history_producer::HistoryProducerOwner::for_test().scope(|| {
+            explorer_transaction_proof::response(
+                Arc::clone(&state), MaybeTelemetry::disabled(), visibility, hashes[0].to_string(),
+            )
+        }).expect("visible transaction proof");
+        assert_eq!(response.status(), http::StatusCode::OK);
+        assert_eq!(response.headers().get(http::header::CACHE_CONTROL).unwrap(), "private, no-store");
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let text = std::str::from_utf8(&bytes).unwrap();
+        assert!(text.contains("selected-proof-marker"));
+        if let Some(path) = std::env::var_os("IROHA_EXPLORER_PROOF_FIXTURE_OUTPUT") {
+            std::fs::write(path, &bytes).expect("write requested native SDK contract fixture");
+        }
+        assert!(!text.contains("unrelated-private-marker"));
+        assert!(!text.contains("block_wire"));
+        let json: norito::json::Value = norito::json::from_slice(&bytes).unwrap();
+        assert_eq!(json["version"].as_u64(), Some(1));
+        assert_eq!(json["network_id"].as_str(), Some(state.network_id_ref().to_string().as_str()));
+        assert_eq!(json["certificate"].as_object().unwrap().len(), 3);
+        let transaction: iroha_data_model::query::CommittedTransaction = norito::json::from_value(json["transaction"].clone()).unwrap();
+        let header: BlockHeader = norito::json::from_value(json["block_header"].clone()).unwrap();
+        assert_eq!(transaction.entrypoint_hash, hashes[0]);
+        let decode = |name: &str| base64::engine::general_purpose::STANDARD
+            .decode(json["certificate"][name].as_str().unwrap()).unwrap();
+        let original = iroha_data_model::sumeragi_finality::SumeragiCommitCertificateV1 {
+            consensus_header: decode("consensus_header"),
+            commit_qc: decode("commit_qc"),
+            result_preimage: decode("result_preimage"),
+        };
+        original.to_canonical_bytes().expect("original compact native certificate");
+        let certified = CertifiedResultV1::decode(&original.result_preimage, CertifiedResultScope::TairaGlobal).unwrap();
+        // This checks selective membership only. Signature/epoch authority is separately
+        // owned by the reader; the HTTP response does not confer a verified capability.
+        assert!(transaction.verify_selective_in_authenticated_execution(
+            state.network_id_ref(), &header, &certified.commitment().execution,
+        ));
+        let mut substituted = transaction.clone();
+        substituted.entrypoint_hash = hashes[1];
+        assert!(!substituted.verify_selective_in_authenticated_execution(
+            state.network_id_ref(), &header, &certified.commitment().execution,
+        ));
+        let mut wrong_output = transaction;
+        wrong_output.output_proof = iroha_crypto::MerkleProof::from_audit_path(u32::MAX, Vec::new());
+        assert!(!wrong_output.verify_selective_in_authenticated_execution(
+            state.network_id_ref(), &header, &certified.commitment().execution,
+        ));
+    }
+
+    routing_test! { sync explorer_transaction_proof_hides_private_and_missing_transactions
+        let public = DataSpaceId::new(7);
+        let private = DataSpaceId::new(8);
+        let (state, hashes) = build_state_with_routed_transactions(vec![
+            vec![dm::Log::new(dm::Level::INFO, "public proof".to_owned()).into()],
+            vec![dm::Log::new(dm::Level::INFO, "private proof".to_owned()).into()],
+        ], vec![public, private], None);
+        let request = |target: String, visible: BTreeSet<DataSpaceId>| {
+            crate::history_producer::HistoryProducerOwner::for_test().scope(|| {
+                explorer_transaction_proof::response(
+                    Arc::clone(&state), MaybeTelemetry::disabled(),
+                    DataspaceReadVisibility::new(visible, false), target,
+                )
+            })
+        };
+        assert_eq!(request(hashes[0].to_string(), BTreeSet::from([public])).unwrap().status(), http::StatusCode::OK);
+        let hidden = request(hashes[1].to_string(), BTreeSet::from([public])).unwrap_err().into_response();
+        let absent = request(Hash::new(b"absent transaction proof").to_string(), BTreeSet::from([public])).unwrap_err().into_response();
+        assert_eq!(hidden.status(), http::StatusCode::NOT_FOUND);
+        assert_eq!(absent.status(), hidden.status());
+        assert_eq!(request(hashes[1].to_string(), BTreeSet::from([private])).unwrap().status(), http::StatusCode::OK);
+        assert_eq!(request("invalid-hash".to_owned(), BTreeSet::from([public])).unwrap_err().into_response().status(), http::StatusCode::BAD_REQUEST);
+    }
+
+    routing_test! { sync explorer_transaction_proof_refuses_corrupt_history_and_response_overflow
+        let (chain, hashes) = build_chain_with_executables_and_route_plans(
+            vec![dm::Executable::from(vec![dm::InstructionBox::from(dm::Log::new(dm::Level::INFO, "bounded proof".to_owned()))])],
+            None, None,
+        );
+        let state = Arc::clone(chain.state());
+        let request = |limit| crate::history_producer::HistoryProducerOwner::for_test().scope(|| {
+            explorer_transaction_proof::response_with_limit(
+                Arc::clone(&state), MaybeTelemetry::disabled(),
+                DataspaceReadVisibility::new(BTreeSet::from([DataSpaceId::UNIVERSAL]), false),
+                hashes[0].to_string(), limit,
+            )
+        });
+        assert_eq!(request(16 * 1024 * 1024).unwrap().status(), http::StatusCode::OK);
+        let overflow = request(1).expect_err("bounded encoder must not return a partial proof");
+        assert_eq!(overflow.into_response().status(), http::StatusCode::TOO_MANY_REQUESTS);
+        chain.kura().corrupt_canonical_body_for_testing(
+            NonZeroUsize::new(state.committed_height()).unwrap(),
+        ).expect("damage the actual committed canonical body");
+        let corrupt = request(16 * 1024 * 1024).expect_err("corrupt carrier must not yield proof data");
+        assert_eq!(corrupt.into_response().status(), http::StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
     routing_test! { sync explorer_detail_lookup_returns_transaction_and_instruction
         let instructions = vec![
             dm::Log::new(dm::Level::INFO, "first".to_owned()).into(),

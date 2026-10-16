@@ -602,7 +602,7 @@ test("ToriiBrowserClient rejects partial, precomputed, and redirected canonical 
       canonicalRequestAuth: { accountId: FIXTURE_ALICE_ID },
       fetchImpl: noFetch,
     }),
-    /requires exactly accountId and sign/u,
+    /requires accountId and sign/u,
   );
   assert.throws(
     () => new ToriiBrowserClient("https://localhost:8080", {

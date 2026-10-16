@@ -4819,6 +4819,34 @@ streams then sign the exact final pathname and wire query. Without
 the global-reader metrics route is expected to reject the request. The public
 Explorer health call is never signed by this context. Incomplete contexts,
 caller-precomputed canonical headers, and redirects are rejected.
+Browser I105 authentication uses `inspectAccountIdentity(accountId)` on an
+unsigned `ToriiBrowserClient` bound to its exact HTTPS URL and `NetworkId`.
+`POST /v1/accounts/inspect` runs the native Rust codec on the supplied identity,
+without consulting ledger accounts or granting read permissions. The SDK retains
+an opaque in-memory identity containing the native controller and ASCII header
+bytes. Pass the client's inspector as `createConnectAppSession`'s
+`inspectAccountIdentity` callback, and retain the returned `nativeIdentity` in
+the canonical request auth context. Connect verifies wallet approval and every
+raw signature against that exact inspected Ed25519 key. Generic
+`buildCanonicalJsonRequest` callers also pass the same `baseUrl`. Inspection
+failures stop the connection; browser code never substitutes its own I105 codec.
+Native `AccountAddress` APIs and native-runtime signing retain Rust admission.
+
+`getExplorerTransactionProof(hash)` on both clients fetches
+`GET /v1/explorer/transactions/{hash}/proof`. Public transactions need no
+credentials; private data space transactions use the same visibility permissions
+as their detail view. The browser method accepts a per-request
+`canonicalRequestAuth` signer, and the Node method accepts `canonicalAuth`;
+omitting either uses the client's default identity, while `null` selects public
+access. Every authenticated request is freshly signed for the configured network.
+The response contains only the selected native transaction and output, their
+Merkle paths, its block header, and compact certificate components, within a
+16 MiB response limit. Header u64 values become exact decimal strings; integer
+tokens elsewhere exceeding JavaScript's safe range remain `bigint`. Retrieval
+validates structure and the requested transaction/network binding. It does not
+verify finality: authenticate the native certificate against an independently
+trusted checkpoint before trusting the inclusion roots. No full block or
+unrelated transaction bodies are fetched by this method.
 
 Pass the Torii root itself (for example, `https://torii.example`), not a `/v1`
 or `/v1/explorer` endpoint. The browser client accepts only an exact `string` or

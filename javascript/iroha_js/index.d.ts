@@ -3,6 +3,7 @@ import type { BrowserFeePayment } from "./transaction-codec.js";
 import { OperatorSigningContext } from "./operator-request.js";
 import type { RepoAgreementLifecycleFields } from "./repo-agreement.js";
 import type { ToriiBlockMerkleCommitment, ToriiBlockMerkleProof, ToriiBlockProofs, ToriiBlockProofTrustedAnchor, ToriiBlockProofVerification } from "./dist/blockProofTypes.js";
+import type { ToriiExplorerTransactionProof } from "./dist/explorerTransactionProofTypes.js";
 import type { BufferEncoding } from "./dist/nodeBufferTypes.js";
 import type {
   ToriiBrowserExplorerAssetDefinition,
@@ -45,6 +46,7 @@ export * from "./smart-contract-deployment.js";
 export * from "./bootle-lantern-issuance.js";
 export * from "./atomic-private-settlement.js";
 export * from "./dist/blockProofTypes.js";
+export type * from "./dist/explorerTransactionProofTypes.js";
 export * from "./dist/toriiBrowserExplorerTypes.js";
 export type * from "./dist/subscriptionTypes.js";
 export * from "./dist/sorafsOrderbookSubmission.js";
@@ -10120,6 +10122,8 @@ export type CanonicalJsonRequestSignature =
 
 /** Browser-keystore identity used for optional canonical Torii reads. */
 export interface ToriiBrowserCanonicalRequestAuth {
+  /** Opaque native inspection required for I105 identities in browser runtimes. */
+  readonly nativeIdentity?: NativeAccountIdentity;
   /** Exact canonical I105 account or canonical ASCII account alias. */
   readonly accountId: string;
   /** Sign one freshly constructed exact-network canonical request message. */
@@ -10130,6 +10134,7 @@ export interface ToriiBrowserCanonicalRequestAuth {
 
 export interface ToriiBrowserContractDeploymentStateOptions
   extends ToriiBrowserRequestOptions {
+  nativeIdentity?: NativeAccountIdentity;
   authAccountId?: string;
   sign?: (
     input: CanonicalJsonRequestSignerInput,
@@ -10140,6 +10145,7 @@ export interface ToriiBrowserContractDeploymentStateOptions
 
 export interface ToriiBrowserCanonicalRequestOptions
   extends ToriiBrowserRequestOptions {
+  nativeIdentity?: NativeAccountIdentity;
   authAccountId: string;
   sign: (
     input: CanonicalJsonRequestSignerInput,
@@ -10316,6 +10322,17 @@ export declare class ToriiBrowserClient {
     hash: string,
     options?: Record<string, unknown>,
   ): Promise<ToriiBrowserExplorerTransactionDetail>;
+  /** Native syntax/controller inspection only; no ledger lookup or authority is granted. */
+  inspectAccountIdentity(accountId: string, options?: { signal?: AbortSignal }): Promise<NativeAccountIdentity>;
+  /** Selective evidence only; requires independent finality authentication before trust. */
+  getExplorerTransactionProof(
+    hash: string,
+    options?: {
+      signal?: AbortSignal;
+      /** Per-request signer; undefined uses the configured default and null selects public access. */
+      canonicalRequestAuth?: ToriiBrowserCanonicalRequestAuth | null;
+    },
+  ): Promise<ToriiExplorerTransactionProof>;
   getExplorerInstruction(
     transactionHash: string,
     index: number,
@@ -11111,6 +11128,15 @@ export declare class ToriiClient {
     height: number | string | bigint,
     options?: { signal?: AbortSignal },
   ): Promise<ToriiExplorerBlock | null>;
+  /** Selective evidence only; requires independent finality authentication before trust. */
+  getExplorerTransactionProof(
+    hash: string,
+    options?: {
+      signal?: AbortSignal;
+      /** Per-request signer; undefined uses the configured default and null selects public access. */
+      canonicalAuth?: CanonicalRequestAuth | null;
+    },
+  ): Promise<ToriiExplorerTransactionProof>;
   /**
    * Stream `/v1/events/sse`; `options.filter` uses the collection-query text
    * grammar over event fields. Abort with `options.signal` or by leaving the loop.
@@ -14728,3 +14754,18 @@ export function queryNativeMultisigProposalFinalityViaTransport(
 
 /** Native-only occurrence derivation; content commitment is independent. */
 export function deriveMultisigProposalId(networkId: NetworkId, accountId: string, proposalNonce: string): string;
+
+
+/** Opaque in-memory native inspection, bound to one HTTPS Torii URL and network. */
+declare const nativeAccountIdentityBrand: unique symbol;
+export interface NativeAccountIdentity {
+  readonly [nativeAccountIdentityBrand]: true;
+  readonly accountId: string;
+  readonly networkId: string;
+  readonly baseUrl: string;
+}
+/** Exact native response binding; the supplied transport must authenticate the HTTPS service. */
+export function inspectToriiAccountIdentityViaNativeTransport(
+  input: { networkId: NetworkId; baseUrl: string; accountId: string },
+  transport: (request: Readonly<{ requestId: string; body: string }>) => Promise<unknown>,
+): Promise<NativeAccountIdentity>;

@@ -4235,6 +4235,7 @@ pub mod application_api {
         EXPLORER_RWAS_BY_RWA_ID_GET => dataspace_get("application.explorer_rwas_by_rwa_id_get", "/v1/explorer/rwas/{rwa_id}");
         EXPLORER_BLOCKS_BY_IDENTIFIER_GET => dataspace_get("application.explorer_blocks_by_identifier_get", "/v1/explorer/blocks/{identifier}");
         EXPLORER_TRANSACTIONS_BY_HASH_GET => dataspace_get("application.explorer_transactions_by_hash_get", "/v1/explorer/transactions/{hash}");
+        EXPLORER_TRANSACTIONS_BY_HASH_PROOF_GET => dataspace_get("application.explorer_transactions_by_hash_proof_get", "/v1/explorer/transactions/{hash}/proof");
         EXPLORER_INSTRUCTIONS_BY_HASH_BY_INDEX_GET => dataspace_get("application.explorer_instructions_by_hash_by_index_get", "/v1/explorer/instructions/{hash}/{index}");
         EXPLORER_INSTRUCTIONS_BY_HASH_BY_INDEX_CONTRACT_VIEW_GET => dataspace_sdk_get("application.explorer_instructions_by_hash_by_index_contract_view_get", "/v1/explorer/instructions/{hash}/{index}/contract-view");
         KAIGI_CALLS_BY_CALL_ID_GET => app_sdk_get("application.kaigi_calls_by_call_id_get", "/v1/kaigi/calls/{call_id}");

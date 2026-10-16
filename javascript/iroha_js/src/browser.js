@@ -159,5 +159,5 @@ export {
 
 export { buildCanonicalMultisigContractCall } from "./multisigContractCall.js";
 
-export { inspectAccountViaNativeTransport } from "./nativeAccountInspection.js";
+export { inspectAccountViaNativeTransport, inspectToriiAccountIdentityViaNativeTransport } from "./nativeAccountInspection.js";
 export { requestNativeMultisigViaTransport, inspectNativeMultisigPrepareViaTransport, inspectNativeMultisigSignedViaTransport, queryNativeMultisigFinalityViaTransport, queryNativeMultisigProposalFinalityViaTransport } from "./nativeMultisigTransport.js";

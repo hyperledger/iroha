@@ -174,6 +174,12 @@ import {
 } from "./curveRegistry.js";
 import { computeIvmArtifactHashes, IVM_ARTIFACT_MAX_BYTES } from "./ivmArtifact.js";
 import { AUTHENTICATED_BLOCK_PROOFS_MAX_BLOCK_WIRE_BYTES_V1 } from "./authenticatedBlockProofs.js";
+import {
+  EXPLORER_TRANSACTION_PROOF_FLOAT_PATHS,
+  EXPLORER_TRANSACTION_PROOF_MAX_BYTES,
+  explorerTransactionProofHash,
+  normalizeExplorerTransactionProof,
+} from "./explorerTransactionProof.js";
 import { createVpnSchema } from "./vpnSchema.js";
 import {
   assertSorafsOrderbookFixedHeaders,
@@ -7377,6 +7383,35 @@ export class ToriiClient {
     return normalizeExplorerBlockRecord(payload, "explorer block response");
   }
 
+
+  /**
+   * Fetch one visible transaction's selective evidence, without authenticating finality.
+   * @param {string} hash Canonical transaction entrypoint hash literal.
+   * @param {{signal?: AbortSignal, canonicalAuth?: CanonicalRequestAuth|null}} [options]
+   */
+  async getExplorerTransactionProof(hash, options = {}) {
+    const context = "getExplorerTransactionProof";
+    const normalizedHash = explorerTransactionProofHash(hash, `${context}.hash`);
+    const record = requirePlainObjectOption(options, `${context} options`);
+    assertSupportedOptionKeys(record, new Set(["signal", "canonicalAuth"]), `${context} options`);
+    const { signal } = normalizeSignalOption(record, context);
+    const canonicalAuth = record.canonicalAuth === undefined
+      ? this.#canonicalRequestAuth : ToriiClient._normalizeCanonicalAuth(record.canonicalAuth);
+    const response = await this._request("GET",
+      `/v1/explorer/transactions/${normalizedHash.slice(5, 69).toLowerCase()}/proof`, {
+        headers: JSON_ACCEPT_HEADERS,
+        signal,
+        canonicalAuth,
+      });
+    await this._expectStatus(response, [200], { signal });
+    const payload = await this._readBoundedLosslessIntegerJson(response,
+      EXPLORER_TRANSACTION_PROOF_MAX_BYTES, "explorer transaction proof response", {
+        signal,
+        floatingPointPaths: EXPLORER_TRANSACTION_PROOF_FLOAT_PATHS,
+      });
+    return normalizeExplorerTransactionProof(payload, normalizedHash,
+      this._localSigningContext?.networkId ?? null);
+  }
 
   /**
    * Stream JSON events from `/v1/events/sse`. `options.filter` uses the

@@ -4,6 +4,7 @@ import { blake2b } from "@noble/hashes/blake2b";
 import { hkdf } from "@noble/hashes/hkdf";
 import { sha256 } from "@noble/hashes/sha2";
 import { AccountAddress } from "./address.js";
+import { requireToriiNativeIdentity, toriiNativeIdentityEd25519Key } from "./nativeAccountInspection.js";
 import { crc64Xz } from "./crc64Xz.js";
 import { verifyEd25519Strict } from "./ed25519Strict.js";
 import { NetworkId, networkIdBytes } from "./networkId.js";
@@ -1307,14 +1308,15 @@ function buildApprovalPreimage(preview, control, relayToken) {
   );
 }
 
-function verifyApproval(preview, control, relayToken) {
+function verifyApproval(preview, control, relayToken, nativeIdentity, baseUrl) {
   if (control.signature.algorithm !== ALGORITHM_ED25519) {
     throw new Error(`unsupported Connect approval signature algorithm ${control.signature.algorithm}`);
   }
   if (control.signature.signature.length !== 64) {
     throw new Error("Connect approval Ed25519 signature must be 64 bytes");
   }
-  const publicKey = accountEd25519PublicKey(control.accountId);
+  const publicKey = nativeIdentity === undefined ? accountEd25519PublicKey(control.accountId)
+    : toriiNativeIdentityEd25519Key(nativeIdentity, { accountId: control.accountId, networkId: preview.networkId, baseUrl });
   const preimage = buildApprovalPreimage(preview, control, relayToken);
   if (!verifyEd25519Strict(preimage, control.signature.signature, publicKey)) {
     throw new Error("Connect approval signature verification failed");
@@ -1427,6 +1429,7 @@ function rejectDeferred(deferred, error) {
 function copyConnectApproval(approval) {
   return Object.freeze({
     accountId: approval.accountId,
+    ...(approval.nativeIdentity === undefined ? {} : { nativeIdentity: approval.nativeIdentity }),
     signingPublicKey: Uint8Array.from(approval.signingPublicKey),
     walletPublicKey: Uint8Array.from(approval.walletPublicKey),
     signature: Uint8Array.from(approval.signature),
@@ -1440,6 +1443,11 @@ export function createConnectAppSession(options = {}) {
   const baseUrl = requireNonEmptyString(options.baseUrl, "baseUrl");
   const preview = normalizePreviewInput(options.preview);
   const session = normalizeSessionInput(options.session);
+  const inspectAccountIdentity = options.inspectAccountIdentity;
+  if (inspectAccountIdentity !== undefined && typeof inspectAccountIdentity !== "function") {
+    throw new TypeError("inspectAccountIdentity must be a function");
+  }
+  const inspectionAbort = new AbortController();
   const socket = openConnectWebSocket(baseUrl, session.sid, session.tokenApp, "app", {
     webSocketImpl: options.webSocketImpl,
     protocols: options.protocols,
@@ -1468,6 +1476,7 @@ export function createConnectAppSession(options = {}) {
       return;
     }
     closed = true;
+    inspectionAbort.abort(error);
     rejectDeferred(approval, error);
     if (pendingSign) {
       pendingSign.reject(error);
@@ -1576,13 +1585,20 @@ export function createConnectAppSession(options = {}) {
             }
             return;
           }
-          const signingPublicKey = verifyApproval(preview, control, session.tokenRelay);
+          const nativeIdentity = inspectAccountIdentity === undefined ? undefined
+            : await inspectAccountIdentity(control.accountId, { signal: inspectionAbort.signal });
+          if (closed) return;
+          if (inspectAccountIdentity !== undefined) {
+            requireToriiNativeIdentity(nativeIdentity, { accountId: control.accountId, networkId: preview.networkId, baseUrl });
+          }
+          const signingPublicKey = verifyApproval(preview, control, session.tokenRelay, nativeIdentity, baseUrl);
           keys = deriveDirectionKeys(
             x25519.getSharedSecret(preview.appKeyPair.privateKey, control.walletPublicKey),
             preview.sidBytes,
           );
           approved = Object.freeze({
             accountId: control.accountId,
+            ...(nativeIdentity === undefined ? {} : { nativeIdentity }),
             signingPublicKey: Uint8Array.from(signingPublicKey),
             walletPublicKey: Uint8Array.from(control.walletPublicKey),
             signature: Uint8Array.from(control.signature.signature),
@@ -1633,7 +1649,7 @@ export function createConnectAppSession(options = {}) {
             signature = requireValidEd25519Signature(
               signature,
               request.verificationBytes,
-              accountEd25519PublicKey(approved.accountId),
+              approved.signingPublicKey,
             );
           } catch (error) {
             request.reject(error);
@@ -1698,8 +1714,11 @@ export function createConnectAppSession(options = {}) {
       failSession(error instanceof Error ? error : new Error("failed to open connect session"));
     }
   });
+  // Native inspection is asynchronous. Serialize frames so a second approval
+  // cannot race the first and swap the key while its inspection is pending.
+  let messageQueue = Promise.resolve();
   attachSocketHandler(socket, "message", (event) => {
-    void handleMessage(event);
+    messageQueue = messageQueue.then(() => closed ? undefined : handleMessage(event));
   });
   attachSocketHandler(socket, "error", () => {
     failSession(new ConnectSessionClosedError("connect socket errored"));
@@ -1744,6 +1763,7 @@ export function createConnectAppSession(options = {}) {
         }
       }
       closed = true;
+      inspectionAbort.abort(new ConnectSessionClosedError(reason));
       if (typeof socket.close === "function") {
         socket.close();
       }
@@ -1786,7 +1806,15 @@ export async function createConnectCanonicalRequestAuth(session) {
     approved.accountId,
     "approval.accountId",
   );
-  const approvedPublicKey = accountEd25519PublicKey(authAccountId);
+  const nativeIdentity = approved.nativeIdentity;
+  const inspectedBinding = nativeIdentity === undefined ? null : {
+    accountId: authAccountId,
+    networkId: NetworkId.parse(nativeIdentity.networkId),
+    baseUrl: nativeIdentity.baseUrl,
+  };
+  if (nativeIdentity !== undefined) requireToriiNativeIdentity(nativeIdentity, inspectedBinding);
+  const approvedPublicKey = nativeIdentity === undefined ? accountEd25519PublicKey(authAccountId)
+    : toriiNativeIdentityEd25519Key(nativeIdentity, inspectedBinding);
   const sign = async (input) => {
     if (!input || typeof input !== "object") {
       throw new TypeError("canonical signer input must be an object");
@@ -1804,5 +1832,5 @@ export async function createConnectCanonicalRequestAuth(session) {
       approvedPublicKey,
     );
   };
-  return Object.freeze({ authAccountId, sign });
+  return Object.freeze({ authAccountId, sign, ...(nativeIdentity === undefined ? {} : { nativeIdentity }) });
 }

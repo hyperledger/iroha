@@ -11504,6 +11504,39 @@ async fn handler_explorer_transaction_detail(
 }
 #[cfg(feature = "app_api")]
 #[axum::debug_handler]
+async fn handler_explorer_transaction_proof(
+    State(app): State<SharedAppState>,
+    headers: HeaderMap,
+    method: Method,
+    uri: Uri,
+    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    AxPath(hash): AxPath<String>,
+) -> Result<AxResponse, Error> {
+    const ENDPOINT: &str = "v1/explorer/transactions/{hash}/proof";
+    let visibility = torii_dataspace_context_from_headers(&app, &headers, &method, &uri, ENDPOINT)?;
+    if !limits::is_allowed_by_cidr(&headers, Some(remote.ip()), &app.api_rate_limit_bypass_nets) {
+        check_access(&app, &headers, Some(remote.ip()), ENDPOINT).await?;
+    }
+    match routing::explorer_transaction_proof::admitted(
+        Arc::clone(&app.state),
+        app.telemetry.clone(),
+        visibility.current_visibility(),
+        hash,
+        acquire_query_admission(&app, true).await?,
+    )
+    .await
+    {
+        Ok(response) if visibility.authorization_is_current() => Ok(response),
+        Ok(_) => Ok(explorer_json_error_response(Error::Query(
+            iroha_data_model::ValidationFail::QueryFailed(
+                iroha_data_model::query::error::QueryExecutionFail::NotFound,
+            ),
+        ))),
+        Err(error) => Ok(explorer_json_error_response(error)),
+    }
+}
+#[cfg(feature = "app_api")]
+#[axum::debug_handler]
 async fn handler_explorer_instruction_detail(
     State(app): State<SharedAppState>,
     headers: axum::http::HeaderMap,
@@ -38837,6 +38870,7 @@ impl Torii {
             EXPLORER_RWAS_BY_RWA_ID_GET => optional_canonical_signature_get(handler_explorer_rwa_detail);
             EXPLORER_BLOCKS_BY_IDENTIFIER_GET => optional_canonical_signature_get(handler_explorer_block_detail);
             EXPLORER_TRANSACTIONS_BY_HASH_GET => optional_canonical_signature_get(handler_explorer_transaction_detail);
+            EXPLORER_TRANSACTIONS_BY_HASH_PROOF_GET => optional_canonical_signature_get(handler_explorer_transaction_proof);
             EXPLORER_INSTRUCTIONS_BY_HASH_BY_INDEX_GET => optional_canonical_signature_get(handler_explorer_instruction_detail);
             EXPLORER_INSTRUCTIONS_BY_HASH_BY_INDEX_CONTRACT_VIEW_GET => optional_canonical_signature_get(handler_explorer_instruction_contract_view);
             KAIGI_CALLS_BY_CALL_ID_GET => public_get(handler_kaigi_call);

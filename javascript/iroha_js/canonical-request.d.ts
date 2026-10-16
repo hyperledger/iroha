@@ -88,6 +88,8 @@ export type CanonicalJsonRequestSignature =
   | string;
 
 export interface CanonicalJsonRequestInput {
+  /** Native-inspected browser identity; requires its exact baseUrl and networkId. */
+  nativeIdentity?: import("./index.js").NativeAccountIdentity;
   /** Exact canonical I105 account or structurally bounded ASCII alias header. */
   accountId: string;
   /** Exact genesis-derived network domain for the signed request. */

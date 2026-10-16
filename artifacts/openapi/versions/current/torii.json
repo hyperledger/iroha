@@ -11417,6 +11417,149 @@
         ],
         "type": "object"
       },
+      "ExplorerTransactionProof": {
+        "additionalProperties": false,
+        "description": "Selective transaction inclusion and original compact certificate DATA. The certificate binds input/output roots only after verification against an independently authenticated committee; the response never establishes its own finality authority. The block header is carried for lookup binding, not independently certified by the compact certificate.",
+        "properties": {
+          "block_header": {
+            "$ref": "#/components/schemas/BlockHeader"
+          },
+          "block_height": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "certificate": {
+            "$ref": "#/components/schemas/ExplorerTransactionProofCertificate"
+          },
+          "network_id": {
+            "$ref": "#/components/schemas/NetworkId"
+          },
+          "transaction": {
+            "$ref": "#/components/schemas/ExplorerTransactionProofRecord"
+          },
+          "version": {
+            "const": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "network_id",
+          "block_height",
+          "block_header",
+          "transaction",
+          "certificate"
+        ],
+        "type": "object"
+      },
+      "ExplorerTransactionProofCertificate": {
+        "additionalProperties": false,
+        "properties": {
+          "commit_qc": {
+            "contentEncoding": "base64",
+            "description": "Unchanged canonical native commit_qc bytes; independent root verification is required.",
+            "maxLength": 5464,
+            "type": "string"
+          },
+          "consensus_header": {
+            "contentEncoding": "base64",
+            "description": "Unchanged canonical native consensus_header bytes; independent root verification is required.",
+            "maxLength": 87384,
+            "type": "string"
+          },
+          "result_preimage": {
+            "contentEncoding": "base64",
+            "description": "Unchanged canonical native result_preimage bytes; independent root verification is required.",
+            "maxLength": 87384,
+            "type": "string"
+          }
+        },
+        "required": [
+          "consensus_header",
+          "commit_qc",
+          "result_preimage"
+        ],
+        "type": "object"
+      },
+      "ExplorerTransactionProofRecord": {
+        "additionalProperties": false,
+        "description": "The native CommittedTransaction layout; no unrelated input or internal output is included.",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/Hash"
+          },
+          "entrypoint": {
+            "$ref": "#/components/schemas/JsonValue",
+            "description": "Canonical native TransactionEntrypoint JSON for exactly the selected transaction."
+          },
+          "entrypoint_hash": {
+            "$ref": "#/components/schemas/Hash"
+          },
+          "entrypoint_proof": {
+            "$ref": "#/components/schemas/BlockMerkleProof"
+          },
+          "output": {
+            "additionalProperties": false,
+            "properties": {
+              "detail": {
+                "additionalProperties": false,
+                "properties": {
+                  "completions": {
+                    "description": "Canonical native InvocationCompletionV1 records owned by this input.",
+                    "items": {
+                      "$ref": "#/components/schemas/JsonValue"
+                    },
+                    "type": "array"
+                  },
+                  "input_index": {
+                    "format": "uint32",
+                    "maximum": 4294967295,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "result": {
+                    "$ref": "#/components/schemas/JsonValue",
+                    "description": "Canonical native TransactionResult including only this input execution."
+                  }
+                },
+                "required": [
+                  "input_index",
+                  "result",
+                  "completions"
+                ],
+                "type": "object"
+              },
+              "kind": {
+                "const": "network",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "detail"
+            ],
+            "type": "object"
+          },
+          "output_hash": {
+            "$ref": "#/components/schemas/Hash"
+          },
+          "output_proof": {
+            "$ref": "#/components/schemas/BlockMerkleProof"
+          }
+        },
+        "required": [
+          "block_hash",
+          "entrypoint_hash",
+          "entrypoint_proof",
+          "entrypoint",
+          "output_hash",
+          "output_proof",
+          "output"
+        ],
+        "type": "object"
+      },
       "ExplorerTransactionRejection": {
         "additionalProperties": false,
         "properties": {
@@ -74948,6 +75091,132 @@
           "authentication": "optional_canonical_account_signature",
           "schemaVersion": 1,
           "stableRouteId": "application.explorer_transactions_by_hash_get"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/explorer/transactions/{hash}/proof": {
+      "get": {
+        "description": "Return only one visible transaction, its exact joined Network output, their Merkle paths and the original compact native certificate. Anonymous callers see public dataspaces; a valid canonical account signature widens visibility only according to current permissions. Every committed route leg must be visible. Missing and hidden transactions both return 404. No full block carrier or unrelated output is disclosed. The JSON response is bounded to 16 MiB and the admitted query budget. Consumers must authenticate native finality from independently selected genesis/checkpoint authority before trusting inclusion.",
+        "parameters": [
+          {
+            "description": "Transaction hash.",
+            "in": "path",
+            "name": "hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExplorerTransactionProof"
+                }
+              }
+            },
+            "description": "Successful response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed canonical transaction hash.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Transaction absent, hidden from this reader, or without a non-genesis commit certificate.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Selected proof exceeds the admitted response/memory cap, or query admission/history work is unavailable.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Canonical history or native evidence is inconsistent; no proof is returned.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical history is temporarily unavailable; no proof is returned.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaCanonicalAccount": [],
+            "IrohaCanonicalNonce": [],
+            "IrohaCanonicalSignature": [],
+            "IrohaCanonicalTimestampMs": []
+          },
+          {
+            "IrohaCanonicalWitness": []
+          }
+        ],
+        "summary": "Fetch selective transaction proof (explorer).",
+        "tags": [
+          "Explorer"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "dataspace_visible",
+          "authentication": "optional_canonical_account_signature",
+          "schemaVersion": 1,
+          "stableRouteId": "application.explorer_transactions_by_hash_proof_get"
         },
         "x-iroha-tool-effect": "read"
       }
