@@ -92,7 +92,6 @@ fn next_checkpoint(
 
 struct UnloadInclusion<'a> {
     scheme: [u8; 32],
-    account: &'a iroha_data_model::account::AccountId,
     transaction: &'a [u8; 32],
     digest: &'a [u8; 32],
     original: &'a [u8],
@@ -125,7 +124,6 @@ impl UnloadInclusion<'_> {
             &verified,
             &genesis.initial_epoch().network_id,
             self.scheme,
-            self.account,
             self.transaction,
             self.original,
         )? {
@@ -261,13 +259,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         let (checkpoint, changed) = next_checkpoint(verifier, previous.as_ref(), &candidate)?;
         // The HTTP locator may be later than the actual transaction. Retain inclusion
         // atomically with this prefix so a later cursor can never discard its evidence.
-        let claim = read_model_original(
-            || KagemushaWalletUnloadClaimV1::decode_canonical(original, &self.scheme_id),
-            Error::Invalid("G1 validation"),
-        )?;
+        // unload_original_digest already validated the claim and its owner scope.
         let confirmed = UnloadInclusion {
             scheme: self.scheme_id,
-            account: &claim.account,
             transaction: &transaction,
             digest: &digest,
             original,
@@ -496,14 +490,22 @@ mod tests {
             block::{BlockSignatures, builder::BlockBuilder},
             transaction::{FeePaymentIntent, TransactionBuilder},
         };
-        // Structural inclusion/custody test: genuine signatures and native certificates,
-        // explicitly synthetic execution outputs; this does not execute a World Unload.
+        // Structural inclusion/custody test: model-valid claim with stand-in wallet proofs,
+        // genuine signatures/native certificates, and explicitly synthetic execution outputs.
+        // This does not execute a World Unload; it checks relayed exact-byte inclusion.
         let mut native = NativeFinalityFixture::start("unload-overshooting-locator");
         let genesis = native.verifier();
         let signer = KeyPair::from_seed(vec![79; 32], Algorithm::Ed25519);
         let account = AccountId::new(signer.public_key().clone());
-        let scheme = [91; 32];
-        let original = b"exact original used only by this inclusion fixture";
+        let claim: KagemushaWalletUnloadClaimV1 =
+            crate::kagemusha_wallet_state_v1::tests::fixture("KagemushaWalletUnloadClaimV1");
+        assert_ne!(
+            claim.account, account,
+            "the submitter only relays this claim"
+        );
+        let scheme = claim.credential.body.scheme_id;
+        let original_bytes = claim.to_canonical_bytes().unwrap();
+        let original = original_bytes.as_slice();
         let digest = *iroha_crypto::Hash::new(original).as_ref();
         let header = native.next_header();
         let mut tx = TransactionBuilder::new(
@@ -529,7 +531,6 @@ mod tests {
         let two = native.checkpoint();
         let inclusion = UnloadInclusion {
             scheme,
-            account: &account,
             transaction: &transaction,
             digest: &digest,
             original,
@@ -563,7 +564,6 @@ mod tests {
                 &verified,
                 &native.network_id(),
                 scheme,
-                &account,
                 &transaction,
                 b"substituted claim"
             )
@@ -574,7 +574,6 @@ mod tests {
                 &verified,
                 &native.network_id(),
                 [92; 32],
-                &account,
                 &transaction,
                 original
             )
@@ -585,27 +584,50 @@ mod tests {
                 &verified,
                 &native.network_id(),
                 scheme,
-                &account,
                 &[93; 32],
                 original
             )
             .unwrap()
         );
-        let foreign = AccountId::new(
-            KeyPair::from_seed(vec![80; 32], Algorithm::Ed25519)
-                .public_key()
-                .clone(),
+        // Relaying never authorizes changing the claim's paid account. Canonical claim
+        // validation still binds it to the credential, and inclusion requires exact bytes.
+        let mut changed_account = claim.clone();
+        changed_account.account = account.clone();
+        let changed_account = archive::encode(&changed_account).unwrap();
+        assert!(KagemushaWalletUnloadClaimV1::decode_canonical(&changed_account, &scheme).is_err());
+        assert!(
+            contains_successful_unload(
+                &verified,
+                &native.network_id(),
+                scheme,
+                &transaction,
+                &changed_account
+            )
+            .is_err()
+        );
+        let mut changed_claim = claim.clone();
+        changed_claim.version = 2;
+        let changed_claim = archive::encode(&changed_claim).unwrap();
+        assert!(KagemushaWalletUnloadClaimV1::decode_canonical(&changed_claim, &scheme).is_err());
+        assert!(
+            contains_successful_unload(
+                &verified,
+                &native.network_id(),
+                scheme,
+                &transaction,
+                &changed_claim
+            )
+            .is_err()
         );
         assert!(
             contains_successful_unload(
                 &verified,
                 &native.network_id(),
                 scheme,
-                &foreign,
                 &transaction,
                 original
             )
-            .is_err()
+            .unwrap()
         );
         let block = native.block_with_submitted_work(native.next_header());
         native.certify(block);
@@ -618,7 +640,6 @@ mod tests {
                     .unwrap(),
                 &native.network_id(),
                 scheme,
-                &account,
                 &transaction,
                 original
             )
@@ -692,7 +713,6 @@ mod tests {
             digest: &digest,
             original,
             scheme,
-            account: &account,
         };
         let before = confirmations;
         assert!(

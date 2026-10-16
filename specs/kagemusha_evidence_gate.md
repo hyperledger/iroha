@@ -1,6 +1,6 @@
 # KAGEMUSHA verification checklist
 
-Status: working checklist, 2026-10-15, for the split-lineage proposal and its
+Status: working checklist, 2026-10-16, for the split-lineage proposal and its
 accepted native BLS Load-finality amendment. This document records useful checks for
 [the single protocol](kagemusha_single_design_proposal.md). It is not an
 approval process and does not block use, production integration or deployment.
@@ -17,15 +17,16 @@ Applying that model to deterministic BLAKE2b is an explicit instantiation
 assumption, not a theorem conditioned on literal release pins or a requirement
 for a new simulator executable against a chosen installed key.
 
-The current source proposal, its generated catalog and matching native/managed
-artifacts still require a coherent current-source join and qualification. The
-captured catalog and build-storage failures recorded in section 8 belong to
-their historical candidate; they do not establish the status of a successor.
+Each source candidate, its admitted catalog and matching native/managed
+artifacts require a coherent join and their own qualification. The 16 October
+captured candidate has passing strict profiles, compiled registry inspections,
+native builds and host JNI tests. The earlier catalog and build-storage failures
+recorded in section 8 retain their historical scope.
 Genuine four-validator monetary execution, matching SDK artifacts, physical
 carrier measurements and physical-to-logical storage/refusal refinement remain
 required. Mathematical source arguments do not establish machine-code or
 physical failure behavior. The initial phones are Pixel 6 and the connected
-iPhone 17 Pro Max. Current-candidate iPhone enrollment must retain its actual
+iPhone 16 Pro Max. Current-candidate iPhone enrollment must retain its actual
 App Attest evidence. Payment release still requires a retained nonrollback
 anchor excluding the old wallet head, or a guarantee that losing that anchor
 makes the same payment key unusable. If both anchors are lost while old wallet
@@ -381,9 +382,8 @@ require old wallets to update or reconnect to keep using their existing value.
 
 ## 6. Complete device exchanges
 
-The initial measurement population selected on 2026-10-13 is Pixel 6 running
-Android 17 (security patch 2026-07-05) and iPhone 17 Pro Max running iOS 26.7
-(23H24). These are measurement subjects, not a runtime device allowlist. Record
+The user-selected initial measurement population is Pixel 6 and the connected
+iPhone 16 Pro Max. These are measurement subjects, not a runtime device allowlist. Record
 fresh OS/build and app/native/catalog identities for each run; expansion to other
 phones remains separate work. Report Android → iPhone and iPhone → Android
 individually for every actually supported carrier. Do not pool different
@@ -514,19 +514,20 @@ Starting points, not evidence that this protocol has passed:
 
 ## 8. Recorded results
 
-### Current first-release completion requirements (2026-10-15)
+### Current first-release completion requirements (2026-10-16)
 
 The selected [logical C12 composition](kagemusha_c12_composition_v1.md) retains
 its named setup, masking, valid-source, concrete-coin and causal-custody
 premises. It includes all three Q stages, both exposed accumulators,
 checkpoints, retries and stopped outcomes. Its conditional logical result does
-not qualify a current compiled catalog or physical device. Current-source
-application, exact source/key admission, fresh native golden/SDK validation,
-genuine four-validator monetary execution and physical carrier measurements
-remain open. Historical source and execution records below do not qualify a
-successor.
+not qualify a compiled catalog or physical device. The 16 October captured
+candidate has matching strict engineering/production profiles, installed registry
+DATA, native builds and host JNI tests. Genuine monetary execution across all
+supported variants, four-validator execution and physical carrier measurements
+remain open. Later source changes need matching validation; historical source
+and execution records below do not qualify a successor.
 
-The initial phones are Pixel 6 and the connected iPhone 17 Pro Max. Current
+The initial phones are Pixel 6 and the connected iPhone 16 Pro Max. Current
 candidate enrollment must carry actual platform evidence, including App Attest
 on iPhone. Release across power loss or restoration must exclude replay of an
 old head under a still-usable payment key through the retained authority/key

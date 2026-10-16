@@ -80,11 +80,12 @@ fn retained_unload_confirmation(
 
 // Inclusion is checked while each certified original is selected, before its cursor can move.
 // Absence is ordinary history; a located but foreign or unsuccessful input is an error.
+// The submitter may relay the claim: its authenticated original binds the payout account,
+// while successful certified execution authenticates the exact instruction and result.
 fn contains_successful_unload(
     verified: &iroha_data_model::sumeragi_finality::VerifiedSumeragiBlock,
     network: &iroha_data_model::NetworkId,
     scheme: [u8; 32],
-    account: &iroha_data_model::account::AccountId,
     transaction: &[u8; 32],
     original: &[u8],
 ) -> Result<bool, Error> {
@@ -105,20 +106,19 @@ fn contains_successful_unload(
     let TransactionEntrypoint::External(signed) = &entrypoint else {
         return Err(Error::Invalid("Unload external input"));
     };
-    if signed.authority() != account
-        || !signed
-            .instructions()
-            .explicit_instructions()
-            .any(|instruction| {
-                instruction
-                    .as_any()
-                    .downcast_ref::<KagemushaWalletLedgerV1>()
-                    .is_some_and(|instruction| {
-                        instruction.scheme == scheme
-                            && matches!(&instruction.action,
+    if !signed
+        .instructions()
+        .explicit_instructions()
+        .any(|instruction| {
+            instruction
+                .as_any()
+                .downcast_ref::<KagemushaWalletLedgerV1>()
+                .is_some_and(|instruction| {
+                    instruction.scheme == scheme
+                        && matches!(&instruction.action,
                     KagemushaWalletLedgerActionV1::Unload(bytes) if bytes == original)
-                    })
-            })
+                })
+        })
     {
         return Err(Error::Invalid("Unload exact original instruction"));
     }
@@ -297,7 +297,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             &verified,
             &genesis.initial_epoch().network_id,
             self.scheme_id,
-            &claim.account,
             &transaction,
             original,
         )? {
