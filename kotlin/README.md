@@ -620,6 +620,21 @@ monetary authority. Public wire size and verification work are independent of
 balance history; no hop, input, origin, ancestry, fan-in, or proof-depth limit is
 encoded.
 
+NFC runs canonical ISO/IEC 7816-4 APDUs under one application identifier
+(`IrohaPeerNfcApplicationIdentifierV1`, 5–16 bytes) that both phones register; an
+application without its own uses `PROTOCOL` (`F0504B45504B524E464301`, the aid-filter of the
+`client-android` template `res/xml/iroha_peer_nfc_v1_aids.xml`). The receiver's phone is the
+card: an `IrohaPeerAsyncHostApduServiceV1` subclass, whose `applicationIdentifier` matches its
+aid-filter, routes commands to an `IrohaPeerNfcCardApduBridgeV1` around
+`IrohaPeerNfcCardEndpointV1.intake`. Its callbacks sign the Request for the payer's Offer,
+durably admit the Payment header and, at COMMIT, ingest the Payment and persist the Credited
+acknowledgement. The payer's phone reads through `IrohaPeerIsoDepTransceiverV1`: tap 1 is
+`IrohaPeerNfcOfferExchangeV1.run` (Offer in, Request out); after approval the payer persists
+`IrohaPeerNfcRequestReadV1.senderCheckpoint(payment).encode()` (`ISC1`) and tap 2 is
+`IrohaPeerNfcReaderExchangeV1.run` with that checkpoint (Payment in, Credited out, resumable
+after any lost response). A Nearby receiver that advertises before it holds a Request uses
+`IrohaPeerNearbyDiscoveryContextV1.freshReceiver`.
+
 `KagemushaWalletAccountOriginalV1` encodes and renders the bounded complete
 canonical Norito `AccountId` frame used by `KagemushaWalletV1.reviewSend`.
 Supply both the receiver's original Request and destination account frame;

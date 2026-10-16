@@ -44,7 +44,7 @@ fn set_availability(
     let mut payload = client
         .account_client()
         .prepare_transaction(AccountTransactionDraft::new(
-            vec![instruction.into()],
+            vec![instruction],
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
             Metadata::default(),
         ))?;

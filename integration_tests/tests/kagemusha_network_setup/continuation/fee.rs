@@ -646,7 +646,7 @@ fn fee_command_requires_exact_selections_and_rejects_abc_phase() -> Result<()> {
         "unknown authority field accepted"
     );
     ensure!(
-        matches!(missing_reason(), TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(InstructionExecutionError::InvariantViolation(ref text))) if text == "KAGEMUSHA ledger: ledger record unavailable"),
+        matches!(missing_reason(), TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(InstructionExecutionError::InvariantViolation(ref text))) if text.as_ref() == "KAGEMUSHA ledger: ledger record unavailable"),
         "exact missing-history reason"
     );
     Ok(())

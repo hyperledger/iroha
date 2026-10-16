@@ -1302,31 +1302,95 @@ per pair from parity, quarantines a stream on a conflicting duplicate or an inva
 message, bounds active streams (3) and frames before the header (12 frames, 3,072 bytes
 per stream), and decodes only a complete message.
 
-**NFC.** ISO/IEC 7816 application `F0504B45504B524E464301`, proprietary class `0x80`,
-chunks of at most 4,096 bytes and messages of at most 14,196 bytes (84-byte header
-plus the maximum Request carrier). Payment and Credited retain their 10,084-byte
-transport bound (84-byte header plus their 10,000-byte envelope).
-One session carries the receiver-hosted Request, the payer's Payment (begun, written in
-contiguous chunks and committed) and the receiver's durable acknowledgement, which is
-the Credited envelope. The receiver exposes Credited only after the Payment is durably
-admitted; a resumed or retried session must present the byte-identical Payment. The
-Kotlin carrier also requires the Payment to carry exactly the hosted Request's signed
-body and signature, and Credited to name that Request's scheme
-(`KagemushaWalletWireV1.requireExchangeBinding`); the Credited evidence itself is checked
-by the wallet's typed decoder (TODO(G4)). TODO(G4): Offer and SessionControl
-over NFC; until then the receiver obtains the Offer over another carrier before it
-builds the Request.
+**NFC.** The receiver's phone is the card (host card emulation) and the payer's phone is
+the reader. Commands use the proprietary class `0x80`, chunks of at most 4,096 bytes and
+messages of at most 14,196 bytes (84-byte header plus the maximum Request carrier). Payment
+and Credited retain their 10,084-byte transport bound (84-byte header plus their
+10,000-byte envelope); an Offer is at most 2,132 bytes.
+
+- *Application identifier.* An application selects its card by the ISO/IEC 7816-4
+  application identifier (5–16 bytes) it registered with the platform: on iOS the HCE
+  entitlement `com.apple.developer.nfc.hce.iso7816.select-identifier-prefixes` and the
+  reader's `com.apple.developer.nfc.readersession.iso7816.select-identifiers`, on Android
+  the `HostApduService` aid-filter. Both phones of an exchange use the same identifier.
+  An application without its own registration uses the protocol identifier
+  `F0504B45504B524E464301`. The identifier only routes the card; it grants no authority.
+- *Framing.* Commands are ISO/IEC 7816-4 APDUs in canonical form: the short case whenever
+  Lc ≤ 255 and Le ≤ 256, the extended case otherwise; other encodings are rejected. SELECT
+  is `00 A4 04 00 ‖ Lc ‖ AID ‖ 00`; a card answers its own identifier with `9000` and any
+  other with `6A82`. Every other command is `80 ‖ INS ‖ 00 00` with the data and Le below.
+- *Commands.* `s` is the 16-byte session identifier chosen by the card, `h_r` the
+  Request's canonical hash and `w_r`, `w_o`, `w_p`, `w_a` the wire hashes of the Request,
+  Offer, Payment and acknowledgement; offsets are BE32.
+
+  | INS | Command | Data | Le | Response |
+  |---|---|---|---|---|
+  | `30` | GET_INTAKE | — | 68 | `IOI1` |
+  | `31` | BEGIN_OFFER | `s ‖` Offer IPM1 header (84) | — | — |
+  | `32` | WRITE_OFFER | `s ‖ w_o ‖ offset ‖` 1..4,096 bytes | — | — |
+  | `33` | SUBMIT_OFFER | `s ‖ w_o` | — | — |
+  | `10` | GET_INFO | — | 98 | `INF1` |
+  | `11` | READ_REQUEST | `s ‖ h_r ‖ offset` | 1..4,096 | Request bytes |
+  | `20` | BEGIN_PAYMENT | `s ‖ h_r ‖` Payment IPM1 header (84) | — | — |
+  | `21` | WRITE | `s ‖ w_p ‖ offset ‖` 1..4,096 bytes | — | — |
+  | `22` | COMMIT | `s ‖ h_r ‖ w_p` | — | — |
+  | `23` | READ_ACK | `s ‖ w_p ‖ offset` | 1..4,096 | acknowledgement bytes |
+  | `24` | CONFIRM_ACK | `s ‖ w_p ‖ w_a` | — | — |
+  | `25` | GET_STATUS | `s ‖ h_r` | 174 | `NST1` |
+
+- *Records* (fixed length, big-endian, absent values zero-filled):
+  - `IOI1` (68): `"IOI1" ‖ 1 ‖ state ‖ BE16 profile ‖ s ‖ BE32 offer_length ‖
+    BE32 received_offer_bytes ‖ w_o ‖ BE16 max_write_chunk ‖ BE16 reason`. States:
+    awaiting-offer 1, receiving-offer 2, preparing-request 3, request-ready 4, declined 5.
+    The Offer fields are zero while awaiting an Offer and when the card hosts a Request
+    built from an Offer that arrived over another carrier; `reason` is nonzero exactly
+    when declined.
+  - `INF1` (98): `"INF1" ‖ 1 ‖ phase ‖ BE16 profile ‖ flags ‖ 0 ‖ s ‖ BE32 request_length ‖
+    h_r ‖ w_r ‖ BE16 max_read_chunk ‖ BE16 max_write_chunk`.
+  - `NST1` (174): `"NST1" ‖ 1 ‖ phase ‖ BE16 profile ‖ flags ‖ 0 ‖ s ‖ h_r ‖ w_r ‖
+    BE16 payment_profile ‖ BE32 payment_length ‖ BE32 received_payment_bytes ‖ w_p ‖
+    BE16 ack_profile ‖ BE32 ack_length ‖ w_a ‖ BE16 max_read_chunk ‖ BE16 max_write_chunk`.
+  - Phases: request-ready 1, payment-receiving 2, acknowledgement-ready 3, complete 4.
+    Flags: idempotent writes `0x01` (always set) and durable acknowledgement `0x02` (set
+    exactly in phases 3 and 4).
+- *Status words.* `9000` success; `6A82` another identifier; `6985` wrong state, a
+  conflicting replay or a Request that is not ready; `6982` a continuity, hash, profile or
+  IPM1 failure; `6581` the receiver could not persist; `6700` length; `6A80` malformed
+  data; `6D00` and `6E00` an unknown instruction or class.
+- *Tap 1: Offer to Request.* A card started without a Request awaits the payer's Offer.
+  The reader reads `IOI1`, sends BEGIN_OFFER, writes contiguous chunks (an overlapping
+  replay must be byte-identical) and submits. Before SUBMIT_OFFER a different header
+  replaces an unfinished Offer; afterwards the intake is bound to that Offer, the same
+  Offer's commands are idempotent and any other answers `6985`. The card decodes the
+  complete Offer, enters preparing-request and hands the Offer to the receiver's wallet,
+  which signs a Request bound to it under the Request rule or declines with a reason. The
+  reader polls GET_INTAKE until request-ready, then reads `INF1` and the Request. Request
+  commands before request-ready answer `6985`.
+- *Tap 2: Payment to Credited.* The payer reviews the Request and approves the Payment away
+  from the card, retains the exact Payment with the Request identity, then taps again:
+  BEGIN_PAYMENT, contiguous WRITEs, COMMIT, READ_ACK and CONFIRM_ACK, resumed from
+  GET_STATUS after any loss. The receiver durably admits the Payment header at
+  BEGIN_PAYMENT and answers COMMIT only after it has ingested the Payment and persisted
+  the Credited acknowledgement, which it exposes only then. A resumed or retried session
+  presents the byte-identical Payment. The Payment must carry exactly the hosted Request's
+  signed body and signature, and Credited must name that Request's scheme
+  (`KagemushaWalletWireV1.requireExchangeBinding`); the Credited evidence itself is
+  checked by the wallet's typed decoder (TODO(G4)). TODO(G4): SessionControl and Lineage
+  over NFC.
 
 **Nearby and Petal.** A Nearby session (service `org.hyperledger.iroha.kagemusha.transfer.v1`)
 authenticates both devices and then carries complete IPM1 messages of at most 32,704
 bytes in encrypted, per-direction sequenced records; the Kotlin session opens a record
 only to a verified IPM1 message of its profile. Petal Stream ([petal_stream.md](petal_stream.md))
-carries the encoded IPM1 message with the IPM1 kind as its `kind` byte. Transport
-encryption and checksums never replace the wallet's verification.
+carries the encoded IPM1 message with the IPM1 kind as its `kind` byte. A receiver that
+advertises before it holds a Request binds its discovery context and session to a fresh
+random 32-byte value in place of the Request hash; the Offer, Request, Payment and Credited
+then all travel inside the authenticated session. Transport encryption and checksums never
+replace the wallet's verification.
 
 ## 7. Open items
 
-- TODO(G4): Offer and SessionControl over the NFC carrier (§6).
+- TODO(G4): SessionControl and Lineage over the NFC carrier (§6).
 - TODO(G4): nested version fields remain with the typed wallet decoder; carriers check
   only the message's own top-level version and the decode-time scheme field's length (§6).
 - TODO(G3): the PIPA-v1 σ layout, the Ω transport-proof layout, their exact lengths
