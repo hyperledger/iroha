@@ -23,9 +23,13 @@ and Android payment-key adapters sign exactly the 32-byte message of §1. The Du
 State Provider binds the operation-dependent `proof_digest` (§3.2) and signs the 32-byte
 Poseidon message of §1. The shared Rust state owner assembles these objects and retains
 their custody through the provider; native step relations consume the corresponding G1
-layout. The bridge carries native coordinator operations, while foreign open fails closed
-until the authenticated proof-artifact loader is connected. Ledger instructions, Torii
-routes and physical-phone qualification remain open. The owner answers of 2026-10-05 (proposal
+layout. The native bridge opens a wallet only after authenticating its installation,
+verifier pack, producer inventory and exact original source graph. The closed ledger
+instruction family and account-authenticated Torii receipt/finality routes are
+implemented. Qualification of their combined monetary flow on four validators and
+the selected physical phones remains open; the
+[verification checklist](kagemusha_evidence_gate.md) records that distinction.
+The owner answers of 2026-10-05 (proposal
 revision 2026-10-05) are implemented: the data model depends on `iroha_pasta` and
 computes every Poseidon value natively (`credit_id`, the state commitment, chains, map,
 blacklist, quota-window and credit-digest trees and openings, and the packed-byte
@@ -1393,19 +1397,22 @@ replace the wallet's verification.
 - TODO(G4): SessionControl and Lineage over the NFC carrier (§6).
 - TODO(G4): nested version fields remain with the typed wallet decoder; carriers check
   only the message's own top-level version and the decode-time scheme field's length (§6).
-- TODO(G3): the PIPA-v1 σ layout, the Ω transport-proof layout, their exact lengths
-  and the frozen verifying keys. Once the artifacts freeze, the verifying-key allowlist
-  (§3.1) carries them; its validation requires Ω proof + largest σ_send ≤ 10,000 −
+- TODO(G3): qualify the complete admitted PIPA-v1 σ and Ω transport artifact set,
+  its exact proof lengths and the selected verifying keys. The verifying-key allowlist
+  (§3.1) carries their identities; its validation requires Ω proof + largest σ_send ≤ 10,000 −
   F_payment (8,564 bytes with the single-owner Payment frame; R9), each σ ≤ 3,520 bytes
   and Ω transport ≤ 5,044 bytes. These source capacities are stricter than the
   9,321-byte Receive and 7,812-byte Status envelope budgets. The vectors' allowlist
   remains a labelled stand-in until exact artifacts are admitted. Every admitted Send mask and the complete Ω construction must be measured
   together against this joint budget after the final descriptor and capacity changes.
   A stand-in byte sample or an earlier descriptor does not qualify the candidate.
-- TODO(G3): the in-circuit signature check over the 32-byte Poseidon message, the
-  indexed map trees in circuit (Λ) and the capsule's retained openings are open.
-  The installed verifier inventory preimage is defined in §3.1.1; the complete
-  producer inventory remains open.
+- The P-256 Q signature relation verifies the SHA-256 hash of the 32-byte
+  Poseidon signing message. The operation relations implement indexed-map
+  predicates and effects; recovery capsules retain their selected openings.
+  The native producer inventory commits all σ originals, compiled operation
+  routes, terminal A identities and the sole Ω original. These implementations
+  do not replace qualification of the admitted keys, genuine operation
+  compositions and adversarial mutations on one coherent candidate.
 - TODO(G3): qualify the canonical B1/B5–B8 proof relations and frozen artifacts against
   the current native objects: 26-element statements and credit IDs, 33-element core,
   8-element rest, quota-usage array, Request blacklist history and quota/time checks.
@@ -1447,13 +1454,15 @@ replace the wallet's verification.
   credential check relies on the issuer signature for that binding. Keep these `H`, or
   move them to `P` (a `P` `wallet_id` is one element and changes the Request,
   `credit_id`, chain, map-value, effect, operation and core element lists)?
-- TODO(owner), kept as is: a Send capsule retains the Request message (§8);
-  `Λ_load` and `Λ_unload` do not verify ChargeQuote signatures; a Retiring wallet's
-  refusal to issue Requests is wallet behaviour (TODO(G4)).
+- A Send capsule retains the Request message (§8); `Λ_load` and `Λ_unload` do not
+  verify ChargeQuote signatures. The native setup owner refuses new Requests
+  from a Retiring wallet and retains exact prior setup retries. These are
+  wallet behavior, separate from the lineage relation.
 - NEW first-release G5 preimages: [typed app/enrollment policy contract](kagemusha_wallet_enrollment_policy_v1.md). These domains and lifetime rules are new decisions, not owner-answer evidence or a mapping of existing opaque digests. Native policy approval/issuer admission and foreign policy carriers remain coordinated G5 work; issuer verification of renewal evidence remains TODO(G5).
 - TODO(G4/G6): JavaScript, Python and C# consumers when their wire copies migrate.
-- TODO(G6): the ledger instruction family; TODO(G3/G6): the release install path
-  carrying the artifact manifest.
+- TODO(G3/G6): qualify the implemented ledger instruction family and native
+  installation path with matching manifest, catalog, keys and SDK artifacts
+  through four-validator monetary execution and physical-device flows.
 
 ## Native Load epoch synchronization bridge
 
