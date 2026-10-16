@@ -643,6 +643,11 @@ reviewed account under the application's independently selected network and
 bind local confirmation to the whole returned review, including its account
 tail. Encoding or rendering account DATA does not authorize a payment.
 
+`KagemushaWalletAccountCheckCodeV1` renders the eight-digit check code (`0006 6051`)
+that payer and receiver compare before a Send: `forAccountDigest` for the reviewed
+receiver account digest, `forAccountOriginal` or `forAccountId` for the wallet's own
+account. Swift wallets render the same text for the same account (wire record §6).
+
 ### KAGEMUSHA enrollment transport
 
 `ToriiKagemushaWalletEnrollmentRequestV1` exposes `preKey`, `evidence`, `issue`

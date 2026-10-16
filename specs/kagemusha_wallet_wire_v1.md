@@ -1392,6 +1392,18 @@ random 32-byte value in place of the Request hash; the Offer, Request, Payment a
 then all travel inside the authenticated session. Transport encryption and checksums never
 replace the wallet's verification.
 
+**Account check code.** Before approving a Send, the payer compares the receiving account's
+check code with the receiver, aloud or on both screens. The payer's wallet derives it from
+the reviewed `receiver_account_digest`; the receiver's wallet derives it from its own account
+original, so both read `H("account", original)` of the same canonical AccountId frame. The
+code is that digest's first four bytes as a big-endian unsigned 32-bit integer, reduced
+modulo 10^8 and written as eight zero-padded decimal digits in two groups of four separated
+by one space (U+0020): a digest beginning `00 01 02 03` gives `0006 6051`. Every wallet
+renders exactly this text, and decimal digits read aloud the same way in every language. The
+code is display DATA: it authenticates nothing, and the wallet still binds the Payment to the
+full reviewed account. Kotlin and Swift `KagemushaWalletAccountCheckCodeV1` implement it
+against `fixtures/kagemusha/wallet_account_check_code_v1.json`.
+
 ## 7. Open items
 
 - TODO(G4): SessionControl and Lineage over the NFC carrier (§6).

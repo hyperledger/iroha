@@ -1,0 +1,66 @@
+{
+  "account_source": "fixtures/account/multisig_wire_v1.json (positive vectors, account_id_frame_hex)",
+  "accounts": [
+    {
+      "account_digest_hex": "9f922b774874ca7532882c0d1dcab81110a338c001c5414531969577bb2a2015",
+      "account_original_hex": "4e525430000060e81473aed0a1276f1c5776d0f69c38004f000000000000002f6837f47715857502000000004a21000000000000000100015f017c01bf019a0165019c01f101230100019e015b010c012c01c00128015d01fa015e01d7016b01ed01ae010701cd0128011a01f70127010601be01950136",
+      "check_code": "7715 6727",
+      "i105": "sorauﾛ1P2PMｲbjRｦ2jrLFﾁｽｸFjjBヱYﾜｴ3ﾋNRjﾌｸﾆｺNXcfﾒXSKXAW",
+      "name": "ed25519"
+    },
+    {
+      "account_digest_hex": "0f3df4fad04e9c3b14c4169f1c733f4d65c32e3f1d3cf1ad6bcb576884181cbe",
+      "account_original_hex": "4e525430000060e81473aed0a1276f1c5776d0f69c38005100000000000000b41522ef2cc1ab9e02000000004c220000000000000001010102013b01c401de0109012a01b501c7011e011401c7015d017501c501de01c201e001ac010c012d01b801ec0102018001be01c301b0016201f101060145017a0125",
+      "check_code": "5571 8650",
+      "i105": "sora2QHHｴﾒh1oﾓﾜQKﾂﾂedﾋ1Me9fﾇｻｲﾘヰ9ｷﾃﾎﾍｵｸﾈﾑvFkﾏYga2YHVEU",
+      "name": "secp256k1"
+    },
+    {
+      "account_digest_hex": "99937d566c6f1463cfa583c7ccb24b134364b06c1aecb9981932906fd55632cb",
+      "account_original_hex": "4e525430000060e81473aed0a1276f1c5776d0f69c3800b300000000000000cb6d6cdc5b049ced0201000000ad010101020200a60102000000000000004e4a21000000000000000100019301df01f7013b01580151017301a501eb01aa012501e20141019d015901ff019f0139012f011d0167017801b2018301c30120015601ea01f6015601e101ca0201004e4a2100000000000000010001d90192016a01ea01b8011e0191019c0181019b0154013a01bd01a4017301e2010001750162019801bf01db019b016c019001990163011201e401a0019f01fa020200",
+      "check_code": "7657 9926",
+      "i105": "soramYXkｿuDｦMﾆHJﾚｱｽﾑNヰ7ｲﾊeﾎｿSｱRKLｴﾂﾜuｴﾕｷaCofi4SヰGCﾚVﾇﾈgｾﾙYDﾁｼsｶﾄcBPｶ3ｱﾕｷJXﾕ1ｿX5ｸ9hｦenEﾙﾙﾗmﾔﾂ9CsｺｶﾄﾒV5PBXGD",
+      "name": "weighted-two"
+    }
+  ],
+  "chain_discriminant": 753,
+  "digests": [
+    {
+      "account_digest_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "check_code": "0006 6051",
+      "name": "ascending"
+    },
+    {
+      "account_digest_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+      "check_code": "0000 0000",
+      "name": "zero"
+    },
+    {
+      "account_digest_hex": "05f5e0ff00000000000000000000000000000000000000000000000000000000",
+      "check_code": "9999 9999",
+      "name": "largest-below-modulus"
+    },
+    {
+      "account_digest_hex": "05f5e100ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "check_code": "0000 0000",
+      "name": "modulus-wraps-to-zero"
+    },
+    {
+      "account_digest_hex": "800000005a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+      "check_code": "4748 3648",
+      "name": "high-bit-is-unsigned"
+    },
+    {
+      "account_digest_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "check_code": "9496 7295",
+      "name": "all-ones"
+    }
+  ],
+  "invalid_digest_lengths": [
+    0,
+    31,
+    33
+  ],
+  "rule": "account_digest = H(account, original) = SHA-256(\"iroha:kagemusha:wallet:v1:\" || \"account\" || 0x00 || LE64(len(original)) || original); check_code = the first four account_digest bytes as a big-endian unsigned 32-bit integer, modulo 10^8, as eight zero-padded decimal digits in two groups of four separated by one U+0020 space",
+  "schema": "iroha.kagemusha.wallet-account-check-code.v1"
+}

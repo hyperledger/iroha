@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test
 /**
  * Pins the KAGEMUSHA source surface of the three published Kotlin SDK modules.
  *
- * Only the KAGEMUSHA wallet V1 wire, typed ordinary Activate/IssueLoad constructors, account originals, enrollment binding,
+ * Only the KAGEMUSHA wallet V1 wire, typed ordinary Activate/IssueLoad constructors, account originals and check codes, enrollment binding,
  * E1 policy originals and the closed E1 refusal table, P-256 codec,
  * Eligibility middleware, native installation/admission and operation owners, ledger and output
  * projections, platform adapter, and private native replies remain. The retired coordinator,
@@ -73,9 +73,11 @@ class OfflinePackageSurfaceV1Test {
             "kagemusha-wallet-android/src/test/kotlin/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletOutputV1Test.kt",
             "kagemusha-wallet-android/src/test/kotlin/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletRequestFeeSelectionV1Test.kt",
             "kagemusha-wallet-android/src/test/kotlin/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletUnloadChargeReviewV1Test.kt",
+            "core-jvm/src/main/java/org/hyperledger/iroha/sdk/offline/KagemushaWalletAccountCheckCodeV1.kt",
             "core-jvm/src/main/java/org/hyperledger/iroha/sdk/offline/KagemushaWalletAccountOriginalV1.kt",
             "core-jvm/src/main/java/org/hyperledger/iroha/sdk/offline/KagemushaWalletArtifactTransportV1.kt",
             "core-jvm/src/main/java/org/hyperledger/iroha/sdk/offline/KagemushaWalletEnrollmentBindingV1.kt",
+            "core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/offline/KagemushaWalletAccountCheckCodeV1Test.kt",
             "core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/offline/KagemushaWalletAccountOriginalV1Test.kt",
             "core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/offline/KagemushaWalletArtifactTransportV1Test.kt",
             "core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/offline/KagemushaWalletEnrollmentBindingV1Test.kt",

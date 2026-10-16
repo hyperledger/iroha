@@ -149,6 +149,12 @@ canonical σ-field values and never recomputes them. Structural envelope checks 
 no monetary or delivery authority; typed decoding and verification of the message
 bodies remain open (TODO(G4)).
 
+`KagemushaWalletAccountCheckCodeV1` renders the eight-digit check code (`0006 6051`)
+that payer and receiver compare before a Send: `code(accountDigest:)` for the reviewed
+receiver account digest, `code(accountOriginal:)` or `code(accountID:)` for the wallet's
+own account. Kotlin wallets render the same text for the same account (wire record §6,
+`fixtures/kagemusha/wallet_account_check_code_v1.json`). The code is display DATA only.
+
 `KagemushaWalletApplePlatformV1` is the iPhone platform adapter of the Rust wallet
 Advance provider (Secure Enclave payment key that signs exactly the 32-byte message
 the Rust signer passes with `kSecKeyAlgorithmECDSASignatureMessageX962SHA256`,
