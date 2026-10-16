@@ -1,6 +1,15 @@
 //! Ordered persisted sub-proofs, recorded Ω identities and native CreditStatus construction.
+//!
+//! One sub-proof runs in three phases: a locked prepare under the wallet owner, a proof
+//! without it, and a locked publication that re-checks the fold fields. The background
+//! slot is held from prepare until the proof finishes, so payment preemption still joins
+//! the proof, while ingests and status reads take the wallet owner during it.
+
+use std::ops::ControlFlow;
 
 use super::fold_custody::FoldSourcesV1;
+use super::fold_metrics::FoldTurnV1;
+use super::scheduling::FoldGuard;
 use super::*;
 use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_provider_digest_v1 as digest;
 
@@ -30,7 +39,7 @@ impl FoldSeed {
 /// Result of one cooperative background scheduling turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FoldStatus {
-    /// Background work is disabled or a payment holds priority.
+    /// Background work is disabled, a payment holds priority or another sub-proof is proving.
     Idle,
     /// Every released head is folded.
     CaughtUp,
@@ -43,6 +52,115 @@ pub enum FoldStatus {
     },
     /// A self-verified Ω is durably recorded for this head.
     Folded(u128),
+}
+
+/// A finished fold turn with the fold backlog of the source-selected manifest it ended on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FoldTurnStatusV1 {
+    /// The turn's status.
+    pub status: FoldStatus,
+    /// Released heads still needing local folds under the manifest this turn synced or
+    /// published, counted like [`Snapshot::fold_backlog`]; `None` for an idle turn, before
+    /// Bootstrap, or when the count is not representable. A scheduling hint only: it grants
+    /// no Send, Unload, Request or device move, and [`Coordinator::snapshot`] stays the view
+    /// of fold progress.
+    pub backlog: Option<u128>,
+}
+
+impl FoldTurnStatusV1 {
+    const IDLE: Self = Self {
+        status: FoldStatus::Idle,
+        backlog: None,
+    };
+
+    /// `status` with the backlog of `manifest`, by the checked formula of
+    /// [`Coordinator::snapshot`]: `indexed - folded`, or `indexed + 1` before the first fold.
+    fn of(status: FoldStatus, manifest: &manifest::Manifest) -> Self {
+        let backlog = manifest.indexed.and_then(|indexed| {
+            manifest.folded.map_or_else(
+                || indexed.checked_add(1),
+                |folded| indexed.checked_sub(folded),
+            )
+        });
+        Self { status, backlog }
+    }
+}
+
+/// One selected sub-proof between its locked prepare and its locked publication.
+///
+/// It holds the background slot and owns the native job with the fold fields it was prepared
+/// from, but no custody, archive or original-store handle. Prove it after releasing the
+/// wallet owner, then publish the result under that owner again.
+pub struct FoldJobV1 {
+    guard: FoldGuard,
+    turn: FoldTurnV1,
+    prepared: Prepared,
+    native: Box<dyn NativeFoldJobV1>,
+}
+
+/// A proved sub-proof awaiting its locked publication. It no longer holds the background
+/// slot; its publication re-checks the fold fields and discards a stale proof.
+pub struct ProvedFoldV1 {
+    turn: FoldTurnV1,
+    ingests: u32,
+    prepared: Prepared,
+    progress: FoldProgress,
+}
+
+/// The selected manifest and fold fields one sub-proof was prepared from.
+struct Prepared {
+    manifest_digest: [u8; 32],
+    manifest: manifest::Manifest,
+    sequence: u128,
+    ordinal: u32,
+    previous: [u8; 32],
+    schedule: Vec<CheckpointLayout>,
+    step: ReleasedStep,
+    predecessor_step: Option<ReleasedStep>,
+    predecessor: Option<KagemushaWalletFoldRecordV1>,
+    // Source-bound identity of the predecessor's recorded Ω.
+    predecessor_identity: Option<Vec<u8>>,
+    seed: Option<FoldSeed>,
+}
+
+impl FoldJobV1 {
+    /// Prove the prepared sub-proof; call it without the wallet owner. A payment, activity or
+    /// close signal cancels it at a cooperative boundary and releases its work; an ingest or
+    /// status read never does. A finished proof releases the background slot before its
+    /// publication, so a payment never waits for that publication's wallet owner.
+    ///
+    /// # Errors
+    /// `Cancelled` on preemption, or a native proof error. Nothing is published.
+    pub fn prove(self) -> Result<ProvedFoldV1, Error> {
+        let Self {
+            guard,
+            turn,
+            prepared,
+            native,
+        } = self;
+        fold_metrics::enter(FoldPhaseV1::Prove);
+        let proved = native.prove(&guard.token).and_then(|progress| {
+            guard.token.check()?;
+            Ok(progress)
+        });
+        match proved {
+            Ok(progress) => {
+                // The wait for the wallet owner belongs to the publication.
+                fold_metrics::enter(FoldPhaseV1::Publish);
+                Ok(ProvedFoldV1 {
+                    ingests: guard.release(),
+                    turn,
+                    prepared,
+                    progress,
+                })
+            }
+            Err(error) => {
+                // Reported while the slot is held, so a joining payment returns after it.
+                guard.report(turn, Err(&error));
+                Err(error)
+            }
+        }
+    }
 }
 
 /// Session-local reuse of byte-identical Ω, including public/deferred values and proof bytes.
@@ -206,6 +324,16 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         step: &ReleasedStep,
         cancellation: Option<&Cancellation>,
     ) -> Result<Option<RecordedFold>, Error> {
+        Ok(self
+            .read_fold_identified(step, cancellation)?
+            .map(|(fold, _)| fold))
+    }
+    /// [`Self::read_fold_cancellable`] with the source-bound Ω identity it was read under.
+    fn read_fold_identified(
+        &mut self,
+        step: &ReleasedStep,
+        cancellation: Option<&Cancellation>,
+    ) -> Result<Option<(RecordedFold, Vec<u8>)>, Error> {
         if let Some(token) = cancellation {
             token.check()?;
         }
@@ -231,7 +359,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             return Err(Error::WitnessLost("source-bound Ω identity"));
         }
         let fold = self.verify_fold_bytes(step, &bytes, None, cancellation)?;
-        Ok(Some(fold))
+        Ok(Some((fold, expected)))
     }
     fn record_credit(
         tree: &mut credit_tree::CreditTree,
@@ -308,43 +436,139 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         }
         Ok((manifest.checkpoint_count, previous, originals))
     }
-    /// Prove or adopt at most one persisted sub-proof. Index roots and exact Ω identity become
-    /// durable under the source marker before success. Payment preemption releases workspaces.
+    /// Prove or adopt at most one persisted sub-proof for an exclusive owner: the locked
+    /// [`Self::fold_prepare`], [`FoldJobV1::prove`] and the publication, while this caller
+    /// holds the coordinator throughout. Index roots and exact Ω identity become durable under
+    /// the source marker before success. Payment preemption releases workspaces. A turn that
+    /// selected a sub-proof is reported to the scheduler's fold observer (observation only).
+    /// A host that releases the wallet owner while proving publishes with
+    /// [`Self::fold_publish`] instead.
     ///
     /// # Errors
     /// Native proof errors, cancellation, missing witnesses or uncertain archive publication.
     /// An error never undoes a selected Send or releases its retained Payment bytes.
     pub fn fold_once(&mut self) -> Result<FoldStatus, Error> {
+        let job = match self.fold_prepare()? {
+            ControlFlow::Break(ended) => return Ok(ended.status),
+            ControlFlow::Continue(job) => job,
+        };
+        let ProvedFoldV1 {
+            turn,
+            ingests,
+            mut prepared,
+            progress,
+        } = job.prove()?;
+        // This caller held the coordinator since prepare, so the prepared manifest is still
+        // the selected one: its compare-and-publish needs no re-check or rebase.
+        let result = self.publish_progress(&mut prepared, progress, None, None, None);
+        self.scheduler
+            .report(turn, result.as_ref().copied(), None, ingests);
+        result
+    }
+
+    /// The locked first phase of one sub-proof. Under the wallet owner it selects the next
+    /// sub-proof, re-chains its durable checkpoints, and either adopts an interrupted
+    /// publication byte-for-byte or prepares the owned job: native replay, inputs and the
+    /// revalidated proving originals of the selected stage. A caught-up turn ends right after
+    /// the manifest sync and reads no step, recorded Ω or credit root. `Break` ends the turn
+    /// with its status and backlog; `Continue` carries the job to [`FoldJobV1::prove`] once
+    /// the owner is released. A turn that ends here is reported to the scheduler's fold
+    /// observer before the background slot is released (observation only).
+    ///
+    /// # Errors
+    /// Native preparation errors, cancellation, missing witnesses or uncertain archive
+    /// publication. An error never undoes a selected Send or releases its retained Payment.
+    pub fn fold_prepare(&mut self) -> Result<ControlFlow<FoldTurnStatusV1, FoldJobV1>, Error> {
         let Some(guard) = self.scheduler.start() else {
-            return Ok(FoldStatus::Idle);
+            return Ok(ControlFlow::Break(FoldTurnStatusV1::IDLE));
         };
-        let (manifest_digest, mut manifest) = self.sync_manifest()?;
+        let mut turn = FoldTurnV1::start();
+        let result = match self.fold_turn(&guard, &mut turn) {
+            Ok(ControlFlow::Continue((prepared, native))) => {
+                return Ok(ControlFlow::Continue(FoldJobV1 {
+                    guard,
+                    turn,
+                    prepared,
+                    native,
+                }));
+            }
+            Ok(ControlFlow::Break(ended)) => Ok(ended),
+            Err(error) => Err(error),
+        };
+        guard.report(turn, result.as_ref().map(|ended| ended.status));
+        result.map(ControlFlow::Break)
+    }
+
+    /// The locked last phase of a sub-proof proved without the wallet owner. It publishes only
+    /// if the fold fields the proof was prepared from are unchanged: the folded head, the
+    /// checkpoint count and digest, the step's capsule, the predecessor Ω and an empty
+    /// publication slot. Unrelated Advance and ingest writes are rebased onto the selected
+    /// manifest; otherwise the proof is discarded, never published, and the next turn resumes
+    /// from durable state. Index roots and exact Ω identity become durable under the source
+    /// marker before success. The turn is reported to the scheduler's fold observer; its
+    /// backlog is that of the published manifest.
+    ///
+    /// # Errors
+    /// `Cancelled` for a discarded proof, missing witnesses, a rejected Ω or uncertain archive
+    /// publication. An error never undoes a selected Send or releases its retained Payment.
+    pub fn fold_publish(&mut self, proved: ProvedFoldV1) -> Result<FoldTurnStatusV1, Error> {
+        let ProvedFoldV1 {
+            mut turn,
+            ingests,
+            mut prepared,
+            progress,
+        } = proved;
+        let result = self.publish_rebased(&mut prepared, progress, &mut turn);
+        self.scheduler
+            .report(turn, result.as_ref().copied(), None, ingests);
+        result.map(|status| FoldTurnStatusV1::of(status, &prepared.manifest))
+    }
+
+    fn fold_turn(
+        &mut self,
+        guard: &FoldGuard,
+        turn: &mut FoldTurnV1,
+    ) -> Result<ControlFlow<FoldTurnStatusV1, (Prepared, Box<dyn NativeFoldJobV1>)>, Error> {
+        let (manifest_digest, manifest) = self.sync_manifest()?;
         let Some(last) = manifest.indexed else {
-            return Ok(FoldStatus::CaughtUp);
+            return Ok(ControlFlow::Break(FoldTurnStatusV1::of(
+                FoldStatus::CaughtUp,
+                &manifest,
+            )));
         };
+        // Caught up (`manifest()` refuses a folded head past the index): the wake reads no
+        // step, recorded Ω or credit root. A turn that selects a sub-proof checks them all
+        // below; a folded-state read checks the ones it uses.
+        if manifest.folded == Some(last) {
+            return Ok(ControlFlow::Break(FoldTurnStatusV1::of(
+                FoldStatus::CaughtUp,
+                &manifest,
+            )));
+        }
         let sequence = manifest.folded.map_or(Ok(0), |seq| {
             seq.checked_add(1)
                 .ok_or(Error::Invalid("sequence overflow"))
         })?;
+        turn.select(sequence, manifest.checkpoint_count);
+        fold_metrics::enter(FoldPhaseV1::ReadFold);
         let predecessor_step = manifest
             .folded
             .map(|previous| self.indexed_step(&manifest, previous))
             .transpose()?;
-        let predecessor = if let Some(step) = predecessor_step.as_ref() {
-            let fold = self
-                .read_fold_cancellable(step, Some(&guard.token))?
+        let (predecessor, predecessor_identity) = if let Some(step) = predecessor_step.as_ref() {
+            let (fold, identity) = self
+                .read_fold_identified(step, Some(&guard.token))?
                 .ok_or(Error::WitnessLost("fold predecessor"))?;
             if fold.record.lineage.public.credit_digest_root != manifest.credit_tree.root() {
                 return Err(Error::WitnessLost("credit tree root"));
             }
-            Some(fold.record)
+            (Some(fold.record), Some(identity))
         } else {
-            None
+            (None, None)
         };
-        if sequence > last {
-            return Ok(FoldStatus::CaughtUp);
-        }
+        fold_metrics::enter(FoldPhaseV1::FoldSeed);
         let step = self.indexed_step(&manifest, sequence)?;
+        turn.operation(step.frozen.capsule.body().kind);
         let seed = self.fold_seed(
             &manifest,
             predecessor_step.as_ref(),
@@ -364,6 +588,9 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         }
         let (ordinal, previous, checkpoints) =
             self.checkpoints(&step, predecessor.as_ref(), &schedule, &manifest)?;
+        if usize::try_from(ordinal).ok() == Some(schedule.len()) {
+            fold_metrics::stage(FoldStageV1::Omega);
+        }
         guard.token.check()?;
         // A completed but unacknowledged publication is adopted byte-for-byte, never re-proved.
         let existing_fold = self.archive.get(
@@ -380,35 +607,154 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         } else {
             None
         };
+        let mut prepared = Prepared {
+            manifest_digest,
+            manifest,
+            sequence,
+            ordinal,
+            previous,
+            schedule,
+            step,
+            predecessor_step,
+            predecessor,
+            predecessor_identity,
+            seed,
+        };
         // Canonical bytes of an adopted Ω that verify_fold_bytes just verified in full.
         let mut adopted = None;
-        let result = if let Some(bytes) = existing_fold.as_ref() {
-            let fold = self.verify_fold_bytes(&step, bytes, None, Some(&guard.token))?;
+        let (progress, existing) = if let Some(bytes) = existing_fold.as_deref() {
+            turn.adopting();
+            fold_metrics::enter(FoldPhaseV1::Publish);
+            let fold = self.verify_fold_bytes(&prepared.step, bytes, None, Some(&guard.token))?;
             adopted = Some(fold.record.lineage.bytes());
-            FoldProgress::Complete {
+            let progress = FoldProgress::Complete {
                 lineage: fold.record.lineage,
                 burned: fold.burned,
-            }
-        } else if let Some(bytes) = existing_checkpoint.as_ref() {
+            };
+            (progress, bytes)
+        } else if let Some(bytes) = existing_checkpoint.as_deref() {
+            turn.adopting();
+            fold_metrics::enter(FoldPhaseV1::Publish);
             let candidate: Checkpoint = archive::decode(bytes)?;
-            FoldProgress::Checkpoint(candidate.proof)
+            (FoldProgress::Checkpoint(candidate.proof), bytes)
         } else {
-            let mut view = seed
-                .as_ref()
-                .map(|seed| seed.view(&mut self.archive, predecessor_step.as_ref(), &step))
-                .transpose()?;
-            self.proofs.fold_next(
-                &step,
-                predecessor.as_ref(),
-                &checkpoints,
-                view.as_mut(),
-                &guard.token,
-            )?
+            fold_metrics::enter(FoldPhaseV1::OwnerReplay);
+            let native = {
+                let mut view = prepared
+                    .seed
+                    .as_ref()
+                    .map(|seed| {
+                        seed.view(
+                            &mut self.archive,
+                            prepared.predecessor_step.as_ref(),
+                            &prepared.step,
+                        )
+                    })
+                    .transpose()?;
+                self.proofs.fold_prepare(
+                    &prepared.step,
+                    prepared.predecessor.as_ref(),
+                    checkpoints,
+                    view.as_mut(),
+                    &guard.token,
+                )?
+            };
+            guard.token.check()?;
+            return Ok(ControlFlow::Continue((prepared, native)));
         };
         guard.token.check()?;
-        match result {
+        let status = self.publish_progress(
+            &mut prepared,
+            progress,
+            Some(existing),
+            adopted,
+            Some(&guard.token),
+        )?;
+        Ok(ControlFlow::Break(FoldTurnStatusV1::of(
+            status,
+            &prepared.manifest,
+        )))
+    }
+
+    /// Re-check the fold fields under the selected manifest, then rebase the publication on it.
+    fn publish_rebased(
+        &mut self,
+        prepared: &mut Prepared,
+        progress: FoldProgress,
+        turn: &mut FoldTurnV1,
+    ) -> Result<FoldStatus, Error> {
+        let (manifest_digest, manifest) = self.sync_manifest()?;
+        let selected = &prepared.manifest;
+        let unchanged = manifest.folded == selected.folded
+            && manifest.checkpoint_count == selected.checkpoint_count
+            && manifest.checkpoint_digest == selected.checkpoint_digest
+            && self.step_entry(&manifest, prepared.sequence)?.capsule
+                == prepared.step.frozen.capsule.custody_digest()
+            && manifest
+                .folded
+                .map(|folded| {
+                    manifest
+                        .folds
+                        .get(&mut self.archive, &manifest::sequence_key(folded))
+                })
+                .transpose()?
+                .flatten()
+                == prepared.predecessor_identity
+            && self.publication_slot(prepared, &progress)?.is_none();
+        if !unchanged {
+            // Another writer changed the fold fields while this proof ran without the wallet
+            // owner. A stale proof is never published.
+            turn.discarding();
+            return Err(Error::Cancelled);
+        }
+        prepared.manifest_digest = manifest_digest;
+        prepared.manifest = manifest;
+        self.publish_progress(prepared, progress, None, None, None)
+    }
+
+    /// Durable bytes already at this sub-proof's publication slot: its checkpoint, or its Ω.
+    fn publication_slot(
+        &mut self,
+        prepared: &Prepared,
+        progress: &FoldProgress,
+    ) -> Result<Option<PrivateArchiveBytes>, Error> {
+        let (sequence, ordinal) = (prepared.sequence, prepared.ordinal);
+        match progress {
+            FoldProgress::Checkpoint(_) => {
+                let layout = prepared
+                    .schedule
+                    .get(usize::try_from(ordinal).map_err(|_| Error::Invalid("ordinal"))?)
+                    .ok_or(Error::Proof("unexpected extra checkpoint"))?;
+                self.archive.get(
+                    ArchiveKey::Checkpoint { sequence, ordinal },
+                    layout.record_limit()?,
+                )
+            }
+            FoldProgress::Complete { .. } => self.archive.get(
+                ArchiveKey::Fold(sequence),
+                KAGEMUSHA_WALLET_FOLD_RECORD_MAX_BYTES_V1 + archive::METADATA_BOUND,
+            ),
+        }
+    }
+
+    /// Make one sub-proof durable under `prepared.manifest`, the selected manifest. `existing`
+    /// holds interrupted bytes being adopted, which must match exactly; `adopted` the
+    /// canonical lineage that adoption verified in full.
+    fn publish_progress(
+        &mut self,
+        prepared: &mut Prepared,
+        progress: FoldProgress,
+        existing: Option<&[u8]>,
+        adopted: Option<Vec<u8>>,
+        cancellation: Option<&Cancellation>,
+    ) -> Result<FoldStatus, Error> {
+        let (sequence, ordinal) = (prepared.sequence, prepared.ordinal);
+        let manifest = &mut prepared.manifest;
+        match progress {
             FoldProgress::Checkpoint(proof) => {
-                let layout = *schedule
+                fold_metrics::enter(FoldPhaseV1::Publish);
+                let layout = *prepared
+                    .schedule
                     .get(usize::try_from(ordinal).map_err(|_| Error::Invalid("ordinal"))?)
                     .ok_or(Error::Proof("unexpected extra checkpoint"))?;
                 if proof.len()
@@ -419,23 +765,21 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 }
                 let checkpoint = Checkpoint {
                     layout,
-                    capsule_digest: step.frozen.capsule.custody_digest(),
-                    predecessor_fold: predecessor
+                    capsule_digest: prepared.step.frozen.capsule.custody_digest(),
+                    predecessor_fold: prepared
+                        .predecessor
                         .as_ref()
                         .map(KagemushaWalletFoldRecordV1::fold_digest)
                         .transpose()
                         .map_err(|_| Error::Invalid("predecessor fold"))?
                         .unwrap_or([0; 32]),
-                    previous,
+                    previous: prepared.previous,
                     ordinal,
                     proof,
                 };
                 let bytes = PrivateArchiveBytes::encode(&checkpoint)
                     .map_err(|_| Error::Invalid("private checkpoint encoding"))?;
-                if existing_checkpoint
-                    .as_ref()
-                    .is_some_and(|existing| existing.as_slice() != bytes.as_slice())
-                {
+                if existing.is_some_and(|existing| existing != bytes.as_slice()) {
                     return Err(Error::WitnessLost("interrupted checkpoint binding"));
                 }
                 self.archive
@@ -443,11 +787,11 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 manifest.checkpoint_count =
                     ordinal.checked_add(1).ok_or(Error::Invalid("ordinal"))?;
                 manifest.checkpoint_digest = digest("wallet-fold-checkpoint", &bytes);
-                self.publish_manifest(manifest_digest, &manifest)?;
+                self.publish_manifest(prepared.manifest_digest, manifest)?;
                 Ok(FoldStatus::Checkpoint { sequence, ordinal })
             }
             FoldProgress::Complete { lineage, burned } => {
-                if usize::try_from(ordinal).ok() != Some(schedule.len()) {
+                if usize::try_from(ordinal).ok() != Some(prepared.schedule.len()) {
                     return Err(Error::Proof("premature final Ω"));
                 }
                 // Exactly one full verification of this Ω, before any credit, pending-map,
@@ -455,11 +799,13 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 // requires its exact canonical lineage bytes.
                 let verified = lineage.bytes();
                 if adopted.as_ref() != Some(&verified) {
-                    self.proofs.verify_lineage(&lineage, Some(&guard.token))?;
+                    self.proofs.verify_lineage(&lineage, cancellation)?;
                 }
-                if let Some(seed) = &seed {
+                fold_metrics::enter(FoldPhaseV1::Publish);
+                let step = &prepared.step;
+                if let Some(seed) = &prepared.seed {
                     let mut view =
-                        seed.view(&mut self.archive, predecessor_step.as_ref(), &step)?;
+                        seed.view(&mut self.archive, prepared.predecessor_step.as_ref(), step)?;
                     match step.frozen.capsule.body().kind {
                         KagemushaWalletOperationKindV1::Receive => {
                             view.credit_record(burned)?;
@@ -487,7 +833,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                     Self::record_credit(
                         &mut manifest.credit_tree,
                         &mut self.archive,
-                        &step,
+                        step,
                         burned,
                     )?;
                 }
@@ -506,17 +852,16 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                     lineage,
                 };
                 let bytes = archive::encode(&RecordedFold { record, burned })?;
-                self.verify_fold_bytes(&step, &bytes, Some(&verified), Some(&guard.token))?;
-                if existing_fold
-                    .as_ref()
-                    .is_some_and(|existing| existing.as_slice() != bytes.as_slice())
-                {
+                self.verify_fold_bytes(step, &bytes, Some(&verified), cancellation)?;
+                if existing.is_some_and(|existing| existing != bytes.as_slice()) {
                     return Err(Error::WitnessLost("interrupted Ω identity"));
                 }
-                guard.token.check()?;
+                if let Some(token) = cancellation {
+                    token.check()?;
+                }
                 self.archive.put(ArchiveKey::Fold(sequence), &bytes)?;
                 let identity = digest("wallet-recorded-fold", &bytes);
-                let mut entry = self.step_entry(&manifest, sequence)?;
+                let mut entry = self.step_entry(manifest, sequence)?;
                 entry.checkpoints = ordinal;
                 manifest.steps = manifest.steps.set(
                     &mut self.archive,
@@ -531,7 +876,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 manifest.folded = Some(sequence);
                 manifest.checkpoint_count = 0;
                 manifest.checkpoint_digest = [0; 32];
-                self.publish_manifest(manifest_digest, &manifest)?;
+                self.publish_manifest(prepared.manifest_digest, manifest)?;
                 Ok(FoldStatus::Folded(sequence))
             }
         }

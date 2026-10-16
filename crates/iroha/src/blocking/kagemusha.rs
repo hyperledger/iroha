@@ -2,7 +2,11 @@
 
 use super::{AccountClient, RuntimeOwner};
 use crate::Result;
-use iroha_data_model::isi::kagemusha_wallet::load_finality::KagemushaWalletLoadReceiptV1;
+use iroha_crypto::HashOf;
+use iroha_data_model::{
+    isi::kagemusha_wallet::load_finality::KagemushaWalletLoadReceiptV1,
+    transaction::TransactionEntrypoint,
+};
 
 /// Blocking access to canonical account-authenticated wallet services.
 #[derive(Clone, Copy, Debug)]
@@ -48,6 +52,46 @@ impl Kagemusha<'_> {
     ) -> Result<iroha_data_model::sumeragi_finality::SumeragiCommitCertificateV1> {
         self.runtime
             .block_on(self.inner.load_epoch(receipt, boundary_height))?
+    }
+
+    /// Retrieve direct ledger finality for one committed Activate or Unload attempt of this
+    /// account, without granting finality authority.
+    ///
+    /// The attempt is one this account signed, or an Unload whose claim pays it, which another
+    /// account may have relayed. Verify it on the wallet's selected epoch reader before using
+    /// any outcome.
+    /// # Errors
+    /// Returns the asynchronous read failure or a blocking-runtime rejection.
+    pub fn ledger_finality(
+        &self,
+        scheme: &[u8; 32],
+        wallet: &[u8; 32],
+        entrypoint: &HashOf<TransactionEntrypoint>,
+    ) -> Result<iroha_data_model::kagemusha::KagemushaWalletLedgerFinalityV1> {
+        self.runtime
+            .block_on(self.inner.ledger_finality(scheme, wallet, entrypoint))?
+    }
+
+    /// Retrieve one boundary certificate before a committed ledger attempt of this account,
+    /// without granting epoch authority.
+    ///
+    /// Select the boundary from authenticated native progress and verify its `CommitQC`
+    /// before accepting the successor committee.
+    /// # Errors
+    /// Returns the asynchronous read failure or a blocking-runtime rejection.
+    pub fn ledger_epoch(
+        &self,
+        scheme: &[u8; 32],
+        wallet: &[u8; 32],
+        entrypoint: &HashOf<TransactionEntrypoint>,
+        boundary_height: u64,
+    ) -> Result<iroha_data_model::sumeragi_finality::SumeragiCommitCertificateV1> {
+        self.runtime.block_on(self.inner.ledger_epoch(
+            scheme,
+            wallet,
+            entrypoint,
+            boundary_height,
+        ))?
     }
 
     /// Send one exact enrollment operation, preserving native originals for durable recovery.

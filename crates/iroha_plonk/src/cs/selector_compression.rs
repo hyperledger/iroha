@@ -202,22 +202,44 @@ pub(crate) fn plan_packed_cancellable(
         .map(|selector| (selector.selector, selector.max_degree))
         .collect();
     plan_with_overlap(&metadata, max_degree, cancellation, |left, right| {
-        for (index, (left, right)) in selectors[left]
-            .activations
-            .iter()
-            .zip(selectors[right].activations)
-            .enumerate()
-        {
-            // At most the same 1024 logical rows between checkpoints.
-            if index % 128 == 0 {
-                iroha_pasta::CancellationToken::checkpoint(cancellation)?;
-            }
-            if left & right != 0 {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+        packed_overlap(
+            selectors[left].activations,
+            selectors[right].activations,
+            cancellation,
+        )
     })
+}
+
+// Whether two equally long packed bitmaps share an active row, 64 rows at a
+// time. Only `left & right != 0` matters, so native word byte order is exact.
+// Checkpoints fall on the same byte offsets as a byte scan checking every 128
+// bytes (1024 logical rows), including before a trailing partial word.
+fn packed_overlap(
+    left: &[u8],
+    right: &[u8],
+    cancellation: Option<&iroha_pasta::CancellationToken>,
+) -> Result<bool, CompressionError> {
+    let length = left.len().min(right.len());
+    let (left_words, left_tail) = left[..length].as_chunks::<8>();
+    let (right_words, right_tail) = right[..length].as_chunks::<8>();
+    for (index, (left, right)) in left_words.iter().zip(right_words).enumerate() {
+        if index.is_multiple_of(16) {
+            iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+        }
+        if u64::from_ne_bytes(*left) & u64::from_ne_bytes(*right) != 0 {
+            return Ok(true);
+        }
+    }
+    if left_tail.is_empty() {
+        return Ok(false);
+    }
+    if left_words.len().is_multiple_of(16) {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    }
+    Ok(left_tail
+        .iter()
+        .zip(right_tail)
+        .any(|(left, right)| left & right != 0))
 }
 
 // One combination algorithm for native synthesis and packed VK admission.

@@ -4453,6 +4453,8 @@ pub mod contracts_and_verification_keys {
         KAGEMUSHA_LOAD_ISSUANCE_GET => app_account_read_sdk_get("contracts.kagemusha_load_issuance_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}");
         KAGEMUSHA_LOAD_FINALITY_GET => app_account_read_sdk_get("contracts.kagemusha_load_finality_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/finality");
         KAGEMUSHA_LOAD_EPOCH_GET => app_account_read_sdk_get("contracts.kagemusha_load_epoch_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/epochs/{boundary}");
+        KAGEMUSHA_LEDGER_FINALITY_GET => app_account_read_sdk_get("contracts.kagemusha_ledger_finality_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/ledger/{entrypoint}/finality");
+        KAGEMUSHA_LEDGER_EPOCH_GET => app_account_read_sdk_get("contracts.kagemusha_ledger_epoch_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/ledger/{entrypoint}/epochs/{boundary}");
         SORAFS_RESERVE_ACCOUNT_PROOF_GET => app_account_read_sdk_get("contracts.sorafs_reserve_account_proof_get", "/v1/sorafs/reserve/providers/{provider_id}/proof/{height}");
         SORAFS_RESERVE_PROVIDERS_GET => app_account_read_sdk_get("contracts.sorafs_reserve_providers_get", "/v1/sorafs/reserve/providers");
         SORAFS_RESERVE_PROVIDERS_BY_PROVIDER_ID_HEX_GET => app_account_read_sdk_get("contracts.sorafs_reserve_providers_by_provider_id_hex_get", "/v1/sorafs/reserve/providers/{provider_id_hex}");

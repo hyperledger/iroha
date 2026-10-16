@@ -1,15 +1,22 @@
-//! Account-authenticated transport of direct BLS Load evidence.
+//! Account-authenticated transport of direct BLS Load and ledger finality evidence.
 
 use super::{ActivationEvidenceReadAuth, Client, Kagemusha, ensure_deadline};
 use crate::{Error, Result, client::dispatch, http::StatusCode};
+use iroha_crypto::HashOf;
 use iroha_data_model::{
     isi::kagemusha_wallet::KagemushaWalletLoadReceiptV1,
-    kagemusha::{KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1, KagemushaWalletLoadFinalityV1},
+    kagemusha::{
+        KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1, KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1,
+        KagemushaWalletLedgerFinalityV1, KagemushaWalletLoadFinalityV1,
+    },
     sumeragi_finality::{MAX_COMMIT_CERTIFICATE_BYTES_V1, SumeragiCommitCertificateV1},
+    transaction::TransactionEntrypoint,
 };
 
 const OP: &str = "kagemusha.wallet.load_finality.read";
 const EPOCH_OP: &str = "kagemusha.wallet.load_epoch.read";
+const LEDGER_OP: &str = "kagemusha.wallet.ledger_finality.read";
+const LEDGER_EPOCH_OP: &str = "kagemusha.wallet.ledger_epoch.read";
 
 impl Kagemusha<'_> {
     /// Retrieve the native BLS certificate and event inclusion for the exact retained receipt.
@@ -85,23 +92,98 @@ impl Kagemusha<'_> {
         let certificate: SumeragiCommitCertificateV1 = self
             .read_finality_original(receipt, &path, MAX_COMMIT_CERTIFICATE_BYTES_V1, EPOCH_OP)
             .await?;
-        certificate
-            .validate_shape()
-            .map_err(|error| Error::Decode {
-                operation: EPOCH_OP,
-                details: error.to_string(),
-            })?;
-        let height = certificate.height().map_err(|error| Error::Decode {
-            operation: EPOCH_OP,
+        bind_boundary(&certificate, boundary_height, EPOCH_OP)?;
+        ensure_deadline(&self.account.context, EPOCH_OP)?;
+        Ok(certificate)
+    }
+
+    /// Retrieve direct ledger finality for one committed Activate or Unload attempt of this
+    /// account: the inclusion block's original certificate and the selective membership of
+    /// the exact entrypoint and its joined Network output.
+    ///
+    /// An attempt of this account is one it signed, or an Unload whose claim pays it, which
+    /// another account may have relayed. `entrypoint` is the hash of the signed attempt the
+    /// wallet retains. The response is transport DATA: verify it with
+    /// `KagemushaWalletLedgerFinalityV1::verify` on the wallet's selected epoch reader before
+    /// using any outcome, and synchronize a missing epoch with [`Self::ledger_epoch`]. This read
+    /// does not compare the transaction's signer with this account; the wallet's retained
+    /// exact claim and signed wire bind a relayed Unload. Torii answers one 404
+    /// (`kagemusha_ledger_entry_not_committed`) for an uncommitted attempt and for every
+    /// input that is not this account's Activate or Unload naming this wallet.
+    ///
+    /// # Errors
+    /// Zero identities, a non-direct signer, signing/HTTP failures, expired deadline,
+    /// malformed or oversized evidence, or evidence naming another entrypoint.
+    pub async fn ledger_finality(
+        &self,
+        scheme: &[u8; 32],
+        wallet: &[u8; 32],
+        entrypoint: &HashOf<TransactionEntrypoint>,
+    ) -> Result<KagemushaWalletLedgerFinalityV1> {
+        let path = ledger_path(
+            iroha_torii_shared::route_catalog::contracts_and_verification_keys::KAGEMUSHA_LEDGER_FINALITY_GET.path(),
+            scheme,
+            wallet,
+            entrypoint,
+            LEDGER_OP,
+        )?;
+        let evidence: KagemushaWalletLedgerFinalityV1 = self
+            .read_account_original(
+                &path,
+                KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1,
+                LEDGER_OP,
+            )
+            .await?;
+        evidence.validate().map_err(|error| Error::Decode {
+            operation: LEDGER_OP,
             details: error.to_string(),
         })?;
-        if height != boundary_height {
+        if evidence.entrypoint_hash != *entrypoint {
             return Err(Error::ResponseBinding {
-                operation: EPOCH_OP,
-                field: "boundary_height",
+                operation: LEDGER_OP,
+                field: "entrypoint",
             });
         }
-        ensure_deadline(&self.account.context, EPOCH_OP)?;
+        ensure_deadline(&self.account.context, LEDGER_OP)?;
+        Ok(evidence)
+    }
+
+    /// Retrieve one bounded epoch-boundary certificate before a committed Activate or Unload
+    /// attempt of this account, as [`Self::ledger_finality`] defines it.
+    ///
+    /// Select `boundary_height` from the wallet's own authenticated epoch progress; Torii
+    /// serves only a boundary before the attempt's inclusion height. The response is DATA:
+    /// verify its incumbent `CommitQC` before accepting its successor committee.
+    ///
+    /// # Errors
+    /// Zero identities or a genesis boundary, a non-direct signer, signing/HTTP failures,
+    /// expired deadline, malformed certificate, or a response naming a different height.
+    pub async fn ledger_epoch(
+        &self,
+        scheme: &[u8; 32],
+        wallet: &[u8; 32],
+        entrypoint: &HashOf<TransactionEntrypoint>,
+        boundary_height: u64,
+    ) -> Result<SumeragiCommitCertificateV1> {
+        if boundary_height < 2 {
+            return Err(Error::InvalidRequest {
+                operation: LEDGER_EPOCH_OP,
+                details: "epoch boundary must follow genesis".into(),
+            });
+        }
+        let path = ledger_path(
+            iroha_torii_shared::route_catalog::contracts_and_verification_keys::KAGEMUSHA_LEDGER_EPOCH_GET.path(),
+            scheme,
+            wallet,
+            entrypoint,
+            LEDGER_EPOCH_OP,
+        )?
+        .replace("{boundary}", &boundary_height.to_string());
+        let certificate: SumeragiCommitCertificateV1 = self
+            .read_account_original(&path, MAX_COMMIT_CERTIFICATE_BYTES_V1, LEDGER_EPOCH_OP)
+            .await?;
+        bind_boundary(&certificate, boundary_height, LEDGER_EPOCH_OP)?;
+        ensure_deadline(&self.account.context, LEDGER_EPOCH_OP)?;
         Ok(certificate)
     }
 
@@ -133,6 +215,20 @@ impl Kagemusha<'_> {
                 field: "payer",
             });
         }
+        self.read_account_original(path, maximum, operation).await
+    }
+
+    /// One bounded canonical Norito GET signed by this account's direct signer.
+    async fn read_account_original<T>(
+        &self,
+        path: &str,
+        maximum: usize,
+        operation: &'static str,
+    ) -> Result<T>
+    where
+        T: norito::core::NoritoSerialize,
+        for<'de> T: norito::core::NoritoDeserialize<'de>,
+    {
         let client = &self.account.context;
         if client.account.controller.single_signatory() != Some(client.key_pair.public_key())
             || client
@@ -142,7 +238,7 @@ impl Kagemusha<'_> {
         {
             return Err(Error::InvalidRequest {
                 operation,
-                details: "Load finality reads require the direct payer signer".into(),
+                details: "wallet finality reads require the direct account signer".into(),
             });
         }
         ensure_deadline(client, operation)?;
@@ -167,9 +263,55 @@ impl Kagemusha<'_> {
     }
 }
 
+/// Bind one boundary certificate's finite shape and header height to the requested height.
+fn bind_boundary(
+    certificate: &SumeragiCommitCertificateV1,
+    boundary_height: u64,
+    operation: &'static str,
+) -> Result<()> {
+    certificate
+        .validate_shape()
+        .map_err(|error| Error::Decode {
+            operation,
+            details: error.to_string(),
+        })?;
+    let height = certificate.height().map_err(|error| Error::Decode {
+        operation,
+        details: error.to_string(),
+    })?;
+    if height != boundary_height {
+        return Err(Error::ResponseBinding {
+            operation,
+            field: "boundary_height",
+        });
+    }
+    Ok(())
+}
+
 fn receipt_path(template: &str, receipt: &KagemushaWalletLoadReceiptV1) -> String {
     template
         .replace("{scheme}", &hex::encode(receipt.scheme_id))
         .replace("{wallet}", &hex::encode(receipt.wallet_id))
         .replace("{request}", &hex::encode(receipt.request_id))
+}
+
+/// Canonical lowercase route for one attempt; Torii refuses zero identities.
+fn ledger_path(
+    template: &str,
+    scheme: &[u8; 32],
+    wallet: &[u8; 32],
+    entrypoint: &HashOf<TransactionEntrypoint>,
+    operation: &'static str,
+) -> Result<String> {
+    if scheme == &[0; 32] || wallet == &[0; 32] {
+        return Err(Error::InvalidRequest {
+            operation,
+            details: "ledger identities must be nonzero".into(),
+        });
+    }
+    let entrypoint: &[u8; 32] = entrypoint.as_ref();
+    Ok(template
+        .replace("{scheme}", &hex::encode(scheme))
+        .replace("{wallet}", &hex::encode(wallet))
+        .replace("{entrypoint}", &hex::encode(entrypoint)))
 }

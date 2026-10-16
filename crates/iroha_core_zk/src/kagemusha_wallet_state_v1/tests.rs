@@ -13,7 +13,7 @@ use p256::ecdsa::{Signature, SigningKey, signature::Signer as _};
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -377,6 +377,8 @@ pub(super) struct MemoryArchive {
     pub(super) fail_remove: bool,
     capsule_writes: Arc<AtomicUsize>,
     fail_put: Arc<Mutex<Option<(ArchiveKey, bool)>>>,
+    // Content-addressed objects whose reads fail: once (transient) or until revealed.
+    hidden: Arc<Mutex<BTreeMap<[u8; 32], bool>>>,
 }
 impl MemoryArchive {
     pub(super) fn new() -> Self {
@@ -390,7 +392,19 @@ impl MemoryArchive {
             fail_remove: false,
             capsule_writes: Arc::default(),
             fail_put: Arc::default(),
+            hidden: Arc::default(),
         }
+    }
+    /// The next read of this object fails once with a transient storage error.
+    pub(super) fn hide_object_once(&self, key: [u8; 32]) {
+        self.hidden.lock().expect("hidden").insert(key, true);
+    }
+    /// Every read of this object reports it missing until it is revealed.
+    pub(super) fn hide_object(&self, key: [u8; 32]) {
+        self.hidden.lock().expect("hidden").insert(key, false);
+    }
+    pub(super) fn reveal_object(&self, key: [u8; 32]) {
+        self.hidden.lock().expect("hidden").remove(&key);
     }
 }
 impl MemoryArchive {
@@ -424,6 +438,17 @@ impl ArchiveStore for MemoryArchive {
         self.reads.fetch_add(1, Ordering::SeqCst);
         if matches!(key, ArchiveKey::PreparationDraft(_)) {
             self.draft_reads.fetch_add(1, Ordering::SeqCst);
+        }
+        if let ArchiveKey::Object(object) = key {
+            let mut hidden = self.hidden.lock().expect("hidden");
+            match hidden.get(&object).copied() {
+                Some(true) => {
+                    hidden.remove(&object);
+                    return Err(Error::Storage(std::io::ErrorKind::Interrupted.into()));
+                }
+                Some(false) => return Ok(None),
+                None => {}
+            }
         }
         if self
             .records
@@ -486,6 +511,10 @@ pub(super) struct TestCustody {
     status_unavailable_at: Option<usize>,
     checkpoint_calls: usize,
     checkpoint_replacement: Option<(usize, ([u8; 32], Vec<u8>))>,
+    // A genuine custody head reported by status once `move_head` is set: an Advance that
+    // the archive checkpoint has not indexed yet.
+    moved_status: Option<SlotStatus>,
+    move_head: Arc<AtomicBool>,
     pub(super) resources: crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1,
     pub(super) resource_queries: usize,
     fail_resources: bool,
@@ -510,6 +539,8 @@ impl TestCustody {
             status_unavailable_at: None,
             checkpoint_calls: 0,
             checkpoint_replacement: None,
+            moved_status: None,
+            move_head: Arc::default(),
             resources: crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1 {
                 storage_bytes: u64::MAX / 2,
                 memory_bytes: Some(u64::MAX / 2),
@@ -627,6 +658,11 @@ impl Custody for TestCustody {
 
     fn status(&mut self) -> Result<SlotStatus, ProviderError> {
         self.status_calls += 1;
+        if self.move_head.load(Ordering::SeqCst) {
+            if let Some(moved) = &self.moved_status {
+                return Ok(moved.clone());
+            }
+        }
         if self.status_unavailable_at == Some(self.status_calls) {
             return Err(ProviderError::Unavailable(
                 crate::kagemusha_wallet_advance_v1::KagemushaWalletUnavailableV1::Locked,
@@ -743,9 +779,15 @@ pub(super) struct TestProofs {
     ledger_scope: Option<(KagemushaWalletSchemeV1, String)>,
     preparations: Arc<AtomicUsize>,
     preparation_proofs: Arc<AtomicUsize>,
+    // Mock native derivations: plans, validations and commits with a prepared plan.
+    validations: Arc<AtomicUsize>,
+    derivations: Arc<AtomicUsize>,
+    proof_origins: Arc<Mutex<Vec<lifecycle::TestOriginV1>>>,
+    prove_hook: Option<Arc<dyn Fn() + Send + Sync>>,
     fail_preparation_proof: bool,
     fail_preparation_plan: bool,
     fail_preparation_validation: bool,
+    fail_commit_derivation: bool,
     preparation_payload: Vec<u8>,
     advance_checks: Arc<AtomicUsize>,
     capsule_writes: Option<Arc<AtomicUsize>>,
@@ -828,10 +870,17 @@ impl NativeProofs for TestProofs {
         next: &FrozenTransition,
         previous: Option<&ReleasedStep>,
         _folded: Option<&KagemushaWalletFoldRecordV1>,
-        _custody: &mut TransitionCustodyV1<'_>,
+        custody: &mut TransitionCustodyV1<'_>,
     ) -> Result<Self::AdvanceCheck, Error> {
         if self.reject {
             return Err(Error::Proof("test rejection"));
+        }
+        if custody.prepared().is_some() {
+            // The native owner derives again from the durable plan here.
+            self.derivations.fetch_add(1, Ordering::SeqCst);
+            if self.fail_commit_derivation {
+                return Err(Error::Proof("injected commit derivation refusal"));
+            }
         }
         if let Some(previous) = previous {
             assert_eq!(
@@ -874,27 +923,54 @@ impl NativeProofs for TestProofs {
         }
         Ok(())
     }
-    fn fold_next(
+    fn fold_prepare(
         &self,
         witness: &ReleasedStep,
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
-        checkpoints: &[PrivateArchiveBytes],
+        checkpoints: Vec<PrivateArchiveBytes>,
         _custody: Option<&mut FoldCustodyV1<'_>>,
         cancellation: &Cancellation,
-    ) -> Result<FoldProgress, Error> {
+    ) -> Result<Box<dyn NativeFoldJobV1>, Error> {
         cancellation.check()?;
         self.folds.fetch_add(1, Ordering::SeqCst);
-        if let Some(pause) = &self.fold_pause {
+        Ok(Box::new(TestFoldJob {
+            proofs: self.clone(),
+            witness: witness.clone(),
+            predecessor: predecessor.cloned(),
+            checkpoints,
+        }))
+    }
+}
+
+/// Explicit mock proof work of one prepared sub-proof; it holds no custody handle.
+struct TestFoldJob {
+    proofs: TestProofs,
+    witness: ReleasedStep,
+    predecessor: Option<KagemushaWalletFoldRecordV1>,
+    checkpoints: Vec<PrivateArchiveBytes>,
+}
+impl NativeFoldJobV1 for TestFoldJob {
+    fn prove(self: Box<Self>, cancellation: &Cancellation) -> Result<FoldProgress, Error> {
+        let Self {
+            proofs,
+            witness,
+            predecessor,
+            checkpoints,
+        } = *self;
+        let checkpoints = checkpoints.as_slice();
+        let predecessor = predecessor.as_ref();
+        cancellation.check()?;
+        if let Some(pause) = &proofs.fold_pause {
             pause.run(checkpoints, cancellation)?;
         }
         let original = |stage: usize| {
-            if self.checkpoint_bytes == 0 {
+            if proofs.checkpoint_bytes == 0 {
                 vec![9, 8, 7 - u8::try_from(stage).expect("test stage")]
             } else {
-                vec![9; usize::try_from(self.checkpoint_bytes).expect("layout")]
+                vec![9; usize::try_from(proofs.checkpoint_bytes).expect("layout")]
             }
         };
-        let stages = usize::from(self.checkpoint_stages.max(1));
+        let stages = usize::from(proofs.checkpoint_stages.max(1));
         assert!(checkpoints.len() <= stages);
         for (stage, original_bytes) in checkpoints.iter().enumerate() {
             assert_eq!(
@@ -915,7 +991,7 @@ impl NativeProofs for TestProofs {
             KagemushaWalletCreditDigestLeafV1 {
                 credit_id,
                 payment_digest: c.body().payment_digest,
-                burned: self.burn,
+                burned: proofs.burn,
             }
             .record(&mut tree)
             .expect("credit");
@@ -947,7 +1023,7 @@ impl NativeProofs for TestProofs {
                 },
                 proof: vec![1, 2, 3],
             },
-            burned: self.burn && c.body().kind == KagemushaWalletOperationKindV1::Receive,
+            burned: proofs.burn && c.body().kind == KagemushaWalletOperationKindV1::Receive,
         })
     }
 }
@@ -1163,7 +1239,13 @@ fn checkpoint_restart_credit_status_and_duplicate_receive_preserve_first_digest(
             .lock()
             .expect("records")
             .remove(&ArchiveKey::Fold(1));
-        assert!(matches!(w.fold_once(), Err(Error::WitnessLost(_))));
+        // A caught-up wake reads no recorded Ω; every folded-state read refuses the loss.
+        assert_eq!(w.fold_once().expect("caught-up wake"), FoldStatus::CaughtUp);
+        assert!(matches!(w.snapshot(), Err(Error::WitnessLost(_))));
+        assert!(matches!(
+            w.credit_status(&received_credit(), &received_payment()),
+            Err(Error::WitnessLost(_))
+        ));
     }
 }
 

@@ -118,6 +118,8 @@ macro_rules! schema_types {
             iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLedgerV1,
             iroha_data_model::isi::kagemusha_wallet::load_finality::KagemushaWalletLoadReceiptV1,
             iroha_data_model::kagemusha::KagemushaWalletLoadFinalityV1,
+            // Account-signed Activate/Unload direct finality response frame.
+            iroha_data_model::kagemusha::KagemushaWalletLedgerFinalityV1,
             iroha_data_model::kagemusha::KagemushaWalletLedgerKeyV1,
             iroha_data_model::kagemusha::KagemushaWalletPayoutKeyV1,
             iroha_data_model::kagemusha::KagemushaWalletPayoutRecordV1,

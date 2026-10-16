@@ -6,7 +6,7 @@ use super::*;
 // macro shares the scheduler only; every proof/restore dispatch remains static.
 macro_rules! chain {
     ($worker:expr, $route:expr, $owner:expr, $inputs:expr, $checkpoints:expr,
-     $originals:expr, $cancel:expr, $public:expr, $order:ident) => {{
+     $cancel:expr, $public:expr, $order:ident) => {{
         let owner = $owner;
         #[cfg(test)]
         eprintln!(
@@ -20,7 +20,6 @@ macro_rules! chain {
             Some($cancel.prover_token()),
         ))?;
         let layouts = proof(owner.checkpoint_layouts())?;
-        let originals = $originals;
         let checkpoints = $checkpoints;
         if checkpoints.len() > layouts.len() {
             return Err(Error::Proof("extra native checkpoint"));
@@ -91,15 +90,10 @@ macro_rules! chain {
             let encoded = if position == 0 {
                 let key = $worker
                     .sources
-                    .import_a_cancellable(
-                        $route,
-                        0,
-                        originals,
-                        $worker.read,
-                        Some($cancel.prover_token()),
-                    )
+                    .bind_a_cancellable($route, 0, $worker.read, Some($cancel.prover_token()))
                     .map_err(artifact)?;
                 $cancel.check()?;
+                fold_metrics::enter(FoldPhaseV1::Prove);
                 let source = proof(session.first(
                     &key,
                     fresh_fold_tape::<Ep>($cancel.prover_token())?,
@@ -115,15 +109,15 @@ macro_rules! chain {
             } else if position % 2 == 1 {
                 let key = $worker
                     .sources
-                    .import_w_cancellable(
+                    .bind_w_cancellable(
                         $route,
                         position / 2,
-                        originals,
                         $worker.read,
                         Some($cancel.prover_token()),
                     )
                     .map_err(artifact)?;
                 $cancel.check()?;
+                fold_metrics::enter(FoldPhaseV1::Prove);
                 let source = a.as_ref().ok_or(Error::Proof("native A source"))?;
                 let next = proof(call_wrapper!(
                     $order, session, source, key, fold, config, $cancel
@@ -136,15 +130,15 @@ macro_rules! chain {
             } else {
                 let key = $worker
                     .sources
-                    .import_a_cancellable(
+                    .bind_a_cancellable(
                         $route,
                         position / 2,
-                        originals,
                         $worker.read,
                         Some($cancel.prover_token()),
                     )
                     .map_err(artifact)?;
                 $cancel.check()?;
+                fold_metrics::enter(FoldPhaseV1::Prove);
                 let source = w.as_ref().ok_or(Error::Proof("native W source"))?;
                 let next = proof(call_advance!(
                     $order, session, source, key, fold, config, $cancel
@@ -211,19 +205,19 @@ macro_rules! call_advance {
 }
 
 impl NativeFoldWorkerV1 {
-    /// Restore all prior A/W sources and produce exactly one next proof. Once the
-    /// terminal checkpoint exists, return its verified source to the separate Omega task.
-    #[allow(clippy::too_many_arguments)]
+    /// Restore all prior A/W sources and produce exactly one next proof with the A or W
+    /// source whose originals the locked prepare revalidated. Once the terminal checkpoint
+    /// exists, return its verified source to the separate Omega task.
     pub(crate) fn stage(
         &self,
         route: OperationRoute,
         inputs: OperationInputsV1,
         public: [Fp; 18],
         checkpoints: &[PrivateArchiveBytes],
-        originals: &mut dyn OriginalSourceV1,
         cancellation: &Cancellation,
     ) -> Result<NativeStageProgressV1, Error> {
         cancellation.check()?;
+        fold_metrics::enter(FoldPhaseV1::Restore);
         let selected = proof(self.sources.route(route))?;
         Ok(match (selected.owner(), inputs) {
             (QualifiedOperationOwnerV1::Bootstrap(owner), OperationInputsV1::Bootstrap(input)) => {
@@ -292,15 +286,15 @@ impl NativeFoldWorkerV1 {
                         0 => {
                             let key = self
                                 .sources
-                                .import_a_cancellable(
+                                .bind_a_cancellable(
                                     route,
                                     0,
-                                    originals,
                                     self.read,
                                     Some(cancellation.prover_token()),
                                 )
                                 .map_err(artifact)?;
                             cancellation.check()?;
+                            fold_metrics::enter(FoldPhaseV1::Prove);
                             let source =
                                 proof(session.first(&key, ProverRandomness::os(), config))?;
                             PrivateArchiveBytes::from_guarded(zeroize::Zeroizing::new(proof(
@@ -314,15 +308,15 @@ impl NativeFoldWorkerV1 {
                         1 => {
                             let key = self
                                 .sources
-                                .import_w_cancellable(
+                                .bind_w_cancellable(
                                     route,
                                     0,
-                                    originals,
                                     self.read,
                                     Some(cancellation.prover_token()),
                                 )
                                 .map_err(artifact)?;
                             cancellation.check()?;
+                            fold_metrics::enter(FoldPhaseV1::Prove);
                             let source = proof(session.wrapper(
                                 first.as_ref().ok_or(Error::Proof("Bootstrap A source"))?,
                                 &key,
@@ -342,15 +336,15 @@ impl NativeFoldWorkerV1 {
                         2 => {
                             let key = self
                                 .sources
-                                .import_a_cancellable(
+                                .bind_a_cancellable(
                                     route,
                                     1,
-                                    originals,
                                     self.read,
                                     Some(cancellation.prover_token()),
                                 )
                                 .map_err(artifact)?;
                             cancellation.check()?;
+                            fold_metrics::enter(FoldPhaseV1::Prove);
                             let prior =
                                 wrapper.as_ref().ok_or(Error::Proof("Bootstrap W source"))?;
                             let tape = fresh_fold_tape::<Ep>(cancellation.prover_token())?;
@@ -386,7 +380,6 @@ impl NativeFoldWorkerV1 {
                 owner,
                 input,
                 checkpoints,
-                originals,
                 cancellation,
                 public,
                 source_first
@@ -397,7 +390,6 @@ impl NativeFoldWorkerV1 {
                 owner,
                 input,
                 checkpoints,
-                originals,
                 cancellation,
                 public,
                 source_first
@@ -409,7 +401,6 @@ impl NativeFoldWorkerV1 {
                     owner,
                     input,
                     checkpoints,
-                    originals,
                     cancellation,
                     public,
                     key_first
@@ -422,7 +413,6 @@ impl NativeFoldWorkerV1 {
                     owner,
                     input,
                     checkpoints,
-                    originals,
                     cancellation,
                     public,
                     key_first
@@ -435,7 +425,6 @@ impl NativeFoldWorkerV1 {
                     owner,
                     input,
                     checkpoints,
-                    originals,
                     cancellation,
                     public,
                     source_first
@@ -448,7 +437,6 @@ impl NativeFoldWorkerV1 {
                     owner,
                     input,
                     checkpoints,
-                    originals,
                     cancellation,
                     public,
                     source_first

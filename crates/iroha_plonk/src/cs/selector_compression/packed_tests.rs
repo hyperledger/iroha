@@ -143,3 +143,86 @@ fn packed_planner_refuses_extent_mismatch_and_preserves_cancellation() {
         Err(CompressionError::Cancelled)
     );
 }
+
+// The former per-byte predicate, kept here as the differential reference.
+fn byte_scan(
+    left: &[u8],
+    right: &[u8],
+    cancellation: Option<&CancellationToken>,
+) -> Result<bool, CompressionError> {
+    for (index, (left, right)) in left.iter().zip(right).enumerate() {
+        if index.is_multiple_of(128) {
+            CancellationToken::checkpoint(cancellation)?;
+        }
+        if left & right != 0 {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+#[test]
+fn wordwise_overlap_matches_the_byte_scan_at_every_offset_length_and_cancellation() {
+    let cancelled = CancellationToken::new();
+    cancelled.cancel();
+    let fresh = CancellationToken::new();
+    let compare = |left: &[u8], right: &[u8]| {
+        for token in [None, Some(&fresh), Some(&cancelled)] {
+            let expected = byte_scan(left, right, token);
+            assert_eq!(packed_overlap(left, right, token), expected);
+            assert_eq!(packed_overlap(right, left, token), expected);
+        }
+    };
+    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+    for length in [
+        0, 1, 7, 8, 9, 15, 16, 17, 127, 128, 129, 135, 136, 137, 1023, 1024, 1031, 8192,
+    ] {
+        let zeros = vec![0_u8; length];
+        let ones = vec![u8::MAX; length];
+        compare(&zeros, &zeros);
+        compare(&zeros, &ones);
+        compare(&ones, &ones);
+        // Every offset of short bitmaps; long ones sample each region and the tail.
+        let positions: Vec<usize> = if length <= 137 {
+            (0..length).collect()
+        } else {
+            (0..length)
+                .step_by(13)
+                .chain([length - 8, length - 1])
+                .collect()
+        };
+        for position in positions {
+            for bit in [0, 3, 7] {
+                let mut left = zeros.clone();
+                left[position] = 1 << bit;
+                // One shared row anywhere is an overlap, at any word or tail offset.
+                let mut right = zeros.clone();
+                right[position] = 1 << bit;
+                compare(&left, &right);
+                // Every other row active, including the rest of that byte, is not.
+                let mut complement = ones.clone();
+                complement[position] = !(1 << bit);
+                compare(&left, &complement);
+            }
+        }
+        for _ in 0..8 {
+            // Sparse pseudo-random bitmaps with and without a shared row.
+            let mut bitmap = || {
+                (0..length)
+                    .map(|_| {
+                        state ^= state << 13;
+                        state ^= state >> 7;
+                        state ^= state << 17;
+                        let [low, high, ..] = state.to_le_bytes();
+                        if high < 16 { low } else { 0 }
+                    })
+                    .collect::<Vec<u8>>()
+            };
+            let left = bitmap();
+            let right = bitmap();
+            compare(&left, &right);
+            let disjoint: Vec<u8> = right.iter().zip(&left).map(|(r, l)| r & !l).collect();
+            compare(&left, &disjoint);
+        }
+    }
+}

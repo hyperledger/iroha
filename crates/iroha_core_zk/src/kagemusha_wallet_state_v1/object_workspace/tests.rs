@@ -212,6 +212,53 @@ fn materialization_refuses_a_wrong_durable_digest() {
 }
 
 #[test]
+fn read_back_rereads_every_materialized_original_without_writing() {
+    let mut memory = Memory::default();
+    let mut draft = DraftWorkspace::new(&mut memory, limits(9, 3));
+    for value in [b"one", b"two", b"end"] {
+        draft.stage_object(value, 3).unwrap();
+    }
+    let batch = draft.into_batch();
+    let _acknowledged = batch.materialize(&mut memory).unwrap();
+    let writes = memory.writes.clone();
+    memory.reads = 0;
+    batch.read_back(&mut memory).unwrap();
+    assert_eq!(memory.reads, 3);
+    assert_eq!(memory.writes, writes);
+    assert_eq!(batch.entries().len(), 3);
+}
+
+#[test]
+fn read_back_failures_and_corrupt_or_missing_content_never_succeed() {
+    let mut memory = Memory::default();
+    let batch = ObjectBatch::from_owned(vec![owned(b"aaa"), owned(b"bbb")], limits(6, 2)).unwrap();
+    let _acknowledged = batch.materialize(&mut memory).unwrap();
+    memory.fail_read = true;
+    assert!(matches!(
+        batch.read_back(&mut memory),
+        Err(Error::Storage(_))
+    ));
+    memory.fail_read = false;
+    let (first, second) = (batch.entries()[0].0, batch.entries()[1].0);
+    memory.objects.insert(second, b"ccc".to_vec());
+    assert!(matches!(
+        batch.read_back(&mut memory),
+        Err(Error::WitnessLost(_))
+    ));
+    memory.objects.insert(second, b"bbbb".to_vec());
+    assert!(matches!(
+        batch.read_back(&mut memory),
+        Err(Error::WitnessLost(_))
+    ));
+    memory.objects.remove(&first);
+    assert!(matches!(
+        batch.read_back(&mut memory),
+        Err(Error::WitnessLost(_))
+    ));
+    assert_eq!(batch.entries().len(), 2);
+}
+
+#[test]
 fn read_only_replay_requires_existing_exact_bytes_without_growth() {
     let mut memory = Memory::default();
     let key = memory.write_object(b"selected", 8).unwrap();

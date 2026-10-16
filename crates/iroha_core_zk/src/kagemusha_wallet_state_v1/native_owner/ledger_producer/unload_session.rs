@@ -250,7 +250,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         original: &[u8],
         finality: &[u8],
     ) -> Result<LedgerProgressV1, Error> {
-        let _payment = self.scheduler.payment();
         let digest = self.unload_original_digest(&transaction, original)?;
         let candidate = ledger::proof_original(finality)?;
         self.clean_unload_cursor()?;

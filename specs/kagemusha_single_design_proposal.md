@@ -1367,19 +1367,31 @@ restart. A bound request without a validated plan is Preparing; it does not owe
 an unvalidated original and does not authorize a proof, signature or monetary
 transition.
 
-Planning and independent native replay validation construct map objects in a
+Planning constructs map objects in a
 bounded, clearing memory workspace. A staged content address is not a durability
-acknowledgment. A new preparation that fails native validation before batch
+acknowledgment. A new preparation that fails native planning before batch
 retention leaves neither those variable originals nor unpublished map objects.
-After validation, an immutable request-ID recovery batch retains the exact
+After planning, an immutable request-ID recovery batch retains the exact
 inputs, source, native choices, plan and objects.
 Only after every object and original is durably acknowledged may one manifest
 publication select the plan. Uncertain publication reopens the selected manifest
 and adopts any present exact batch. Fresh planning is allowed only after definitive batch absence
 before plan selection. Recovery never replaces retained choices, rebases a
-stale source or deletes possibly shared objects. Cleanup removes only the
-acknowledged staging record. Subsequent validation and proving can confirm retained objects but cannot
-create new preparation objects.
+stale source or deletes possibly shared objects. Every materialized object is
+read back from durable storage after the plan publication and before cleanup.
+Cleanup removes only the acknowledged staging record. Subsequent validation can
+confirm retained objects and proving takes no custody; neither can create new
+preparation objects.
+
+The native derivation made by planning is reused through proving within the
+same exclusive call. It is never stored, persisted or shared, and it is used only
+while the request bytes, source capsule, archive checkpoint, plan choices and
+draft it was made from are unchanged; a changed archive checkpoint before proving
+is custody loss. A held plan after restart or retry, a recovered batch and a
+speculative entry instead replay native validation on fresh custody, and that one
+derivation is reused through proving. Before the capsule is published, the
+retained draft is checked against the proven successor state on durable custody.
+Commit derives the operation again, independently, from the durable plan.
 
 The runtime capacity owner checks the bounded intake workspace before fresh
 allocation, and checks memory before reading a retained batch. Fresh admission
@@ -1911,6 +1923,27 @@ filtered, succinct and batch paths never use either memo. Neither memo is
 serialized, persisted, exposed over FFI or shared by independently admitted
 parameters, and neither changes a verdict: every wallet, custody, binding and
 allowlist check above the proof system still runs on every call.
+One process-local admitted-graph memo in the Native bridge may reuse the
+complete admission of the last fully successful installation for byte-identical
+originals: SHA-256 over the eight exact runtime originals, each length-framed,
+plus the kernel identity of the carrier root, with the whole framed key
+compared on lookup. Every attempt still authenticates its signed base,
+selection and genesis and checks every carrier metadata, layout and
+transport-selection original first. A hit then requires the stored pack's
+exact bytes and installation identity (an exact equivalent of loading it
+again), repeats the other installed-pack checks of a load, re-authenticates
+the producer inventory, requires the same transport rows and root object, closes
+custody over the reader's observed originals and re-hashes every stored frame
+against its transport identity, and only then builds a fresh provider, custody
+root and owner. It shares the same installed pack, pinned parameter owners,
+qualified sources and carrier reader; it holds no provider, custody, key or
+enrollment state, and the sources' verify-once memos are reused by a later
+installation in the same process for mathematical validity only. It mints no
+seal, grants nothing and is never serialized,
+persisted or exposed over FFI. It is stored only after complete success, is
+never reused once a live read through its reader has failed, and is evicted on
+a key mismatch, a refused revalidation or an INVALID or custody-loss result. It
+shortens in-process retries only; a restart qualifies again.
 This representation changes original hashes and therefore requires a newly
 authenticated catalogue and scheme; it does not change the monetary circuits
 or proof verification. Dense proving-key originals have no production fallback.

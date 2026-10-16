@@ -24,10 +24,19 @@ use iroha_pasta::{PastaCurve, msm::MemoryBudget, poseidon::PoseidonField};
 use iroha_plonk::{
     DescriptorBinding, KeyError, Protocol, ProverConfig, ProverError, ProverRandomness, ProvingKey,
     VerifyError, VerifyingKey,
-    cs::{CsError, DescriptorError, InstanceModeV1, InstanceType, ProofSuffixV1, TranscriptV2},
+    cs::{
+        CsError, DescriptorError, InstanceModeV1, InstanceType, ProofSuffixV1, ProtocolDescriptor,
+        TranscriptV2,
+    },
     frontend::Error,
-    keys::{KeygenConfigV2, SourceBoundVerifyingKeyV2, VkError, keygen_pk_v2},
-    pcs::ipa::{ParamsTrustError, PinnedParams},
+    keys::{
+        CosetCachePolicy, KeygenConfigV2, RebuildError, SourceBoundVerifyingKeyV2,
+        SourceBoundViewV2, VkError, keygen_pk_from_vk_v2_cancellable, keygen_pk_v2,
+    },
+    pcs::{
+        curve_v1,
+        ipa::{ParamsTrustError, PinnedParams},
+    },
     prove_circuit, verify_full,
 };
 use iroha_plonk_gadgets::statement::StepRelation;
@@ -77,6 +86,8 @@ pub enum SigmaError {
     Artifact(iroha_plonk::keys::pk::artifact::Error),
     /// The imported original does not retain the independently installed verifying key.
     ArtifactKeyMismatch,
+    /// The sealed admitted source did not rebuild into this exact proving key.
+    Rebuild(RebuildError),
     /// The verifying key failed strict decoding.
     VerifyingKey(VkError),
     /// The witness belongs to another step relation.
@@ -124,6 +135,7 @@ impl fmt::Display for SigmaError {
             Self::ArtifactKeyMismatch => {
                 f.write_str("proving-key original differs from installed key")
             }
+            Self::Rebuild(error) => write!(f, "sealed source: {error}"),
             Self::VerifyingKey(error) => write!(f, "verifying key: {error}"),
             Self::WrongRelation { expected, found } => {
                 write!(f, "a {found:?} witness for a {expected:?} circuit")
@@ -152,11 +164,30 @@ impl SigmaError {
             Self::Synthesis(error) => matches!(error, iroha_plonk::frontend::Error::Cancelled),
             Self::Key(error) => error.is_cancelled(),
             Self::Artifact(error) => error.is_cancelled(),
+            Self::Rebuild(error) => error.is_cancelled(),
             Self::Prover(error) => error.is_cancelled(),
             Self::Verify(error) => error.is_cancelled(),
             _ => false,
         }
     }
+}
+
+/// The fixed PIPA-R σ profile of a strictly decoded descriptor, at parameters of
+/// `k`. These typed checks select nothing; the relation comes from compiled code.
+fn require_sigma_profile(description: &ProtocolDescriptor, k: u32) -> Result<(), SigmaError> {
+    if description.transcript != TranscriptV2::KagemushaPoseidonRp57Base
+        || description.instance_mode != InstanceModeV1::Direct
+        || description.proof_suffix != ProofSuffixV1::FoldedGenerator
+        || description.instance_lengths != [1]
+        || description.instance_types.as_deref() != Some(&[InstanceType::Bounded])
+    {
+        return Err(SigmaError::Profile);
+    }
+    let expected = u32::from(description.k);
+    if k != expected {
+        return Err(SigmaError::ParamsK { expected, found: k });
+    }
+    Ok(())
 }
 
 /// Memory and speed choices of a proving key. They change neither the
@@ -421,6 +452,51 @@ where
         Ok(metadata)
     }
 
+    /// Rebuild this fixed native σ source's proving key from an admitted source view:
+    /// the installed descriptor and VK bound to the opaque seal that strict original
+    /// admission or an exact closed built-in member minted. The relation and circuit
+    /// come only from `shape`; no descriptor field selects them. Reconstruction checks
+    /// the descriptor digest, curve, `k`, pinned parameters, VK SHA-256, binding,
+    /// selectors and complete source fingerprint against the seal before it builds
+    /// proving buffers, and the key retains the bound installed VK. Nothing is
+    /// imported and nothing falls back to an original import.
+    ///
+    /// The installation owner must first bind the view to its signed member and
+    /// revalidate that member's exact originals. As with an imported key, the result
+    /// is a proving component, not a scheme admission or a wallet-open grant.
+    ///
+    /// # Errors
+    /// [`SigmaError::ParamsK`] for parameters or a descriptor of another `k`,
+    /// [`SigmaError::Profile`] for another typed profile or curve,
+    /// [`SigmaError::Rebuild`] for another actual source or identity, or cancellation
+    /// without a partial key.
+    pub fn from_source_view_cancellable(
+        shape: SigmaShape,
+        params: PinnedParams<C>,
+        view: SourceBoundViewV2<'_, C>,
+        coset_cache: CosetCachePolicy,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Self, SigmaError> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)
+            .map_err(|_| SigmaError::Prover(ProverError::Cancelled))?;
+        if params.k() != shape.k {
+            return Err(SigmaError::ParamsK {
+                expected: shape.k,
+                found: params.k(),
+            });
+        }
+        let description = view.binding().descriptor();
+        if curve_v1::<C>() != Some(description.curve) {
+            return Err(SigmaError::Profile);
+        }
+        require_sigma_profile(description, params.k())?;
+        let circuit = SigmaCircuit::<C::ScalarExt>::keygen(shape.params);
+        let pk =
+            keygen_pk_from_vk_v2_cancellable(&params, &circuit, &view, coset_cache, cancellation)
+                .map_err(SigmaError::Rebuild)?;
+        Ok(Self { shape, params, pk })
+    }
+
     fn original_verifier(
         shape: &SigmaShape,
         params: PinnedParams<C>,
@@ -565,22 +641,7 @@ where
         vk: &[u8],
     ) -> Result<Self, SigmaError> {
         let binding = DescriptorBinding::decode_v2(descriptor).map_err(SigmaError::Descriptor)?;
-        let description = binding.descriptor();
-        if description.transcript != TranscriptV2::KagemushaPoseidonRp57Base
-            || description.instance_mode != InstanceModeV1::Direct
-            || description.proof_suffix != ProofSuffixV1::FoldedGenerator
-            || description.instance_lengths != [1]
-            || description.instance_types.as_deref() != Some(&[InstanceType::Bounded])
-        {
-            return Err(SigmaError::Profile);
-        }
-        let k = u32::from(description.k);
-        if params.k() != k {
-            return Err(SigmaError::ParamsK {
-                expected: k,
-                found: params.k(),
-            });
-        }
+        require_sigma_profile(binding.descriptor(), params.k())?;
         let vk = VerifyingKey::read(vk, &binding).map_err(SigmaError::VerifyingKey)?;
         Ok(Self {
             relation,
@@ -877,6 +938,14 @@ mod tests {
     }
 
     #[test]
+    fn rebuild_failures_remain_hard_and_preserve_cancellation() {
+        assert!(SigmaError::Rebuild(RebuildError::Key(KeyError::Cancelled)).is_cancelled());
+        for error in [RebuildError::Profile, RebuildError::Source] {
+            assert!(!SigmaError::Rebuild(error).is_cancelled());
+        }
+    }
+
+    #[test]
     fn errors_display() {
         for error in [
             SigmaError::NoShape,
@@ -896,6 +965,7 @@ mod tests {
             SigmaError::RelationViolated(vec![Violation::Overdraft]),
             SigmaError::Synthesis(Error::Synthesis),
             SigmaError::Params(ParamsError::Lanes(0)),
+            SigmaError::Rebuild(RebuildError::Source),
         ] {
             assert!(!error.to_string().is_empty(), "{error:?}");
         }

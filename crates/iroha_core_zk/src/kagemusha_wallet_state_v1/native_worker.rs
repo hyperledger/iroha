@@ -1,10 +1,12 @@
 //! Bounded native fold execution from the sole complete authenticated source grant.
 //!
-//! The wallet owner lends its original store for one task. This worker retains
-//! borrowed sealed metadata, verifies every restored source in order, and releases the active
-//! proving key before verification and yielding a durable checkpoint. Sealed
-//! custody selects inputs;
-//! neither checkpoint metadata nor an operation caller supplies proof acceptance.
+//! The wallet owner lends its original store only to the locked prepare of one sub-proof,
+//! which replays custody and revalidates the selected stage's originals. The owned job that
+//! prepare returns rebinds that already-admitted source from the shared sealed metadata,
+//! verifies every restored source in order, and releases the active proving key before
+//! verification and yielding a durable checkpoint, all without the wallet owner. Sealed
+//! custody selects inputs; neither checkpoint metadata nor an operation caller supplies proof
+//! acceptance.
 
 use std::sync::Arc;
 
@@ -21,7 +23,9 @@ use iroha_plonk::{ProverConfig, ProverRandomness, keys::pk::artifact::ReadConfig
 use iroha_plonk_recursion::{FoldConfig, FoldTape};
 use sha2::{Digest, Sha256};
 
-use super::{Cancellation, CheckpointLayout, Error, PrivateArchiveBytes};
+use super::{
+    Cancellation, CheckpointLayout, Error, FoldPhaseV1, PrivateArchiveBytes, fold_metrics,
+};
 use crate::kagemusha_wallet_advance_v1::{
     KagemushaWalletProviderErrorV1, KagemushaWalletUnavailableV1,
 };
@@ -41,6 +45,8 @@ mod q_checkpoint;
 mod stages;
 
 /// Metadata-only execution owner; the admitted wallet retains the only original store.
+/// A prepared job holds its own copy, which shares the installed sources.
+#[derive(Clone)]
 pub(crate) struct NativeFoldWorkerV1 {
     installed: Arc<InstalledVerifierPackV1>,
     sources: Arc<QualifiedWalletSourcesV1>,
@@ -295,22 +301,23 @@ impl NativeFoldWorkerV1 {
         }
     }
 
-    /// One final Omega proof from the verified terminal and complete installed catalog.
-    /// `prove` self-verifies the proof and decides its opening and both carried claims;
-    /// the returned transport is a candidate that the coordinator verifies in full
-    /// through the installed verifier before anything is recorded.
+    /// One final Omega proof from the verified terminal and complete installed catalog, with
+    /// the Omega source whose originals the locked prepare revalidated. `prove` self-verifies
+    /// the proof and decides its opening and both carried claims; the returned transport is
+    /// a candidate that the coordinator verifies in full through the installed verifier
+    /// before anything is recorded.
     pub(crate) fn finish(
         &self,
         input: omega::Input,
-        originals: &mut dyn OriginalSourceV1,
         cancellation: &Cancellation,
     ) -> Result<Vec<u8>, Error> {
         cancellation.check()?;
         let owner = self
             .sources
-            .import_omega_cancellable(originals, self.read, Some(cancellation.prover_token()))
+            .bind_omega_cancellable(self.read, Some(cancellation.prover_token()))
             .map_err(artifact)?;
         cancellation.check()?;
+        fold_metrics::enter(FoldPhaseV1::Prove);
         let tape = fresh_fold_tape::<Eq>(cancellation.prover_token())?;
         let session = proof(owner.prepare_cancellable(
             input,

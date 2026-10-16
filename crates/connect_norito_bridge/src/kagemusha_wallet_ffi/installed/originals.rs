@@ -6,8 +6,12 @@ use iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::{
     PROVING_KEY_MAX_BYTES_V1, ProducerInventoryV1,
 };
 use iroha_core_zk::kagemusha_wallet_proofs_v1::Error as OriginalError;
-use iroha_fs::PrivateDirectory;
-use std::{io::Read, path::Path};
+use iroha_fs::{FileIdentity, PrivateDirectory};
+use std::{
+    io::Read,
+    path::Path,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 /// Clones share retained native ancestry and immutable metadata; never PK buffers.
 /// Complete admission may temporarily snapshot bounded compressed public DATA.
@@ -24,6 +28,18 @@ struct CatalogReader {
     metadata: Arc<PrivateDirectory>,
     wallet: Arc<EncodedDirectoryOriginalsV1>,
     roles: Arc<BTreeMap<[u8; 32], BlobV1>>,
+    // The exact transport this reader routes; another attempt must select the same rows.
+    transport: Arc<EncodedTransportV1>,
+    // Set by any failed live open or read through any clone; such a reader is never reused.
+    failed: Arc<AtomicBool>,
+}
+
+/// Exact carrier metadata, checked against the authenticated selection on every attempt
+/// before an admitted graph is loaded or reused. It opens no original and grants nothing.
+pub(super) struct CatalogMetadata<'a> {
+    root: &'a Path,
+    directory: PrivateDirectory,
+    transport: Vec<u8>,
 }
 
 fn insert(roles: &mut BTreeMap<[u8; 32], BlobV1>, blob: BlobV1) -> Result<()> {
@@ -40,15 +56,13 @@ fn insert(roles: &mut BTreeMap<[u8; 32], BlobV1>, blob: BlobV1) -> Result<()> {
     Ok(())
 }
 
-impl CatalogOriginals {
-    pub(super) fn from_authenticated(
-        authenticated: &AuthenticatedProducerInventoryV1,
-        root: &[u8],
+impl<'a> CatalogMetadata<'a> {
+    pub(super) fn open(
+        root: &'a [u8],
         pack: &[u8],
         catalog: &[u8],
-        selected: Arc<selection::AuthenticatedBase>,
+        selected: &selection::AuthenticatedBase,
     ) -> Result<Self> {
-        let inventory = authenticated.inventory();
         if root.is_empty() || root.len() > ROOT_MAX || root.contains(&0) {
             return Err(Failure::code(INVALID));
         }
@@ -80,11 +94,49 @@ impl CatalogOriginals {
         if financial_original.as_slice() != financial.original()?.as_slice() {
             return Err(Failure::code(INVALID));
         }
-        let transport = require_transport(inventory, &transport)?;
-        let source = CatalogReader::open(metadata, root, inventory, &transport)?;
+        Ok(Self {
+            root,
+            directory: metadata,
+            transport: transport.to_vec(),
+        })
+    }
+
+    /// Kernel identity of the opened carrier root; part of the memo key.
+    pub(super) fn identity(&self) -> Result<FileIdentity> {
+        self.directory.identity().map_err(storage)
+    }
+}
+
+impl CatalogOriginals {
+    pub(super) fn from_authenticated(
+        authenticated: &AuthenticatedProducerInventoryV1,
+        metadata: CatalogMetadata<'_>,
+        selected: Arc<selection::AuthenticatedBase>,
+    ) -> Result<Self> {
+        let inventory = authenticated.inventory();
+        let transport = require_transport(inventory, &metadata.transport)?;
+        let source = CatalogReader::open(metadata.directory, metadata.root, inventory, &transport)?;
         Ok(Self {
             _selected: selected,
             source,
+        })
+    }
+
+    /// Share this admitted reader with another owner (design §9.1). The fresh inventory must
+    /// select exactly the transport this reader routes, under the same retained root; then
+    /// custody is closed over every observed original and every stored frame is re-hashed.
+    /// The clone shares the observed map and retains the fresh authenticated selection.
+    pub(super) fn reuse(
+        &self,
+        authenticated: &AuthenticatedProducerInventoryV1,
+        metadata: &CatalogMetadata<'_>,
+        selected: Arc<selection::AuthenticatedBase>,
+    ) -> Result<Self> {
+        let transport = require_transport(authenticated.inventory(), &metadata.transport)?;
+        self.source.reuse(&metadata.directory, &transport)?;
+        Ok(Self {
+            _selected: selected,
+            source: self.source.clone(),
         })
     }
 
@@ -134,7 +186,27 @@ impl CatalogReader {
             metadata: Arc::new(metadata),
             wallet: Arc::new(wallet),
             roles: Arc::new(roles),
+            transport: Arc::new(transport.clone()),
+            failed: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    /// Admit this reader for another owner. A reader whose live open or read failed, another
+    /// transport or another root object is refused. Otherwise the root ancestry is checked,
+    /// each observed original must keep its native snapshot and each stored frame its
+    /// transport hash, and the root ancestry is closed again.
+    fn reuse(&self, root: &PrivateDirectory, transport: &EncodedTransportV1) -> Result<()> {
+        if self.failed.load(Ordering::SeqCst)
+            || *self.transport != *transport
+            || self.metadata.identity().map_err(storage)? != root.identity().map_err(storage)?
+        {
+            return Err(Failure::code(INVALID));
+        }
+        self.metadata.revalidate().map_err(storage)?;
+        self.wallet
+            .revalidate_admitted()
+            .map_err(|_| Failure::code(INVALID))?;
+        self.metadata.revalidate().map_err(storage)
     }
 
     fn with_snapshot<T, E>(
@@ -164,11 +236,40 @@ impl OriginalSourceV1 for CatalogOriginals {
 }
 impl OriginalSourceV1 for CatalogReader {
     fn open(&mut self, sha256: [u8; 32]) -> std::result::Result<Box<dyn Read + '_>, OriginalError> {
-        self.metadata
+        let opened = self
+            .metadata
             .revalidate()
-            .map_err(|_| OriginalError::Inventory)?;
-        self.roles.get(&sha256).ok_or(OriginalError::Inventory)?;
-        self.wallet.open_original(sha256)
+            .map_err(|_| OriginalError::Inventory)
+            .and_then(|()| {
+                self.roles.get(&sha256).ok_or(OriginalError::Inventory)?;
+                self.wallet.open_original(sha256)
+            });
+        match opened {
+            Ok(reader) => Ok(Box::new(Watched {
+                reader,
+                failed: Arc::clone(&self.failed),
+            })),
+            Err(error) => {
+                self.failed.store(true, Ordering::SeqCst);
+                Err(error)
+            }
+        }
+    }
+}
+/// A live original read: any custody or integrity refusal marks the shared reader failed,
+/// so an admitted graph that a live owner found changed is never reused. Bytes and errors
+/// pass through unchanged.
+struct Watched {
+    reader: Box<dyn Read>,
+    failed: Arc<AtomicBool>,
+}
+impl Read for Watched {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        let read = self.reader.read(output);
+        if read.is_err() {
+            self.failed.store(true, Ordering::SeqCst);
+        }
+        read
     }
 }
 fn require_metadata_inventory(metadata: &PrivateDirectory) -> Result<()> {

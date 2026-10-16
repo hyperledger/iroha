@@ -8,7 +8,10 @@
 //! no admission, readiness, error, retry or cancellation decision reads them.
 //!
 //! Counts are per thread because opening runs synchronously on its calling thread.
-//! Work moved to another thread must add that thread's own difference explicitly.
+//! Work moved to another thread must add that thread's own difference explicitly:
+//! the helper measures it with `attributed`, which takes it off the helper thread's
+//! counts, and the opening thread counts it with `adopt`. Every lap and total of
+//! that opening then counts it exactly once, wherever it ran.
 
 use std::{
     cell::Cell,
@@ -39,13 +42,16 @@ pub struct OpeningWorkV1 {
 }
 
 impl OpeningWorkV1 {
-    /// This thread's cumulative counts, including filesystem custody and key admission.
+    /// This thread's cumulative counts, including filesystem custody and key admission,
+    /// with work other threads did for this thread's opening and without work this
+    /// thread did for another thread's opening.
     #[must_use]
     pub fn current_thread() -> Self {
         // Thread-local teardown loses only observation, never a verdict.
         let local = LOCAL.try_with(Cell::get).unwrap_or_default();
         let custody = iroha_fs::CustodyWorkV1::current_thread();
         let admission = iroha_plonk::keys::AdmissionWorkV1::current_thread();
+        let (adopted, given) = MOVED.try_with(Cell::get).unwrap_or_default();
         Self {
             originals_opened: local.originals_opened,
             stored_files_opened: local.stored_files_opened,
@@ -57,6 +63,29 @@ impl OpeningWorkV1 {
             descriptor_decodes: admission.descriptor_decodes,
             ancestry_walks: custody.ancestry_walks,
             ancestry_opens: custody.ancestry_opens,
+        }
+        .plus(adopted)
+        .since(given)
+    }
+
+    /// The work counted in `self` or in `other` (field by field, saturating).
+    #[must_use]
+    pub const fn plus(self, other: Self) -> Self {
+        Self {
+            originals_opened: self.originals_opened.saturating_add(other.originals_opened),
+            stored_files_opened: self
+                .stored_files_opened
+                .saturating_add(other.stored_files_opened),
+            stored_bytes_hashed: self
+                .stored_bytes_hashed
+                .saturating_add(other.stored_bytes_hashed),
+            raw_bytes_hashed: self.raw_bytes_hashed.saturating_add(other.raw_bytes_hashed),
+            zstd_decodes: self.zstd_decodes.saturating_add(other.zstd_decodes),
+            descriptor_decodes: self
+                .descriptor_decodes
+                .saturating_add(other.descriptor_decodes),
+            ancestry_walks: self.ancestry_walks.saturating_add(other.ancestry_walks),
+            ancestry_opens: self.ancestry_opens.saturating_add(other.ancestry_opens),
         }
     }
 
@@ -127,6 +156,48 @@ fn record(add: impl FnOnce(&mut LocalWork)) {
         add(&mut value);
         local.set(value);
     });
+}
+
+const NO_WORK: OpeningWorkV1 = OpeningWorkV1 {
+    originals_opened: 0,
+    stored_files_opened: 0,
+    stored_bytes_hashed: 0,
+    raw_bytes_hashed: 0,
+    zstd_decodes: 0,
+    descriptor_decodes: 0,
+    ancestry_walks: 0,
+    ancestry_opens: 0,
+};
+
+thread_local! {
+    // Work other threads did for this thread's opening (adopted), and work this
+    // thread did for other threads' openings (given), so each counts on one thread.
+    static MOVED: Cell<(OpeningWorkV1, OpeningWorkV1)> = const { Cell::new((NO_WORK, NO_WORK)) };
+}
+
+fn moved(update: impl FnOnce(&mut (OpeningWorkV1, OpeningWorkV1))) {
+    let _ = MOVED.try_with(|cell| {
+        let mut value = cell.get();
+        update(&mut value);
+        cell.set(value);
+    });
+}
+
+/// Run `work` and take the opening work it did on this thread off this thread's
+/// counts. The caller counts the returned work with `adopt` on the thread of the
+/// opening it belongs to, so a task that a waiting join ran here, or that another
+/// attributed task nested, still counts exactly once.
+pub(super) fn attributed<R>(work: impl FnOnce() -> R) -> (R, OpeningWorkV1) {
+    let start = OpeningWorkV1::current_thread();
+    let result = work();
+    let done = OpeningWorkV1::current_thread().since(start);
+    moved(|(_, given)| *given = given.plus(done));
+    (result, done)
+}
+
+/// Count `work` that other threads did for this thread's opening on this thread.
+pub(super) fn adopt(work: OpeningWorkV1) {
+    moved(|(adopted, _)| *adopted = adopted.plus(work));
 }
 
 /// One signed original opened for a bounded read or revalidation.

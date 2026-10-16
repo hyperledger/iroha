@@ -17840,30 +17840,35 @@ fn load_historical_multisig_terminal_record(
 }
 
 const MULTISIG_PROPOSAL_VISIBILITY_WAIT_WINDOW: Duration = Duration::from_secs(15);
-const MULTISIG_PROPOSAL_VISIBILITY_POLL_INTERVAL: Duration = Duration::from_millis(250);
+/// Wait for a submitted proposal's record, re-reading it as each block commits.
+///
+/// Only a committed block can make the record visible, and a commit publishes its
+/// World writes with its height under one State generation. Waking on that
+/// publication answers with the block instead of on a later poll tick.
 async fn wait_for_multisig_proposal_record_visibility(
     state: &CoreState,
     multisig_account_id: &iroha_data_model::account::AccountId,
     spec: &iroha_executor_data_model::isi::multisig::MultisigSpec,
     proposal_id: &MultisigProposalId,
 ) -> Result<Option<MultisigProposalRecord>> {
-    let started_at = std::time::Instant::now();
+    let deadline = tokio::time::Instant::now() + MULTISIG_PROPOSAL_VISIBILITY_WAIT_WINDOW;
     loop {
+        // Sample the frontier before reading: a block published after this
+        // sample satisfies the wait below even if it lands before suspension.
+        let observed_height = u64::try_from(state.committed_height()).unwrap_or(u64::MAX);
         if let Some(record) =
             load_multisig_proposal_record(state, multisig_account_id, spec, proposal_id)?
         {
             return Ok(Some(record));
         }
-        let elapsed = started_at.elapsed();
-        if elapsed >= MULTISIG_PROPOSAL_VISIBILITY_WAIT_WINDOW {
-            return Ok(None);
+        let committed = state.wait_for_committed_height(observed_height.saturating_add(1));
+        let expired = tokio::time::sleep_until(deadline);
+        tokio::pin!(committed, expired);
+        tokio::select! {
+            biased;
+            () = &mut committed => {}
+            () = &mut expired => return Ok(None),
         }
-        let remaining = MULTISIG_PROPOSAL_VISIBILITY_WAIT_WINDOW.saturating_sub(elapsed);
-        let poll = MULTISIG_PROPOSAL_VISIBILITY_POLL_INTERVAL.min(remaining);
-        if poll.is_zero() {
-            return Ok(None);
-        }
-        tokio::time::sleep(poll).await;
     }
 }
 fn multisig_proposal_is_cancel_wrapper(
@@ -24025,6 +24030,520 @@ ENDPOINT_CONTRACTS_CALL_MULTISIG_PROPOSE,
         );
         assert_ne!(payload["proposal_id"], payload["instructions_hash"]);
         assert_exact_unsigned_transaction_draft(&payload);
+    }
+    /// Detached quorum-two proposal signed exactly as Torii prepares it.
+    fn signed_quorum_two_propose(
+        state: &State,
+        multisig_account_id: &dm::AccountId,
+        signer_id: &dm::AccountId,
+        signer_keypair: &KeyPair,
+        proposal_nonce: MultisigProposalNonce,
+        instructions: &[dm::InstructionBox],
+        creation_time_ms: u64,
+    ) -> MultisigProposeDtoV1 {
+        use base64::Engine as _;
+        let fee_payment = dm::FeePaymentIntent::authority(Vec::new(), None);
+        let mut builder = dm::TransactionBuilder::new(
+            *state.network_id_ref(),
+            signer_id.clone(),
+            iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+        );
+        builder.set_creation_time(Duration::from_millis(creation_time_ms));
+        let signed = sign_app_api_transaction(
+            builder
+                .with_fee_payment_intent(fee_payment.clone())
+                .with_metadata(build_multisig_propose_metadata(None))
+                .with_instructions([dm::InstructionBox::from(MultisigPropose::new(
+                    multisig_account_id.clone(),
+                    proposal_nonce,
+                    instructions.to_vec(),
+                    None,
+                ))]),
+            signer_keypair.private_key(),
+            ENDPOINT_MULTISIG_PROPOSE,
+        )
+        .expect("sign detached quorum-two proposal");
+        let (_, public_key_bytes) = signer_keypair.public_key().to_bytes();
+        MultisigProposeDtoV1 {
+            proposal_nonce,
+            selector: concrete_selector(multisig_account_id.clone()),
+            signer_account_id: signer_id.clone(),
+            public_key_hex: Some(hex::encode(public_key_bytes)),
+            signature_b64: Some(
+                base64::engine::general_purpose::STANDARD
+                    .encode(signed.signature().payload().payload()),
+            ),
+            creation_time_ms: Some(creation_time_ms),
+            fee_payment,
+            memo: None,
+            validation_fee_assessment: None,
+            instructions: instructions.to_vec(),
+        }
+    }
+    /// Commit the next block carrying the proposer's active proposal record, as
+    /// consensus does once the submitted transaction is applied.
+    fn publish_proposal_block(
+        state: &State,
+        multisig_account_id: &dm::AccountId,
+        proposer_id: &dm::AccountId,
+        proposal_nonce: MultisigProposalNonce,
+        instructions: &[dm::InstructionBox],
+        proposed_at_ms: u64,
+    ) -> MultisigProposalId {
+        let proposal_id = MultisigProposalId::derive(
+            state.network_id_ref(),
+            multisig_account_id,
+            &proposal_nonce,
+        );
+        let record = iroha_executor_data_model::isi::multisig::MultisigProposalState {
+            network_id: *state.network_id_ref(),
+            multisig_account_id: multisig_account_id.clone(),
+            proposal_nonce,
+            proposal_id,
+            instructions_hash: HashOf::new(&instructions.to_vec()),
+            transaction_ttl_ms: None,
+            instructions: instructions.to_vec(),
+            proposed_at_ms,
+            expires_at_ms: proposed_at_ms + 60_000,
+            approvals: BTreeSet::from([proposer_id.clone()]),
+        };
+        let height = u64::try_from(state.committed_height())
+            .expect("committed height fits u64")
+            .checked_add(1)
+            .expect("next block height");
+        let header = dm::BlockHeader::new(
+            NonZeroU64::new(height).expect("nonzero block height"),
+            None,
+            None,
+            0,
+            0,
+        );
+        let mut block = state.block(header.clone());
+        let mut transaction = block.transaction();
+        transaction
+            .world_mut_for_testing()
+            .smart_contract_state_mut_for_testing()
+            .insert(
+                multisig_proposal_state_contract_key(multisig_account_id, &proposal_id),
+                norito::to_bytes(&record).expect("encode active proposal state"),
+            );
+        transaction.apply();
+        block
+            .commit_world_overlay_for_testing()
+            .expect("commit proposal record");
+        state.append_committed_block_header_for_tests(header);
+        proposal_id
+    }
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn multisig_signed_propose_responds_with_its_publishing_block() {
+        let (world, multisig_account_id, signer_id, _signer_two_id, _alias_literal, _active) =
+            multisig_test_world();
+        let signer_keypair =
+            checked_multisig_selector_keypair(0x60, "derive quorum-two proposal signer key");
+        let state = build_state(world);
+        let queue = build_queue();
+        let instructions = vec![dm::InstructionBox::from(dm::Log::new(
+            dm::Level::INFO,
+            "proposal awaiting its block".to_owned(),
+        ))];
+        let proposal_nonce = MultisigProposalNonce::new([0x42; 32]).unwrap();
+        let creation_time_ms = current_time_millis();
+        let request = signed_quorum_two_propose(
+            &state,
+            &multisig_account_id,
+            &signer_id,
+            &signer_keypair,
+            proposal_nonce,
+            &instructions,
+            creation_time_ms,
+        );
+        let handler = tokio::spawn(handle_post_multisig_propose(
+            Arc::clone(&queue),
+            Arc::clone(&state),
+            MaybeTelemetry::disabled(),
+            NoritoJson(request),
+        ));
+        // The paused clock only advances once every task idles, so the handler
+        // admits its transaction and suspends without any virtual time passing.
+        while queue.active_len() == 0 {
+            if handler.is_finished() {
+                let outcome = handler.await.expect("propose task");
+                panic!("signed propose ended before admission: {:?}", outcome.err());
+            }
+            tokio::task::yield_now().await;
+        }
+        tokio::task::yield_now().await;
+        assert!(
+            !handler.is_finished(),
+            "the proposal is not visible before its block"
+        );
+        let proposal_id = publish_proposal_block(
+            &state,
+            &multisig_account_id,
+            &signer_id,
+            proposal_nonce,
+            &instructions,
+            creation_time_ms,
+        );
+        let published = tokio::time::Instant::now();
+        let response = handler
+            .await
+            .expect("propose task")
+            .expect("signed proposal should submit");
+        assert_eq!(
+            published.elapsed(),
+            Duration::ZERO,
+            "the response must leave with the block that publishes the proposal, not on a later poll",
+        );
+        let payload = decode_json_response(response).await;
+        assert_eq!(payload["submitted"].as_bool(), Some(true));
+        assert_eq!(
+            payload["proposal_id"].as_str(),
+            Some(proposal_id.to_string().as_str())
+        );
+    }
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn multisig_signed_propose_gives_up_after_the_visibility_window() {
+        let (world, multisig_account_id, signer_id, _signer_two_id, _alias_literal, _active) =
+            multisig_test_world();
+        let signer_keypair =
+            checked_multisig_selector_keypair(0x60, "derive quorum-two proposal signer key");
+        let state = build_state(world);
+        let started = tokio::time::Instant::now();
+        let response = handle_post_multisig_propose(
+            build_queue(),
+            Arc::clone(&state),
+            MaybeTelemetry::disabled(),
+            NoritoJson(signed_quorum_two_propose(
+                &state,
+                &multisig_account_id,
+                &signer_id,
+                &signer_keypair,
+                MultisigProposalNonce::new([0x43; 32]).unwrap(),
+                &[dm::InstructionBox::from(dm::Log::new(
+                    dm::Level::INFO,
+                    "proposal whose block never lands".to_owned(),
+                ))],
+                current_time_millis(),
+            )),
+        )
+        .await
+        .expect("an admitted proposal still reports its submission");
+        assert_eq!(started.elapsed(), MULTISIG_PROPOSAL_VISIBILITY_WAIT_WINDOW);
+        let payload = decode_json_response(response).await;
+        assert_eq!(payload["submitted"].as_bool(), Some(true));
+    }
+    /// Temporary local latency probe for `POST /v1/multisig/propose`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "latency probe"]
+    async fn multisig_propose_latency_probe() {
+        fn summary(label: &str, samples: &mut [Duration]) {
+            samples.sort();
+            let total: Duration = samples.iter().sum();
+            let count = u32::try_from(samples.len()).expect("sample count");
+            eprintln!(
+                "PROBE {label}: n={} mean={:.2}ms p50={:.2}ms max={:.2}ms",
+                samples.len(),
+                (total / count).as_secs_f64() * 1e3,
+                samples[samples.len() / 2].as_secs_f64() * 1e3,
+                samples[samples.len() - 1].as_secs_f64() * 1e3,
+            );
+        }
+        let (mut world, multisig_account_id, signer_id, _signer_two_id, _alias_literal, _active) =
+            multisig_test_world();
+        // Retained proposal history under the multisig account.
+        for index in 0..2_000_u32 {
+            insert_active_multisig_proposal(
+                &mut world,
+                &multisig_account_id,
+                vec![dm::InstructionBox::from(dm::Log::new(
+                    dm::Level::INFO,
+                    format!("history {index}"),
+                ))],
+                1_700_000_000_000,
+                4_000_000_000_000,
+                BTreeSet::new(),
+            );
+        }
+        let signer_keypair =
+            checked_multisig_selector_keypair(0x60, "derive quorum-two proposal signer key");
+        let state = build_state(world);
+        let queue = build_queue();
+        let instructions = vec![dm::InstructionBox::from(dm::Log::new(
+            dm::Level::INFO,
+            "probe".to_owned(),
+        ))];
+        let fee_payment = dm::FeePaymentIntent::authority(Vec::new(), None);
+        let iterations = 40_u8;
+        let mut draft = Vec::new();
+        let (mut resolve, mut route, mut view, mut fee, mut encode) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        for index in 0..iterations {
+            let proposal_nonce = MultisigProposalNonce::new([index + 1; 32]).unwrap();
+            let creation_time_ms = current_time_millis();
+            let started = std::time::Instant::now();
+            let response = handle_post_multisig_propose(
+                Arc::clone(&queue),
+                Arc::clone(&state),
+                MaybeTelemetry::disabled(),
+                NoritoJson(MultisigProposeDtoV1 {
+                    proposal_nonce,
+                    selector: concrete_selector(multisig_account_id.clone()),
+                    signer_account_id: signer_id.clone(),
+                    public_key_hex: None,
+                    signature_b64: None,
+                    creation_time_ms: Some(creation_time_ms),
+                    fee_payment: fee_payment.clone(),
+                    memo: None,
+                    validation_fee_assessment: None,
+                    instructions: instructions.clone(),
+                }),
+            )
+            .await
+            .expect("draft propose");
+            draft.push(started.elapsed());
+            assert_eq!(
+                decode_json_response(response).await["submitted"].as_bool(),
+                Some(false)
+            );
+            let started = std::time::Instant::now();
+            let (account, _spec) = resolve_multisig_account_and_spec(
+                &state,
+                &concrete_selector(multisig_account_id.clone()),
+                Some(&signer_id),
+            )
+            .expect("resolve");
+            resolve.push(started.elapsed());
+            let mut builder = dm::TransactionBuilder::new(
+                *state.network_id_ref(),
+                signer_id.clone(),
+                iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+            );
+            builder.set_creation_time(Duration::from_millis(creation_time_ms));
+            let mut payload = builder
+                .with_fee_payment_intent(fee_payment.clone())
+                .with_metadata(build_multisig_propose_metadata(None))
+                .with_instructions([dm::InstructionBox::from(MultisigPropose::new(
+                    account,
+                    proposal_nonce,
+                    instructions.clone(),
+                    None,
+                ))])
+                .into_payload()
+                .expect("payload");
+            let started = std::time::Instant::now();
+            let RoutingPlan::Single(single) = queue
+                .route_payload_plan_with_state(&payload, &state)
+                .expect("route")
+            else {
+                panic!("single route expected");
+            };
+            route.push(started.elapsed());
+            let started = std::time::Instant::now();
+            let quote_view = state.query_view();
+            let committed =
+                iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&quote_view)
+                    .expect("committed time");
+            let next_block_height = u64::try_from(quote_view.height()).unwrap() + 1;
+            view.push(started.elapsed());
+            let started = std::time::Instant::now();
+            let quote = iroha_core::executor::quote_nexus_fee_admission_draft(
+                quote_view.world(),
+                quote_view.nexus(),
+                quote_view.pipeline(),
+                &quote_view.zk().gas,
+                &payload,
+                committed.unwrap_or(0),
+                committed,
+                next_block_height,
+                Some(single.route.dataspace_id),
+            )
+            .expect("fee quote");
+            fee.push(started.elapsed());
+            drop(quote_view);
+            payload.fee_payment = quote.recommended_intent;
+            let builder = dm::TransactionBuilder::from_payload(payload).expect("builder");
+            let started = std::time::Instant::now();
+            let _ = app_api_transaction_draft(&builder);
+            encode.push(started.elapsed());
+        }
+        summary("draft handler", &mut draft);
+        summary("draft resolve spec", &mut resolve);
+        summary("draft route plan", &mut route);
+        summary("draft query view", &mut view);
+        summary("draft fee quote", &mut fee);
+        summary("draft encode", &mut encode);
+        drop((state, queue));
+        // Previous 250 ms poll, kept only to compare against the commit wakeup.
+        async fn legacy_poll_wait(
+            state: &CoreState,
+            multisig_account_id: &dm::AccountId,
+            spec: &MultisigSpec,
+            proposal_id: &MultisigProposalId,
+        ) -> Result<Option<MultisigProposalRecord>> {
+            let started_at = std::time::Instant::now();
+            loop {
+                if let Some(record) =
+                    load_multisig_proposal_record(state, multisig_account_id, spec, proposal_id)?
+                {
+                    return Ok(Some(record));
+                }
+                let elapsed = started_at.elapsed();
+                if elapsed >= MULTISIG_PROPOSAL_VISIBILITY_WAIT_WINDOW {
+                    return Ok(None);
+                }
+                tokio::time::sleep(
+                    Duration::from_millis(250)
+                        .min(MULTISIG_PROPOSAL_VISIBILITY_WAIT_WINDOW.saturating_sub(elapsed)),
+                )
+                .await;
+            }
+        }
+        async fn publish_after(
+            state: &Arc<State>,
+            multisig_account_id: &dm::AccountId,
+            signer_id: &dm::AccountId,
+            proposal_nonce: MultisigProposalNonce,
+            instructions: &[dm::InstructionBox],
+            creation_time_ms: u64,
+            delay: Duration,
+        ) -> std::time::Instant {
+            tokio::time::sleep(delay).await;
+            let state = Arc::clone(state);
+            let multisig_account_id = multisig_account_id.clone();
+            let signer_id = signer_id.clone();
+            let instructions = instructions.to_vec();
+            tokio::task::spawn_blocking(move || {
+                publish_proposal_block(
+                    &state,
+                    &multisig_account_id,
+                    &signer_id,
+                    proposal_nonce,
+                    &instructions,
+                    creation_time_ms,
+                )
+            })
+            .await
+            .expect("publish block");
+            std::time::Instant::now()
+        }
+        let delays = [0_u64, 30, 60, 90, 120, 150, 180, 210, 240, 270, 400, 900];
+        let proposal_nonce = MultisigProposalNonce::new([0x80; 32]).unwrap();
+        // Handler: the signed submit is admitted, then answers once its block lands.
+        let (mut handler_lags, mut admissions) = (Vec::new(), Vec::new());
+        for delay_ms in delays {
+            let (world, multisig_account_id, signer_id, _signer_two_id, _alias_literal, _active) =
+                multisig_test_world();
+            let state = build_state(world);
+            let queue = build_queue();
+            let creation_time_ms = current_time_millis();
+            let request = signed_quorum_two_propose(
+                &state,
+                &multisig_account_id,
+                &signer_id,
+                &signer_keypair,
+                proposal_nonce,
+                &instructions,
+                creation_time_ms,
+            );
+            let started = std::time::Instant::now();
+            let handler = tokio::spawn(handle_post_multisig_propose(
+                Arc::clone(&queue),
+                Arc::clone(&state),
+                MaybeTelemetry::disabled(),
+                NoritoJson(request),
+            ));
+            while queue.active_len() == 0 {
+                if handler.is_finished() {
+                    let outcome = handler.await.expect("propose task");
+                    panic!("signed propose ended before admission: {:?}", outcome.err());
+                }
+                tokio::time::sleep(Duration::from_micros(100)).await;
+            }
+            admissions.push(started.elapsed());
+            let published = publish_after(
+                &state,
+                &multisig_account_id,
+                &signer_id,
+                proposal_nonce,
+                &instructions,
+                creation_time_ms,
+                Duration::from_millis(delay_ms),
+            )
+            .await;
+            let response = handler
+                .await
+                .expect("propose task")
+                .expect("signed propose");
+            let lag = published.elapsed();
+            assert_eq!(
+                decode_json_response(response).await["submitted"].as_bool(),
+                Some(true)
+            );
+            eprintln!(
+                "PROBE handler commit_after={delay_ms}ms total={:.2}ms lag_after_commit={:.3}ms",
+                started.elapsed().as_secs_f64() * 1e3,
+                lag.as_secs_f64() * 1e3,
+            );
+            handler_lags.push(lag);
+        }
+        summary("signed handler admission", &mut admissions);
+        summary("signed handler lag after commit", &mut handler_lags);
+        // Same publications against the previous poll and the commit wakeup.
+        for legacy in [true, false] {
+            let mut lags = Vec::new();
+            for delay_ms in delays {
+                let (world, multisig_account_id, signer_id, _signer_two_id, _alias, _active) =
+                    multisig_test_world();
+                let state = build_state(world);
+                let (account, spec) = resolve_multisig_account_and_spec(
+                    &state,
+                    &concrete_selector(multisig_account_id.clone()),
+                    Some(&signer_id),
+                )
+                .expect("resolve");
+                let proposal_id =
+                    MultisigProposalId::derive(state.network_id_ref(), &account, &proposal_nonce);
+                let waiter = {
+                    let state = Arc::clone(&state);
+                    tokio::spawn(async move {
+                        if legacy {
+                            legacy_poll_wait(&state, &account, &spec, &proposal_id).await
+                        } else {
+                            wait_for_multisig_proposal_record_visibility(
+                                &state,
+                                &account,
+                                &spec,
+                                &proposal_id,
+                            )
+                            .await
+                        }
+                    })
+                };
+                tokio::task::yield_now().await;
+                let published = publish_after(
+                    &state,
+                    &multisig_account_id,
+                    &signer_id,
+                    proposal_nonce,
+                    &instructions,
+                    current_time_millis(),
+                    Duration::from_millis(delay_ms),
+                )
+                .await;
+                let record = waiter.await.expect("wait task").expect("wait");
+                lags.push(published.elapsed());
+                assert!(record.is_some(), "published proposal must be visible");
+            }
+            summary(
+                if legacy {
+                    "wait lag after commit: previous 250 ms poll"
+                } else {
+                    "wait lag after commit: commit wakeup"
+                },
+                &mut lags,
+            );
+        }
     }
 }
 /// POST /v1/contracts/call/multisig/propose — propose a multisig participation envelope

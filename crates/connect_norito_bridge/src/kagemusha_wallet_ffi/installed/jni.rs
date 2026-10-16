@@ -51,7 +51,7 @@ pub extern "system" fn Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWa
                     .map_err(|_| Failure::code(INVALID))
             })
             .collect::<Result<_>>()?;
-        let prepared = PreparedInstallation::load(RuntimeOriginals {
+        let input = RuntimeOriginals {
             app_manifest: &originals[0],
             envelope: &originals[1],
             wallet_runtime: &originals[2],
@@ -60,13 +60,14 @@ pub extern "system" fn Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWa
             signed_genesis: &originals[5],
             originals_root: &originals[6],
             registration_source: &originals[7],
-        })?;
-        let platform = AndroidPlatform::new(&mut env, &platform)?;
-        let root = platform
-            .custody_root()
-            .map_err(|error| Failure::unavailable(UNAVAILABLE, error))?;
-        let (owner, opening) = prepared.runtime(platform, root, true)?;
-        Ok(Box::new(WalletInstallationAttempt::new(owner, opening)))
+        };
+        install(input, true, || {
+            let platform = AndroidPlatform::new(&mut env, &platform)?;
+            let root = platform
+                .custody_root()
+                .map_err(|error| Failure::unavailable(UNAVAILABLE, error))?;
+            Ok((platform, root))
+        })
     });
     match result {
         Ok(attempt) => Box::into_raw(attempt) as usize as jlong,

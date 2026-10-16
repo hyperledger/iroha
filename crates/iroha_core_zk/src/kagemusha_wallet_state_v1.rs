@@ -46,6 +46,7 @@ mod credit_tree;
 mod custody;
 mod fee_claims;
 mod fold_custody;
+mod fold_metrics;
 mod folding;
 mod index;
 mod lifecycle;
@@ -79,7 +80,12 @@ pub use custody::{
 };
 pub use fee_claims::{FEE_CLAIM_MAX_BYTES_V1, FinalizedPayoutEvidence, RetainedFeeClaim};
 pub use fold_custody::FoldCustodyV1;
-pub use folding::{FoldStatus, LineageCache};
+pub use fold_metrics::{
+    FOLD_METRICS_RECORDS_V1, FOLD_METRICS_SCHEMA_V1, FoldCallClassV1, FoldCancelCauseV1,
+    FoldCountsV1, FoldMetricsV1, FoldObserverV1, FoldOutcomeV1, FoldPhaseV1, FoldStageV1,
+    FoldSubProofV1,
+};
+pub use folding::{FoldJobV1, FoldStatus, FoldTurnStatusV1, LineageCache, ProvedFoldV1};
 pub use index::{IndexRoot, ObjectStore, ObjectWorkspace};
 mod object_workspace;
 pub(crate) use lifecycle::ArchiveIntentV1;
@@ -375,22 +381,34 @@ pub trait NativeProofs {
         cancellation: Option<&Cancellation>,
     ) -> Result<(), Error>;
 
-    /// Compute exactly the next sub-proof of one released transition. `checkpoints` holds
-    /// every prior original checkpoint in authenticated schedule order, after the coordinator
-    /// checked its exact layout and durable source chain. Genuine native restoration must
-    /// rederive each prior A/W source in order; the latest proof alone cannot supply that source.
-    /// Poll cancellation at every task boundary and release proof workspaces before returning.
+    /// Prepare exactly the next sub-proof of one released transition under the wallet owner:
+    /// owner replay and input assembly from `custody`, and revalidation of the selected
+    /// stage's proving originals. `checkpoints` holds every prior original checkpoint in
+    /// authenticated schedule order, after the coordinator checked its exact layout and
+    /// durable source chain. The returned job owns every input and holds no custody, archive
+    /// or original-store handle, so it proves after the wallet owner is released.
     ///
     /// # Errors
     /// Return `Cancelled` on preemption; reject unavailable/invalid relation inputs.
-    fn fold_next(
+    fn fold_prepare(
         &self,
         witness: &ReleasedStep,
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
-        checkpoints: &[PrivateArchiveBytes],
+        checkpoints: Vec<PrivateArchiveBytes>,
         custody: Option<&mut FoldCustodyV1<'_>>,
         cancellation: &Cancellation,
-    ) -> Result<FoldProgress, Error>;
+    ) -> Result<Box<dyn NativeFoldJobV1>, Error>;
+}
+
+/// The owned native work of one prepared sub-proof, proved without the wallet owner.
+pub trait NativeFoldJobV1 {
+    /// Compute the sub-proof. Genuine native restoration must rederive each prior A/W source
+    /// in order; the latest proof alone cannot supply that source. Poll cancellation at every
+    /// task boundary and release proof workspaces before returning.
+    ///
+    /// # Errors
+    /// Return `Cancelled` on preemption; reject unavailable/invalid relation inputs.
+    fn prove(self: Box<Self>, cancellation: &Cancellation) -> Result<FoldProgress, Error>;
 }
 
 /// One authenticated released transition; inputs and output remain byte-exact.

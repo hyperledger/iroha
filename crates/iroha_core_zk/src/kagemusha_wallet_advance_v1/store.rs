@@ -25,8 +25,13 @@
 //! - **same-content rewrite** ([`KagemushaWalletDurableStoreV1::rewrite_same`]): publishes
 //!   byte-identical content on a fresh inode with an atomic replacing rename, so a file whose
 //!   earlier sync reported (and lost) a writeback error becomes durable.
+//! - **archive retirement** ([`KagemushaWalletDurableStoreV1::retain_retired_files`]): move exact
+//!   originals to unique graves and sync their absence. The archive journal durably records
+//!   Pending before this move and Complete before reaping, so recovery needs no boot API.
 //! - **removal** ([`KagemushaWalletDurableStoreV1::remove_file`]): unlink, then parent sync;
-//!   an already-absent name is synced as absent. Empty directories are removed the same way
+//!   an already-absent file gets a parent sync, which cannot repair a previously lost unlink
+//!   writeback. Archive records therefore use retirement. An absent empty directory is
+//!   recreated and removed to reissue its namespace mutation before syncing
 //!   ([`KagemushaWalletDurableStoreV1::remove_dir`]).
 //! - **reads and listings** report only initial native-open absence as `Absent`;
 //!   later custody/read failures are unavailable, and any entry error fails a whole listing.
@@ -443,7 +448,10 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         }
     }
 
-    /// Durably remove `name` from `dir`; an absent name is synced as absent.
+    /// Unlink a visible file and sync its parent. An absent name receives a parent sync.
+    /// This completes pending unlinks, but cannot reissue a lost unlink writeback once the
+    /// original is invisible. Callers requiring durable absence after that failure must use
+    /// `retain_retired_files` with exact retained originals and durable journal-qualified recovery.
     pub(super) fn remove_file(
         &self,
         dir: &KagemushaWalletCustodyDirV1,
@@ -465,6 +473,108 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
             Ok(()) => KagemushaWalletRemoveOutcomeV1::Removed,
             Err(error) => KagemushaWalletRemoveOutcomeV1::Uncertain(unavailable(&error)),
         }
+    }
+
+    /// A fresh nonce for a retirement incarnation, from the filesystem's fallible staging
+    /// entropy source. No file is created and no existing grave name is reused.
+    pub(super) fn retirement_nonce(&self) -> Result<String, KagemushaWalletUnavailableV1> {
+        let staged = self
+            .fs
+            .staging_name()
+            .map_err(|error| unavailable(&error))?;
+        if !kagemusha_wallet_is_staging_name_v1(&staged) {
+            return Err(KagemushaWalletUnavailableV1::Io(0));
+        }
+        Ok(staged[super::layout::KAGEMUSHA_WALLET_STAGING_PREFIX_V1.len()..].to_owned())
+    }
+
+    /// Move originals through unique graves, retaining them until the caller commits completion.
+    /// The caller must have durably published a Pending journal for these exact names before
+    /// invoking this method. Existing graves are never overwritten: a collision refuses.
+    /// Removed means original names are durably absent; it does not remove the retained graves.
+    pub(super) fn retain_retired_files(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        pairs: &[(&KagemushaWalletEntryNameV1, &KagemushaWalletEntryNameV1)],
+    ) -> KagemushaWalletRemoveOutcomeV1 {
+        let mut moved = false;
+        for (name, grave) in pairs {
+            counters::count(EventV1::Removal);
+            let result = match self
+                .fs
+                .rename_entry_noreplace(dir, name.as_str(), grave.as_str())
+            {
+                Ok(()) => Ok(true),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    match self
+                        .fs
+                        .rename_entry_noreplace(dir, grave.as_str(), name.as_str())
+                    {
+                        Ok(()) => {
+                            moved = true;
+                            self.fs
+                                .rename_entry_noreplace(dir, name.as_str(), grave.as_str())
+                                .map(|()| true)
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+                        Err(error) => Err(error),
+                    }
+                }
+                Err(error) => Err(error),
+            };
+            match result {
+                Ok(true) => {
+                    moved = true;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    return if !moved
+                        && matches!(
+                            classify(&error),
+                            FailureClassV1::Definitive
+                                | FailureClassV1::Exists
+                                | FailureClassV1::Unsupported
+                                | FailureClassV1::NoSpace
+                        ) {
+                        KagemushaWalletRemoveOutcomeV1::NotRemoved(unavailable(&error))
+                    } else {
+                        KagemushaWalletRemoveOutcomeV1::Uncertain(unavailable(&error))
+                    };
+                }
+            }
+        }
+        if !moved {
+            return KagemushaWalletRemoveOutcomeV1::Removed;
+        }
+        if let Err(error) = counters::sync(SyncClassV1::Dir, || self.fs.sync_dir(dir)) {
+            return KagemushaWalletRemoveOutcomeV1::Uncertain(unavailable(&error));
+        }
+        // Keep every exact inode until the caller durably publishes Complete. Reaping here
+        // would let a lost Complete writeback strand a Pending journal without its originals.
+        KagemushaWalletRemoveOutcomeV1::Removed
+    }
+
+    /// Reap graves only after a durable Complete journal, or when they are unreferenced.
+    /// Never restores any record name. Cleanup writeback failure cannot reverse completion;
+    /// journal recovery can safely repeat this garbage-only operation after any restart.
+    pub(super) fn reap_retired_files(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        graves: &[&KagemushaWalletEntryNameV1],
+    ) -> KagemushaWalletRemoveOutcomeV1 {
+        for grave in graves {
+            match self.fs.unlink(dir, grave.as_str()) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return KagemushaWalletRemoveOutcomeV1::Uncertain(unavailable(&error));
+                }
+            }
+        }
+        if !graves.is_empty() {
+            let _ = counters::sync(SyncClassV1::Dir, || self.fs.sync_dir(dir));
+        }
+        KagemushaWalletRemoveOutcomeV1::Removed
     }
 
     /// Durably create directory `name` in `parent`. An existing entry is reported as
@@ -500,8 +610,8 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         }
     }
 
-    /// Durably remove the empty directory `name` from `parent`; an absent name is synced as
-    /// absent. A directory that holds entries is never removed (`NotRemoved`).
+    /// Durably remove the empty directory `name` from `parent`; an absent empty directory
+    /// is recreated and removed to reissue a lost writeback. Nonempty directories are refused.
     pub(super) fn remove_dir(
         &self,
         parent: &KagemushaWalletCustodyDirV1,
@@ -510,7 +620,16 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         counters::count(EventV1::Removal);
         match self.fs.remove_dir(parent, name.as_str()) {
             Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                // Reissue a possibly lost rmdir writeback using the exact empty object.
+                // Once mkdir succeeds, every later failure has an uncertain outcome.
+                if let Err(error) = self.fs.mkdir(parent, name.as_str()) {
+                    return KagemushaWalletRemoveOutcomeV1::Uncertain(unavailable(&error));
+                }
+                if let Err(error) = self.fs.remove_dir(parent, name.as_str()) {
+                    return KagemushaWalletRemoveOutcomeV1::Uncertain(unavailable(&error));
+                }
+            }
             Err(error) => {
                 return if classify(&error) == FailureClassV1::Definitive {
                     KagemushaWalletRemoveOutcomeV1::NotRemoved(unavailable(&error))
@@ -621,6 +740,15 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         let Some(entries) = self.list(dir).into_result()? else {
             return Ok(0);
         };
+        self.remove_listed_staging(dir, &entries)
+    }
+
+    /// Remove staging files from one complete custody listing already taken by reconciliation.
+    pub(super) fn remove_listed_staging(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        entries: &[KagemushaWalletListedEntryV1],
+    ) -> Result<usize, KagemushaWalletProviderErrorV1> {
         let mut removed = 0_usize;
         for entry in entries {
             if entry.kind != KagemushaWalletEntryKindV1::File
@@ -1034,6 +1162,23 @@ mod std_fs {
         ) -> io::Result<()> {
             self.rename(dir, from, to, PublishMode::Replace)
         }
+        fn rename_entry_noreplace(
+            &self,
+            dir: &KagemushaWalletCustodyDirV1,
+            from: &str,
+            to: &str,
+        ) -> io::Result<()> {
+            let directory = self.directory(dir)?;
+            let original = directory
+                .open_retained_private_optional(from)
+                .map_err(custody_changed)?
+                .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+            let expected = original.identity()?;
+            // Windows transfers DELETE access inside the existing native identity-checked
+            // directory primitive. Do not retain a conflicting read handle across that call.
+            drop(original);
+            directory.rename_custody_file(from, to, expected, PublishMode::CreateNew)
+        }
         fn unlink(&self, dir: &KagemushaWalletCustodyDirV1, name: &str) -> io::Result<()> {
             let directory = self.directory(dir)?;
             let original = self
@@ -1262,6 +1407,8 @@ mod sim {
         RenameNoReplace,
         /// Replacing rename.
         RenameReplace,
+        /// Identity-checked no-replace move of an existing custody file.
+        RenameEntry,
         /// Unlink.
         Unlink,
         /// Directory sync.
@@ -1980,6 +2127,36 @@ mod sim {
             state.finish(gate, ())
         }
 
+        fn rename_entry_noreplace(
+            &self,
+            dir: &KagemushaWalletCustodyDirV1,
+            from: &str,
+            to: &str,
+        ) -> io::Result<()> {
+            let mut state = self.state();
+            let gate = state.begin(KagemushaWalletSimStepV1::RenameEntry)?;
+            if gate != GateV1::Run && gate != GateV1::RunThenCrash {
+                return Err(io::Error::other("simulated I/O error"));
+            }
+            if !state.noreplace_supported {
+                return Err(io::Error::from(io::ErrorKind::Unsupported));
+            }
+            let directory = state.dir_mut(dir.components())?;
+            match directory.visible.get(from) {
+                Some(SimNodeV1::File(_)) => {}
+                Some(_) => return Err(io::Error::from(io::ErrorKind::InvalidData)),
+                None => return Err(not_found()),
+            }
+            if directory.visible.contains_key(to) {
+                return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+            }
+            let node = directory.visible.remove(from).ok_or_else(not_found)?;
+            directory.visible.insert(to.to_owned(), node);
+            directory
+                .pending
+                .push(SimDirOpV1::Rename(from.to_owned(), to.to_owned()));
+            state.finish(gate, ())
+        }
         fn unlink(&self, dir: &KagemushaWalletCustodyDirV1, name: &str) -> io::Result<()> {
             let mut state = self.state();
             let gate = state.begin(KagemushaWalletSimStepV1::Unlink)?;

@@ -9,65 +9,128 @@ fn footprint(wallet: &Wallet) -> (usize, usize) {
 
 #[test]
 fn semantic_intake_refusals_discard_private_drafts_and_keep_fixed_binding() {
-    for validation in [false, true] {
-        let mut sizes = Vec::new();
-        for size in [1, 32 * 1024] {
-            let mut wallet = prepared_wallet();
-            let before = wallet.snapshot().unwrap();
-            wallet.proofs.preparation_payload = vec![37; size];
-            wallet.proofs.fail_preparation_plan = !validation;
-            wallet.proofs.fail_preparation_validation = validation;
-            let signatures = wallet.custody.signatures;
-            let digest =
-                crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(
-                    &wallet.proofs.preparation_payload,
-                );
-            assert!(matches!(wallet.execute(request()), Err(Error::Invalid(_))));
-            assert_eq!(wallet.snapshot().unwrap().sequence, before.sequence);
-            assert_eq!(wallet.custody.signatures, signatures);
-            assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
-            assert!(
-                !wallet
-                    .archive
-                    .records
-                    .lock()
-                    .unwrap()
-                    .contains_key(&ArchiveKey::Object(digest))
-            );
-            assert!(
-                !wallet
-                    .archive
-                    .records
-                    .lock()
-                    .unwrap()
-                    .contains_key(&ArchiveKey::PreparationDraft(request().request_id))
-            );
-            assert_eq!(
-                wallet.retry_request(&request().request_id).unwrap(),
-                RequestStatusV1::Preparing
-            );
-            sizes.push(footprint(&wallet));
-            let mut wallet = restart(wallet);
-            let footprint_before_retry = footprint(&wallet);
-            assert!(matches!(wallet.execute(request()), Err(Error::Invalid(_))));
-            assert_eq!(footprint(&wallet), footprint_before_retry);
-            let changed = OperationRequestV1 {
-                request_id: request().request_id,
-                action: OperationActionV1::Unload {
-                    amount: 1,
-                    charge: None,
-                },
-            };
-            assert!(matches!(
-                wallet.execute(changed),
-                Err(Error::OperationConflict)
-            ));
-        }
+    // A fresh preparation is refused by native planning, before any batch is retained.
+    let mut sizes = Vec::new();
+    for size in [1, 32 * 1024] {
+        let mut wallet = prepared_wallet();
+        let before = wallet.snapshot().unwrap();
+        wallet.proofs.preparation_payload = vec![37; size];
+        wallet.proofs.fail_preparation_plan = true;
+        let signatures = wallet.custody.signatures;
+        let digest = crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(
+            &wallet.proofs.preparation_payload,
+        );
+        assert!(matches!(wallet.execute(request()), Err(Error::Invalid(_))));
+        assert_eq!(wallet.snapshot().unwrap().sequence, before.sequence);
+        assert_eq!(wallet.custody.signatures, signatures);
+        assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+        assert!(
+            !wallet
+                .archive
+                .records
+                .lock()
+                .unwrap()
+                .contains_key(&ArchiveKey::Object(digest))
+        );
+        assert!(
+            !wallet
+                .archive
+                .records
+                .lock()
+                .unwrap()
+                .contains_key(&ArchiveKey::PreparationDraft(request().request_id))
+        );
         assert_eq!(
-            sizes[0], sizes[1],
-            "no variable draft payload survives semantic refusal"
+            wallet.retry_request(&request().request_id).unwrap(),
+            RequestStatusV1::Preparing
+        );
+        sizes.push(footprint(&wallet));
+        let mut wallet = restart(wallet);
+        let footprint_before_retry = footprint(&wallet);
+        assert!(matches!(wallet.execute(request()), Err(Error::Invalid(_))));
+        assert_eq!(footprint(&wallet), footprint_before_retry);
+        let changed = OperationRequestV1 {
+            request_id: request().request_id,
+            action: OperationActionV1::Unload {
+                amount: 1,
+                charge: None,
+            },
+        };
+        assert!(matches!(
+            wallet.execute(changed),
+            Err(Error::OperationConflict)
+        ));
+    }
+    assert_eq!(
+        sizes[0], sizes[1],
+        "no variable draft payload survives semantic refusal"
+    );
+}
+
+#[test]
+fn recovered_batch_validation_refusal_keeps_the_exact_batch_unpublished_and_unproven() {
+    let mut wallet = prepared_wallet();
+    wallet.proofs.preparation_payload = vec![41; 97];
+    let object = object_digest(&wallet.proofs.preparation_payload);
+    // The batch is retained before plan publication: one object put fails definitively.
+    *wallet.archive.fail_put.lock().unwrap() = Some((ArchiveKey::Object(object), false));
+    let signatures = wallet.custody.signatures;
+    assert!(matches!(wallet.execute(request()), Err(Error::Storage(_))));
+    let draft = ArchiveKey::PreparationDraft(request().request_id);
+    let retained = wallet.archive.records.lock().unwrap()[&draft].clone();
+    let selected = footprint(&wallet);
+    let mut wallet = restart(wallet);
+    wallet.proofs.fail_preparation_validation = true;
+    for _ in 0..2 {
+        assert!(matches!(
+            wallet.execute(request()),
+            Err(Error::Invalid("test native validation refusal"))
+        ));
+        assert_eq!(wallet.archive.records.lock().unwrap()[&draft], retained);
+        assert_eq!(footprint(&wallet), selected);
+        assert_eq!(
+            wallet.retry_request(&request().request_id).unwrap(),
+            RequestStatusV1::Preparing
         );
     }
+    assert_eq!(wallet.proofs.preparations.load(Ordering::SeqCst), 1);
+    assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+    assert_eq!(wallet.custody.signatures, signatures);
+    wallet.proofs.fail_preparation_validation = false;
+    assert!(matches!(
+        wallet.execute(request()).unwrap(),
+        Completion::Complete(_)
+    ));
+    assert_eq!(wallet.custody.signatures, signatures + 1);
+}
+
+#[test]
+fn held_plan_validation_refusal_changes_nothing_and_never_proves() {
+    let mut wallet = prepared_wallet();
+    wallet.proofs.preparation_payload = vec![43; 97];
+    // The plan publication commits but reports failure: the plan is selected, unproven.
+    wallet.custody.fail_publication_at = Some((wallet.custody.publication_calls + 2, true));
+    let signatures = wallet.custody.signatures;
+    assert!(wallet.execute(request()).is_err());
+    let selected = footprint(&wallet);
+    let mut wallet = restart(wallet);
+    wallet.proofs.fail_preparation_validation = true;
+    for _ in 0..2 {
+        assert!(matches!(
+            wallet.execute(request()),
+            Err(Error::Invalid("test native validation refusal"))
+        ));
+        assert_eq!(footprint(&wallet), selected);
+    }
+    assert_eq!(wallet.proofs.preparations.load(Ordering::SeqCst), 1);
+    assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+    assert_eq!(wallet.custody.signatures, signatures);
+    wallet.proofs.fail_preparation_validation = false;
+    assert!(matches!(
+        wallet.execute(request()).unwrap(),
+        Completion::Complete(_)
+    ));
+    assert_eq!(wallet.custody.signatures, signatures + 1);
 }
 
 #[test]
@@ -96,6 +159,9 @@ fn validated_batch_recovers_exact_choices_after_every_publication_boundary() {
         assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
         assert_eq!(wallet.custody.signatures, signatures);
         assert_eq!(wallet.proofs.preparations.load(Ordering::SeqCst), 1);
+        // Fresh intake derives once: no in-workspace or batch replay of its own plan.
+        assert_eq!(derivations(&wallet), 1, "boundary {boundary}");
+        assert_eq!(wallet.proofs.validations.load(Ordering::SeqCst), 0);
         let mut wallet = restart(wallet);
         let result = wallet.execute(request()).unwrap();
         assert!(matches!(result, Completion::Complete(_)));
@@ -105,6 +171,23 @@ fn validated_batch_recovers_exact_choices_after_every_publication_boundary() {
         );
         assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 1);
         assert_eq!(wallet.custody.signatures, signatures + 1);
+        // The resumed call derives twice: a fresh plan (nothing was retained), the
+        // recovered batch replay (1..=4) or the held plan's validation (5, 6); then commit.
+        assert_eq!(derivations(&wallet), 3, "boundary {boundary}");
+        assert_eq!(
+            wallet.proofs.validations.load(Ordering::SeqCst),
+            usize::from(boundary != 0),
+            "boundary {boundary}"
+        );
+        assert_eq!(
+            wallet.proofs.proof_origins.lock().unwrap().last(),
+            Some(if boundary == 0 {
+                &TestOriginV1::Plan
+            } else {
+                &TestOriginV1::Validate
+            }),
+            "boundary {boundary}"
+        );
         assert!(
             !wallet
                 .archive
@@ -333,4 +416,83 @@ fn fresh_storage_admission_charges_staging_and_materialization_and_preserves_pro
     wallet.custody.resources.memory_bytes = None;
     wallet.require_intake_capacity().unwrap();
     assert_eq!(footprint(&wallet), before);
+}
+
+#[test]
+fn transient_read_back_failure_retains_the_batch_and_heals_on_the_held_plan_retry() {
+    let mut wallet = prepared_wallet();
+    wallet.proofs.preparation_payload = vec![83; 97];
+    let object = object_digest(&wallet.proofs.preparation_payload);
+    wallet.archive.hide_object_once(object);
+    let signatures = wallet.custody.signatures;
+    assert!(matches!(wallet.execute(request()), Err(Error::Storage(_))));
+    // The plan is selected, staging is retained, and nothing was proven or signed.
+    assert!(
+        wallet
+            .archive
+            .records
+            .lock()
+            .unwrap()
+            .contains_key(&ArchiveKey::PreparationDraft(request().request_id))
+    );
+    assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+    assert_eq!(wallet.custody.signatures, signatures);
+    assert_eq!(derivations(&wallet), 1);
+    let mut wallet = restart(wallet);
+    assert!(matches!(
+        wallet.execute(request()).unwrap(),
+        Completion::Complete(_)
+    ));
+    assert_eq!(derivations(&wallet), 3, "held-plan validation and commit");
+    assert_eq!(wallet.proofs.validations.load(Ordering::SeqCst), 1);
+    assert_eq!(wallet.proofs.preparations.load(Ordering::SeqCst), 1);
+    assert_eq!(wallet.custody.signatures, signatures + 1);
+    assert!(
+        !wallet
+            .archive
+            .records
+            .lock()
+            .unwrap()
+            .contains_key(&ArchiveKey::PreparationDraft(request().request_id))
+    );
+}
+
+#[test]
+fn missing_staged_object_fails_every_retry_stably_without_proof_or_signature() {
+    let mut wallet = prepared_wallet();
+    wallet.proofs.preparation_payload = vec![89; 97];
+    let object = object_digest(&wallet.proofs.preparation_payload);
+    wallet.archive.hide_object(object);
+    let signatures = wallet.custody.signatures;
+    assert!(matches!(
+        wallet.execute(request()),
+        Err(Error::WitnessLost("index object"))
+    ));
+    let retained = footprint(&wallet);
+    let mut wallet = restart(wallet);
+    for _ in 0..2 {
+        // The held plan never re-materializes from the retained batch.
+        assert!(matches!(
+            wallet.execute(request()),
+            Err(Error::WitnessLost("index object"))
+        ));
+        assert_eq!(footprint(&wallet), retained);
+    }
+    assert!(
+        wallet
+            .archive
+            .records
+            .lock()
+            .unwrap()
+            .contains_key(&ArchiveKey::PreparationDraft(request().request_id))
+    );
+    assert_eq!(wallet.proofs.preparations.load(Ordering::SeqCst), 1);
+    assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+    assert_eq!(wallet.custody.signatures, signatures);
+    wallet.archive.reveal_object(object);
+    assert!(matches!(
+        wallet.execute(request()).unwrap(),
+        Completion::Complete(_)
+    ));
+    assert_eq!(wallet.custody.signatures, signatures + 1);
 }

@@ -695,6 +695,16 @@ where
         current: &KagemushaWalletMarkerRecordV1,
         operation_id: &[u8; 32],
     ) -> Result<KagemushaWalletLookupV1<R>, KagemushaWalletProviderErrorV1> {
+        // The permanent collection decision dominates any completion copy whose earlier
+        // unlink lost its writeback and later resurfaced. An unreadable or malformed decision
+        // never restores delivery authority or makes the operation identity reusable.
+        match read_tombstone(&self.store, slot, operation_id)? {
+            Some(Some(tombstone)) => {
+                return Ok(KagemushaWalletLookupV1::Archived(Box::new(tombstone)));
+            }
+            Some(None) => return Ok(KagemushaWalletLookupV1::DeliveryDataLoss),
+            None => {}
+        }
         let binding = R::marker_binding(current.marker());
         Ok(
             match load_older_completion::<F, R>(&self.store, slot, operation_id, &binding)? {
@@ -702,12 +712,7 @@ where
                     KagemushaWalletRetainedV1::from_pair(pair),
                 )),
                 OlderCompletionV1::Invalid => KagemushaWalletLookupV1::DeliveryDataLoss,
-                OlderCompletionV1::Absent => match read_tombstone(&self.store, slot, operation_id)?
-                {
-                    Some(Some(tombstone)) => KagemushaWalletLookupV1::Archived(Box::new(tombstone)),
-                    Some(None) => KagemushaWalletLookupV1::DeliveryDataLoss,
-                    None => KagemushaWalletLookupV1::Unknown,
-                },
+                OlderCompletionV1::Absent => KagemushaWalletLookupV1::Unknown,
             },
         )
     }

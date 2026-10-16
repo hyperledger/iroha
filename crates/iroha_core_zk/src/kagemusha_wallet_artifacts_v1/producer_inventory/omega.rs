@@ -77,23 +77,38 @@ impl QualifiedOmegaProgramV1 {
         config: ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<native::ProverView<'_>, OmegaQualificationErrorV1> {
-        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
-        if authenticated.installation() != self.installation {
-            return Err(Error::Authority.into());
-        }
-        let index = authenticated.inventory.omega;
-        let view = self.seal.bind(index, &self.key, cancellation)?;
-        if view.binding().n() > config.maximum_rows {
-            return Err(Error::Inventory.into());
-        }
+        let owner = self.bind_prover_cancellable(authenticated, config, cancellation)?;
         authenticated.revalidate_original_cancellable(
-            index,
+            authenticated.inventory.omega,
             originals,
             config.maximum_bytes,
             cancellation,
         )?;
-        let owner = native::ProverView::from_source_bound(&self.program, view)?;
         Ok(owner)
+    }
+
+    /// The strict source authority of [`Self::import_prover_cancellable`] without reading any
+    /// original. A wallet fold binds it to prove without the wallet owner, after that import
+    /// revalidated the same originals in the same locked turn; it grants nothing more.
+    /// # Errors
+    /// Another installation, a changed source identity, the local row cap or cancellation.
+    pub(super) fn bind_prover_cancellable(
+        &self,
+        authenticated: &AuthenticatedProducerInventoryV1,
+        config: ReadConfig,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<native::ProverView<'_>, OmegaQualificationErrorV1> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
+        if authenticated.installation() != self.installation {
+            return Err(Error::Authority.into());
+        }
+        let view = self
+            .seal
+            .bind(authenticated.inventory.omega, &self.key, cancellation)?;
+        if view.binding().n() > config.maximum_rows {
+            return Err(Error::Inventory.into());
+        }
+        Ok(native::ProverView::from_source_bound(&self.program, view)?)
     }
 }
 
@@ -129,8 +144,11 @@ fn matches<C: PastaCurve>(original: &OriginalV1, key: &KeyArtifact<C>) -> bool {
     original.descriptor == BlobV1::of(key.binding().encoded())
         && original.verifying_key == BlobV1::of(key.key().to_bytes())
 }
-fn metadata(original: ArtifactOriginalV1) -> Result<KeyArtifact<Ep>, OmegaQualificationErrorV1> {
-    let binding = DescriptorBinding::decode_v2(&original.descriptor)
+fn metadata(
+    original: DecodedVerifierOriginal,
+) -> Result<KeyArtifact<Ep>, OmegaQualificationErrorV1> {
+    let binding = original
+        .binding
         .map_err(|_| OmegaQualificationErrorV1::Catalog)?;
     let key = VerifyingKey::read(&original.verifying_key, &binding)
         .map_err(|_| OmegaQualificationErrorV1::Catalog)?;
@@ -159,9 +177,12 @@ impl AuthenticatedProducerInventoryV1 {
             originals,
             config,
             super::builtin::Admission::Strict,
+            &DescriptorMemo::default(),
         )
     }
 
+    // `descriptors` is the calling qualification's own; with the routes' memo the
+    // candidate reuses their exact Omega decode after its own fresh checked read.
     pub(super) fn qualify_omega_with_admission(
         &self,
         installed: &InstalledVerifierPackV1,
@@ -169,6 +190,7 @@ impl AuthenticatedProducerInventoryV1 {
         originals: &mut dyn OriginalSourceV1,
         config: ReadConfig,
         admission: super::builtin::Admission<'_>,
+        descriptors: &DescriptorMemo,
     ) -> Result<QualifiedOmegaProgramV1, OmegaQualificationErrorV1> {
         let installation = (
             installed.verifier().scheme().scheme_id(),
@@ -182,7 +204,8 @@ impl AuthenticatedProducerInventoryV1 {
             .map(QualifiedOperationRouteV1::identity)
             .collect();
         require_route_identities(installation, &self.inventory.routes, &identities)?;
-        let candidate = metadata(self.read_verifier_original(self.inventory.omega, originals)?)?;
+        let candidate =
+            metadata(self.read_verifier_metadata(self.inventory.omega, originals, descriptors)?)?;
         let mut programs: Vec<Option<&KeyArtifact<Eq>>> =
             vec![None; self.inventory.operations.len()];
         for (route, required) in routes.iter().zip(compiled_routes()) {

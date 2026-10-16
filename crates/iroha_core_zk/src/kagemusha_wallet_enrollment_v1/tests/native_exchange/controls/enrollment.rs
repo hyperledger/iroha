@@ -141,6 +141,14 @@ fn fresh_permitted_enrollment_binds_lease_and_reopens_exact_originals() {
         f.config.clone(),
     )
     .unwrap_or_else(|(_, error)| panic!("{error}"));
+    // Re-select the retained enrollment after constructing a new owner.
+    owner
+        .begin(
+            &[11; 32],
+            &norito::encode_canonical(&f.account).unwrap(),
+            &norito::encode_canonical(&f.asset).unwrap(),
+        )
+        .unwrap();
     assert_eq!(owner.open_originals().unwrap(), frames);
     assert_eq!(
         device

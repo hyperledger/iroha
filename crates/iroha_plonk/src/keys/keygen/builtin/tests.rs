@@ -462,6 +462,52 @@ fn exact_original_parameter_limits_and_cancellation_reject_on_both_curves() {
     mutations::<Eq>();
 }
 
+fn reused_vk_digest<C: PastaCurve>() {
+    let f = Fixture::<C>::new();
+    let member = profile(entries(vec![f.entry()])).member(ROLE).unwrap();
+    let typed = |member: BuiltinSourceMemberV1| {
+        member.admit_originals_with_metadata_cancellable::<C>(
+            f.generated.binding().encoded(),
+            f.generated.vk().to_bytes(),
+            &f.original,
+            f.generated.binding(),
+            f.generated.vk(),
+            &f.params,
+            f.config,
+            None,
+        )
+    };
+    // Strict import hashes the VK afresh. Both compiled paths reuse the digest
+    // checked against the member's pin and mint the same exact seal.
+    let strict = SourceBoundVerifyingKeyV2::from_artifact_v2(
+        &f.original,
+        f.generated.binding(),
+        &f.params,
+        &f.source,
+        f.config,
+    )
+    .unwrap()
+    .into_parts()
+    .2;
+    assert!(f.admit(member).unwrap().into_parts().2.same_source(&strict));
+    assert!(typed(member).unwrap().into_parts().2.same_source(&strict));
+    // A VK pin that differs from the installed VK refuses both paths before
+    // any verified token or seal exists, even with exact typed metadata.
+    for byte in [0, 31] {
+        let mut entry = f.entry();
+        entry.verifying_key.sha256[byte] ^= 1;
+        let pinned = profile(entries(vec![entry])).member(ROLE).unwrap();
+        assert_eq!(f.admit(pinned).err(), Some(BuiltinSourceErrorV1::Original));
+        assert_eq!(typed(pinned).err(), Some(BuiltinSourceErrorV1::Original));
+    }
+}
+
+#[test]
+fn compiled_seals_reuse_the_pinned_vk_digest_and_refuse_a_mismatched_pin() {
+    reused_vk_digest::<Ep>();
+    reused_vk_digest::<Eq>();
+}
+
 #[test]
 fn declared_registry_hashes_do_not_bypass_canonical_original_parsing() {
     let f = Fixture::<Ep>::new();

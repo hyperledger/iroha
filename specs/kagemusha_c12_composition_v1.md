@@ -173,6 +173,17 @@ definite-absence condition; missing acknowledgement is not definite absence.
 Fresh interrupted attempts count in the coin ledger. Selected replay draws no
 fresh proof coins, but retains its actual storage and error outcome.
 
+The custody service includes the bounded retirement journal, exact grave set
+and their stopped/recovery states: slot and record identities, operational
+nonce and stored Pending/Complete phase. Retirement and staging entropy draws
+and failures belong to the predeclared service transitions and coins, distinct
+from proof masking tapes. Recovery adopts the stored phase and retained
+originals rather than resampling a replacement history. The latest completed
+retirement metadata remains retained, so collection makes no forensic-erasure
+claim. Any exposed static journal or grave failure labels remain in the typed
+scheduling projection. This extends the exact-source custody invariant; it
+does not discharge that invariant or the physical refinement below.
+
 Storage use can depend on private request prefixes, exact proof hashes, dedup
 and capsule openings. The private materializer computes those dependencies;
 the simulator is not granted their values. Only declared typed scheduling

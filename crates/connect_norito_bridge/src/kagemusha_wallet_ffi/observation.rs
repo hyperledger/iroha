@@ -146,7 +146,9 @@ impl<P: advance::KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send> NativeWa
 /// Shared C/JNI observation dispatch under the same custody and deletion gate.
 pub(crate) fn observe(handle: u64, selector: u32, identity: &[u8]) -> Result<Response> {
     require_identity(selector, identity)?;
-    with_wallet(handle, true, |wallet| wallet.observe(selector, identity))
+    with_wallet_owner(owner(handle)?, Priority::Ingest, |wallet| {
+        wallet.observe(selector, identity)
+    })
 }
 
 /// Read bounded original DATA from the same admitted owner, without a monetary action.

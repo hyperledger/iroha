@@ -94,6 +94,85 @@ pub(crate) struct PreparedOperationV1 {
     send_usage: Option<KagemushaWalletQuotaUsageArrayV1>,
 }
 
+/// One native derivation, consumed at most once by proving inside the coordinator call
+/// that made it. It binds the exact native plan bytes, source capsule and installed verifier
+/// manifest it was derived from. It has no clone, codec or `Send`, so no review, slot,
+/// worker, process or later call can retain it, and it grants no Advance authority: commit
+/// always derives again from the durable plan.
+///
+/// ```
+/// use iroha_core_zk::kagemusha_wallet_preparation_v1::NativePreparedOperationV1;
+/// fn needs_send<T: Send>(_: T) {}
+/// fn consume(token: NativePreparedOperationV1) { drop(token); }
+/// ```
+/// ```compile_fail,E0599
+/// use iroha_core_zk::kagemusha_wallet_preparation_v1::NativePreparedOperationV1;
+/// fn needs_send<T: Send>(_: T) {}
+/// fn consume(token: NativePreparedOperationV1) { drop(token.clone()); }
+/// ```
+/// ```compile_fail,E0277
+/// use iroha_core_zk::kagemusha_wallet_preparation_v1::NativePreparedOperationV1;
+/// fn needs_send<T: Send>(_: T) {}
+/// fn consume(token: NativePreparedOperationV1) { needs_send(token); }
+/// ```
+/// ```compile_fail,E0382
+/// use iroha_core_zk::kagemusha_wallet_preparation_v1::NativePreparedOperationV1;
+/// fn needs_send<T: Send>(_: T) {}
+/// fn consume(token: NativePreparedOperationV1) { drop(token); drop(token); }
+/// ```
+pub struct NativePreparedOperationV1 {
+    prepared: PreparedOperationV1,
+    binding: PreparedBindingV1,
+    _call: core::marker::PhantomData<*const ()>,
+}
+
+#[derive(PartialEq, Eq)]
+struct PreparedBindingV1 {
+    plan: [u8; 32],
+    source: [u8; 32],
+    manifest: [u8; 32],
+}
+
+impl PreparedBindingV1 {
+    fn new(plan: &[u8], source: [u8; 32], manifest: [u8; 32]) -> Self {
+        Self {
+            plan: crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(
+                plan,
+            ),
+            source,
+            manifest,
+        }
+    }
+}
+
+impl NativePreparedOperationV1 {
+    pub(crate) fn new(
+        prepared: PreparedOperationV1,
+        plan: &[u8],
+        source: [u8; 32],
+        manifest: [u8; 32],
+    ) -> Self {
+        Self {
+            prepared,
+            binding: PreparedBindingV1::new(plan, source, manifest),
+            _call: core::marker::PhantomData,
+        }
+    }
+
+    /// Release the derivation only for the exact plan, source and installation it bound.
+    pub(crate) fn redeem(
+        self,
+        plan: &[u8],
+        source: [u8; 32],
+        manifest: [u8; 32],
+    ) -> Result<PreparedOperationV1> {
+        if self.binding != PreparedBindingV1::new(plan, source, manifest) {
+            return Err(state::Error::WitnessLost("prepared operation binding"));
+        }
+        Ok(self.prepared)
+    }
+}
+
 /// Move-only check of already verified inputs, consumed at the final Advance boundary.
 /// Private construction prevents foreign callers from authorizing a timed Send.
 pub struct NativeAdvanceCheckV1 {
@@ -241,7 +320,8 @@ impl PreparedOperationV1 {
         })
     }
 
-    /// Import one strict original, prove the exact derived witness, and fully verify
+    /// Rebuild the selected σ key from its qualified admission seal after revalidating
+    /// its exact signed originals, prove the exact derived witness, and fully verify
     /// the frozen capsule. This performs no signing or publication.
     pub(crate) fn prove(
         &self,
@@ -460,6 +540,7 @@ impl PreparationV1<'_> {
     ) -> Result<PreparedOperationV1> {
         let scheme = self.installed.verifier().scheme();
         if derivation == Derivation::BeforeAdvance {
+            super::derivation_counts::record_before_advance();
             request.validate(scheme)?;
         }
         if sources.installation()
@@ -896,6 +977,20 @@ impl PreparationV1<'_> {
 #[cfg(test)]
 mod error_tests {
     use super::*;
+
+    #[test]
+    fn prepared_binding_changes_with_plan_bytes_source_and_installation() {
+        let bound = PreparedBindingV1::new(b"exact choices", [1; 32], [2; 32]);
+        assert!(bound == PreparedBindingV1::new(b"exact choices", [1; 32], [2; 32]));
+        for changed in [
+            PreparedBindingV1::new(b"exact choiceS", [1; 32], [2; 32]),
+            PreparedBindingV1::new(b"exact choices ", [1; 32], [2; 32]),
+            PreparedBindingV1::new(b"exact choices", [3; 32], [2; 32]),
+            PreparedBindingV1::new(b"exact choices", [1; 32], [3; 32]),
+        ] {
+            assert!(bound != changed);
+        }
+    }
 
     #[test]
     fn proof_mapping_keeps_original_read_refusal_and_semantic_verdicts() {

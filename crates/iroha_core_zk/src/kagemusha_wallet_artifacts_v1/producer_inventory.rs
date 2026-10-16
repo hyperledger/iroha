@@ -365,6 +365,24 @@ pub trait OriginalSourceV1 {
     /// Return `Error::Unavailable` for absent content or storage failure. Invalid
     /// selections remain `Error::Inventory`; neither permits replacement material.
     fn open(&mut self, sha256: [u8; 32]) -> Result<Box<dyn Read + '_>, Error>;
+
+    /// The same originals as an immutable view that several threads may read at once.
+    /// Only a source whose every read is served from memory that was captured and
+    /// verified before this call returns one. A live directory returns `None` and keeps
+    /// its per-read custody checks on the thread that holds it.
+    fn shared_view(&self) -> Option<&(dyn SharedOriginalSourceV1 + Sync)> {
+        None
+    }
+}
+
+/// Concurrent reads of immutable originals whose stored bytes were verified before
+/// this view existed. Every open still decodes and checks its original afresh; a view
+/// grants no source, installation or wallet authority.
+pub trait SharedOriginalSourceV1 {
+    /// Open one selected original by its authenticated SHA-256 content address.
+    /// # Errors
+    /// As [`OriginalSourceV1::open`].
+    fn open_shared(&self, sha256: [u8; 32]) -> Result<Box<dyn Read + '_>, Error>;
 }
 
 /// One active original for strict source import; drop it after the importer returns.
@@ -375,6 +393,80 @@ pub struct OriginalBytesV1 {
     pub verifying_key: Vec<u8>,
     /// Original proving tables; no other PK is retained by the inventory view.
     pub proving_key: Vec<u8>,
+}
+
+/// Most distinct descriptors one qualification keeps for reuse; others still decode.
+const DESCRIPTOR_MEMO_MAX_ENTRIES: usize = 64;
+
+// Exact-byte reuse of canonical V2 descriptor decodes within one qualification.
+// That qualification creates it empty and drops it when it returns: it is never
+// cloned, retained by an owner, persisted or shared between calls, and only a
+// successful decode of the very bytes it is keyed by adds an entry (at most
+// `DESCRIPTOR_MEMO_MAX_ENTRIES`). Lookups are keyed by the content address that
+// a bounded, length-, SHA-256- and custody-checked read has just verified, and a
+// hit is used only after those fresh bytes equal the decoded frame in full. A hit
+// is the value a fresh decode returns. It grants no role, source or installation
+// authority, and every check at the use site still runs. The qualification's route
+// workers share it: a miss decodes while holding its lock, so workers that read the
+// same address wait for that one decode instead of repeating it, and each distinct
+// descriptor decodes as often as with one worker.
+struct DescriptorMemo {
+    entries: std::sync::Mutex<Vec<([u8; 32], DescriptorBinding)>>,
+    capacity: usize,
+}
+
+impl Default for DescriptorMemo {
+    fn default() -> Self {
+        Self {
+            entries: std::sync::Mutex::default(),
+            capacity: DESCRIPTOR_MEMO_MAX_ENTRIES,
+        }
+    }
+}
+
+impl DescriptorMemo {
+    // Differential reference: a memo that keeps at most `capacity` entries, so
+    // zero decodes every read afresh.
+    #[cfg(test)]
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            entries: std::sync::Mutex::default(),
+            capacity,
+        }
+    }
+
+    // `DescriptorBinding::decode_v2(bytes)`, reusing this qualification's earlier
+    // successful decode of byte-identical content at the same verified address.
+    // Errors are returned as decoded and never stored.
+    fn decode_v2(
+        &self,
+        address: [u8; 32],
+        bytes: &[u8],
+    ) -> Result<DescriptorBinding, iroha_plonk::cs::DescriptorError> {
+        // A worker that panicked while holding the memo leaves it unused: every later
+        // read decodes afresh, which returns the same value.
+        let Ok(mut entries) = self.entries.lock() else {
+            return DescriptorBinding::decode_v2(bytes);
+        };
+        if let Some((_, binding)) = entries
+            .iter()
+            .find(|(key, binding)| *key == address && binding.encoded() == bytes)
+        {
+            return Ok(binding.clone());
+        }
+        let binding = DescriptorBinding::decode_v2(bytes)?;
+        if entries.len() < self.capacity {
+            entries.push((address, binding.clone()));
+        }
+        Ok(binding)
+    }
+}
+
+// One freshly read and hash-checked descriptor/VK pair with the canonical
+// decode of that descriptor. The verifying key is still read by its owner.
+struct DecodedVerifierOriginal {
+    binding: Result<DescriptorBinding, iroha_plonk::cs::DescriptorError>,
+    verifying_key: Vec<u8>,
 }
 
 /// Immutable signed inventory view. This has no `NativeProofs` implementation,
@@ -545,6 +637,22 @@ impl AuthenticatedProducerInventoryV1 {
         Ok(ArtifactOriginalV1 {
             descriptor: read(source, original.descriptor, DESCRIPTOR_MAX_BYTES_V1)?,
             verifying_key: read(source, original.verifying_key, VERIFYING_KEY_MAX_BYTES_V1)?,
+        })
+    }
+    // `read_verifier_original`, then the canonical V2 decode of the fresh
+    // descriptor through `descriptors`, keyed by the content address this read
+    // verified. Every read check runs on every call; only the decode is reused.
+    fn read_verifier_metadata(
+        &self,
+        index: u32,
+        source: &mut dyn OriginalSourceV1,
+        descriptors: &DescriptorMemo,
+    ) -> Result<DecodedVerifierOriginal, Error> {
+        let original = self.read_verifier_original(index, source)?;
+        let address = self.inventory.member(index)?.descriptor.sha256;
+        Ok(DecodedVerifierOriginal {
+            binding: descriptors.decode_v2(address, &original.descriptor),
+            verifying_key: original.verifying_key,
         })
     }
     /// Revalidate all three selected originals without retaining their payloads.

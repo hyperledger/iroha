@@ -126,14 +126,17 @@ pub struct BuiltinSourceMemberV1 {
 
 // Only the all-original checks below construct this token. The separate seal
 // module cannot be called with an opaque member and unrelated decoded metadata.
+// `key_sha256` is the SHA-256 of the exact installed VK bytes, checked against the
+// member's pin, and `key` encodes exactly those bytes.
 pub(super) struct VerifiedBuiltinOriginal<C: PastaCurve> {
     binding: DescriptorBinding,
     key: VerifyingKey<C>,
+    key_sha256: [u8; 32],
     source_digest: [u8; 32],
 }
 impl<C: PastaCurve> VerifiedBuiltinOriginal<C> {
-    pub(super) fn into_parts(self) -> (DescriptorBinding, VerifyingKey<C>, [u8; 32]) {
-        (self.binding, self.key, self.source_digest)
+    pub(super) fn into_parts(self) -> (DescriptorBinding, VerifyingKey<C>, [u8; 32], [u8; 32]) {
+        (self.binding, self.key, self.key_sha256, self.source_digest)
     }
 }
 
@@ -267,7 +270,7 @@ impl BuiltinSourceMemberV1 {
         config: artifact::ReadConfig,
         cancellation: Option<&CancellationToken>,
     ) -> Result<SourceBoundVerifyingKeyV2<C>, BuiltinSourceErrorV1> {
-        self.check_originals::<C>(
+        let key_sha256 = self.check_originals::<C>(
             descriptor,
             installed_vk,
             compact_pk,
@@ -302,6 +305,7 @@ impl BuiltinSourceMemberV1 {
             VerifiedBuiltinOriginal {
                 binding,
                 key: parts.key,
+                key_sha256,
                 source_digest: entry.source_digest,
             },
             cancellation,
@@ -329,7 +333,7 @@ impl BuiltinSourceMemberV1 {
         config: artifact::ReadConfig,
         cancellation: Option<&CancellationToken>,
     ) -> Result<SourceBoundVerifyingKeyV2<C>, BuiltinSourceErrorV1> {
-        self.check_originals::<C>(
+        let key_sha256 = self.check_originals::<C>(
             descriptor,
             installed_vk,
             compact_pk,
@@ -368,6 +372,7 @@ impl BuiltinSourceMemberV1 {
             VerifiedBuiltinOriginal {
                 binding: binding.clone(),
                 key: parts.key,
+                key_sha256,
                 source_digest: entry.source_digest,
             },
             cancellation,
@@ -376,6 +381,9 @@ impl BuiltinSourceMemberV1 {
         .map_err(Into::into)
     }
 
+    /// Check every original's length and SHA-256 against this member's pins.
+    /// Returns the installed VK's SHA-256, which the loop proved equal to its pin;
+    /// a VK that differs from its pin returns an error before any token exists.
     fn check_originals<C: PastaCurve>(
         self,
         descriptor: &[u8],
@@ -384,7 +392,7 @@ impl BuiltinSourceMemberV1 {
         params: &PinnedParams<C>,
         config: artifact::ReadConfig,
         cancellation: Option<&CancellationToken>,
-    ) -> Result<(), BuiltinSourceErrorV1> {
+    ) -> Result<[u8; 32], BuiltinSourceErrorV1> {
         CancellationToken::checkpoint(cancellation)?;
         let entry = self.entry;
         let rows = 1_usize
@@ -418,7 +426,7 @@ impl BuiltinSourceMemberV1 {
                 return Err(BuiltinSourceErrorV1::Original);
             }
         }
-        Ok(())
+        Ok(entry.verifying_key.sha256)
     }
 }
 

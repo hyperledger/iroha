@@ -690,3 +690,762 @@ fn native_prefix_wire_bytes(fixture: &CommittedNetworkProofFixture) -> u64 {
         .map(|block| block.encode_wire().unwrap().len() as u64)
         .sum()
 }
+
+// KAGEMUSHA ledger-finality inclusion source (direct finality, DF-2).
+
+fn kagemusha_paths_built() -> u64 {
+    super::block_proofs::kagemusha_ledger_paths_built_for_test()
+}
+
+/// The ledger reads' own off-chain custody: a frame pool and a cumulative decoder allowance.
+fn kagemusha_read_budget(
+    frames: &iroha_allocation::AllocationBudget,
+) -> CanonicalHistoryReadBudget {
+    CanonicalHistoryReadBudget::new(
+        frames.clone(),
+        norito::core::DecodeBudgetContext::new(norito::DecodeLimits::new(
+            1_000_000,
+            48 * 1024 * 1024,
+            1_000_000,
+            48 * 1024 * 1024,
+            64,
+        )),
+    )
+}
+
+fn kagemusha_frames() -> iroha_allocation::AllocationBudget {
+    iroha_allocation::AllocationBudget::new(48 * 1024 * 1024)
+}
+
+fn kagemusha_owner(
+    state: &State,
+    height: NonZeroU64,
+    entry: HashOf<TransactionEntrypoint>,
+    limits: BlockProofLimits,
+) -> Result<KagemushaLedgerEntryOwnerV1, BlockProofError> {
+    state.kagemusha_ledger_entry_owner(
+        height,
+        entry,
+        limits,
+        &kagemusha_read_budget(&kagemusha_frames()),
+    )
+}
+
+fn kagemusha_inclusion(
+    state: &State,
+    height: NonZeroU64,
+    entry: HashOf<TransactionEntrypoint>,
+    limits: BlockProofLimits,
+) -> Result<Option<KagemushaLedgerEntryInclusionV1>, BlockProofError> {
+    state.kagemusha_ledger_inclusion_for_entry(
+        height,
+        entry,
+        limits,
+        &kagemusha_read_budget(&kagemusha_frames()),
+        |_| true,
+    )
+}
+
+/// Run one finalized read on a cold target and return it with its body bytes read.
+fn kagemusha_cold_read<T>(
+    fixture: &CommittedNetworkProofFixture,
+    read: impl FnOnce() -> T,
+) -> (T, u64) {
+    fixture.make_target_cold();
+    let before = fixture.kura.canonical_body_bytes_read_for_test();
+    let value = read();
+    let read_bytes = fixture.kura.canonical_body_bytes_read_for_test() - before;
+    assert!(!fixture.target_cached());
+    (value, read_bytes)
+}
+
+/// [`kagemusha_cold_read`] after forgetting every node-local checkpoint, so the read walks
+/// down from the native tip.
+fn kagemusha_cold_walk<T>(
+    fixture: &CommittedNetworkProofFixture,
+    read: impl FnOnce() -> T,
+) -> (T, u64) {
+    fixture.kura.history_checkpoints().clear();
+    kagemusha_cold_read(fixture, read)
+}
+
+/// The proof fixture's target H2 below one more committed block, so a cold ledger read walks
+/// H3 then H2.
+fn kagemusha_walk_fixture() -> CommittedNetworkProofFixture {
+    let mut chain = proof_chain(false);
+    chain.commit(Vec::new());
+    let fixture = CommittedNetworkProofFixture::from_chain(chain);
+    assert_eq!(fixture.blocks.len(), 3);
+    fixture
+}
+
+fn kagemusha_frame_bytes(fixture: &CommittedNetworkProofFixture, height: usize) -> u64 {
+    u64::try_from(fixture.blocks[height - 1].encode_wire().unwrap().len()).unwrap()
+}
+
+#[test]
+fn block_proofs_kagemusha_owner_projects_external_signers_without_paths() {
+    let fixture = proof_fixture();
+    let state = proof_state(&fixture);
+    let block = fixture.target();
+    let height = nonzero!(2_u64);
+    let frames = kagemusha_frames();
+    let budget = kagemusha_read_budget(&frames);
+    // The target is the native tip: the checkpoint-resumed read authenticates its frame only.
+    let target_bytes = kagemusha_frame_bytes(&fixture, 2);
+    for (index, input) in block.network_entrypoints().enumerate() {
+        let TransactionEntrypoint::External(signed) = input else {
+            panic!("the proof fixture inputs are External")
+        };
+        let entry = input.hash();
+        let paths = kagemusha_paths_built();
+        let (owner, owner_reads) = kagemusha_cold_walk(&fixture, || {
+            state.kagemusha_ledger_entry_owner(height, entry, proof_limits(), &budget)
+        });
+        let owner = owner.unwrap();
+        assert_eq!(&owner.authority, signed.authority());
+        assert!(
+            owner.attempts.is_empty(),
+            "Log and Unregister name no KAGEMUSHA attempt"
+        );
+        assert!(!owner.is_attempt_of(signed.authority(), &[1; 32], &[2; 32]));
+        // One authenticated frame read, no Merkle path and no retained frame charge.
+        assert_eq!(owner_reads, target_bytes);
+        assert_eq!(kagemusha_paths_built(), paths);
+        assert_eq!(frames.reserved_bytes(), 0);
+
+        // An owner the caller refuses builds no path and copies no output.
+        let (refused, refused_reads) = kagemusha_cold_walk(&fixture, || {
+            state.kagemusha_ledger_inclusion_for_entry(
+                height,
+                entry,
+                proof_limits(),
+                &budget,
+                |_| false,
+            )
+        });
+        assert!(refused.unwrap().is_none());
+        assert_eq!(refused_reads, owner_reads);
+        assert_eq!(kagemusha_paths_built(), paths);
+
+        let (found, inclusion_reads) = kagemusha_cold_walk(&fixture, || {
+            state.kagemusha_ledger_inclusion_for_entry(
+                height,
+                entry,
+                proof_limits(),
+                &budget,
+                |candidate| *candidate == owner,
+            )
+        });
+        let found = found.unwrap().expect("the caller admits this owner");
+        assert_eq!(inclusion_reads, owner_reads);
+        assert_eq!(kagemusha_paths_built(), paths + 2);
+        assert_eq!(frames.reserved_bytes(), 0);
+        assert_eq!(found.owner, owner);
+        let inclusion = &found.inclusion;
+        let row = inclusion
+            .joined_network_output()
+            .expect("both leaf indices equal the Network row's input index");
+        assert_eq!(usize::try_from(row.input_index).unwrap(), index);
+        assert_eq!(inclusion.entry_proof.leaf_index(), row.input_index);
+        assert_eq!(inclusion.output_proof.leaf_index(), row.input_index);
+        assert_eq!(row.result.is_err(), index == 1);
+        // The same entry path, complete output row and output path as the genesis-rooted
+        // full proof.
+        let proofs = state
+            .block_proofs_for_entry(height, entry, proof_limits())
+            .unwrap();
+        assert_eq!(&inclusion.entry_proof, proofs.entry_proof.proof());
+        assert_eq!(&inclusion.output, proofs.output_proof.output());
+        assert_eq!(&inclusion.output_proof, proofs.output_proof.proof());
+        assert!(
+            inclusion
+                .entry_proof
+                .verify(&entry, &proofs.entry_commitment)
+        );
+        assert!(
+            inclusion
+                .output_proof
+                .verify(&HashOf::new(&inclusion.output), &proofs.output_commitment)
+        );
+    }
+}
+
+#[test]
+fn block_proofs_kagemusha_refuse_genesis_internal_calls_and_sealed_inputs_before_paths() {
+    let height = nonzero!(2_u64);
+    let fixture = proof_fixture();
+    let state = proof_state(&fixture);
+    let block = fixture.target();
+    let paths = kagemusha_paths_built();
+    for output in &block.execution_outputs()[2..] {
+        let hash = HashOf::<TransactionEntrypoint>::from_untyped_unchecked(
+            output.execution_call_hash(block.hash(), block).unwrap(),
+        );
+        assert!(
+            matches!(kagemusha_owner(&state, height, hash, proof_limits()),
+            Err(BlockProofError::EntrypointNotFound { entry_hash, block_height })
+                if entry_hash == hash && block_height == height)
+        );
+        assert!(
+            matches!(kagemusha_inclusion(&state, height, hash, proof_limits()),
+            Err(BlockProofError::EntrypointNotFound { entry_hash, block_height })
+                if entry_hash == hash && block_height == height)
+        );
+    }
+    // Genesis carries no wallet attempt and has no compact certificate: nothing is read.
+    let genesis =
+        HashOf::<TransactionEntrypoint>::from_untyped_unchecked(Hash::prehashed([0x47; 32]));
+    for read in [
+        kagemusha_cold_walk(&fixture, || {
+            kagemusha_owner(&state, NonZeroU64::MIN, genesis, proof_limits()).map(drop)
+        }),
+        kagemusha_cold_walk(&fixture, || {
+            kagemusha_inclusion(&state, NonZeroU64::MIN, genesis, proof_limits()).map(drop)
+        }),
+    ] {
+        assert!(
+            matches!(read, (Err(BlockProofError::EntrypointNotFound { entry_hash, block_height }), 0)
+                if entry_hash == genesis && block_height == NonZeroU64::MIN),
+            "{read:?}"
+        );
+    }
+    // A sealed commitment is a Network input the full proof serves, but it has no External
+    // signer and therefore no KAGEMUSHA attempt.
+    let fixture = CommittedNetworkProofFixture::from_chain(proof_chain(true));
+    let state = proof_state(&fixture);
+    let sealed = fixture.target().network_entrypoint_at(0).unwrap();
+    assert!(matches!(sealed, TransactionEntrypoint::SealedCommitment(_)));
+    let hash = sealed.hash();
+    assert!(
+        state
+            .block_proofs_for_entry(height, hash, proof_limits())
+            .is_ok()
+    );
+    assert!(
+        matches!(kagemusha_owner(&state, height, hash, proof_limits()),
+        Err(BlockProofError::EntrypointNotFound { entry_hash, .. }) if entry_hash == hash)
+    );
+    assert!(
+        matches!(kagemusha_inclusion(&state, height, hash, proof_limits()),
+        Err(BlockProofError::EntrypointNotFound { entry_hash, .. }) if entry_hash == hash)
+    );
+    assert_eq!(kagemusha_paths_built(), paths);
+}
+
+#[test]
+fn block_proofs_kagemusha_refuse_a_body_without_the_exact_output_join() {
+    let fixture = proof_fixture();
+    let altered = mutate_stored_block(fixture.target(), |_, result| {
+        result.outputs.remove(1);
+        result.output_merkle = result.outputs.iter().map(HashOf::new).collect();
+    });
+    fixture.replace_target_wire(&altered.encode_wire().unwrap());
+    let state = proof_state(&fixture);
+    let entry = fixture.target().network_entrypoint_at(1).unwrap().hash();
+    let height = nonzero!(2_u64);
+    for error in [
+        kagemusha_owner(&state, height, entry, proof_limits()).unwrap_err(),
+        kagemusha_inclusion(&state, height, entry, proof_limits()).unwrap_err(),
+    ] {
+        assert!(
+            matches!(error, BlockProofError::InvalidOutputs { block_height, .. }
+            | BlockProofError::Storage { block_height, .. } if block_height == height),
+            "{error:?}"
+        );
+    }
+}
+
+#[test]
+fn block_proofs_kagemusha_admit_each_limit_before_its_read() {
+    let height = nonzero!(2_u64);
+    let fixture = kagemusha_walk_fixture();
+    let state = proof_state(&fixture);
+    let entry = fixture.target().network_entrypoint_at(0).unwrap().hash();
+    let (target, above) = (
+        kagemusha_frame_bytes(&fixture, 2),
+        kagemusha_frame_bytes(&fixture, 3),
+    );
+    let work = 6; // two source rows, all four outputs, no FASTPQ map/transcript rows.
+    let capacity = |resource, actual, limit| BlockProofError::CapacityExceeded {
+        block_height: height,
+        resource,
+        actual,
+        limit,
+    };
+    let paths = kagemusha_paths_built();
+    for (limits, refusal, reads) in [
+        // A zero allowance and an oversized target refuse before any body I/O.
+        (
+            BlockProofLimits {
+                max_source_blocks: 0,
+                ..proof_limits()
+            },
+            capacity(BlockProofResource::SourceBlocks, 1, 0),
+            0,
+        ),
+        (
+            BlockProofLimits {
+                max_source_wire_bytes: 0,
+                ..proof_limits()
+            },
+            capacity(BlockProofResource::SourceWireBytes, 1, 0),
+            0,
+        ),
+        (
+            BlockProofLimits {
+                max_block_wire_bytes: 0,
+                ..proof_limits()
+            },
+            capacity(BlockProofResource::BlockWireBytes, 1, 0),
+            0,
+        ),
+        (
+            BlockProofLimits {
+                max_work_items: 0,
+                ..proof_limits()
+            },
+            capacity(BlockProofResource::WorkItems, 1, 0),
+            0,
+        ),
+        (
+            BlockProofLimits {
+                max_response_bytes: 0,
+                ..proof_limits()
+            },
+            capacity(BlockProofResource::ResponseBytes, 1, 0),
+            0,
+        ),
+        (
+            BlockProofLimits {
+                max_block_wire_bytes: target - 1,
+                ..proof_limits()
+            },
+            capacity(BlockProofResource::BlockWireBytes, target, target - 1),
+            0,
+        ),
+        // The walk admits each frame before reading it: H3 is read, H2 is not.
+        (
+            BlockProofLimits {
+                max_source_blocks: 1,
+                ..proof_limits()
+            },
+            capacity(BlockProofResource::SourceBlocks, 2, 1),
+            above,
+        ),
+        (
+            BlockProofLimits {
+                max_source_wire_bytes: above + target - 1,
+                ..proof_limits()
+            },
+            capacity(
+                BlockProofResource::SourceWireBytes,
+                above + target,
+                above + target - 1,
+            ),
+            above,
+        ),
+        // Rows are admitted after the authenticated read, before validation.
+        (
+            BlockProofLimits {
+                max_work_items: work - 1,
+                ..proof_limits()
+            },
+            capacity(BlockProofResource::WorkItems, work, work - 1),
+            above + target,
+        ),
+    ] {
+        let (owner, owner_reads) =
+            kagemusha_cold_walk(&fixture, || kagemusha_owner(&state, height, entry, limits));
+        assert_eq!(format!("{:?}", owner.unwrap_err()), format!("{refusal:?}"));
+        assert_eq!(owner_reads, reads, "{refusal:?}");
+        let (found, found_reads) = kagemusha_cold_walk(&fixture, || {
+            kagemusha_inclusion(&state, height, entry, limits)
+        });
+        assert_eq!(format!("{:?}", found.unwrap_err()), format!("{refusal:?}"));
+        assert_eq!(found_reads, reads, "{refusal:?}");
+    }
+    assert_eq!(kagemusha_paths_built(), paths);
+}
+
+#[test]
+fn block_proofs_kagemusha_read_from_the_nearest_checkpoint_never_from_genesis() {
+    let height = nonzero!(2_u64);
+    let fixture = kagemusha_walk_fixture();
+    let state = proof_state(&fixture);
+    let entry = fixture.target().network_entrypoint_at(0).unwrap().hash();
+    let (genesis, target, above) = (
+        kagemusha_frame_bytes(&fixture, 1),
+        kagemusha_frame_bytes(&fixture, 2),
+        kagemusha_frame_bytes(&fixture, 3),
+    );
+    let frames = kagemusha_frames();
+    let budget = kagemusha_read_budget(&frames);
+    // The genesis-rooted full proof authenticates H1 and H2.
+    let (_, full_reads) = kagemusha_cold_read(&fixture, || {
+        state
+            .block_proofs_for_entry(height, entry, proof_limits())
+            .unwrap()
+    });
+    assert_eq!(full_reads, genesis + target);
+    // Cold: the ledger read walks down from the tip through H3 to H2, never to genesis, and
+    // fits exactly two frames.
+    let exact = BlockProofLimits {
+        max_source_blocks: 2,
+        max_source_wire_bytes: above + target,
+        ..proof_limits()
+    };
+    let (owner, cold_reads) = kagemusha_cold_walk(&fixture, || {
+        state.kagemusha_ledger_entry_owner(height, entry, exact, &budget)
+    });
+    let owner = owner.unwrap();
+    assert_eq!(cold_reads, above + target);
+    assert_eq!(frames.reserved_bytes(), 0);
+    // Warm: the walk retained H2's verified identity, so the next read starts at the target
+    // and fits one frame.
+    let single = BlockProofLimits {
+        max_source_blocks: 1,
+        max_source_wire_bytes: target,
+        ..proof_limits()
+    };
+    let (found, warm_reads) = kagemusha_cold_read(&fixture, || {
+        state.kagemusha_ledger_inclusion_for_entry(height, entry, single, &budget, |_| true)
+    });
+    assert_eq!(found.unwrap().unwrap().owner, owner);
+    assert_eq!(warm_reads, target);
+    assert_eq!(frames.reserved_bytes(), 0);
+}
+
+#[test]
+fn block_proofs_kagemusha_read_budget_refusal_stays_deferred_never_absent() {
+    let height = nonzero!(2_u64);
+    let fixture = proof_fixture();
+    let state = proof_state(&fixture);
+    let entry = fixture.target().network_entrypoint_at(0).unwrap().hash();
+    let frames = kagemusha_frames();
+    // The request's own cumulative decoder allowance cannot admit the target frame.
+    let tight = CanonicalHistoryReadBudget::new(
+        frames.clone(),
+        norito::core::DecodeBudgetContext::new(norito::DecodeLimits::new(
+            1_000_000,
+            48 * 1024 * 1024,
+            1_000_000,
+            1,
+            64,
+        )),
+    );
+    let paths = kagemusha_paths_built();
+    for read in [
+        kagemusha_cold_walk(&fixture, || {
+            state
+                .kagemusha_ledger_entry_owner(height, entry, proof_limits(), &tight)
+                .map(drop)
+        }),
+        kagemusha_cold_walk(&fixture, || {
+            state
+                .kagemusha_ledger_inclusion_for_entry(height, entry, proof_limits(), &tight, |_| {
+                    true
+                })
+                .map(drop)
+        }),
+    ] {
+        // A local refusal is a retry, never an absent entry (the 404-shaped answer).
+        assert!(
+            matches!(read.0, Err(BlockProofError::Deferred(_))),
+            "{read:?}"
+        );
+    }
+    assert_eq!(kagemusha_paths_built(), paths);
+    assert_eq!(frames.reserved_bytes(), 0);
+    // The same read under an admitted allowance projects the signer.
+    assert!(kagemusha_owner(&state, height, entry, proof_limits()).is_ok());
+}
+
+#[test]
+fn block_proofs_kagemusha_inclusion_admits_its_frame_before_copying_the_output() {
+    let height = nonzero!(2_u64);
+    let fixture = proof_fixture();
+    let state = proof_state(&fixture);
+    let entry = fixture.target().network_entrypoint_at(1).unwrap().hash();
+    let found = kagemusha_inclusion(&state, height, entry, proof_limits())
+        .unwrap()
+        .unwrap();
+    let frame = u64::try_from(norito::canonical_frame_len(&found.inclusion).unwrap()).unwrap();
+    let tight = BlockProofLimits {
+        max_response_bytes: frame - 1,
+        ..proof_limits()
+    };
+    assert!(matches!(kagemusha_inclusion(&state, height, entry, tight),
+        Err(BlockProofError::CapacityExceeded {
+            resource: BlockProofResource::ResponseBytes, actual, limit, ..
+        }) if actual == frame && limit == frame - 1));
+    // The owner projection copies no output and is not bounded by the inclusion frame.
+    assert_eq!(
+        kagemusha_owner(&state, height, entry, tight).unwrap(),
+        found.owner
+    );
+    let exact = kagemusha_inclusion(
+        &state,
+        height,
+        entry,
+        BlockProofLimits {
+            max_response_bytes: frame,
+            ..proof_limits()
+        },
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(exact, found);
+}
+
+/// One canonical frame of the KAGEMUSHA wallet vectors.
+fn kagemusha_vector_frame(name: &str) -> Vec<u8> {
+    let vectors: norito::json::Value = norito::json::from_str(
+        &std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fixtures/kagemusha/wallet_v1_vectors.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let row = vectors["objects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["type"].as_str() == Some(name))
+        .unwrap();
+    hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap()
+}
+
+#[test]
+fn block_proofs_kagemusha_owner_names_only_explicit_activate_and_unload_frames() {
+    use iroha_data_model::{
+        isi::{
+            InstructionBox, Log,
+            kagemusha_wallet::{KagemushaWalletLedgerActionV1 as Action, KagemushaWalletLedgerV1},
+        },
+        kagemusha::{
+            KAGEMUSHA_WALLET_UNLOAD_CLAIM_MAX_BYTES_V1, KagemushaWalletActivationV1,
+            KagemushaWalletUnloadClaimV1,
+        },
+        transaction::{FeePaymentIntent, TransactionBuilder},
+    };
+    let activation_frame = kagemusha_vector_frame("KagemushaWalletActivationV1");
+    let claim_frame = kagemusha_vector_frame("KagemushaWalletUnloadClaimV1");
+    let activation: KagemushaWalletActivationV1 = norito::decode_canonical_with_limits(
+        &activation_frame,
+        norito::canonical_decode_limits(activation_frame.len()),
+    )
+    .unwrap();
+    let claim: KagemushaWalletUnloadClaimV1 = norito::decode_canonical_with_limits(
+        &claim_frame,
+        norito::canonical_decode_limits(claim_frame.len()),
+    )
+    .unwrap();
+    let (scheme, wallet) = (
+        activation.credential.body.scheme_id,
+        activation.credential.body.wallet_id,
+    );
+    let (unload_scheme, unload_wallet) = (
+        claim.credential.body.scheme_id,
+        claim.credential.body.wallet_id,
+    );
+    let mut foreign_scheme = scheme;
+    foreign_scheme[0] ^= 1;
+    let mut truncated = activation_frame.clone();
+    truncated.pop();
+    let oversized = [
+        claim_frame.clone(),
+        vec![0; KAGEMUSHA_WALLET_UNLOAD_CLAIM_MAX_BYTES_V1],
+    ]
+    .concat();
+    let ledger = |scheme: [u8; 32], action: Action| {
+        InstructionBox::from(KagemushaWalletLedgerV1::new(scheme, action))
+    };
+    let key = iroha_crypto::KeyPair::from_seed(vec![7; 32], iroha_crypto::Algorithm::Ed25519);
+    let authority = AccountId::new(key.public_key().clone());
+    let network = iroha_data_model::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+        Hash::prehashed([0x5A; 32]),
+    ));
+    let signed = TransactionBuilder::new(
+        network,
+        authority.clone(),
+        FeePaymentIntent::authority(Vec::new(), None),
+    )
+    .with_instructions([
+        InstructionBox::from(Log::new(
+            iroha_logger::Level::INFO,
+            "not a ledger instruction".into(),
+        )),
+        ledger(scheme, Action::Activate(activation_frame.clone())),
+        ledger(unload_scheme, Action::Unload(claim_frame)),
+        // Another action, another scheme, a noncanonical frame and an oversized frame
+        // name no attempt.
+        ledger(scheme, Action::Abandon(activation_frame.clone())),
+        ledger(foreign_scheme, Action::Activate(activation_frame)),
+        ledger(scheme, Action::Activate(truncated)),
+        ledger(unload_scheme, Action::Unload(oversized)),
+    ])
+    .sign(key.private_key());
+    let owner = KagemushaLedgerEntryOwnerV1::from_signed(&signed).unwrap();
+    assert_eq!(owner.authority, authority);
+    assert_eq!(
+        owner.attempts,
+        vec![
+            KagemushaLedgerAttemptV1 {
+                scheme,
+                kind: KagemushaLedgerAttemptKindV1::Activate,
+                wallet,
+            },
+            KagemushaLedgerAttemptV1 {
+                scheme: unload_scheme,
+                kind: KagemushaLedgerAttemptKindV1::Unload {
+                    account: claim.account.clone(),
+                },
+                wallet: unload_wallet,
+            },
+        ]
+    );
+    assert!(owner.is_attempt_of(&authority, &scheme, &wallet));
+    assert!(owner.is_attempt_of(&authority, &unload_scheme, &unload_wallet));
+    // The authority relays this claim; the account the claim pays owns the Unload too.
+    assert_ne!(claim.account, authority);
+    assert!(owner.is_attempt_of(&claim.account, &unload_scheme, &unload_wallet));
+    let other = iroha_crypto::KeyPair::from_seed(vec![8; 32], iroha_crypto::Algorithm::Ed25519);
+    assert!(!owner.is_attempt_of(
+        &AccountId::new(other.public_key().clone()),
+        &scheme,
+        &wallet
+    ));
+    assert!(!owner.is_attempt_of(&authority, &foreign_scheme, &wallet));
+    let mut other_wallet = wallet;
+    other_wallet[0] ^= 1;
+    assert!(!owner.is_attempt_of(&authority, &scheme, &other_wallet));
+    // A refusal by the caller's own decode budget is local: never an absent attempt (a
+    // 404-shaped answer), always a deferred retry.
+    let tight = norito::core::DecodeBudgetContext::new(norito::DecodeLimits::new(
+        1_000_000,
+        48 * 1024 * 1024,
+        1_000_000,
+        1,
+        64,
+    ));
+    let deferred = tight.with(|| KagemushaLedgerEntryOwnerV1::from_signed(&signed));
+    assert!(
+        matches!(deferred, Err(BlockProofError::Deferred(_))),
+        "{deferred:?}"
+    );
+    assert_eq!(
+        KagemushaLedgerEntryOwnerV1::from_signed(&signed).unwrap(),
+        owner
+    );
+}
+
+#[test]
+fn block_proofs_kagemusha_relayed_unload_is_owned_by_its_signer_and_its_claim_account() {
+    use iroha_data_model::{
+        isi::{
+            InstructionBox,
+            kagemusha_wallet::{KagemushaWalletLedgerActionV1 as Action, KagemushaWalletLedgerV1},
+        },
+        kagemusha::KagemushaWalletUnloadClaimV1,
+        transaction::{FeePaymentIntent, TransactionBuilder},
+    };
+    let activation_frame = kagemusha_vector_frame("KagemushaWalletActivationV1");
+    let claim_frame = kagemusha_vector_frame("KagemushaWalletUnloadClaimV1");
+    let claim: KagemushaWalletUnloadClaimV1 = norito::decode_canonical_with_limits(
+        &claim_frame,
+        norito::canonical_decode_limits(claim_frame.len()),
+    )
+    .unwrap();
+    let (scheme, wallet) = (
+        claim.credential.body.scheme_id,
+        claim.credential.body.wallet_id,
+    );
+    let key = |seed: u8| {
+        iroha_crypto::KeyPair::from_seed(vec![seed; 32], iroha_crypto::Algorithm::Ed25519)
+    };
+    let relayer_key = key(9);
+    let relayer = AccountId::new(relayer_key.public_key().clone());
+    let third = AccountId::new(key(10).public_key().clone());
+    let claimant = claim.account.clone();
+    assert_ne!(claimant, relayer, "the signer only relays this claim");
+    assert_ne!(claimant, third);
+    assert_ne!(relayer, third);
+    let network = iroha_data_model::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+        Hash::prehashed([0x5A; 32]),
+    ));
+    // One External input of the relayer carrying `actions` under the claim's scheme.
+    let owner_of = |actions: Vec<Action>| {
+        let signed = TransactionBuilder::new(
+            network,
+            relayer.clone(),
+            FeePaymentIntent::authority(Vec::new(), None),
+        )
+        .with_instructions(
+            actions
+                .into_iter()
+                .map(|action| InstructionBox::from(KagemushaWalletLedgerV1::new(scheme, action))),
+        )
+        .sign(relayer_key.private_key());
+        KagemushaLedgerEntryOwnerV1::from_signed(&signed).unwrap()
+    };
+    let mut other_scheme = scheme;
+    other_scheme[0] ^= 1;
+    let mut other_wallet = wallet;
+    other_wallet[0] ^= 1;
+
+    // A relayed Unload: its claim pays another account than the input's signer.
+    let unload = owner_of(vec![Action::Unload(claim_frame)]);
+    assert_eq!(unload.authority, relayer);
+    assert_eq!(
+        unload.attempts,
+        vec![KagemushaLedgerAttemptV1 {
+            scheme,
+            kind: KagemushaLedgerAttemptKindV1::Unload {
+                account: claimant.clone(),
+            },
+            wallet,
+        }]
+    );
+    // The claim account owns it, and the claim naming another account does not make the
+    // relayer's own query fail. A third account, another scheme or another wallet does not.
+    assert!(unload.is_attempt_of(&claimant, &scheme, &wallet));
+    assert!(unload.is_attempt_of(&relayer, &scheme, &wallet));
+    assert!(!unload.is_attempt_of(&third, &scheme, &wallet));
+    for caller in [&claimant, &relayer, &third] {
+        assert!(!unload.is_attempt_of(caller, &other_scheme, &wallet));
+        assert!(!unload.is_attempt_of(caller, &scheme, &other_wallet));
+    }
+
+    // An Activate names no paid account and stays signer-only, even though its credential
+    // is the claim account's own.
+    let activate = owner_of(vec![Action::Activate(activation_frame.clone())]);
+    assert_eq!(
+        activate.attempts,
+        vec![KagemushaLedgerAttemptV1 {
+            scheme,
+            kind: KagemushaLedgerAttemptKindV1::Activate,
+            wallet,
+        }]
+    );
+    assert!(activate.is_attempt_of(&relayer, &scheme, &wallet));
+    assert!(!activate.is_attempt_of(&claimant, &scheme, &wallet));
+    assert!(!activate.is_attempt_of(&third, &scheme, &wallet));
+
+    // In one input the claim account owns only the Unload its claim names, never the input's
+    // other attempts; the signer owns both. The changed claim is DATA: no validation runs.
+    let mut elsewhere = claim.clone();
+    elsewhere.credential.body.wallet_id = other_wallet;
+    let both = owner_of(vec![
+        Action::Activate(activation_frame),
+        Action::Unload(norito::encode_canonical(&elsewhere).unwrap()),
+    ]);
+    assert_eq!(both.attempts.len(), 2);
+    for named in [wallet, other_wallet] {
+        assert!(both.is_attempt_of(&relayer, &scheme, &named));
+        assert!(!both.is_attempt_of(&third, &scheme, &named));
+    }
+    assert!(both.is_attempt_of(&claimant, &scheme, &other_wallet));
+    assert!(!both.is_attempt_of(&claimant, &scheme, &wallet));
+}

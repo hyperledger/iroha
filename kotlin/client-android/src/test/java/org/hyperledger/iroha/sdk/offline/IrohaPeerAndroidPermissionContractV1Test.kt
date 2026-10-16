@@ -11,6 +11,24 @@ import kotlin.test.assertTrue
 
 class IrohaPeerAndroidPermissionContractV1Test {
     @Test
+    fun `merged manifest keeps alternative peer carrier hardware optional`() {
+        for (name in listOf(
+            "android.hardware.nfc",
+            "android.hardware.nfc.hce",
+            "android.hardware.bluetooth",
+            "android.hardware.bluetooth_le",
+            "android.hardware.wifi",
+            "android.hardware.location",
+            "android.hardware.location.gps",
+            "android.hardware.location.network",
+        )) {
+            val matches = features.filter { it.first == name }
+            assertEquals(1, matches.size, "Merged manifest must declare $name exactly once")
+            assertEquals("false", matches.single().second, "$name must not filter app installation")
+        }
+    }
+
+    @Test
     fun `merged manifest preserves exact wifi permission boundaries`() {
         val accessWifi = permission("android.permission.ACCESS_WIFI_STATE")
         assertEquals(null, accessWifi.minimumSdk)
@@ -68,6 +86,7 @@ class IrohaPeerAndroidPermissionContractV1Test {
     companion object {
         private const val ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android"
         private lateinit var permissions: List<Permission>
+        private lateinit var features: List<Pair<String, String>>
 
         @JvmStatic
         @BeforeAll
@@ -82,8 +101,14 @@ class IrohaPeerAndroidPermissionContractV1Test {
                 isExpandEntityReferences = false
                 setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
             }
-            val nodes = factory.newDocumentBuilder().parse(manifest)
-                .getElementsByTagName("uses-permission")
+            val document = factory.newDocumentBuilder().parse(manifest)
+            val featureNodes = document.getElementsByTagName("uses-feature")
+            features = (0 until featureNodes.length).map { index ->
+                val element = featureNodes.item(index) as Element
+                element.getAttributeNS(ANDROID_NAMESPACE, "name") to
+                    element.getAttributeNS(ANDROID_NAMESPACE, "required")
+            }
+            val nodes = document.getElementsByTagName("uses-permission")
             permissions = (0 until nodes.length).map { index ->
                 val element = nodes.item(index) as Element
                 Permission(

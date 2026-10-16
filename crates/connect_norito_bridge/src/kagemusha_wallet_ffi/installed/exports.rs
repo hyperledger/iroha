@@ -118,7 +118,9 @@ impl WalletRuntimeOriginals {
 /// Authenticate the four base originals under immutable Native build trust.
 /// BPNG's signed null financial selection with an absent trio returns -4 before
 /// any platform upcall, retaining no attempt or runtime. Full signed selections
-/// require all three financial inputs and genuine financial graph qualification.
+/// require all three financial inputs and genuine financial graph qualification;
+/// byte-identical originals under the same carrier root may reuse the graph this
+/// process qualified, after every other check and a custody and stored-frame recheck.
 /// Complete success retains the runtime/provider with its authenticated app binding.
 /// This creates no registry ID/reservation, key generation or account/monetary authority.
 /// # Safety
@@ -141,14 +143,14 @@ pub unsafe extern "C" fn connect_norito_kagemusha_wallet_installation_begin_v1(
     let result = run(|| {
         // SAFETY: admitted C caller supplies aligned original request and callback table.
         let request = unsafe { request.as_ref() }.ok_or(Failure::code(INVALID))?;
-        let prepared = PreparedInstallation::load(unsafe { request.originals()? })?;
-        let callbacks = *unsafe { callbacks.as_ref() }.ok_or(Failure::code(INVALID))?;
-        let platform = unsafe { CallbackPlatform::new(callbacks)? };
-        let root = platform
-            .custody_root()
-            .map_err(|error| Failure::unavailable(UNAVAILABLE, error))?;
-        let (owner, opening) = prepared.runtime(platform, root, false)?;
-        Ok(Box::new(WalletInstallationAttempt::new(owner, opening)))
+        install(unsafe { request.originals()? }, false, || {
+            let callbacks = *unsafe { callbacks.as_ref() }.ok_or(Failure::code(INVALID))?;
+            let platform = unsafe { CallbackPlatform::new(callbacks)? };
+            let root = platform
+                .custody_root()
+                .map_err(|error| Failure::unavailable(UNAVAILABLE, error))?;
+            Ok((platform, root))
+        })
     });
     match result {
         Ok(attempt) => {

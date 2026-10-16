@@ -34,8 +34,9 @@ commitment. Sending a second copy of those deterministic tables is unnecessary.
   the same immutable pinned-parameter owner. This private runtime memo retains
   at most 8,192 column digests and computed points, is shared only by owner
   clones, and accepts no original VK point or declared source fingerprint as a
-  cache entry. Every source and original commitment is still checked; no global
-  or persisted cache and no lazily deferred operation-graph admission is added.
+  cache entry. Every source and original commitment is still checked; no
+  persisted cache, no global cache other than the one-entry admitted-graph memo
+  below, and no lazily deferred operation-graph admission is added.
   The measured generation-2 originals contain 981 unique Pallas k16 columns and
   284/97/5,666 unique Vesta k12/k14/k16 columns. The bound accommodates this
   working set; a 4,096-entry limit would evict Vesta k16 entries before all
@@ -63,6 +64,12 @@ commitment. Sending a second copy of those deterministic tables is unnecessary.
   typed profile, current limits and rereads all descriptor/VK/PK originals.
   Each program still derives its current recipe and retains its distinct identity.
   Every QSigma source is admitted independently; signature reuse never admits it.
+- σ proving keys rebuild from their private admission seal, as Q/A/W/Ω do.
+  Qualification keeps each σ seal beside its descriptor/VK metadata, keyed by its
+  signed member. Every use binds the seal before any I/O, applies the current row
+  and byte limits, rereads all descriptor/VK/PK originals and rebuilds from the
+  compiled source its selector names; the source must match the seal. A failed
+  rebuild fails closed, with no strict re-import fallback.
 - Built-in batch reuse additionally authenticates each current compiled role
   against its bounded descriptor/VK/compact-PK originals and compares the exact
   binding, verifier and opaque source seal to the cached typed owner. Public
@@ -92,6 +99,29 @@ commitment. Sending a second copy of those deterministic tables is unnecessary.
   ancestry are revalidated before an owner can return, including error exits.
   The same observed-file map remains with live runtime imports. No expanded
   tables or snapshot bytes persist on disk or survive admission in the wallet.
+- The Native bridge keeps one process-local admitted-graph memo: the installed
+  verifier pack, qualified wallet sources and carrier reader (with its observed
+  custody map) of the last complete successful installation. Its key is SHA-256
+  over the eight exact runtime originals, each length-framed, plus the kernel
+  identity of the carrier root; the whole framed key is compared on lookup.
+  Every attempt first authenticates its signed base, selection and genesis and
+  checks every carrier metadata, layout and transport-selection original. A hit
+  then requires the stored pack's exact bytes and installation identity (an exact
+  equivalent of loading it again), repeats the other installed-pack checks of a
+  fresh load, re-authenticates the producer inventory, requires the same
+  transport rows and root object, closes custody over every observed original
+  and re-hashes every stored frame against its transport identity; only then are
+  a fresh provider, custody root and owner built. The decoded identity is not
+  derived again: that reader decoded and checked the same frames, and every live
+  read checks both identities. The memo holds no provider, platform, custody,
+  key or enrollment state; the qualified sources it keeps carry their verify-once
+  memos, which a later installation in the same process may reuse for
+  mathematical validity only. It mints no seal, grants nothing and is never
+  serialized, persisted or exposed over C or JNI. It is stored only after a
+  complete successful installation, is never reused once a live read through
+  its reader has failed, and is evicted on a key mismatch, a refused
+  revalidation or an INVALID or CUSTODY_LOST result. It shortens in-process
+  retries; a restart qualifies again.
 - Retail delivery packages the complete authenticated carrier with the app:
   all 1,029 compact originals and the four metadata files. Apps stage these exact
   local originals into private custody and use the unchanged strict native
@@ -122,9 +152,11 @@ commitment. Sending a second copy of those deterministic tables is unnecessary.
    host measurements from phone results. Measure cold wallet opening separately
    from enrollment: source qualification is process-local and repeats after a
    process restart. Preserve complete source admission unless an equally strong
-   alternative is established. Validate real operation composition with all
-   required material local, including Send/Receive and onward spending, and
-   verify that missing or changed material fails closed.
+   alternative is established; the admitted-graph memo above is that alternative
+   for byte-identical reinstallation within one process only. Validate real
+   operation composition with all required material local, including
+   Send/Receive and onward spending, and verify that missing or changed material
+   fails closed.
 5. **Delivery:** rebuild the canonical native/SDK and BPNG consumers, publish
    the compact generation through `png2-deploy` on the approved OVH host, and
    verify the deployed sizes and signed runtime selection. Report separately
@@ -358,7 +390,8 @@ caches may be warm and runs were not a controlled statistical comparison.
 Neither loading time nor memory use is acceptable evidence of low-end-phone
 readiness. Peak process RSS is not steady-state catalogue memory. Both apps
 retain the same admitted native owner across payments, but source qualification
-is process-local and repeats after restart or owner retirement. It is not a
+is process-local: it repeats after a restart, and after owner retirement unless
+the admitted-graph memo still holds byte-identical originals. It is not a
 one-time installation cost.
 
 Both engineering and production compiled profiles were independently exported

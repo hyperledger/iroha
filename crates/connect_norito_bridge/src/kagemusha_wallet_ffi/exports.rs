@@ -573,7 +573,7 @@ mod setup_boundary_tests {
         fn resume(&mut self) -> Result<Response> {
             panic!("not setup")
         }
-        fn fold(&mut self) -> Result<Response> {
+        fn fold(&mut self) -> Result<ControlFlow<Response, FoldProof>> {
             panic!("not setup")
         }
         fn credit(&mut self, _: &[u8; 32], _: &[u8; 32]) -> Result<Response> {

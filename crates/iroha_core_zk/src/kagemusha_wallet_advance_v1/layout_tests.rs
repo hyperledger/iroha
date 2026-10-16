@@ -455,6 +455,14 @@ impl KagemushaWalletFsV1 for ReplacingFsV1 {
     ) -> io::Result<()> {
         self.0.rename_replace(dir, from, to)
     }
+    fn rename_entry_noreplace(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        from: &str,
+        to: &str,
+    ) -> io::Result<()> {
+        self.0.rename_entry_noreplace(dir, from, to)
+    }
     fn unlink(&self, dir: &KagemushaWalletCustodyDirV1, name: &str) -> io::Result<()> {
         self.0.unlink(dir, name)
     }

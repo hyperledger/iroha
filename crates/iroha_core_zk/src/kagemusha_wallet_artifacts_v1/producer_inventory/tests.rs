@@ -372,6 +372,296 @@ fn one_original_reader_checks_caps_before_open_and_every_exact_content_hash() {
     }
 }
 
+// Two genuine canonical V2 descriptor frames (one per curve) of one tiny gate.
+// They are decoding fixtures only, never wallet sources or authority.
+fn descriptor_frames() -> [Vec<u8>; 2] {
+    use iroha_plonk::{
+        cs::{Advice, Column, ConstraintSystem, Fixed, Rotation, Selector},
+        frontend::{Circuit, Error as LayoutError, Layouter, SimpleFloorPlanner, Value},
+        keys::{KeygenConfigV2, keygen_vk_with_binding_v2},
+        pcs::ipa::PinnedParams,
+    };
+
+    #[derive(Clone)]
+    struct Gate;
+    impl<F: iroha_pasta::PastaField> Circuit<F> for Gate {
+        type Config = (Column<Advice>, Column<Fixed>, Selector);
+        type FloorPlanner = SimpleFloorPlanner;
+        type Params = ();
+        fn without_witnesses(&self) -> Self {
+            Self
+        }
+        fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+            let advice = meta.advice_column();
+            let fixed = meta.fixed_column();
+            let selector = meta.selector();
+            meta.create_gate("descriptor memo fixture", |cells| {
+                vec![
+                    cells.query_selector(selector)
+                        * (cells.query_advice(advice, Rotation::cur())
+                            - cells.query_fixed(fixed, Rotation::cur())),
+                ]
+            });
+            (advice, fixed, selector)
+        }
+        fn synthesize(
+            &self,
+            (advice, fixed, selector): Self::Config,
+            mut layouter: impl Layouter<F>,
+        ) -> Result<(), LayoutError> {
+            layouter.assign_region(
+                || "descriptor memo fixture",
+                |mut region| {
+                    region.assign_advice(advice, 0, Value::<F>::unknown())?;
+                    region.assign_fixed(fixed, 0, F::from(7_u64))?;
+                    selector.enable(&mut region, 0)?;
+                    Ok(())
+                },
+            )
+        }
+    }
+    let config = KeygenConfigV2::pipa_r(vec![]);
+    let (pallas, _) =
+        keygen_vk_with_binding_v2(&PinnedParams::<Ep>::derive(6).unwrap(), &Gate, &config).unwrap();
+    let (vesta, _) =
+        keygen_vk_with_binding_v2(&PinnedParams::<Eq>::derive(6).unwrap(), &Gate, &config).unwrap();
+    assert_ne!(pallas.encoded(), vesta.encoded());
+    [pallas.encoded().to_vec(), vesta.encoded().to_vec()]
+}
+
+#[test]
+fn descriptor_memo_matches_fresh_decodes_and_reuses_only_exact_successful_content() {
+    use iroha_plonk::keys::AdmissionWorkV1;
+    let [first, second] = descriptor_frames();
+    let addresses = [BlobV1::of(&first).sha256, BlobV1::of(&second).sha256];
+    let mut changed = first.clone();
+    let last = changed.len() - 1;
+    changed[last] ^= 1;
+    let invalid = [1_u8, 2, 3];
+    // Lookups as a qualification presents them, plus content that only a broken
+    // caller could present under a foreign address: a hit needs equal bytes.
+    let reads: [([u8; 32], &[u8]); 9] = [
+        (addresses[0], &first),
+        (addresses[1], &second),
+        (addresses[0], &first),
+        (addresses[0], &changed),
+        (addresses[0], &second),
+        (addresses[1], &second),
+        (addresses[0], &first),
+        (BlobV1::of(&invalid).sha256, &invalid),
+        (BlobV1::of(&invalid).sha256, &invalid),
+    ];
+    let run = |memo: &DescriptorMemo| {
+        let before = AdmissionWorkV1::current_thread();
+        let verdicts: Vec<_> = reads
+            .iter()
+            .map(|(address, bytes)| memo.decode_v2(*address, bytes))
+            .collect();
+        let decodes = AdmissionWorkV1::current_thread()
+            .since(before)
+            .descriptor_decodes;
+        (verdicts, decodes)
+    };
+    let memo = DescriptorMemo::default();
+    let (memoized, memoized_decodes) = run(&memo);
+    let (fresh, fresh_decodes) = run(&DescriptorMemo::with_capacity(0));
+    // Memo on and off give identical verdicts and bindings for every lookup,
+    // and both equal a direct decode of the presented bytes.
+    assert_eq!(memoized, fresh);
+    for ((_, bytes), verdict) in reads.iter().zip(&memoized) {
+        assert_eq!(verdict, &DescriptorBinding::decode_v2(bytes));
+    }
+    // Only exact repeats of earlier successful content are reused: the changed
+    // frame, another frame under the first address and both invalid lookups
+    // decode afresh, and no error is ever stored.
+    assert_eq!(fresh_decodes, 9);
+    assert_eq!(memoized_decodes, 6);
+    assert!(memoized[0].is_ok() && memoized[1].is_ok() && memoized[4].is_ok());
+    assert_ne!(memoized[3], memoized[0]);
+    assert_ne!(memoized[4], memoized[0]);
+    assert!(memoized[7].is_err() && memoized[8].is_err());
+    // The memo holds exactly the successful first decodes, in order, under the
+    // address each was presented with: no error, repeat or hit adds an entry.
+    let mut expected = vec![
+        (addresses[0], first.clone()),
+        (addresses[1], second.clone()),
+    ];
+    if memoized[3].is_ok() {
+        expected.push((addresses[0], changed.clone()));
+    }
+    expected.push((addresses[0], second.clone()));
+    let stored: Vec<_> = memo
+        .entries
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(address, binding)| (*address, binding.encoded().to_vec()))
+        .collect();
+    assert_eq!(stored, expected);
+    // The bound keeps the first entries only; content past it always decodes.
+    let bounded = DescriptorMemo::with_capacity(1);
+    let before = AdmissionWorkV1::current_thread();
+    for (address, bytes) in [
+        (addresses[0], &first),
+        (addresses[1], &second),
+        (addresses[1], &second),
+        (addresses[0], &first),
+    ] {
+        assert_eq!(
+            bounded.decode_v2(address, bytes),
+            DescriptorBinding::decode_v2(bytes)
+        );
+    }
+    assert_eq!(
+        AdmissionWorkV1::current_thread()
+            .since(before)
+            .descriptor_decodes,
+        // Each line above: memo lookup plus the direct reference decode.
+        3 + 4
+    );
+    assert_eq!(bounded.entries.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn memoized_verifier_reads_keep_every_read_check_and_decode_distinct_content_once() {
+    let [first, second] = descriptor_frames();
+    let mut inventory = structural_inventory();
+    // Two members share one descriptor; a third has another.
+    inventory.originals = [(&first, 6_u8), (&first, 7), (&second, 8)]
+        .into_iter()
+        .map(|(descriptor, key)| OriginalV1 {
+            descriptor: BlobV1::of(descriptor),
+            verifying_key: BlobV1::of(&[key]),
+            proving_key: BlobV1::of(&[3, 4, 5]),
+        })
+        .collect();
+    // Private construction tests only the reader; it does not authenticate this fixture.
+    let selected = AuthenticatedProducerInventoryV1 {
+        inventory,
+        scheme_id: [1; 32],
+        manifest_digest: [2; 32],
+    };
+    let mut source = memory();
+    for bytes in [first.clone(), second.clone(), vec![6], vec![7], vec![8]] {
+        source.blobs.insert(BlobV1::of(&bytes).sha256, bytes);
+    }
+    let order = [0_u32, 1, 2, 0, 2, 1, 0];
+    let descriptors = DescriptorMemo::default();
+    let before = OpeningWorkV1::current_thread();
+    let opens = source.opens;
+    let memoized: Vec<_> = order
+        .iter()
+        .map(|index| {
+            selected
+                .read_verifier_metadata(*index, &mut source, &descriptors)
+                .unwrap()
+        })
+        .collect();
+    let work = OpeningWorkV1::current_thread().since(before);
+    // Opening counters: one decode per distinct descriptor content, while every
+    // descriptor and VK original is still opened, bounded and hashed per read.
+    assert_eq!(work.descriptor_decodes, 2);
+    assert_eq!(work.originals_opened, 2 * order.len() as u64);
+    assert_eq!(source.opens - opens, 2 * order.len());
+    // Memo off: the same reads decoded afresh give identical bindings and keys.
+    for (index, decoded) in order.iter().zip(&memoized) {
+        let original = selected
+            .read_verifier_original(*index, &mut source)
+            .unwrap();
+        assert_eq!(
+            decoded.binding,
+            DescriptorBinding::decode_v2(&original.descriptor)
+        );
+        assert_eq!(decoded.verifying_key, original.verifying_key);
+    }
+    // Mutated, truncated or extended stored bytes are refused by the read itself
+    // although a hit for that content address exists; the memo is unchanged and
+    // the exact original is still served afterwards.
+    let address = BlobV1::of(&first).sha256;
+    for mutation in 0..3 {
+        let bytes = source.blobs.get_mut(&address).unwrap();
+        match mutation {
+            0 => bytes[0] ^= 1,
+            1 => {
+                bytes.pop();
+            }
+            _ => bytes.push(0),
+        }
+        let before = OpeningWorkV1::current_thread();
+        assert!(matches!(
+            selected.read_verifier_metadata(0, &mut source, &descriptors),
+            Err(Error::Inventory)
+        ));
+        assert_eq!(
+            OpeningWorkV1::current_thread()
+                .since(before)
+                .descriptor_decodes,
+            0
+        );
+        assert_eq!(descriptors.entries.lock().unwrap().len(), 2);
+        source.blobs.insert(address, first.clone());
+    }
+    let before = OpeningWorkV1::current_thread();
+    let again = selected
+        .read_verifier_metadata(1, &mut source, &descriptors)
+        .unwrap();
+    assert_eq!(again.binding, memoized[1].binding);
+    assert_eq!(
+        OpeningWorkV1::current_thread()
+            .since(before)
+            .descriptor_decodes,
+        0
+    );
+}
+
+#[test]
+fn shared_descriptor_memo_decodes_each_exact_address_once_across_workers() {
+    use iroha_plonk::keys::AdmissionWorkV1;
+    let [first, second] = descriptor_frames();
+    let lookups = [
+        (BlobV1::of(&first).sha256, first.as_slice()),
+        (BlobV1::of(&second).sha256, second.as_slice()),
+    ];
+    let memo = DescriptorMemo::default();
+    let verdicts = std::sync::Mutex::new(Vec::new());
+    let decodes = std::sync::atomic::AtomicU64::new(0);
+    // The route workers of one qualification share its memo: eight threads present
+    // both descriptors, in opposite orders, many times each.
+    std::thread::scope(|scope| {
+        for worker in 0..8_usize {
+            let (memo, verdicts, decodes) = (&memo, &verdicts, &decodes);
+            scope.spawn(move || {
+                let before = AdmissionWorkV1::current_thread();
+                for round in 0..32_usize {
+                    let lookup = (worker + round) % lookups.len();
+                    let (address, bytes) = lookups[lookup];
+                    let verdict = memo.decode_v2(address, bytes);
+                    verdicts.lock().unwrap().push((lookup, verdict));
+                }
+                let work = AdmissionWorkV1::current_thread().since(before);
+                decodes.fetch_add(work.descriptor_decodes, std::sync::atomic::Ordering::SeqCst);
+            });
+        }
+    });
+    let verdicts = verdicts.into_inner().unwrap();
+    // One decode per distinct exact address over all threads, as one worker makes,
+    // and every lookup returns what a fresh decode of its bytes returns.
+    assert_eq!(decodes.into_inner(), 2);
+    assert_eq!(verdicts.len(), 8 * 32);
+    for (lookup, verdict) in &verdicts {
+        assert_eq!(verdict, &DescriptorBinding::decode_v2(lookups[*lookup].1));
+    }
+    let stored: Vec<_> = memo
+        .entries
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(address, _)| *address)
+        .collect();
+    assert_eq!(stored.len(), 2);
+    assert!(lookups.iter().all(|(address, _)| stored.contains(address)));
+}
+
 #[test]
 #[ignore = "actual signed seventeen-verifier inventory; run optimized explicitly"]
 fn signed_inventory_authenticates_exact_producer_preimage_without_source_admission() {

@@ -192,6 +192,59 @@ impl Entry {
     }
 }
 
+/// One native derivation with the exact in-call inputs it was made from. It lives only
+/// inside one `execute_intent` call: no clone, codec, coordinator field or review holds it.
+struct CallDerivationV1<P> {
+    native: P,
+    binding: DerivationBindingV1,
+}
+
+// Request bytes (through the fixed Entry binding), source, plan choices and draft are this
+// call's values. The archive checkpoint transitively binds every custody root and the
+// archive-indexed head, so a fresh checkpoint digest is the one value re-read before proving.
+#[derive(PartialEq, Eq)]
+struct DerivationBindingV1 {
+    request: [u8; 32],
+    source: [u8; 32],
+    checkpoint: [u8; 32],
+    plan: [u8; 32],
+    draft: [u8; 32],
+}
+
+impl DerivationBindingV1 {
+    fn new(
+        request: [u8; 32],
+        source: [u8; 32],
+        checkpoint: [u8; 32],
+        plan: &Plan,
+    ) -> Result<Self, Error> {
+        Ok(Self::of(
+            request,
+            source,
+            checkpoint,
+            &plan.native,
+            &archive::encode(&plan.draft)?,
+        ))
+    }
+
+    fn of(
+        request: [u8; 32],
+        source: [u8; 32],
+        checkpoint: [u8; 32],
+        native: &[u8],
+        draft: &[u8],
+    ) -> Self {
+        use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1 as object;
+        Self {
+            request,
+            source,
+            checkpoint,
+            plan: object(native),
+            draft: object(draft),
+        }
+    }
+}
+
 impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
     fn preparation_entry(
         &mut self,
@@ -456,7 +509,10 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
     /// The caller holds exclusive wallet custody for this whole call. The existing
     /// source-selected manifest binds each request, plan and prepared capsule before the next
     /// phase starts. Restart reuses original choices and resolves the actual statement-derived
-    /// operation identity before proving. No preparation record grants completion authority.
+    /// operation identity before proving. One native derivation per call is reused through
+    /// proving: the fresh plan's, a recovered batch's replay or a held plan's validation on
+    /// fresh custody. Commit derives again independently before Advance. No preparation
+    /// record grants completion authority.
     /// Permanent request mappings and pending plans are excluded from proof collection.
     ///
     /// # Errors
@@ -587,10 +643,10 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
         let (snapshot, map_state) =
             self.preparation_source_custody(&manifest, &released, request.kind(), folded.as_ref())?;
         let refresh = request.refresh();
-        let plan = if let Some(plan) = held_plan {
-            plan
+        let (plan, planned) = if let Some(plan) = held_plan {
+            (plan, None)
         } else {
-            let Some(plan) = self.prepare_intake_plan(
+            let Some((plan, prepared)) = self.prepare_intake_plan(
                 &request,
                 &bytes,
                 &source,
@@ -603,7 +659,7 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
             else {
                 return Ok(Completion::NotPerformed(NotPerformed::StaleHead));
             };
-            plan
+            (plan, Some(prepared))
         };
         plan.require(&self.scheme_id, &self.wallet_id, &request, &bytes)?;
         if Some(plan.request_object) != entry.request {
@@ -612,8 +668,13 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
         if plan.source != source_digest {
             return Ok(Completion::NotPerformed(NotPerformed::StaleHead));
         }
-        {
-            // Every derivation gets a fresh source draft; replay must never insert twice.
+        let prepared = if let Some(prepared) = planned {
+            // Intake derived this plan once in this call, from fresh choices or by replaying
+            // a recovered batch. That one derivation is reused through proving.
+            prepared
+        } else {
+            // A held plan (restart or retry) validates once on fresh custody. Every derivation
+            // gets a fresh source draft; replay must never insert twice.
             let mut readonly =
                 super::super::object_workspace::ReadOnlyWorkspace::new(&mut self.archive);
             let mut custody = PreparationCustodyV1::new(
@@ -626,12 +687,20 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
                 manifest.direct_anchors,
                 manifest.finality_epochs,
             )?;
-            self.proofs
-                .validate_preparation(&request, &source, &mut custody, &plan.native)?;
+            let prepared =
+                self.proofs
+                    .validate_preparation(&request, &source, &mut custody, &plan.native)?;
             if archive::encode(&custody.snapshot())? != archive::encode(&plan.draft)? {
                 return Err(Error::WitnessLost("preparation changed custody draft"));
             }
-        }
+            prepared
+        };
+        // `selected` is this call's last own archive publication; the exclusive owner
+        // publishes nothing else before proving.
+        let derivation = CallDerivationV1 {
+            binding: DerivationBindingV1::new(entry.binding, source_digest, selected, &plan)?,
+            native: prepared,
+        };
         // A selected plan no longer needs its staging batch. Cleanup is idempotent;
         // failure cannot authorize replanning, another signature or a monetary rollback.
         self.archive
@@ -641,25 +710,26 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
         } else {
             // Design §5.3: check this phone before proving; commit checks it again.
             self.require_runtime_capacity()?;
-            let mut readonly =
-                super::super::object_workspace::ReadOnlyWorkspace::new(&mut self.archive);
-            let mut custody = PreparationCustodyV1::new(
-                &mut readonly,
-                &snapshot,
-                &map_state,
-                request.kind(),
-                refresh,
-                manifest.issued_requests,
-                manifest.direct_anchors,
-                manifest.finality_epochs,
-            )?;
-            let frozen =
-                self.proofs
-                    .prove_preparation(&request, &source, &mut custody, &plan.native)?;
-            if archive::encode(&custody.snapshot())? != archive::encode(&plan.draft)? {
-                return Err(Error::WitnessLost("prover changed custody draft"));
+            // The checkpoint binds every custody root and the archive-indexed head the
+            // derivation read. Any change is foreign-writer evidence, refused before a proof.
+            let (checkpoint, _) = self.manifest()?;
+            if DerivationBindingV1::new(entry.binding, source_digest, checkpoint, &plan)?
+                != derivation.binding
+            {
+                return Err(Error::WitnessLost("retained derivation binding"));
             }
-            custody.finish(&frozen.capsule.body().successor_state)?;
+            let frozen = self.proofs.prove_preparation(
+                &request,
+                &source,
+                derivation.native,
+                &plan.native,
+            )?;
+            // Proving takes no custody. Before any publication, the retained draft must pass
+            // the same successor checks as `PreparationCustodyV1::finish` on durable objects.
+            plan.draft.require(
+                &mut super::super::object_workspace::ReadOnlyWorkspace::new(&mut self.archive),
+                &frozen.capsule.body().successor_state,
+            )?;
             require_frozen(&request, &source_digest, &frozen)?;
             let original = archive::encode(&frozen)?;
             if original.len() > FROZEN_BOUND {
@@ -732,6 +802,22 @@ mod tests {
                 _ => changed.request = None,
             }
             assert!(changed.require_binding().is_err(), "mutation {mutation}");
+        }
+    }
+
+    #[test]
+    fn derivation_binding_changes_with_each_of_its_five_fields() {
+        use super::DerivationBindingV1 as B;
+        let exact = B::of([1; 32], [2; 32], [3; 32], b"choices", b"draft");
+        assert!(exact == B::of([1; 32], [2; 32], [3; 32], b"choices", b"draft"));
+        for changed in [
+            B::of([9; 32], [2; 32], [3; 32], b"choices", b"draft"),
+            B::of([1; 32], [9; 32], [3; 32], b"choices", b"draft"),
+            B::of([1; 32], [2; 32], [9; 32], b"choices", b"draft"),
+            B::of([1; 32], [2; 32], [3; 32], b"choiceS", b"draft"),
+            B::of([1; 32], [2; 32], [3; 32], b"choices", b"drafT"),
+        ] {
+            assert!(exact != changed);
         }
     }
 

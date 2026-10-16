@@ -267,6 +267,8 @@ contracts.evidence_viewer_css_get	GET	/v1/evidence/viewer/app.css	public	unauthe
 contracts.evidence_viewer_get	GET	/v1/evidence/viewer	public	unauthenticated	public	read	http	feature(app_api)	false	false	false	false
 contracts.evidence_viewer_js_get	GET	/v1/evidence/viewer/app.js	public	unauthenticated	public	read	http	feature(app_api)	false	false	false	false
 contracts.kagemusha_enrollment_post	POST	/v1/kagemusha/enrollment	public	canonical_account_signature	authenticated_account	mutation	http	feature(app_api)	true	true	false	true
+contracts.kagemusha_ledger_epoch_get	GET	/v1/kagemusha/{scheme}/wallets/{wallet}/ledger/{entrypoint}/epochs/{boundary}	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	false	false	true
+contracts.kagemusha_ledger_finality_get	GET	/v1/kagemusha/{scheme}/wallets/{wallet}/ledger/{entrypoint}/finality	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	false	false	true
 contracts.kagemusha_load_epoch_get	GET	/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/epochs/{boundary}	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	false	false	true
 contracts.kagemusha_load_finality_get	GET	/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/finality	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	false	false	true
 contracts.kagemusha_load_issuance_get	GET	/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	false	false	true

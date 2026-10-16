@@ -271,6 +271,168 @@ fn signed_sources(
     (installed, authenticated)
 }
 
+// D5: every sigma use binds the private seal its qualification minted, revalidates
+// the signed originals under current limits and rebuilds from the compiled source of
+// that selector, as Q/A/W/Omega do. No strict re-import exists to fall back to.
+#[test]
+#[ignore = "actual sixteen-source sealed sigma rebuilds; run optimized explicitly"]
+fn qualified_sigma_seals_rebuild_exact_originals_and_refuse_every_foreign_use() {
+    use iroha_kagemusha_proof::SigmaError;
+    use iroha_plonk::keys::{RebuildError, SourceBoundViewV2};
+    fn rebuild(
+        selector: usize,
+        view: SourceBoundViewV2<'_, Eq>,
+        params: (&PinnedParams<Eq>, &PinnedParams<Eq>),
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<ImportedSigmaV1, WalletSourcesErrorV1> {
+        Ok(sigma::rebuild_prover(
+            selector,
+            view,
+            params.0,
+            params.1,
+            CosetCachePolicy::OnDemand,
+            cancellation,
+        )?)
+    }
+    let (mut disk, originals, steps) = real_sigma_store();
+    let (_installed, authenticated) = signed_sources(steps, originals, None);
+    let qualified = authenticated.qualify_sigmas(&mut disk, config()).unwrap();
+    let params12 = PinnedParams::<Eq>::derive(12).unwrap();
+    let params14 = PinnedParams::<Eq>::derive(14).unwrap();
+    let params = (&params12, &params14);
+    let member = |selector: usize| authenticated.inventory.sigma[selector];
+    let cancelled = iroha_pasta::CancellationToken::new();
+    cancelled.cancel();
+    let mut stale_sources = 0;
+    for selector in 0..16 {
+        let selected = u8::try_from(selector).unwrap();
+        let foreign = (selector + 1) % 16;
+        let expected = qualified.key(selected).unwrap();
+        // A seal is authority only for its own signed member; binding precedes I/O.
+        let before = disk.opens;
+        assert!(matches!(
+            qualified.bind(selected, member(foreign), None),
+            Err(Error::Inventory)
+        ));
+        assert!(matches!(
+            qualified.bind(selected, member(selector), Some(&cancelled)),
+            Err(Error::Cancelled)
+        ));
+        assert!(matches!(
+            qualified.bind(16, member(selector), None),
+            Err(Error::Inventory)
+        ));
+        assert_eq!(disk.opens, before, "seal binding precedes source I/O");
+        let view = qualified.bind(selected, member(selector), None).unwrap();
+        let view = wallet::revalidate_stage(
+            &authenticated,
+            member(selector),
+            view,
+            &mut disk,
+            config(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(disk.opens - before, 3, "every use streams D, VK and PK");
+        assert!(rebuild(selector, view, params, Some(&cancelled)).is_err_and(|e| e.is_cancelled()));
+        let rebuilt = rebuild(selector, view, params, None).unwrap();
+        let original = authenticated
+            .read_original(member(selector), &mut disk, config().maximum_bytes)
+            .unwrap();
+        assert_eq!(
+            rebuilt.proving_key().artifact_bytes_v2().unwrap(),
+            original.proving_key,
+            "selector {selector} rebuilds exactly its signed original"
+        );
+        assert_eq!(rebuilt.proving_key().binding(), expected.binding());
+        assert_eq!(
+            rebuilt.proving_key().vk().to_bytes(),
+            expected.key().to_bytes()
+        );
+        drop(rebuilt);
+        // The selector alone chooses the compiled circuit. Another selector's source
+        // never rebuilds under this seal, and its failure is never reinstallable.
+        let error = rebuild(foreign, view, params, None)
+            .err()
+            .expect("foreign compiled source");
+        assert!(!error.is_cancelled() && !error.is_unavailable());
+        // Only an equal-descriptor neighbour reaches the source comparison, and the
+        // fixture's selector compression may leave none. The deterministic exact
+        // `Source` refusal is the admin seal-rebuild matrix in
+        // `iroha_kagemusha_proof/tests/admin_sigma.rs`.
+        if qualified
+            .key(u8::try_from(foreign).unwrap())
+            .unwrap()
+            .binding()
+            == expected.binding()
+        {
+            stale_sources += 1;
+            assert!(
+                matches!(
+                    error,
+                    WalletSourcesErrorV1::Sigma(
+                        SigmaQualificationErrorV1::Monetary(SigmaError::Rebuild(
+                            RebuildError::Source
+                        )) | SigmaQualificationErrorV1::Administrative(AdminSigmaError::Rebuild(
+                            RebuildError::Source
+                        ))
+                    )
+                ),
+                "stale compiled source {foreign} under seal {selector}: {error:?}"
+            );
+        }
+    }
+    // Current limits apply before any read, and a changed signed original fails
+    // custody revalidation before a rebuild. The same seal serves the exact retry.
+    let index = member(2);
+    let mut rows = config();
+    rows.maximum_rows = qualified.key(2).unwrap().binding().n() - 1;
+    let before = disk.opens;
+    assert!(matches!(
+        wallet::revalidate_stage(
+            &authenticated,
+            index,
+            qualified.bind(2, index, None).unwrap(),
+            &mut disk,
+            rows,
+            None,
+        ),
+        Err(WalletSourcesErrorV1::Original(Error::Inventory))
+    ));
+    assert_eq!(disk.opens, before, "a tighter row cap precedes source I/O");
+    let blob = authenticated.inventory.member(index).unwrap().proving_key;
+    let path = disk.directory.path().join(hex::encode(blob.sha256));
+    let mut changed = std::fs::read(&path).unwrap();
+    changed[0] ^= 1;
+    std::fs::write(&path, &changed).unwrap();
+    assert!(matches!(
+        wallet::revalidate_stage(
+            &authenticated,
+            index,
+            qualified.bind(2, index, None).unwrap(),
+            &mut disk,
+            config(),
+            None,
+        ),
+        Err(WalletSourcesErrorV1::Original(Error::Inventory))
+    ));
+    changed[0] ^= 1;
+    std::fs::write(&path, &changed).unwrap();
+    let view = wallet::revalidate_stage(
+        &authenticated,
+        index,
+        qualified.bind(2, index, None).unwrap(),
+        &mut disk,
+        config(),
+        None,
+    )
+    .unwrap();
+    drop(rebuild(2, view, params, None).unwrap());
+    eprintln!(
+        "SIGMA_SEALS_REBUILT count=16 exact_originals=true foreign_member=refused foreign_circuit=refused stale_source_pairs={stale_sources} changed_original=refused strict_reimport=false"
+    );
+}
+
 fn real_q_fixture(
     program: usize,
 ) -> (

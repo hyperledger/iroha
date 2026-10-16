@@ -161,7 +161,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         request: [u8; 32],
         amount: u128,
     ) -> Result<Vec<u8>, Error> {
-        let _payment = self.scheduler.payment();
         if request == [0; 32] || amount == 0 {
             return Err(Error::Invalid("ledger Load request"));
         }

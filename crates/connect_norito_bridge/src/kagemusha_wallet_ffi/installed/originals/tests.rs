@@ -1,7 +1,7 @@
 //! Closed carrier DATA tests. These inventory fixtures contain no source keys or authority.
 use super::*;
 use iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::{
-    DirectoryOriginalsV1, OriginalV1, encode_original,
+    DirectoryOriginalsV1, OpeningWorkV1, OriginalV1, encode_original,
 };
 fn fixture() -> ProducerInventoryV1 {
     let blob = |n| BlobV1 {
@@ -364,4 +364,204 @@ fn wallet_transport_requires_all_originals_and_rejects_retired_finality_graph() 
         .unwrap()
         .insert("finalityOriginals".into(), norito::json!([]));
     assert!(require_transport(&inventory, &norito::json::to_vec(&retired).unwrap()).is_err());
+}
+
+/// The inert DATA carrier after its complete admission snapshot, as a memo entry holds it.
+fn admitted_reader(root: &Path, inventory: &ProducerInventoryV1) -> CatalogReader {
+    let source = CatalogReader::open(
+        PrivateDirectory::open_exact(root).unwrap(),
+        root,
+        inventory,
+        &fixture_transport(root),
+    )
+    .unwrap();
+    source
+        .with_snapshot::<_, OriginalError>(|_| Ok(()))
+        .unwrap();
+    source
+}
+/// A later attempt's freshly opened root and transport, offered to the admitted reader.
+fn reuse_at(source: &CatalogReader, root: &Path) -> Result<()> {
+    source.reuse(
+        &PrivateDirectory::open_exact(root).unwrap(),
+        &fixture_transport(root),
+    )
+}
+
+#[test]
+fn admitted_reader_reuse_closes_custody_and_rehashes_frames_without_decoding() {
+    let (_temp, root, inventory, originals) = wallet_data_fixture();
+    let transport = fixture_transport(&root);
+    let source = CatalogReader::open(
+        PrivateDirectory::open_exact(&root).unwrap(),
+        &root,
+        &inventory,
+        &transport,
+    )
+    .unwrap();
+    // Reuse never stands in for the complete admission snapshot.
+    assert_eq!(reuse_at(&source, &root), Err(Failure::code(INVALID)));
+    let before = OpeningWorkV1::current_thread();
+    source
+        .with_snapshot::<_, OriginalError>(|_| Ok(()))
+        .unwrap();
+    let admission = OpeningWorkV1::current_thread().since(before);
+    let before = OpeningWorkV1::current_thread();
+    reuse_at(&source, &root).unwrap();
+    let reuse = OpeningWorkV1::current_thread().since(before);
+    let stored: u64 = transport
+        .originals()
+        .iter()
+        .map(|row| row.stored.bytes)
+        .sum();
+    let raw: u64 = transport
+        .originals()
+        .iter()
+        .map(|row| row.original.bytes)
+        .sum();
+    assert_eq!(admission.zstd_decodes, 3);
+    assert_eq!(admission.raw_bytes_hashed, raw);
+    // The second opening skips every decode: one custody check and one stored-frame hash
+    // per original, against the transport the admission verified.
+    assert_eq!(reuse.stored_files_opened, 3);
+    assert_eq!(reuse.stored_bytes_hashed, stored);
+    assert_eq!(reuse.zstd_decodes, 0);
+    assert_eq!(reuse.raw_bytes_hashed, 0);
+    // The next owner shares the same reader and observed map and reads identical bytes.
+    let mut reused = source.clone();
+    assert!(Arc::ptr_eq(&reused.wallet, &source.wallet));
+    for original in &originals {
+        let mut bytes = Vec::new();
+        OriginalSourceV1::open(&mut reused, BlobV1::of(original).sha256)
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(&bytes, original);
+    }
+    reuse_at(&source, &root).unwrap();
+}
+
+#[test]
+fn admitted_reader_reuse_requires_the_same_transport_and_root_object() {
+    let (temp, root, inventory, _) = wallet_data_fixture();
+    let source = admitted_reader(&root, &inventory);
+    let transport = fixture_transport(&root);
+    // Another transport, even one stored identity, routes another graph.
+    let mut rows = transport.originals().to_vec();
+    rows[0].stored.sha256 = [0x77; 32];
+    let other = EncodedTransportV1::new(rows).unwrap();
+    assert_eq!(
+        source.reuse(&PrivateDirectory::open_exact(&root).unwrap(), &other),
+        Err(Failure::code(INVALID))
+    );
+    // Another directory object is another carrier root.
+    let elsewhere = temp.path().canonicalize().unwrap().join("elsewhere");
+    PrivateDirectory::open_or_create(&elsewhere).unwrap();
+    assert_eq!(
+        source.reuse(
+            &PrivateDirectory::open_exact(&elsewhere).unwrap(),
+            &transport
+        ),
+        Err(Failure::code(INVALID))
+    );
+    reuse_at(&source, &root).unwrap();
+    // A root replaced at the same path is refused, whatever it contains.
+    std::fs::rename(&root, root.with_file_name("retained-bundle")).unwrap();
+    PrivateDirectory::open_or_create(&root).unwrap();
+    assert!(
+        source
+            .reuse(&PrivateDirectory::open_exact(&root).unwrap(), &transport)
+            .is_err()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn custody_change_or_corrupted_frame_after_admission_refuses_reuse() {
+    use std::os::unix::fs::PermissionsExt as _;
+    for corrupt in [false, true] {
+        let (_temp, root, inventory, originals) = wallet_data_fixture();
+        let source = admitted_reader(&root, &inventory);
+        reuse_at(&source, &root).unwrap();
+        let path = root
+            .join("wallet-originals")
+            .join(hex::encode(BlobV1::of(&originals[1]).sha256));
+        let mut stored = std::fs::read(&path).unwrap();
+        if corrupt {
+            // The same extent rewritten in place with one changed stored byte.
+            let last = stored.len() - 1;
+            stored[last] ^= 1;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        } else {
+            // Identical bytes under the same name, as another file.
+            std::fs::rename(&path, root.join("retained-original")).unwrap();
+        }
+        std::fs::write(&path, &stored).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).unwrap();
+        assert_eq!(
+            reuse_at(&source, &root),
+            Err(Failure::code(INVALID)),
+            "corrupt {corrupt}"
+        );
+    }
+}
+
+#[test]
+fn failed_live_original_access_marks_the_shared_reader_and_refuses_reuse() {
+    let (_temp, root, inventory, _) = wallet_data_fixture();
+    let source = admitted_reader(&root, &inventory);
+    reuse_at(&source, &root).unwrap();
+    // A live owner's refused open, through any clone, marks the shared reader.
+    let mut live = source.clone();
+    assert!(matches!(
+        OriginalSourceV1::open(&mut live, [0x55; 32]),
+        Err(OriginalError::Inventory)
+    ));
+    // Custody is unchanged, yet this reader is never shared with another owner again.
+    assert_eq!(reuse_at(&source, &root), Err(Failure::code(INVALID)));
+    // A refused live read marks it too; successful reads pass their bytes through unmarked.
+    struct Refusing;
+    impl Read for Refusing {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("DATA refusal"))
+        }
+    }
+    let failed = Arc::new(AtomicBool::new(false));
+    let mut watched = Watched {
+        reader: Box::new(&b"DATA"[..]),
+        failed: Arc::clone(&failed),
+    };
+    let mut bytes = Vec::new();
+    watched.read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, b"DATA");
+    assert!(!failed.load(Ordering::SeqCst));
+    let mut watched = Watched {
+        reader: Box::new(Refusing),
+        failed: Arc::clone(&failed),
+    };
+    assert!(watched.read(&mut [0; 1]).is_err());
+    assert!(failed.load(Ordering::SeqCst));
+}
+
+#[test]
+fn concurrent_reuse_of_one_admitted_reader_stays_exact() {
+    let (_temp, root, inventory, originals) = wallet_data_fixture();
+    let source = admitted_reader(&root, &inventory);
+    std::thread::scope(|scope| {
+        for _ in 0..2 {
+            scope.spawn(|| {
+                reuse_at(&source, &root).unwrap();
+                let mut reused = source.clone();
+                for original in &originals {
+                    let mut bytes = Vec::new();
+                    OriginalSourceV1::open(&mut reused, BlobV1::of(original).sha256)
+                        .unwrap()
+                        .read_to_end(&mut bytes)
+                        .unwrap();
+                    assert_eq!(&bytes, original);
+                }
+            });
+        }
+    });
+    reuse_at(&source, &root).unwrap();
 }

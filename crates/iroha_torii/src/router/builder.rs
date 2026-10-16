@@ -1190,24 +1190,27 @@ mod tests {
     .with_authentication(AuthenticationPolicy::ManifestConditionalContent);
     const ROUTES: &[RouteDescriptor] = &[READ, WRITE, FEATURED];
     #[test]
-    fn kagemusha_catalog_contains_only_enrollment_and_authenticated_load_originals() {
+    fn kagemusha_catalog_contains_only_enrollment_and_authenticated_wallet_originals() {
         let catalog = RouteCatalog::new(iroha_torii_shared::route_catalog::CATALOGED_ROUTES);
         let load_read = iroha_torii_shared::route_catalog::contracts_and_verification_keys::KAGEMUSHA_LOAD_ISSUANCE_GET;
         let finality_read = iroha_torii_shared::route_catalog::contracts_and_verification_keys::KAGEMUSHA_LOAD_FINALITY_GET;
         let epoch_read = iroha_torii_shared::route_catalog::contracts_and_verification_keys::KAGEMUSHA_LOAD_EPOCH_GET;
+        let ledger_finality_read = iroha_torii_shared::route_catalog::contracts_and_verification_keys::KAGEMUSHA_LEDGER_FINALITY_GET;
+        let ledger_epoch_read = iroha_torii_shared::route_catalog::contracts_and_verification_keys::KAGEMUSHA_LEDGER_EPOCH_GET;
         let enrollment = iroha_torii_shared::route_catalog::contracts_and_verification_keys::KAGEMUSHA_ENROLLMENT_POST;
-        assert_eq!(finality_read.method(), HttpMethod::Get);
-        assert_eq!(finality_read.effect(), RouteEffect::ReadOnly);
-        assert_eq!(epoch_read.method(), HttpMethod::Get);
-        assert_eq!(epoch_read.effect(), RouteEffect::ReadOnly);
-        assert_eq!(
-            epoch_read.authentication(),
-            AuthenticationPolicy::CanonicalAccountSignature
-        );
-        assert_eq!(
-            finality_read.authentication(),
-            AuthenticationPolicy::CanonicalAccountSignature
-        );
+        for read in [
+            finality_read,
+            epoch_read,
+            ledger_finality_read,
+            ledger_epoch_read,
+        ] {
+            assert_eq!(read.method(), HttpMethod::Get);
+            assert_eq!(read.effect(), RouteEffect::ReadOnly);
+            assert_eq!(
+                read.authentication(),
+                AuthenticationPolicy::CanonicalAccountSignature
+            );
+        }
         assert_eq!(load_read.method(), HttpMethod::Get);
         assert_eq!(load_read.effect(), RouteEffect::ReadOnly);
         assert_eq!(
@@ -1229,6 +1232,8 @@ mod tests {
                             || **route == load_read
                             || **route == finality_read
                             || **route == epoch_read
+                            || **route == ledger_finality_read
+                            || **route == ledger_epoch_read
                             || **route == enrollment),
                     "retired KAGEMUSHA transport remains in {projection:?}"
                 );

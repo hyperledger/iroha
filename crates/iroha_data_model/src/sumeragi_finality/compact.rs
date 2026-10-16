@@ -11,6 +11,8 @@ use crate::sumeragi::epoch::ValidatorEpochContextV1;
 
 mod checkpoint;
 pub use checkpoint::{MAX_COMMIT_CHECKPOINT_BYTES, SumeragiCommitCheckpointV1};
+mod inclusion;
+pub use inclusion::CertifiedTransactionInclusionV1;
 
 const MAX_COMMIT_HEADER_BYTES: usize = 64 * 1024;
 const MAX_COMMIT_QC_BYTES: usize = 4 * 1024;
@@ -84,6 +86,17 @@ impl SumeragiCommitCertificateV1 {
     /// Rejects missing, oversized or noncanonical native header data.
     pub fn epoch_id(&self) -> Result<u64, FinalityReadError> {
         Ok(self.header()?.epoch.epoch)
+    }
+
+    /// Unauthenticated `CommitQC` block identity, usable only to recheck retained custody.
+    ///
+    /// Every original component is decoded, but no signature is verified. Only a reader's
+    /// BLS verification binds this value to the native header that it names.
+    ///
+    /// # Errors
+    /// Rejects missing, oversized or noncanonical native components.
+    pub fn qc_block_hash(&self) -> Result<Hash32, FinalityReadError> {
+        Ok(self.originals()?.1.block_hash)
     }
 
     fn header(&self) -> Result<CoreHeader, FinalityReadError> {

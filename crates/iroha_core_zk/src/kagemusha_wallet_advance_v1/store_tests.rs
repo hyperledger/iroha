@@ -2500,3 +2500,163 @@ fn simulated_staging_entropy_faults_are_separate_and_resettable() {
     fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
     assert!(fs.staging_name().is_ok());
 }
+
+#[test]
+fn wallet_advance_v1_store_retirement_retry_after_lost_writeback_fault_matrix() {
+    let fs = base_with_file(BYTES);
+    let retire =
+        |store: &SimStore| store.retain_retired_files(&dir(), &[(&name("f"), &name("grave-new"))]);
+    let trace = fault_free_trace(&fs, &retire);
+    let first_sync = trace
+        .iter()
+        .position(|step| *step == KagemushaWalletSimStepV1::SyncDir)
+        .expect("retirement sync");
+    fs.inject(
+        fs.steps() + first_sync as u64,
+        KagemushaWalletSimFaultV1::LostWriteback,
+    );
+    assert!(matches!(
+        retire(&store(&fs)),
+        KagemushaWalletRemoveOutcomeV1::Uncertain(_)
+    ));
+    assert_eq!(fs.visible_file(&dir(), "f"), None);
+    assert_eq!(fs.visible_file(&dir(), "grave-new").as_deref(), Some(BYTES));
+    fs.restart();
+    // A retry in the same boot must reissue the exact move. Exercise another fault at
+    // every step, including both directory syncs, before restart or power loss.
+    matrix(&fs, &FAULTS, &retire, &|case| {
+        let original = case.file("f");
+        let grave = case.file("grave-new");
+        assert!(
+            original.is_none() || original.as_deref() == Some(BYTES),
+            "original bytes: {}",
+            case.label()
+        );
+        assert!(
+            grave.is_none() || grave.as_deref() == Some(BYTES),
+            "retained bytes: {}",
+            case.label()
+        );
+        if case.observed() && *case.outcome == KagemushaWalletRemoveOutcomeV1::Removed {
+            assert_eq!(
+                original,
+                None,
+                "completed retirement resurrected: {}",
+                case.label()
+            );
+        }
+    });
+    assert_eq!(retire(&store(&fs)), KagemushaWalletRemoveOutcomeV1::Removed);
+    fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+    assert_eq!(fs.visible_file(&dir(), "f"), None);
+}
+
+#[test]
+fn wallet_advance_v1_store_completed_retirement_cleanup_never_restores_original() {
+    let fs = base_with_file(BYTES);
+    let retire = |store: &SimStore| {
+        store.retain_retired_files(&dir(), &[(&name("f"), &name("grave-complete"))])
+    };
+    assert_eq!(retire(&store(&fs)), KagemushaWalletRemoveOutcomeV1::Removed);
+    // The archive publishes its durable Complete journal before selecting this cleanup.
+    // This primitive test starts from the already-durable original absence.
+    let reap = |store: &SimStore| store.reap_retired_files(&dir(), &[&name("grave-complete")]);
+    let trace = fault_free_trace(&fs, &reap);
+    let last_sync = trace
+        .iter()
+        .rposition(|step| *step == KagemushaWalletSimStepV1::SyncDir)
+        .expect("grave cleanup sync");
+    fs.inject(
+        fs.steps() + last_sync as u64,
+        KagemushaWalletSimFaultV1::LostWriteback,
+    );
+    assert_eq!(reap(&store(&fs)), KagemushaWalletRemoveOutcomeV1::Removed);
+    fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+    assert_eq!(fs.visible_file(&dir(), "f"), None);
+    assert_eq!(
+        fs.visible_file(&dir(), "grave-complete").as_deref(),
+        Some(BYTES)
+    );
+    // The provider selects this garbage-only operation after durable Complete.
+    // Its own later failure or crash may retain garbage, but must never relink f.
+    matrix(
+        &fs,
+        &FAULTS,
+        &|store| store.reap_retired_files(&dir(), &[&name("grave-complete")]),
+        &|case| {
+            assert_eq!(
+                case.file("f"),
+                None,
+                "cleanup resurrected original: {}",
+                case.label()
+            );
+            let grave = case.file("grave-complete");
+            assert!(
+                grave.is_none() || grave.as_deref() == Some(BYTES),
+                "{}",
+                case.label()
+            );
+        },
+    );
+}
+
+#[test]
+fn wallet_advance_v1_store_retirement_never_replaces_an_existing_grave() {
+    let fs = base_with_file(BYTES);
+    assert_eq!(
+        store(&fs).write_new(&dir(), &name("grave-old"), OTHER),
+        KagemushaWalletPublishOutcomeV1::Published
+    );
+    assert!(matches!(
+        store(&fs).retain_retired_files(&dir(), &[(&name("f"), &name("grave-old"))]),
+        KagemushaWalletRemoveOutcomeV1::NotRemoved(_)
+    ));
+    for power_loss in [false, true] {
+        let view = fs.fork();
+        if power_loss {
+            view.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+        }
+        assert_eq!(view.visible_file(&dir(), "f").as_deref(), Some(BYTES));
+        assert_eq!(
+            view.visible_file(&dir(), "grave-old").as_deref(),
+            Some(OTHER)
+        );
+    }
+}
+
+#[test]
+fn wallet_advance_v1_store_remove_dir_retry_after_lost_writeback_is_durable() {
+    let fs = base();
+    assert_eq!(
+        store(&fs).create_dir(&dir(), &name("empty")),
+        KagemushaWalletPublishOutcomeV1::Published
+    );
+    let remove = |store: &SimStore| store.remove_dir(&dir(), &name("empty"));
+    let trace = fault_free_trace(&fs, &remove);
+    let sync = trace
+        .iter()
+        .position(|step| *step == KagemushaWalletSimStepV1::SyncDir)
+        .expect("directory removal sync");
+    fs.inject(
+        fs.steps() + sync as u64,
+        KagemushaWalletSimFaultV1::LostWriteback,
+    );
+    assert!(matches!(
+        remove(&store(&fs)),
+        KagemushaWalletRemoveOutcomeV1::Uncertain(_)
+    ));
+    fs.restart();
+    assert!(!fs.visible_dir(&dir().child(&name("empty"))));
+    matrix(&fs, &FAULTS, &remove, &|case| {
+        if case.observed() && *case.outcome == KagemushaWalletRemoveOutcomeV1::Removed {
+            assert!(
+                !case.fs.visible_dir(&dir().child(&name("empty"))),
+                "directory resurrected: {}",
+                case.label()
+            );
+        }
+    });
+    assert_eq!(remove(&store(&fs)), KagemushaWalletRemoveOutcomeV1::Removed);
+    fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+    assert!(!fs.visible_dir(&dir().child(&name("empty"))));
+}

@@ -4393,6 +4393,22 @@
       }
     ]
   },
+  "CertifiedTransactionInclusionV1": {
+    "Struct": [
+      {
+        "name": "entry_proof",
+        "type": "MerkleProof<TransactionEntrypoint>"
+      },
+      {
+        "name": "output",
+        "type": "ExecutionOutputV1"
+      },
+      {
+        "name": "output_proof",
+        "type": "MerkleProof<ExecutionOutputV1>"
+      }
+    ]
+  },
   "ChainId": "String",
   "ChainParamsRecord": {
     "Struct": [
@@ -13066,6 +13082,26 @@
       {
         "name": "certificates",
         "type": "Vec<u8>"
+      }
+    ]
+  },
+  "KagemushaWalletLedgerFinalityV1": {
+    "Struct": [
+      {
+        "name": "version",
+        "type": "u16"
+      },
+      {
+        "name": "entrypoint_hash",
+        "type": "HashOf<TransactionEntrypoint>"
+      },
+      {
+        "name": "certificate",
+        "type": "SumeragiCommitCertificateV1"
+      },
+      {
+        "name": "inclusion",
+        "type": "CertifiedTransactionInclusionV1"
       }
     ]
   },

@@ -47,7 +47,7 @@ impl Target {
         match self {
             Self::Wallet(owner) => owner.closing.join(|| {
                 owner.background.stop();
-                owner.scheduler.set_activity(false, false);
+                owner.scheduler.close();
                 // Join any accepted proof before taking the exclusive wallet owner.
                 let _priority = owner.scheduler.payment();
                 owner.background.join()?;

@@ -223,9 +223,11 @@ pub(super) fn exercise(
     let changed_requests = reject_forged(&mut wallet, &device, request);
 
     device.platform.with(|state| state.sign_unavailable = true);
+    let (pending, derivations) = derived(|| wallet.execute(request.clone()).unwrap());
+    assert_eq!(pending, Completion::Pending);
     assert_eq!(
-        wallet.execute(request.clone()).unwrap(),
-        Completion::Pending
+        derivations, 2,
+        "fresh Load: plan reused through proving, then commit"
     );
     assert_eq!(device.platform.with(|state| state.sign_calls), signs + 1);
     assert_eq!(

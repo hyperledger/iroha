@@ -1,7 +1,6 @@
 //! Exact Q source derivation, self-verifying proof tasks and original restoration.
 
 use crate::kagemusha_wallet_artifacts_v1::producer_inventory::ImportedQV1;
-use iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletRecoveryCapsuleV1;
 use iroha_kagemusha_proof::{
     q_sigma::{
         SigmaSlotWitness,
@@ -26,22 +25,21 @@ pub(super) enum QProgressV1 {
 }
 
 impl NativeFoldWorkerV1 {
-    /// Restore each exact source Q and produce one next Q proof. The selected immutable
-    /// capsule supplies the private checkpoint identity. A restored incoming Q uses its
-    /// exact retained fold witness; only a new incoming Q obtains fresh private coins.
-    #[allow(clippy::too_many_arguments)]
+    /// Restore each exact source Q and produce one next Q proof with the Q source whose
+    /// originals the locked prepare revalidated. `source` is the custody digest of the
+    /// selected immutable capsule, the private checkpoint identity. A restored incoming Q uses
+    /// its exact retained fold witness; only a new incoming Q obtains fresh private coins.
     pub(super) fn q_stage(
         &self,
         route: OperationRoute,
-        capsule: &KagemushaWalletRecoveryCapsuleV1,
+        source: [u8; 32],
         input: &QSourcesV1,
         checkpoints: &[PrivateArchiveBytes],
-        originals: &mut dyn OriginalSourceV1,
         cancellation: &Cancellation,
     ) -> Result<QProgressV1, Error> {
         cancellation.check()?;
+        fold_metrics::enter(FoldPhaseV1::Restore);
         let q = proof(self.sources.q(route))?;
-        let source = capsule.custody_digest();
         if source == [0; 32]
             || input.signatures.len() != q.signatures().len()
             || checkpoints.len() > q.keys().len()
@@ -125,15 +123,10 @@ impl NativeFoldWorkerV1 {
         let original = {
             let owner = self
                 .sources
-                .import_q_cancellable(
-                    route,
-                    stage,
-                    originals,
-                    self.read,
-                    Some(cancellation.prover_token()),
-                )
+                .bind_q_cancellable(route, stage, self.read, Some(cancellation.prover_token()))
                 .map_err(artifact)?;
             cancellation.check()?;
+            fold_metrics::enter(FoldPhaseV1::Prove);
             match owner {
                 ImportedQV1::Sigma(owner) if stage == 0 => {
                     let output = proof(owner.prove(
@@ -182,11 +175,10 @@ impl NativeFoldWorkerV1 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::kagemusha_wallet_state_v1::tests::fixture;
     use iroha_data_model::kagemusha::kagemusha_wallet_v1::{
-        KagemushaWalletCompletionRecordV1, KagemushaWalletRequestV1,
-        KagemushaWalletRetainedInputRoleV1,
+        KagemushaWalletCompletionRecordV1, KagemushaWalletRecoveryCapsuleV1,
+        KagemushaWalletRequestV1, KagemushaWalletRetainedInputRoleV1,
     };
 
     // Signed shared DATA fixtures exercise the immutable owner and receipt/custody joins.

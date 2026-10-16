@@ -10,6 +10,7 @@ use iroha_core_zk::{kagemusha_wallet_advance_v1 as advance, kagemusha_wallet_sta
 use iroha_data_model::kagemusha::*;
 use std::{
     collections::BTreeMap,
+    ops::ControlFlow,
     sync::{Arc, Mutex, OnceLock},
 };
 
@@ -222,6 +223,9 @@ pub(crate) struct Response {
     pub(crate) sequence: u128,
     pub(crate) detail: u32,
     pub(crate) bytes: Vec<u8>,
+    // Fold kinds 6-9 only: the backlog of the manifest the turn ended on, a scheduling hint
+    // the background worker keeps for its kind-29 status. Never part of a C/JNI result.
+    pub(crate) backlog: Option<u128>,
 }
 /// Project one coordinator completion. Advance's commit-time storage shortfall is the typed
 /// `NOT_ENOUGH_STORAGE` failure (design §5.3), the same status as the check before proving;
@@ -264,6 +268,11 @@ fn completion(value: Option<state::Completion>) -> Result<Response> {
         },
     })
 }
+/// The unlocked half of one fold sub-proof: it proves without the wallet owner and returns
+/// the publication to run under that owner again.
+type FoldProof = Box<dyn FnOnce() -> Result<FoldPublication>>;
+/// The locked publication of a proved fold sub-proof.
+type FoldPublication = Box<dyn FnOnce(&mut dyn Wallet) -> Result<Response>>;
 trait Wallet: Send {
     fn require_custody_operations(&self) -> Result<()> {
         Ok(())
@@ -286,8 +295,42 @@ trait Wallet: Send {
     fn request_status(&mut self, request: &[u8; 32]) -> Result<Response>;
     fn retry(&mut self, operation: &[u8; 32]) -> Result<Response>;
     fn resume(&mut self) -> Result<Response>;
-    fn fold(&mut self) -> Result<Response>;
+    /// Locked prepare of at most one fold sub-proof: `Break` is the finished response, and
+    /// `Continue` the proof to run after releasing the wallet owner.
+    fn fold(&mut self) -> Result<ControlFlow<Response, FoldProof>>;
+    /// Locked publication of a sub-proof that `fold` prepared and that proved.
+    fn publish_fold(&mut self, _proved: state::ProvedFoldV1) -> Result<Response> {
+        Err(Failure::code(INTERNAL))
+    }
     fn credit(&mut self, credit: &[u8; 32], payment: &[u8; 32]) -> Result<Response>;
+}
+fn fold_response(ended: state::FoldTurnStatusV1) -> Response {
+    use state::FoldStatus as F;
+    let response = match ended.status {
+        F::Idle => Response {
+            kind: 6,
+            ..Response::default()
+        },
+        F::CaughtUp => Response {
+            kind: 7,
+            ..Response::default()
+        },
+        F::Checkpoint { sequence, ordinal } => Response {
+            kind: 8,
+            sequence,
+            detail: ordinal,
+            ..Response::default()
+        },
+        F::Folded(sequence) => Response {
+            kind: 9,
+            sequence,
+            ..Response::default()
+        },
+    };
+    Response {
+        backlog: ended.backlog,
+        ..response
+    }
 }
 struct NativeWallet<P: advance::KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send> {
     wallet: state::NativeWalletCoordinatorV1<advance::KagemushaWalletStdFsV1, P, S>,
@@ -338,30 +381,26 @@ impl<P: advance::KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send> Wallet
     fn resume(&mut self) -> Result<Response> {
         completion(self.wallet.resume()?)
     }
-    fn fold(&mut self) -> Result<Response> {
+    fn fold(&mut self) -> Result<ControlFlow<Response, FoldProof>> {
         self.require_custody_operations()?;
-        use state::FoldStatus as F;
-        Ok(match self.wallet.fold_once()? {
-            F::Idle => Response {
-                kind: 6,
-                ..Response::default()
-            },
-            F::CaughtUp => Response {
-                kind: 7,
-                ..Response::default()
-            },
-            F::Checkpoint { sequence, ordinal } => Response {
-                kind: 8,
-                sequence,
-                detail: ordinal,
-                ..Response::default()
-            },
-            F::Folded(sequence) => Response {
-                kind: 9,
-                sequence,
-                ..Response::default()
-            },
+        Ok(match self.wallet.fold_prepare()? {
+            ControlFlow::Break(ended) => ControlFlow::Break(fold_response(ended)),
+            ControlFlow::Continue(job) => {
+                // The job owns its inputs and holds no custody or original-store handle.
+                let proof: FoldProof = Box::new(move || -> Result<FoldPublication> {
+                    let proved = job.prove()?;
+                    Ok(Box::new(move |wallet: &mut dyn Wallet| {
+                        wallet.publish_fold(proved)
+                    }))
+                });
+                ControlFlow::Continue(proof)
+            }
         })
+    }
+    fn publish_fold(&mut self, proved: state::ProvedFoldV1) -> Result<Response> {
+        // Custody deletion or a terminal state since the prepare refuses the publication.
+        self.require_custody_operations()?;
+        Ok(fold_response(self.wallet.fold_publish(proved)?))
     }
     fn credit(&mut self, credit: &[u8; 32], payment: &[u8; 32]) -> Result<Response> {
         let value = self.wallet.credit_status(credit, payment)?;
@@ -406,7 +445,7 @@ fn install(wallet: Box<dyn Wallet>, scheduler: state::Scheduler) -> Result<u64> 
     registry.owners.insert(
         id,
         Arc::new(Owner {
-            background: background::Background::default(),
+            background: background::Background::observing(&scheduler),
             closing: Arc::new(closing::CloseState::default()),
             scheduler,
             wallet: Mutex::new(Some(wallet)),
@@ -441,22 +480,52 @@ pub(crate) fn activity(id: u64, foreground: bool, charging: bool) -> Result<()> 
     }
     Ok(())
 }
+/// How a host call orders itself against the running fold sub-proof.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Priority {
+    /// No scheduler signal: views, background collection and the fold itself.
+    None,
+    /// Neither proves, signs, commits an Advance nor deletes custody: the running sub-proof
+    /// keeps proving outside the owner lock, and fold telemetry counts the call on it.
+    Ingest,
+    /// Proves, signs, commits an Advance or deletes custody: cancel and join the running
+    /// sub-proof before the owner lock.
+    Payment,
+}
 fn with_wallet<T>(
     id: u64,
     payment: bool,
     action: impl FnOnce(&mut dyn Wallet) -> Result<T>,
 ) -> Result<T> {
     let owner = owner(id)?;
-    with_wallet_owner(owner, payment, action)
+    let priority = if payment {
+        Priority::Payment
+    } else {
+        Priority::None
+    };
+    with_wallet_owner(owner, priority, action)
 }
 fn with_wallet_owner<T>(
     owner: Arc<Owner>,
-    payment: bool,
+    priority: Priority,
     action: impl FnOnce(&mut dyn Wallet) -> Result<T>,
 ) -> Result<T> {
     owner.closing.require_open()?;
-    // Signal and join before the owner lock. Reversing these locks deadlocks against proving.
-    let _priority = payment.then(|| owner.background.payment(&owner.scheduler));
+    // Signal and join before the owner lock: the signal also ends a sub-proof still in its
+    // locked prepare, and the join never needs the owner, because a proved sub-proof releases
+    // its slot before it takes the owner again to publish.
+    let _priority = match priority {
+        Priority::Payment => Some(
+            owner
+                .background
+                .payment(&owner.scheduler, state::FoldCallClassV1::Payment),
+        ),
+        Priority::Ingest => {
+            owner.scheduler.ingest();
+            None
+        }
+        Priority::None => None,
+    };
     let mut guard = owner.wallet.lock().map_err(|_| Failure::code(INTERNAL))?;
     owner.closing.require_open()?;
     let wallet = guard.as_deref_mut().ok_or(Failure::code(CLOSED))?;
@@ -467,6 +536,46 @@ pub(crate) fn snapshot(id: u64) -> Result<state::Snapshot> {
     // A view does not cancel a useful background fold. Call off the UI thread.
     with_wallet(id, false, |wallet| wallet.snapshot())
 }
+/// Setup inputs that prove, sign, commit an Advance or delete custody take payment priority.
+/// Activation, ledger, epoch, fee and time ingests, conversions and status reads never cancel
+/// the running fold sub-proof.
+fn setup_priority(input: &setup::Setup) -> Priority {
+    use setup::Setup as S;
+    match input {
+        // Collection uses the same background scheduler as folding. A payment reservation
+        // here would make its own scheduler start return Idle forever; real payments still
+        // cancel/join collection before acquiring this wallet mutex.
+        S::CollectRetained { .. } => Priority::None,
+        S::ActivationProofProgress(_)
+        | S::UnloadProofProgress { .. }
+        | S::LedgerStatus
+        | S::EpochStatus
+        | S::ConfirmActivation(_)
+        | S::RetainActivationAttempt(_)
+        | S::ActivationProofStep { .. }
+        | S::LedgerLoad { .. }
+        | S::LedgerInstruction { .. }
+        | S::LedgerFinality(_)
+        | S::ConfirmUnload { .. }
+        | S::UnloadProofStep { .. }
+        | S::EpochBoundary { .. }
+        | S::FeePayout { .. }
+        | S::RequestFeeSelection
+        | S::ValidateRequestFeePolicy { .. }
+        | S::UnloadClaim { .. }
+        | S::FeeClaim { .. }
+        | S::FeeOriginal { .. }
+        | S::FeeClaimTransport { .. }
+        | S::Transport { .. }
+        | S::CreditedOriginal { .. }
+        | S::CreditProjection { .. }
+        | S::BoundCredited { query: true, .. }
+        | S::BeginTime
+        | S::CancelTime { .. }
+        | S::FinishTime { .. } => Priority::Ingest,
+        _ => Priority::Payment,
+    }
+}
 pub(crate) fn setup(id: u64, input: setup::Setup) -> Result<Response> {
     if terminal::is_terminal_input(&input) {
         return terminal::dispatch(id, input);
@@ -474,11 +583,9 @@ pub(crate) fn setup(id: u64, input: setup::Setup) -> Result<Response> {
     if matches!(input, setup::Setup::BackgroundStatus) {
         return owner(id)?.background.status();
     }
-    // Collection uses the same background scheduler as folding. A payment reservation
-    // here would make its own scheduler start return Idle forever; real payments still
-    // cancel/join collection before acquiring this wallet mutex.
-    let payment = !matches!(input, setup::Setup::CollectRetained { .. });
-    with_wallet(id, payment, |wallet| wallet.setup(input))
+    with_wallet_owner(owner(id)?, setup_priority(&input), |wallet| {
+        wallet.setup(input)
+    })
 }
 pub(crate) fn execute(id: u64, request: state::OperationRequestV1) -> Result<Response> {
     if matches!(
@@ -494,7 +601,9 @@ pub(crate) fn request_status(id: u64, request: &[u8]) -> Result<Response> {
     if *request == [0; 32] {
         return Err(Failure::code(INVALID));
     }
-    with_wallet(id, true, |wallet| wallet.request_status(request))
+    with_wallet_owner(owner(id)?, Priority::Ingest, |wallet| {
+        wallet.request_status(request)
+    })
 }
 pub(crate) fn retry(id: u64, operation: &[u8]) -> Result<Response> {
     let operation = operation.try_into().map_err(|_| Failure::code(INVALID))?;
@@ -503,13 +612,38 @@ pub(crate) fn retry(id: u64, operation: &[u8]) -> Result<Response> {
 pub(crate) fn resume(id: u64) -> Result<Response> {
     with_wallet(id, true, |wallet| wallet.resume())
 }
+/// One fold sub-proof: prepared and published under the wallet owner, proved without it.
 pub(crate) fn fold(id: u64) -> Result<Response> {
-    with_wallet(id, false, |wallet| wallet.fold())
+    let owner = owner(id)?;
+    let result = explicit_fold(&owner);
+    // A background turn that started while this call held the scheduler slot ended idle;
+    // this result is the owner's latest turn and resumes that worker when work may remain.
+    owner.background.after_explicit_fold(&result);
+    result
+}
+fn explicit_fold(owner: &Arc<Owner>) -> Result<Response> {
+    let prepared = with_wallet_owner(Arc::clone(owner), Priority::None, |wallet| wallet.fold())?;
+    let proof = match prepared {
+        ControlFlow::Break(response) => return Ok(response),
+        ControlFlow::Continue(proof) => proof,
+    };
+    with_wallet_owner(Arc::clone(owner), Priority::None, proof()?)
 }
 pub(crate) fn credit(id: u64, credit: &[u8], payment: &[u8]) -> Result<Response> {
     let credit = credit.try_into().map_err(|_| Failure::code(INVALID))?;
     let payment = payment.try_into().map_err(|_| Failure::code(INVALID))?;
     with_wallet(id, true, |wallet| wallet.credit(credit, payment))
+}
+/// Observation-only fold telemetry of one open wallet handle: its last 64 sub-proofs with
+/// phase times, outcome, cancellation cause and process peak RSS, plus cumulative counts
+/// (`to_json` gives schema `iroha.kagemusha.fold-metrics.v1`). In memory only: never
+/// persisted or signed, and no admission, scheduling or error path reads it. Host and
+/// component-harness access; the kind-29 background status keeps its byte-free shape.
+///
+/// # Errors
+/// `CLOSED` for a closed, closing or unknown handle.
+pub fn wallet_fold_metrics(handle: u64) -> std::result::Result<state::FoldMetricsV1, Failure> {
+    Ok(owner(handle)?.background.fold_metrics())
 }
 pub(crate) fn run<T>(action: impl FnOnce() -> Result<T>) -> Result<T> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(action))

@@ -615,8 +615,11 @@ where
         if self.archive_swept.contains(slot) {
             return Ok(());
         }
-        self.store
-            .remove_staging(&kagemusha_wallet_archive_dir_v1(slot))?;
+        let directory = kagemusha_wallet_archive_dir_v1(slot);
+        if let Some(entries) = self.store.list(&directory).into_result()? {
+            self.store.remove_listed_staging(&directory, &entries)?;
+            super::archive::settle_archive_graves(&self.store, slot, &directory, &entries)?;
+        }
         self.archive_swept.insert(*slot);
         Ok(())
     }

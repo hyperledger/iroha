@@ -871,6 +871,16 @@ they regenerate no key and reject substitutions. Default and explicit serialized
 Q profiles never fall back to another profile. Original/domain bounds do not
 qualify total synthesis or prover memory.
 
+A qualified wallet does not import σ originals again for each operation. Like
+Q/A/W/Ω, it rebuilds the key with `from_source_view_cancellable` (on `SigmaProver`
+and on each administrative owner) from the private seal that strict or exact
+closed built-in admission minted. Its installation owner first binds that seal to
+the signed member and revalidates the member's descriptor, VK and PK originals
+under the current limits. The rebuild applies the typed profile checks, takes the
+circuit only from the selector's compiled source, and reconstructs and checks the
+complete source against the seal. A failure returns no key and never falls back
+to an original import.
+
 `q_sigma::native::QSigmaSource` removes live prepared-operation input from
 original-key installation. It checks one genuine member VK per fixed slot
 against the complete independently installed plan/catalog and descriptor. The
@@ -957,6 +967,9 @@ composed operation or runtime qualification.
   replay; quota shapes use k14. The two
   `installed_sigma_originals_` release cases exercise imported Send/Receive keys
   on both Pasta curves, actual proofs, public-input tampering and import refusals.
+  The `sealed_sigma_sources_` release case rebuilds k12 Send/Receive and k14 quota
+  keys from their admission seals: each is the exact original and proves for the
+  installed verifier; another source, other parameters and cancellation fail.
 - `q_sigma`: `actual_two_sigma_q_proof_verifies` and
   `installed_serialized_q_originals_prove_and_reject_default_profile` exercise
   original-key continuity, explicit profile refusals and genuine imported Q
@@ -980,6 +993,10 @@ composed operation or runtime qualification.
   checks cover the import boundary. Test producers generate fixture originals;
   Native imports do not. These cases do not establish a signed producer catalog,
   final Omega, Native wallet open or physical-device qualification.
+  `sealed_admin_sigma_sources_rebuild_only_their_own_compiled_operation` runs
+  the same four-by-four matrix on seal rebuilds: only the owner's own operation
+  rebuilds its exact original, which proves for the installed VK; every other
+  operation fails as `Source`, and other parameters and cancellation fail.
 
 - `archive_sigma`: complete rehashed unchanged-field and statement/opening
   mutations, source-layout equality, imported-key proofs for Active and Retiring

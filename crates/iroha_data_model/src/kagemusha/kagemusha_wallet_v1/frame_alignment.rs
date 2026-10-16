@@ -124,6 +124,12 @@ const _: () = {
     assert!(canonical_padding::<KagemushaWalletReceiptV1>() == 0);
 };
 
+// Torii encodes the online ledger finality frame and native custody decodes it on every
+// phone target: its output row holds no inline u128, so the padding never depends on one.
+const _: () = {
+    assert!(canonical_padding::<KagemushaWalletLedgerFinalityV1>() == 0);
+};
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;

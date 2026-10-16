@@ -10,6 +10,7 @@ use crate::kagemusha_wallet_archive_bytes_v1::PrivateArchiveBytes;
 // Two derivations, at most two IMT mutations each; each mutation performs at most
 // 68 Patricia updates, each emitting at most 258 bounded nodes. Six original roles
 // per derivation are a conservative bound over every supported refresh variant.
+// Fresh intake stages only its planning derivation; the two-derivation bound is kept.
 pub(in crate::kagemusha_wallet_state_v1) const DRAFT_OBJECTS: usize = 70_188;
 pub(in crate::kagemusha_wallet_state_v1) const DRAFT_BYTES: usize = 112_289_312;
 pub(in crate::kagemusha_wallet_state_v1) const BATCH_BYTES: usize =
@@ -233,9 +234,10 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
         entry: &mut Entry,
         selected: &mut [u8; 32],
         manifest: &mut manifest::Manifest,
-    ) -> Result<Option<Plan>, Error> {
+    ) -> Result<Option<(Plan, N::Prepared)>, Error> {
         let key = ArchiveKey::PreparationDraft(request.request_id());
         let source_digest = source.released().frozen.capsule.custody_digest();
+        let mut planned = None;
         let batch = if let Some(batch) = self.read_intake_batch(request.request_id(), entry)? {
             batch
         } else {
@@ -252,29 +254,14 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
                     manifest.direct_anchors,
                     manifest.finality_epochs,
                 )?;
-                let native = PrivateArchiveBytes::from_guarded(zeroize::Zeroizing::new(
+                let (native, prepared) =
                     self.proofs
-                        .plan_preparation(request, source, &mut custody)?,
-                ));
+                        .plan_preparation(request, source, &mut custody)?;
+                // Planned in this call: this one derivation is reused through proving.
+                planned = Some(prepared);
+                let native = PrivateArchiveBytes::from_guarded(zeroize::Zeroizing::new(native));
                 (native, custody.snapshot())
             };
-            {
-                let mut custody = PreparationCustodyV1::new(
-                    &mut workspace,
-                    snapshot,
-                    map_state,
-                    request.kind(),
-                    request.refresh(),
-                    manifest.issued_requests,
-                    manifest.direct_anchors,
-                    manifest.finality_epochs,
-                )?;
-                self.proofs
-                    .validate_preparation(request, source, &mut custody, &native)?;
-                if archive::encode(&custody.snapshot())? != archive::encode(&draft)? {
-                    return Err(Error::WitnessLost("preparation changed custody draft"));
-                }
-            }
             let plan = Plan {
                 version: 1,
                 scheme: self.scheme_id,
@@ -308,7 +295,10 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
         let encoded = encode_batch(&batch)?;
         let IntakeBatch { plan, objects, .. } = batch;
         let objects = ObjectBatch::from_owned(objects.0, limits())?;
-        {
+        let prepared = if let Some(prepared) = planned {
+            prepared
+        } else {
+            // A recovered batch came from storage: replay it before any object materializes.
             let mut readonly = ReadOnlyWorkspace::with_batch(&mut self.archive, &objects);
             let mut custody = PreparationCustodyV1::new(
                 &mut readonly,
@@ -320,17 +310,19 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
                 manifest.direct_anchors,
                 manifest.finality_epochs,
             )?;
-            self.proofs
-                .validate_preparation(request, source, &mut custody, &plan.native)?;
+            let prepared =
+                self.proofs
+                    .validate_preparation(request, source, &mut custody, &plan.native)?;
             if archive::encode(&custody.snapshot())? != archive::encode(&plan.draft)? {
                 return Err(Error::WitnessLost("retained intake draft changed"));
             }
-        }
+            prepared
+        };
         self.archive.put(key, &encoded)?;
         // Recovery is durably acknowledged; object promotion needs only the decoded batch.
         drop(encoded);
         let materialized = objects.materialize(&mut self.archive)?;
-        self.promote_intake_plan(
+        let plan = self.promote_intake_plan(
             materialized,
             request,
             original,
@@ -338,8 +330,11 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
             entry,
             selected,
             manifest,
-        )
-        .map(Some)
+        )?;
+        // The promote publication opened a new archive phase. Read every materialized
+        // original back from storage before dispatch may remove the recovery batch.
+        objects.read_back(&mut self.archive)?;
+        Ok(Some((plan, prepared)))
     }
 
     // Only a complete durable materialization can reach the plan publication boundary.

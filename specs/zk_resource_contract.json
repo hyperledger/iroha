@@ -22928,6 +22928,24 @@
             }
           },
           {
+            "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/ledger_finality.rs",
+            "symbols": [
+              "KAGEMUSHA_WALLET_LEDGER_OUTPUT_MAX_BYTES_V1",
+              "KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1",
+              "KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_WALLET_LEDGER_OUTPUT_MAX_BYTES_V1": "ExecutionOutputPolicyV1::bootstrap().max_output_bytes as usize",
+              "KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1": "16 * 1024",
+              "KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1": "MAX_COMMIT_CERTIFICATE_BYTES_V1 + KAGEMUSHA_WALLET_LEDGER_OUTPUT_MAX_BYTES_V1 + KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1"
+            },
+            "term_of": {
+              "KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1": [
+                "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/ledger_finality.rs: KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1"
+              ]
+            }
+          },
+          {
             "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/load_finality.rs",
             "symbols": [
               "KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1"
@@ -23406,6 +23424,26 @@
             }
           }
         ]
+      },
+      {
+        "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory.rs",
+        "reason": "Capacity of the descriptor memo of one KAGEMUSHA producer-inventory qualification: a process-local cache, created empty by that qualification and dropped when it returns, of canonical circuit-descriptor decodes keyed by the content address and the exact bytes of an original that has just passed its bounded read, length, SHA-256 and custody checks. A miss or a full memo decodes afresh; it never changes a verdict, is never persisted and grants no authority. It bounds producer memory, not bytes that travel.",
+        "symbols": [
+          "DESCRIPTOR_MEMO_MAX_ENTRIES"
+        ],
+        "exprs": {
+          "DESCRIPTOR_MEMO_MAX_ENTRIES": "64"
+        }
+      },
+      {
+        "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/operation/session.rs",
+        "reason": "Memory budget that sizes the worker count of one KAGEMUSHA producer-inventory route stage. Route workers start only while the signed, declared extents of every original their routes read (the Omega and terminal metadata, and each A and W member's metadata and complete original, each read refused unless it has exactly that extent) fit under it together; there is never more than one worker per route or rayon pool thread and always at least one, so a route above it still qualifies alone, as with one worker. It schedules process-local work only: the qualified routes, the reported lowest-index error, the progress events and the counted opening work equal those of the one-worker index order, so it never changes a verdict, is never persisted and grants no authority. It bounds producer memory, not bytes that travel.",
+        "symbols": [
+          "ROUTE_WORKERS_MEMORY_BUDGET_BYTES"
+        ],
+        "exprs": {
+          "ROUTE_WORKERS_MEMORY_BUDGET_BYTES": "32 << 20"
+        }
       },
       {
         "reason": "Nexus/AMX context projection: the 1 MiB cap bounds the canonical policy-context preimage, while the other limit-named constants are string field tags, not numeric limits. The committed policy fields have their own listed owners and this context does not enlarge any carrier allowance.",
@@ -24482,7 +24520,8 @@
             {
               "path": "crates/iroha_torii/src/kagemusha_wallet.rs",
               "sites": {
-                "height < 2": 1
+                "height < 2": 1,
+                "height.get() >= 2": 1
               }
             },
             {
@@ -26193,6 +26232,13 @@
               }
             },
             {
+              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/ledger_finality.rs",
+              "sites": {
+                "self.inclusion.entry_proof.audit_path().len() > 32": 1,
+                "self.inclusion.output_proof.audit_path().len() > 32": 1
+              }
+            },
+            {
               "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/load_finality.rs",
               "sites": {
                 "self.event_proof.audit_path().len() > 32": 1
@@ -26239,7 +26285,8 @@
               "path": "crates/iroha_torii/src/kagemusha_wallet.rs",
               "sites": {
                 "app.torii_proxy_max_response_bytes.min(bytes / 16)": 1,
-                "maximum.min(512)": 1
+                "maximum.min(512)": 1,
+                ".torii_proxy_max_response_bytes .min(bytes / 16)": 1
               }
             },
             {

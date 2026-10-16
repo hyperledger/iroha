@@ -96,13 +96,13 @@ impl Wallet for TestWallet {
     fn resume(&mut self) -> Result<Response> {
         completion(Some(state::Completion::Pending))
     }
-    fn fold(&mut self) -> Result<Response> {
-        Ok(Response {
+    fn fold(&mut self) -> Result<ControlFlow<Response, FoldProof>> {
+        Ok(ControlFlow::Break(Response {
             kind: 8,
             sequence: (1_u128 << 93) + 7,
             detail: 3,
             ..Response::default()
-        })
+        }))
     }
     fn credit(&mut self, _: &[u8; 32], _: &[u8; 32]) -> Result<Response> {
         Err(Failure::code(FOLD_REQUIRED))

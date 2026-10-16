@@ -321,3 +321,60 @@ fn encoded_carrier_publisher_refuses_foreign_or_partial_complete_namespaces() {
         b"PRESERVE"
     );
 }
+
+#[test]
+fn encoded_admitted_revalidation_rehashes_each_observed_stored_frame() {
+    let raw = b"admitted original DATA, revalidated before another owner shares it";
+    let stored = encode(raw);
+    let (_temp, directory) = root();
+    let (_other_temp, other) = root();
+    let source = input(&directory, raw, &stored);
+    // Nothing observed yet: revalidation never stands in for an admission.
+    assert!(matches!(
+        source.revalidate_admitted(),
+        Err(Error::Inventory)
+    ));
+    source.verify_original(BlobV1::of(raw)).unwrap();
+    let before = super::super::OpeningWorkV1::current_thread();
+    source.revalidate_admitted().unwrap();
+    let work = super::super::OpeningWorkV1::current_thread().since(before);
+    // One stored pass per original: no frame is decoded and no raw byte is hashed again.
+    assert_eq!(work.stored_files_opened, 1);
+    assert_eq!(work.stored_bytes_hashed, stored.len() as u64);
+    assert_eq!(work.zstd_decodes, 0);
+    assert_eq!(work.raw_bytes_hashed, 0);
+
+    // Unchanged custody does not excuse a frame that differs from its transport identity.
+    let wrong = EncodedOriginalV1 {
+        original: BlobV1::of(raw),
+        stored: BlobV1 {
+            sha256: [9; 32],
+            ..BlobV1::of(&stored)
+        },
+    };
+    seal(&other, &hex::encode(wrong.original.sha256), &stored);
+    let mismatched = EncodedDirectoryOriginalsV1::open_existing(
+        other.path(),
+        &EncodedTransportV1::new(vec![wrong]).unwrap(),
+    )
+    .unwrap();
+    // Opening observes the file but never completes its stored hash.
+    drop(mismatched.open_original(wrong.original.sha256).unwrap());
+    assert!(matches!(
+        mismatched.revalidate_admitted(),
+        Err(Error::Inventory)
+    ));
+
+    // A replaced original is refused even with identical bytes.
+    let name = hex::encode(BlobV1::of(raw).sha256);
+    std::fs::rename(
+        directory.path().join(&name),
+        directory.path().join("retained-old"),
+    )
+    .unwrap();
+    seal(&directory, &name, &stored);
+    assert!(matches!(
+        source.revalidate_admitted(),
+        Err(Error::Inventory)
+    ));
+}

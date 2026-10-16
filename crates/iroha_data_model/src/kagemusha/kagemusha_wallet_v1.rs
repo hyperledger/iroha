@@ -70,6 +70,7 @@ mod frame_alignment;
 mod identity;
 mod keys;
 mod ledger;
+mod ledger_finality;
 mod ledger_records;
 mod load_finality;
 mod messages;
@@ -186,6 +187,12 @@ pub use self::{
         KagemushaWalletFeePayoutV1, KagemushaWalletLedgerControlActionV1,
         KagemushaWalletLedgerControlBodyV1, KagemushaWalletLedgerControlV1,
         KagemushaWalletUnloadChargeV1, KagemushaWalletUnloadClaimV1, KagemushaWalletUnloadPayoutV1,
+    },
+    ledger_finality::{
+        KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1,
+        KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1, KAGEMUSHA_WALLET_LEDGER_OUTPUT_MAX_BYTES_V1,
+        KagemushaWalletLedgerFinalityV1, LedgerFinalityBindingsV1,
+        VerifiedKagemushaLedgerOutcomeV1,
     },
     ledger_records::{
         KagemushaWalletLedgerKeyV1, KagemushaWalletPayoutKeyV1, KagemushaWalletPayoutRecordV1,

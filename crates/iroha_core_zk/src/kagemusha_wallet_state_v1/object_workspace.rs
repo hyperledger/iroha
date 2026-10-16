@@ -81,6 +81,16 @@ impl ObjectBatch {
         }
         Ok(MaterializedObjects { _acknowledged: () })
     }
+
+    /// Re-read every materialized original from durable storage after its publication.
+    /// Each read is bounded by the original's length and must reproduce its content key;
+    /// no copy is retained. This creates no object and acknowledges no manifest.
+    pub(super) fn read_back(&self, store: &mut dyn ObjectStore) -> Result<(), Error> {
+        for (key, original) in &self.objects {
+            drop(Zeroizing::new(checked_read(store, key, original.len())?));
+        }
+        Ok(())
+    }
 }
 
 /// One finite logical view over an authenticated durable source.

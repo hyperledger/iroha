@@ -274,3 +274,88 @@ fn failed_reads_change_no_verdict_and_record_only_started_work() {
         }
     );
 }
+
+#[test]
+fn attributed_work_leaves_its_thread_and_adopted_work_counts_once() {
+    let before = OpeningWorkV1::current_thread();
+    let (value, moved) = attributed(|| {
+        record_raw_hashed(5);
+        record_zstd_decode();
+        7
+    });
+    assert_eq!(value, 7);
+    assert_eq!(moved, work(5, 1));
+    // The work left this thread's counts, and adopting it counts it here once.
+    assert_eq!(
+        OpeningWorkV1::current_thread().since(before),
+        OpeningWorkV1::default()
+    );
+    adopt(moved);
+    assert_eq!(OpeningWorkV1::current_thread().since(before), work(5, 1));
+    // A nested attribution reports its own work; the enclosing one reports the rest.
+    let before = OpeningWorkV1::current_thread();
+    let (inner, outer) = attributed(|| {
+        record_raw_hashed(2);
+        let ((), inner) = attributed(|| record_raw_hashed(3));
+        record_zstd_decode();
+        inner
+    });
+    assert_eq!(inner, work(3, 0));
+    assert_eq!(outer, work(2, 1));
+    assert_eq!(
+        OpeningWorkV1::current_thread().since(before),
+        OpeningWorkV1::default()
+    );
+}
+
+#[test]
+fn work_a_helper_thread_does_reaches_every_lap_of_the_opening_thread() {
+    let mut metrics = OpeningMetricsV1::start();
+    let helped = std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let start = OpeningWorkV1::current_thread();
+                let ((), helped) = attributed(|| {
+                    record_original_opened();
+                    // Key-admission counts move with this crate's own.
+                    assert!(iroha_plonk::keys::DescriptorBinding::decode_v2(&[0, 1, 2]).is_err());
+                });
+                // Nothing the helper attributed stays on the helper thread.
+                assert_eq!(
+                    OpeningWorkV1::current_thread().since(start),
+                    OpeningWorkV1::default()
+                );
+                helped
+            })
+            .join()
+            .unwrap()
+    });
+    assert_eq!(helped.originals_opened, 1);
+    assert_eq!(helped.descriptor_decodes, 1);
+    // Before adoption the opening thread did no work in this phase.
+    metrics.lap("before");
+    adopt(helped);
+    metrics.lap("helped");
+    metrics.finish();
+    assert_eq!(
+        metrics.phase("before").unwrap().work,
+        OpeningWorkV1::default()
+    );
+    assert_eq!(metrics.phase("helped").unwrap().work, helped);
+    assert_eq!(metrics.phase("total").unwrap().work, helped);
+    let saturated = OpeningWorkV1 {
+        originals_opened: u64::MAX,
+        ..work(1, 2)
+    }
+    .plus(OpeningWorkV1 {
+        originals_opened: 1,
+        ..work(3, 4)
+    });
+    assert_eq!(
+        saturated,
+        OpeningWorkV1 {
+            originals_opened: u64::MAX,
+            ..work(4, 6)
+        }
+    );
+}

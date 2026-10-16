@@ -388,8 +388,15 @@ pub use native_execution_evidence::{
 mod tiered;
 mod tiered_publication;
 use crate::execution_attempt::ExecutionAttemptError;
-pub use block_proofs::{BlockProofLimits, BlockProofResource};
-use block_proofs::{block_proofs_for_entry_from_kura, executed_block_wire_from_kura};
+pub use block_proofs::{
+    BlockProofLimits, BlockProofResource, KagemushaLedgerAttemptKindV1, KagemushaLedgerAttemptV1,
+    KagemushaLedgerEntryInclusionV1, KagemushaLedgerEntryOwnerV1,
+};
+use block_proofs::{
+    block_proofs_for_entry_from_kura, executed_block_wire_from_kura,
+    kagemusha_ledger_entry_owner_from_body, kagemusha_ledger_inclusion_for_entry_from_body,
+    read_checkpointed_body,
+};
 use canonical_history::committed_block_from_kura;
 mod finality_proof_interval;
 pub use finality_proof_interval::FinalityProofIntervalReadError;
@@ -30353,6 +30360,113 @@ impl State {
         let wire = executed_block_wire_from_kura(source, block_height, expected_hash, limits)?;
         self.recheck_committed_block_hash_for_proof(block_height, expected_hash)?;
         Ok(wire)
+    }
+
+    /// Project the signer and explicit KAGEMUSHA Activate/Unload attempts (with each Unload
+    /// claim's paid account) of one committed External Network input, for an account-scoped
+    /// ledger-finality route filter.
+    ///
+    /// The body is read through the checkpoint-resumed native authenticator (as
+    /// [`Self::read_executed_carrier_from_checkpoints`] reads) under the five explicit
+    /// [`BlockProofLimits`], with source frames, their decoding and the Activate/Unload shape
+    /// decodes charged to `read_budget`. No Merkle path is built and no output is copied. The
+    /// projection is DATA, never finality authority. Source work depends on node-local
+    /// checkpoints, so on-chain readers must not use it.
+    /// # Errors
+    /// Rejects absent or replaced committed history, an unauthenticated or invalid body and
+    /// exceeded limits, all before building paths. Genesis and a sealed input carry no
+    /// attempt and are refused as [`BlockProofError::EntrypointNotFound`]. A local decoder
+    /// refusal of an Activate or Unload frame stays [`BlockProofError::Deferred`].
+    #[track_caller]
+    pub fn kagemusha_ledger_entry_owner(
+        &self,
+        block_height: NonZeroU64,
+        entry_hash: HashOf<TransactionEntrypoint>,
+        limits: BlockProofLimits,
+        read_budget: &CanonicalHistoryReadBudget,
+    ) -> Result<KagemushaLedgerEntryOwnerV1, BlockProofError> {
+        let block = self.kagemusha_ledger_body(block_height, entry_hash, limits, read_budget)?;
+        // Activate/Unload shape decodes are charged to the same request decoder allowance.
+        read_budget
+            .with(|| kagemusha_ledger_entry_owner_from_body(&block, block_height, entry_hash))
+    }
+
+    /// Read the selective inclusion of one committed External Network input whose owner
+    /// projection `admit` accepts: its entry path, joined complete Network output and output
+    /// path.
+    ///
+    /// The body is read as [`Self::kagemusha_ledger_entry_owner`] reads it. An owner that
+    /// `admit` refuses answers `None` before any path is built or any output is copied. The
+    /// response limit bounds the inclusion frame before its output row is copied.
+    /// # Errors
+    /// Rejects what [`Self::kagemusha_ledger_entry_owner`] rejects, a missing output join, or
+    /// an inclusion frame above the response limit.
+    #[track_caller]
+    pub fn kagemusha_ledger_inclusion_for_entry(
+        &self,
+        block_height: NonZeroU64,
+        entry_hash: HashOf<TransactionEntrypoint>,
+        limits: BlockProofLimits,
+        read_budget: &CanonicalHistoryReadBudget,
+        admit: impl FnOnce(&KagemushaLedgerEntryOwnerV1) -> bool,
+    ) -> Result<Option<KagemushaLedgerEntryInclusionV1>, BlockProofError> {
+        let block = self.kagemusha_ledger_body(block_height, entry_hash, limits, read_budget)?;
+        read_budget.with(|| {
+            kagemusha_ledger_inclusion_for_entry_from_body(
+                &block,
+                block_height,
+                entry_hash,
+                limits,
+                admit,
+            )
+        })
+    }
+
+    /// One committed body for the KAGEMUSHA ledger reads, bound to this State's captured hash
+    /// journal and native execution tip, and rechecked against the journal afterwards.
+    fn kagemusha_ledger_body(
+        &self,
+        block_height: NonZeroU64,
+        entry_hash: HashOf<TransactionEntrypoint>,
+        limits: BlockProofLimits,
+        read_budget: &CanonicalHistoryReadBudget,
+    ) -> Result<iroha_data_model::block::SharedSignedBlock, BlockProofError> {
+        // Genesis carries no wallet attempt and has no compact certificate: read nothing.
+        if block_height == NonZeroU64::MIN {
+            return Err(BlockProofError::EntrypointNotFound {
+                entry_hash,
+                block_height,
+            });
+        }
+        let expected_hash = self.committed_block_hash_for_proof(block_height)?;
+        // Capture only the immutable journal and opaque native tip within one publication
+        // interval, as `read_executed_carrier_from_checkpoints` does.
+        let (hashes, tip) = loop {
+            let before = self.state_view_generation();
+            if !before.is_multiple_of(2) {
+                std::thread::yield_now();
+                continue;
+            }
+            let hashes = self.block_hashes.view();
+            let tip = *self.native_execution_tip.view().get();
+            if is_stable_state_view_generation(before, self.state_view_generation()) {
+                break (hashes, tip);
+            }
+            drop(hashes);
+            std::thread::yield_now();
+        };
+        let history =
+            CanonicalHistorySource::new(&self.kura, &hashes, tip, read_budget.frames().clone());
+        let block = read_checkpointed_body(
+            &self.kura,
+            history,
+            block_height,
+            expected_hash,
+            limits,
+            read_budget,
+        )?;
+        self.recheck_committed_block_hash_for_proof(block_height, expected_hash)?;
+        Ok(block)
     }
 
     /// Read one complete native execution for an off-chain reader, starting the

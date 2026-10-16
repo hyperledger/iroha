@@ -422,17 +422,62 @@ impl NativeFoldWorkerV1 {
         }
         self.route_schedule(selector(step)?)
     }
+    /// Revalidate the proving originals of the sub-proof that `checkpoints` selects: the next
+    /// Q, the next A or W, or the final Ω of a schedule of `stages` with `q_count` Q stages.
+    /// The prepared job binds the same already-admitted source without the original store.
+    fn revalidate(
+        &self,
+        route: OperationRoute,
+        checkpoints: usize,
+        q_count: usize,
+        stages: usize,
+        originals: &mut dyn OriginalSourceV1,
+        cancellation: &Cancellation,
+    ) -> Result<(), Error> {
+        fold_metrics::enter(FoldPhaseV1::KeyImport);
+        let token = Some(cancellation.prover_token());
+        if checkpoints < q_count {
+            fold_metrics::stage(FoldStageV1::Q);
+            self.sources
+                .import_q_cancellable(route, checkpoints, originals, self.read, token)
+                .map_err(artifact)?;
+        } else if checkpoints < stages {
+            let position = checkpoints - q_count;
+            if position % 2 == 1 {
+                fold_metrics::stage(FoldStageV1::W);
+                self.sources
+                    .import_w_cancellable(route, position / 2, originals, self.read, token)
+                    .map_err(artifact)?;
+            } else {
+                fold_metrics::stage(FoldStageV1::A);
+                self.sources
+                    .import_a_cancellable(route, position / 2, originals, self.read, token)
+                    .map_err(artifact)?;
+            }
+        } else {
+            fold_metrics::stage(FoldStageV1::Omega);
+            self.sources
+                .import_omega_cancellable(originals, self.read, token)
+                .map_err(artifact)?;
+        }
+        cancellation.check()
+    }
+    /// Under the wallet owner: replay the step's preparation from `custody`, assemble its
+    /// native inputs and revalidate the proving originals of the selected stage. The returned
+    /// job owns them with a copy of this worker and proves without the owner; no custody,
+    /// archive or original-store handle crosses into it.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn next(
+    pub(crate) fn prepare(
         &self,
         step: &ReleasedStep,
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
-        checkpoints: &[PrivateArchiveBytes],
+        checkpoints: Vec<PrivateArchiveBytes>,
         cancellation: &Cancellation,
         originals: &mut dyn OriginalSourceV1,
         custody: &mut FoldCustodyV1<'_>,
-    ) -> Result<FoldProgress, Error> {
+    ) -> Result<Box<dyn NativeFoldJobV1>, Error> {
         cancellation.check()?;
+        fold_metrics::enter(FoldPhaseV1::OwnerReplay);
         let route = selector(step)?;
         let schedule = self.schedule(step, predecessor, custody)?;
         if checkpoints.len() > schedule.len() {
@@ -619,29 +664,86 @@ impl NativeFoldWorkerV1 {
             signatures: fields.signatures([root.x, root.y], route.variant)?,
         };
         let q_count = proof(self.sources.q(route))?.keys().len();
-        let q = match self.q_stage(
+        // The A/W stages use the lineage fields only once every Q source exists.
+        let public_fields = if checkpoints.len() < q_count {
+            None
+        } else {
+            Some(proof(preparation.state_fields(&owner, state, &public))?.lineage)
+        };
+        self.revalidate(
             route,
-            &step.frozen.capsule,
+            checkpoints.len(),
+            q_count,
+            schedule.len(),
+            originals,
+            cancellation,
+        )?;
+        Ok(Box::new(NativeStageJobV1 {
+            worker: self.clone(),
+            route,
+            source: step.frozen.capsule.custody_digest(),
+            q_sources,
+            fields,
+            checkpoints,
+            q_count,
+            public,
+            public_fields,
+            predecessor_burned: predecessor.map(|record| record.lineage.public.burned_total),
+        }))
+    }
+}
+
+/// One prepared native sub-proof: owned inputs and a copy of the metadata-only worker, with
+/// no custody, archive or original-store handle.
+struct NativeStageJobV1 {
+    worker: NativeFoldWorkerV1,
+    route: OperationRoute,
+    // Custody digest of the selected capsule, the private Q checkpoint identity.
+    source: [u8; 32],
+    q_sources: q::QSourcesV1,
+    fields: Fields,
+    checkpoints: Vec<PrivateArchiveBytes>,
+    q_count: usize,
+    public: KagemushaWalletLineagePublicV1,
+    public_fields: Option<[Fp; 18]>,
+    predecessor_burned: Option<u128>,
+}
+
+impl NativeFoldJobV1 for NativeStageJobV1 {
+    fn prove(self: Box<Self>, cancellation: &Cancellation) -> Result<FoldProgress, Error> {
+        let Self {
+            worker,
+            route,
+            source,
+            q_sources,
+            fields,
+            checkpoints,
+            q_count,
+            public,
+            public_fields,
+            predecessor_burned,
+        } = *self;
+        let q = match worker.q_stage(
+            route,
+            source,
             &q_sources,
             &checkpoints[..checkpoints.len().min(q_count)],
-            originals,
             cancellation,
         )? {
             q::QProgressV1::Checkpoint(bytes) => return Ok(FoldProgress::Checkpoint(bytes)),
             q::QProgressV1::Complete(q) => q,
         };
-        let public_fields = proof(preparation.state_fields(&owner, state, &public))?.lineage;
-        match self.stage(
+        let public_fields = public_fields.ok_or(Error::Proof("native fold lineage fields"))?;
+        match worker.stage(
             route,
             fields.with_q(q)?,
             public_fields,
             &checkpoints[q_count..],
-            originals,
             cancellation,
         )? {
             NativeStageProgressV1::Checkpoint(bytes) => Ok(FoldProgress::Checkpoint(bytes)),
             NativeStageProgressV1::Terminal(input) => {
-                let proof_bytes = self.finish(input, originals, cancellation)?;
+                let proof_bytes = worker.finish(input, cancellation)?;
                 // A candidate: the coordinator verifies this exact lineage in full before
                 // any credit, pending-map, archive or manifest effect.
                 let lineage = KagemushaWalletLineageV1 {
@@ -651,12 +753,7 @@ impl NativeFoldWorkerV1 {
                 let burned =
                     route.variant == Variant::Receive || route.variant == Variant::ReceiveRenewed;
                 let burned = burned
-                    && public.burned_total
-                        != predecessor
-                            .ok_or(Error::FoldRequired)?
-                            .lineage
-                            .public
-                            .burned_total;
+                    && public.burned_total != predecessor_burned.ok_or(Error::FoldRequired)?;
                 Ok(FoldProgress::Complete { lineage, burned })
             }
         }

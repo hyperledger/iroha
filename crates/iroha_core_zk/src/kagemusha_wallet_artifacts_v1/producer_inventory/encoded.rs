@@ -457,6 +457,48 @@ impl EncodedDirectoryOriginalsV1 {
         self.directory.sync()?;
         self.directory.revalidate()
     }
+
+    /// Re-check the custody and stored identities this reader's complete admission observed,
+    /// before another owner shares it.
+    ///
+    /// Every selected original must already be observed, as a complete admission snapshot
+    /// leaves it. Each is reopened under the retained directory, its native snapshot must
+    /// equal the observed one, and its whole stored frame is hashed again against the
+    /// transport identity. The decoded identity is not derived again: this reader's admission
+    /// decoded and checked that exact frame, and every live read checks both identities.
+    /// This grants no source, installation or wallet authority.
+    ///
+    /// # Errors
+    /// An original never observed, missing, replaced or changed; a stored extent or hash
+    /// mismatch; or changed directory custody.
+    pub fn revalidate_admitted(&self) -> Result<(), Error> {
+        self.directory.revalidate().map_err(|_| Error::Inventory)?;
+        let observed = self.observed.lock().map_err(|_| Error::Inventory)?.clone();
+        if !observed.keys().eq(self.originals.keys()) {
+            return Err(Error::Inventory);
+        }
+        let mut buffer = [0_u8; 16 << 10];
+        for (&digest, identity) in &self.originals {
+            let (file, snapshot) = self
+                .retained_file(digest)
+                .map_err(|_| Error::Inventory)?
+                .ok_or(Error::Inventory)?;
+            // The helper just compared this snapshot with observed custody; keep its native
+            // file held through this independent comparison and the whole stored read.
+            if observed.get(&digest) != Some(&snapshot) {
+                return Err(Error::Inventory);
+            }
+            let mut stored = StoredReader {
+                file,
+                expected: identity.stored,
+                hash: Sha256::new(),
+                bytes: 0,
+            };
+            while stored.read(&mut buffer).map_err(|_| Error::Inventory)? != 0 {}
+            stored.finish().map_err(|_| Error::Inventory)?;
+        }
+        self.directory.revalidate().map_err(|_| Error::Inventory)
+    }
 }
 impl OriginalSourceV1 for EncodedDirectoryOriginalsV1 {
     fn open(&mut self, digest: [u8; 32]) -> Result<Box<dyn Read + '_>, Error> {

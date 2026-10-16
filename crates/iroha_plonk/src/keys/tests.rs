@@ -1410,4 +1410,58 @@ fn cancellable_vk_hash_matches_every_transcript_profile() {
     check::<Eq>();
 }
 
+#[test]
+fn shared_descriptor_bindings_compare_by_exact_domain_digest_and_frame() {
+    let params = params::<Ep>();
+    let v2 = KeygenConfigV2::pipa_r(vec![crate::cs::InstanceType::Field]);
+    let (built, _) = keygen_vk_with_binding_v2(&params, &CIRCUIT, &v2).expect("V2 verifier");
+    // A clone shares one immutable allocation.
+    let shared = built.clone();
+    assert!(Arc::ptr_eq(&shared.0, &built.0));
+    assert_eq!(shared, built);
+    // An independent admission decode of the same frame is another allocation
+    // with the same descriptor, digest and frame, so it compares equal.
+    let decoded = DescriptorBinding::decode_v2(built.encoded()).expect("canonical frame");
+    assert!(!Arc::ptr_eq(&decoded.0, &built.0));
+    assert_eq!(decoded, built);
+    assert_eq!(built, decoded);
+    assert_eq!(decoded.descriptor(), built.descriptor());
+    assert_eq!(decoded.digest(), built.digest());
+    // The V1 binding of the same circuit differs in its digest domain and frame.
+    let v1 = keygen_pk(
+        &params,
+        &CIRCUIT,
+        &config(TranscriptV1::Blake2bChallenge255, true),
+    )
+    .expect("V1 key");
+    assert!(!v1.binding().is_v2());
+    assert_ne!(v1.binding(), &built);
+    assert_ne!(v1.binding().digest(), built.digest());
+    // Another V2 descriptor of the same circuit is unequal in both directions.
+    let mut expanded = v2;
+    expanded.compress_selectors = false;
+    let (other, _) =
+        keygen_vk_with_binding_v2(&params, &CIRCUIT, &expanded).expect("expanded verifier");
+    assert_ne!(other, built);
+    assert_ne!(built, other);
+    // A changed frame byte never admits as, or compares equal to, the original.
+    for index in [0, built.encoded().len() / 2, built.encoded().len() - 1] {
+        let mut changed = built.encoded().to_vec();
+        changed[index] ^= 1;
+        if let Ok(changed) = DescriptorBinding::decode_v2(&changed) {
+            assert_ne!(changed, built);
+        }
+    }
+    // Sharing leaves the public Debug shape unchanged.
+    assert_eq!(
+        format!("{built:?}"),
+        format!(
+            "DescriptorBinding {{ descriptor: {:?}, encoded: {:?}, digest: {:?} }}",
+            built.descriptor(),
+            built.encoded(),
+            built.digest()
+        )
+    );
+}
+
 mod packed_selectors;

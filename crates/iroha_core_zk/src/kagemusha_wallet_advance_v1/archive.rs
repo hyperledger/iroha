@@ -244,6 +244,8 @@ pub struct KagemushaWalletArchiveAccessV1<'a, F: KagemushaWalletFsV1> {
     probe: Option<&'a dyn Fn() -> Result<(), Error>>,
     // Whether this access touched storage; an access answered from memory needs no probe.
     observed: Cell<bool>,
+    // A callback cannot swallow a failed retirement then publish over its unfinished grave.
+    retirement_failure: Cell<Option<Error>>,
 }
 
 /// Most records the exact-bytes archive write memo keeps; the oldest are forgotten first.
@@ -442,14 +444,17 @@ where
         self.drain_archive(slot)?;
         let status = self.reconcile_slot(slot, None)?;
         require_archive_status(&status)?;
-        let result = operation(&KagemushaWalletArchiveAccessV1 {
+        let access = KagemushaWalletArchiveAccessV1 {
             store: &self.store,
             slot,
             writes: &self.archive_writes,
             batch: self.archive_batches.get(slot),
             probe: None,
             observed: Cell::new(false),
-        });
+            retirement_failure: Cell::new(None),
+        };
+        let result = operation(&access);
+        let result = access.retirement_failure.get().map_or(result, Err);
         let result = self.require_storage().and(result);
         self.guard_archive(slot, result)
     }
@@ -510,8 +515,10 @@ where
             batch: self.archive_batches.get(slot),
             probe: Some(&probe),
             observed: Cell::new(false),
+            retirement_failure: Cell::new(None),
         };
         let result = operation(&access);
+        let result = access.retirement_failure.get().map_or(result, Err);
         let observed = access.observed.get();
         let result = if observed || result.is_err() {
             self.require_storage().and(result)
@@ -934,6 +941,221 @@ fn record_names(key: &[u8; 32]) -> [Name; 2] {
     [base.clone(), format!("{base}.r")]
         .map(|name| Name::new(&name).expect("fixed archive record name"))
 }
+// Graves carry independent 128-bit retirement nonces. Only the permanent journal may
+// authorize replay; an unreferenced grave is garbage and never restores a record name.
+fn grave_names(key: &[u8; 32], nonce: &str) -> [Name; 2] {
+    record_names(key).map(|name| {
+        Name::new(&format!("{}.g-{nonce}", name.as_str()))
+            .expect("bounded nonce-qualified archive grave")
+    })
+}
+
+fn parse_grave(name: &str) -> Option<Name> {
+    let (record, nonce) = name.split_once(".g-")?;
+    let canonical_hex = |text: &str, len| {
+        text.len() == len
+            && text
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    };
+    if !canonical_hex(nonce, 32) {
+        return None;
+    }
+    let stem = record.strip_prefix("w-")?;
+    let key = stem
+        .strip_suffix(".rec.r")
+        .or_else(|| stem.strip_suffix(".rec"))?;
+    canonical_hex(key, 64).then(|| Name::new(record)).flatten()
+}
+
+const RETIREMENT_MAX_BYTES: usize = 1024;
+
+fn retirement_name() -> Name {
+    Name::new("retirement.norito").expect("fixed archive retirement journal name")
+}
+
+// This bounded cell is never deleted. Complete(N) can only be replaced by a durable
+// Pending(N+1), before the next incarnation's original names are touched. It holds no
+// monetary object or payload, only the exact slot, record and unique grave identities.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, norito::Encode, norito::Decode, norito::NoritoSchema,
+)]
+#[norito_schema(name = "iroha_core::zk::kagemusha_wallet_advance_v1::ArchiveRetirementV1")]
+struct ArchiveRetirementV1 {
+    version: u16,
+    slot: [u8; 32],
+    key: [u8; 32],
+    nonce: [u8; 16],
+    complete: bool,
+}
+
+impl ArchiveRetirementV1 {
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        super::encode_envelope_v1(self, RETIREMENT_MAX_BYTES)
+    }
+
+    fn decode(bytes: &[u8], slot: &Slot) -> Result<Self, Error> {
+        let journal: Self = super::decode_envelope_v1(bytes, RETIREMENT_MAX_BYTES)?;
+        if journal.version != 1 || journal.slot != slot.0 {
+            return Err(Error::UnavailableCustodyData {
+                object: "archive retirement journal",
+            });
+        }
+        Ok(journal)
+    }
+
+    fn graves(&self) -> [Name; 2] {
+        grave_names(&self.key, &hex::encode(self.nonce))
+    }
+}
+
+// The supplied Pending is already durable. Keep the exact original inodes until both
+// their absence and the Complete cell are durable. Neither failure permits publication.
+fn complete_archive_retirement<F: KagemushaWalletFsV1>(
+    store: &KagemushaWalletDurableStoreV1<F>,
+    directory: &super::KagemushaWalletCustodyDirV1,
+    journal: &ArchiveRetirementV1,
+    encoded: &[u8],
+) -> Result<Vec<u8>, Error> {
+    if journal.complete {
+        return Ok(encoded.to_vec());
+    }
+    let records = record_names(&journal.key);
+    let graves = journal.graves();
+    super::layout::kagemusha_wallet_require_removed_v1(store.retain_retired_files(
+        directory,
+        &[(&records[0], &graves[0]), (&records[1], &graves[1])],
+    ))?;
+    let complete = ArchiveRetirementV1 {
+        complete: true,
+        ..*journal
+    }
+    .encode()?;
+    kagemusha_wallet_require_published_v1(store.replace_exact(
+        directory,
+        &retirement_name(),
+        encoded,
+        &complete,
+    ))?;
+    Ok(complete)
+}
+
+/// Adopt the visible journal on a fresh inode before it authorizes any recovery action.
+/// Pending retains and commits deletion; Complete and unreferenced graves are reap-only.
+/// The returned Complete bytes are the exact predecessor of a subsequent Pending cell.
+pub(super) fn settle_archive_graves<F: KagemushaWalletFsV1>(
+    store: &KagemushaWalletDurableStoreV1<F>,
+    slot: &Slot,
+    directory: &super::KagemushaWalletCustodyDirV1,
+    entries: &[super::KagemushaWalletListedEntryV1],
+) -> Result<Option<Vec<u8>>, Error> {
+    let mut garbage = Vec::new();
+    for entry in entries {
+        if parse_grave(&entry.name).is_none() {
+            if entry.name.contains(".g-") {
+                return Err(Error::UnavailableCustodyData {
+                    object: "archive grave name",
+                });
+            }
+            continue;
+        }
+        if entry.kind != super::KagemushaWalletEntryKindV1::File {
+            return Err(Error::UnavailableCustodyData {
+                object: "archive grave identity",
+            });
+        }
+        garbage.push(Name::new(&entry.name).ok_or(Error::Invalid {
+            field: "archive.grave",
+        })?);
+    }
+    let name = retirement_name();
+    let journal_entry = entries.iter().find(|entry| entry.name == name.as_str());
+    let mut completed_graves = None;
+    let completed = if let Some(entry) = journal_entry {
+        if entry.kind != super::KagemushaWalletEntryKindV1::File {
+            return Err(Error::UnavailableCustodyData {
+                object: "archive retirement journal",
+            });
+        }
+        let bytes = match store.read(directory, &name, RETIREMENT_MAX_BYTES) {
+            KagemushaWalletReadV1::Present(bytes) => bytes,
+            KagemushaWalletReadV1::Unavailable(reason) => return Err(Error::Unavailable(reason)),
+            _ => {
+                return Err(Error::UnavailableCustodyData {
+                    object: "archive retirement journal",
+                });
+            }
+        };
+        let journal = ArchiveRetirementV1::decode(&bytes, slot)?;
+        // The visible phase may itself be an uncommitted rename after lost writeback.
+        // Reissuing it on a new inode makes the phase durable before any original moves.
+        kagemusha_wallet_require_published_v1(store.rewrite_same(directory, &name, &bytes))?;
+        let complete = complete_archive_retirement(store, directory, &journal, &bytes)?;
+        let graves = journal.graves();
+        super::layout::kagemusha_wallet_require_removed_v1(
+            store.reap_retired_files(directory, &[&graves[0], &graves[1]]),
+        )?;
+        completed_graves = Some(graves);
+        Some(complete)
+    } else {
+        None
+    };
+    // The Complete cell above, or absence of any journal for these unique names, proves
+    // these graves cannot authorize replay. Never move their bytes to a live record name.
+    for grave in &garbage {
+        if completed_graves
+            .as_ref()
+            .is_some_and(|names| names.contains(grave))
+        {
+            continue;
+        }
+        super::layout::kagemusha_wallet_require_removed_v1(
+            store.reap_retired_files(directory, &[grave]),
+        )?;
+    }
+    Ok(completed)
+}
+
+fn retire_archive_record<F: KagemushaWalletFsV1>(
+    store: &KagemushaWalletDurableStoreV1<F>,
+    slot: &Slot,
+    key: &[u8; 32],
+) -> Result<(), Error> {
+    let directory = kagemusha_wallet_archive_dir_v1(slot);
+    let entries = store
+        .list(&directory)
+        .into_result()?
+        .ok_or(Error::UnavailableCustodyData {
+            object: "archive directory",
+        })?;
+    let previous = settle_archive_graves(store, slot, &directory, &entries)?;
+    let nonce = store.retirement_nonce().map_err(Error::Unavailable)?;
+    // retirement_nonce already requires exactly 32 lowercase hex digits. Keep this
+    // conversion fallible so an invalid backend cannot panic while preparing deletion.
+    let nonce: [u8; 16] = hex::decode(nonce)
+        .ok()
+        .and_then(|bytes| bytes.try_into().ok())
+        .ok_or(Error::Unavailable(Unavailable::Io(0)))?;
+    let pending = ArchiveRetirementV1 {
+        version: 1,
+        slot: slot.0,
+        key: *key,
+        nonce,
+        complete: false,
+    };
+    let encoded = pending.encode()?;
+    let outcome = match previous {
+        Some(previous) => store.replace_exact(&directory, &retirement_name(), &previous, &encoded),
+        None => store.write_new(&directory, &retirement_name(), &encoded),
+    };
+    kagemusha_wallet_require_published_v1(outcome)?;
+    complete_archive_retirement(store, &directory, &pending, &encoded)?;
+    let graves = pending.graves();
+    super::layout::kagemusha_wallet_require_removed_v1(
+        store.reap_retired_files(&directory, &[&graves[0], &graves[1]]),
+    )
+}
+
 impl<F: KagemushaWalletFsV1> KagemushaWalletArchiveAccessV1<'_, F> {
     /// Read one immutable state-owner record. A digest prefix authenticates each redundant
     /// copy; the caller additionally checks its canonical incarnation/key envelope. A record
@@ -1054,15 +1276,34 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletArchiveAccessV1<'_, F> {
                 field: "archive.pending_records",
             });
         }
-        self.writes.borrow_mut().forget(self.slot, key);
-        let directory = kagemusha_wallet_archive_dir_v1(self.slot);
-        for name in record_names(key) {
-            super::layout::kagemusha_wallet_require_removed_v1(
-                self.store().remove_file(&directory, &name),
-            )?;
+        let result = (|| {
+            self.settle_failed_retirement()?;
+            self.writes.borrow_mut().forget(self.slot, key);
+            retire_archive_record(self.store(), self.slot, key)
+        })();
+        self.retirement_failure.set(result.as_ref().err().copied());
+        result
+    }
+
+    // A failed removal can be caught inside a callback. Finish its visible graves before a
+    // subsequent publication, and retain the failure if it cannot be reconciled.
+    fn settle_failed_retirement(&self) -> Result<(), Error> {
+        if self.retirement_failure.get().is_none() {
+            return Ok(());
         }
+        let directory = kagemusha_wallet_archive_dir_v1(self.slot);
+        let entries =
+            self.store()
+                .list(&directory)
+                .into_result()?
+                .ok_or(Error::UnavailableCustodyData {
+                    object: "archive directory",
+                })?;
+        settle_archive_graves(self.store(), self.slot, &directory, &entries)?;
+        self.retirement_failure.set(None);
         Ok(())
     }
+
     /// Publish the exact bytes at an immutable key under the provider's custody capability.
     ///
     /// Bytes this process already published durably at the key (or adopted on a fresh inode)
@@ -1075,6 +1316,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletArchiveAccessV1<'_, F> {
     /// # Errors
     /// Conflicting existing bytes, unavailable storage or uncertain durable publication.
     pub fn write_record(&self, key: &[u8; 32], bytes: &[u8]) -> Result<(), Error> {
+        self.settle_failed_retirement()?;
         super::counters::count(super::counters::EventV1::ArchivePut);
         let frame = kagemusha_wallet_archive_object_digest_v1(bytes);
         let written = self.writes.borrow().get(self.slot, key);
@@ -1185,6 +1427,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletArchiveAccessV1<'_, F> {
         batch: &ArchiveBatchV1,
         checkpoint: Option<([u8; 32], &[u8])>,
     ) -> Result<(), Error> {
+        self.settle_failed_retirement()?;
         let directory = kagemusha_wallet_archive_dir_v1(self.slot);
         let mut planned: Vec<(Name, &[u8], BatchAction)> =
             Vec::with_capacity(2 * batch.records.len() + 2);

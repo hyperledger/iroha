@@ -337,6 +337,13 @@ fn complete(result: Completion) -> Vec<u8> {
     };
     bytes
 }
+/// Run one coordinator call; return its result and the native derivations it started
+/// before Advance (B13: two for a fresh operation, none once Advance has selected it).
+fn derived<T>(call: impl FnOnce() -> T) -> (T, u64) {
+    let (result, counts) =
+        crate::kagemusha_wallet_preparation_v1::KagemushaWalletDerivationCountsV1::observe(call);
+    (result, counts.before_advance)
+}
 fn action(id: u8, action: OperationActionV1) -> OperationRequestV1 {
     OperationRequestV1 {
         request_id: [id; 32],
@@ -729,14 +736,22 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     device_a
         .platform
         .with(|state| state.sign_fault_at = Some(state.sign_calls));
+    let (pending, derivations) = derived(|| a.execute(send_ab.clone()).unwrap());
     assert_eq!(
-        a.execute(send_ab.clone()).unwrap(),
+        pending,
         Completion::Pending,
         "post-Advance receipt-signing outage must never report a rejected debit"
     );
+    assert_eq!(
+        derivations, 2,
+        "fresh Send: plan reused through proving, then commit"
+    );
     drop(a);
     let mut a = sources.open(&device_a, &f, &frames_a);
-    assert_eq!(a.execute(send_ab.clone()).unwrap(), Completion::Pending);
+    assert_eq!(
+        derived(|| a.execute(send_ab.clone()).unwrap()),
+        (Completion::Pending, 0)
+    );
     let payment_ab = complete(a.resume().unwrap().expect("selected Send remains pending"));
     finish_exchange(
         output,
@@ -838,14 +853,15 @@ fn finish_exchange(
         before_invalid,
         "invalid incoming proof cannot credit"
     );
-    let receive_ab = receive(&payment_ab, &frames_a, 213);
-    let received_ab = complete(b.execute(receive_ab.clone()).unwrap());
+    let incoming_ab = receive(&payment_ab, &frames_a, 213);
+    let (received_ab, derivations) = derived(|| complete(b.execute(incoming_ab.clone()).unwrap()));
+    assert_eq!(derivations, 2, "fresh Receive");
     assert_eq!(
-        complete(b.execute(receive_ab.clone()).unwrap()),
-        received_ab
+        derived(|| complete(b.execute(incoming_ab.clone()).unwrap())),
+        (received_ab.clone(), 0)
     );
     let before_duplicate = b.snapshot().unwrap();
-    let mut duplicate = receive_ab.clone();
+    let mut duplicate = incoming_ab.clone();
     duplicate.request_id = [214; 32];
     assert!(
         b.execute(duplicate).is_err(),
@@ -899,7 +915,8 @@ fn finish_exchange(
     assert!(b.execute(send_bc.clone()).is_err());
     device_b.platform.with(|s| s.storage = Ok(()));
     assert_eq!(b.snapshot().unwrap(), before);
-    let payment_bc = complete(b.execute(send_bc.clone()).unwrap());
+    let (payment_bc, derivations) = derived(|| complete(b.execute(send_bc.clone()).unwrap()));
+    assert_eq!(derivations, 2, "Send after a refused attempt");
     require_payment_bound(&payment_bc, &f.config.scheme.scheme_id());
     assert_eq!(complete(b.execute(send_bc).unwrap()), payment_bc);
     let receive_bc = receive(&payment_bc, &frames_b, 223);
@@ -1098,8 +1115,12 @@ fn finish_unload(
         },
     );
     let unload_id = unload.request_id;
-    let unloaded = complete(c.execute(unload.clone()).unwrap());
-    assert_eq!(complete(c.execute(unload).unwrap()), unloaded);
+    let (unloaded, derivations) = derived(|| complete(c.execute(unload.clone()).unwrap()));
+    assert_eq!(derivations, 2, "fresh Unload");
+    assert_eq!(
+        derived(|| complete(c.execute(unload).unwrap())),
+        (unloaded.clone(), 0)
+    );
     let claim_original = c.unload_claim_bytes(&unload_id, None).unwrap();
     drop(c);
     let mut c = sources.open(&device_c, &f_c, &frames_c);

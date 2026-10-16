@@ -834,20 +834,41 @@ fn remove_drains_forgets_and_reput_republishes() {
         .remove_archive_record(&slot, key, &object)
         .expect("remove");
     let trace = device.fs.trace_since(start);
-    let last_rename = trace
+    let new_renames: Vec<usize> = trace
         .iter()
-        .rposition(|step| *step == Step::RenameNoReplace)
-        .expect("batch renames");
+        .enumerate()
+        .filter_map(|(index, step)| (*step == Step::RenameNoReplace).then_some(index))
+        .collect();
     assert_eq!(
-        trace[last_rename + 1..],
+        new_renames.len(),
+        staged.len() * 2 + 1,
+        "batch copies plus Pending journal"
+    );
+    let last_batch_rename = new_renames[new_renames.len() - 2];
+    assert_eq!(
+        trace[last_batch_rename + 1..],
         [
             Step::SyncDir,
-            Step::Unlink,
+            Step::List,
+            Step::CreateNew,
+            Step::Write,
+            Step::SyncFile,
+            Step::RenameNoReplace,
             Step::SyncDir,
+            Step::RenameEntry,
+            Step::RenameEntry,
+            Step::SyncDir,
+            Step::Read,
+            Step::CreateNew,
+            Step::Write,
+            Step::SyncFile,
+            Step::RenameReplace,
+            Step::SyncDir,
+            Step::Unlink,
             Step::Unlink,
             Step::SyncDir
         ],
-        "the batch is durable before any copy is removed"
+        "batch and Pending are durable before retirement; Complete is durable before cleanup"
     );
     assert_absent(&device, &slot, &staged[..1], "removed");
     assert_exact(&durable_view(&device), &slot, &staged[1..], "drained first");

@@ -112,6 +112,12 @@ pub struct ReviewedOperationV1 {
     action: OperationActionV1,
     unload_beneficiary: Option<Vec<u8>>,
 }
+// A review must stay `Send`, so it can never retain a call-scoped, `!Send` native
+// derivation (`NativePreparedOperationV1`), independently of any mobile boundary bound.
+const _: () = {
+    const fn send<T: Send>() {}
+    send::<ReviewedOperationV1>();
+};
 impl ReviewedOperationV1 {
     /// Borrow the immutable financial DATA for hardware UI approval.
     #[must_use]

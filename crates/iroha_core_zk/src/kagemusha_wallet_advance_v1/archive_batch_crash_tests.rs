@@ -937,3 +937,391 @@ fn archive_batch_crash_matrix_pointer_records_follow_their_referents() {
     let cases = matrix.run(&steps, &FAULTS, &RECOVERIES, window, true, &mut check);
     assert!(cases > 500, "{cases}");
 }
+
+// These regressions exercise provider-level retirement through its durable journal. They
+// preserve D2/D3/D4/D7 unchanged and do not require a readable platform boot identity.
+fn retirement_fixture(seed: u8) -> (DeviceV1, Slot, RecordV1) {
+    let (device, _, slot, _) = bootstrapped_device(Policy::NotRequired, seed);
+    let target = records(seed, 1).remove(0);
+    device
+        .open()
+        .with_archive(&slot, |archive| archive.write_record(&target.0, &target.1))
+        .expect("seed exact record");
+    (device, slot, target)
+}
+
+fn remove_retirement_target(
+    provider: &mut SimProviderV1,
+    slot: &Slot,
+    target: &RecordV1,
+) -> Result<(), Error> {
+    provider.with_archive(slot, |archive| archive.remove_record(&target.0))
+}
+
+fn retirement_trace(device: &DeviceV1, slot: &Slot, target: &RecordV1) -> Vec<Step> {
+    let trial = device.fork();
+    let mut provider = trial.open();
+    let start = trial.fs.steps();
+    remove_retirement_target(&mut provider, slot, target).expect("unfaulted retirement");
+    trial.fs.trace_since(start)
+}
+
+#[test]
+fn acknowledged_retirement_never_resurrects_during_later_boot_recovery_faults() {
+    let (base, slot, target) = retirement_fixture(0xe4);
+    let trace = retirement_trace(&base, &slot, &target);
+    let reap_sync = trace
+        .iter()
+        .rposition(|step| *step == Step::SyncDir)
+        .expect("retirement reaping directory sync") as u64;
+    let mut provider = base.open();
+    base.fs
+        .inject(base.fs.steps() + reap_sync, Fault::LostWriteback);
+    remove_retirement_target(&mut provider, &slot, &target)
+        .expect("target absence is committed before the reap sync");
+    drop(provider);
+    base.power_loss(PowerLoss::DropUnsynced, BOOT_B);
+    assert_absent(
+        &base,
+        &slot,
+        std::slice::from_ref(&target),
+        "acknowledged deletion after boot",
+    );
+    let directory = kagemusha_wallet_archive_dir_v1(&slot);
+    assert!(
+        base.fs
+            .visible_names(&directory)
+            .iter()
+            .any(|name| parse_grave(name).is_some()),
+        "the lost cleanup must leave a durable completed-operation grave, so the regression is not vacuous"
+    );
+    let trace = {
+        let trial = base.fork();
+        let mut provider = trial.open();
+        let start = trial.fs.steps();
+        provider
+            .status(&slot)
+            .expect("unfaulted completed-operation recovery");
+        trial.fs.trace_since(start)
+    };
+    assert!(!trace.is_empty());
+    for step in 0..trace.len() as u64 {
+        for fault in [Fault::CrashBefore, Fault::CrashAfter, Fault::LostWriteback] {
+            let device = base.fork();
+            let mut provider = device.open();
+            device.fs.inject(device.fs.steps() + step, fault);
+            let _ = provider.status(&slot);
+            drop(provider);
+            let label = format!("completed-operation cleanup step={step} fault={fault:?}");
+            assert_absent(&device, &slot, std::slice::from_ref(&target), &label);
+            for model in survival(device.fs.pending_dir_ops(), false) {
+                let recovered = device.fork();
+                recovered.power_loss(model, [0xc3; 32]);
+                assert_absent(&recovered, &slot, std::slice::from_ref(&target), &label);
+                let mut provider = recovered.open();
+                provider
+                    .status(&slot)
+                    .expect("fault-free later-boot recovery");
+                assert_absent(&recovered, &slot, std::slice::from_ref(&target), &label);
+                assert!(
+                    !recovered
+                        .fs
+                        .visible_names(&directory)
+                        .iter()
+                        .any(|name| parse_grave(name).is_some()),
+                    "{label}: recovery must finish completed-operation grave cleanup"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn unreferenced_stale_grave_never_replaces_a_new_record_incarnation() {
+    use crate::kagemusha_wallet_advance_v1::KagemushaWalletPublishOutcomeV1 as Publish;
+    let (base, slot, target) = retirement_fixture(0xe5);
+    let old = b"earlier value at the reused immutable key";
+    assert_ne!(target.1.as_slice(), old);
+    let directory = kagemusha_wallet_archive_dir_v1(&slot);
+    let stale = grave_names(&target.0, "11111111111111111111111111111111");
+    let store = KagemushaWalletDurableStoreV1::new(base.fs.clone());
+    for grave in &stale {
+        assert_eq!(
+            store.write_new(&directory, grave, &framed(old)),
+            Publish::Published
+        );
+    }
+    let trace = retirement_trace(&base, &slot, &target);
+    for step in 0..trace.len() as u64 {
+        for fault in [Fault::CrashBefore, Fault::CrashAfter, Fault::LostWriteback] {
+            let device = base.fork();
+            let mut provider = device.open();
+            device.fs.inject(device.fs.steps() + step, fault);
+            let _ = remove_retirement_target(&mut provider, &slot, &target);
+            drop(provider);
+            let label = format!("different-byte stale grave step={step} fault={fault:?}");
+            assert_absent_or_exact(&device, &slot, std::slice::from_ref(&target), &label);
+            for model in survival(device.fs.pending_dir_ops(), false) {
+                let recovered = device.fork();
+                recovered.power_loss(model, BOOT_B);
+                assert_absent_or_exact(&recovered, &slot, std::slice::from_ref(&target), &label);
+                let mut provider = recovered.open();
+                remove_retirement_target(&mut provider, &slot, &target)
+                    .expect("fault-free exact retry");
+                drop(provider);
+                recovered.power_loss(PowerLoss::DropUnsynced, [0xc3; 32]);
+                assert_absent(&recovered, &slot, std::slice::from_ref(&target), &label);
+            }
+        }
+    }
+}
+
+#[test]
+fn retirement_with_unknown_boot_remains_available_and_durable() {
+    for boot in [Err(Unavailable::Platform(812)), Ok([0; 32])] {
+        let (device, slot, target) = retirement_fixture(0xe6);
+        device.platform.with(|state| state.boot = boot);
+        let mut provider = device.open();
+        let read = provider
+            .with_archive(&slot, |archive| {
+                archive.read_record(&target.0, target.1.len())
+            })
+            .expect("ordinary read with unknown boot")
+            .expect("seeded record");
+        assert_eq!(read.as_slice(), target.1.as_slice());
+        remove_retirement_target(&mut provider, &slot, &target)
+            .expect("retirement uses durable journal, never a platform boot gate");
+        assert_absent(
+            &device,
+            &slot,
+            std::slice::from_ref(&target),
+            "unknown boot removal succeeded",
+        );
+        drop(provider);
+        device.power_loss(PowerLoss::DropUnsynced, BOOT_B);
+        device.platform.with(|state| state.boot = boot);
+        let mut provider = device.open();
+        provider
+            .status(&slot)
+            .expect("journal recovery remains available with unknown boot");
+        assert_absent(
+            &device,
+            &slot,
+            std::slice::from_ref(&target),
+            "unknown boot removal survives power loss",
+        );
+        assert!(
+            provider
+                .with_archive(&slot, |archive| archive
+                    .read_record(&target.0, target.1.len()))
+                .expect("read after removal")
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn remove_then_republish_different_bytes_in_one_call_survives_reboot() {
+    let (device, slot, target) = retirement_fixture(0xe7);
+    let successor = (
+        target.0,
+        b"new archive incarnation after committed collection".to_vec(),
+    );
+    let mut provider = device.open();
+    provider.open_archive_call(&slot);
+    provider
+        .remove_archive_record(&slot, &target.0, &[[0; 32], [0; 32], target.0])
+        .expect("remove before same-key staged replacement");
+    provider
+        .stage_archive_record(&slot, &successor.0, &successor.1, None)
+        .expect("stage new incarnation");
+    provider
+        .close_archive_call(&slot, true)
+        .expect("commit new incarnation");
+    drop(provider);
+    device.power_loss(PowerLoss::DropUnsynced, BOOT_B);
+    let mut provider = device.open();
+    provider.status(&slot).expect("reconcile new incarnation");
+    assert_exact(
+        &device,
+        &slot,
+        &[successor],
+        "old retirement cannot delete or restore over successor",
+    );
+}
+
+#[test]
+fn retirement_journal_writeback_failure_is_repaired_before_reuse() {
+    let (base, _, slot, _) = bootstrapped_device(Policy::NotRequired, 0xe8);
+    let targets = records(0xe8, 3);
+    {
+        let mut provider = base.open();
+        for (key, bytes) in &targets {
+            provider
+                .with_archive(&slot, |archive| archive.write_record(key, bytes))
+                .expect("seed record");
+        }
+        remove_retirement_target(&mut provider, &slot, &targets[0]).expect("seed Complete journal");
+    }
+    let trace = retirement_trace(&base, &slot, &targets[1]);
+    let syncs: Vec<usize> = trace
+        .iter()
+        .enumerate()
+        .filter_map(|(index, step)| (*step == Step::SyncDir).then_some(index))
+        .collect();
+    assert!(
+        syncs.len() >= 3,
+        "exercise journal publication, durable retirement and completion publication"
+    );
+    for step in syncs {
+        for process_restart in [false, true] {
+            let device = base.fork();
+            let mut provider = device.open();
+            device
+                .fs
+                .inject(device.fs.steps() + step as u64, Fault::LostWriteback);
+            let _ = remove_retirement_target(&mut provider, &slot, &targets[1]);
+            if process_restart {
+                drop(provider);
+                device.fs.restart();
+                provider = device.open();
+            }
+            let label = format!("journal sync={step} restart={process_restart}");
+            remove_retirement_target(&mut provider, &slot, &targets[1])
+                .expect("exact retry repairs the visible journal phase");
+            remove_retirement_target(&mut provider, &slot, &targets[2])
+                .expect("next operation reuses the single journal safely");
+            drop(provider);
+            device.power_loss(PowerLoss::DropUnsynced, BOOT_B);
+            assert_absent(&device, &slot, &targets, &label);
+            let mut provider = device.open();
+            provider
+                .status(&slot)
+                .expect("reconcile after journal reuse");
+            assert_absent(&device, &slot, &targets, &label);
+            assert!(
+                !device
+                    .fs
+                    .visible_names(&kagemusha_wallet_archive_dir_v1(&slot))
+                    .iter()
+                    .any(|name| parse_grave(name).is_some()),
+                "{label}: no unreferenced retirement grave remains"
+            );
+        }
+    }
+}
+
+fn retirement_journal(device: &DeviceV1, slot: &Slot) -> Option<ArchiveRetirementV1> {
+    device
+        .fs
+        .visible_file(
+            &kagemusha_wallet_archive_dir_v1(slot),
+            retirement_name().as_str(),
+        )
+        .map(|bytes| {
+            super::super::decode_envelope_v1(&bytes, RETIREMENT_MAX_BYTES)
+                .expect("valid retirement journal fixture")
+        })
+}
+
+#[test]
+fn visible_complete_journal_is_adopted_before_recovery_even_after_another_fault() {
+    let (base, slot, target) = retirement_fixture(0xeb);
+    let trace = retirement_trace(&base, &slot, &target);
+    let mut uncertain_complete = None;
+    for (step, _) in trace
+        .iter()
+        .enumerate()
+        .filter(|(_, step)| **step == Step::SyncDir)
+    {
+        let device = base.fork();
+        let mut provider = device.open();
+        device
+            .fs
+            .inject(device.fs.steps() + step as u64, Fault::LostWriteback);
+        let result = remove_retirement_target(&mut provider, &slot, &target);
+        drop(provider);
+        if retirement_journal(&device, &slot).is_some_and(|journal| journal.complete)
+            && retirement_journal(&durable_view(&device), &slot)
+                .is_some_and(|journal| !journal.complete)
+        {
+            assert!(
+                result.is_err(),
+                "lost Complete publication may not acknowledge retirement"
+            );
+            assert!(
+                uncertain_complete.replace(device).is_none(),
+                "one Complete publication boundary"
+            );
+        }
+    }
+    let uncertain =
+        uncertain_complete.expect("exercise actual visible Complete / durable Pending state");
+    let trace = {
+        let device = uncertain.fork();
+        device.fs.restart();
+        let mut provider = device.open();
+        let start = device.fs.steps();
+        provider.status(&slot).expect("unfaulted journal adoption");
+        device.fs.trace_since(start)
+    };
+    assert!(!trace.is_empty());
+    for step in 0..trace.len() as u64 {
+        for fault in [Fault::CrashBefore, Fault::CrashAfter, Fault::LostWriteback] {
+            let device = uncertain.fork();
+            device.fs.restart();
+            let mut provider = device.open();
+            device.fs.inject(device.fs.steps() + step, fault);
+            let _ = provider.status(&slot);
+            drop(provider);
+            let label = format!("Complete adoption step={step} fault={fault:?}");
+            assert_absent_or_exact(&device, &slot, std::slice::from_ref(&target), &label);
+            for model in survival(device.fs.pending_dir_ops(), false) {
+                let recovered = device.fork();
+                recovered.power_loss(model, BOOT_B);
+                assert_absent_or_exact(&recovered, &slot, std::slice::from_ref(&target), &label);
+                let mut provider = recovered.open();
+                remove_retirement_target(&mut provider, &slot, &target)
+                    .expect("fault-free exact retry after second failure");
+                drop(provider);
+                recovered.power_loss(PowerLoss::DropUnsynced, [0xc3; 32]);
+                assert_absent(&recovered, &slot, std::slice::from_ref(&target), &label);
+            }
+        }
+    }
+}
+
+#[test]
+fn retirement_journal_of_another_slot_refuses_before_deleting_records() {
+    use crate::kagemusha_wallet_advance_v1::KagemushaWalletPublishOutcomeV1 as Publish;
+    let (device, slot, target) = retirement_fixture(0xec);
+    let journal = ArchiveRetirementV1 {
+        version: 1,
+        slot: [0xed; 32],
+        key: target.0,
+        nonce: [0xee; 16],
+        complete: false,
+    };
+    let bytes = super::super::encode_envelope_v1(&journal, RETIREMENT_MAX_BYTES)
+        .expect("encode foreign-slot journal");
+    let store = KagemushaWalletDurableStoreV1::new(device.fs.clone());
+    assert_eq!(
+        store.write_new(
+            &kagemusha_wallet_archive_dir_v1(&slot),
+            &retirement_name(),
+            &bytes
+        ),
+        Publish::Published
+    );
+    let mut provider = device.open();
+    assert!(
+        provider.status(&slot).is_err(),
+        "another slot cannot authorize retirement"
+    );
+    assert_exact(
+        &device,
+        &slot,
+        std::slice::from_ref(&target),
+        "foreign-slot journal preserves exact records",
+    );
+}

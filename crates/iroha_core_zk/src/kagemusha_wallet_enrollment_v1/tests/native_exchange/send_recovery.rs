@@ -167,7 +167,11 @@ fn resume_selected_a_send_then_b_to_c_unload_with_restart_and_replay() {
             request: request.clone(),
         },
     );
-    assert_eq!(a.execute(send.clone()).unwrap(), Completion::Pending);
+    assert_eq!(
+        derived(|| a.execute(send.clone()).unwrap()),
+        (Completion::Pending, 0),
+        "a selected Send is never derived again"
+    );
     assert_eq!(device_a.platform.with(|state| state.sign_calls), 0);
     let evidence = norito::json!({
         "schema": "iroha.kagemusha.selected-send-continuation.v1",

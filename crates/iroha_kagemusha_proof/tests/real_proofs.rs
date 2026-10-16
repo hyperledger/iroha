@@ -795,6 +795,125 @@ fn installed_sigma_originals_reject_substitution_bounds_and_wrong_source() {
     );
 }
 
+/// D5: a qualified wallet rebuilds a σ proving key from the seal that admission
+/// minted, as Q/A/W/Ω do, instead of importing the original again. At the k12
+/// budget shapes and the k14 quota shape the rebuild is the exact original key and
+/// its proofs verify under the installed verifier. Another compiled source of the
+/// same `k`, other parameters and cancellation return no key; nothing falls back.
+#[test]
+#[ignore = "sealed k12 and k14 sigma rebuilds with real proofs; run in release"]
+fn sealed_sigma_sources_rebuild_exact_keys_for_the_installed_verifier() {
+    use iroha_pasta::{CancellationToken, msm::MemoryBudget};
+    use iroha_plonk::keys::{CosetCachePolicy, RebuildError, pk::artifact::ReadConfig};
+    for (case, shape, other, seed) in [
+        (
+            SigmaRelation::SEND,
+            budget_shape(folded(SigmaRelation::SEND)),
+            budget_shape(folded(SigmaRelation::RECEIVE)),
+            CHECK_SEED,
+        ),
+        (
+            SigmaRelation::RECEIVE,
+            budget_shape(folded(SigmaRelation::RECEIVE)),
+            budget_shape(folded(SigmaRelation::SEND)),
+            CHECK_SEED,
+        ),
+        (
+            SEND_EVERY,
+            pinned_shape(folded(SEND_EVERY), (14, 1)),
+            pinned_shape(folded(SEND_QUOTAS), (14, 1)),
+            CHECK_SEED + 1,
+        ),
+    ] {
+        assert_eq!(other.k, shape.k, "{}: same-k foreign source", case.label());
+        let params = vesta_params(shape.k);
+        let producer = vesta_prover(shape);
+        let original = producer.proving_key().artifact_bytes_v2().unwrap();
+        let verifier = producer.verifier();
+        drop(producer);
+        let read = ReadConfig {
+            maximum_bytes: original.len(),
+            maximum_rows: 1 << shape.k,
+            coset_cache: CosetCachePolicy::OnDemand,
+            msm_budget: MemoryBudget::DEFAULT,
+        };
+        let admitted = SigmaProver::<Eq>::admit_original_artifact_cancellable(
+            shape,
+            params.clone(),
+            verifier.descriptor_bytes(),
+            verifier.vk_bytes(),
+            &original,
+            read,
+            None,
+        )
+        .expect("strict sigma admission");
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        assert!(
+            SigmaProver::from_source_view_cancellable(
+                shape,
+                params.clone(),
+                admitted.view(),
+                CosetCachePolicy::OnDemand,
+                Some(&cancelled),
+            )
+            .is_err_and(|error| error.is_cancelled())
+        );
+        assert!(matches!(
+            SigmaProver::from_source_view_cancellable(
+                shape,
+                vesta_params(6),
+                admitted.view(),
+                CosetCachePolicy::OnDemand,
+                None,
+            ),
+            Err(SigmaError::ParamsK { .. })
+        ));
+        assert!(
+            matches!(
+                SigmaProver::from_source_view_cancellable(
+                    other,
+                    params.clone(),
+                    admitted.view(),
+                    CosetCachePolicy::OnDemand,
+                    None,
+                ),
+                Err(SigmaError::Rebuild(
+                    RebuildError::Profile | RebuildError::Source
+                ))
+            ),
+            "{}: another compiled source",
+            case.label()
+        );
+        let rebuilt = SigmaProver::from_source_view_cancellable(
+            shape,
+            params,
+            admitted.view(),
+            CosetCachePolicy::OnDemand,
+            None,
+        )
+        .expect("sealed sigma rebuild");
+        assert!(!rebuilt.proving_key().has_coset_cache());
+        assert_eq!(rebuilt.proving_key().artifact_bytes_v2().unwrap(), original);
+        assert_eq!(rebuilt.proving_key().binding(), verifier.binding());
+        assert_eq!(rebuilt.proving_key().vk().to_bytes(), verifier.vk_bytes());
+        let witness = sample_witness::<Fp>(seed, case, Mutation::None);
+        let proof = rebuilt
+            .prove(&witness, fresh_randomness())
+            .expect("sealed sigma proof");
+        assert_eq!(verifier.verify(&proof.public, &proof.bytes), Ok(()));
+        let mut wrong = proof.public;
+        wrong.statement += Fp::ONE;
+        assert!(verifier.verify(&wrong, &proof.bytes).is_err());
+        println!(
+            "SEALED_SIGMA relation={} k={} original_bytes={} exact_original=true installed_verifier=true strict_reimport=false",
+            case.label(),
+            shape.k,
+            original.len(),
+        );
+    }
+}
+
 /// Pins compact Send's source support to an independently retained public archive.
 /// This synthesizes public source and hashes it, but grants no source authority.
 #[test]
