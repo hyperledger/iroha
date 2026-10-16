@@ -109,8 +109,10 @@ const MAX_OWNERS: usize = 32;
 pub struct Failure {
     /// One negative bridge status above.
     pub status: i32,
-    /// Platform reason: 0 locked, 1 before first unlock, 2 busy, 3 I/O, 4 platform,
-    /// 5 unusable key, 6 permanently invalidated, or -1 when inapplicable.
+    /// For unavailable/uncertain: 0 locked, 1 before first unlock, 2 busy, 3 I/O,
+    /// 4 platform, 5 unusable key, 6 permanently invalidated. For custody loss:
+    /// 100-105 lost-custody kind, 110-114 unavailable custody kind, 120 unexpected
+    /// entry; see the C header's closed table. Otherwise -1 when inapplicable.
     pub reason: i32,
     /// Original OS/platform error code; zero when inapplicable.
     pub platform_code: i32,
@@ -120,6 +122,15 @@ impl Failure {
         Self {
             status,
             reason: -1,
+            platform_code: 0,
+        }
+    }
+    // Diagnostic only: the error has already been produced by the ordinary operation.
+    // No custody access or recovery is performed and the refusal status stays unchanged.
+    fn custody(reason: i32) -> Self {
+        Self {
+            status: CUSTODY_LOST,
+            reason,
             platform_code: 0,
         }
     }
@@ -149,9 +160,23 @@ impl From<advance::KagemushaWalletProviderErrorV1> for Failure {
             E::Uncertain(reason) => Self::unavailable(UNCERTAIN, reason),
             E::NoSpace => Self::code(NOT_ENOUGH_STORAGE),
             E::NoReplaceUnsupported | E::Invalid { .. } => Self::code(INVALID),
-            E::UnavailableCustodyData { .. } | E::LostCustody(_) | E::UnexpectedEntry { .. } => {
-                Self::code(CUSTODY_LOST)
-            }
+            E::UnavailableCustodyData { object } => Self::custody(match object {
+                "enrollment intent" => 111,
+                "enrollment phase" => 112,
+                "committed enrollment marker" => 113,
+                "abandoned slot custody conflict" => 114,
+                // Never expose the object string or infer a more specific cause.
+                _ => 110,
+            }),
+            E::LostCustody(reason) => Self::custody(match reason {
+                advance::KagemushaWalletLostCustodyV1::KeyWithoutMarker => 100,
+                advance::KagemushaWalletLostCustodyV1::JournalWithoutMarker => 101,
+                advance::KagemushaWalletLostCustodyV1::AnchorMissing => 102,
+                advance::KagemushaWalletLostCustodyV1::RolledBack => 103,
+                advance::KagemushaWalletLostCustodyV1::AnchorMismatch => 104,
+                advance::KagemushaWalletLostCustodyV1::CompletionLost => 105,
+            }),
+            E::UnexpectedEntry { .. } => Self::custody(120),
             E::KeyLost | E::Terminal => Self::code(TERMINAL),
             E::OperationIdConflict { .. } => Self::code(CONFLICT),
         }

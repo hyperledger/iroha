@@ -1130,3 +1130,91 @@ fn retained_intake_and_preparation_refusals_map_to_resource_without_reclassifica
         vec![7; 128]
     );
 }
+
+#[test]
+fn custody_failure_reasons_report_only_the_existing_closed_cause() {
+    use advance::{KagemushaWalletLostCustodyV1 as L, KagemushaWalletProviderErrorV1 as E};
+    for (error, reason) in [
+        (E::LostCustody(L::KeyWithoutMarker), 100),
+        (E::LostCustody(L::JournalWithoutMarker), 101),
+        (E::LostCustody(L::AnchorMissing), 102),
+        (E::LostCustody(L::RolledBack), 103),
+        (E::LostCustody(L::AnchorMismatch), 104),
+        (E::LostCustody(L::CompletionLost), 105),
+        (
+            E::UnavailableCustodyData {
+                object: "enrollment intent",
+            },
+            111,
+        ),
+        (
+            E::UnavailableCustodyData {
+                object: "enrollment phase",
+            },
+            112,
+        ),
+        (
+            E::UnavailableCustodyData {
+                object: "committed enrollment marker",
+            },
+            113,
+        ),
+        (
+            E::UnavailableCustodyData {
+                object: "abandoned slot custody conflict",
+            },
+            114,
+        ),
+        (
+            E::UnavailableCustodyData {
+                object: "unlisted private object label",
+            },
+            110,
+        ),
+        (
+            E::UnexpectedEntry {
+                dir: "unlisted private directory label",
+            },
+            120,
+        ),
+    ] {
+        let expected = Failure {
+            status: CUSTODY_LOST,
+            reason,
+            platform_code: 0,
+        };
+        assert_eq!(Failure::from(error), expected);
+        // The real enrollment path wraps the same already-computed provider error.
+        assert_eq!(
+            Failure::from(iroha_core_zk::kagemusha_wallet_enrollment_v1::Error::Provider(error)),
+            expected
+        );
+    }
+}
+
+#[test]
+fn custody_failure_reasons_preserve_other_failure_contracts() {
+    use advance::{KagemushaWalletProviderErrorV1 as E, KagemushaWalletUnavailableV1 as U};
+    for (error, status) in [
+        (E::Unavailable(U::Io(17)), UNAVAILABLE),
+        (E::Uncertain(U::Io(17)), UNCERTAIN),
+    ] {
+        assert_eq!(
+            Failure::from(error),
+            Failure {
+                status,
+                reason: 3,
+                platform_code: 17
+            }
+        );
+    }
+    for (error, status) in [
+        (E::NoSpace, NOT_ENOUGH_STORAGE),
+        (E::NoReplaceUnsupported, INVALID),
+        (E::Invalid { field: "unchanged" }, INVALID),
+        (E::KeyLost, TERMINAL),
+        (E::Terminal, TERMINAL),
+    ] {
+        assert_eq!(Failure::from(error), Failure::code(status));
+    }
+}

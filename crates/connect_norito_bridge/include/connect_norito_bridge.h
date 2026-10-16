@@ -1854,7 +1854,15 @@ typedef struct {
                       10 CreditStatus,11 preparing; setup only:12 original,
                       13 owned time challenge,14 time exchange retained;
                       open only:15 account challenge,16 admitted handle;17 activation transport; negative failure. */
-    int32_t reason; /* failure platform reason, -1 if inapplicable */
+    /* Failure reason, scoped by negative status. For -5/-6: platform reason 0-6.
+       For -7: 100 key without marker, 101 journal without marker, 102 anchor missing,
+       103 rollback, 104 anchor mismatch, 105 completion lost;
+       110 unavailable custody data (unspecified kind), 111 enrollment intent,
+       112 enrollment phase, 113 committed enrollment marker,
+       114 abandoned-slot custody conflict, 120 unexpected custody entry.
+       -1 means no more specific cause. Diagnostic only: no recovery permission,
+       actor/key data, or change to the refusal. platform_code stays zero for -7. */
+    int32_t reason;
     int32_t platform_code;
     uint64_t sequence_low;
     uint64_t sequence_high;
