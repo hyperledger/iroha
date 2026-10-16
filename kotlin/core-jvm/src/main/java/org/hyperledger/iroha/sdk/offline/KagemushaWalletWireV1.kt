@@ -663,6 +663,20 @@ object KagemushaWalletWireV1 {
         return BigInteger(1, amount.reversedArray()).also { require(it.signum() > 0) { "Payment amount must be positive" } }
     }
 
+    /** Exact unsigned amount quoted in a Request's signed body, for display only: what a receiver
+     * shows as on its way before the payer approves. This bounded structural parser authenticates
+     * nothing. A wallet must first obtain the exact Request from its own genuine Native output.
+     * Neither a decoded amount nor successful framing establishes a payment, a credit or a receipt.
+     */
+    @JvmStatic
+    fun requestAmountData(request: ByteArray): BigInteger {
+        val fields = messageFields(request, KagemushaWalletMessageKindV1.REQUEST, REQUEST_FIELDS)
+        val body = recordFields(fields[REQUEST_BODY_FIELD], REQUEST_BODY_FIELDS, "Request body")
+        val amount = body[REQUEST_BODY_AMOUNT_FIELD]
+        require(amount.size == 16) { "Request amount must be canonical LE128" }
+        return BigInteger(1, amount.reversedArray()).also { require(it.signum() > 0) { "Request amount must be positive" } }
+    }
+
     /** Reconstruct exact signed field bytes; this structural operation authenticates nothing. */
     private fun paymentSignedRequestFields(payment: List<ByteArray>): Pair<List<ByteArray>, ByteArray> {
         val unique = recordFields(payment[PAYMENT_REQUEST_FIELD], 12, "Payment Request")

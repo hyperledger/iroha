@@ -14,6 +14,14 @@
 //!   is `NotPublished` before file creation, with no fallback name.
 //! - **pair** ([`KagemushaWalletDurableStoreV1::write_new_pair`]): two staged files, two
 //!   syncs, two create-new renames and one parent sync; the outcome is reported per name.
+//! - **batch** ([`KagemushaWalletDurableStoreV1::publish_batch`]): any number of distinct
+//!   names in one directory, in chunks of at most [`KAGEMUSHA_WALLET_BATCH_LIVE_STAGED_V1`]
+//!   live staged files: each chunk's files are staged and synced, then renamed (create-new, or
+//!   replacing for a fresh-inode adoption of identical bytes); one parent sync follows the last
+//!   chunk. One outcome covers the batch: `Published` only after that sync, `NotPublished`
+//!   for a failure before the first rename, `Uncertain` for any failure after it. Every
+//!   file's data is synced before its rename, so after power loss each name is absent or holds
+//!   its exact bytes, whichever renames survive.
 //! - **same-content rewrite** ([`KagemushaWalletDurableStoreV1::rewrite_same`]): publishes
 //!   byte-identical content on a fresh inode with an atomic replacing rename, so a file whose
 //!   earlier sync reported (and lost) a writeback error becomes durable.
@@ -36,7 +44,7 @@
 // Native descriptor custody is provided by `iroha_fs::PrivateDirectory`; this adapter keeps
 // the G2 split write/sync/rename boundaries used by the deterministic fault simulator.
 
-use std::io;
+use std::{collections::BTreeSet, io};
 
 use super::{
     KagemushaWalletProviderErrorV1,
@@ -135,6 +143,58 @@ impl<T> std::ops::Deref for StagedV1<T> {
     }
 }
 
+/// Most staged files one batch publication keeps live (open and retained through its rename)
+/// at once. A batch stages, syncs and renames its names in chunks of at most this many, so the
+/// descriptors and memory it holds stay bounded whatever its size.
+pub(super) const KAGEMUSHA_WALLET_BATCH_LIVE_STAGED_V1: usize = 64;
+
+/// How a batch publication puts one name in place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum KagemushaWalletBatchActionV1 {
+    /// Create-new rename: the name must be absent (`EEXIST` refuses it, never replaces).
+    New,
+    /// Fresh-inode adoption: a replacing rename over a name that the caller read, under the
+    /// same custody lock, to hold exactly these bytes. The name holds them on every outcome.
+    Replace,
+}
+
+/// One name of a batch publication and the exact bytes it is to hold.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct KagemushaWalletBatchEntryV1<'a> {
+    /// Name inside the batch directory.
+    pub(super) name: &'a KagemushaWalletEntryNameV1,
+    /// Exact bytes the name holds once published.
+    pub(super) bytes: &'a [u8],
+    /// How the name is put in place.
+    pub(super) action: KagemushaWalletBatchActionV1,
+}
+
+/// Outcome of a batch that failed at one step. Before the first rename took effect the step's
+/// own outcome stands (`NotPublished` leaves every name unchanged). After one, renamed names
+/// may be visible without being durable, so the whole batch is `Uncertain`.
+fn batch_failure(
+    renamed_any: bool,
+    outcome: KagemushaWalletPublishOutcomeV1,
+) -> KagemushaWalletPublishOutcomeV1 {
+    match outcome {
+        KagemushaWalletPublishOutcomeV1::NotPublished(reason) if renamed_any => {
+            KagemushaWalletPublishOutcomeV1::Uncertain(match reason {
+                KagemushaWalletNotPublishedV1::Failed(reason) => reason,
+                // As for a paired publication without its parent sync: no native code applies
+                // to the batch as a whole.
+                KagemushaWalletNotPublishedV1::DestinationExists
+                | KagemushaWalletNotPublishedV1::DestinationAbsent
+                | KagemushaWalletNotPublishedV1::ContentMismatch
+                | KagemushaWalletNotPublishedV1::NoSpace
+                | KagemushaWalletNotPublishedV1::NoReplaceUnsupported => {
+                    KagemushaWalletUnavailableV1::Io(0)
+                }
+            })
+        }
+        other => other,
+    }
+}
+
 impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
     /// Store over `fs`.
     pub(super) fn new(fs: F) -> Self {
@@ -207,6 +267,114 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         })
     }
 
+    /// Publish every entry of `entries` in `dir` behind one parent sync; one outcome covers
+    /// the whole batch.
+    ///
+    /// In chunks of at most [`KAGEMUSHA_WALLET_BATCH_LIVE_STAGED_V1`] names, each name's bytes
+    /// are staged on an exclusive staging file, written and synced (`fsync`; `F_FULLFSYNC` on
+    /// Apple), and only then is every staged file of the chunk renamed into place through its
+    /// retained original: create-new for [`KagemushaWalletBatchActionV1::New`], replacing for
+    /// [`KagemushaWalletBatchActionV1::Replace`]. After the last chunk `dir` is synced once.
+    /// Each file's data is durable before its rename, so after power loss every name is absent
+    /// or holds its exact bytes, whichever subset of the renames survives; no name is torn.
+    ///
+    /// - `Published`: every rename and the final parent sync succeeded.
+    /// - `NotPublished`: a failure before the first rename took effect; the chunk's staged
+    ///   files are discarded and no name changed (`DestinationExists` for an occupied `New`
+    ///   name, as [`Self::write_new`]).
+    /// - `Uncertain`: an indeterminate first rename, or any failure after a rename (the
+    ///   remaining staged files are discarded; the parent is not synced). Renamed names may be
+    ///   visible and not durable: the caller poisons its handle, reconciles from disk and
+    ///   republishes the identical bytes, adopting every visible name on a fresh inode.
+    ///
+    /// Names must be distinct: a repeated name is `NotPublished` before any filesystem step.
+    /// An empty batch is `Published` without a step. The provider's archive drain publishes
+    /// every staged record copy, and a checkpoint's copies, through it.
+    pub(super) fn publish_batch(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        entries: &[KagemushaWalletBatchEntryV1<'_>],
+    ) -> KagemushaWalletPublishOutcomeV1 {
+        self.publish_chunks(dir, entries, KAGEMUSHA_WALLET_BATCH_LIVE_STAGED_V1)
+    }
+
+    /// [`Self::publish_batch`] with at most `live` staged files per chunk (tests use small
+    /// chunks to cross chunk boundaries with few names).
+    #[cfg(test)]
+    pub(super) fn publish_batch_chunked(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        entries: &[KagemushaWalletBatchEntryV1<'_>],
+        live: usize,
+    ) -> KagemushaWalletPublishOutcomeV1 {
+        self.publish_chunks(dir, entries, live)
+    }
+
+    fn publish_chunks(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        entries: &[KagemushaWalletBatchEntryV1<'_>],
+        live: usize,
+    ) -> KagemushaWalletPublishOutcomeV1 {
+        if entries.is_empty() {
+            return KagemushaWalletPublishOutcomeV1::Published;
+        }
+        let mut distinct = BTreeSet::new();
+        if !entries.iter().all(|entry| distinct.insert(entry.name)) {
+            return KagemushaWalletPublishOutcomeV1::NotPublished(
+                KagemushaWalletNotPublishedV1::Failed(KagemushaWalletUnavailableV1::Io(0)),
+            );
+        }
+        let total = |len: usize| u64::try_from(len).unwrap_or(u64::MAX);
+        let replaced = entries
+            .iter()
+            .filter(|entry| entry.action == KagemushaWalletBatchActionV1::Replace)
+            .count();
+        counters::count(EventV1::BatchPublish);
+        counters::count(EventV1::BatchNames(total(entries.len())));
+        counters::count(EventV1::WriteNew(total(entries.len() - replaced)));
+        for _ in 0..replaced {
+            counters::count(EventV1::RewriteSame);
+        }
+        let mut renamed_any = false;
+        for chunk in entries.chunks(live.max(1)) {
+            // Data barrier: every file of the chunk is written and synced before any rename.
+            let mut staged: Vec<StagedV1<F::StagedFile>> = Vec::with_capacity(chunk.len());
+            for entry in chunk {
+                match self.stage(dir, entry.bytes) {
+                    Ok(file) => staged.push(file),
+                    Err(reason) => {
+                        for file in &staged {
+                            self.discard_staged(dir, file);
+                        }
+                        return batch_failure(
+                            renamed_any,
+                            KagemushaWalletPublishOutcomeV1::NotPublished(reason),
+                        );
+                    }
+                }
+            }
+            for (index, (entry, file)) in chunk.iter().zip(&staged).enumerate() {
+                let step = if entry.action == KagemushaWalletBatchActionV1::New {
+                    self.rename_new(dir, file, entry.name.as_str())
+                } else {
+                    self.rename_replacing(dir, file, entry.name.as_str())
+                };
+                if let RenameStepV1::Done(outcome) = step {
+                    // The failed name's own staging file is already discarded.
+                    for rest in &staged[index + 1..] {
+                        self.discard_staged(dir, rest);
+                    }
+                    return batch_failure(renamed_any, outcome);
+                }
+                renamed_any = true;
+            }
+            // The chunk's originals are released only after all of its renames.
+            drop(staged);
+        }
+        self.sync_after_publish(dir)
+    }
+
     /// Republish the byte-identical content of `name` on a fresh inode (atomic replace).
     ///
     /// Refuses (`ContentMismatch`, `DestinationAbsent`) unless `name` currently holds exactly
@@ -269,23 +437,10 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
             Ok(staged) => staged,
             Err(reason) => return KagemushaWalletPublishOutcomeV1::NotPublished(reason),
         };
-        if let Err(error) = self.fs.rename_replace(dir, &staged, name.as_str()) {
-            self.discard_staged(dir, &staged);
-            return match classify(&error) {
-                FailureClassV1::NoSpace => KagemushaWalletPublishOutcomeV1::NotPublished(
-                    KagemushaWalletNotPublishedV1::NoSpace,
-                ),
-                FailureClassV1::Definitive
-                | FailureClassV1::Exists
-                | FailureClassV1::Unsupported => KagemushaWalletPublishOutcomeV1::NotPublished(
-                    KagemushaWalletNotPublishedV1::Failed(unavailable(&error)),
-                ),
-                FailureClassV1::Indeterminate => {
-                    KagemushaWalletPublishOutcomeV1::Uncertain(unavailable(&error))
-                }
-            };
+        match self.rename_replacing(dir, &staged, name.as_str()) {
+            RenameStepV1::Renamed => self.sync_after_publish(dir),
+            RenameStepV1::Done(outcome) => outcome,
         }
-        self.sync_after_publish(dir)
     }
 
     /// Durably remove `name` from `dir`; an absent name is synced as absent.
@@ -550,6 +705,34 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
             FailureClassV1::Definitive => KagemushaWalletPublishOutcomeV1::NotPublished(
                 KagemushaWalletNotPublishedV1::Failed(unavailable(&error)),
             ),
+            FailureClassV1::Indeterminate => {
+                KagemushaWalletPublishOutcomeV1::Uncertain(unavailable(&error))
+            }
+        };
+        // Removing the staging name is safe on every outcome: after a rename it is absent.
+        self.discard_staged(dir, staged);
+        RenameStepV1::Done(outcome)
+    }
+
+    // Atomically rename a staged file over `name` (fresh-inode publication of its content).
+    fn rename_replacing(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        staged: &str,
+        name: &str,
+    ) -> RenameStepV1 {
+        let Err(error) = self.fs.rename_replace(dir, staged, name) else {
+            return RenameStepV1::Renamed;
+        };
+        let outcome = match classify(&error) {
+            FailureClassV1::NoSpace => KagemushaWalletPublishOutcomeV1::NotPublished(
+                KagemushaWalletNotPublishedV1::NoSpace,
+            ),
+            FailureClassV1::Definitive | FailureClassV1::Exists | FailureClassV1::Unsupported => {
+                KagemushaWalletPublishOutcomeV1::NotPublished(
+                    KagemushaWalletNotPublishedV1::Failed(unavailable(&error)),
+                )
+            }
             FailureClassV1::Indeterminate => {
                 KagemushaWalletPublishOutcomeV1::Uncertain(unavailable(&error))
             }

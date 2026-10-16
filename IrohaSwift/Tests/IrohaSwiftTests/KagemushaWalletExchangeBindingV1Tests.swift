@@ -187,6 +187,45 @@ final class KagemushaWalletExchangeBindingV1Tests: XCTestCase {
         }
     }
 
+    func testRequestDisplayAmountPreservesExactUnsignedQuotedData() throws {
+        // A receiver shows its own Request's quote before the payer approves. These synthetic
+        // DATA records authenticate nothing; only Native output may supply the Request.
+        for amount: KagemushaWalletUInt128V1 in [
+            .init(low: 1, high: 0), .init(low: 0, high: 1),
+            .init(low: 0x0123_4567_89ab_cdef, high: 0xfedc_ba98_7654_3210),
+            .init(low: 0, high: UInt64(1) << 63), .init(low: .max, high: .max)
+        ] {
+            let bytes = withUnsafeBytes(of: amount.low.littleEndian) { Data($0) }
+                + withUnsafeBytes(of: amount.high.littleEndian) { Data($0) }
+            XCTAssertEqual(try KagemushaWalletWireV1.requestAmountData(requestWithAmount(bytes)), amount)
+            // The Payment that carries this Request reads the same amount.
+            XCTAssertEqual(try KagemushaWalletWireV1.paymentAmountData(paymentWithAmount(bytes)), amount)
+        }
+    }
+
+    func testRequestDisplayAmountRejectsZeroNoncanonicalScalarsAndWrongKinds() throws {
+        for bytes in [Data(repeating: 0, count: 16), Data(repeating: 1, count: 15),
+                      Data(repeating: 1, count: 17)] {
+            XCTAssertThrowsError(try KagemushaWalletWireV1.requestAmountData(requestWithAmount(bytes))) {
+                XCTAssertEqual($0 as? KagemushaWalletWireErrorV1, .invalidField("request.amount"))
+            }
+        }
+        for kind: IrohaPeerWireKindV1 in [.payment, .credited] {
+            let fields = kind == .payment ? paymentFields() : creditedFields()
+            XCTAssertThrowsError(try KagemushaWalletWireV1.requestAmountData(envelope(kind, fields)))
+        }
+        let request = requestWithAmount(Data([1]) + Data(repeating: 0, count: 15))
+        for invalid in [Data(request.dropLast()), request + Data([0])] {
+            XCTAssertThrowsError(try KagemushaWalletWireV1.requestAmountData(invalid))
+        }
+    }
+
+    private func requestWithAmount(_ amount: Data) -> Data {
+        var body = bodyFields()
+        body[9] = amount
+        return envelope(.request, [record(body), Data([1]), Data(), Data(), signature])
+    }
+
     private func paymentWithAmount(_ amount: Data) -> Data {
         var body = bodyFields()
         body[9] = amount

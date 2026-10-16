@@ -88,6 +88,79 @@ fn durable_store_counts_each_primitive_and_sync_class() {
 }
 
 #[test]
+fn durable_store_counts_a_batch_as_one_publication_sync() {
+    use crate::kagemusha_wallet_advance_v1::{
+        KagemushaWalletBatchActionV1 as Action, KagemushaWalletBatchEntryV1 as Entry,
+    };
+    let (_fs, store) = sim_store();
+    kagemusha_wallet_prepare_root_v1(&store).expect("root");
+    let dir = Dir::root();
+    // Both copies of two archive records.
+    let names = ["w-1.rec", "w-1.rec.r", "w-2.rec", "w-2.rec.r"].map(name);
+    let batch = |action: Action| {
+        names
+            .iter()
+            .map(|name| Entry {
+                name,
+                bytes: b"record copy",
+                action,
+            })
+            .collect::<Vec<_>>()
+    };
+    let (outcome, c) = Counters::observe(|| store.publish_batch(&dir, &batch(Action::New)));
+    assert_eq!(outcome, Outcome::Published);
+    assert_eq!(
+        (
+            c.batch_publishes,
+            c.batch_names,
+            c.write_new,
+            c.rewrite_same,
+            c.reads,
+            c.staged_syncs,
+            c.publish_syncs,
+            c.fsync_class_calls()
+        ),
+        (1, 4, 4, 0, 0, 4, 1, 5),
+        "four copies share one parent sync"
+    );
+    let (outcome, c) = Counters::observe(|| store.publish_batch(&dir, &batch(Action::Replace)));
+    assert_eq!(outcome, Outcome::Published);
+    assert_eq!(
+        (
+            c.batch_publishes,
+            c.batch_names,
+            c.write_new,
+            c.rewrite_same,
+            c.reads,
+            c.staged_syncs,
+            c.publish_syncs,
+            c.fsync_class_calls()
+        ),
+        (1, 4, 0, 4, 0, 4, 1, 5),
+        "an exact retry adopts every copy on a fresh inode behind one parent sync"
+    );
+    let fields = c.fields();
+    assert!(fields.contains(&("batch_publishes", 1)) && fields.contains(&("batch_names", 4)));
+    // The same copies published one name at a time: a staged and a parent sync each.
+    let ((), single) = Counters::observe(|| {
+        for copy in ["v-1.rec", "v-1.rec.r", "v-2.rec", "v-2.rec.r"] {
+            assert_eq!(
+                store.write_new(&dir, &name(copy), b"record copy"),
+                Outcome::Published
+            );
+        }
+    });
+    assert_eq!(
+        (
+            single.write_new,
+            single.batch_names,
+            single.fsync_class_calls()
+        ),
+        (4, 0, 8)
+    );
+}
+
+#[test]
 fn counters_are_per_thread_nest_and_survive_an_unwinding_observation() {
     let before = Counters::current();
     let other = std::thread::spawn(|| {
@@ -349,7 +422,20 @@ fn provider_unit_costs<F: KagemushaWalletFsV1 + Clone>(fs: F, label: &str, polic
         (12, 6, 2),
         "Advance A8 removes no definitively absent completion copy"
     );
-    assert_eq!(unit("publish_archive_checkpoint_1").fsync_class_calls(), 7);
+    // Both checkpoint copies share one directory sync (staged 2 + directory 1), then the
+    // marker (staged 1 + directory 1) and the retirement of the old one (directory 1).
+    let publication = unit("publish_archive_checkpoint_1");
+    assert_eq!(
+        (
+            publication.fsync_class_calls(),
+            publication.batch_publishes,
+            publication.batch_names,
+            publication.staged_syncs,
+            publication.publish_syncs,
+            publication.dir_syncs,
+        ),
+        (6, 1, 2, 3, 2, 1)
+    );
     let cached = unit("status_cached");
     assert_eq!((cached.fsync_class_calls(), cached.storage_probes), (0, 10));
     let put = unit("archive_put_new");

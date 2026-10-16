@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hyperledger.iroha.sdk.offline.wallet
 
-import kotlin.test.Test
+import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull

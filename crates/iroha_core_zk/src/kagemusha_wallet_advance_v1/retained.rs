@@ -375,7 +375,8 @@ where
     ///
     /// `Invalid` for the current head's own operation, an operation with no valid record and
     /// no tombstone, or a slot without a head; `UnavailableCustodyData` when an existing
-    /// tombstone disagrees; the reconcile, read and write errors otherwise.
+    /// tombstone disagrees; the errors of publishing the slot's staged archive records
+    /// ([`Self::drain_archive`]); the reconcile, read and write errors otherwise.
     pub fn prune_completion(
         &mut self,
         slot: &KagemushaWalletSlotIdV1,
@@ -400,6 +401,8 @@ where
                 field: "prune.current_head",
             });
         }
+        // Archive records staged by the open call are durable before the record is pruned.
+        self.drain_archive(slot)?;
         let binding = R::marker_binding(current.marker());
         let pair = match load_older_completion::<F, R>(&self.store, slot, operation_id, &binding)? {
             OlderCompletionV1::Found(pair) => pair,
@@ -467,7 +470,8 @@ where
     /// intent. Current-head custody is never collected, and no directory enumeration occurs.
     ///
     /// # Errors
-    /// Current/future generations, missing heads or uncertain protected-storage removal.
+    /// Current/future generations, missing heads, the errors of publishing the slot's staged
+    /// archive records ([`Self::drain_archive`]) or uncertain protected-storage removal.
     pub fn collect_capsule(
         &mut self,
         slot: &KagemushaWalletSlotIdV1,
@@ -486,6 +490,9 @@ where
                 field: "collect.current_capsule",
             });
         }
+        // Archive records staged by the open call (the collection decision's) are durable
+        // before anything is removed.
+        self.drain_archive(slot)?;
         let dir = kagemusha_wallet_capsules_dir_v1(slot);
         for copy in super::layout::KagemushaWalletCopyV1::BOTH {
             let name = kagemusha_wallet_capsule_name_v1(selected_generation, capsule_digest, copy);
@@ -502,6 +509,7 @@ where
     /// # Errors
     ///
     /// `Invalid` when `through` reaches the current head's capsule or the slot has no head;
+    /// the errors of publishing the slot's staged archive records ([`Self::drain_archive`]);
     /// the reconcile, listing and removal errors otherwise.
     pub fn collect_capsules(
         &mut self,
@@ -520,6 +528,8 @@ where
                 field: "collect.current_capsule",
             });
         }
+        // Archive records staged by the open call are durable before anything is removed.
+        self.drain_archive(slot)?;
         let names = kagemusha_wallet_list_capsules_v1(&self.store, slot)?.unwrap_or_default();
         let dir = kagemusha_wallet_capsules_dir_v1(slot);
         let mut removed = 0_usize;

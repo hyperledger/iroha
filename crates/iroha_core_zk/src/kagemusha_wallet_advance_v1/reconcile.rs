@@ -8,9 +8,10 @@
 //! - **R2** the current marker is the highest generation, read strictly; it is compared with
 //!   the iOS anchor before anything is written, and **R4** the payment key must be present and
 //!   equal to the marker's;
-//! - **R1** staging files are removed; **R3** the current marker is adopted durably
-//!   (fresh-inode rewrite when it may hold an unacknowledged write of this boot; on a full
-//!   disk such rewrites and copy repairs may draw the ballast);
+//! - **R1** staging files are removed (the state-owner archive's at the first full reconcile
+//!   of the slot by this provider and after a failed archive access); **R3** the current
+//!   marker is adopted durably (fresh-inode rewrite when it may hold an unacknowledged write of
+//!   this boot; on a full disk such rewrites and copy repairs may draw the ballast);
 //! - **R5** the capsule bound by a head is loaded from either copy and repaired, with the
 //!   completion record under a Selected head (adopted, or its invalid never-released copies
 //!   removed) or the retained record under a Released head (`CompletionLost` when every copy is
@@ -65,7 +66,7 @@ use super::{
         KAGEMUSHA_WALLET_ENROLLMENT_NAME_V1, KAGEMUSHA_WALLET_INTENT_NAME_V1,
         KAGEMUSHA_WALLET_KEY_GENERATION_ATTEMPT_NAME_V1, KAGEMUSHA_WALLET_MARKERS_DIR_NAME_V1,
         KAGEMUSHA_WALLET_OPS_DIR_NAME_V1, KagemushaWalletCopyV1, KagemushaWalletCustodyDirV1,
-        KagemushaWalletSlotIdV1, kagemusha_wallet_capsule_name_v1,
+        KagemushaWalletSlotIdV1, kagemusha_wallet_archive_dir_v1, kagemusha_wallet_capsule_name_v1,
         kagemusha_wallet_capsules_dir_v1, kagemusha_wallet_completion_dir_v1,
         kagemusha_wallet_is_staging_name_v1, kagemusha_wallet_list_dir_v1,
         kagemusha_wallet_markers_dir_v1, kagemusha_wallet_ops_dir_v1,
@@ -377,6 +378,7 @@ where
         }
         // R1, R3.
         self.remove_all_staging(slot)?;
+        self.remove_archive_staging(slot)?;
         // Fresh-inode rewrites need space: on a full disk they may draw the ballast.
         let durable = self.with_ballast(true, || {
             kagemusha_wallet_adopt_marker_v1(&self.store, &current, &boot)
@@ -597,6 +599,25 @@ where
         for dir in &dirs {
             self.store.remove_staging(dir)?;
         }
+        Ok(())
+    }
+
+    /// R1 for the state-owner archive directory: remove the staging residue of an interrupted
+    /// record or batch publication. Staging files exist only inside a publication, which never
+    /// spans a reconcile, so no live staged file is removed; a staged archive batch is in
+    /// memory and is not affected. The directory grows with the archive, so this provider lists
+    /// it at the first full reconcile of the slot (residue of an earlier process) and again
+    /// only after one of its archive accesses failed on the slot (residue it may have left).
+    fn remove_archive_staging(
+        &mut self,
+        slot: &KagemushaWalletSlotIdV1,
+    ) -> Result<(), KagemushaWalletProviderErrorV1> {
+        if self.archive_swept.contains(slot) {
+            return Ok(());
+        }
+        self.store
+            .remove_staging(&kagemusha_wallet_archive_dir_v1(slot))?;
+        self.archive_swept.insert(*slot);
         Ok(())
     }
 

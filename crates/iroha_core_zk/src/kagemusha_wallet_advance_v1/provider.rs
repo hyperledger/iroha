@@ -17,7 +17,10 @@
 //! The durable store and the platform services are private to the provider: custody files
 //! and the payment key are reached only through its operations.
 
-use std::{collections::BTreeMap, marker::PhantomData};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    marker::PhantomData,
+};
 
 use iroha_data_model::kagemusha::{
     KagemushaWalletCompletionRecordV1, KagemushaWalletRecoveryCapsuleV1,
@@ -137,6 +140,14 @@ pub struct KagemushaWalletProviderV1<
     /// Current archive phase (`archive.rs`). Every custody call, poison, remembered status and
     /// reconcile ends it, so its skipped reconcile never spans a custody operation.
     pub(super) archive_phase: Option<super::archive::ArchivePhaseV1>,
+    /// Archive records staged by the open embedder call of each slot (`archive.rs`): an entry
+    /// exists exactly while a call is open. In memory only; phase ends, poison, remembered
+    /// statuses and reconciliation never touch it, and dropping the provider discards it.
+    pub(super) archive_batches: BTreeMap<KagemushaWalletSlotIdV1, super::archive::ArchiveBatchV1>,
+    /// Slots whose archive directory this provider swept of staging residue at a full
+    /// reconcile (R1) since its last failed archive access on the slot: later full reconciles
+    /// skip that listing, which grows with the archive (`reconcile.rs`).
+    pub(super) archive_swept: BTreeSet<KagemushaWalletSlotIdV1>,
     sentinel: KagemushaWalletRootSentinelV1,
     _lock: F::Lock,
     _frames: PhantomData<fn() -> (C, R)>,
@@ -213,6 +224,8 @@ where
             slot_phases: std::cell::RefCell::new(BTreeMap::new()),
             archive_writes: std::cell::RefCell::default(),
             archive_phase: None,
+            archive_batches: BTreeMap::new(),
+            archive_swept: BTreeSet::new(),
             sentinel,
             _lock: lock,
             _frames: PhantomData,

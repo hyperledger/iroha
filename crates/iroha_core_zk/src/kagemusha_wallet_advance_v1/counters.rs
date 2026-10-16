@@ -25,24 +25,38 @@ pub struct KagemushaWalletStorageCountersV1 {
     pub archive_put_memo_hits: u64,
     /// Archive object reads answered from the current archive phase's authenticated objects.
     pub archive_object_cache_hits: u64,
+    /// Archive puts of bytes the open call already staged at the same key: answered from the
+    /// batch without a read, a write or a sync.
+    pub archive_put_batch_hits: u64,
+    /// Archive reads answered from the open call's staged records, without a storage access.
+    pub archive_overlay_hits: u64,
+    /// Batches discarded unpublished because their call was opened again without a close.
+    pub archive_batch_abandoned: u64,
+    /// Archive puts published before they return (outside an open call, or a fixed-key record
+    /// that binds another record).
+    pub archive_sync_puts: u64,
     /// Durable-store file reads.
     pub reads: u64,
     /// Durable-store directory listings.
     pub listings: u64,
-    /// Names published by create-new (a paired publication counts each name).
+    /// Names published by create-new (paired and batch publications count each name).
     pub write_new: u64,
-    /// Byte-identical republications on a fresh inode.
+    /// Byte-identical republications on a fresh inode (a batch counts each replacing name).
     pub rewrite_same: u64,
     /// Replacements of exact current content with other bytes.
     pub replace_exact: u64,
+    /// Batch publications: any number of names made durable behind one parent sync.
+    pub batch_publishes: u64,
+    /// Names of batch publications; each is also counted in `write_new` or `rewrite_same`.
+    pub batch_names: u64,
     /// Durable file and empty-directory removals.
     pub removals: u64,
     /// Data syncs of staged files before publication.
     pub staged_syncs: u64,
     /// Time spent in staged-file syncs.
     pub staged_sync_nanos: u64,
-    /// Parent-directory syncs that make a publication durable (`sync_after_publish` and the
-    /// single sync of a paired publication).
+    /// Parent-directory syncs that make a publication durable (`sync_after_publish`, and the
+    /// single sync of a paired or batch publication).
     pub publish_syncs: u64,
     /// Time spent in publication syncs.
     pub publish_sync_nanos: u64,
@@ -91,11 +105,17 @@ pub(crate) enum EventV1 {
     ArchiveRemove,
     ArchivePutMemoHit,
     ArchiveObjectCacheHit,
+    ArchivePutBatchHit,
+    ArchiveOverlayHit,
+    ArchiveBatchAbandoned,
+    ArchiveSyncPut,
     Read,
     Listing,
     WriteNew(u64),
     RewriteSame,
     ReplaceExact,
+    BatchPublish,
+    BatchNames(u64),
     Removal,
     StorageProbe,
     Reconcile,
@@ -112,11 +132,17 @@ const ZERO: KagemushaWalletStorageCountersV1 = KagemushaWalletStorageCountersV1 
     archive_removes: 0,
     archive_put_memo_hits: 0,
     archive_object_cache_hits: 0,
+    archive_put_batch_hits: 0,
+    archive_overlay_hits: 0,
+    archive_batch_abandoned: 0,
+    archive_sync_puts: 0,
     reads: 0,
     listings: 0,
     write_new: 0,
     rewrite_same: 0,
     replace_exact: 0,
+    batch_publishes: 0,
+    batch_names: 0,
     removals: 0,
     staged_syncs: 0,
     staged_sync_nanos: 0,
@@ -162,11 +188,17 @@ pub(crate) fn count(event: EventV1) {
         EventV1::ArchiveRemove => bump(&mut c.archive_removes, 1),
         EventV1::ArchivePutMemoHit => bump(&mut c.archive_put_memo_hits, 1),
         EventV1::ArchiveObjectCacheHit => bump(&mut c.archive_object_cache_hits, 1),
+        EventV1::ArchivePutBatchHit => bump(&mut c.archive_put_batch_hits, 1),
+        EventV1::ArchiveOverlayHit => bump(&mut c.archive_overlay_hits, 1),
+        EventV1::ArchiveBatchAbandoned => bump(&mut c.archive_batch_abandoned, 1),
+        EventV1::ArchiveSyncPut => bump(&mut c.archive_sync_puts, 1),
         EventV1::Read => bump(&mut c.reads, 1),
         EventV1::Listing => bump(&mut c.listings, 1),
         EventV1::WriteNew(names) => bump(&mut c.write_new, names),
         EventV1::RewriteSame => bump(&mut c.rewrite_same, 1),
         EventV1::ReplaceExact => bump(&mut c.replace_exact, 1),
+        EventV1::BatchPublish => bump(&mut c.batch_publishes, 1),
+        EventV1::BatchNames(names) => bump(&mut c.batch_names, names),
         EventV1::Removal => bump(&mut c.removals, 1),
         EventV1::StorageProbe => bump(&mut c.storage_probes, 1),
         EventV1::Reconcile => bump(&mut c.reconciles, 1),
@@ -285,18 +317,24 @@ impl KagemushaWalletStorageCountersV1 {
 
     /// Named public counts and durations, in declaration order, for logs.
     #[must_use]
-    pub fn fields(&self) -> [(&'static str, u64); 28] {
+    pub fn fields(&self) -> [(&'static str, u64); 34] {
         [
             ("archive_gets", self.archive_gets),
             ("archive_puts", self.archive_puts),
             ("archive_removes", self.archive_removes),
             ("archive_put_memo_hits", self.archive_put_memo_hits),
             ("archive_object_cache_hits", self.archive_object_cache_hits),
+            ("archive_put_batch_hits", self.archive_put_batch_hits),
+            ("archive_overlay_hits", self.archive_overlay_hits),
+            ("archive_batch_abandoned", self.archive_batch_abandoned),
+            ("archive_sync_puts", self.archive_sync_puts),
             ("reads", self.reads),
             ("listings", self.listings),
             ("write_new", self.write_new),
             ("rewrite_same", self.rewrite_same),
             ("replace_exact", self.replace_exact),
+            ("batch_publishes", self.batch_publishes),
+            ("batch_names", self.batch_names),
             ("removals", self.removals),
             ("staged_syncs", self.staged_syncs),
             ("staged_sync_nanos", self.staged_sync_nanos),
@@ -329,11 +367,20 @@ impl KagemushaWalletStorageCountersV1 {
                 self.archive_object_cache_hits,
                 other.archive_object_cache_hits,
             ),
+            archive_put_batch_hits: sum(self.archive_put_batch_hits, other.archive_put_batch_hits),
+            archive_overlay_hits: sum(self.archive_overlay_hits, other.archive_overlay_hits),
+            archive_batch_abandoned: sum(
+                self.archive_batch_abandoned,
+                other.archive_batch_abandoned,
+            ),
+            archive_sync_puts: sum(self.archive_sync_puts, other.archive_sync_puts),
             reads: sum(self.reads, other.reads),
             listings: sum(self.listings, other.listings),
             write_new: sum(self.write_new, other.write_new),
             rewrite_same: sum(self.rewrite_same, other.rewrite_same),
             replace_exact: sum(self.replace_exact, other.replace_exact),
+            batch_publishes: sum(self.batch_publishes, other.batch_publishes),
+            batch_names: sum(self.batch_names, other.batch_names),
             removals: sum(self.removals, other.removals),
             staged_syncs: sum(self.staged_syncs, other.staged_syncs),
             staged_sync_nanos: sum(self.staged_sync_nanos, other.staged_sync_nanos),

@@ -506,6 +506,12 @@ where
         if phase.rank() != current.phase.rank() + 1 {
             return Err(corrupt());
         }
+        // Enrollment phase publications run in the enrollment owner, where no embedder call has
+        // staged archive records of the slot (records are staged only under a committed marker).
+        debug_assert!(
+            self.archive_batch_is_empty(&KagemushaWalletSlotIdV1(current.binding.slot)),
+            "enrollment phase publication with staged archive records"
+        );
         let replacement = encode_phase(&KagemushaWalletEnrollmentPhaseStateV1 {
             binding: current.binding,
             phase,

@@ -291,39 +291,61 @@ fn archive_metadata_does_not_modify_or_resign_the_g1_head() {
 }
 
 #[test]
-fn scoped_archive_capability_binds_content_limits_and_protected_storage() {
+fn scoped_archive_capability_binds_record_bounds_content_and_protected_storage() {
     let (device, _, slot, _) = bootstrapped_device(Policy::NotRequired, 0x65);
     let mut provider = device.open();
-    let digest = provider
-        .with_archive(&slot, |archive| archive.write(b"immutable node", 14))
+    let directory = kagemusha_wallet_archive_dir_v1(&slot);
+    let before = device.fs.visible_names(&directory);
+    let key = [0x65; 32];
+    provider
+        .with_archive(&slot, |archive| {
+            archive.write_record(&key, b"immutable node")
+        })
         .expect("write");
+    // A record is exactly its two framed copies; the capability names no other archive file.
+    let mut added: Vec<String> = device
+        .fs
+        .visible_names(&directory)
+        .into_iter()
+        .filter(|name| !before.contains(name))
+        .collect();
+    added.sort();
+    let copy = format!("w-{}.rec", hex::encode(key));
+    assert_eq!(added, [copy.clone(), format!("{copy}.r")]);
     assert_eq!(
         provider
-            .with_archive(&slot, |archive| archive.read(&digest, 14))
-            .expect("read"),
-        b"immutable node"
+            .with_archive(&slot, |archive| archive.read_record(&key, 14))
+            .expect("read")
+            .as_deref(),
+        Some(b"immutable node".as_slice())
     );
-    assert!(
-        provider
-            .with_archive(&slot, |archive| archive.read(&digest, 13))
-            .is_err()
-    );
-    assert!(
-        provider
-            .with_archive(&slot, |archive| archive.write(b"too large", 3))
-            .is_err()
-    );
+    assert!(matches!(
+        provider.with_archive(&slot, |archive| archive.read_record(&key, 13)),
+        Err(Error::UnavailableCustodyData {
+            object: "archive record"
+        })
+    ));
+    let changed = provider.with_archive(&slot, |archive| {
+        archive.write_record(&key, b"immutable edge")
+    });
+    assert!(matches!(
+        changed,
+        Err(Error::Invalid {
+            field: "archive.immutable_record"
+        })
+    ));
     device.platform.with(|s| s.storage_lock_after = Some(1));
     assert!(matches!(
-        provider.with_archive(&slot, |archive| archive.read(&digest, 14)),
+        provider.with_archive(&slot, |archive| archive.read_record(&key, 14)),
         Err(Error::Unavailable(_))
     ));
     device.platform.clear_faults();
     assert_eq!(
         provider
-            .with_archive(&slot, |archive| archive.read(&digest, 14))
-            .expect("available again"),
-        b"immutable node"
+            .with_archive(&slot, |archive| archive.read_record(&key, 14))
+            .expect("available again")
+            .as_deref(),
+        Some(b"immutable node".as_slice())
     );
 }
 

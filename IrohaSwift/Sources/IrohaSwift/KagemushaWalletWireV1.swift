@@ -721,6 +721,23 @@ public enum KagemushaWalletWireV1 {
     return KagemushaWalletUInt128V1(low: u64(0), high: u64(8))
   }
 
+  /// Exact unsigned amount quoted in a Request's signed body, for display only: what a receiver
+  /// shows as on its way before the payer approves. This bounded structural parser authenticates
+  /// nothing. A wallet must first obtain the exact Request from its own genuine Native output.
+  /// Neither a decoded amount nor successful framing establishes a payment, a credit or a receipt.
+  public static func requestAmountData(_ request: Data) throws -> KagemushaWalletUInt128V1 {
+    let fields = try exchangeMessageFields(request, kind: .request, count: 5)
+    let body = try exchangeRecordFields(fields[0], count: 19, label: "request.body")
+    let amount = [UInt8](body[9])
+    guard amount.count == 16, amount.contains(where: { $0 != 0 }) else {
+      throw KagemushaWalletWireErrorV1.invalidField("request.amount")
+    }
+    func u64(_ offset: Int) -> UInt64 {
+      (0..<8).reduce(UInt64(0)) { $0 | (UInt64(amount[offset + $1]) << (8 * $1)) }
+    }
+    return KagemushaWalletUInt128V1(low: u64(0), high: u64(8))
+  }
+
   // Reconstruct signed bytes only; Native owns signature, proof and custody checks.
   private static func paymentSignedRequestFields(_ payment: [Data]) throws -> ([Data], Data) {
     let unique = try exchangeRecordFields(payment[1], count: 12, label: "payment.request")

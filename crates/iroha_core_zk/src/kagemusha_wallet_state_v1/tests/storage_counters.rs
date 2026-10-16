@@ -416,26 +416,29 @@ fn coordinator_storage_counts_are_deterministic_and_filesystem_independent() {
     // protected-storage probes, Advance excluded. Storage optimizations update this table.
     // Archive phases: within one phase only the first access reconciles (with its probes) and
     // kept objects answer repeated gets, so probes fall while writes and syncs stay as they were.
+    // Checkpoint publication drains: its two copies share one directory sync (one fsync-class
+    // call fewer than two single publications) behind a probe before the create-new renames and
+    // the probe that closes every archive access (two probes more per publication).
     const BASELINE: [(&str, u64, u64, u64); 21] = [
         ("coordinator_open", 0, 0, 31),
-        ("bootstrap_commit", 35, 7, 132),
-        ("bootstrap_fold_turn_0", 11, 1, 73),
-        ("bootstrap_fold_turn_1", 27, 5, 82),
-        ("receive_commit", 23, 4, 175),
-        ("receive_fold_turn_0", 11, 1, 108),
-        ("receive_fold_turn_1", 1_407, 350, 809),
-        ("refresh_policy_commit", 19, 3, 176),
-        ("refresh_policy_fold_turn_0", 11, 1, 110),
-        ("refresh_policy_fold_turn_1", 27, 5, 121),
-        ("send_commit", 35, 7, 184),
-        ("send_fold_turn_0", 11, 1, 111),
-        ("send_fold_turn_1", 35, 7, 128),
-        ("load_commit", 19, 3, 179),
-        ("load_fold_turn_0", 11, 1, 112),
-        ("load_fold_turn_1", 27, 5, 123),
-        ("unload_commit", 23, 4, 178),
-        ("unload_fold_turn_0", 11, 1, 111),
-        ("unload_fold_turn_1", 35, 7, 128),
+        ("bootstrap_commit", 34, 7, 134),
+        ("bootstrap_fold_turn_0", 10, 1, 75),
+        ("bootstrap_fold_turn_1", 26, 5, 84),
+        ("receive_commit", 22, 4, 177),
+        ("receive_fold_turn_0", 10, 1, 110),
+        ("receive_fold_turn_1", 1_406, 350, 811),
+        ("refresh_policy_commit", 18, 3, 178),
+        ("refresh_policy_fold_turn_0", 10, 1, 112),
+        ("refresh_policy_fold_turn_1", 26, 5, 123),
+        ("send_commit", 34, 7, 186),
+        ("send_fold_turn_0", 10, 1, 113),
+        ("send_fold_turn_1", 34, 7, 130),
+        ("load_commit", 18, 3, 181),
+        ("load_fold_turn_0", 10, 1, 114),
+        ("load_fold_turn_1", 26, 5, 125),
+        ("unload_commit", 22, 4, 180),
+        ("unload_fold_turn_0", 10, 1, 113),
+        ("unload_fold_turn_1", 34, 7, 130),
         ("snapshot", 0, 0, 134),
         ("send_exact_retry", 0, 0, 36),
     ];
