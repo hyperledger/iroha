@@ -1262,12 +1262,13 @@ def _verify_apple_assertion_with_hash(
         validation_category: int | None = None
         bundle_version: str | None = None
         if len(auth) > 37:
+            # The attestation's map: an iOS 27.0.1 iPhone asserted exactly these two keys.
             extensions = cbor_exact(auth[37:])
             require(isinstance(extensions, dict)
-                    and set(extensions) == {"validationCategory", "bundleVersion"},
+                    and set(extensions) == {"apple_validation_category_01", "apple_bundle_version_01"},
                     "unsupported App Attest assertion extension")
-            raw_category = extensions["validationCategory"]
-            bundle_version = extensions["bundleVersion"]
+            raw_category = extensions["apple_validation_category_01"]
+            bundle_version = extensions["apple_bundle_version_01"]
             require(type(raw_category) is bytes and len(raw_category) == 4
                     and type(bundle_version) is str
                     and 0 < len(bundle_version.encode("utf-8")) <= 128,
