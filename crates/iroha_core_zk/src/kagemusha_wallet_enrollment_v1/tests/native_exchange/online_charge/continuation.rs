@@ -17,6 +17,9 @@ use iroha_data_model::{
 };
 use std::collections::BTreeSet;
 
+#[path = "continuation/unload_confirmation.rs"]
+mod unload_confirmation;
+
 fn digest(value: &norito::json::Value) -> [u8; 32] {
     let text = value.as_str().unwrap();
     let bytes: [u8; 32] = hex::decode(text).unwrap().try_into().unwrap();

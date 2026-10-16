@@ -907,9 +907,47 @@ fn finish_exchange(
     let signed = device_c.platform.with(|state| state.sign_calls);
     drop(c);
     let mut c = sources.open(&device_c, &f_c, &frames_c);
-    assert_eq!(complete(c.execute(receive_bc).unwrap()), received_bc);
+    assert_eq!(
+        complete(c.execute(receive_bc.clone()).unwrap()),
+        received_bc
+    );
     assert_eq!(device_c.platform.with(|state| state.sign_calls), signed);
     fold(&mut c);
+    // A fresh operation identity must not bypass permanent credit consumption after
+    // reopening fully folded receiver custody. FoldRequired is not a passing refusal.
+    let folded_c = c.snapshot().unwrap();
+    assert_eq!(folded_c.folded_balance, Some(LOAD_AMOUNT));
+    drop(c);
+    let mut c = sources.open(&device_c, &f_c, &frames_c);
+    assert_eq!(c.snapshot().unwrap(), folded_c);
+    assert_eq!(
+        complete(c.execute(receive_bc.clone()).unwrap()),
+        received_bc
+    );
+    let mut duplicate_after_restart = receive_bc.clone();
+    duplicate_after_restart.request_id = [224; 32];
+    assert!(matches!(
+        c.execute(duplicate_after_restart),
+        Err(state::Error::Invalid(_))
+    ));
+    assert_eq!(c.snapshot().unwrap(), folded_c);
+    assert_eq!(device_c.platform.with(|state| state.sign_calls), signed);
+    assert_eq!(complete(c.execute(receive_bc).unwrap()), received_bc);
+    assert_eq!(c.snapshot().unwrap(), folded_c);
+    assert_eq!(device_c.platform.with(|state| state.sign_calls), signed);
+    publish(
+        &output.join("receiver-fresh-id-replay-after-restart.json"),
+        &norito::json::to_vec(&norito::json!({
+            "schema": "iroha.kagemusha.reopened-receiver-credit-replay.v1",
+            "same_folded_custody_reopened": true,
+            "fresh_operation_id_refused_as_invalid": true,
+            "exact_receive_original_before_and_after_refusal": true,
+            "head_balance_and_sequence_unchanged": true,
+            "new_payment_signatures": 0,
+            "scope": "Actual same-C native host custody with genuine incoming Payment; simulated hardware. This component record does not assert physical restart, power-loss or the enclosing campaign terminal."
+        }))
+        .unwrap(),
+    );
     assert_eq!(
         a.snapshot().unwrap().owned_balance
             + b.snapshot().unwrap().owned_balance

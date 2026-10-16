@@ -2,11 +2,17 @@
 //!
 //! B's 100 is received value from A's ONE genuine finalized Load, never a cloned target.
 //! Fixture-issued replacement credentials are consumed by ordinary installed Refresh proofs.
+//! A retained Request survives receiver renewal; the payer retires with an unresolved Payment
+//! and genuinely proves its later Sends without recreating value or abandoning custody.
+//! TODO: Compile and run these ReceiveRenewed/Retiring additions against matched artifacts.
 //! This does not verify platform attestation or a remote credential-renewal service.
 //! TODO: Execute after source handoff; native renewal restart must succeed without pre-seeding
 //! provider credential records. The obsolete intake credential-N requirement is a genuine
 //! regression; the separate repair authenticates the selected committed source instead.
 use super::*;
+use crate::kagemusha_wallet_artifacts_v1::producer_inventory::QualifiedOperationOwnerV1;
+use iroha_kagemusha_proof::a_relation::schedule::compiled::OperationRoute;
+use iroha_plonk_recursion::obligation::ledger::Variant;
 use std::collections::BTreeSet;
 
 #[path = "renewal/terms.rs"]
@@ -342,12 +348,13 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
     publish(&output.join("prior-controls-result.json"), &bytes);
     let files = norito::json!({"files":(prior["continuation_originals"].clone())});
     let root = path.parent().unwrap();
-    let frames_a =
+    let mut frames_a =
         FRAME_NAMES.map(|name| target_original(root, &files, &format!("a-{name}"), 32768));
+    let old_frames_a = frames_a.clone();
     let mut frames_b =
         FRAME_NAMES.map(|name| target_original(root, &files, &format!("b-{name}"), 32768));
     let old_frames_b = frames_b.clone();
-    let credential_a: KagemushaWalletCredentialV1 = decode(&frames_a[0]);
+    let mut credential_a: KagemushaWalletCredentialV1 = decode(&frames_a[0]);
     let original_b: KagemushaWalletCredentialV1 = decode(&frames_b[0]);
     assert_eq!(
         credential_a.body.payment_key,
@@ -469,7 +476,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         "expired-lease-time",
         &mut records,
     );
-    let (_, request30, _) = request(
+    let (offer30, request30, request30_setup) = request(
         &mut b,
         &mut a,
         30,
@@ -754,6 +761,205 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         "payment30-payer-certificates.norito",
         &historical_b[1],
     ));
+    // Retiring consumes the genuine folded head with 70 still owned and the committed
+    // Payment30 still awaiting delivery. Its lifecycle permits the later Sends below.
+    let before_retirement = b.snapshot().unwrap();
+    assert_eq!(
+        before_retirement.lifecycle,
+        KagemushaWalletLifecycleV1::Active
+    );
+    assert_eq!(before_retirement.folded_balance, Some(70));
+    let retirement_intent = action(next(&mut id), OperationActionV1::Retire);
+    let retirement_signatures = device_b.platform.with(|state| state.sign_calls);
+    let retirement_bytes = complete(b.execute(retirement_intent.clone()).unwrap());
+    let retirement: KagemushaWalletPackageV1 = decode(&retirement_bytes);
+    retirement.verify(&renewed2).unwrap();
+    sources
+        .installed
+        .verifier()
+        .verify_package_proofs(&retirement, None, MemoryBudget::DEFAULT)
+        .unwrap();
+    assert_eq!(
+        retirement.statement.effect,
+        KagemushaWalletEffectV1::Retiring
+    );
+    assert_eq!(
+        retirement.statement.lifecycle,
+        KagemushaWalletLifecycleV1::Retiring
+    );
+    assert_eq!(
+        retirement.statement.predecessor.value,
+        before_retirement.head
+    );
+    let predecessor = retirement
+        .lineage
+        .lineage()
+        .expect("Retiring carries actual predecessor Omega");
+    assert_eq!(predecessor.public.head.value, before_retirement.head);
+    assert_eq!(
+        predecessor.public.lifecycle,
+        KagemushaWalletLifecycleV1::Active
+    );
+    assert_eq!(
+        retirement.statement.lineage_pending_outgoing_root,
+        predecessor.public.pending_outgoing_root
+    );
+    assert_eq!(
+        device_b.platform.with(|state| state.sign_calls),
+        retirement_signatures + 1
+    );
+    assert_eq!(
+        complete(b.execute(retirement_intent.clone()).unwrap()),
+        retirement_bytes
+    );
+    let retiring_route = OperationRoute {
+        variant: Variant::Retiring,
+        own: 15,
+        incoming: None,
+    };
+    let QualifiedOperationOwnerV1::Consuming(retiring_owner) =
+        sources.qualified.route(retiring_route).unwrap().owner()
+    else {
+        panic!("Retiring selects its genuine consuming prover");
+    };
+    let retiring_stages = retiring_owner.checkpoint_layouts().unwrap().len();
+    eprintln!(
+        "NATIVE_REQUIRED_ROUTE_BEGIN case=retiring route={retiring_route:?} terminal_position={retiring_stages}"
+    );
+    fold(&mut b);
+    eprintln!("NATIVE_REQUIRED_ROUTE_END case=retiring caught_up=true");
+    let retired = b.snapshot().unwrap();
+    assert_eq!(retired.lifecycle, KagemushaWalletLifecycleV1::Retiring);
+    assert_eq!(retired.sequence, before_retirement.sequence + 1);
+    assert_eq!(retired.owned_balance, before_retirement.owned_balance);
+    assert_eq!(
+        retired.known_burned_total,
+        before_retirement.known_burned_total
+    );
+    assert_eq!(retired.folded_balance, Some(70));
+    drop(b);
+    let mut b = sources.open(&device_b, &f_b, &frames_b);
+    assert_eq!(b.snapshot().unwrap(), retired);
+    assert_eq!(
+        complete(b.execute(retirement_intent.clone()).unwrap()),
+        retirement_bytes
+    );
+    assert_eq!(complete(b.execute(intent30.clone()).unwrap()), payment30);
+    assert_eq!(b.snapshot().unwrap(), retired);
+    assert_eq!(
+        device_b.platform.with(|state| state.sign_calls),
+        retirement_signatures + 1
+    );
+    records.push(original(
+        &output,
+        "retiring-with-outgoing-payment.norito",
+        &retirement_bytes,
+    ));
+    // A correctly signed foreign Offer reaches the lifecycle guard. No new Request may
+    // be signed, while the existing outgoing Payment and its original receipt survive.
+    let offer_for_retired = a.offer([next(&mut id); 32], 1).unwrap();
+    let refused_setup = [next(&mut id); 32];
+    for _ in 0..2 {
+        assert!(matches!(
+            b.request(refused_setup, &offer_for_retired, None),
+            Err(state::Error::Invalid("new Request requires active wallet"))
+        ));
+        assert_eq!(b.snapshot().unwrap(), retired);
+    }
+    assert_eq!(
+        device_b.platform.with(|state| state.sign_calls),
+        retirement_signatures + 1
+    );
+    records.push(original(
+        &output,
+        "retiring-refused-request-offer.norito",
+        &offer_for_retired,
+    ));
+
+    // Renew the RECEIVER after Request30 was signed and Payment30 was irrevocably
+    // committed. This exact digest inequality selects ReceiveRenewed, not ordinary
+    // Receive with a renewed payer. Retain the same request and the same incarnation.
+    let request30_value: KagemushaWalletRequestV1 = decode(&request30);
+    assert_eq!(request30_value.receiver_credential, credential_a);
+    let a_certificates: KagemushaWalletCertificateSetV1 = decode(&frames_a[1]);
+    let a_issuer = *a_certificates
+        .certificate(
+            &credential_a.body.issuer_certificate,
+            KagemushaWalletSignerRoleV1::Enrollment,
+        )
+        .unwrap();
+    let renewed_a = terms::renewal(&credential_a, &a_issuer, 20950);
+    refresh(
+        &mut a,
+        &device_a,
+        &sources,
+        &renewed_a,
+        KagemushaWalletPolicyUpdateKindV1::Credential,
+        renewed_a.to_canonical_bytes().unwrap(),
+        &a_issuer,
+        &mut id,
+        &output,
+        "receiver-renewal-after-request",
+        &mut records,
+    );
+    frames_a[0] = renewed_a.to_canonical_bytes().unwrap();
+    credential_a = renewed_a;
+    assert_ne!(
+        request30_value.receiver_credential.credential_digest(),
+        credential_a.credential_digest()
+    );
+    assert_eq!(
+        request30_value.receiver_credential.body.payment_key,
+        credential_a.body.payment_key
+    );
+    assert_eq!(
+        request30_value.receiver_credential.body.wallet_id,
+        credential_a.body.wallet_id
+    );
+    let renewed_a_snapshot = a.snapshot().unwrap();
+    let a_renewal_signatures = device_a.platform.with(|state| state.sign_calls);
+    drop(a);
+    assert_historical_open_refused(&sources, &device_a, &f_a, &old_frames_a);
+    let mut a = sources.open(&device_a, &f_a, &frames_a);
+    assert_eq!(a.snapshot().unwrap(), renewed_a_snapshot);
+    assert_eq!(
+        a.request(request30_setup, &offer30, None).unwrap(),
+        request30
+    );
+    assert_eq!(
+        device_a.platform.with(|state| state.sign_calls),
+        a_renewal_signatures
+    );
+    let receive30_intent = receive(&payment30, &historical_b, id);
+    let receive_renewed_route = OperationRoute {
+        variant: Variant::ReceiveRenewed,
+        own: 10,
+        incoming: Some(8),
+    };
+    assert_eq!(request30_value.body.receiver_blacklist_version, 0);
+    let incoming30: KagemushaWalletPaymentV1 = decode(&payment30);
+    assert_eq!(
+        incoming30
+            .send
+            .lineage
+            .lineage()
+            .unwrap()
+            .public
+            .enabled_controls,
+        6
+    );
+    let QualifiedOperationOwnerV1::Receive(receive_owner) = sources
+        .qualified
+        .route(receive_renewed_route)
+        .unwrap()
+        .owner()
+    else {
+        panic!("ReceiveRenewed selects its genuine receiving prover");
+    };
+    let receive_stages = receive_owner.checkpoint_layouts().unwrap().len();
+    eprintln!(
+        "NATIVE_REQUIRED_ROUTE_BEGIN case=receive-renewed route={receive_renewed_route:?} terminal_position={receive_stages}"
+    );
     let ack30 = receive_and_check(
         &mut a,
         &device_a,
@@ -767,6 +973,28 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         "daily-straddle",
         &mut records,
     );
+    eprintln!("NATIVE_REQUIRED_ROUTE_END case=receive-renewed caught_up=true");
+    let credited30: KagemushaWalletCreditedV1 = decode(&ack30);
+    let KagemushaWalletCreditedEvidenceV1::Receive {
+        package: receive30_package,
+    } = credited30.evidence
+    else {
+        panic!("genuine ReceiveRenewed must return its original Receive package");
+    };
+    assert_eq!(
+        receive30_package.statement.credential_digest,
+        credential_a.credential_digest()
+    );
+    assert_ne!(
+        receive30_package.statement.credential_digest,
+        request30_value.body.receiver_credential_digest
+    );
+    let receive30_bytes = norito::encode_canonical(&receive30_package).unwrap();
+    assert_eq!(
+        complete(a.execute(receive30_intent.clone()).unwrap()),
+        receive30_bytes
+    );
+    records.push(norito::json!({"case":"receive-renewed","request_credential_digest":(hex::encode(request30_value.body.receiver_credential_digest)),"current_credential_digest":(hex::encode(credential_a.credential_digest())),"same_payment_key":true,"exact_request_after_restart":true,"folded_balance":"30"}));
     let archive30 = archive_current(
         &mut b,
         &device_b,
@@ -836,6 +1064,10 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
                 $label,
                 &mut records,
             );
+            assert_eq!(
+                b.snapshot().unwrap().lifecycle,
+                KagemushaWalletLifecycleV1::Retiring
+            );
             let (intent, payment) = send_received_balance(
                 &mut b,
                 &device_b,
@@ -847,6 +1079,21 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
                 &output,
                 $label,
                 &mut records,
+            );
+            let retiring_send: KagemushaWalletPaymentV1 = decode(&payment);
+            assert_eq!(
+                retiring_send.send.statement.lifecycle,
+                KagemushaWalletLifecycleV1::Retiring
+            );
+            assert_eq!(
+                retiring_send
+                    .send
+                    .lineage
+                    .lineage()
+                    .unwrap()
+                    .public
+                    .lifecycle,
+                KagemushaWalletLifecycleV1::Retiring
             );
             assert_eq!(
                 b.snapshot().unwrap().owned_balance + a.snapshot().unwrap().owned_balance + $amount,
@@ -966,6 +1213,8 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         (Some(100), Some(0))
     );
     assert_eq!(final_b.credential_digest, renewed2.credential_digest());
+    assert_eq!(final_b.lifecycle, KagemushaWalletLifecycleV1::Retiring);
+    assert_eq!(final_a.credential_digest, credential_a.credential_digest());
     let sign_a = device_a.platform.with(|state| state.sign_calls);
     let sign_b = device_b.platform.with(|state| state.sign_calls);
     drop(a);
@@ -974,6 +1223,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
     // Successor frames must reopen from the ordinarily committed Refresh source. Initial
     // enrollment frames are historical DATA and must never authorize the renewed head.
     assert_historical_open_refused(&sources, &device_b, &f_b, &old_frames_b);
+    assert_historical_open_refused(&sources, &device_a, &f_a, &old_frames_a);
     let provider = device_b.provider(f_b.config.scheme.scheme_id());
     let slots = provider.slots().unwrap();
     assert_eq!(slots.len(), 1);
@@ -988,6 +1238,20 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
     let mut b = sources.open(&device_b, &f_b, &frames_b);
     assert_eq!(a.snapshot().unwrap(), final_a);
     assert_eq!(b.snapshot().unwrap(), final_b);
+    assert_eq!(
+        complete(b.execute(retirement_intent).unwrap()),
+        retirement_bytes
+    );
+    assert_eq!(b.snapshot().unwrap(), final_b);
+    assert_eq!(
+        complete(a.execute(receive30_intent).unwrap()),
+        receive30_bytes
+    );
+    assert_eq!(a.snapshot().unwrap(), final_a);
+    assert_eq!(
+        a.request(request30_setup, &offer30, None).unwrap(),
+        request30
+    );
     for (intent, payment) in sends {
         assert_eq!(complete(b.execute(intent).unwrap()), payment);
         assert_eq!(b.snapshot().unwrap(), final_b);
@@ -1022,16 +1286,32 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         "current-b-certificates.norito",
         &frames_b[1],
     ));
+    records.push(original(
+        &output,
+        "current-a-credential.norito",
+        &frames_a[0],
+    ));
+    records.push(original(
+        &output,
+        "current-a-certificates.norito",
+        &frames_a[1],
+    ));
+    records.push(norito::json!({"case":"retiring-preserves-custody","owned_at_retirement":"70","unresolved_payment_at_retirement":"30","later_sends":4,"new_request_refused":true,"same_custody_restart_exact_retirement_retry":true,"final_lifecycle":"Retiring"}));
     let result = norito::json!({
         "schema":"iroha.kagemusha.native-controls-renewal-rollover-result.v1",
         "source_pins":(source_pins()),"producer_sha256":(sha(&bytes)),
         "target_sha256":(prior["target_sha256"].clone()),"receipt_sha256":(prior["receipt_sha256"].clone()),
         "scheme_id":(hex::encode(f_a.config.scheme.scheme_id())),"manifest_digest":(hex::encode(sources.qualified.installation().1)),
-        "credential_renewals":[1,2],"send_mask":6,"receive_mask":0,"payer_next_load":0,
+        "credential_renewals":[1,2],"receiver_credential_renewals":[1],"send_mask":6,"receive_mask":0,"payer_next_load":0,
+        "receive_renewed_count":1,"retiring_count":1,"retiring_send_count":4,
+        "required_route_traces":[
+            {"case":"retiring","variant":"Retiring","own":15,"incoming":null,"terminal_position":retiring_stages},
+            {"case":"receive-renewed","variant":"ReceiveRenewed","own":10,"incoming":8,"terminal_position":receive_stages}
+        ],
         "payments":5,"received_total":"100","final_owned_atomic":["100","0"],"fee_atomic":"0","burned_atomic":"0",
         "daily_monthly_expected_usage":balances,"records":records,
         "same_custody_restart_exact_payment_retries":true,
-        "scope":"Genuine installed native Credential Refresh, Send, Receive and Archive proofs over prior one-Load lineage. Fixture issuer signs replacement credentials; hardware and clock are explicit engineering fixtures. This does not qualify platform attestation, remote renewal service, physical devices, four-validator controls or release readiness."
+        "scope":"Genuine installed native Credential Refresh, Send, Receive including ReceiveRenewed, Retiring and Archive proofs over prior one-Load lineage. Retirement preserves four subsequent Sends and exact original retries; it does not establish ledger load closure or late incoming delivery to a Retiring receiver. Fixture issuer signs replacement credentials; hardware and clock are explicit engineering fixtures. This does not qualify platform attestation, remote renewal service, physical devices, four-validator controls or release readiness."
     });
     publish(
         &output.join("rollover-result.json"),
