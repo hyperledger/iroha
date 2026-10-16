@@ -1796,6 +1796,19 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
         finish(.failure(IrohaPeerNfcCoreNFCErrorV1.cancelled), invalidating: true)
     }
 
+    /// Replaces the scan sheet's message while this reader's session is active,
+    /// for example a hint once no tag has answered for a while. The sheet
+    /// covers the app, so this is where the person reads it. Does nothing
+    /// before the session begins or after the operation finished.
+    public func updateAlertMessage(_ message: String) {
+        lock.lock()
+        let session = completed ? nil : self.session
+        let platformCallGate = self.platformCallGate
+        lock.unlock()
+        guard let session, let platformCallGate else { return }
+        platformCallGate.performIfActive { session.alertMessage = message }
+    }
+
     public func tagReaderSessionDidBecomeActive(_ session: NFCTagReaderSession) {
         lock.lock()
         let reporter = !completed && self.session === session
