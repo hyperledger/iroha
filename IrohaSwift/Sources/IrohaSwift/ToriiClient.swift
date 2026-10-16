@@ -22610,12 +22610,16 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
     @available(iOS 15.0, macOS 12.0, *)
     private func serverSentEventStream<Event: Sendable>(
         request: @escaping @Sendable () throws -> URLRequest,
+        opened: Event? = nil,
         parse: @escaping @Sendable ([String]) throws -> Event?
     ) -> AsyncThrowingStream<Event, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     let bytes = try await openEventStream(request())
+                    if let opened {
+                        continuation.yield(opened)
+                    }
 
                     var buffer: [String] = []
                     var lineAccumulator = Data()
@@ -22691,6 +22695,69 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
     @available(iOS 15.0, macOS 12.0, *)
     public func streamEvents(filterText: String) -> AsyncThrowingStream<ToriiEventMessage<ToriiEvent>, Error> {
         eventStream(filter: .text(filterText))
+    }
+
+    /// Live movements of `accountId` (`GET /v1/accounts/{account_id}/history/sse`):
+    /// every account-history row of each height published after the stream
+    /// opens, oldest first, exactly as `accountHistory(of:)` returns them.
+    ///
+    /// The first element is `.opened`. The feed is live-only: after `.opened`,
+    /// read the first page of `accountHistory(of:)` and deduplicate by row
+    /// `id`, which leaves no gap. `filter` narrows rows with the
+    /// account-history collection grammar. The stream ends by throwing on a
+    /// terminal `stream_error` (for example `stream_lagged`), a transport
+    /// failure or a malformed frame; callers reconnect and read history again.
+    ///
+    /// ```swift
+    /// for try await event in torii.streamAccountHistory(accountId: account) {
+    ///     switch event {
+    ///     case .opened: try await refreshFirstHistoryPage()
+    ///     case let .movement(row): showPending(row)
+    ///     }
+    /// }
+    /// ```
+    @available(iOS 15.0, macOS 12.0, *)
+    public func streamAccountHistory(accountId: String,
+                                     filter: ToriiFilter? = nil) -> AsyncThrowingStream<ToriiAccountHistoryStreamEvent, Error> {
+        serverSentEventStream(
+            request: { try self.makeAccountHistoryStreamRequest(accountId: accountId, filter: filter) },
+            opened: .opened,
+            parse: { lines in
+                try self.parseAccountHistoryMovement(from: lines).map(ToriiAccountHistoryStreamEvent.movement)
+            }
+        )
+    }
+
+    private func makeAccountHistoryStreamRequest(accountId: String, filter: ToriiFilter?) throws -> URLRequest {
+        var queryItems: [URLQueryItem]?
+        if let filter {
+            let clause = ToriiFilterClause.expression(filter)
+            do {
+                try clause.validate(parameter: "filter")
+                queryItems = [URLQueryItem(name: "filter", value: try clause.transmittableText(parameter: "filter"))]
+            } catch let error as ToriiListQueryError {
+                throw ToriiClientError.invalidQuery(error)
+            }
+        }
+        return try makeDataspaceVisibleRequest(
+            path: try collectionPath(for: .account(accountId, suffix: "history/sse")),
+            queryItems: queryItems,
+            headers: ["Accept": "text/event-stream"]
+        )
+    }
+
+    private func parseAccountHistoryMovement(from lines: [String]) throws -> ToriiAccountHistoryRow? {
+        guard let parsed = try parseServerSentEvent(from: lines) else {
+            return nil
+        }
+        try throwIfTerminalStreamError(parsed, context: "account-history SSE")
+        guard parsed.eventName == "movement", let payload = parsed.data else {
+            return nil
+        }
+        guard let data = payload.data(using: .utf8) else {
+            throw ToriiClientError.invalidPayload("SSE payload is not valid UTF-8.")
+        }
+        return try decodeJSON(ToriiAccountHistoryRow.self, from: data)
     }
 
     @available(iOS 15.0, macOS 12.0, *)

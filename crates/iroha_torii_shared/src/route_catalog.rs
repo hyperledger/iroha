@@ -2435,6 +2435,27 @@ pub mod streaming {
     .with_path_policy(PathPolicy::ProtocolException {
         reason: "SSE transport endpoint; stream contract is not an ordinary resource",
     });
+    /// Live account-history movement SSE stream.
+    ///
+    /// Each height published after admission is projected with the
+    /// `/v1/accounts/{account_id}/history` row producer; rows arrive oldest
+    /// first as `event: movement`. The stream is live-only.
+    pub const ACCOUNT_HISTORY_SSE: RouteDescriptor = RouteDescriptor::new(
+        "accounts.history_stream_sse",
+        HttpMethod::Get,
+        "/v1/accounts/{account_id}/history/sse",
+        ApiSurface::Protocol,
+        Listener::Torii,
+        RouteEffect::LongLivedStream,
+        AdmissionPolicy::DataspaceVisible,
+    )
+    .with_feature_gate(FeatureGate::Feature("app_api"))
+    .with_authentication(AuthenticationPolicy::OptionalCanonicalAccountSignature)
+    .with_transport(RouteTransport::ServerSentEvents)
+    .with_projections(RouteProjections::OPENAPI)
+    .with_path_policy(PathPolicy::ProtocolException {
+        reason: "SSE transport endpoint; stream contract is not an ordinary resource",
+    });
     /// Event subscription WebSocket.
     pub const SUBSCRIPTION_WS: RouteDescriptor = RouteDescriptor::new(
         "events.stream_websocket",
@@ -2470,8 +2491,13 @@ pub mod streaming {
         reason: "WebSocket transport endpoint",
     });
     /// Application streaming routes registered when `app_api` is compiled.
-    pub const APP_ROUTES: &[RouteDescriptor] =
-        &[EVENTS_SSE, CONTRACT_EVENTS_SSE, SUBSCRIPTION_WS, BLOCKS_WS];
+    pub const APP_ROUTES: &[RouteDescriptor] = &[
+        EVENTS_SSE,
+        CONTRACT_EVENTS_SSE,
+        ACCOUNT_HISTORY_SSE,
+        SUBSCRIPTION_WS,
+        BLOCKS_WS,
+    ];
 }
 /// Iroha Connect pairing and relay routes.
 #[path = "route_catalog/connect.rs"]

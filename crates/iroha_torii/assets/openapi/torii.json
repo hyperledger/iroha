@@ -61597,6 +61597,101 @@
         "x-iroha-tool-effect": "read"
       }
     },
+    "/v1/accounts/{account_id}/history/sse": {
+      "get": {
+        "description": "Stream live account-history movements via Server-Sent Events: every `/v1/accounts/{account_id}/history` row of each height published after the stream opens, oldest first, as `event: movement` frames with one JSON row per `data:` line, under the caller's current dataspace visibility. The stream is live-only: open it, then read the first history page and deduplicate by row `id`. Accepts the history collection `filter`; limit, cursor, sort, select, aggregate and include_total are rejected. `Last-Event-ID` is rejected. A backlog beyond the history serving limit emits one terminal `stream_error`. See specs/torii/streaming.md.",
+        "operationId": "streamAccountHistorySse",
+        "parameters": [
+          {
+            "description": "Canonical I105 account identifier or on-chain alias `name@domain.dataspace` / `name@dataspace`.",
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Account-history text filter, e.g. `direction = \"incoming\"`.",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "maxLength": 32768,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Event stream.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Stream establishment rejected. A `stream_error` event identifies an unsupported resume request.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaCanonicalAccount": [],
+            "IrohaCanonicalNonce": [],
+            "IrohaCanonicalSignature": [],
+            "IrohaCanonicalTimestampMs": []
+          },
+          {
+            "IrohaCanonicalWitness": []
+          }
+        ],
+        "summary": "Subscribe to an account's live history movements.",
+        "tags": [
+          "Streams"
+        ],
+        "x-iroha-heartbeat-seconds": 15,
+        "x-iroha-lag-behavior": "terminal_stream_error",
+        "x-iroha-replay-supported": false,
+        "x-iroha-route-auth": {
+          "admission": "dataspace_visible",
+          "authentication": "optional_canonical_account_signature",
+          "schemaVersion": 1,
+          "stableRouteId": "accounts.history_stream_sse"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
     "/v1/accounts/{account_id}/identifiers/claim-receipt": {
       "post": {
         "description": "Issue an attested identifier claim receipt from encrypted input and a verified RAM-LFE output opening that can be embedded into `ClaimIdentifier`.",

@@ -689,7 +689,11 @@ fn soracloud_status_documents_only_the_canonical_routing_count() {
 fn canonical_stream_operations_publish_fail_closed_contract() {
     let document = generate_spec();
     let paths = document["paths"].as_object().expect("paths");
-    for path in ["/v1/events/sse", "/v1/contracts/events/sse"] {
+    for path in [
+        "/v1/events/sse",
+        "/v1/contracts/events/sse",
+        "/v1/accounts/{account_id}/history/sse",
+    ] {
         let get = paths[path]["get"].as_object().expect("SSE GET operation");
         assert_eq!(
             get.get("x-iroha-replay-supported").and_then(Value::as_bool),

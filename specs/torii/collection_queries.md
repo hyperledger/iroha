@@ -421,6 +421,18 @@ transaction adds `rejection_code` (`account_does_not_exist`, `limit_check`,
 block adds `rejection_code` with the block rejection variant. A `summary`
 member, where present, is diagnostic text without a stable format.
 
+### Account-history stream
+
+`GET /v1/accounts/{account_id}/history/sse[?filter=<text>]` streams the
+account-history rows of every newly published height as `event: movement`
+frames, oldest first. Rows have the same fields, values and visibility as
+`/v1/accounts/{account_id}/history` items, so a client merges them into a
+history list by `id`; `filter` takes the same grammar and fields as the history
+collection (for example `direction = "incoming"`). Page, order and projection
+controls are rejected. The stream is live-only: open it, then read the first
+history page, and repeat both after a reconnect (see
+[streaming.md](streaming.md)).
+
 ## Explorer feeds
 
 `GET /v1/explorer/{collection}` and `POST /v1/explorer/{collection}/query`

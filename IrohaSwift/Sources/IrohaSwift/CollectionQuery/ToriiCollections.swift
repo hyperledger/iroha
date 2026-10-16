@@ -902,6 +902,16 @@ public struct ToriiSubscriptionRow: ToriiIdentifiedRow, Equatable {
 }
 
 /// One account movement and its committed ledger position.
+/// One element of `ToriiClient.streamAccountHistory(accountId:filter:)`.
+public enum ToriiAccountHistoryStreamEvent: Sendable, Equatable {
+    /// The connection is established. Movements committed before this point
+    /// must be read from `accountHistory(of:)`; deduplicate by row `id`.
+    case opened
+    /// One new movement, oldest first by block height, block index and
+    /// movement index.
+    case movement(ToriiAccountHistoryRow)
+}
+
 public struct ToriiAccountHistoryRow: ToriiIdentifiedRow, Equatable {
     public let id: String
     public let blockHeight: UInt64

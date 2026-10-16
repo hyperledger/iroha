@@ -851,11 +851,11 @@ follow the SSE specification: an event cut off by the end of the stream is
 discarded and lines are bounded. `ToriiEventStreamOptions.timeout` bounds the
 idle time between bytes (default 45 seconds, above Torii's 15-second heartbeat);
 a stream has no total lifetime. The
-canonical `/v1/events/sse` and `/v1/contracts/events/sse` feeds are live-only
-and have no replay log. `ToriiEventStreamClient` therefore rejects every case
-variant of `Last-Event-ID` before dispatch for exactly those two paths; custom
-streams that provide replay may still receive the header through
-`ToriiEventStreamOptions`.
+canonical `/v1/events/sse`, `/v1/contracts/events/sse` and
+`/v1/accounts/{account_id}/history/sse` feeds are live-only and have no replay
+log. `ToriiEventStreamClient` therefore rejects every case variant of
+`Last-Event-ID` before dispatch for exactly those paths; custom streams that
+provide replay may still receive the header through `ToriiEventStreamOptions`.
 
 Raw listeners receive terminal `event: stream_error` frames. Call
 `ServerSentEvent.terminalStreamError()` before application-event projection to
@@ -863,8 +863,18 @@ obtain a strict `ToriiStreamException` containing the stable code, server
 message, optional unsigned dropped-message count, replay flag, and raw JSON.
 Malformed or schema-expanded terminal envelopes fail closed as
 `ToriiStreamProtocolException`; they must not be filtered as unrelated events.
-A reconnect to either canonical feed starts a new live subscription and can
-have a gap.
+A reconnect to `/v1/events/sse` or `/v1/contracts/events/sse` starts a new
+live subscription and can have a gap.
+
+`streamAccountHistory(accountId, filter, listener)` follows one account's
+history: every account-history row of each height published after the stream
+opens arrives oldest first as an `AccountHistoryRow`, and the history
+collection `filter` (for example `Filter.field("direction").eq("incoming")`)
+narrows them. The stream starts at the first height after admission, so reading
+the first history page in `AccountHistoryStreamListener.onOpen` and
+deduplicating by row id is gap-free. `accountHistorySubscription(...)` returns a
+reconnecting `ToriiEventStreamSubscription.Builder` that calls `onOpen` for
+every connection.
 
 ### Native privacy bridge
 

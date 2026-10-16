@@ -10,6 +10,10 @@
 #[cfg(feature = "app_api")]
 mod account_history_multisig;
 #[cfg(feature = "app_api")]
+mod account_history_sse;
+#[cfg(feature = "app_api")]
+pub use account_history_sse::{AccountHistorySseRequest, handle_v1_account_history_sse};
+#[cfg(feature = "app_api")]
 pub mod collection_sources;
 #[cfg(feature = "app_api")]
 mod contract_return_attempt;
@@ -32966,6 +32970,8 @@ pub const ENDPOINT_ACCOUNTS_TRANSACTIONS_QUERY: &str =
 pub const ENDPOINT_TRANSACTIONS_QUERY: &str = "/v1/transactions/query";
 pub const ENDPOINT_ACCOUNTS_TRANSACTIONS: &str = "/v1/accounts/{account_id}/transactions";
 pub const ENDPOINT_ACCOUNTS_HISTORY: &str = "/v1/accounts/{account_id}/history";
+/// Live account-history movement stream.
+pub const ENDPOINT_ACCOUNTS_HISTORY_SSE: &str = "/v1/accounts/{account_id}/history/sse";
 pub const ENDPOINT_CONTRACTS_ACTIVITY: &str = "/v1/contracts/activity";
 pub const ENDPOINT_CONTRACTS_EVENTS: &str = "/v1/contracts/events";
 pub const ENDPOINT_CONTRACTS_ROLLUPS_SWAPS_FILLS: &str = "/v1/contracts/rollups/swaps/fills";

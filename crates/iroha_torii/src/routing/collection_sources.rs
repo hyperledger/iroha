@@ -1145,6 +1145,53 @@ fn account_subrow_page(
         .map_err(Into::into)
 }
 
+/// Movement rows of `account` committed at `heights`, oldest first, exactly as
+/// `/v1/accounts/{account_id}/history` pages project them for `visibility`.
+/// The height bounds join the caller's filter as top-level conjuncts, so each
+/// page scans only those blocks.
+pub(crate) fn account_history_rows_between(
+    state: &Arc<CoreState>,
+    account: &AccountId,
+    filter: Option<&iroha_torii_shared::list_query::FilterExpr>,
+    allowed_definition: Option<&AssetDefinitionId>,
+    visibility: &DataspaceReadVisibility,
+    heights: std::ops::RangeInclusive<u64>,
+) -> Result<Vec<Map>> {
+    use iroha_torii_shared::list_query::{FieldPath, FilterExpr};
+    let mut conjuncts: Vec<FilterExpr> = filter.cloned().into_iter().collect();
+    conjuncts.push(FilterExpr::Gte(
+        FieldPath::new("block_height"),
+        Value::from(*heights.start()),
+    ));
+    conjuncts.push(FilterExpr::Lte(
+        FieldPath::new("block_height"),
+        Value::from(*heights.end()),
+    ));
+    let filter = FilterExpr::And(conjuncts);
+    let limits = collection_limits();
+    let scope = account.to_string();
+    let mut rows = Vec::new();
+    let mut cursor = None;
+    loop {
+        let query = ListQuery {
+            filter: Some(filter.clone()),
+            limit: Some(limits.max_limit),
+            cursor: cursor.take(),
+            ..ListQuery::default()
+        };
+        let prepared = collections::prepare(&specs::ACCOUNT_HISTORY, &scope, &query, &limits)?;
+        let page = account_subrow_page(state, &prepared, account, allowed_definition, visibility)?;
+        rows.extend(page.items);
+        match page.next_cursor {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    // History pages run newest first; streams deliver oldest first.
+    rows.reverse();
+    Ok(rows)
+}
+
 /// Page the canonical emission coordinates, including Pipeline and Time roots.
 /// The exclusive cursor retains the tail of every multi-emission output. All
 /// examined output/event coordinates spend the page's work budget, including

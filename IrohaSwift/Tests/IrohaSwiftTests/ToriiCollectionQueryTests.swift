@@ -1492,6 +1492,103 @@ final class ToriiEventStreamPolicyTests: XCTestCase {
         let event = try await iterator.next()
         XCTAssertNil(event)
     }
+
+    private static let historyAccount = "testuﾛ1PiiHﾛWﾔﾋADｼoQﾏ22AｷﾒﾅﾗRﾋﾂｿrDSHVVmRTﾅﾋtｸS5GJ593"
+
+    private static func historyRow(height: Int, movement: Int, direction: String = "incoming") -> String {
+        #"{"id":"h\#(height)-m\#(movement)","block_height":\#(height),"block_index":0,"movement_index":\#(movement),"direction":"\#(direction)","account_id":"\#(historyAccount)","amount":"20","tx_hash":"\#(String(repeating: "ab", count: 32))","type":"TRANSFER","status":"SUCCESS"}"#
+    }
+
+    func testStreamAccountHistoryOpensThenDecodesMovementsInOrder() async throws {
+        let baseURL = CollectionQueryStubProtocol.register { request in
+            let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+            XCTAssertTrue(components?.percentEncodedPath.hasPrefix("/v1/accounts/") == true)
+            XCTAssertTrue(components?.percentEncodedPath.hasSuffix("/history/sse") == true)
+            XCTAssertEqual(components?.queryItems, [URLQueryItem(name: "filter", value: #"direction = "incoming""#)])
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "text/event-stream")
+            let stream = """
+            : heartbeat
+
+            event: movement
+            data: \(Self.historyRow(height: 7, movement: 0))
+
+            event: future_kind
+            data: {}
+
+            event: movement
+            data: \(Self.historyRow(height: 7, movement: 1, direction: "outgoing"))
+
+            """
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                    headerFields: ["Content-Type": "text/event-stream"])!, Data(stream.utf8))
+        }
+        var events: [ToriiAccountHistoryStreamEvent] = []
+        for try await event in client(baseURL: baseURL).streamAccountHistory(
+            accountId: Self.historyAccount,
+            filter: ToriiField("direction") == "incoming"
+        ) {
+            events.append(event)
+        }
+        guard events.count == 3, case .opened = events[0],
+              case let .movement(first) = events[1], case let .movement(second) = events[2] else {
+            return XCTFail("unexpected events \(events)")
+        }
+        XCTAssertEqual([first.movementIndex, second.movementIndex], [0, 1])
+        XCTAssertEqual([first.direction, second.direction], ["incoming", "outgoing"])
+        XCTAssertEqual(first.blockHeight, 7)
+    }
+
+    func testStreamAccountHistoryThrowsTheTerminalStreamError() async throws {
+        let baseURL = CollectionQueryStubProtocol.register { request in
+            let stream = """
+            event: stream_error
+            data: {"code":"stream_lagged","message":"lost","dropped_messages":3,"replay_available":false}
+
+            """
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                    headerFields: ["Content-Type": "text/event-stream"])!, Data(stream.utf8))
+        }
+        var iterator = client(baseURL: baseURL).streamAccountHistory(accountId: Self.historyAccount).makeAsyncIterator()
+        guard case .opened = try await iterator.next() else {
+            return XCTFail("the stream opens first")
+        }
+        await XCTAssertThrowsErrorAsync(try await iterator.next()) { error in
+            XCTAssertEqual((error as? ToriiClientError)?.code, "stream_lagged")
+        }
+    }
+
+    func testStreamAccountHistoryRejectsStructuredLiteralsBeforeConnecting() async throws {
+        let baseURL = CollectionQueryStubProtocol.register { request in
+            XCTFail("no request may be sent")
+            return jsonResponse(request, "{}")
+        }
+        let torii = client(baseURL: baseURL)
+        var structured = torii.streamAccountHistory(
+            accountId: Self.historyAccount,
+            filter: ToriiField.metadata("tags") == ToriiFilterValue.array(["a"])
+        ).makeAsyncIterator()
+        await XCTAssertThrowsErrorAsync(try await structured.next()) { error in
+            XCTAssertEqual((error as? ToriiClientError)?.code, "invalid_filter")
+        }
+    }
+
+    func testCancellingTheConsumerFinishesTheAccountHistoryStream() async throws {
+        let baseURL = CollectionQueryStubProtocol.register { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                             headerFields: ["Content-Type": "text/event-stream"])!,
+             Data(": heartbeat\n\n".utf8))
+        }
+        let consumer = Task {
+            var count = 0
+            for try await _ in self.client(baseURL: baseURL).streamAccountHistory(accountId: Self.historyAccount) {
+                count += 1
+            }
+            return count
+        }
+        consumer.cancel()
+        _ = try? await consumer.value
+        XCTAssertTrue(consumer.isCancelled)
+    }
 }
 
 // MARK: - Event payloads

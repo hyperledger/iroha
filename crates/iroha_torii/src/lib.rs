@@ -24610,6 +24610,7 @@ fn canonical_stream_is_sse(route: iroha_torii_shared::route_catalog::RouteDescri
         route.stable_route_id(),
         id if id == route_catalog::streaming::EVENTS_SSE.stable_route_id()
             || id == route_catalog::streaming::CONTRACT_EVENTS_SSE.stable_route_id()
+            || id == route_catalog::streaming::ACCOUNT_HISTORY_SSE.stable_route_id()
     )
 }
 #[cfg(feature = "app_api")]
@@ -24762,6 +24763,37 @@ async fn handler_contracts_events_sse(
         app.state.clone(),
         visibility,
         AxQuery(params),
+    )
+    .into_response())
+}
+#[cfg(feature = "app_api")]
+async fn handler_account_history_sse(
+    State(app): State<SharedAppState>,
+    headers: axum::http::HeaderMap,
+    method: axum::http::Method,
+    uri: axum::http::Uri,
+    AxPath(account_id): AxPath<String>,
+) -> Result<Response, Error> {
+    let visibility = torii_dataspace_context_from_headers(
+        &app,
+        &headers,
+        &method,
+        &uri,
+        "v1/accounts/{account_id}/history/sse",
+    )?;
+    let telemetry = app.telemetry_handle();
+    let request = routing::AccountHistorySseRequest::new(
+        app.state.as_ref(),
+        &account_id,
+        list_query_from_query_string(uri.query())?,
+        resolve_tx_history_allowed_asset_definition_id(&app)?,
+        &telemetry,
+    )?;
+    Ok(routing::handle_v1_account_history_sse(
+        app.state.clone(),
+        visibility,
+        request,
+        Arc::clone(&app),
     )
     .into_response())
 }
@@ -38253,6 +38285,20 @@ impl Torii {
                         CanonicalStreamAdmission {
                             app: Arc::clone(&app),
                             route: route_catalog::streaming::CONTRACT_EVENTS_SSE,
+                        },
+                        enforce_canonical_stream_admission,
+                    ))
+                    .authenticated_in_handler(
+                        HandlerAuthentication::OptionalCanonicalAccountSignature,
+                    ),
+            );
+            builder.route(
+                &route_catalog::streaming::ACCOUNT_HISTORY_SSE,
+                catalog_get(handler_account_history_sse)
+                    .layer(axum::middleware::from_fn_with_state(
+                        CanonicalStreamAdmission {
+                            app: Arc::clone(&app),
+                            route: route_catalog::streaming::ACCOUNT_HISTORY_SSE,
                         },
                         enforce_canonical_stream_admission,
                     ))
