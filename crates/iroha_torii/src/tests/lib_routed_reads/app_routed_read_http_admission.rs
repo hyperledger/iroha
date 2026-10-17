@@ -347,10 +347,10 @@ mod app_routed_read_http_admission_tests {
         );
         let body = norito::json::to_vec(&norito::json!({
             "version": 1,
-            "network_id": app.state.network_id_ref().to_string(),
+            "network_id": (app.state.network_id_ref().to_string()),
             "request_id": "8a70f738-e08d-4d2c-bb07-f3eec382f441",
-            "nonce": "a1".repeat(32),
-            "account_id": account.to_string(),
+            "nonce": ("a1".repeat(32)),
+            "account_id": (account.to_string()),
         }))
         .unwrap();
         let router = Router::new()
