@@ -1,7 +1,7 @@
 import XCTest
 @testable import IrohaSwift
 
-/// NFC tap 1 (the payer's Offer to the receiver's card, the signed Request back),
+/// NFC Offer intake and continuous Offer/Request/Payment/ACK exchanges,
 /// the app-supplied application identifier and the byte-exact spec vectors that the
 /// Kotlin SDK asserts too (`specs/kagemusha_wallet_wire_v1.md` §6).
 final class IrohaPeerNfcOfferIntakeV1Tests: XCTestCase {
@@ -210,9 +210,188 @@ final class IrohaPeerNfcOfferIntakeV1Tests: XCTestCase {
             .conditionsNotSatisfied)
     }
 
-    // MARK: Two taps
+    // MARK: Continuous hold and interrupted-contact recovery
 
-    func testTapOneCarriesTheOfferAndTapTwoDeliversThePayment() async throws {
+    func testOneHoldCarriesOfferRequestPaymentAndDurableAcknowledgement() async throws {
+        let limits = IrohaPeerNfcLimitsV1(maximumReadChunkBytes: 240, maximumWriteChunkBytes: 240)
+        let offer = try message(kind: .offer, byte: 0x81, count: 900)
+        let request = try message(kind: .request, byte: 0x82, count: 1_200)
+        let payment = try message(kind: .payment, byte: 0x83, count: 1_500)
+        let credited = try message(kind: .credited, byte: 0x84, count: 300)
+        let policy = self.policy
+        let card = try IrohaPeerNfcIntakeCardV1(
+            applicationIdentifier: bpng, limits: limits, request: request, credited: credited,
+            preparationPolls: 3)
+        let persisted = IrohaPeerNfcPersistedDataV1()
+
+        let result = try await IrohaPeerNfcReaderExchangeV1.run(
+            offer: offer, applicationIdentifier: bpng, profilePolicy: policy, limits: limits,
+            transceive: { command in
+                if case .beginPayment = command {
+                    XCTAssertEqual(persisted.values.count, 1, "Payment must already be durable")
+                }
+                if case .confirmAcknowledgement = command {
+                    XCTAssertEqual(persisted.values.count, 2, "ACK must already be durable")
+                }
+                return try await card.transceive(command)
+            },
+            sleep: { _ in },
+            loadOrCreateDurableCheckpoint: { info, received in
+                XCTAssertEqual(received, request)
+                let commands = await card.commands
+                XCTAssertFalse(commands.contains { $0.operation == .beginPayment })
+                let checkpoint = try IrohaPeerNfcSenderCheckpointV1(
+                    sessionID: info.identity.sessionID, receiveRequest: received.encoded,
+                    payment: payment.encoded, profilePolicy: policy, limits: limits)
+                persisted.append(checkpoint.encoded)
+                return checkpoint
+            },
+            updateDurableCheckpoint: { persisted.append($0) })
+
+        XCTAssertEqual(result.acknowledgement, credited)
+        XCTAssertEqual(result.confirmationState, .confirmed)
+        let commands = await card.commands
+        XCTAssertEqual(commands.filter { $0.operation == .selectApplication }.count, 1)
+        XCTAssertEqual(commands.filter { $0.operation == .getInfo }.count, 1)
+        XCTAssertEqual(commands.filter { $0.operation == .readRequest }.count,
+            (request.encoded.count + 239) / 240, "Request is read only once")
+        let commits = await card.durableCommits
+        XCTAssertEqual(commits, 1)
+    }
+
+    func testOneHoldApprovalCancellationNeverBeginsPayment() async throws {
+        let offer = try message(kind: .offer, byte: 0x81, count: 100)
+        let request = try message(kind: .request, byte: 0x82, count: 100)
+        let credited = try message(kind: .credited, byte: 0x84, count: 100)
+        let card = try IrohaPeerNfcIntakeCardV1(
+            applicationIdentifier: bpng, limits: .default, request: request, credited: credited,
+            preparationPolls: 0)
+        do {
+            _ = try await IrohaPeerNfcReaderExchangeV1.run(
+                offer: offer, applicationIdentifier: bpng, profilePolicy: policy,
+                transceive: { try await card.transceive($0) }, sleep: { _ in },
+                loadOrCreateDurableCheckpoint: { _, _ in throw CancellationError() },
+                updateDurableCheckpoint: { _ in XCTFail("no ACK after cancelled approval") })
+            XCTFail("approval was cancelled")
+        } catch is CancellationError {}
+        let commands = await card.commands
+        XCTAssertFalse(commands.contains { $0.operation == .beginPayment })
+        XCTAssertFalse(commands.contains { $0.operation == .commit })
+    }
+
+    func testOneHoldRejectsCheckpointBoundToAnotherRequestBeforePayment() async throws {
+        let offer = try message(kind: .offer, byte: 0x81, count: 100)
+        let request = try message(kind: .request, byte: 0x82, count: 100)
+        let otherRequest = try message(kind: .request, byte: 0x85, count: 120)
+        let payment = try message(kind: .payment, byte: 0x83, count: 100)
+        let credited = try message(kind: .credited, byte: 0x84, count: 100)
+        let policy = self.policy
+        let card = try IrohaPeerNfcIntakeCardV1(
+            applicationIdentifier: bpng, limits: .default, request: request, credited: credited,
+            preparationPolls: 0)
+        do {
+            _ = try await IrohaPeerNfcReaderExchangeV1.run(
+                offer: offer, applicationIdentifier: bpng, profilePolicy: policy,
+                transceive: { try await card.transceive($0) }, sleep: { _ in },
+                loadOrCreateDurableCheckpoint: { info, _ in
+                    try IrohaPeerNfcSenderCheckpointV1(
+                        sessionID: info.identity.sessionID, receiveRequest: otherRequest.encoded,
+                        payment: payment.encoded, profilePolicy: policy)
+                },
+                updateDurableCheckpoint: { _ in XCTFail("no ACK for a mismatched Request") })
+            XCTFail("a checkpoint must match this hold's exact Request")
+        } catch IrohaPeerNfcErrorV1.continuityMismatch {}
+        let commands = await card.commands
+        XCTAssertFalse(commands.contains { $0.operation == .beginPayment })
+    }
+
+    func testCancelledApprovalTaskRetainsCheckpointWithoutSendingPayment() async throws {
+        let offer = try message(kind: .offer, byte: 0x81, count: 100)
+        let request = try message(kind: .request, byte: 0x82, count: 100)
+        let payment = try message(kind: .payment, byte: 0x83, count: 100)
+        let credited = try message(kind: .credited, byte: 0x84, count: 100)
+        let policy = self.policy
+        let applicationIdentifier = bpng
+        let card = try IrohaPeerNfcIntakeCardV1(
+            applicationIdentifier: bpng, limits: .default, request: request, credited: credited,
+            preparationPolls: 0)
+        let persisted = IrohaPeerNfcPersistedDataV1()
+        let operation = Task {
+            try await IrohaPeerNfcReaderExchangeV1.run(
+                offer: offer, applicationIdentifier: applicationIdentifier, profilePolicy: policy,
+                transceive: { try await card.transceive($0) }, sleep: { _ in },
+                loadOrCreateDurableCheckpoint: { info, received in
+                    let checkpoint = try IrohaPeerNfcSenderCheckpointV1(
+                        sessionID: info.identity.sessionID, receiveRequest: received.encoded,
+                        payment: payment.encoded, profilePolicy: policy)
+                    persisted.append(checkpoint.encoded)
+                    // A platform deadline can cancel the task while a wallet
+                    // callback finishes an already-started durable transition.
+                    withUnsafeCurrentTask { $0?.cancel() }
+                    return checkpoint
+                },
+                updateDurableCheckpoint: { _ in XCTFail("cancelled operation cannot accept ACK") })
+        }
+        do {
+            _ = try await operation.value
+            XCTFail("the cancelled operation must stop after persistence")
+        } catch is CancellationError {}
+        XCTAssertEqual(persisted.values.count, 1, "exact recovery bytes remain durable")
+        let commands = await card.commands
+        XCTAssertFalse(commands.contains { $0.operation == .beginPayment })
+    }
+
+    func testInterruptedOneHoldResumesExactPaymentWithoutNewOfferOrDebit() async throws {
+        let limits = IrohaPeerNfcLimitsV1(maximumReadChunkBytes: 240, maximumWriteChunkBytes: 240)
+        let offer = try message(kind: .offer, byte: 0x81, count: 300)
+        let request = try message(kind: .request, byte: 0x82, count: 300)
+        let payment = try message(kind: .payment, byte: 0x83, count: 1_500)
+        let credited = try message(kind: .credited, byte: 0x84, count: 300)
+        let policy = self.policy
+        let card = try IrohaPeerNfcIntakeCardV1(
+            applicationIdentifier: bpng, limits: limits, request: request, credited: credited,
+            preparationPolls: 0, dropAfterPaymentWrites: 2)
+        let persisted = IrohaPeerNfcPersistedDataV1()
+        do {
+            _ = try await IrohaPeerNfcReaderExchangeV1.run(
+                offer: offer, applicationIdentifier: bpng, profilePolicy: policy, limits: limits,
+                transceive: { try await card.transceive($0) }, sleep: { _ in },
+                loadOrCreateDurableCheckpoint: { info, received in
+                    let checkpoint = try IrohaPeerNfcSenderCheckpointV1(
+                        sessionID: info.identity.sessionID, receiveRequest: received.encoded,
+                        payment: payment.encoded, profilePolicy: policy, limits: limits)
+                    persisted.append(checkpoint.encoded)
+                    return checkpoint
+                },
+                updateDurableCheckpoint: { persisted.append($0) })
+            XCTFail("contact must be interrupted")
+        } catch is IrohaPeerNfcContactLostV1 {}
+        XCTAssertEqual(persisted.values.count, 1)
+        let commandsBeforeRetry = await card.commands.count
+        let result = try await IrohaPeerNfcReaderExchangeV1.run(
+            offer: offer, restoredCheckpoint: try XCTUnwrap(persisted.values.first),
+            applicationIdentifier: bpng, profilePolicy: policy, limits: limits,
+            transceive: { try await card.transceive($0) }, sleep: { _ in },
+            loadOrCreateDurableCheckpoint: { _, _ in
+                XCTFail("retry must never debit again")
+                throw IrohaPeerNfcErrorV1.stateMismatch
+            },
+            updateDurableCheckpoint: { persisted.append($0) })
+        XCTAssertEqual(result.checkpoint.payment, payment)
+        XCTAssertEqual(result.acknowledgement, credited)
+        let retryCommands = await Array(card.commands.dropFirst(commandsBeforeRetry))
+        XCTAssertFalse(retryCommands.contains { $0.operation == .getIntake })
+        XCTAssertFalse(retryCommands.contains { $0.operation == .readRequest })
+        let writes = retryCommands.compactMap { command -> UInt32? in
+            guard case .write(_, _, let offset, let bytes) = command else { return nil }
+            XCTAssertEqual(bytes, payment.encoded.subdata(in: Int(offset)..<(Int(offset) + bytes.count)))
+            return offset
+        }
+        XCTAssertEqual(writes.first, 480)
+        XCTAssertEqual(persisted.values.count, 2)
+    }
+
+    func testReadOnlyRequestCanResumeFromADurablePaymentCheckpoint() async throws {
         let limits = IrohaPeerNfcLimitsV1(maximumReadChunkBytes: 240, maximumWriteChunkBytes: 240)
         let offer = try message(kind: .offer, byte: 0x81, count: 900)
         let request = try message(kind: .request, byte: 0x82, count: 1_200)
@@ -233,7 +412,8 @@ final class IrohaPeerNfcOfferIntakeV1Tests: XCTestCase {
         let preparedOffers = await card.preparedOffers
         XCTAssertEqual(preparedOffers, [offer])
 
-        // Approval and value creation happen away from the card; tap 2 never calls it.
+        // If contact stopped after reading the Request, resume only the exact
+        // durable Payment. Recovery never invokes the value-creation callback.
         let checkpoint = try IrohaPeerNfcSenderCheckpointV1(
             sessionID: read.info.identity.sessionID, receiveRequest: read.request.encoded,
             payment: payment.encoded, profilePolicy: policy, limits: limits)
@@ -250,7 +430,7 @@ final class IrohaPeerNfcOfferIntakeV1Tests: XCTestCase {
         XCTAssertEqual(commits, 1)
     }
 
-    func testTapOneResumesAnInterruptedOfferAndReportsDeclineAndTimeout() async throws {
+    func testOfferIntakeResumesInterruptedOfferAndReportsDeclineAndTimeout() async throws {
         let limits = IrohaPeerNfcLimitsV1(maximumReadChunkBytes: 240, maximumWriteChunkBytes: 240)
         let offer = try message(kind: .offer, byte: 0x91, count: 1_000)
         let request = try message(kind: .request, byte: 0x92, count: 600)
@@ -479,10 +659,12 @@ private actor IrohaPeerNfcIntakeCardV1 {
     private let preparationPolls: Int
     private let declineReason: UInt16?
     private var dropAfterOfferWrites: Int?
+    private var dropAfterPaymentWrites: Int?
     private var pendingPolls: Int?
     private(set) var preparedOffers: [IrohaPeerWireMessageV1] = []
     private(set) var durableCommits = 0
     private(set) var offerWriteLog: [String] = []
+    private(set) var commands: [IrohaPeerNfcCommandV1] = []
     private var contact = 0
 
     init(
@@ -492,7 +674,8 @@ private actor IrohaPeerNfcIntakeCardV1 {
         credited: IrohaPeerWireMessageV1,
         preparationPolls: Int,
         declineReason: UInt16? = nil,
-        dropAfterOfferWrites: Int? = nil
+        dropAfterOfferWrites: Int? = nil,
+        dropAfterPaymentWrites: Int? = nil
     ) throws {
         endpoint = IrohaPeerNfcCardEndpointV1(
             applicationIdentifier: applicationIdentifier,
@@ -505,9 +688,18 @@ private actor IrohaPeerNfcIntakeCardV1 {
         self.preparationPolls = preparationPolls
         self.declineReason = declineReason
         self.dropAfterOfferWrites = dropAfterOfferWrites
+        self.dropAfterPaymentWrites = dropAfterPaymentWrites
     }
 
     func transceive(_ command: IrohaPeerNfcCommandV1) throws -> IrohaPeerNfcAPDUResponseV1 {
+        commands.append(command)
+        if case .write = command, let remaining = dropAfterPaymentWrites {
+            if remaining == 0 {
+                dropAfterPaymentWrites = nil
+                throw IrohaPeerNfcContactLostV1()
+            }
+            dropAfterPaymentWrites = remaining - 1
+        }
         if case .selectApplication = command { contact += 1 }
         if case .writeOffer(_, _, let offset, _) = command {
             if let remaining = dropAfterOfferWrites {

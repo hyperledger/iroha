@@ -1310,7 +1310,12 @@ per stream), and decodes only a complete message.
 the reader. Commands use the proprietary class `0x80`, chunks of at most 4,096 bytes and
 messages of at most 14,196 bytes (84-byte header plus the maximum Request carrier). Payment
 and Credited retain their 10,084-byte transport bound (84-byte header plus their
-10,000-byte envelope); an Offer is at most 2,132 bytes.
+10,000-byte envelope); an Offer is at most 2,132 bytes. A normal payment uses one
+continuous hold: Offer, Request, exact transaction review and hardware confirmation,
+Payment, Credited and acknowledgement confirmation all share the active reader/card
+connection. Keep the connection active through approval and durable wallet work;
+do not signal completion or ask the payer to remove and re-present the phone between
+these phases. A new contact is recovery after interruption, never a required payment step.
 
 - *Application identifier.* An application selects its card by the ISO/IEC 7816-4
   application identifier (5–16 bytes) it registered with the platform: on iOS the HCE
@@ -1361,7 +1366,7 @@ and Credited retain their 10,084-byte transport bound (84-byte header plus their
   conflicting replay or a Request that is not ready; `6982` a continuity, hash, profile or
   IPM1 failure; `6581` the receiver could not persist; `6700` length; `6A80` malformed
   data; `6D00` and `6E00` an unknown instruction or class.
-- *Tap 1: Offer to Request.* A card started without a Request awaits the payer's Offer.
+- *Offer to Request.* A card started without a Request awaits the payer's Offer.
   The reader reads `IOI1`, sends BEGIN_OFFER, writes contiguous chunks (an overlapping
   replay must be byte-identical) and submits. Before SUBMIT_OFFER a different header
   replaces an unfinished Offer; afterwards the intake is bound to that Offer, the same
@@ -1370,12 +1375,17 @@ and Credited retain their 10,084-byte transport bound (84-byte header plus their
   which signs a Request bound to it under the Request rule or declines with a reason. The
   reader polls GET_INTAKE until request-ready, then reads `INF1` and the Request. Request
   commands before request-ready answer `6985`.
-- *Tap 2: Payment to Credited.* The payer reviews the Request and approves the Payment away
-  from the card, retains the exact Payment with the Request identity, then taps again:
+- *Payment to Credited.* While holding the phones together, the payer reviews the exact
+  Request and confirms through the hardware-backed authentication prompt. The wallet
+  retains the exact Payment with the Request identity and continues on the same connection:
   BEGIN_PAYMENT, contiguous WRITEs, COMMIT, READ_ACK and CONFIRM_ACK, resumed from
-  GET_STATUS after any loss. The receiver durably admits the Payment header at
+  GET_STATUS after any loss. Approval cancellation sends no Payment; once the wallet has
+  created a Payment, interruption can only resume its exact bytes to the bound receiver.
+  The receiver durably admits the Payment header at
   BEGIN_PAYMENT and answers COMMIT only after it has ingested the Payment and persisted
-  the Credited acknowledgement, which it exposes only then. A resumed or retried session
+  the Credited acknowledgement, which it exposes only then. A bounded retry of a receiver
+  persistence failure stays on the same connection and resumes from GET_STATUS with the
+  saved checkpoint; it never reruns approval or creates a replacement Payment. A resumed or retried session
   presents the byte-identical Payment. The Payment must carry exactly the hosted Request's
   signed body and signature, and Credited must name that Request's scheme
   (`KagemushaWalletWireV1.requireExchangeBinding`); the Credited evidence itself is

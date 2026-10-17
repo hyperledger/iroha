@@ -6,9 +6,9 @@ import Foundation
 /// Transport-neutral NFC V1 constants for exchanging `IPM1` messages.
 ///
 /// V1 has one command set and no codec negotiation or fallback. The receiver's
-/// phone is the card and the payer's phone is the reader. Tap 1 carries the
+/// phone is the card and the payer's phone is the reader. One hold carries the
 /// payer's Offer to the card and the Request the receiver's wallet signs for it
-/// back; tap 2 carries the payer's Payment and the receiver's durable
+/// back, followed by the payer's Payment and the receiver's durable
 /// acknowledgement, which is the wallet's Credited envelope (IPM1 kind
 /// `credited`). Each application selects its card by the application identifier
 /// it registered with the platform (`IrohaPeerNfcApplicationIdentifierV1`).
@@ -2123,7 +2123,7 @@ public struct IrohaPeerNfcOfferDeclinedV1: Error, Equatable, Sendable {
     }
 }
 
-/// Card-side Offer intake for tap 1 (`specs/kagemusha_wallet_wire_v1.md` §6).
+/// Card-side Offer intake (`specs/kagemusha_wallet_wire_v1.md` §6).
 ///
 /// The card chooses the session identifier and the Request session it later
 /// hosts uses the same identifier. Before SUBMIT_OFFER a different header
@@ -2340,8 +2340,8 @@ public struct IrohaPeerNfcCardStepV1: Equatable, Sendable {
     }
 }
 
-/// Transport-neutral card: the Offer intake of tap 1 and the Request-hosting
-/// receiver of tap 2 behind one application identifier. Platform adapters
+/// Transport-neutral card: Offer intake and the Request-hosting payment
+/// receiver behind one application identifier. Platform adapters
 /// decode each APDU, route it here and own the asynchronous wallet callbacks.
 public struct IrohaPeerNfcCardEndpointV1: Sendable {
     /// Where one decoded command is answered.
@@ -2565,7 +2565,7 @@ public enum IrohaPeerNfcReaderPlanningV1 {
 
 /// Sender state that must be saved before the first payment byte is written.
 /// Restoring the encoded checkpoint reuses the exact IPM1 payment and can never
-/// create or debit a replacement payment on the second tap.
+/// create or debit a replacement payment after interrupted contact.
 public struct IrohaPeerNfcSenderCheckpointV1: Equatable, Sendable {
     public let identity: IrohaPeerNfcRequestIdentityV1
     public let profilePolicy: IrohaPeerNfcProfilePolicyV1
@@ -2720,7 +2720,7 @@ public enum IrohaPeerNfcSenderActionV1: Equatable, Sendable {
 
 /// Status-driven sender reducer designed for RF loss between any two APDUs.
 ///
-/// On a second tap, read `GET_INFO`, require the same identity, then pass
+/// When contact resumes, read `GET_INFO`, require the same identity, then pass
 /// `GET_STATUS` here. Receiver progress is authoritative; the exact durable
 /// payment checkpoint supplies bytes for replay without creating a new debit.
 public struct IrohaPeerNfcTwoTapReducerV1: Sendable {
@@ -3089,17 +3089,98 @@ public enum IrohaPeerNfcReaderExchangeV1 {
         loadOrCreateDurableCheckpoint: LoadOrCreateDurableCheckpoint,
         updateDurableCheckpoint: UpdateDurableCheckpoint
     ) async throws -> IrohaPeerNfcReaderExchangeResultV1 {
+        try await run(
+            initialRequest: nil,
+            restoredCheckpoint: restoredCheckpoint,
+            applicationIdentifier: applicationIdentifier,
+            profilePolicy: profilePolicy,
+            limits: limits,
+            maximumActions: maximumActions,
+            transceive: transceive,
+            loadOrCreateDurableCheckpoint: loadOrCreateDurableCheckpoint,
+            updateDurableCheckpoint: updateDurableCheckpoint
+        )
+    }
+
+    /// Exchanges the Offer, Request, Payment and durable acknowledgement over
+    /// one continuous contact. The application confirms the exact Request and
+    /// durably creates the Payment in `loadOrCreateDurableCheckpoint` while the
+    /// contact stays open. A restored checkpoint skips Offer intake entirely
+    /// and resumes only those exact, already-debited Payment bytes.
+    public static func run(
+        offer: IrohaPeerWireMessageV1,
+        restoredCheckpoint: Data? = nil,
+        applicationIdentifier: IrohaPeerNfcApplicationIdentifierV1 = .protocolDefault,
+        profilePolicy: IrohaPeerNfcProfilePolicyV1,
+        limits: IrohaPeerNfcLimitsV1 = .default,
+        maximumActions: Int = IrohaPeerNfcReaderExchangeV1.defaultMaximumActions,
+        preparationTimeoutMilliseconds: UInt64 =
+            IrohaPeerNfcOfferExchangeV1.defaultPreparationTimeoutMilliseconds,
+        transceive: Transceive,
+        sleep: IrohaPeerNfcOfferExchangeV1.Sleep = {
+            try await Task.sleep(nanoseconds: $0)
+        },
+        onOfferDelivered: IrohaPeerNfcOfferExchangeV1.OfferDelivered = {},
+        loadOrCreateDurableCheckpoint: LoadOrCreateDurableCheckpoint,
+        updateDurableCheckpoint: UpdateDurableCheckpoint
+    ) async throws -> IrohaPeerNfcReaderExchangeResultV1 {
+        precondition(maximumActions > 0)
+        let initialRequest: IrohaPeerNfcRequestReadV1?
+        if restoredCheckpoint == nil {
+            initialRequest = try await IrohaPeerNfcOfferExchangeV1.run(
+                offer: offer,
+                applicationIdentifier: applicationIdentifier,
+                profilePolicy: profilePolicy,
+                limits: limits,
+                preparationTimeoutMilliseconds: preparationTimeoutMilliseconds,
+                transceive: transceive,
+                sleep: sleep,
+                onOfferDelivered: onOfferDelivered
+            )
+        } else {
+            initialRequest = nil
+        }
+        try Task.checkCancellation()
+        return try await run(
+            initialRequest: initialRequest,
+            restoredCheckpoint: restoredCheckpoint,
+            applicationIdentifier: applicationIdentifier,
+            profilePolicy: profilePolicy,
+            limits: limits,
+            maximumActions: maximumActions,
+            transceive: transceive,
+            loadOrCreateDurableCheckpoint: loadOrCreateDurableCheckpoint,
+            updateDurableCheckpoint: updateDurableCheckpoint
+        )
+    }
+
+    private static func run(
+        initialRequest: IrohaPeerNfcRequestReadV1?,
+        restoredCheckpoint: Data?,
+        applicationIdentifier: IrohaPeerNfcApplicationIdentifierV1,
+        profilePolicy: IrohaPeerNfcProfilePolicyV1,
+        limits: IrohaPeerNfcLimitsV1,
+        maximumActions: Int,
+        transceive: Transceive,
+        loadOrCreateDurableCheckpoint: LoadOrCreateDurableCheckpoint,
+        updateDurableCheckpoint: UpdateDurableCheckpoint
+    ) async throws -> IrohaPeerNfcReaderExchangeResultV1 {
         precondition(maximumActions > 0)
         var actionBudget = ActionBudget(remaining: maximumActions)
 
-        try actionBudget.consume()
-        try requireEmptySuccess(
-            await transceive(.selectApplication(applicationIdentifier)),
-            operation: .selectApplication
-        )
-        try actionBudget.consume()
-        let infoResponse = try await requireSuccess(transceive(.getInfo), operation: .getInfo)
-        let info = try IrohaPeerNfcInfoV1.decode(infoResponse.data)
+        let info: IrohaPeerNfcInfoV1
+        if let initialRequest {
+            info = initialRequest.info
+        } else {
+            try actionBudget.consume()
+            try requireEmptySuccess(
+                await transceive(.selectApplication(applicationIdentifier)),
+                operation: .selectApplication
+            )
+            try actionBudget.consume()
+            let infoResponse = try await requireSuccess(transceive(.getInfo), operation: .getInfo)
+            info = try IrohaPeerNfcInfoV1.decode(infoResponse.data)
+        }
         guard info.identity.profile == profilePolicy.profile else {
             throw IrohaPeerNfcErrorV1.invalidProfile
         }
@@ -3131,7 +3212,9 @@ public enum IrohaPeerNfcReaderExchangeV1 {
             )
             try continuity.requireSamePeer(info)
         } else {
-            var requestBytes = Data()
+            // Offer intake has already read and validated the Request on this
+            // same contact. Do not select again or fetch the message twice.
+            var requestBytes = initialRequest?.request.encoded ?? Data()
             requestBytes.reserveCapacity(info.requestLength)
             while requestBytes.count < info.requestLength {
                 let command = try IrohaPeerNfcReaderPlanningV1.readRequestCommand(
@@ -3163,7 +3246,9 @@ public enum IrohaPeerNfcReaderExchangeV1 {
             // before invoking application code so a hostile one-byte peer
             // cannot exhaust the budget only after value has been created.
             try actionBudget.consume()
+            try Task.checkCancellation()
             checkpoint = try await loadOrCreateDurableCheckpoint(info, request)
+            try Task.checkCancellation()
             let continuity = IrohaPeerNfcTwoTapReducerV1(
                 checkpoint: checkpoint,
                 limits: limits
@@ -3417,7 +3502,7 @@ public enum IrohaPeerNfcReaderExchangeV1 {
     }
 }
 
-/// Tap 1 result: the card's intake record, its Request INFO and the validated Request.
+/// Offer intake result: the card's intake record, its INFO and validated Request.
 public struct IrohaPeerNfcRequestReadV1: Equatable, Sendable {
     public let intake: IrohaPeerNfcIntakeRecordV1
     public let info: IrohaPeerNfcInfoV1
@@ -3434,11 +3519,9 @@ public struct IrohaPeerNfcRequestReadV1: Equatable, Sendable {
     }
 }
 
-/// Tap 1 of the payer: hands the Offer to the receiver's card and reads back the
-/// Request the receiver's wallet signed for it. No value moves. The payer then
-/// reviews and approves away from the card, retains the exact Payment in an
-/// `IrohaPeerNfcSenderCheckpointV1` and taps again with
-/// `IrohaPeerNfcReaderExchangeV1.run(restoredCheckpoint:)`.
+/// Hands the Offer to the receiver's card and reads the signed Request without
+/// moving value. `IrohaPeerNfcReaderExchangeV1.run(offer:)` composes this intake
+/// with approval, durable Payment delivery and ACK in one continuous contact.
 public enum IrohaPeerNfcOfferExchangeV1 {
     public typealias Transceive = IrohaPeerNfcReaderExchangeV1.Transceive
     /// Waits the given number of nanoseconds between GET_INTAKE polls.
@@ -3554,8 +3637,8 @@ public enum IrohaPeerNfcOfferExchangeV1 {
         guard info.identity.sessionID == sessionID else {
             throw IrohaPeerNfcErrorV1.continuityMismatch
         }
-        // Only a newly advertised Request is read on tap 1; a started exchange
-        // resumes from the payer's retained checkpoint on tap 2.
+        // Only a newly advertised Request can authorize payment creation; a
+        // started exchange resumes from the payer's retained checkpoint.
         guard info.phase == .requestReady else { throw IrohaPeerNfcErrorV1.stateMismatch }
         var requestBytes = Data()
         requestBytes.reserveCapacity(info.requestLength)

@@ -50,6 +50,11 @@ Offer/Request setup outputs are canonical object frames; peer transports carry
 extract Offer, Request, Payment and Credited with exact scheme/kind and full-frame
 bounds; they return no monetary verdict. Direct-time cancel only discards an opaque token.
 Exact retained Payment bytes and durable completion remain native responsibilities.
+Exact-byte output retries, credit-status reads, Send/Unload reviews and discarded review
+tokens leave local lineage folding running. A review authenticates its current source
+under the wallet owner lock; execution after hardware approval takes payment priority and rechecks that source before
+proving or committing. Polling an unavailable credit opening returns `FoldRequired` without
+cancelling the proof that makes the value onward-spendable.
 The embedding app must provision signed complete artifacts/configuration; the
 unprovisioned runtime fails unavailable. Full real-wallet and physical-device
 qualification remain open.

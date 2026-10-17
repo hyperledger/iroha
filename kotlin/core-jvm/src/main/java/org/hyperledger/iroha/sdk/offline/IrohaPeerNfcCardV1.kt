@@ -4,7 +4,7 @@
 package org.hyperledger.iroha.sdk.offline
 
 /**
- * Card-side Offer intake of tap 1 (`specs/kagemusha_wallet_wire_v1.md` §6, NFC). A card started
+ * Card-side Offer intake (`specs/kagemusha_wallet_wire_v1.md` §6, NFC). A card started
  * without a Request awaits the payer's Offer under the session identifier `s` it chose at intake
  * start; the Request it later hosts uses the same `s`.
  *
@@ -198,8 +198,8 @@ class IrohaPeerNfcOfferIntakeV1 @JvmOverloads constructor(
 
 /**
  * Transport-neutral NFC card: the host card emulation endpoint of the receiver's phone under one
- * application identifier. In intake mode ([intake]) it awaits the payer's Offer (tap 1) and, once
- * the wallet's Request is installed, hosts it with the intake's session identifier (tap 2). In
+ * application identifier. In intake mode ([intake]) it awaits the payer's Offer and, once
+ * the wallet's Request is installed, hosts it with the same session identifier and connection. In
  * direct mode ([direct]) it hosts a Request built from an Offer that arrived over another carrier,
  * or a receiver session restored from its durable records.
  *

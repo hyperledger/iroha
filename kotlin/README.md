@@ -628,11 +628,14 @@ card: an `IrohaPeerAsyncHostApduServiceV1` subclass, whose `applicationIdentifie
 aid-filter, routes commands to an `IrohaPeerNfcCardApduBridgeV1` around
 `IrohaPeerNfcCardEndpointV1.intake`. Its callbacks sign the Request for the payer's Offer,
 durably admit the Payment header and, at COMMIT, ingest the Payment and persist the Credited
-acknowledgement. The payer's phone reads through `IrohaPeerIsoDepTransceiverV1`: tap 1 is
-`IrohaPeerNfcOfferExchangeV1.run` (Offer in, Request out); after approval the payer persists
-`IrohaPeerNfcRequestReadV1.senderCheckpoint(payment).encode()` (`ISC1`) and tap 2 is
+acknowledgement. The payer's phone keeps one `IrohaPeerIsoDepTransceiverV1` connected for
+`IrohaPeerNfcOfferExchangeV1.run` (Offer in, Request out), exact transaction review and
+hardware confirmation. It then persists
+`IrohaPeerNfcRequestReadV1.senderCheckpoint(payment).encode()` (`ISC1`) and continues with
 `IrohaPeerNfcReaderExchangeV1.run` with that checkpoint (Payment in, Credited out, resumable
-after any lost response). A Nearby receiver that advertises before it holds a Request uses
+after any lost response) before closing the connection. The normal flow completes in one
+hold; reconnecting is only recovery after interrupted contact. A Nearby receiver that
+advertises before it holds a Request uses
 `IrohaPeerNearbyDiscoveryContextV1.freshReceiver`.
 
 `KagemushaWalletAccountOriginalV1` encodes and renders the bounded complete

@@ -65,9 +65,9 @@ object IrohaPeerNfcReaderPlanningV1 {
 /**
  * Sender state (`ISC1`) that must be durable before the first Payment byte is written. Restoring
  * the encoded checkpoint reuses the exact IPM1 Payment and can never create or debit a
- * replacement Payment. After tap 1 the payer builds it from the Request read
+ * replacement Payment. The payer builds it from the Request read
  * ([IrohaPeerNfcRequestReadV1.senderCheckpoint]) and the approved Payment, persists [encode] and
- * starts tap 2 with it ([IrohaPeerNfcReaderExchangeV1.run]).
+ * continues on the same connection with it ([IrohaPeerNfcReaderExchangeV1.run]).
  */
 class IrohaPeerNfcSenderCheckpointV1 @JvmOverloads constructor(
     sessionId: ByteArray,
@@ -226,7 +226,7 @@ sealed class IrohaPeerNfcSenderActionV1 {
 }
 
 /**
- * Status-driven sender reducer designed for RF loss between any two APDUs. On a second tap, read
+ * Status-driven sender reducer designed for RF loss between any two APDUs. On reconnect, read
  * GET_INFO, require the same identity ([requireSamePeer]), then pass each GET_STATUS here. The
  * card's progress is authoritative; the exact durable checkpoint supplies bytes for replay without
  * creating a new debit.
@@ -468,7 +468,7 @@ class IrohaPeerNfcReaderExchangeResultV1 @JvmOverloads constructor(
 }
 
 /**
- * Transport-neutral, status-reconciled Payment exchange (tap 2), the Swift
+ * Transport-neutral, status-reconciled Payment phase, the Swift
  * `IrohaPeerNfcReaderExchangeV1`. Blocking; Android reader mode runs it on its binder thread.
  *
  * With [run]'s `restoredCheckpoint` (the `ISC1` the payer persisted after approving the Payment,
@@ -728,7 +728,7 @@ object IrohaPeerNfcReaderExchangeV1 {
 }
 
 /**
- * Tap 1 result: the card's final `IOI1` [intake], its `INF1` [info] and the verified [request] it
+ * Offer phase result: the card's final `IOI1` [intake], its `INF1` [info] and the verified [request] it
  * hosts under the intake's session identifier.
  */
 class IrohaPeerNfcRequestReadV1(
@@ -746,8 +746,8 @@ class IrohaPeerNfcRequestReadV1(
     }
 
     /**
-     * The tap-2 sender checkpoint for the approved [payment] (complete Payment IPM1 bytes) of this
-     * Request. Persist its [IrohaPeerNfcSenderCheckpointV1.encode] before tapping again.
+     * The sender checkpoint for the approved [payment] (complete Payment IPM1 bytes) of this
+     * Request. Persist its [IrohaPeerNfcSenderCheckpointV1.encode] before sending any Payment byte.
      */
     @JvmOverloads
     fun senderCheckpoint(
@@ -771,7 +771,9 @@ class IrohaPeerNfcRequestReadV1(
 }
 
 /**
- * Tap 1 reader: carries the payer's Offer to the card and reads back the receiver's Request.
+ * Offer phase: carries the payer's Offer to the card and reads back the receiver's Request.
+ * Keep the transceiver connected during approval, then run [IrohaPeerNfcReaderExchangeV1] on it
+ * with the durable checkpoint to finish the payment in the same hold.
  *
  * SELECT, then GET_INTAKE. Awaiting an Offer, or receiving another Offer, the reader sends
  * BEGIN_OFFER; receiving this Offer, it resumes at the received offset. It writes contiguous chunks

@@ -13,8 +13,9 @@ class KagemushaWalletNativeWorkerExceptionV1 internal constructor(cause: Throwab
 
 /**
  * Native proof verification must not inherit an arbitrary UI/coroutine thread's small stack.
- * Two foreground slots and a separate fold slot bound stack reservations while allowing payment
- * arrival to preempt folding. Activity and owner close remain outside these queues. Platform
+ * Two foreground slots, one fold slot and one snapshot slot bound stack reservations while
+ * allowing payment arrival to preempt folding and snapshots to enter during an unlocked proof.
+ * At most four workers reserve eight MiB each. Activity and owner close bypass these queues. Platform
  * callbacks already permit native worker threads and prohibit same-wallet reentry.
  */
 internal class KagemushaWalletNativeWorkerV1(
@@ -24,16 +25,22 @@ internal class KagemushaWalletNativeWorkerV1(
 ) {
     private val foreground = Semaphore(2, true)
     private val folding = Semaphore(1, true)
+    private val snapshots = Semaphore(1, true)
     private val entered = ThreadLocal<Boolean>()
 
     // Native collection/snapshot wait for the wallet mutex without requesting preemption.
-    // They must not occupy the slots needed by a payment to cancel and join that work.
+    // Neither may occupy the slots needed by a payment to cancel and join that work.
+    // A separate snapshot slot also avoids waiting through an explicit fold's unlocked proof.
     fun <T> setup(selector: Int, action: () -> T): T = run(fold = selector == 47, action = action)
-    fun <T> snapshot(action: () -> T): T = run(fold = true, action = action)
+    fun <T> snapshot(action: () -> T): T = run(snapshots, "iroha-wallet-snapshot", action)
 
-    fun <T> run(fold: Boolean = false, action: () -> T): T {
+    fun <T> run(fold: Boolean = false, action: () -> T): T =
+        run(if (fold) folding else foreground, if (fold) "iroha-wallet-fold" else "iroha-wallet-native", action)
+
+    private fun <T> run(slots: Semaphore, name: String, action: () -> T): T {
+        // Nested work already owns this worker and stack. Never acquire another reservation:
+        // same-slot nesting would deadlock, and crossing slots could invert their order.
         if (entered.get() == true) return action()
-        val slots = if (fold) folding else foreground
         // Once selected, a native monetary operation must complete before its caller can unwind.
         // Waiting and joining preserve interruption without abandoning an unknown native outcome.
         slots.acquireUninterruptibly()
@@ -43,7 +50,7 @@ internal class KagemushaWalletNativeWorkerV1(
                 try { action() } finally { entered.remove() }
             })
             val worker = try {
-                threadFactory(task, if (fold) "iroha-wallet-fold" else "iroha-wallet-native", STACK_BYTES)
+                threadFactory(task, name, STACK_BYTES)
                     .also { it.start() }
             } catch (failure: OutOfMemoryError) {
                 throw KagemushaWalletNativeWorkerExceptionV1(failure)
