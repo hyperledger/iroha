@@ -1,0 +1,6 @@
+Retained tool transcript of an actually executed focused command.
+The suite was not rerun merely to freeze this transcript.
+
+Command: .venv/bin/python -m pytest -q scripts/tests/parliament_ballot_frontend_bound_test.py
+Exit code: 0
+27 passed in 5.87s

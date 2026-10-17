@@ -61,6 +61,18 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Name,
+        reason: "JSON schema identities of signed test-chain KAGEMUSHA fee and online-charge evidence; select exact fixture result layouts, not hash domains or State-content roots",
+        literals: &[
+            r"iroha.kagemusha.executed-charge-continuation.v1",
+            r"iroha.kagemusha.executed-fee-settlement.v1",
+            r"iroha.kagemusha.executed-online-charge.v1",
+            r"iroha.kagemusha.fee-payout-evidence.v1",
+            r"iroha.kagemusha.native-fee-result.v1",
+            r"iroha.kagemusha.native-online-charge-result.v1",
+        ],
+    },
+    OtherDomains {
+        usage: Use::Name,
         reason: "Nominal Model codec identities of the committed fraud admission policy and its exact components; the value lives in world.parameters, and these literals select schema identities rather than hash domains or independent State roots",
         literals: &[
             r"iroha:fraud:admission-attester:v1",

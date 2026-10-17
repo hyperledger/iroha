@@ -1,0 +1,127 @@
+"""Finalize a reviewed, immutable package in ignored target only."""
+from pathlib import Path
+import hashlib
+import json
+import re
+
+STAGE = Path(__file__).resolve().parent
+PACKAGE = STAGE / "publication"
+ROOT = STAGE.parents[1]
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def finalize():
+    """Seal metadata after an independently accepted successful capture."""
+    if (PACKAGE / "SHA256SUMS").exists():
+        raise ValueError("immutable finalized package already exists")
+    receipt_path = PACKAGE / "capture/receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    required = (
+        "source_stable", "captured_source_stable",
+        "exact_collection_and_execution_membership", "effective_selection_unfiltered",
+        "call_kinds_explicit", "all_call_reports_passed",
+    )
+    if not all(receipt[key] is True for key in required):
+        raise ValueError("capture contract failed")
+    if (receipt["parent_call_count"], receipt["subtest_call_count"]) != (350, 74):
+        raise ValueError("unexpected captured test membership")
+    if [item["exit_code"] for item in receipt["commands"]] != [0, 0]:
+        raise ValueError("capture command failed")
+    if any(receipt[key] for key in ("failed", "errors", "skipped")):
+        raise ValueError("unsuccessful test results")
+    for key in ("profile_qualified", "complete_resource_vector", "production_gate_changed"):
+        if receipt[key] is not False:
+            raise ValueError("qualification boundary changed")
+    inventory_path = PACKAGE / "inventory.json"
+    inventory = json.loads(inventory_path.read_text())
+    def verify_inventory():
+        for name, item in inventory["files"].items():
+            relative = Path(name)
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ValueError("unsafe inventory path")
+            if sha((PACKAGE / relative).read_bytes()) != item["sha256"]:
+                raise ValueError("assembled payload changed: " + name)
+        actual = {str(p.relative_to(PACKAGE)) for p in PACKAGE.rglob("*")
+                  if p.is_file() and p != inventory_path}
+        if actual != set(inventory["files"]):
+            raise ValueError("assembled package membership changed")
+    verify_inventory()
+
+    def copy(source, relative, expected=None):
+        output = PACKAGE / relative
+        if output.exists():
+            raise ValueError("existing package addition: " + relative)
+        data = source.read_bytes()
+        if expected is not None and sha(data) != expected:
+            raise ValueError("package addition identity changed: " + relative)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(data)
+        inventory["files"][relative] = dict(
+            original_path=str(source.relative_to(ROOT)), sha256=sha(data))
+
+    readme = (STAGE / "README.md").read_text()
+    placeholder = "Final suite result is inserted only after its completed receipt is verified."
+    if readme.count(placeholder) != 1:
+        raise ValueError("result placeholder changed")
+    replacement = (
+        "The final captured suite passed **350 tests and 74 subtests**, with no failures,\n"
+        "errors or skips. Collection and execution used the same ordered 350 parent\n"
+        "identities. All " + str(len(receipt["source_sha256_before"])) + " selected source files were unchanged in both the live\n"
+        "selection and the captured execution tree. This is a selected source inventory,\n"
+        "not a complete compiler/runtime dependency closure. The final receipt SHA-256 is\n"
+        "`" + sha(receipt_path.read_bytes()) + "`.\n\n"
+        "The initial attempt also passed 350 tests and 74 subtests, but its wrapper\n"
+        "rejected the receipt because it misclassified subtest reports as duplicate\n"
+        "parents. That full attempt is retained in `attempts/attempt-1.tar.gz`. The\n"
+        "observer now distinguishes both kinds explicitly; two separate controls\n"
+        "verify passing subtests and preservation of an injected failing subtest.\n"
+        "The corrected capture was run afresh from its own source snapshot."
+    )
+    readme = readme.replace(placeholder, replacement)
+    (STAGE / "README-final.md").write_text(readme)
+    copy(STAGE / "README-final.md", "README.md")
+    copy(STAGE / "replay-smoke.json", "reviews/publication-replay-smoke.json")
+    documents = {}
+    pins = json.loads((STAGE / "central-before-sha256.json").read_text())
+    for name, before_hash in pins.items():
+        before = STAGE / "central-documents/before" / (name + ".template")
+        after = STAGE / "central-documents/after" / (name + ".template")
+        if sha(before.read_bytes()) != before_hash:
+            raise ValueError("document before identity changed")
+        documents[name] = dict(before_sha256=before_hash, after_sha256=sha(after.read_bytes()))
+        for kind, path in (("before", before), ("after", after)):
+            copy(path, "document-custody/" + kind + "/" + name + ".template", documents[name][kind + "_sha256"])
+    for name in ("assemble.py", "finalize.py", "publish.py", "prepare_docs.py", "central-before-sha256.json"):
+        copy(STAGE / name, "package-tools/" + name + ".template")
+    verify_inventory()
+    inventory_path.write_text(json.dumps(inventory, indent=2, sort_keys=True) + "\n")
+    custody = dict(
+        schema="parliament-request-machine-publication-custody-v1",
+        publication_path="docs/validation/parliament_ballot_request_machine",
+        documents=documents,
+        inventory_sha256=sha(inventory_path.read_bytes()),
+        capture_receipt_sha256=sha(receipt_path.read_bytes()),
+        source_bytes_preserved=True,
+        complete_resource_vector=False, profile_qualified=False,
+        production_gate_changed=False,
+    )
+    (PACKAGE / "publication-custody.json").write_text(json.dumps(custody, indent=2, sort_keys=True) + "\n")
+    active_sources = [p for p in PACKAGE.rglob("*") if p.is_file() and p.suffix in (".py", ".rs")]
+    if active_sources:
+        raise ValueError("active source files in document archive")
+    for link in re.findall(r"\]\(([^)]+)\)", readme):
+        if "://" not in link and not (PACKAGE / link.split("#", 1)[0]).exists():
+            raise ValueError("broken package readme link: " + link)
+    manifest = "".join(sha(p.read_bytes()) + "  " + str(p.relative_to(PACKAGE)) + "\n"
+                       for p in sorted(PACKAGE.rglob("*")) if p.is_file())
+    (PACKAGE / "SHA256SUMS").write_text(manifest)
+    print(json.dumps(dict(files=len(manifest.splitlines()),
+                          manifest_sha256=sha(manifest.encode()),
+                          custody_sha256=sha((PACKAGE / "publication-custody.json").read_bytes()))))
+
+
+if __name__ == "__main__":
+    finalize()

@@ -1,0 +1,37 @@
+"""Prepare concise B6 record changes without editing the shared checkout."""
+from pathlib import Path
+import hashlib,json
+ROOT=Path(__file__).resolve().parents[2]
+STAGE=Path(__file__).resolve().parent
+pins=json.loads((STAGE/'central-before-sha256.json').read_text())
+addition=(STAGE/'central-addition.md').read_text()
+for name,wanted in pins.items():
+    p=ROOT/name;before=p.read_bytes()
+    assert hashlib.sha256(before).hexdigest()==wanted,name
+    text=before.decode();text=text.replace('Status, 2026-10-13:', 'Status, 2026-10-14:',1)
+    if name.startswith('docs/'):
+        marker='## Standalone adversarial and conformance evidence'
+        assert marker in text
+        text=text.replace(marker,addition+'\n'+marker,1)
+        text=text.replace('Source arithmetic counts cannot yet be multiplied into a\nwhole-simulator bound: routing, intermediate history and cleanup still need\nan explicit composition.', 'These kernel counts alone are not a\nwhole-simulator bound; the request composition below adds explicit routing,\nintermediate history and cleanup within its stated atomic boundary.')
+    elif name.endswith('requirement_audit.md'):
+        marker='- [Standalone resource model]'
+        add='''- [Mathematical request machine](../docs/validation/parliament_ballot_request_machine/README.md):
+  explicit atomic generation, programming, return and cleanup, with content and
+  full-width length rejection families. Accepted-request gate/oracle/storage
+  observations are source-bound cases, not a family-wide maximum. Adaptive
+  lifetime accounting, primitive-entry assumptions, external review and native
+  workspace qualification remain open; no production gate changes.
+'''
+        assert marker in text;text=text.replace(marker,add+marker,1)
+        text=text.replace('routing,\n  intermediate lifetimes and whole-program cleanup remain unpriced.', 'the atomic request\n  composition below prices routing and cleanup within its declared boundary.')
+    else:
+        text=text.replace('11 controls. It reuses append staging and adds no oracle calls; generating,\nvalidating and selecting the fields and trial controller remain unpriced.', '11 controls. It reuses append staging and adds no oracle calls. Its supplied-field\nboundary excludes generation, validation and trial selection; the atomic\nrequest-machine implementation below now joins those stages.')
+        text=text.replace('schedule; randomness, trial control, selected-value access, reconstruction,\ncomplete reductions and primitive entry remain open.', 'schedule. The request machine below adds trial control, selected-value access\nand reconstruction; complete reductions and primitive entry remain open.')
+        text=text.replace('registers and zero initial work are premises. Operand routing, overwritten\nintermediate history and whole-program cleanup remain open; these component\ncounts do not establish a complete simulator or physical-workspace bound.', 'registers and zero initial work are premises. These component counts alone\ndo not establish a complete simulator or physical-workspace bound.\n\nThe [mathematical request machine](../docs/validation/parliament_ballot_request_machine/README.md)\nnow joins public preparation, sampling, opening/VOLE, responses, chronological\nprogramming, return and cleanup, including content and full-width length\nrejection families. Exact accepted-request observations and local reviews\nretain explicit oracle and input premises. TODO: finish adaptive T/Q lifetime\ncomposition, preparation/purification resources, family-wide bounds and the\nprimitive-entry assessment. Physical verifier and independent qualification\nrequirements remain separate; production stays gated.')
+    text=text.replace('boundary. Physical verifier memory and primitive advantages', 'boundary. Physical verifier memory and primitive advantages')
+    text=text.replace('intermediate history and cleanup within its stated atomic boundary. Physical verifier memory and primitive advantages', 'intermediate history and cleanup within its stated atomic boundary. Physical\nverifier memory and primitive advantages')
+    text=text.replace('and reconstruction; complete reductions and primitive entry remain open. The separate component', 'and reconstruction; complete reductions and primitive entry remain open. The\nseparate component')
+    out=STAGE/'central-documents'/'after'/(name+'.template');out.parent.mkdir(parents=True,exist_ok=True);out.write_text(text)
+    old=STAGE/'central-documents'/'before'/(name+'.template');old.parent.mkdir(parents=True,exist_ok=True);old.write_bytes(before)
+print('Prepared three exact guarded document changes under ignored target.')

@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Capture a freshly guarded standalone worker's ARM64 stack diagnostics.
+
+Requires Python 3.11+, pytest, Xcode llvm-objdump and a successful current-source
+build receipt. No builds or worker executions. Output must be new. The same
+reviewed analyzer is used on newly captured binaries; no old addresses or bounds
+are copied. Unknown calls, stack effects and cycles remain qualification gaps.
+"""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+parser = argparse.ArgumentParser(description=__doc__)
+for name in ('root', 'build-receipt', 'output'):
+    parser.add_argument('--' + name, required=True, type=Path)
+args = parser.parse_args()
+root, output = args.root.resolve(), args.output.resolve()
+output.mkdir(parents=True, exist_ok=False)
+(output / 'capture_stack.py.template').write_bytes(Path(__file__).read_bytes())
+guards, captures, commands, failure = {}, {}, [], None
+try:
+    paths = {
+        'analyzer': root / 'scripts/parliament_ballot_stack_audit.py',
+        'tests': root / 'scripts/tests/parliament_ballot_stack_audit_test.py',
+        'checker': root / 'scripts/check_parliament_ballot_memory_entry.py',
+        'resource': root / 'scripts/check_parliament_ballot_resource_contract.py',
+        'supervisor': root / 'scripts/parliament_ballot_memory_supervisor.py',
+        'build_receipt': args.build_receipt.resolve(),
+        'capture_driver': Path(__file__).resolve(),
+    }
+    for path in paths.values():
+        guards[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+    reviewed_helpers = {
+        'analyzer': 'd54365c9f3460635cd9ba653d7139827b737161052a1d409ecaf06f9dd19830e',
+        'tests': '8aa57e41ec678ec3f18d0aa563b4874680b6dfacb967f335e0d2ff51eb3643fe',
+        'checker': 'fca0dade57bc12c218b49fd2117da10d8a2c0fd21c3011bba094d43e54780bca',
+        'resource': '545a0655dd83dd5e19bdc428d90841dbf416afd0c523eec3992fba6bd15ade02',
+        'supervisor': 'cc09a3a66be58ef179d363da90ce920044f634791e132a036417bddc379ce0a5',
+    }
+    if any(guards[str(paths[key])] != expected for key, expected in reviewed_helpers.items()):
+        raise ValueError('reviewed analyzer or build-validation helper changed')
+    sys.path.insert(0, str(root / 'scripts'))
+    import check_parliament_ballot_memory_entry as checker
+    import parliament_ballot_stack_audit as analyzer
+    for key, module in [('checker', checker), ('resource', checker.resource),
+                        ('supervisor', checker.supervisor), ('analyzer', analyzer)]:
+        if Path(module.__file__).resolve() != paths[key]:
+            raise ValueError('unexpected loaded helper: ' + key)
+    receipt = checker.object_json(paths['build_receipt'].read_text())
+    if set(receipt['binaries']) != {'portable', 'accel'}:
+        raise ValueError('both compiled modes required')
+    binaries = {mode: Path(value['path']) for mode, value in receipt['binaries'].items()}
+    guards.update(checker.validate_build(receipt, binaries, root))
+    for path in binaries.values():
+        guards[str(path)] = analyzer.digest(path)
+    tool = Path(subprocess.check_output(['xcrun', '--find', 'llvm-objdump'], text=True).strip())
+    guards[str(tool)] = analyzer.digest(tool)
+    for key in ('analyzer', 'tests', 'checker', 'resource', 'supervisor'):
+        (output / (paths[key].name + '.template')).write_bytes(paths[key].read_bytes())
+    for mode, binary in binaries.items():
+        raw, identity = analyzer.capture(binary, output / mode)
+        if (identity['binary_sha256'] != guards[str(binary)]
+                or identity['objdump_sha256'] != guards[str(tool)]
+                or identity['script_sha256'] != guards[str(paths['analyzer'])]):
+            raise ValueError('capture identity differs from guarded inputs')
+        result = analyzer.audit(raw['disassembly'], raw['starts'], raw['stubs'], [
+            'workspace::worker::', 'budget::Reservation::verify::',
+            'iroha_zkp_vole::proof::verify::', 'fatal::exhausted::'])
+        result['identity'] = identity
+        result_path = output / (mode + '.json')
+        result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
+        captures[mode] = {'path': str(result_path), 'sha256': analyzer.digest(result_path),
+                         'binary_sha256': identity['binary_sha256'],
+                         'function_count': result['function_count'],
+                         'text_instructions': result['text_instructions'],
+                         'whole_image_frame_error_count': result['whole_image_frame_error_count'],
+                         'roots': [{key: item[key] for key in (
+                             'root', 'address', 'direct_reachable_functions', 'resolved_region_stack_bytes',
+                             'complete_stack_bound_bytes', 'frontier_kind_counts')}
+                                   for item in result['roots']]}
+    command = [sys.executable, '-m', 'pytest', '-q', str(paths['tests'])]
+    completed = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=120)
+    log = output / 'tests.txt'
+    log.write_text(completed.stdout + completed.stderr)
+    commands.append({'command': command, 'exit': completed.returncode,
+                     'log': str(log), 'log_sha256': analyzer.digest(log)})
+    if completed.returncode:
+        raise ValueError('focused analyzer regression failed')
+except (Exception, KeyboardInterrupt) as error:
+    failure = f'{type(error).__name__}: {error}'
+changes = {}
+for name, before in guards.items():
+    path = Path(name)
+    after = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+    if before != after:
+        changes[name] = {'before': before, 'after': after}
+report = {'schema': 'parliament-current-worker-stack-capture-v1',
+          'capture_passed': failure is None and not changes and set(captures) == {'portable', 'accel'},
+          'failure': failure, 'input_sha256': guards, 'input_changes': changes,
+          'captures': captures, 'commands': commands,
+          'complete_stack_certificate': False, 'complete_workspace_certificate': False,
+          'physical_cost_calibrated': False, 'profile_qualified': False}
+(output / 'receipt.json').write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
+print(json.dumps({key: report[key] for key in ('capture_passed', 'failure', 'input_changes', 'captures')}, indent=2))
+raise SystemExit(0 if report['capture_passed'] else 1)

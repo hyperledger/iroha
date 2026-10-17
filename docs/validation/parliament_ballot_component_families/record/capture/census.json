@@ -1,0 +1,291 @@
+{
+  "census_rows": 1996,
+  "census_sha256": "3a91f20cc3e3e7e879eac9a74f0ec587e8c0bc89f83c60e6c6651e639caa2c04",
+  "complete_resource_vector": false,
+  "distinct_SHA3_lengths_checked_against_frozen_kernel": 7849,
+  "full_gate_stream_executed": false,
+  "full_request_family_bound": false,
+  "independent_cryptographic_review": false,
+  "native_workspace_qualified": false,
+  "omitted_stages": [
+    "S0",
+    "opening",
+    "R0",
+    "validated W",
+    "E",
+    "common return",
+    "L0",
+    "lifetime driver"
+  ],
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "r1_per_item": {
+    "base_xor_oracle_calls": 0,
+    "ccx": 786432,
+    "cx": 1054244,
+    "elementary_gates": 4986404,
+    "history_bits": 524800,
+    "total_clean_work_bits": 524800,
+    "x": 0
+  },
+  "reg_p1": {
+    "candidate": {
+      "allowed_shape_count": 1180496500391613953,
+      "endpoint": {
+        "clean_kernel_work_bits": 1860124,
+        "gates": {
+          "base_xor_oracle_calls": 8,
+          "ccx": 236236800,
+          "cx": 1665194476,
+          "elementary_gates": 3083799238,
+          "x": 237420762
+        },
+        "history_bits": 684208,
+        "output_bits": 6376,
+        "total_clean_work_bits": 2544332
+      },
+      "endpoint_maximal_coordinates": [
+        "cx",
+        "ccx",
+        "elementary_gates",
+        "base_xor_oracle_calls",
+        "input_bits",
+        "history_bits",
+        "total_clean_work_bits",
+        "output_bits"
+      ],
+      "endpoint_shape": {
+        "body": 4096,
+        "contexts": [
+          256,
+          256,
+          256,
+          256,
+          256,
+          256
+        ]
+      },
+      "maximum_P1_input_bits_including_supplied_iv_pre_and_salt": 46976,
+      "maximum_original_public_input_bits": 46592,
+      "maximum_x_case": {
+        "clean_kernel_work_bits": 1860124,
+        "gates": {
+          "base_xor_oracle_calls": 8,
+          "ccx": 236236800,
+          "cx": 1665193964,
+          "elementary_gates": 3083798960,
+          "x": 237420996
+        },
+        "history_bits": 684208,
+        "output_bits": 6376,
+        "total_clean_work_bits": 2544332
+      },
+      "maximum_x_extra_over_endpoint": 234,
+      "maximum_x_shape": {
+        "body": 4095,
+        "contexts": [
+          255,
+          255,
+          255,
+          255,
+          255,
+          255
+        ]
+      },
+      "proof": "Coordinatewise elementary increments >=62 per body byte and >=36 per context byte; CX and hash blocks are monotone; profile SHAKE dominates REG scratch. All seven popcounts and both SHA3 block maxima coincide at the listed X witness."
+    },
+    "comparator": {
+      "allowed_shape_count": 1180496500391613953,
+      "endpoint": {
+        "clean_kernel_work_bits": 1848924,
+        "gates": {
+          "base_xor_oracle_calls": 8,
+          "ccx": 235008000,
+          "cx": 1656526124,
+          "elementary_gates": 3067757896,
+          "x": 236191772
+        },
+        "history_bits": 679408,
+        "output_bits": 6376,
+        "total_clean_work_bits": 2528332
+      },
+      "endpoint_maximal_coordinates": [
+        "cx",
+        "ccx",
+        "elementary_gates",
+        "base_xor_oracle_calls",
+        "input_bits",
+        "history_bits",
+        "total_clean_work_bits",
+        "output_bits"
+      ],
+      "endpoint_shape": {
+        "body": 4096,
+        "contexts": [
+          256,
+          256,
+          256,
+          256,
+          256,
+          256
+        ]
+      },
+      "maximum_P1_input_bits_including_supplied_iv_pre_and_salt": 46976,
+      "maximum_original_public_input_bits": 46592,
+      "maximum_x_case": {
+        "clean_kernel_work_bits": 1848924,
+        "gates": {
+          "base_xor_oracle_calls": 8,
+          "ccx": 235008000,
+          "cx": 1656525612,
+          "elementary_gates": 3067757618,
+          "x": 236192006
+        },
+        "history_bits": 679408,
+        "output_bits": 6376,
+        "total_clean_work_bits": 2528332
+      },
+      "maximum_x_extra_over_endpoint": 234,
+      "maximum_x_shape": {
+        "body": 4095,
+        "contexts": [
+          255,
+          255,
+          255,
+          255,
+          255,
+          255
+        ]
+      },
+      "proof": "Coordinatewise elementary increments >=62 per body byte and >=36 per context byte; CX and hash blocks are monotone; profile SHAKE dominates REG scratch. All seven popcounts and both SHA3 block maxima coincide at the listed X witness."
+    }
+  },
+  "reg_shape_reduction": "Algebraic monotonicity and a simultaneously attaining X witness; no tuple enumeration or DP.",
+  "schema": "parliament-component-family-arithmetic-v1",
+  "scope": "Frozen P0/P1/R1 component counts only; no full request or lifetime maximum.",
+  "vote_components": {
+    "candidate": {
+      "coordinatewise_nondecreasing": true,
+      "count": 998,
+      "maximum_case": {
+        "P0_base_xor_oracle_calls": 0,
+        "P0_ccx": 559126914,
+        "P0_clean_work_bits": 4138235,
+        "P0_cx": 3873221686,
+        "P0_elementary_gates": 7225099904,
+        "P0_input_bits": 1027992,
+        "P0_output_bits": 60,
+        "P0_x": 556243648,
+        "P1_base_xor_oracle_calls": 8,
+        "P1_ccx": 741580800,
+        "P1_clean_work_bits": 4764001,
+        "P1_cx": 5222866000,
+        "P1_elementary_gates": 9674666504,
+        "P1_input_bits": 1027992,
+        "P1_output_bits": 1031976,
+        "P1_x": 743896504,
+        "R1_base_xor_oracle_calls": 0,
+        "R1_ccx": 154359365632,
+        "R1_clean_work_bits": 924930303,
+        "R1_cx": 4754977666,
+        "R1_elementary_gates": 776551805828,
+        "R1_input_bits": 14786048,
+        "R1_output_bits": 322,
+        "R1_x": 2,
+        "list_count": 1000,
+        "row": "candidate"
+      },
+      "minimum_case": {
+        "P0_base_xor_oracle_calls": 0,
+        "P0_ccx": 2176280,
+        "P0_clean_work_bits": 211714,
+        "P0_cx": 15188180,
+        "P0_elementary_gates": 28242528,
+        "P0_input_bits": 7064,
+        "P0_output_bits": 60,
+        "P0_x": 2172948,
+        "P1_base_xor_oracle_calls": 8,
+        "P1_ccx": 196915200,
+        "P1_clean_work_bits": 2544548,
+        "P1_cx": 1388451424,
+        "P1_elementary_gates": 2571038488,
+        "P1_input_bits": 7064,
+        "P1_output_bits": 11048,
+        "P1_x": 198011064,
+        "R1_base_xor_oracle_calls": 0,
+        "R1_ccx": 153575292928,
+        "R1_clean_work_bits": 401704703,
+        "R1_cx": 3703896398,
+        "R1_elementary_gates": 771580361040,
+        "R1_input_bits": 13765120,
+        "R1_output_bits": 322,
+        "R1_x": 2,
+        "list_count": 3,
+        "row": "candidate"
+      },
+      "note": "F counts and some widths are constant; maxima need not be unique."
+    },
+    "comparator": {
+      "coordinatewise_nondecreasing": true,
+      "count": 998,
+      "maximum_case": {
+        "P0_base_xor_oracle_calls": 0,
+        "P0_ccx": 559126914,
+        "P0_clean_work_bits": 4138235,
+        "P0_cx": 3873221686,
+        "P0_elementary_gates": 7225099904,
+        "P0_input_bits": 1027992,
+        "P0_output_bits": 60,
+        "P0_x": 556243648,
+        "P1_base_xor_oracle_calls": 8,
+        "P1_ccx": 740352000,
+        "P1_clean_work_bits": 4759201,
+        "P1_cx": 5214197648,
+        "P1_elementary_gates": 9658625162,
+        "P1_input_bits": 1027992,
+        "P1_output_bits": 1031976,
+        "P1_x": 742667514,
+        "R1_base_xor_oracle_calls": 0,
+        "R1_ccx": 154359365632,
+        "R1_clean_work_bits": 924930303,
+        "R1_cx": 4754977666,
+        "R1_elementary_gates": 776551805828,
+        "R1_input_bits": 14786048,
+        "R1_output_bits": 322,
+        "R1_x": 2,
+        "list_count": 1000,
+        "row": "comparator"
+      },
+      "minimum_case": {
+        "P0_base_xor_oracle_calls": 0,
+        "P0_ccx": 2176280,
+        "P0_clean_work_bits": 211714,
+        "P0_cx": 15188180,
+        "P0_elementary_gates": 28242528,
+        "P0_input_bits": 7064,
+        "P0_output_bits": 60,
+        "P0_x": 2172948,
+        "P1_base_xor_oracle_calls": 8,
+        "P1_ccx": 195686400,
+        "P1_clean_work_bits": 2528548,
+        "P1_cx": 1379783072,
+        "P1_elementary_gates": 2554997146,
+        "P1_input_bits": 7064,
+        "P1_output_bits": 11048,
+        "P1_x": 196782074,
+        "R1_base_xor_oracle_calls": 0,
+        "R1_ccx": 153575292928,
+        "R1_clean_work_bits": 401704703,
+        "R1_cx": 3703896398,
+        "R1_elementary_gates": 771580361040,
+        "R1_input_bits": 13765120,
+        "R1_output_bits": 322,
+        "R1_x": 2,
+        "list_count": 3,
+        "row": "comparator"
+      },
+      "note": "F counts and some widths are constant; maxima need not be unique."
+    }
+  },
+  "vote_shape_reduction": "All 998 accepted actual sizes enumerated per row with scalar P0/P1 and affine R1."
+}

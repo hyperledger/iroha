@@ -1,0 +1,170 @@
+"""Freeze reviewed AES component checks in ignored scratch, without native jobs."""
+import argparse
+from collections import Counter
+import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+import xml.etree.ElementTree as ET
+
+STAGE = Path(__file__).resolve().parent
+ROOT = STAGE.parents[1]
+REVIEW = ROOT / "target/parliament-aes-review"
+IR = ROOT / "target/parliament-ideal-machine-stage/bit_ir.py"
+OUT = STAGE / "capture"
+WORK = STAGE / "capture-work"
+PYTEST = Path("/opt/homebrew/bin/pytest")
+CODE = {
+    "aes": STAGE / "aes256.py",
+    "report": STAGE / "report.py",
+    "tests": STAGE / "test_aes256.py",
+    "readme": STAGE / "README.md",
+    "ir": IR,
+    "independent_tests": REVIEW / "test_independent_aes.py",
+    "independent_readme": REVIEW / "README.md",
+}
+FIXED = {
+    IR: "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64",
+    ROOT / "crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    STAGE / "references/FIPS-197-upd1.pdf": "62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1",
+    STAGE / "references/FIPS-197-upd1.txt": "9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f",
+    STAGE / "references/AES_Core256.pdf": "8caf33781b8d4b9564c7e95a7690e491ca1d95efe9a31cdea2977deaf4c7b4ce",
+}
+FLAGS = (
+    "full_generator_implemented", "complete_simulator_coverage", "complete_resource_vector",
+    "actual_input_primitive_entry", "primitive_advantage_assumed", "independent_cryptographic_review",
+    "native_workspace_certificate", "profile_qualified", "production_gate_changed",
+)
+TESTS = [CODE["tests"], CODE["independent_tests"]]
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def need(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
+def observe(paths):
+    return {str(path): digest(path) if path.is_file() else None for path in paths}
+
+
+def save(name, value):
+    with (OUT / name).open("x") as stream:
+        stream.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--reviewed-hashes", type=Path, required=True)
+parser.add_argument("--reviewed-hashes-sha", required=True)
+args = parser.parse_args()
+need(not OUT.exists() and not WORK.exists(), "existing capture/work directory")
+need(digest(args.reviewed_hashes) == args.reviewed_hashes_sha, "reviewed map changed")
+reviewed = json.loads(args.reviewed_hashes.read_text())
+need(set(reviewed) == set(CODE), "reviewed source membership differs")
+need(all(digest(path) == reviewed[key] for key, path in CODE.items()), "reviewed candidate changed")
+need(all(digest(path) == expected for path, expected in FIXED.items()), "selected source/reference pin changed")
+conftests = set()
+for test in TESTS:
+    conftests.add(test.parent / "conftest.py")
+    conftests.update(parent / "conftest.py" for parent in test.parent.parents
+                     if parent == ROOT or parent.is_relative_to(ROOT))
+need(not any(path.exists() and not path.is_file() for path in conftests), "invalid conftest object")
+absent = sorted(str(path) for path in conftests if not path.exists())
+paths = list(dict.fromkeys(list(CODE.values()) + list(FIXED) + [ROOT / "pytest.ini", Path(__file__).resolve(), args.reviewed_hashes.resolve()]
+                          + sorted(path for path in conftests if path.is_file())))
+need(not any(path.is_symlink() for path in paths), "source symlink is outside capture contract")
+before = observe(paths)
+runtime_paths = list(dict.fromkeys([PYTEST, Path(PYTEST.read_text().splitlines()[0][2:]).resolve(), Path(sys.executable).resolve()]))
+runtime = observe(runtime_paths)
+need(all(before.values()) and all(runtime.values()), "missing source/runtime")
+env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1", PYTEST_ADDOPTS="",
+           PYTEST_PLUGINS="", PYTHONPATH=str(IR.parent), PYTHONOPTIMIZE="0")
+base = [str(PYTEST), "-c", str(ROOT / "pytest.ini"), "-o", "addopts=", "--confcutdir=" + str(ROOT),
+        "--import-mode=importlib", "-p", "no:cacheprovider", "--maxfail=0", "--tb=short", "-q"]
+commands = [
+    ("collection", base + ["--collect-only"] + [str(path) for path in TESTS], 0),
+    ("tests", base + ["--basetemp=" + str(WORK / "pytest-tmp")] + [str(path) for path in TESTS]
+     + ["--junitxml=" + str(OUT / "tests.xml")], 0),
+    ("report", [sys.executable, "-B", str(CODE["report"]), "--out", str(OUT / "report.json")], 0),
+    ("require-qualified", [sys.executable, "-B", str(CODE["report"]), "--out", str(OUT / "refusal.json"), "--require-qualified"], 2),
+]
+OUT.mkdir()
+WORK.mkdir()
+(OUT / "sources").mkdir()
+records, snapshots, nodeids, error = [], {}, [], None
+try:
+    for index, path in enumerate(paths):
+        raw = path.read_bytes()
+        need(hashlib.sha256(raw).hexdigest() == before[str(path)], "source changed while snapshotting")
+        name = f"sources/{index:02}-{path.name}.template"
+        with (OUT / name).open("xb") as stream:
+            stream.write(raw)
+        snapshots[str(path)] = dict(path=name, sha256=before[str(path)], bytes=len(raw))
+    for name, command, expected in commands:
+        start = time.monotonic()
+        with (OUT / (name + ".stdout.txt")).open("x") as stdout, (OUT / (name + ".stderr.txt")).open("x") as stderr:
+            completed = subprocess.run(command, cwd=ROOT, env=env, stdout=stdout, stderr=stderr)
+        after = observe(paths)
+        record = dict(name=name, command=command, exit_code=completed.returncode, expected_exit_code=expected,
+                      elapsed_seconds=time.monotonic() - start, source_after=after)
+        records.append(record)
+        save(name + ".command.json", record)
+        need(before == after and not any(Path(path).exists() for path in absent), "source/config drift; outputs retained")
+        need(completed.returncode == expected, "unexpected command exit; outputs retained")
+        if name == "collection":
+            prefixes = {str(path.relative_to(ROOT)) + "::" for path in TESTS}
+            nodeids = [line for line in (OUT / "collection.stdout.txt").read_text().splitlines()
+                       if any(line.startswith(prefix) for prefix in prefixes)]
+            need(len(nodeids) == len(set(nodeids)) == 36, "collection membership/count differs")
+            counts = Counter(node.split("::", 1)[0] for node in nodeids)
+            need(counts == {str(TESTS[0].relative_to(ROOT)): 23, str(TESTS[1].relative_to(ROOT)): 13}, "test module counts differ")
+            save("collected-nodeids.json", nodeids)
+        if name == "tests":
+            cases = list(ET.parse(OUT / "tests.xml").getroot().iter("testcase"))
+            actual = [(case.get("classname"), case.get("name")) for case in cases]
+            expected_ids = [(path[:-3].replace("/", "."), name)
+                            for path, name in (node.split("::", 1) for node in nodeids)]
+            need(actual == expected_ids and len(cases) == 36, "JUnit membership/order differs from collection")
+            need(not any(case.find(tag) is not None for case in cases for tag in ("failure", "error", "skipped")), "JUnit failure/error/skip")
+    normal = (OUT / "report.json").read_bytes()
+    need(normal == (OUT / "refusal.json").read_bytes(), "qualification refusal changed report bytes")
+    value = json.loads(normal)
+    expected_inputs = {str(path): sha for path, sha in FIXED.items()}
+    expected_inputs.update({str(CODE[key]): reviewed[key] for key in ("aes", "report", "tests", "readme")})
+    need(value["source_before"] == value["source_after"] == expected_inputs, "report selected identity map differs")
+    need(value["schema"] == "parliament-concrete-aes256-circuit-v1" and value["checked_component_construction"] is True, "component report did not pass")
+    need(all(value[flag] is False for flag in FLAGS), "qualification flag changed")
+    need((value["kernel_inputs"], value["kernel_outputs"], value["clean_work_bits"]) == (384, 128, 201587), "interface differs")
+    need(value["gates"] == dict(x=2222, cx=521630, ccx=141312, elementary_gates=1230412, base_xor_oracle_calls=0), "resources differ")
+    save("summary.json", dict(status="PASS", passed_tests=36, module_test_counts=dict(counts),
+                              report_sha256=hashlib.sha256(normal).hexdigest(), clean_work_bits=value["clean_work_bits"],
+                              gates=value["gates"], **{flag: False for flag in FLAGS}))
+except Exception as exc:
+    error = f"{type(exc).__name__}: {exc}"
+after, runtime_after = observe(paths), observe(runtime_paths)
+if after != before or runtime_after != runtime or any(Path(path).exists() for path in absent):
+    error = error or "late source/runtime/config drift"
+outputs = {str(path.relative_to(OUT)): digest(path) for path in sorted(OUT.rglob("*")) if path.is_file() and not path.is_symlink()}
+receipt = dict(schema="parliament-aes-component-capture-v1", status="PASS" if error is None else "FAIL", error=error,
+               recorded_at_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(), command_line=sys.argv,
+               source_before=before, source_after=after, source_snapshots=snapshots, absent_conftests=absent,
+               runtime_before=runtime, runtime_after=runtime_after, capture_python_version=sys.version,
+               reviewed_source_map=reviewed, fixed_reference_map={str(path): sha for path, sha in FIXED.items()},
+               commands=records, expected_test_cases=36, collected_test_cases=len(nodeids), output_sha256=outputs,
+               environment_overrides={key: env[key] for key in ("PYTHONDONTWRITEBYTECODE", "PYTEST_DISABLE_PLUGIN_AUTOLOAD", "PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTHONPATH", "PYTHONOPTIMIZE")},
+               scope="Reviewed scratch AES component and exact selected-source correspondence only. Source/config/reference/runtime observations are non-atomic. Python/pytest dependency closure, imported module memory and unobserved child reads remain trusted. Finite classical controls plus explicit reversible construction; no native execution, full generator/machine, PRP reduction, physical cost calibration or production qualification.",
+               **{flag: False for flag in FLAGS})
+save("receipt.json", receipt)
+with (OUT / "SHA256SUMS").open("x") as stream:
+    for path in sorted(path for path in OUT.rglob("*") if path.is_file() and not path.is_symlink() and path.name != "SHA256SUMS"):
+        stream.write(digest(path) + "  " + str(path.relative_to(ROOT)) + "\n")
+print(json.dumps(dict(status=receipt["status"], error=error, receipt_sha256=digest(OUT / "receipt.json"), manifest_sha256=digest(OUT / "SHA256SUMS"))))
+if error is not None:
+    raise SystemExit(1)

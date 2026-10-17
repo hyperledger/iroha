@@ -1,0 +1,82 @@
+{
+  "capture_receipt_sha256": "1ef0768a0a1234814ec499811d2678eddf7b1095bf60bd1750a7fc5d709ab6ab",
+  "complete_crypto_cost_certificate": false,
+  "complete_native_cost_certificate": false,
+  "complete_workspace_certificate": false,
+  "freeze_checks": {
+    "capture_exit": 0,
+    "capture_input_changes": {},
+    "capture_inputs_verified": 5,
+    "manifests": {
+      "adapter_bound": {
+        "all_entries_match": true,
+        "entries": 12,
+        "sha256": "4e3124e2ab8b757bfb76282064d06edfdf157631fe6c341277cb6791c302e57f"
+      },
+      "current_candidate": {
+        "all_entries_match": true,
+        "entries": 119,
+        "sha256": "40b01704bcad1551c5a44cf8b5b8311f64d3f751a19caf36fb2ec1641611c7ba"
+      },
+      "fatal_stack_eon": {
+        "all_entries_match": true,
+        "entries": 19,
+        "sha256": "44f4361b01a7f4d78805055b187a8073448d516391bd407c91c70b658fa0ea48"
+      },
+      "frontend_bound": {
+        "all_entries_match": true,
+        "entries": 15,
+        "sha256": "81bae3e341dbb26915dd45d9a24d763705b983d9f6826d99c8a01d152e173b84"
+      },
+      "profile_bound": {
+        "all_entries_match": true,
+        "entries": 9,
+        "sha256": "300ae6a89b19ef2c99ef27f6ba10e4ad8d981c62150ca12d1c95e1c586dd60cd"
+      },
+      "typed_decoder_bound": {
+        "all_entries_match": true,
+        "entries": 7,
+        "sha256": "3b6053c629e21af9331af6b3c86e82adce7513b65b2ab1630400aa5badd8be90"
+      }
+    },
+    "report_guards_verified": 2123,
+    "report_stdout_stderr_hashes_match": true,
+    "snapshots_match": true
+  },
+  "helper_sha256": "3c90c6805dbba9da5b9b1d9beb8fcf612557c815f6f5bbdb8b58602bfc413953",
+  "local_tests": {
+    "command": [
+      ".venv/bin/python",
+      "-m",
+      "pytest",
+      "scripts/tests/parliament_ballot_current_correspondence_test.py",
+      "-q",
+      "--tb=short"
+    ],
+    "duration_seconds": 18.62,
+    "evidence": "tests-tool-transcript.txt",
+    "passed": 49
+  },
+  "peer_reviews": [
+    {
+      "result": "clear under stated premises",
+      "reviewer": "/root",
+      "scope": "Full helper and README, symbol resolution, exact whole-file masking boundaries, current source inventory deltas and thirteen narrow ADRP substitutions. No full bound inferred."
+    },
+    {
+      "independent_test_duration_seconds": 18.23,
+      "independent_tests_passed": 49,
+      "result": "clear under stated premises",
+      "reviewer": "/root/security_obligations",
+      "scope": "Read full helper, tests, README and capture receipt. Verified all 2,123 live guard hashes, five capture input pins before/after, exact helper/test snapshots and report/stdout/stderr hashes. Both modes have twelve byte-identical selected ranges, eleven constrained local symbol renames, 1,425/1,421 resolved symbol rows and exactly zero/thirteen annotation substitutions. Checked loaded sections/native bindings/symbol targets remain protected; seven source deltas explicit; four original analyses recomputed. No edits."
+    }
+  ],
+  "physical_cost_calibrated": false,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "recorded_at_utc": "2026-10-13T13:37:54.052404+00:00",
+  "report_sha256": "0e2d94bf99deb3314a1a0d3dee37070180b9ff1277b6aeb40cbfcd4814cb2207",
+  "schema": "parliament-current-correspondence-review-v1",
+  "scope": "Conditional ordinary compiled correspondence and re-evaluated adapter, frontend, Profile and typed coordinator bounds for the exact current candidate. Python import/runtime integrity remains a trusted-host premise. All original opaque, exceptional, native, cryptographic and source ownership premises remain.",
+  "tests_sha256": "f7a6c6e6fec6ceaa5e4d408e6b6aebc24b2def5024bb823217076073613769fa"
+}

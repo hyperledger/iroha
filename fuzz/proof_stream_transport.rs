@@ -10,12 +10,11 @@ use sorafs_car::{
     ChunkStore, PorProof,
     por_json::sample_to_map,
     proof_stream::{
-        ProofKind, ProofStreamVerificationContext, por_request_sample_seed_v1,
-        proof_stream_request_digest_v1,
+        ProofStreamVerificationContext, por_request_sample_seed_v1, proof_stream_request_digest_v1,
     },
     proof_stream_transport::{MAX_PROOF_STREAM_ITEMS, decode_transport_items},
 };
-use sorafs_manifest::ProofStreamRequestV1;
+use sorafs_manifest::{ProofStreamKind, ProofStreamRequestV1};
 use std::{io::Write, sync::OnceLock};
 use zstd::stream::encode_all as encode_zstd;
 #[derive(Debug, Arbitrary)]
@@ -35,7 +34,7 @@ fn canonical_request() -> ProofStreamRequestV1 {
     ProofStreamRequestV1 {
         manifest_digest: [1; 32],
         provider_id: [2; 32],
-        proof_kind: ProofKind::Por,
+        proof_kind: ProofStreamKind::Por,
         challenge_id: None,
         sample_count: Some(500),
         deadline_ms: None,

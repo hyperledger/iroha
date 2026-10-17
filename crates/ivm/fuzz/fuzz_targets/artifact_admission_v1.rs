@@ -2,31 +2,30 @@
 
 #![no_main]
 
-use std::sync::Arc;
+#[path = "../artifact_admission_support.rs"]
+mod support;
 
-use ivm::{ProgramMetadata, VerifiedContractArtifact, prepare_contract, verify_contract_artifact};
-use libfuzzer_sys::fuzz_target;
+use libfuzzer_sys::{Corpus, fuzz_target};
+use support::{exercise_admission, finish_iteration};
 
 const CANONICAL_ARTIFACT: &[u8] =
     include_bytes!("../../../kotodama_lang/src/samples/zk_vote_ballot.to");
 const MAX_MUTATIONS: usize = 64;
 const MAX_INSERTED_BYTES: usize = 256;
 
-fuzz_target!(|data: &[u8]| {
+fuzz_target!(|data: &[u8]| -> Corpus {
     match data.split_first() {
         Some((&b'R', raw)) => {
-            exercise_admission(raw);
-            return;
+            return finish_iteration(exercise_admission(raw));
         }
         Some((&b'S', _)) => {
-            exercise_admission(CANONICAL_ARTIFACT);
-            return;
+            return finish_iteration(exercise_admission(CANONICAL_ARTIFACT));
         }
         _ => {}
     }
 
     let candidate = mutate_canonical_artifact(data);
-    exercise_admission(&candidate);
+    finish_iteration(exercise_admission(&candidate))
 });
 
 fn mutate_canonical_artifact(data: &[u8]) -> Vec<u8> {
@@ -87,66 +86,4 @@ fn bounded_index(bytes: &[u8], bound: usize) -> usize {
     let high = usize::from(bytes.first().copied().unwrap_or(0));
     let low = usize::from(bytes.get(1).copied().unwrap_or(0));
     ((high << 8) | low) % bound
-}
-
-fn metadata_tuple(metadata: &ProgramMetadata) -> (u8, u8, u8, u8, u64, u8) {
-    (
-        metadata.version_major,
-        metadata.version_minor,
-        metadata.mode,
-        metadata.vector_length,
-        metadata.max_cycles,
-        metadata.abi_version,
-    )
-}
-
-fn assert_verified_equal(first: &VerifiedContractArtifact, second: &VerifiedContractArtifact) {
-    assert_eq!(
-        metadata_tuple(&first.metadata),
-        metadata_tuple(&second.metadata)
-    );
-    assert_eq!(first.header_len, second.header_len);
-    assert_eq!(first.code_offset, second.code_offset);
-    assert_eq!(first.code_hash, second.code_hash);
-    assert_eq!(first.abi_hash, second.abi_hash);
-    assert_eq!(first.contract_interface, second.contract_interface);
-    assert_eq!(first.manifest, second.manifest);
-}
-
-fn exercise_admission(artifact: &[u8]) {
-    let first = verify_contract_artifact(artifact);
-    let second = verify_contract_artifact(artifact);
-
-    match (first, second) {
-        (Err(first_error), Err(second_error)) => {
-            assert_eq!(first_error, second_error);
-            match prepare_contract(Arc::<[u8]>::from(artifact)) {
-                Err(preparation_error) => assert_eq!(preparation_error, first_error),
-                Ok(_) => panic!("native preparation accepted a rejected artifact"),
-            }
-        }
-        (Ok(first_verified), Ok(second_verified)) => {
-            assert_verified_equal(&first_verified, &second_verified);
-            let prepared = prepare_contract(Arc::<[u8]>::from(artifact))
-                .expect("production preparation must accept a verified artifact");
-            assert_eq!(prepared.artifact(), artifact);
-            assert_eq!(
-                metadata_tuple(prepared.metadata()),
-                metadata_tuple(&first_verified.metadata)
-            );
-            assert_eq!(prepared.header_len(), first_verified.header_len);
-            assert_eq!(prepared.code_offset(), first_verified.code_offset);
-            assert_eq!(prepared.code_hash(), first_verified.code_hash);
-            assert_eq!(
-                prepared.contract_interface(),
-                &first_verified.contract_interface
-            );
-            assert_eq!(prepared.manifest(), &first_verified.manifest);
-        }
-        (first, second) => panic!(
-            "artifact admission is nondeterministic: first={}, second={}",
-            first.is_ok(),
-            second.is_ok()
-        ),
-    }
 }

@@ -1,0 +1,23 @@
+{
+  "command": [
+    "/opt/homebrew/bin/pytest",
+    "-c",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate/pytest.ini",
+    "-o",
+    "addopts=",
+    "--confcutdir=/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate",
+    "--import-mode=importlib",
+    "-p",
+    "no:cacheprovider",
+    "--maxfail=0",
+    "--tb=short",
+    "-q",
+    "scripts/tests/parliament_ballot_exception_coverage_independent_test.py",
+    "--basetemp=/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-pytest-tmp",
+    "--junitxml=/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-capture/tests.xml"
+  ],
+  "cwd": "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/install-candidate",
+  "exit_code": 0,
+  "name": "tests",
+  "seconds": 0.20086649991571903
+}

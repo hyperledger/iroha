@@ -492,6 +492,7 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
     );
     let cap = limits.max_tx_bytes().get();
     assert_eq!(cap, 10_485_760);
+    let cap_bytes = usize::try_from(cap).expect("10 MiB fixture cap fits usize");
     assert_eq!(parameters.sumeragi().max_block_bytes.get(), 16_777_216);
     let reserve = iroha_data_model::parameter::system::BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES;
     assert!(u64::from(reserve) + cap <= u64::from(parameters.sumeragi().max_block_bytes.get()));
@@ -570,10 +571,7 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
     // previously admitted under a looser cap. Current ingress already refuses it above.
     let refused = resource_contract_accept(over_cap, resource_contract_limits(cap + 1), &time)
         .expect("only the prior admission fixture has one extra byte of allowance");
-    assert_eq!(
-        refused.encoded_len(),
-        usize::try_from(cap).expect("fixture cap fits usize") + 1
-    );
+    assert_eq!(refused.encoded_len(), cap_bytes + 1);
     let failure = queue
         .push(refused, state.view())
         .expect_err("committed cap is authoritative");
@@ -613,7 +611,7 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
     // selection window still distinguishes the exact signed size from one byte less.
     let global_budget =
         usize::try_from(parameters.sumeragi().max_block_bytes.get() - reserve).unwrap();
-    assert!(global_budget > usize::try_from(cap).expect("fixture cap fits usize"));
+    assert!(global_budget > cap_bytes);
     let budget = usize::try_from(includable).unwrap();
     let selected = crate::sumeragi::payload::select(
         &state.view(),

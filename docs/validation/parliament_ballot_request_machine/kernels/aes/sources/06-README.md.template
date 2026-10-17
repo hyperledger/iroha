@@ -1,0 +1,57 @@
+# Independent concrete AES-256 review
+
+No blocking finding in the reviewed circuit or its clean XOR interface. This
+review concerns the public Boolean/gate construction under the pinned IR; it
+does not establish AES as an ideal permutation, a quantum oracle, a PRP security
+reduction, native execution correspondence or physical resource calibration.
+No implementer files, tracked files or Rust sources were edited.
+
+Reviewed implementation SHA-256:
+`d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2`.
+Pinned IR SHA-256:
+`f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64`.
+The local FIPS 197 update-1 PDF and extracted text have identities
+`62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1`
+and `9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f`.
+
+The S-box chain computes exponents 2,3,6,12,15,30,60,120,240,252,254.
+Its four polynomial products and seven linear squarings implement inversion in
+the AES field; the zero case stays zero before the affine map. The affine bit
+offsets and constant match FIPS 197 equation 5.3. Byte order is low-bit first
+within each source byte, while the state is column major. ShiftRows and the
+forward MixColumns matrix have the specified orientation. Key expansion emits
+60 words, including the AES-256-specific SubWord at index 4 modulo 8. The
+cipher includes the initial key addition, thirteen full rounds and the final
+round without MixColumns.
+
+Independent structural accounting gives 276 S-boxes: 224 in cipher rounds and
+52 in key expansion. Each contributes 256 AND, 431 XOR and four NOT nodes.
+The remaining key/round/matrix operations contribute 10,864 XOR nodes, and Rcon
+adds seven NOT nodes. Thus the complete forward IR has 70,656 AND, 129,820 XOR
+and 1,111 NOT nodes, occupying 201,587 fresh history bits. There are no kernel
+or oracle nodes inside this AES block.
+
+Compute/copy/uncompute emits exactly 2,222 X, 521,630 CX and 141,312 CCX gates,
+with 128 copy gates included. Under the IR's stated five-elementary-gate CCX
+convention this is 1,230,412 elementary gates and zero base XOR-oracle calls.
+The interface needs 384 input bits, 128 separate output bits and 201,587 initially
+zero history bits. Public wire relabeling is not secret-address memory access.
+
+The separately owned `test_independent_aes.py` contains 13 controls, all passed
+in 2.10 seconds with Python bytecode and pytest cache/plugins disabled. It uses
+polynomial extended Euclid rather than the circuit's exponentiation chain,
+big-endian integer key words, a row-major integer cipher reference and an
+independent packed-basis X/CX/CCX interpreter. All 60 words of the pinned NIST
+Appendix A.3 schedule agree. One streamed circuit simultaneously checks 16
+independent inputs and arbitrary output targets, exact emitted counts, input
+preservation, untouched neighboring wires and zero returned workspace. The
+missing-uncompute control produces correct ciphertext while leaving dirty
+history, demonstrating why output-only checks do not establish cleanup.
+Malformed input-width/type/bit controls refuse, and input pins are checked again
+after the suite. The implementer's suite separately covers relocation, repeated
+clean-map inversion, alias/width/container failures and NIST known answers.
+
+These are finite classical controls plus source-level algebra/IR reasoning.
+They do not simulate arbitrary entangled states. The XOR gate construction's
+linear extension follows from its reversible basis permutation under the stated
+zero-work premise; no empirical quantum claim is made.

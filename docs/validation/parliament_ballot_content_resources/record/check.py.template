@@ -1,0 +1,167 @@
+"""Independent scalar composition checks; no factory import or gate expansion."""
+import argparse
+import copy
+import hashlib
+import json
+from pathlib import Path
+
+
+def req(value, reason):
+    if not value:
+        raise ValueError(reason)
+
+
+def popsum(n):
+    if n < 2:
+        return 0
+    k = n.bit_length()-1
+    high = 1 << k
+    return k*(high >> 1)+(n-high)+popsum(n-high)
+
+
+def gates(x=0, cx=0, ccx=0, f=0):
+    return dict(x=x,cx=cx,ccx=ccx,base_xor_oracle_calls=f,elementary_gates=x+cx+5*ccx)
+
+
+def add(*values):
+    return {k:sum(v[k] for v in values) for k in gates()}
+
+
+def times(value,n):
+    return {k:n*v for k,v in value.items()}
+
+
+def validate(data, accepted):
+    req(data['status']=='PASS','observer pass')
+    req(len(data['source_sha256_before'])==152 and
+        data['source_sha256_before']==data['source_sha256_after'],'selected pin equality')
+    req(len(data['cases'])==4 and {(c['row'],c['list_count']) for c in data['cases']}==
+        {(r,n) for r in ('candidate','comparator') for n in (3,1000)},'exact four cases')
+    M=1<<20;T=1<<44;N=T*(M+2);b=64;W=215150;v=2112;q=b+8*W+v;d=N.bit_length()
+    req(data['parameters']==dict(trials=M,lifetime_requests=T,length_bits=b,
+        log_slots=N,maximum_message_bytes=W),'exact requested parameters')
+    append=gates(4*(d*N-popsum(N)),N+1,N*(4*d-2+q)+(d-1)**2)
+    expected_flags=('complete_resource_vector','complete_simulator_coverage',
+        'primitive_advantage_assumed','independent_cryptographic_review',
+        'profile_qualified','production_gate_changed','malformed_shape_dispatch_implemented')
+    rows=[]
+    for c in data['cases']:
+        row,n=c['row'],c['list_count'];r=c['family_resources'];content=c['content_resources']
+        gen=r['components']['generator'];w=r['components']['writes'];e=r['components']['returns']
+        tau,g,opening=(33,704,229) if row=='candidate' else (22,696,225)
+        ell=53504;ebytes=ell//8;pub=3608+1024*n
+        coins=512*M+256*opening+896*tau+tau*ell+10*g+736*8
+        proof=tau*ebytes+10*(g//8)+112*tau+32*opening+404
+        stages=c['stages'];byname={s['name']:s for s in stages}
+        req([s['name'] for s in stages]==['P0','P1','S0','opening','R0','R1'],'stage order')
+        p0=byname['P0'];p1=byname['P1']
+        req(p0['outputs']==60 and p0['inputs']==3992+1024*n and
+            p0['gates']['base_xor_oracle_calls']==0,'P0 interface and no F')
+        req(p0['source_pieces']==p1['source_pieces']==[['public_preparation',0,3992+1024*n]],'same P0/P1 input')
+        retained=60+(6336+1024*n+1640)+(M+332)+(896*tau+256*opening+16*tau+3328+256*ell)+1024+322
+        req([s['outputs'] for s in stages]==[60,7976+1024*n,M+332,
+            896*tau+256*opening+16*tau+3328+256*ell,1024,322],'all retained widths')
+        req(sum(s['outputs'] for s in stages)==retained==r['retained_derived_bits']==gen['retained_derived_bits'],'retained sum')
+        req((r['original_input_bits'],r['original_private_coin_bits'],gen['public_request_bits'])==
+            (coins+pub,coins,pub),'public/private source inventory')
+        forward=add(*(s['gates'] for s in stages))
+        both=times(forward,2)
+        req(gen['forward_gates']==forward and gen['forward_and_inverse_gates']==both,'P0 and all stages counted twice')
+        req(gen['shared_clean_work_bits']==max(s['work'] for s in stages),'generator work maximum')
+        expected_f=2*(8+8*tau+12+4*g)
+        req(both['base_xor_oracle_calls']==expected_f,'ordinary F count')
+        keys=(254+(tau-1)*ebytes+10*(g//8),598+ebytes,410);values=(264,104,32)
+        prefixpop=sum(x.bit_count() for x in b'PARL/FAEST/v1')
+        sx=[k.bit_count()+prefixpop+domain.bit_count() for k,domain in zip(keys,(9,10,11))]
+        scx=[8*(k-14+value) for k,value in zip(keys,values)]
+        base_w=gates(append['x']*(M+2)+2*(sx[0]+sx[1]+M*sx[2])+4+2*popsum(M),
+            append['cx']*(M+2)+2*(scx[0]+scx[1]+M*scx[2])+2*M,
+            append['ccx']*(M+2))
+        req(c['base_write_resources']['gates']==base_w,'base W framing and full scan')
+        req(w['gates']==add(base_w,gates(-4,4-2*M,2*M)),'validated W control delta')
+        req(w['fixed_append_scans']==M+2 and w['primary_flag_bits']==M,'all write slots counted')
+        base_e=gates(2,3+20+proof.bit_count(),8*proof)
+        req(c['base_return_resources']['proof_bytes']==proof and c['base_return_resources']['gates']==base_e,'base E exact proof projection')
+        old_output=97+8*proof
+        req(e['gates']==add(times(base_e,2),gates(2,3,old_output+59)),'validated E compute/copy/clear')
+        req(e['clean_work_bits']==old_output+2 and e['output_bits']==157+8*proof,'validated E storage')
+        req(w['clean_work_bits']==1+q+d+32,'W scratch reuse')
+        shared=max(gen['shared_clean_work_bits'],1+q+d+32,old_output+2)
+        log=N*(q+1)
+        req(r['persistent_log_bits']==w['persistent_log_bits']==log and
+            r['persistent_counter_bits']==w['persistent_counter_bits']==d,'log and inclusive-capacity counter')
+        req(r['shared_work_bits']==shared,'G W E work maximum')
+        req(content['caller_output_bits']==157+8*proof and
+            r['caller_output_bits']==253+8*proof,'common output width')
+        cursor=0;regions={}
+        for name,width in [('tag',2),('error_code',3),('order_index',64),('actual_length',64),
+            ('declared_count',16),('vote_value',8),('last_counter',32),('proof_length',64),('proof',8*proof)]:
+            regions[name]=[cursor,width];cursor+=width
+        req(r['common_output_regions']==regions and r['extra_output_bits']==96 and r['extra_gates']==0,'common union mapping')
+        req(r['gates']==content['gates']==add(both,w['gates'],e['gates']),'whole per-request gate sum')
+        req(r['total_logical_bits']==coins+pub+log+d+cursor+retained+shared and
+            r['total_logical_bits']==content['total_logical_bits']+96,'complete recorded register sum')
+        req(r['gates']['base_xor_oracle_calls']==expected_f,'family F count')
+        for scope in (content,r):
+            for flag in expected_flags:
+                req(scope[flag] is False,'qualification scope '+flag)
+        for flag in ('raw_descriptor_authentication_implemented','complete_family_dispatch_composed','native_enum_wire_encoding_claimed'):
+            req(r[flag] is False,'family scope '+flag)
+        for value in [*(s['gates'] for s in stages),forward,both,w['gates'],e['gates'],r['gates']]:
+            req(value['elementary_gates']==value['x']+value['cx']+5*value['ccx'],'elementary convention')
+        if n==1000:
+            old=next(a['resources'] for a in accepted['source_cases'] if a['role']=='VOTE' and a['row']==row)
+            req(forward==add(old['components']['generator']['forward_gates'],p0['gates']),
+                'accepted observation plus exactly one forward P0')
+            req(old['retained_derived_bits']+60==retained and old['caller_output_bits']+156==cursor,
+                'accepted observation retained/output delta')
+            req(old['original_input_bits']==coins+pub and old['original_private_coin_bits']==coins,
+                'accepted observation original inputs retained')
+        rows.append(dict(row=row,list_count=n,proof_bytes=proof,P0_clean_gates=p0['gates'],
+            validated_W_gates=w['gates'],validated_E_gates=e['gates'],gates=r['gates'],
+            public_bits=pub,private_coin_bits=coins,retained_bits=retained,shared_work_bits=shared,
+            output_bits=cursor,log_bits=log,counter_bits=d,total_logical_bits=r['total_logical_bits']))
+    for flag in ('full_elementary_streams_executed','native_workspace_measurement',
+        'family_wide_resource_maximum_proved','adaptive_lifetime_driver_executed',
+        'external_oracle_and_adversary_resources_included','raw_descriptor_authentication_implemented',
+        'complete_family_dispatch_composed','complete_simulator_coverage','complete_resource_vector',
+        'complete_public_framing','independent_cryptographic_review','physical_cost_calibrated',
+        'profile_qualified','production_gate_changed'):
+        req(data[flag] is False,'observation scope '+flag)
+    return rows
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--report',type=Path,required=True)
+    parser.add_argument('--accepted',type=Path,required=True)
+    parser.add_argument('--out',type=Path,required=True)
+    args=parser.parse_args()
+    if args.out.exists():parser.error('output exists')
+    data=json.loads(args.report.read_text());accepted=json.loads(args.accepted.read_text())
+    req(hashlib.sha256(args.accepted.read_bytes()).hexdigest()==
+        '81ffb1db693c94f73f41239da3cd8164893d9c84ddd805d873ec3ede974f4f4c','accepted observation identity')
+    rows=validate(data,accepted)
+    mutations=[('omitted P0 inverse',lambda x:x['cases'][0]['family_resources']['components']['generator']['forward_and_inverse_gates'].__setitem__('x',0)),
+        ('ungated W census',lambda x:x['cases'][0]['family_resources']['components']['writes'].__setitem__('gates',x['cases'][0]['base_write_resources']['gates'])),
+        ('uncleared E census',lambda x:x['cases'][0]['family_resources']['components']['returns'].__setitem__('gates',x['cases'][0]['base_return_resources']['gates'])),
+        ('missing common extension',lambda x:x['cases'][0]['family_resources'].__setitem__('caller_output_bits',x['cases'][0]['content_resources']['caller_output_bits'])),
+        ('counter too narrow',lambda x:x['cases'][0]['family_resources'].__setitem__('persistent_counter_bits',64)),
+        ('summed workspace',lambda x:x['cases'][0]['family_resources'].__setitem__('shared_work_bits',sum(s['work'] for s in x['cases'][0]['stages']))),
+        ('qualification promoted',lambda x:x.__setitem__('complete_resource_vector',True))]
+    killed=[]
+    for name,mutate in mutations:
+        changed=copy.deepcopy(data);mutate(changed)
+        try:validate(changed,accepted)
+        except ValueError:killed.append(name)
+        else:raise ValueError('checker missed mutation: '+name)
+    result=dict(status='PASS',cases=rows,arithmetic_mutations_rejected=killed,
+        report_sha256=hashlib.sha256(args.report.read_bytes()).hexdigest(),
+        factory_imported=False,full_kernel_gate_totals_reexecuted=False,
+        complete_resource_vector=False,independent_cryptographic_review=False,
+        profile_qualified=False,production_gate_changed=False)
+    with args.out.open('x') as stream:stream.write(json.dumps(result,indent=2,sort_keys=True)+'\n')
+    print(json.dumps(dict(status='PASS',exact_cases=4,arithmetic_mutations_rejected=len(killed))))
+
+
+if __name__=='__main__':main()

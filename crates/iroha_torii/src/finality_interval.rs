@@ -113,12 +113,14 @@ fn source_error(error: FinalityProofIntervalReadError) -> Error {
                 message: "The original State publication has not completed.".to_owned(),
             }
         }
-        FinalityProofIntervalReadError::Proof(NativeFinalityProofIntervalError::Backing(_))
-        | FinalityProofIntervalReadError::Proof(NativeFinalityProofIntervalError::Destination(
-            ProofDestinationError::Admission(_)
-            | ProofDestinationError::Buffer(_)
-            | ProofDestinationError::Key(_),
-        )) => native_projection_response::capacity(),
+        FinalityProofIntervalReadError::Proof(
+            NativeFinalityProofIntervalError::Backing(_)
+            | NativeFinalityProofIntervalError::Destination(
+                ProofDestinationError::Admission(_)
+                | ProofDestinationError::Buffer(_)
+                | ProofDestinationError::Key(_),
+            ),
+        ) => native_projection_response::capacity(),
         FinalityProofIntervalReadError::Proof(NativeFinalityProofIntervalError::Deferred(
             original,
         )) => canonical_history::query_attempt_error(

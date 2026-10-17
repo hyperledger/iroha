@@ -1,0 +1,1277 @@
+//! The random-oracle functions `H_0 .. H_5` of FAEST v3.0 (section 3.3).
+//!
+//! Every function is SHAKE128 for `lambda = 128` and SHAKE256 for `lambda` of 192 or
+//! 256, applied to the message followed by **one domain-separation byte**:
+//!
+//! | function | domain byte | output bits | use |
+//! |---|---|---|---|
+//! | `H_0` | `0x00` | `3 * lambda` | leaf-hash key `uhash` from `iv` |
+//! | `H_1` | `0x01` | `2 * lambda` | vector commitments |
+//! | `H_2^0` | `0x08` | `2 * lambda` | `mu` |
+//! | `H_2^1` | `0x09` | `8 * lambda + 64` | `chall_1` |
+//! | `H_2^2` | `0x0a` | `3 * lambda + 64` | `chall_2` |
+//! | `H_2^3` | `0x0b` | `lambda` | `chall_3` |
+//! | `H_3` | `0x03` | `lambda + 128` | signing randomness `(r, iv_pre)` |
+//! | `H_4` | `0x04` | `128` | `iv` |
+//! | `H_5` | `0x05` | `n_mask` | CRT gate labels |
+//!
+//! [`Hasher`] absorbs the message in pieces and checks the output length of the
+//! selected function; [`h5`] is the one-shot gate-label hash. [`Xof`] is the bare
+//! sponge without domain separation. [`Sha3_512`] is SHA3-512 on the same erasing
+//! sponge, for the public digests of consumers; it is not one of the oracles.
+//!
+//! # Namespaces
+//!
+//! Every function can be evaluated inside a [`Namespace`]: a caller-chosen byte
+//! string of at most [`MAX_NAMESPACE_BYTES`] bytes absorbed **before** the message,
+//! so the sponge input is `prefix || message || domain byte`. The output lengths, the
+//! messages and the domain bytes are unchanged. The empty prefix,
+//! [`Namespace::REFERENCE`], is plain FAEST v3.0 and is what the constructors without
+//! a namespace argument ([`Hasher::new`], [`hash`], [`h5`]) use; [`Hasher::new_in`],
+//! [`hash_in`] and [`h5_in`] take the namespace explicitly. A namespace is a value
+//! handed down from the caller; nothing here keeps one in global state. The AES
+//! generator of [`crate::prg`] is not namespaced.
+//!
+//! # Constructions
+//!
+//! The table above is the FAEST construction. The extended construction
+//! ([`crate::variant`], `lambda = 256` only) changes two calls and nothing else:
+//! `H_0` outputs `4 * lambda` bits, `h0[96] || h1[32]` in squeeze order
+//! ([`h0_as`], [`h0_bytes`]), and the `H_5` input carries the 32-byte salt between
+//! `iv` and the gate index ([`h5_as`]). Domain bytes and the prefix rule are the
+//! same. [`Hasher`] and [`Oracle`] describe the FAEST construction only.
+//!
+//! The sponge is implemented here on the Keccak-f\[1600\] permutation of the `keccak`
+//! crate. Input is added (XOR) directly into the 200-byte state and output is read directly
+//! from it, so there is no separate block buffer: the state is the only copy of
+//! absorbed input and of squeezed output, and [`Xof`] and [`XofOutput`] erase it on
+//! drop. The permutation has no secret-dependent branches or table lookups.
+
+use core::fmt;
+
+use thiserror::Error;
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
+use crate::{
+    params::{IV_BYTES, MAX_D_ZK, SecurityLevel},
+    variant::{Binding, Construction, VariantError},
+};
+
+/// Largest `n_mask` [`h5`] can return in its 16-bit result. It is `MAX_D_ZK + 3`, so
+/// every row [`crate::params::VoleParams::new`] accepts can be evaluated.
+pub const MAX_H5_BITS: usize = MAX_D_ZK + 3;
+const _: () = assert!(MAX_H5_BITS == u16::BITS as usize);
+
+/// Errors of the hash functions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum HashError {
+    /// The output buffer does not have the length the selected function defines.
+    #[error("{oracle:?} outputs {expected} bytes at this security level, got a buffer of {actual}")]
+    InvalidOutputLength {
+        /// The function being finalized.
+        oracle: Oracle,
+        /// Defined output length in bytes.
+        expected: usize,
+        /// Supplied buffer length in bytes.
+        actual: usize,
+    },
+    /// An input does not have the length the function defines.
+    #[error("expected an input of {expected} bytes, got {actual}")]
+    InvalidInputLength {
+        /// Defined input length in bytes.
+        expected: usize,
+        /// Supplied input length in bytes.
+        actual: usize,
+    },
+    /// `H_5` was asked for zero bits or more than [`MAX_H5_BITS`].
+    #[error("H_5 output of {bits} bits is outside [1, {MAX_H5_BITS}]")]
+    InvalidH5Bits {
+        /// Requested output length in bits.
+        bits: usize,
+    },
+    /// A namespace prefix is longer than [`MAX_NAMESPACE_BYTES`].
+    #[error("a namespace prefix of {actual} bytes is longer than {MAX_NAMESPACE_BYTES}")]
+    NamespaceTooLong {
+        /// Length supplied.
+        actual: usize,
+    },
+    /// The extended construction was requested at a level where it is not
+    /// defined.
+    #[error(transparent)]
+    Variant(#[from] VariantError),
+}
+
+/// Largest namespace prefix in bytes.
+pub const MAX_NAMESPACE_BYTES: usize = 255;
+
+/// The byte prefix every random-oracle call of one proof absorbs before its message.
+///
+/// The empty prefix is reference mode: the functions are then exactly those of the
+/// FAEST v3.0 specification. A non-empty prefix separates the oracles of one
+/// application (or role) from those of every other and from plain FAEST. The prefix
+/// is public.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Namespace<'a> {
+    prefix: &'a [u8],
+}
+
+impl Namespace<'static> {
+    /// Reference mode: the empty prefix.
+    pub const REFERENCE: Self = Self { prefix: &[] };
+}
+
+impl<'a> Namespace<'a> {
+    /// The namespace with the prefix `prefix`.
+    ///
+    /// # Errors
+    /// Returns [`HashError::NamespaceTooLong`] if `prefix` is longer than
+    /// [`MAX_NAMESPACE_BYTES`].
+    pub const fn new(prefix: &'a [u8]) -> Result<Self, HashError> {
+        if prefix.len() > MAX_NAMESPACE_BYTES {
+            return Err(HashError::NamespaceTooLong {
+                actual: prefix.len(),
+            });
+        }
+        Ok(Self { prefix })
+    }
+
+    /// The prefix bytes.
+    pub const fn as_bytes(&self) -> &'a [u8] {
+        self.prefix
+    }
+
+    /// Whether this is reference mode (the empty prefix).
+    pub const fn is_reference(&self) -> bool {
+        self.prefix.is_empty()
+    }
+}
+
+/// The fixed-output-length random-oracle functions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Oracle {
+    /// `H_0`: `iv` to the `3 * lambda`-bit leaf-hash key.
+    H0,
+    /// `H_1`: collision-resistant hash to `2 * lambda` bits.
+    H1,
+    /// `H_2^0`: `mu`, `2 * lambda` bits.
+    H2Mu,
+    /// `H_2^1`: `chall_1`, `8 * lambda + 64` bits.
+    H2Chall1,
+    /// `H_2^2`: `chall_2`, `3 * lambda + 64` bits.
+    H2Chall2,
+    /// `H_2^3`: `chall_3`, `lambda` bits.
+    H2Chall3,
+    /// `H_3`: `(r, iv_pre)`, `lambda + 128` bits.
+    H3,
+    /// `H_4`: `iv`, 128 bits.
+    H4,
+}
+
+impl Oracle {
+    /// All functions, in the order of the module table.
+    pub const ALL: [Self; 8] = [
+        Self::H0,
+        Self::H1,
+        Self::H2Mu,
+        Self::H2Chall1,
+        Self::H2Chall2,
+        Self::H2Chall3,
+        Self::H3,
+        Self::H4,
+    ];
+
+    /// The domain-separation byte appended after the message.
+    pub const fn domain_byte(self) -> u8 {
+        match self {
+            Self::H0 => 0,
+            Self::H1 => 1,
+            Self::H2Mu => 8,
+            Self::H2Chall1 => 9,
+            Self::H2Chall2 => 10,
+            Self::H2Chall3 => 11,
+            Self::H3 => 3,
+            Self::H4 => 4,
+        }
+    }
+
+    /// The output length in bytes at `level`.
+    pub const fn output_bytes(self, level: SecurityLevel) -> usize {
+        let lambda = level.bytes();
+        match self {
+            Self::H0 => 3 * lambda,
+            Self::H1 | Self::H2Mu => 2 * lambda,
+            Self::H2Chall1 => 8 * lambda + 8,
+            Self::H2Chall2 => 3 * lambda + 8,
+            Self::H2Chall3 => lambda,
+            Self::H3 => lambda + IV_BYTES,
+            Self::H4 => IV_BYTES,
+        }
+    }
+}
+
+/// Domain-separation byte of `H_5`.
+pub const H5_DOMAIN_BYTE: u8 = 5;
+
+/// Bytes of the Keccak-f\[1600\] state.
+const STATE_LANES: usize = 25;
+/// SHAKE128 rate in bytes.
+const SHAKE128_RATE: usize = 168;
+/// SHAKE256 rate in bytes.
+const SHAKE256_RATE: usize = 136;
+/// SHAKE domain-separation suffix together with the first padding bit.
+const SHAKE_PADDING: u8 = 0x1f;
+
+/// XOR `data` into the rate portion of `state` starting at byte `pos`. The caller
+/// keeps `pos + data.len()` within the rate, so every lane index is in range.
+fn xor_into(state: &mut [u64; STATE_LANES], pos: usize, data: &[u8]) {
+    for (offset, byte) in data.iter().enumerate() {
+        let at = pos + offset;
+        if let Some(lane) = state.get_mut(at / 8) {
+            *lane ^= u64::from(*byte) << (8 * (at % 8));
+        }
+    }
+}
+
+/// Copy `out.len()` bytes of the rate portion of `state` starting at byte `pos`.
+fn read_from(state: &[u64; STATE_LANES], pos: usize, out: &mut [u8]) {
+    for (offset, byte) in out.iter_mut().enumerate() {
+        let at = pos + offset;
+        if let Some(lane) = state.get(at / 8) {
+            *byte = lane.to_le_bytes()[at % 8];
+        }
+    }
+}
+
+/// SHAKE128 (`lambda = 128`) or SHAKE256 (`lambda` of 192 or 256) without domain
+/// separation.
+///
+/// Input is added (XOR) straight into the Keccak state, so the state is the only copy of
+/// absorbed data; it is erased on drop.
+#[derive(Clone)]
+pub struct Xof {
+    state: [u64; STATE_LANES],
+    rate: usize,
+    /// Bytes absorbed into the current block, always below `rate`.
+    pos: usize,
+}
+
+impl fmt::Debug for Xof {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Xof").finish_non_exhaustive()
+    }
+}
+
+impl Zeroize for Xof {
+    fn zeroize(&mut self) {
+        self.state.zeroize();
+        self.pos = 0;
+    }
+}
+
+impl Drop for Xof {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for Xof {}
+
+impl Xof {
+    /// An empty sponge for `level`.
+    pub fn new(level: SecurityLevel) -> Self {
+        let rate = match level {
+            SecurityLevel::L128 => SHAKE128_RATE,
+            SecurityLevel::L192 | SecurityLevel::L256 => SHAKE256_RATE,
+        };
+        Self {
+            state: [0; STATE_LANES],
+            rate,
+            pos: 0,
+        }
+    }
+
+    /// Absorb `data`.
+    pub fn update(&mut self, mut data: &[u8]) {
+        while !data.is_empty() {
+            let take = (self.rate - self.pos).min(data.len());
+            let (head, tail) = data.split_at(take);
+            xor_into(&mut self.state, self.pos, head);
+            self.pos += take;
+            if self.pos == self.rate {
+                keccak::f1600(&mut self.state);
+                self.pos = 0;
+            }
+            data = tail;
+        }
+    }
+
+    /// Absorb `value` as four little-endian bytes (`BitDec(value, 32)`).
+    pub fn update_u32_le(&mut self, value: u32) {
+        self.update(&value.to_le_bytes());
+    }
+
+    /// Finish absorbing and return the output stream.
+    pub fn finalize(mut self) -> XofOutput {
+        xor_into(&mut self.state, self.pos, &[SHAKE_PADDING]);
+        xor_into(&mut self.state, self.rate - 1, &[0x80]);
+        keccak::f1600(&mut self.state);
+        XofOutput {
+            state: self.state,
+            rate: self.rate,
+            pos: 0,
+        }
+    }
+}
+
+/// The output stream of a finalized [`Xof`].
+///
+/// Output is read straight from the Keccak state, which is erased on drop.
+pub struct XofOutput {
+    state: [u64; STATE_LANES],
+    rate: usize,
+    /// Bytes already read from the current block, at most `rate`.
+    pos: usize,
+}
+
+impl fmt::Debug for XofOutput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("XofOutput").finish_non_exhaustive()
+    }
+}
+
+impl Zeroize for XofOutput {
+    fn zeroize(&mut self) {
+        self.state.zeroize();
+        self.pos = 0;
+    }
+}
+
+impl Drop for XofOutput {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for XofOutput {}
+
+impl XofOutput {
+    /// Squeeze the next `out.len()` bytes.
+    pub fn squeeze(&mut self, mut out: &mut [u8]) {
+        while !out.is_empty() {
+            if self.pos == self.rate {
+                keccak::f1600(&mut self.state);
+                self.pos = 0;
+            }
+            let take = (self.rate - self.pos).min(out.len());
+            let (head, tail) = out.split_at_mut(take);
+            read_from(&self.state, self.pos, head);
+            self.pos += take;
+            out = tail;
+        }
+    }
+}
+
+/// SHA3-512 rate in bytes.
+const SHA3_512_RATE: usize = 72;
+/// SHA-3 domain-separation suffix together with the first padding bit.
+const SHA3_PADDING: u8 = 0x06;
+/// Length of a SHA3-512 digest in bytes.
+pub const SHA3_512_BYTES: usize = 64;
+
+/// SHA3-512 (FIPS 202) on the same erasing sponge as [`Xof`].
+///
+/// It is not one of the random-oracle functions of the proof system and takes no
+/// [`Namespace`]: consumers use it for their own public digests (descriptors,
+/// statement frames) without a second Keccak implementation. Input is added
+/// straight into the state, which is erased on drop.
+#[derive(Clone)]
+pub struct Sha3_512 {
+    state: [u64; STATE_LANES],
+    /// Bytes absorbed into the current block, always below the rate.
+    pos: usize,
+}
+
+impl fmt::Debug for Sha3_512 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Sha3_512").finish_non_exhaustive()
+    }
+}
+
+impl Zeroize for Sha3_512 {
+    fn zeroize(&mut self) {
+        self.state.zeroize();
+        self.pos = 0;
+    }
+}
+
+impl Drop for Sha3_512 {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for Sha3_512 {}
+
+impl Default for Sha3_512 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Sha3_512 {
+    /// An empty sponge.
+    pub const fn new() -> Self {
+        Self {
+            state: [0; STATE_LANES],
+            pos: 0,
+        }
+    }
+
+    /// Absorb `data`.
+    pub fn update(&mut self, mut data: &[u8]) {
+        while !data.is_empty() {
+            let take = (SHA3_512_RATE - self.pos).min(data.len());
+            let (head, tail) = data.split_at(take);
+            xor_into(&mut self.state, self.pos, head);
+            self.pos += take;
+            if self.pos == SHA3_512_RATE {
+                keccak::f1600(&mut self.state);
+                self.pos = 0;
+            }
+            data = tail;
+        }
+    }
+
+    /// Finish absorbing and return the 64-byte digest.
+    pub fn finalize(mut self) -> [u8; SHA3_512_BYTES] {
+        xor_into(&mut self.state, self.pos, &[SHA3_PADDING]);
+        xor_into(&mut self.state, SHA3_512_RATE - 1, &[0x80]);
+        keccak::f1600(&mut self.state);
+        let mut digest = [0u8; SHA3_512_BYTES];
+        read_from(&self.state, 0, &mut digest);
+        digest
+    }
+}
+
+/// SHA3-512 of the concatenation of `parts`.
+pub fn sha3_512(parts: &[&[u8]]) -> [u8; SHA3_512_BYTES] {
+    let mut sponge = Sha3_512::new();
+    for part in parts {
+        sponge.update(part);
+    }
+    sponge.finalize()
+}
+
+/// Incremental evaluation of one of the functions of [`Oracle`].
+#[derive(Debug, Clone)]
+pub struct Hasher {
+    xof: Xof,
+    oracle: Oracle,
+    level: SecurityLevel,
+}
+
+impl Hasher {
+    /// Start evaluating `oracle` at `level` in reference mode.
+    pub fn new(level: SecurityLevel, oracle: Oracle) -> Self {
+        Self::new_in(Namespace::REFERENCE, level, oracle)
+    }
+
+    /// Start evaluating `oracle` at `level` inside `namespace`: the prefix is
+    /// absorbed first, then the message, then the domain byte.
+    pub fn new_in(namespace: Namespace<'_>, level: SecurityLevel, oracle: Oracle) -> Self {
+        let mut xof = Xof::new(level);
+        xof.update(namespace.as_bytes());
+        Self { xof, oracle, level }
+    }
+
+    /// The function being evaluated.
+    pub fn oracle(&self) -> Oracle {
+        self.oracle
+    }
+
+    /// The output length in bytes that [`Self::finalize`] requires.
+    pub fn output_bytes(&self) -> usize {
+        self.oracle.output_bytes(self.level)
+    }
+
+    /// Absorb the next piece of the message.
+    pub fn update(&mut self, data: &[u8]) {
+        self.xof.update(data);
+    }
+
+    /// Absorb `value` as four little-endian bytes (`BitDec(value, 32)`).
+    pub fn update_u32_le(&mut self, value: u32) {
+        self.xof.update_u32_le(value);
+    }
+
+    /// Append the domain byte and write the output of the function to `out`.
+    ///
+    /// # Errors
+    /// Returns [`HashError::InvalidOutputLength`] unless `out` has exactly the
+    /// output length of the function at this security level.
+    pub fn finalize(self, out: &mut [u8]) -> Result<(), HashError> {
+        let expected = self.output_bytes();
+        if out.len() != expected {
+            return Err(HashError::InvalidOutputLength {
+                oracle: self.oracle,
+                expected,
+                actual: out.len(),
+            });
+        }
+        self.finalize_xof().squeeze(out);
+        Ok(())
+    }
+
+    /// Append the domain byte and return the unbounded output stream. The protocol
+    /// reads exactly [`Self::output_bytes`] bytes of it.
+    pub fn finalize_xof(mut self) -> XofOutput {
+        self.xof.update(&[self.oracle.domain_byte()]);
+        self.xof.finalize()
+    }
+}
+
+/// One-shot evaluation of `oracle` at `level` on `message` in reference mode.
+///
+/// # Errors
+/// As [`Hasher::finalize`].
+pub fn hash(
+    level: SecurityLevel,
+    oracle: Oracle,
+    message: &[u8],
+    out: &mut [u8],
+) -> Result<(), HashError> {
+    hash_in(Namespace::REFERENCE, level, oracle, message, out)
+}
+
+/// One-shot evaluation of `oracle` at `level` on `message` inside `namespace`.
+///
+/// # Errors
+/// As [`Hasher::finalize`].
+pub fn hash_in(
+    namespace: Namespace<'_>,
+    level: SecurityLevel,
+    oracle: Oracle,
+    message: &[u8],
+    out: &mut [u8],
+) -> Result<(), HashError> {
+    let mut hasher = Hasher::new_in(namespace, level, oracle);
+    hasher.update(message);
+    hasher.finalize(out)
+}
+
+/// Bytes of the `H_0` output at `level` under `construction`: `3 * lambda / 8`
+/// (the leaf-hash key `uhash`) for the FAEST construction and `4 * lambda / 8`
+/// (`h0 || h1`, 128 bytes) for the extended one.
+///
+/// # Errors
+/// [`VariantError::UnsupportedLevel`] for the extended construction at a level
+/// other than `lambda = 256`.
+pub const fn h0_bytes(
+    level: SecurityLevel,
+    construction: Construction,
+) -> Result<usize, VariantError> {
+    if let Err(error) = construction.check_level(level) {
+        return Err(error);
+    }
+    Ok(match construction {
+        Construction::Faest => 3 * level.bytes(),
+        Construction::Extended => 4 * level.bytes(),
+    })
+}
+
+/// `H_0(iv)` inside `namespace` under `construction`: the sponge input is
+/// `prefix || iv || 0x00` and `out` receives the first [`h0_bytes`] output bytes.
+/// For the extended construction these are `h0` (96 bytes, the key of the leaf
+/// hash) followed by `h1` (32 bytes, the key of the affine check).
+///
+/// # Errors
+/// [`HashError::Variant`] where the construction is not defined and
+/// [`HashError::InvalidOutputLength`] unless `out` is [`h0_bytes`] bytes long.
+pub fn h0_as(
+    namespace: Namespace<'_>,
+    level: SecurityLevel,
+    construction: Construction,
+    iv: &[u8; IV_BYTES],
+    out: &mut [u8],
+) -> Result<(), HashError> {
+    let expected = h0_bytes(level, construction)?;
+    if out.len() != expected {
+        return Err(HashError::InvalidOutputLength {
+            oracle: Oracle::H0,
+            expected,
+            actual: out.len(),
+        });
+    }
+    let mut hasher = Hasher::new_in(namespace, level, Oracle::H0);
+    hasher.update(iv);
+    hasher.finalize_xof().squeeze(out);
+    Ok(())
+}
+
+/// `H_5(iv, e, L)` in reference mode; see [`h5_in`].
+///
+/// # Errors
+/// As [`h5_in`].
+pub fn h5(
+    level: SecurityLevel,
+    iv: &[u8; IV_BYTES],
+    gate: u32,
+    label: &[u8],
+    bits: usize,
+) -> Result<u16, HashError> {
+    h5_in(Namespace::REFERENCE, level, iv, gate, label, bits)
+}
+
+/// `H_5(iv, e, L)`: the `bits`-bit hash of the label `L` of CRT gate `e`, inside
+/// `namespace`, in the FAEST construction.
+///
+/// The input is `prefix || iv || BitDec(e, 32) || L || 0x05` with `L` of
+/// `lambda / 8` bytes.
+/// Two bytes are squeezed and read as a little-endian integer; output bit `m` (the
+/// bit used for mask `m`) is bit `m` of the result, and bits at or above `bits` are
+/// zero. The protocol uses `bits = n_mask`.
+///
+/// # Errors
+/// Returns [`HashError::InvalidInputLength`] unless `label` is `lambda / 8` bytes
+/// and [`HashError::InvalidH5Bits`] unless `bits` is in `[1, MAX_H5_BITS]`.
+pub fn h5_in(
+    namespace: Namespace<'_>,
+    level: SecurityLevel,
+    iv: &[u8; IV_BYTES],
+    gate: u32,
+    label: &[u8],
+    bits: usize,
+) -> Result<u16, HashError> {
+    h5_as(namespace, level, Binding::Faest, iv, gate, label, bits)
+}
+
+/// `H_5` inside `namespace` under `binding`.
+///
+/// With [`Binding::Faest`] this is [`h5_in`]. With [`Binding::Extended`] the salt
+/// is absorbed between `iv` and the gate index: the input is
+/// `prefix || iv || salt || BitDec(e, 32) || L || 0x05`. The output rule is the
+/// same.
+///
+/// # Errors
+/// As [`h5_in`], and [`HashError::Variant`] for the extended construction at a
+/// level other than `lambda = 256`.
+pub fn h5_as(
+    namespace: Namespace<'_>,
+    level: SecurityLevel,
+    binding: Binding<'_>,
+    iv: &[u8; IV_BYTES],
+    gate: u32,
+    label: &[u8],
+    bits: usize,
+) -> Result<u16, HashError> {
+    binding.construction().check_level(level)?;
+    if label.len() != level.bytes() {
+        return Err(HashError::InvalidInputLength {
+            expected: level.bytes(),
+            actual: label.len(),
+        });
+    }
+    if bits == 0 || bits > MAX_H5_BITS {
+        return Err(HashError::InvalidH5Bits { bits });
+    }
+    let mut xof = Xof::new(level);
+    xof.update(namespace.as_bytes());
+    xof.update(iv);
+    if let Some(salt) = binding.salt() {
+        xof.update(salt);
+    }
+    xof.update_u32_le(gate);
+    xof.update(label);
+    xof.update(&[H5_DOMAIN_BYTE]);
+    let mut squeezed = [0u8; 2];
+    xof.finalize().squeeze(&mut squeezed);
+    let value = u16::from_le_bytes(squeezed) & (u16::MAX >> (u16::BITS as usize - bits));
+    squeezed.zeroize();
+    Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn raw(level: SecurityLevel, message: &[u8], len: usize) -> Vec<u8> {
+        let mut xof = Xof::new(level);
+        xof.update(message);
+        let mut out = vec![0u8; len];
+        xof.finalize().squeeze(&mut out);
+        out
+    }
+
+    #[test]
+    fn xof_is_shake128_or_shake256_by_level() {
+        // FIPS 202 known answers for the empty message.
+        assert_eq!(
+            raw(SecurityLevel::L128, &[], 16),
+            [
+                0x7f, 0x9c, 0x2b, 0xa4, 0xe8, 0x8f, 0x82, 0x7d, 0x61, 0x60, 0x45, 0x50, 0x76, 0x05,
+                0x85, 0x3e
+            ]
+        );
+        let shake256 = [
+            0x46, 0xb9, 0xdd, 0x2b, 0x0b, 0xa8, 0x8d, 0x13, 0x23, 0x3b, 0x3f, 0xeb, 0x74, 0x3e,
+            0xeb, 0x24,
+        ];
+        assert_eq!(raw(SecurityLevel::L192, &[], 16), shake256);
+        assert_eq!(raw(SecurityLevel::L256, &[], 16), shake256);
+    }
+
+    fn reference(level: SecurityLevel, message: &[u8], len: usize) -> Vec<u8> {
+        use sha3::digest::{ExtendableOutput, Update, XofReader};
+        let mut out = vec![0u8; len];
+        match level {
+            SecurityLevel::L128 => {
+                let mut sponge = sha3::Shake128::default();
+                sponge.update(message);
+                sponge.finalize_xof().read(&mut out);
+            }
+            SecurityLevel::L192 | SecurityLevel::L256 => {
+                let mut sponge = sha3::Shake256::default();
+                sponge.update(message);
+                sponge.finalize_xof().read(&mut out);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn sponge_matches_an_independent_shake_at_every_block_boundary() {
+        // Message lengths around zero, one and two rate blocks (the padding byte and
+        // the final 0x80 coincide at rate - 1), split and squeezed at odd offsets.
+        let message: Vec<u8> = (0..2 * SHAKE128_RATE + 9)
+            .map(|i| u8::try_from((i * 151 + 7) % 251).expect("below 251"))
+            .collect();
+        for level in SecurityLevel::ALL {
+            let rate = Xof::new(level).rate;
+            for len in 0..message.len() {
+                let near_boundary = len % rate <= 2 || len % rate >= rate - 2;
+                if !near_boundary && len % 29 != 0 {
+                    continue;
+                }
+                let out_len = 3 * rate + 5;
+                let expected = reference(level, &message[..len], out_len);
+                assert_eq!(raw(level, &message[..len], out_len), expected, "{len}");
+
+                let mut xof = Xof::new(level);
+                for chunk in message[..len].chunks(13) {
+                    xof.update(chunk);
+                }
+                let mut output = xof.finalize();
+                let mut pieces = vec![0u8; out_len];
+                for chunk in pieces.chunks_mut(rate - 1) {
+                    output.squeeze(chunk);
+                }
+                assert_eq!(pieces, expected, "{len}");
+            }
+        }
+    }
+
+    #[test]
+    fn lane_helpers_use_little_endian_byte_order() {
+        let mut state = [0u64; STATE_LANES];
+        xor_into(&mut state, 7, &[0xab, 0xcd]);
+        assert_eq!(state[0], 0xab00_0000_0000_0000);
+        assert_eq!(state[1], 0xcd);
+        xor_into(&mut state, 7, &[0xab]);
+        assert_eq!(state[0], 0);
+        let mut out = [0u8; 3];
+        read_from(&state, 7, &mut out);
+        assert_eq!(out, [0, 0xcd, 0]);
+        // Out-of-range positions are ignored instead of panicking.
+        xor_into(&mut state, 8 * STATE_LANES, &[1]);
+        read_from(&state, 8 * STATE_LANES, &mut out[..1]);
+        assert_eq!(out[0], 0);
+    }
+
+    #[test]
+    fn sponge_state_is_erased() {
+        fn erases_on_drop<T: ZeroizeOnDrop>() {}
+        for level in SecurityLevel::ALL {
+            let mut xof = Xof::new(level);
+            xof.update(b"secret key material");
+            assert_ne!(xof.state, [0; STATE_LANES]);
+            let mut output = xof.clone().finalize();
+            xof.zeroize();
+            assert_eq!((xof.state, xof.pos), ([0; STATE_LANES], 0));
+            let mut block = [0u8; 40];
+            output.squeeze(&mut block);
+            assert_ne!(output.state, [0; STATE_LANES]);
+            output.zeroize();
+            assert_eq!((output.state, output.pos), ([0; STATE_LANES], 0));
+            erases_on_drop::<Xof>();
+            erases_on_drop::<XofOutput>();
+        }
+    }
+
+    #[test]
+    fn xof_absorbs_and_squeezes_incrementally() {
+        for level in SecurityLevel::ALL {
+            let whole = raw(level, b"abcdefgh\x78\x56\x34\x12", 100);
+            let mut xof = Xof::new(level);
+            xof.update(b"abc");
+            xof.update(b"");
+            xof.update(b"defgh");
+            xof.update_u32_le(0x1234_5678);
+            let mut output = xof.clone().finalize();
+            let mut pieces = vec![0u8; 100];
+            let (head, tail) = pieces.split_at_mut(37);
+            output.squeeze(head);
+            output.squeeze(tail);
+            assert_eq!(pieces, whole);
+            assert_eq!(format!("{xof:?}"), "Xof { .. }");
+            assert_eq!(format!("{output:?}"), "XofOutput { .. }");
+        }
+    }
+
+    #[test]
+    fn domain_bytes_and_output_lengths_follow_the_specification() {
+        let table: [(Oracle, u8, [usize; 3]); 8] = [
+            (Oracle::H0, 0, [48, 72, 96]),
+            (Oracle::H1, 1, [32, 48, 64]),
+            (Oracle::H2Mu, 8, [32, 48, 64]),
+            (Oracle::H2Chall1, 9, [136, 200, 264]),
+            (Oracle::H2Chall2, 10, [56, 80, 104]),
+            (Oracle::H2Chall3, 11, [16, 24, 32]),
+            (Oracle::H3, 3, [32, 40, 48]),
+            (Oracle::H4, 4, [16, 16, 16]),
+        ];
+        for ((oracle, domain, lengths), listed) in table.into_iter().zip(Oracle::ALL) {
+            assert_eq!(oracle, listed);
+            assert_eq!(oracle.domain_byte(), domain);
+            assert_eq!(SecurityLevel::ALL.map(|l| oracle.output_bytes(l)), lengths);
+        }
+        assert_eq!(H5_DOMAIN_BYTE, 5);
+    }
+
+    #[test]
+    fn hasher_appends_one_domain_byte_after_the_message() {
+        for level in SecurityLevel::ALL {
+            for oracle in Oracle::ALL {
+                let mut hasher = Hasher::new(level, oracle);
+                assert_eq!(hasher.oracle(), oracle);
+                assert_eq!(hasher.output_bytes(), oracle.output_bytes(level));
+                hasher.update(b"mess");
+                hasher.update(b"age");
+                hasher.update_u32_le(7);
+                let mut out = vec![0u8; hasher.output_bytes()];
+                hasher.clone().finalize(&mut out).expect("exact length");
+                let mut message = b"message\x07\x00\x00\x00".to_vec();
+                message.push(oracle.domain_byte());
+                assert_eq!(out, raw(level, &message, out.len()));
+
+                let mut stream = vec![0u8; out.len() + 9];
+                hasher.finalize_xof().squeeze(&mut stream);
+                assert_eq!(stream[..out.len()], out[..]);
+
+                let mut one_shot = vec![0u8; out.len()];
+                hash(level, oracle, b"message\x07\x00\x00\x00", &mut one_shot)
+                    .expect("exact length");
+                assert_eq!(one_shot, out);
+            }
+        }
+    }
+
+    #[test]
+    fn functions_are_domain_separated() {
+        for level in SecurityLevel::ALL {
+            let mut prefixes: Vec<Vec<u8>> = Oracle::ALL
+                .iter()
+                .map(|oracle| {
+                    let mut stream = [0u8; 16];
+                    let mut hasher = Hasher::new(level, *oracle);
+                    hasher.update(b"same message");
+                    hasher.finalize_xof().squeeze(&mut stream);
+                    stream.to_vec()
+                })
+                .collect();
+            prefixes.sort();
+            prefixes.dedup();
+            assert_eq!(prefixes.len(), Oracle::ALL.len(), "{level:?}");
+        }
+    }
+
+    #[test]
+    fn wrong_output_lengths_are_rejected() {
+        for level in SecurityLevel::ALL {
+            for oracle in Oracle::ALL {
+                let expected = oracle.output_bytes(level);
+                for actual in [0, expected - 1, expected + 1] {
+                    let mut out = vec![0u8; actual];
+                    assert_eq!(
+                        hash(level, oracle, b"m", &mut out),
+                        Err(HashError::InvalidOutputLength {
+                            oracle,
+                            expected,
+                            actual
+                        })
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn h5_layout_and_bit_order() {
+        let iv = [0x11u8; 16];
+        for level in SecurityLevel::ALL {
+            let label = vec![0x22u8; level.bytes()];
+            let gate = 0x0403_0201;
+            let mut message = iv.to_vec();
+            message.extend_from_slice(&[1, 2, 3, 4]);
+            message.extend_from_slice(&label);
+            message.push(5);
+            let squeezed = raw(level, &message, 2);
+            let full = u16::from_le_bytes([squeezed[0], squeezed[1]]);
+            assert_eq!(h5(level, &iv, gate, &label, 16), Ok(full));
+            assert_eq!(h5(level, &iv, gate, &label, 10), Ok(full & 0x03ff));
+            assert_eq!(h5(level, &iv, gate, &label, 1), Ok(full & 1));
+            // Output bit m is bit m mod 8 of squeezed byte m / 8.
+            let ten = h5(level, &iv, gate, &label, 10).expect("valid call");
+            for m in 0..10 {
+                assert_eq!((ten >> m) & 1, u16::from((squeezed[m / 8] >> (m % 8)) & 1));
+            }
+            assert_ne!(
+                h5(level, &iv, gate + 1, &label, 16),
+                h5(level, &iv, gate, &label, 16)
+            );
+        }
+    }
+
+    #[test]
+    fn namespaces_are_bounded_byte_prefixes() {
+        assert!(Namespace::REFERENCE.is_reference());
+        assert_eq!(Namespace::REFERENCE.as_bytes(), b"");
+        let longest = [7u8; MAX_NAMESPACE_BYTES];
+        let namespace = Namespace::new(&longest).expect("at the bound");
+        assert!(!namespace.is_reference());
+        assert_eq!(namespace.as_bytes(), &longest[..]);
+        assert_eq!(Namespace::new(b""), Ok(Namespace::REFERENCE));
+        assert_eq!(
+            Namespace::new(&[0u8; MAX_NAMESPACE_BYTES + 1]),
+            Err(HashError::NamespaceTooLong {
+                actual: MAX_NAMESPACE_BYTES + 1
+            })
+        );
+        assert_eq!(MAX_NAMESPACE_BYTES, 255);
+    }
+
+    #[test]
+    fn every_function_absorbs_the_prefix_then_the_message_then_the_domain_byte() {
+        let prefixes: [&[u8]; 4] = [b"", b"A", b"PARL/FAEST/v1", &[0x5a; MAX_NAMESPACE_BYTES]];
+        for level in SecurityLevel::ALL {
+            for oracle in Oracle::ALL {
+                let len = oracle.output_bytes(level);
+                let mut seen = Vec::new();
+                for prefix in prefixes {
+                    let namespace = Namespace::new(prefix).expect("bounded");
+                    let mut expected_input = prefix.to_vec();
+                    expected_input.extend_from_slice(b"message body");
+                    expected_input.push(oracle.domain_byte());
+                    let expected = reference(level, &expected_input, len);
+
+                    let mut out = vec![0u8; len];
+                    hash_in(namespace, level, oracle, b"message body", &mut out)
+                        .expect("exact length");
+                    assert_eq!(out, expected, "{level:?} {oracle:?}");
+
+                    let mut hasher = Hasher::new_in(namespace, level, oracle);
+                    hasher.update(b"message ");
+                    hasher.update(b"body");
+                    let mut pieces = vec![0u8; len];
+                    hasher.finalize(&mut pieces).expect("exact length");
+                    assert_eq!(pieces, expected);
+                    seen.push(out);
+                }
+                // The empty prefix is the reference function.
+                let mut plain = vec![0u8; len];
+                hash(level, oracle, b"message body", &mut plain).expect("exact length");
+                assert_eq!(plain, seen[0]);
+                seen.sort();
+                seen.dedup();
+                assert_eq!(seen.len(), prefixes.len(), "{level:?} {oracle:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn h5_absorbs_the_prefix_before_the_iv() {
+        let iv = [0x31u8; 16];
+        let prefixes: [&[u8]; 3] = [b"", b"one namespace", b"another namespace"];
+        for level in SecurityLevel::ALL {
+            let label = vec![0x47u8; level.bytes()];
+            let mut seen = Vec::new();
+            for prefix in prefixes {
+                let namespace = Namespace::new(prefix).expect("bounded");
+                let mut message = prefix.to_vec();
+                message.extend_from_slice(&iv);
+                message.extend_from_slice(&9u32.to_le_bytes());
+                message.extend_from_slice(&label);
+                message.push(H5_DOMAIN_BYTE);
+                let squeezed = reference(level, &message, 2);
+                let full = u16::from_le_bytes([squeezed[0], squeezed[1]]);
+                assert_eq!(h5_in(namespace, level, &iv, 9, &label, 16), Ok(full));
+                assert_eq!(
+                    h5_in(namespace, level, &iv, 9, &label, 10),
+                    Ok(full & 0x03ff)
+                );
+                seen.push(full);
+            }
+            assert_eq!(h5(level, &iv, 9, &label, 16), Ok(seen[0]));
+            seen.sort_unstable();
+            seen.dedup();
+            assert_eq!(seen.len(), prefixes.len(), "{level:?}");
+        }
+        assert_eq!(
+            h5_in(
+                Namespace::REFERENCE,
+                SecurityLevel::L128,
+                &iv,
+                0,
+                &[0; 3],
+                10
+            ),
+            Err(HashError::InvalidInputLength {
+                expected: 16,
+                actual: 3
+            })
+        );
+    }
+
+    #[test]
+    fn h5_rejects_bad_arguments() {
+        let iv = [0u8; 16];
+        assert_eq!(
+            h5(SecurityLevel::L128, &iv, 0, &[0; 24], 10),
+            Err(HashError::InvalidInputLength {
+                expected: 16,
+                actual: 24
+            })
+        );
+        assert_eq!(
+            h5(SecurityLevel::L192, &iv, 0, &[0; 24], 0),
+            Err(HashError::InvalidH5Bits { bits: 0 })
+        );
+        assert_eq!(
+            h5(SecurityLevel::L256, &iv, 0, &[0; 32], 17),
+            Err(HashError::InvalidH5Bits { bits: 17 })
+        );
+        assert_eq!(MAX_H5_BITS, 16);
+        assert!(h5(SecurityLevel::L256, &iv, 0, &[0; 32], MAX_H5_BITS).is_ok());
+    }
+
+    #[test]
+    fn sha3_512_matches_the_known_answer_and_an_independent_implementation() {
+        use sha3::Digest;
+        // FIPS 202 known answer for the empty message.
+        let empty = sha3_512(&[]);
+        assert_eq!(
+            empty[..16],
+            [
+                0xa6, 0x9f, 0x73, 0xcc, 0xa2, 0x3a, 0x9a, 0xc5, 0xc8, 0xb5, 0x67, 0xdc, 0x18, 0x5a,
+                0x75, 0x6e
+            ]
+        );
+        assert_eq!(Sha3_512::default().finalize(), empty);
+        let message: Vec<u8> = (0..400u32)
+            .map(|i| u8::try_from(i * 7 % 251).unwrap_or(0))
+            .collect();
+        // Lengths around the 72-byte rate, in one piece and in uneven pieces.
+        for len in [0usize, 1, 71, 72, 73, 143, 144, 145, 200, 400] {
+            let expected: [u8; SHA3_512_BYTES] = sha3::Sha3_512::digest(&message[..len]).into();
+            assert_eq!(sha3_512(&[&message[..len]]), expected, "length {len}");
+            let mut sponge = Sha3_512::new();
+            for chunk in message[..len].chunks(13) {
+                sponge.update(chunk);
+            }
+            assert_eq!(
+                sponge.clone().finalize(),
+                expected,
+                "length {len} in pieces"
+            );
+            let (head, tail) = message[..len].split_at(len / 3);
+            assert_eq!(
+                sha3_512(&[head, &[], tail]),
+                expected,
+                "length {len} in parts"
+            );
+            // Erasure leaves the empty sponge.
+            sponge.zeroize();
+            assert_eq!(sponge.finalize(), empty);
+        }
+    }
+
+    #[test]
+    fn h0_lengths_follow_the_construction() {
+        assert_eq!(
+            SecurityLevel::ALL.map(|level| h0_bytes(level, Construction::Faest)),
+            [Ok(48), Ok(72), Ok(96)]
+        );
+        assert_eq!(
+            h0_bytes(SecurityLevel::L256, Construction::Extended),
+            Ok(128)
+        );
+        for level in [SecurityLevel::L128, SecurityLevel::L192] {
+            let unsupported = VariantError::UnsupportedLevel {
+                lambda: level.bits(),
+            };
+            assert_eq!(h0_bytes(level, Construction::Extended), Err(unsupported));
+            assert_eq!(
+                h0_as(
+                    Namespace::REFERENCE,
+                    level,
+                    Construction::Extended,
+                    &[0; 16],
+                    &mut [0u8; 128]
+                ),
+                Err(HashError::Variant(unsupported))
+            );
+        }
+    }
+
+    #[test]
+    fn h0_is_the_prefix_the_iv_and_the_zero_domain_byte_at_either_length() {
+        let iv = [0x6du8; 16];
+        let prefixes: [&[u8]; 3] = [b"", &[0xa7; 77], b"role"];
+        for prefix in prefixes {
+            let namespace = Namespace::new(prefix).expect("bounded");
+            let mut input = prefix.to_vec();
+            input.extend_from_slice(&iv);
+            input.push(0x00);
+            let level = SecurityLevel::L256;
+            let expected = reference(level, &input, 128);
+            let mut extended = [0u8; 128];
+            h0_as(namespace, level, Construction::Extended, &iv, &mut extended)
+                .expect("exact length");
+            assert_eq!(extended[..], expected[..]);
+            // h0 is the first 96 bytes, which are the FAEST output; h1 the last 32.
+            let mut faest = [0u8; 96];
+            h0_as(namespace, level, Construction::Faest, &iv, &mut faest).expect("exact length");
+            assert_eq!(faest[..], extended[..96]);
+            let mut plain = [0u8; 96];
+            hash_in(namespace, level, Oracle::H0, &iv, &mut plain).expect("exact length");
+            assert_eq!(plain, faest);
+            assert_ne!(extended[96..], [0u8; 32]);
+            for actual in [96usize, 127, 129] {
+                assert_eq!(
+                    h0_as(
+                        namespace,
+                        level,
+                        Construction::Extended,
+                        &iv,
+                        &mut vec![0u8; actual]
+                    ),
+                    Err(HashError::InvalidOutputLength {
+                        oracle: Oracle::H0,
+                        expected: 128,
+                        actual
+                    })
+                );
+            }
+        }
+        for level in SecurityLevel::ALL {
+            let len = Oracle::H0.output_bytes(level);
+            let (mut one, mut other) = (vec![0u8; len], vec![0u8; len]);
+            h0_as(
+                Namespace::REFERENCE,
+                level,
+                Construction::Faest,
+                &iv,
+                &mut one,
+            )
+            .expect("exact length");
+            hash(level, Oracle::H0, &iv, &mut other).expect("exact length");
+            assert_eq!(one, other);
+        }
+    }
+
+    #[test]
+    fn extended_h5_absorbs_the_salt_between_the_iv_and_the_gate_index() {
+        let iv = [0x31u8; 16];
+        let salt: [u8; 32] = core::array::from_fn(|at| u8::try_from(at + 0x80).expect("small"));
+        let label = [0x47u8; 32];
+        let level = SecurityLevel::L256;
+        let prefixes: [&[u8]; 3] = [b"", &[0x5c; 77], b"another namespace"];
+        let mut seen = Vec::new();
+        for prefix in prefixes {
+            let namespace = Namespace::new(prefix).expect("bounded");
+            let gate = 0x0403_0201u32;
+            let mut message = prefix.to_vec();
+            message.extend_from_slice(&iv);
+            message.extend_from_slice(&salt);
+            message.extend_from_slice(&[1, 2, 3, 4]);
+            message.extend_from_slice(&label);
+            message.push(H5_DOMAIN_BYTE);
+            assert_eq!(message.len(), prefix.len() + 85);
+            let squeezed = reference(level, &message, 2);
+            let full = u16::from_le_bytes([squeezed[0], squeezed[1]]);
+            let binding = Binding::Extended { salt: &salt };
+            assert_eq!(
+                h5_as(namespace, level, binding, &iv, gate, &label, 16),
+                Ok(full)
+            );
+            assert_eq!(
+                h5_as(namespace, level, binding, &iv, gate, &label, 10),
+                Ok(full & 0x03ff)
+            );
+            // The FAEST binding is the unsalted function.
+            assert_eq!(
+                h5_as(namespace, level, Binding::Faest, &iv, gate, &label, 16),
+                h5_in(namespace, level, &iv, gate, &label, 16)
+            );
+            seen.push(full);
+        }
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), prefixes.len());
+        // Sixteen different salts give more than one value.
+        let mut values: Vec<u16> = (0..16u8)
+            .map(|byte| {
+                let mut other = salt;
+                other[31] = byte;
+                h5_as(
+                    Namespace::REFERENCE,
+                    level,
+                    Binding::Extended { salt: &other },
+                    &iv,
+                    7,
+                    &label,
+                    16,
+                )
+                .expect("valid call")
+            })
+            .collect();
+        values.sort_unstable();
+        values.dedup();
+        assert!(values.len() > 8);
+        let binding = Binding::Extended { salt: &salt };
+        assert_eq!(
+            h5_as(
+                Namespace::REFERENCE,
+                SecurityLevel::L128,
+                binding,
+                &iv,
+                0,
+                &[0; 16],
+                10
+            ),
+            Err(HashError::Variant(VariantError::UnsupportedLevel {
+                lambda: 128
+            }))
+        );
+        assert_eq!(
+            h5_as(Namespace::REFERENCE, level, binding, &iv, 0, &[0; 31], 10),
+            Err(HashError::InvalidInputLength {
+                expected: 32,
+                actual: 31
+            })
+        );
+        assert_eq!(
+            h5_as(Namespace::REFERENCE, level, binding, &iv, 0, &label, 0),
+            Err(HashError::InvalidH5Bits { bits: 0 })
+        );
+    }
+}

@@ -1,0 +1,55 @@
+{
+  "applies_to_current_checkout": false,
+  "complete_workspace_certificate": false,
+  "final_guard_changes": {},
+  "final_guard_count": 2085,
+  "focused_tests": {
+    "command": [
+      ".venv/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "scripts/tests/parliament_ballot_frontend_bound_test.py"
+    ],
+    "duration_seconds": 5.87,
+    "exit": 0,
+    "passed": 27,
+    "transcript_scope": "Retained final tool output from the successful command, not a freeze-time rerun."
+  },
+  "helper_sha256": "70d6f3d864cad96fbd0241dbd79f89f5ff9d5503589614c3f252b6248576d787",
+  "independent_reviews": [
+    {
+      "reviewer": "/root/ownership",
+      "scope": "Read-only source formulas, loop/register correspondence, exact memcpy lengths and call/frame bounds, symbolic exclusions, all 2085 guards and separate four live differences; no blocking findings.",
+      "tests_passed": 27
+    },
+    {
+      "reviewer": "/root",
+      "scope": "Full README, source and checker review; framing dimensions, source maxima and symbolic composition clear; no blocking findings."
+    }
+  ],
+  "live_source_differences": {
+    "/Users/mtakemiya/dev/iroha/Cargo.lock": {
+      "current": "d48624bc2e80c2821f6192b466c7afd7b6e62014e54fa9827663e44debbf0284",
+      "historical": "8893895108a7150d59f4814a8bdce5c3dbfe57fdacefd82fcdf2ba793c5f14db"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/allocation/shared.rs": {
+      "current": "c19d0dfce876f26cc7b41b4e5c822c526787e03caa7fe6115cf995ccedbe4a85",
+      "historical": "d7cb0dc84f70ed2947053de49b0c3d2e3e67b09b9839468204126ea4df19957c"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared.rs": {
+      "current": "90cb9601cf32f440d0207482565eef8a38d08d36f28ae1a3e98b5189538b682e",
+      "historical": "8f70d96f97a6f0bd8fcea7bfd094025f6c80b74a5a812e42a8a9d02e7640c65c"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared_reservation_tests.rs": {
+      "current": "1ca65ab51447057eb323703dd4d8994363de9d5c1d8c6c53a484a03544a7a40e",
+      "historical": "599e1e63f5f54592837e6b529eecb238bba8595a1afecc98e034595fb001863e"
+    }
+  },
+  "observed_at_utc": "2026-10-13T11:43:41.470144+00:00",
+  "profile_qualified": false,
+  "report_sha256": "d29b4846f90fc230323076ffb570513346ad2751ef4aa9b3b886b78e55b4e91d",
+  "schema": "parliament-frontend-bound-review-v1",
+  "test_log_sha256": "1364109199164d5f2a061e7f6f5559d3718e02357524cc9a30913bdf399e11a2",
+  "tests_sha256": "ca93313979467573ea7aef023f40150e5ac336b27d0682b220b3f0709b4e92e4"
+}

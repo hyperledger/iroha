@@ -1,0 +1,13 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.17, pytest-9.1.0, pluggy-1.6.0
+rootdir: /Users/mtakemiya/dev/iroha
+configfile: pytest.ini
+collected 85 items
+
+target/parliament-ideal-machine-stage/test_responses.py ................ [ 18%]
+...................                                                      [ 41%]
+target/parliament-ideal-machine-stage/test_l0_machine.py ............... [ 58%]
+...................................                                      [100%]
+
+- generated xml file: /Users/mtakemiya/dev/iroha/target/parliament-response-l0-review/capture/junit.xml -
+============================== 85 passed in 2.56s ==============================

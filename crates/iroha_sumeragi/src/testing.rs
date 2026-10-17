@@ -647,6 +647,58 @@ pub fn valid_execution(result: crate::types::Hash32) -> crate::api::ExecOutcome 
     }
 }
 
+/// Fixture builder custody retaining and checking the exact original funded payload bytes.
+/// Native adapters supply their own source and clock owner instead.
+pub fn built_payload(
+    payload: crate::availability::PayloadBytes,
+) -> crate::proposal_admission::BuiltPayload {
+    #[derive(Debug)]
+    struct FixtureProposal(crate::availability::PayloadBytes);
+    impl crate::proposal_admission::ProposalAdmissionOwner for FixtureProposal {
+        fn check(
+            &self,
+            request: &crate::proposal_admission::ProposalSigningRequest,
+        ) -> Result<(), crate::crypto::SigningError> {
+            if self.0.as_slice() == request.payload().as_slice() {
+                Ok(())
+            } else {
+                Err(crate::crypto::SigningError::InvalidInput)
+            }
+        }
+    }
+    let owner = iroha_allocation::shared::Shared::new(FixtureProposal(payload.clone()), ());
+    crate::proposal_admission::BuiltPayload {
+        payload,
+        admission: crate::proposal_admission::ProposalAdmission::from_owner(
+            owner.project::<dyn crate::proposal_admission::ProposalAdmissionOwner>(|value| value),
+        ),
+    }
+}
+
+/// Construct an exact proposal signing request for native adapter and simulator controls.
+/// Production requests are created only by the consensus core after body authentication.
+pub fn proposal_signing_request(
+    body: &crate::availability::AvailableBody,
+    block_hash: Hash32,
+    view: u64,
+    attachments_digest: Hash32,
+    certified: bool,
+) -> crate::proposal_admission::ProposalSigningRequest {
+    crate::proposal_admission::ProposalSigningRequest {
+        instance: body.header().instance,
+        epoch: body.header().epoch,
+        height: body.header().height,
+        view,
+        block_hash,
+        payload_hash: body.header().payload_hash,
+        parent_hash: body.header().parent_hash,
+        parent_result: body.header().parent_result,
+        attachments_digest,
+        certified,
+        payload: body.payload().clone(),
+    }
+}
+
 /// Construct an exact signing request for native adapter and simulator controls only.
 /// Production callers obtain this value solely from the consensus core.
 pub fn prepare_signing_request(

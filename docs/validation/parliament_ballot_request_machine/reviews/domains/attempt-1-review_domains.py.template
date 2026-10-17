@@ -1,0 +1,250 @@
+"""Selected-source oracle-domain inventory and bounded actual-emitter witnesses.
+
+This is not a compiler, cryptographic reduction or full source-sized gate run.
+"""
+from pathlib import Path
+from collections import Counter
+import ast
+import hashlib
+import json
+import sys
+import time
+
+ROOT = Path(__file__).resolve().parents[2]
+STAGE = ROOT / 'target/parliament-ideal-machine-stage'
+OUT = Path(__file__).with_name('report.json')
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(STAGE))
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def local_closure(names):
+    found = set()
+    pending = list(names)
+    while pending:
+        name = pending.pop()
+        path = STAGE / (name + '.py')
+        if name in found or not path.is_file():
+            continue
+        found.add(name)
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                pending.append(node.module.split('.')[0])
+            elif isinstance(node, ast.Import):
+                pending.extend(a.name.split('.')[0] for a in node.names)
+    return sorted(found)
+
+
+def as_bytes(state, wires):
+    return bytes(sum(state[wires[i+j]] << j for j in range(8))
+                 for i in range(0, len(wires), 8))
+
+
+def source_padded_test_F(message):
+    """One deterministic test function, never a claim about a real ideal oracle."""
+    native_bits = {0: 1024, 1: 512, 4: 128, 5: 10, 8: 512}[message[-1]]
+    value = int.from_bytes(hashlib.shake_256(message).digest(264), 'little')
+    return (value & ((1 << native_bits)-1)).to_bytes(264, 'little')
+
+
+def execute(component, expected_messages):
+    p = component.layout() if hasattr(component, 'layout') else dict(
+        output_start=component.input_bits+component.work,
+        size=component.input_bits+component.work+component.output_bits)
+    state = bytearray(p['size'])
+    for i in range(component.input_bits): state[i] = (i*13+i//7) & 1
+    for i in range(p['output_start'], p['size']): state[i] = (i//3) & 1
+    original = state[:component.input_bits]
+    expected = expected_messages(state, p)
+    observed, kinds = [], Counter()
+    for gate in component.emit_clean():
+        kinds[gate[0]] += 1
+        if gate[0] == 'x': state[gate[1]] ^= 1
+        elif gate[0] == 'cx': state[gate[2]] ^= state[gate[1]]
+        elif gate[0] == 'ccx': state[gate[3]] ^= state[gate[1]] & state[gate[2]]
+        else:
+            assert gate[0].startswith('F:') and gate[0] != 'F:variable'
+            count = int(gate[0].split(':')[1])*8
+            query, response = gate[1:1+count], gate[1+count:]
+            assert len(response) == 2112 and len(set(gate[1:])) == len(gate)-1
+            message = as_bytes(state, query)
+            observed.append(message)
+            raw = source_padded_test_F(message)
+            for i, wire in enumerate(response): state[wire] ^= (raw[i//8] >> (i%8)) & 1
+    assert observed == expected
+    assert original == state[:component.input_bits]
+    assert not any(state[component.input_bits:p['output_start']])
+    resource = component.resources()['gates']
+    assert sum(n for op,n in kinds.items() if op.startswith('F:')) == resource['base_xor_oracle_calls']
+    for op in ('x','cx','ccx'): assert kinds[op] == resource[op]
+    return dict(calls=len(observed), message_lengths=dict(Counter(map(len, observed))),
+        domain_last=dict(Counter(m[-1] for m in observed)),
+        ordered_messages_sha256=hashlib.sha256(b''.join(len(m).to_bytes(8,'little')+m for m in observed)).hexdigest(),
+        source_labels_preserved=True, shared_work_zero=True, emitted_tallies=dict(kinds))
+
+
+def main():
+    if OUT.exists(): raise RuntimeError('refuse overwrite')
+    start = time.monotonic()
+    names = local_closure(('request_generator','content_request','request_transition','write_machine'))
+    paths = [STAGE/(name+'.py') for name in names]
+    paths += [ROOT/p for p in (
+        'target/parliament-aes-machine-stage/aes256.py',
+        'target/parliament-keccak-machine-stage/keccak1600.py',
+        'scripts/parliament_ballot_gf_circuit.py',
+        'scripts/parliament_ballot_admissibility_circuit.py',
+        'scripts/parliament_ballot_write_framing.py',
+        'crates/iroha_zkp_vole/src/hash.rs', 'crates/iroha_zkp_vole/src/bavc.rs',
+        'crates/iroha_zkp_vole/src/vole.rs', 'crates/iroha_zkp_vole/src/transcript.rs',
+        'crates/iroha_zkp_vole/src/prg.rs', 'crates/iroha_zkp_vole/src/field.rs',
+        'crates/iroha_parliament_ballot_proof/src/proving.rs',
+        'target/parliament-ideal-machine-stage/cleanup-design.md')]
+    # Selected sources, not an atomic trace or complete Python dependency closure.
+    import public_machine as pm
+    paths += [ROOT/p for p in pm.SOURCE_PINS]
+    paths += [ROOT/p for p,_ in pm.TABLES.values()]
+    paths += [Path(__file__).resolve()]
+    paths = sorted(set(paths))
+    before = {str(p.relative_to(ROOT)):sha(p) for p in paths}
+    pm.guard_public_sources(ROOT)
+    from hash_machine import H0, H1Aggregation
+    from crt_machine import CrtReconstruction, Matrix
+    from public_hash import load_public_keccak
+    from write_machine import actual_frames, Frame, ProgrammedWrites
+
+    h0 = execute(H0(), lambda s,p: [as_bytes(s,tuple(range(744)))+b'\0']*2)
+    h1_component = H1Aggregation((2,1))
+    def h1_expected(s,p):
+        ns = as_bytes(s, tuple(range(616)))
+        messages=[]; offset=0
+        for depth in (2,1):
+            coms = b''.join(as_bytes(s,tuple(range(616+1152*i+256,616+1152*i+1152)))
+                            for i in range(offset,offset+(1<<depth)))
+            messages.append(ns+coms+b'\1'); offset += 1<<depth
+        outer = ns+b''.join(source_padded_test_F(m)[:64] for m in messages)+b'\1'
+        return [m for m in (*messages,outer,*reversed(messages)) for _ in range(2)]
+    h1 = execute(h1_component,h1_expected)
+    # Eight real gate slots with nontrivial label/gamma and field projection.
+    g = Matrix(2,(1,2,3,1,2,3,1,2))
+    crt = CrtReconstruction(256,256,g,Matrix(2,(1,2)*128),
+        Matrix(2,(2,1)*128),Matrix(8,tuple(1<<(i%8) for i in range(256))))
+    def h5_expected(s,p):
+        prefix=as_bytes(s,tuple(range(1000)))
+        expected=[]
+        for gate,row in enumerate(g.rows):
+            label=bytearray(32)
+            for col in range(2):
+                if (row>>col)&1:
+                    raw=as_bytes(s,tuple(range(1256+col*256,1256+(col+1)*256)))
+                    for i,b in enumerate(raw): label[i]^=b
+            expected.extend([prefix+gate.to_bytes(4,'little')+label+b'\5']*4)
+        return expected
+    h5 = execute(crt,h5_expected)
+
+    # Inspect actual P1 SSA construction; never expand concrete public hashes.
+    public=[]; module=load_public_keccak(ROOT)
+    for row in ('candidate','comparator'):
+        for role,edge in (('REG','min'),('REG','max'),('VOTE','min'),('VOTE','max')):
+            shape = pm.PublicShape(role,row,body_bytes=4096 if role=='REG' and edge=='max' else 0,
+                context_bytes=(256,)*6 if role=='REG' and edge=='max' else (0,)*6,
+                list_count=(1000 if edge=='max' else 3) if role=='VOTE' else 0)
+            program=pm.prepare_public(shape,module,ROOT,totalized_fixed_shape=True)
+            constants={};cursor=shape.inputs;queries=[]
+            kernels={k.name:k for k in program.block.kernels}
+            for node in program.block.nodes:
+                if node.kind in ('one','zero'): constants[cursor]=int(node.kind=='one')
+                if node.kind=='kernel' and isinstance(kernels[node.kernel],pm.BackendPrefix):
+                    assert len(node.args)%8==0
+                    last=node.args[-8:]
+                    assert all(w in constants for w in last)
+                    suffix=sum(constants[w]<<i for i,w in enumerate(last))
+                    queries.append(dict(bytes=len(node.args)//8,domain_last=suffix,
+                        output_bits=node.width,final_byte_is_constant=True))
+                cursor+=node.width
+            assert [q['domain_last'] for q in queries]==[8,4]
+            assert queries[1]['bytes']==158
+            assert program.block.clean_resources()['gates']['base_xor_oracle_calls']==8
+            assert all(k.cost.base_calls==0 for k in kernels.values() if not isinstance(k,pm.BackendPrefix))
+            public.append(dict(row=row,role=role,boundary=edge,queries=queries,clean_base_calls=8))
+            del program
+
+    frames=[]
+    for row in ('candidate','comparator'):
+        for role in ('REG','VOTE'):
+            fs=actual_frames(ROOT,row,role)
+            assert [f.domain for f in fs]==[9,10,11]
+            assert all(f.prefix==b'PARL/FAEST/v1' for f in fs)
+            assert all(f.fields[0]==('namespace_digest',64) for f in fs)
+            frames.append(dict(row=row,role=role,frames=[dict(domain_last=f.domain,key_bytes=f.key_bytes,
+                fields=list(f.fields),value_bytes=f.value_bytes) for f in fs]))
+    toy_frames=tuple(Frame(b'PARL/FAEST/v1',(('namespace_digest',64),('payload',2))+
+        ((('counter_u32_le',4),) if domain==11 else ()),domain,1) for domain in (9,10,11))
+    writes=ProgrammedWrites(toy_frames,2,4,16,max(f.key_bytes for f in toy_frames),1)
+    p=writes.layout();state=bytearray(p['size'])
+    for i in range(p['input_bits']): state[i]=(i//3)&1
+    for i in range(32): state[p['trial']+i]=(0x01020304>>i)&1
+    original=state[:];write_witness=[]
+    for challenge in (1,2,3):
+        f=toy_frames[challenge-1]
+        def apply_scatter():
+            for gate in writes.scatter(challenge,1):
+                if gate[0]=='x':state[gate[1]]^=1
+                elif gate[0]=='cx':state[gate[2]]^=state[gate[1]]
+                else:raise AssertionError('unexpected scatter opcode')
+        apply_scatter()
+        key_start=p['staging']+16
+        key=as_bytes(state,tuple(range(key_start,key_start+8*f.key_bytes)))
+        expected=f.prefix+b''.join(as_bytes(original,tuple(range(
+            p['trial'] if name=='counter_u32_le' else p['fields'][name][0],
+            (p['trial'] if name=='counter_u32_le' else p['fields'][name][0])+8*n))) for name,n in f.fields)+bytes((f.domain,))
+        assert key==expected
+        assert sum(state[p['staging']+i]<<i for i in range(16))==len(key)
+        assert not any(state[key_start+len(key)*8:key_start+writes.key_capacity*8])
+        apply_scatter(); assert state==original
+        write_witness.append(dict(challenge=challenge,key_bytes=len(key),domain_last=key[-1],
+            key_sha256=hashlib.sha256(key).hexdigest(),padding_zero=True,scatter_cleared=True))
+    try:
+        bad=tuple(Frame(f.prefix,f.fields,8 if i==0 else f.domain,f.value_bytes)
+                  for i,f in enumerate(toy_frames))
+        ProgrammedWrites(bad,2,4,16,writes.key_capacity,1)
+    except ValueError as exc:
+        assert str(exc)=='programmed domains'
+    else:raise AssertionError('ordinary-domain write accepted')
+
+    counts={}
+    for row,tau,gates in (('candidate',33,704),('comparator',22,696)):
+        per={0:8,1:8*tau+4,4:4,5:4*gates,8:4}
+        counts[row]=dict(one_generator_by_domain=per,one_generator=sum(per.values()),
+                        generator_plus_inverse_by_domain={k:2*v for k,v in per.items()},
+                        generator_plus_inverse=2*sum(per.values()))
+    after={str(p.relative_to(ROOT)):sha(p) for p in paths}
+    assert before==after
+    callsites=[]
+    for name in names:
+        for node in ast.walk(ast.parse((STAGE/(name+'.py')).read_text())):
+            if not isinstance(node,ast.Call):continue
+            called=node.func.id if isinstance(node.func,ast.Name) else node.func.attr if isinstance(node.func,ast.Attribute) else None
+            if called in ('prefix_query','scatter','backend'):
+                callsites.append(dict(module=name,line=node.lineno,call=ast.unparse(node)))
+    result=dict(status='PASS',scope='Selected-source domain audit plus bounded actual-emitter and actual-SSA witnesses',
+        elapsed_seconds=time.monotonic()-start,before=before,after=after,
+        invocation=sys.argv,python_executable=sys.executable,python_executable_sha256=sha(Path(sys.executable)),
+        python_version=sys.version,bytecode_disabled=sys.dont_write_bytecode,
+        static_callsites=callsites,local_static_import_closure=names,H0=h0,H1_toy=h1,H5_toy=h5,P1_actual_SSA=public,
+        W0_actual_frame_metadata=frames,W0_small_scatter=write_witness,
+        ordinary_domain_write_mutation_refused=True,source_derived_calls=counts,
+        ordinary_domains=[0,1,4,5,8],programmed_domains=[9,10,11],
+        ordinary_and_programmed_keys_disjoint_conditional_on_exact_last_byte=True,
+        arbitrary_classical_family_dispatch_included=False,generic_kernel_callbacks_certified=False,
+        full_real_gate_stream_expanded=False,complete_python_dependency_capture=False,
+        concrete_F_implemented=False,cryptographic_review_complete=False,
+        complete_simulator_coverage=False,complete_resource_vector=False,production_qualified=False)
+    OUT.write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+    print(json.dumps(dict(status='PASS',seconds=result['elapsed_seconds'],selected_sources=len(before),
+        report_sha256=sha(OUT),counts=counts),sort_keys=True))
+
+
+if __name__=='__main__':main()

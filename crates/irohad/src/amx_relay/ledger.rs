@@ -579,7 +579,7 @@ fn successful_handoff(
             continue;
         };
         let mut matches = false;
-        for instruction in instructions.iter() {
+        for instruction in instructions {
             if handoff_effect(instruction)? == Some(expected) {
                 matches = true;
                 break;

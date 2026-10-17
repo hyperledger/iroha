@@ -1,0 +1,67 @@
+"""Independent exhaustive single-byte return map and dirty-work controls."""
+from pathlib import Path
+import sys
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'target/parliament-ideal-machine-stage'))
+import return_machine as r
+
+
+def execute(state, gates):
+    for op, *w in gates:
+        assert op in ('x', 'cx', 'ccx') and len(set(w)) == len(w)
+        state[w[-1]] ^= int(all(state[i] for i in w[:-1]))
+
+
+@pytest.mark.parametrize('last', [0, (1 << 32)-1])
+def test_all_one_byte_inputs_and_exhaustion_arbitrary_target_joint_map(last):
+    circuit = r.ReturnProjection((('byte', 1),), ('byte',), last)
+    p, gates = circuit.layout(), tuple(circuit.emit_clean())
+    for exhaustion in (0, 1):
+        for byte in range(256):
+            source = [exhaustion] + [(byte >> i)&1 for i in range(8)]
+            target = [(i + byte + exhaustion) % 2 for i in range(circuit.output_bits)]
+            state = source + [0] + target + [1, 1]
+            before = state[:]
+            expected_word = exhaustion | (exhaustion*last << 1)
+            expected_word |= ((1-exhaustion) << 33) | ((1-exhaustion)*byte << 97)
+            execute(state, gates)
+            assert state[:p['output']] == before[:p['output']]
+            assert state[p['output']:-2] == [bit ^ ((expected_word >> i)&1)
+                                            for i, bit in enumerate(target)]
+            assert state[-2:] == [1, 1]
+            execute(state, gates)
+            assert state == before
+
+
+def test_missing_success_uncompute_preserves_output_but_fails_clean_contract():
+    circuit = r.ReturnProjection((('byte', 1),), ('byte',))
+    state = [0] * circuit.layout()['size']
+    execute(state, list(circuit.emit_clean())[:-2])
+    assert state[circuit.layout()['length']] == 1
+    assert state[circuit.layout()['success']] == 1
+
+
+def test_success_gate_removal_leaks_proof_on_error():
+    circuit = r.ReturnProjection((('byte', 1),), ('byte',))
+    p, state = circuit.layout(), [0] * circuit.layout()['size']
+    state[0] = state[1] = 1
+    mutant = [('cx', g[2], g[3]) if g[0] == 'ccx' else g for g in circuit.emit_clean()]
+    execute(state, mutant)
+    assert state[p['error']] == 1 and state[p['proof']] == 1
+    assert state[p['success']] == 0
+
+
+def test_source_recheck_rejects_midread_drift(monkeypatch):
+    original = Path.read_bytes
+    calls = {p: 0 for p in r.PINS}
+    def read(path):
+        relative = str(path.relative_to(ROOT))
+        calls[relative] += 1
+        raw = original(path)
+        return raw + b'\n' if calls[relative] == 2 else raw
+    monkeypatch.setattr(Path, 'read_bytes', read)
+    with pytest.raises(ValueError, match='source drift'):
+        r.source_layout(ROOT, 'candidate', 'registration')

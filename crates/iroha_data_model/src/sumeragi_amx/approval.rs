@@ -254,6 +254,7 @@ mod tests {
         struct Payload {
             approval: AmxDebitApprovalV1,
         }
+
         let value = approval();
         let frame = norito::encode_canonical(&value).unwrap();
         assert_eq!(

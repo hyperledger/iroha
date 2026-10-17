@@ -39,13 +39,13 @@ fuzz_target!(|rows: Vec<Row>| {
     let body = norito::aos::encode_rows_u64_optstr_bool(&borrowed);
     let view = norito::columnar::view_aos_u64_optstr_bool(&body).expect("view");
     assert_eq!(view.len(), borrowed.len());
-    for i in 0..view.len() {
-        assert_eq!(view.id(i), borrowed[i].0);
+    for (i, &(id, value, flag)) in borrowed.iter().enumerate() {
+        assert_eq!(view.id(i), id);
         let got = view.name(i).expect("utf8");
-        match borrowed[i].1 {
+        match value {
             None => assert_eq!(got, None),
             Some(s) => assert_eq!(got, Some(s)),
         }
-        assert_eq!(view.flag(i), borrowed[i].2);
+        assert_eq!(view.flag(i), flag);
     }
 });

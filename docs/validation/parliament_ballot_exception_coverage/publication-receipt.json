@@ -1,0 +1,62 @@
+{
+  "all_body_capture_entries": 7,
+  "all_body_capture_manifest_sha256": "a0702ee469db6e2408579fe80cbd690dd773469d99f84b1d5cafc40c421db522",
+  "all_body_capture_receipt_sha256": "a2dd8c92dc633425528b9acabaa845ac9d3c624d88494f12e7ea7d494b499b56",
+  "applies_to_current_checkout": false,
+  "central_document_after_sha256": {
+    "docs/validation/parliament_ballot_b6.md": "81448980dd2f3bef8b03d3949a39de3e8455803c16ca658e2ffbe3bf473ead4e",
+    "specs/parliament_ballot_b6_requirement_audit.md": "d3b6dc9f2adf06c894e664ea38a78cc766f429f85cf44a3a0655f3f3358e366a",
+    "specs/parliament_ballot_implementation_goals.md": "a782e17c78d8f4f14f433fde281fa75f55f3eaa036142edf30d08d1f2e643d1a"
+  },
+  "central_document_before_after": {
+    "docs/validation/parliament_ballot_b6.md": {
+      "before_sha256": "80d5e54fcc4bd1fefa612231cea300065a52d3fdbf611f31706a6111cdd62ba0",
+      "prior_gf_snapshot": "central-documents/after/docs/validation/parliament_ballot_b6.md.template",
+      "staged_sha256": "81448980dd2f3bef8b03d3949a39de3e8455803c16ca658e2ffbe3bf473ead4e"
+    },
+    "specs/parliament_ballot_b6_requirement_audit.md": {
+      "before_sha256": "2ca791c7ab763898c80f7e5ceed8e78247fc43b43253bda2669bf558267e9814",
+      "prior_gf_snapshot": "central-documents/after/specs/parliament_ballot_b6_requirement_audit.md.template",
+      "staged_sha256": "d3b6dc9f2adf06c894e664ea38a78cc766f429f85cf44a3a0655f3f3358e366a"
+    },
+    "specs/parliament_ballot_implementation_goals.md": {
+      "before_sha256": "d221330eeae7bd3590828e128abd64c4cdf8899db54bb08f252bcf25bf1c4278",
+      "prior_gf_snapshot": "central-documents/after/specs/parliament_ballot_implementation_goals.md.template",
+      "staged_sha256": "a782e17c78d8f4f14f433fde281fa75f55f3eaa036142edf30d08d1f2e643d1a"
+    }
+  },
+  "complete_exception_semantics": false,
+  "complete_native_cost_certificate": false,
+  "complete_stack_certificate": false,
+  "complete_workspace_certificate": false,
+  "dwarf_fde_cfi_verified": false,
+  "expected_final_manifest_entries": 94,
+  "helper_byte_identical_to_captured": true,
+  "install_capture_entries": 17,
+  "install_capture_manifest_sha256": "e5a31908bd95b5ea7357e26b2996e4de3d6106553f102a886181715eddeabb9c",
+  "install_capture_receipt_sha256": "f754e3e96b191b7eb5f13a7994e3bafcd0de82f1320933335881e06153a891a2",
+  "installed_tests_derived_from_captured_with_exact_extraction": true,
+  "payload_inventory_sha256": "225a9a683c41d022b970415a926a36dc421ff6d8073fa3b6cdd318cf92c423f8",
+  "physical_cost_calibrated": false,
+  "prior_gf_manifest_sha256": "e87a08678171b147719e55ff76a3f929409b4d992883c6d41269d1bf11dc3f19",
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "publication_recipe_sha256": "3db1da902e81004d21fa1b071a44c488d69a2fdbfb9194b373236a639cedd0a2",
+  "published_at_utc": "2026-10-13T18:06:48.267459+00:00",
+  "raw_report_sha256": "9460da92323a358a6bdf13cb27ad286bb6ee5799ab88189b1db05bcd3c1dce70",
+  "relocated_synthetic_test_cases": 113,
+  "schema": "parliament-exception-publication-v1",
+  "scope": "Publishes retained host/image evidence and a separately tested synthetic-only partition. No clean-clone image revalidation, loaded-unwinder proof, CFI execution or full-resource qualification.",
+  "selected_input_count": 21,
+  "source_install_sha256": {
+    "scripts/parliament_ballot_exception_coverage.py": "3693abdecf793fc2d1aac32679cf394c9843c5c3dcbc0befb74510a61db94c4d",
+    "scripts/tests/parliament_ballot_exception_coverage_independent_test.py": "b646feb3469c7398c3325fe4b850ac9c8474e3be714636e2331cb803df2afe23"
+  },
+  "staged_capture_entries": 53,
+  "staged_capture_manifest_sha256": "47a7e4398221d0e1fdade89a5be394df3191a98051d847d8d4a332cf659ff65e",
+  "staged_capture_receipt_sha256": "e1fc5f8456793e4b02b4ebe8a5adc8399c261ccdf2ec7bdb1e4fcec95ef1170f",
+  "staged_test_cases": 182,
+  "status": "PASS",
+  "tests_rerun_during_publication": false,
+  "worker_executed": false
+}

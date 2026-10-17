@@ -1,0 +1,343 @@
+{
+  "absent_conftests": [
+    "/Users/mtakemiya/dev/iroha/conftest.py",
+    "/Users/mtakemiya/dev/iroha/target/conftest.py",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/conftest.py",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/conftest.py"
+  ],
+  "actual_input_primitive_entry": false,
+  "capture_python_version": "3.15.0 (main, Oct  9 2026, 11:16:41) [Clang 21.0.0 (clang-2100.3.34.2)]",
+  "collected_test_cases": 36,
+  "command_line": [
+    "target/parliament-aes-machine-stage/capture.py",
+    "--reviewed-hashes",
+    "target/parliament-aes-machine-stage/reviewed-source-hashes.json",
+    "--reviewed-hashes-sha",
+    "5efc075ef9122c354721baf83cdd91e40a326f7eeec77b6195817e322473ad33"
+  ],
+  "commands": [
+    {
+      "command": [
+        "/opt/homebrew/bin/pytest",
+        "-c",
+        "/Users/mtakemiya/dev/iroha/pytest.ini",
+        "-o",
+        "addopts=",
+        "--confcutdir=/Users/mtakemiya/dev/iroha",
+        "--import-mode=importlib",
+        "-p",
+        "no:cacheprovider",
+        "--maxfail=0",
+        "--tb=short",
+        "-q",
+        "--collect-only",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/test_aes256.py",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/test_independent_aes.py"
+      ],
+      "elapsed_seconds": 0.26675429102033377,
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "name": "collection",
+      "source_after": {
+        "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+        "/Users/mtakemiya/dev/iroha/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/README.md": "eb96dfea0a5fbfef6e29b3931986d902f378343d2786ef3ec0cd886063d4367c",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/aes256.py": "d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/capture.py": "3b73eca130910562c6ef905a38093762f412df1fcb9ba593b4f5866f7d22c306",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/AES_Core256.pdf": "8caf33781b8d4b9564c7e95a7690e491ca1d95efe9a31cdea2977deaf4c7b4ce",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.pdf": "62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.txt": "9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/report.py": "585f9b58c79f24a81ad86ff3547af687351addc2cb64a95b26ffa885b6895d8e",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/reviewed-source-hashes.json": "5efc075ef9122c354721baf83cdd91e40a326f7eeec77b6195817e322473ad33",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/test_aes256.py": "4a10177043e404da49de034156c36b330ad6617477e9415e1ba9f11808c14052",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/README.md": "cbce302514346ce2385acdf49a92f63f0dd6ed81c24fcf9a1b03df34b8298cd1",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/test_independent_aes.py": "03c513562782d582df94f9fe21c8d283a070d1de35979ac1b8b5ea772f9d61bb",
+        "/Users/mtakemiya/dev/iroha/target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64"
+      }
+    },
+    {
+      "command": [
+        "/opt/homebrew/bin/pytest",
+        "-c",
+        "/Users/mtakemiya/dev/iroha/pytest.ini",
+        "-o",
+        "addopts=",
+        "--confcutdir=/Users/mtakemiya/dev/iroha",
+        "--import-mode=importlib",
+        "-p",
+        "no:cacheprovider",
+        "--maxfail=0",
+        "--tb=short",
+        "-q",
+        "--basetemp=/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/capture-work/pytest-tmp",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/test_aes256.py",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/test_independent_aes.py",
+        "--junitxml=/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/capture/tests.xml"
+      ],
+      "elapsed_seconds": 7.779972790973261,
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "name": "tests",
+      "source_after": {
+        "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+        "/Users/mtakemiya/dev/iroha/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/README.md": "eb96dfea0a5fbfef6e29b3931986d902f378343d2786ef3ec0cd886063d4367c",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/aes256.py": "d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/capture.py": "3b73eca130910562c6ef905a38093762f412df1fcb9ba593b4f5866f7d22c306",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/AES_Core256.pdf": "8caf33781b8d4b9564c7e95a7690e491ca1d95efe9a31cdea2977deaf4c7b4ce",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.pdf": "62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.txt": "9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/report.py": "585f9b58c79f24a81ad86ff3547af687351addc2cb64a95b26ffa885b6895d8e",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/reviewed-source-hashes.json": "5efc075ef9122c354721baf83cdd91e40a326f7eeec77b6195817e322473ad33",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/test_aes256.py": "4a10177043e404da49de034156c36b330ad6617477e9415e1ba9f11808c14052",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/README.md": "cbce302514346ce2385acdf49a92f63f0dd6ed81c24fcf9a1b03df34b8298cd1",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/test_independent_aes.py": "03c513562782d582df94f9fe21c8d283a070d1de35979ac1b8b5ea772f9d61bb",
+        "/Users/mtakemiya/dev/iroha/target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64"
+      }
+    },
+    {
+      "command": [
+        "/opt/homebrew/opt/python@3.15/bin/python3.15",
+        "-B",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/report.py",
+        "--out",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/capture/report.json"
+      ],
+      "elapsed_seconds": 0.8708047920372337,
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "name": "report",
+      "source_after": {
+        "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+        "/Users/mtakemiya/dev/iroha/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/README.md": "eb96dfea0a5fbfef6e29b3931986d902f378343d2786ef3ec0cd886063d4367c",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/aes256.py": "d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/capture.py": "3b73eca130910562c6ef905a38093762f412df1fcb9ba593b4f5866f7d22c306",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/AES_Core256.pdf": "8caf33781b8d4b9564c7e95a7690e491ca1d95efe9a31cdea2977deaf4c7b4ce",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.pdf": "62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.txt": "9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/report.py": "585f9b58c79f24a81ad86ff3547af687351addc2cb64a95b26ffa885b6895d8e",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/reviewed-source-hashes.json": "5efc075ef9122c354721baf83cdd91e40a326f7eeec77b6195817e322473ad33",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/test_aes256.py": "4a10177043e404da49de034156c36b330ad6617477e9415e1ba9f11808c14052",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/README.md": "cbce302514346ce2385acdf49a92f63f0dd6ed81c24fcf9a1b03df34b8298cd1",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/test_independent_aes.py": "03c513562782d582df94f9fe21c8d283a070d1de35979ac1b8b5ea772f9d61bb",
+        "/Users/mtakemiya/dev/iroha/target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64"
+      }
+    },
+    {
+      "command": [
+        "/opt/homebrew/opt/python@3.15/bin/python3.15",
+        "-B",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/report.py",
+        "--out",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/capture/refusal.json",
+        "--require-qualified"
+      ],
+      "elapsed_seconds": 0.8751720839645714,
+      "exit_code": 2,
+      "expected_exit_code": 2,
+      "name": "require-qualified",
+      "source_after": {
+        "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+        "/Users/mtakemiya/dev/iroha/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/README.md": "eb96dfea0a5fbfef6e29b3931986d902f378343d2786ef3ec0cd886063d4367c",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/aes256.py": "d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/capture.py": "3b73eca130910562c6ef905a38093762f412df1fcb9ba593b4f5866f7d22c306",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/AES_Core256.pdf": "8caf33781b8d4b9564c7e95a7690e491ca1d95efe9a31cdea2977deaf4c7b4ce",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.pdf": "62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.txt": "9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/report.py": "585f9b58c79f24a81ad86ff3547af687351addc2cb64a95b26ffa885b6895d8e",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/reviewed-source-hashes.json": "5efc075ef9122c354721baf83cdd91e40a326f7eeec77b6195817e322473ad33",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/test_aes256.py": "4a10177043e404da49de034156c36b330ad6617477e9415e1ba9f11808c14052",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/README.md": "cbce302514346ce2385acdf49a92f63f0dd6ed81c24fcf9a1b03df34b8298cd1",
+        "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/test_independent_aes.py": "03c513562782d582df94f9fe21c8d283a070d1de35979ac1b8b5ea772f9d61bb",
+        "/Users/mtakemiya/dev/iroha/target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64"
+      }
+    }
+  ],
+  "complete_resource_vector": false,
+  "complete_simulator_coverage": false,
+  "environment_overrides": {
+    "PYTEST_ADDOPTS": "",
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+    "PYTEST_PLUGINS": "",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONOPTIMIZE": "0",
+    "PYTHONPATH": "/Users/mtakemiya/dev/iroha/target/parliament-ideal-machine-stage"
+  },
+  "error": null,
+  "expected_test_cases": 36,
+  "fixed_reference_map": {
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/AES_Core256.pdf": "8caf33781b8d4b9564c7e95a7690e491ca1d95efe9a31cdea2977deaf4c7b4ce",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.pdf": "62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.txt": "9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f",
+    "/Users/mtakemiya/dev/iroha/target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64"
+  },
+  "full_generator_implemented": false,
+  "independent_cryptographic_review": false,
+  "native_workspace_certificate": false,
+  "output_sha256": {
+    "collected-nodeids.json": "5a5d1729b39085ad104f92a6b8bb5b8496a1d90314ce2ad6045cd169390d51d7",
+    "collection.command.json": "52666492762676b035451932b55c9b39365bbed2f48ec6487677559a5389308f",
+    "collection.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "collection.stdout.txt": "8c5401fe155fda590d6ea11c87ce16931dd70c19f2b68b3505c8a321729e3445",
+    "refusal.json": "3745626fd2386032ee0db21f44eab2d5ddabbac7d37b67dbfbc9bcb27764b5be",
+    "report.command.json": "8985b5732fff77ed8697f3e1853b2d71a247034ac287d8ea3932c696d9876dc0",
+    "report.json": "3745626fd2386032ee0db21f44eab2d5ddabbac7d37b67dbfbc9bcb27764b5be",
+    "report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "require-qualified.command.json": "2c518e947ddfad840f744352dddd4724809ad0123321fce0770d59de5bda7293",
+    "require-qualified.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "require-qualified.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sources/00-aes256.py.template": "d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2",
+    "sources/01-report.py.template": "585f9b58c79f24a81ad86ff3547af687351addc2cb64a95b26ffa885b6895d8e",
+    "sources/02-test_aes256.py.template": "4a10177043e404da49de034156c36b330ad6617477e9415e1ba9f11808c14052",
+    "sources/03-README.md.template": "eb96dfea0a5fbfef6e29b3931986d902f378343d2786ef3ec0cd886063d4367c",
+    "sources/04-bit_ir.py.template": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64",
+    "sources/05-test_independent_aes.py.template": "03c513562782d582df94f9fe21c8d283a070d1de35979ac1b8b5ea772f9d61bb",
+    "sources/06-README.md.template": "cbce302514346ce2385acdf49a92f63f0dd6ed81c24fcf9a1b03df34b8298cd1",
+    "sources/07-prg.rs.template": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    "sources/08-FIPS-197-upd1.pdf.template": "62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1",
+    "sources/09-FIPS-197-upd1.txt.template": "9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f",
+    "sources/10-AES_Core256.pdf.template": "8caf33781b8d4b9564c7e95a7690e491ca1d95efe9a31cdea2977deaf4c7b4ce",
+    "sources/11-pytest.ini.template": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "sources/12-capture.py.template": "3b73eca130910562c6ef905a38093762f412df1fcb9ba593b4f5866f7d22c306",
+    "sources/13-reviewed-source-hashes.json.template": "5efc075ef9122c354721baf83cdd91e40a326f7eeec77b6195817e322473ad33",
+    "summary.json": "f9cd022501934f661c1f253d6630f14e837abde5f1b0f583b57133aa01165489",
+    "tests.command.json": "5976c3efda1213bae330478522556647e010cd6dca514692e367bee4c2ee34aa",
+    "tests.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tests.stdout.txt": "251f2bd8fb1e57e2e30272d79265f7edc880c5ddad72e717bb2be1eca8af4ce0",
+    "tests.xml": "cd11db7137cf41b5e25102e93cf9cf115f909ffd879c14c17a9f3dbc063504c6"
+  },
+  "primitive_advantage_assumed": false,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "recorded_at_utc": "2026-10-13T17:47:29.291945+00:00",
+  "reviewed_source_map": {
+    "aes": "d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2",
+    "independent_readme": "cbce302514346ce2385acdf49a92f63f0dd6ed81c24fcf9a1b03df34b8298cd1",
+    "independent_tests": "03c513562782d582df94f9fe21c8d283a070d1de35979ac1b8b5ea772f9d61bb",
+    "ir": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64",
+    "readme": "eb96dfea0a5fbfef6e29b3931986d902f378343d2786ef3ec0cd886063d4367c",
+    "report": "585f9b58c79f24a81ad86ff3547af687351addc2cb64a95b26ffa885b6895d8e",
+    "tests": "4a10177043e404da49de034156c36b330ad6617477e9415e1ba9f11808c14052"
+  },
+  "runtime_after": {
+    "/opt/homebrew/Cellar/python@3.11/3.11.17/Frameworks/Python.framework/Versions/3.11/bin/python3.11": "bff9a674241830f21e8e2933b7d9563a0b61f60ea0f3206964d0fcccd9ab8fd6",
+    "/opt/homebrew/Cellar/python@3.15/3.15.0/Frameworks/Python.framework/Versions/3.15/bin/python3.15": "15c72833c1ffc09bc4e05d1e1866784d126721ad548d9c4d8f943641262535cb",
+    "/opt/homebrew/bin/pytest": "63aac753282bf709581dee19db2f6f8198954d5ddcaaa0bcc0b1677ebaac4edd"
+  },
+  "runtime_before": {
+    "/opt/homebrew/Cellar/python@3.11/3.11.17/Frameworks/Python.framework/Versions/3.11/bin/python3.11": "bff9a674241830f21e8e2933b7d9563a0b61f60ea0f3206964d0fcccd9ab8fd6",
+    "/opt/homebrew/Cellar/python@3.15/3.15.0/Frameworks/Python.framework/Versions/3.15/bin/python3.15": "15c72833c1ffc09bc4e05d1e1866784d126721ad548d9c4d8f943641262535cb",
+    "/opt/homebrew/bin/pytest": "63aac753282bf709581dee19db2f6f8198954d5ddcaaa0bcc0b1677ebaac4edd"
+  },
+  "schema": "parliament-aes-component-capture-v1",
+  "scope": "Reviewed scratch AES component and exact selected-source correspondence only. Source/config/reference/runtime observations are non-atomic. Python/pytest dependency closure, imported module memory and unobserved child reads remain trusted. Finite classical controls plus explicit reversible construction; no native execution, full generator/machine, PRP reduction, physical cost calibration or production qualification.",
+  "source_after": {
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    "/Users/mtakemiya/dev/iroha/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/README.md": "eb96dfea0a5fbfef6e29b3931986d902f378343d2786ef3ec0cd886063d4367c",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/aes256.py": "d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/capture.py": "3b73eca130910562c6ef905a38093762f412df1fcb9ba593b4f5866f7d22c306",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/AES_Core256.pdf": "8caf33781b8d4b9564c7e95a7690e491ca1d95efe9a31cdea2977deaf4c7b4ce",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.pdf": "62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.txt": "9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/report.py": "585f9b58c79f24a81ad86ff3547af687351addc2cb64a95b26ffa885b6895d8e",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/reviewed-source-hashes.json": "5efc075ef9122c354721baf83cdd91e40a326f7eeec77b6195817e322473ad33",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/test_aes256.py": "4a10177043e404da49de034156c36b330ad6617477e9415e1ba9f11808c14052",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/README.md": "cbce302514346ce2385acdf49a92f63f0dd6ed81c24fcf9a1b03df34b8298cd1",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/test_independent_aes.py": "03c513562782d582df94f9fe21c8d283a070d1de35979ac1b8b5ea772f9d61bb",
+    "/Users/mtakemiya/dev/iroha/target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64"
+  },
+  "source_before": {
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    "/Users/mtakemiya/dev/iroha/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/README.md": "eb96dfea0a5fbfef6e29b3931986d902f378343d2786ef3ec0cd886063d4367c",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/aes256.py": "d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/capture.py": "3b73eca130910562c6ef905a38093762f412df1fcb9ba593b4f5866f7d22c306",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/AES_Core256.pdf": "8caf33781b8d4b9564c7e95a7690e491ca1d95efe9a31cdea2977deaf4c7b4ce",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.pdf": "62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.txt": "9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/report.py": "585f9b58c79f24a81ad86ff3547af687351addc2cb64a95b26ffa885b6895d8e",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/reviewed-source-hashes.json": "5efc075ef9122c354721baf83cdd91e40a326f7eeec77b6195817e322473ad33",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/test_aes256.py": "4a10177043e404da49de034156c36b330ad6617477e9415e1ba9f11808c14052",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/README.md": "cbce302514346ce2385acdf49a92f63f0dd6ed81c24fcf9a1b03df34b8298cd1",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/test_independent_aes.py": "03c513562782d582df94f9fe21c8d283a070d1de35979ac1b8b5ea772f9d61bb",
+    "/Users/mtakemiya/dev/iroha/target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64"
+  },
+  "source_snapshots": {
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/prg.rs": {
+      "bytes": 18433,
+      "path": "sources/07-prg.rs.template",
+      "sha256": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81"
+    },
+    "/Users/mtakemiya/dev/iroha/pytest.ini": {
+      "bytes": 43,
+      "path": "sources/11-pytest.ini.template",
+      "sha256": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62"
+    },
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/README.md": {
+      "bytes": 6429,
+      "path": "sources/03-README.md.template",
+      "sha256": "eb96dfea0a5fbfef6e29b3931986d902f378343d2786ef3ec0cd886063d4367c"
+    },
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/aes256.py": {
+      "bytes": 8017,
+      "path": "sources/00-aes256.py.template",
+      "sha256": "d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2"
+    },
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/capture.py": {
+      "bytes": 10802,
+      "path": "sources/12-capture.py.template",
+      "sha256": "3b73eca130910562c6ef905a38093762f412df1fcb9ba593b4f5866f7d22c306"
+    },
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/AES_Core256.pdf": {
+      "bytes": 396317,
+      "path": "sources/10-AES_Core256.pdf.template",
+      "sha256": "8caf33781b8d4b9564c7e95a7690e491ca1d95efe9a31cdea2977deaf4c7b4ce"
+    },
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.pdf": {
+      "bytes": 1184436,
+      "path": "sources/08-FIPS-197-upd1.pdf.template",
+      "sha256": "62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1"
+    },
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.txt": {
+      "bytes": 101311,
+      "path": "sources/09-FIPS-197-upd1.txt.template",
+      "sha256": "9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f"
+    },
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/report.py": {
+      "bytes": 3501,
+      "path": "sources/01-report.py.template",
+      "sha256": "585f9b58c79f24a81ad86ff3547af687351addc2cb64a95b26ffa885b6895d8e"
+    },
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/reviewed-source-hashes.json": {
+      "bytes": 578,
+      "path": "sources/13-reviewed-source-hashes.json.template",
+      "sha256": "5efc075ef9122c354721baf83cdd91e40a326f7eeec77b6195817e322473ad33"
+    },
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/test_aes256.py": {
+      "bytes": 11679,
+      "path": "sources/02-test_aes256.py.template",
+      "sha256": "4a10177043e404da49de034156c36b330ad6617477e9415e1ba9f11808c14052"
+    },
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/README.md": {
+      "bytes": 3565,
+      "path": "sources/06-README.md.template",
+      "sha256": "cbce302514346ce2385acdf49a92f63f0dd6ed81c24fcf9a1b03df34b8298cd1"
+    },
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/test_independent_aes.py": {
+      "bytes": 9491,
+      "path": "sources/05-test_independent_aes.py.template",
+      "sha256": "03c513562782d582df94f9fe21c8d283a070d1de35979ac1b8b5ea772f9d61bb"
+    },
+    "/Users/mtakemiya/dev/iroha/target/parliament-ideal-machine-stage/bit_ir.py": {
+      "bytes": 12505,
+      "path": "sources/04-bit_ir.py.template",
+      "sha256": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64"
+    }
+  },
+  "status": "PASS"
+}

@@ -1,0 +1,155 @@
+"""Freeze adapter/deletion evidence without transferring it to changed sources.
+
+Run once from the repository root. Preserve the 987-entry prior inventory and
+the child's observed current-source refusal. Qualification remains false.
+"""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+import re
+import subprocess
+
+ROOT = Path.cwd()
+B6 = ROOT / "docs/validation/parliament_ballot_b6"
+PRIOR = B6 / "pre-adapter-deletion-artifact-manifest.sha256"
+INDEX = B6 / "B6_ARTIFACTS_SHA256SUMS"
+RECEIPT = B6 / "adapter-deletion-coherence.json"
+
+
+def require(condition, detail):
+    if not condition:
+        raise RuntimeError(str(detail))
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def inventory(path):
+    entries = {}
+    for line in path.read_text().splitlines():
+        digest, name = line.split("  ", 1)
+        require(name not in entries and re.fullmatch(r"[0-9a-f]{64}", digest), (path, name))
+        entries[name] = digest
+    return entries
+
+
+def verify_manifest(path):
+    entries = inventory(path)
+    for name, expected in entries.items():
+        base = ROOT if name.startswith(("docs/", "specs/", "scripts/", "crates/")) else path.parent
+        require(sha(base / name) == expected, (path, name))
+    return {"path": str(path.relative_to(ROOT)), "sha256": sha(path), "entries": len(entries)}
+
+
+def live_changes(pins):
+    return {name: {"before": expected, "after": sha(ROOT / name)}
+            for name, expected in pins.items() if sha(ROOT / name) != expected}
+
+
+require(sha(PRIOR) == "bd6e8326f4eafd2ea7ac4d4c1cf7c41303bb539f81807f40328d38349c8ea961", "wrong prior index")
+require(INDEX.read_bytes() == PRIOR.read_bytes(), "index already changed")
+require(not RECEIPT.exists(), "refuse overwriting receipt")
+old = inventory(PRIOR)
+allowed = {
+    "docs/validation/parliament_ballot_b6.md",
+    "specs/parliament_ballot_arena_sufficiency.md",
+    "specs/parliament_ballot_b6_requirement_audit.md",
+    "specs/parliament_ballot_implementation_goals.md",
+}
+changes = live_changes(old)
+require(set(changes) == allowed, ("unexpected prior artifact changes", changes))
+adapter = ROOT / "docs/validation/parliament_ballot_adapter_bound"
+deletion = ROOT / "docs/validation/parliament_ballot_hidden_assignment_deletion"
+manifests = [verify_manifest(folder / "SHA256SUMS") for folder in (adapter, deletion)]
+require([entry["sha256"] for entry in manifests] == [
+    "4e3124e2ab8b757bfb76282064d06edfdf157631fe6c341277cb6791c302e57f",
+    "22539d85684560d928f7ba5bd36b763bbe595c9b0566f4ae695388ad5a9316fb",
+], "child manifest identities differ")
+report = json.loads((adapter / "report.json").read_text())
+refusal = json.loads((adapter / "current-source-refusal/report.json").read_text())
+observed_drift = json.loads((adapter / "post-analysis-source-check.json").read_text())
+math = json.loads((deletion / "receipt.json").read_text())
+require(report["verdict"] == "PASS_UNDER_STATED_PREMISES" and not report["input_changes"], "historical capture failed")
+require(refusal["verdict"] == "UNKNOWN" and refusal["failure"], "current-source refusal lost")
+require(sha(adapter / "report.json") == observed_drift["historical_report_sha256"], "historical report rewritten")
+require(not report["profile_qualified"] and not math["profile_qualified"], "qualification changed")
+require(not live_changes(math["source_sha256_at_freeze"]), "deletion inputs changed")
+for name in ("scripts/parliament_ballot_adapter_bound.py", "scripts/tests/parliament_ballot_adapter_bound_test.py"):
+    require(sha(ROOT / name) == report["input_sha256"][str(ROOT / name)], ("live helper changed", name))
+current_adapter_drift = live_changes(report["input_sha256"])
+
+gate_path = B6 / "adapter-deletion-source-check.json"
+gate = json.loads(gate_path.read_text())
+require(gate["exit"] == 1 and gate["observed_read_set_matches_cli"] and not gate["source_changes"], "source check not coherent")
+current_gate_drift = live_changes(gate["source_after"])
+iface_path = ROOT / "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs"
+iface = iface_path.read_text()
+require(re.search(r"pub const fn parliament_binding_ballot_available\(\) -> bool \{\s*false\s*\}", iface), "binding gate changed")
+require(re.search(r"pub const fn parliament_sccp_attempt_latency_ms\(\) -> Option<u64> \{\s*None\s*\}", iface), "qualified latency changed")
+gate_pins = {str(iface_path.relative_to(ROOT)): sha(iface_path)}
+for name in ("crates/iroha_core/Cargo.toml", "crates/iroha_torii/Cargo.toml"):
+    require(not re.search(r"iroha[_-](?:parliament[_-]ballot|zkp[_-]vole)", (ROOT / name).read_text()), "experimental production dependency")
+    gate_pins[name] = sha(ROOT / name)
+
+documents = [ROOT / name for name in sorted(allowed)] + [
+    ROOT / "specs/parliament_ballot_b6_hidden_assignment_deletion.md",
+    adapter / "README.md", deletion / "README.md",
+]
+links = []
+for doc in documents:
+    for link in re.findall(r"\]\(([^)]+)\)", doc.read_text()):
+        if "://" in link or link.startswith("#"):
+            continue
+        require((doc.parent / link.split("#")[0]).resolve().exists(), ("broken link", doc, link))
+        links.append({"document": str(doc.relative_to(ROOT)), "link": link})
+checks = []
+check_files = sorted(allowed | {"scripts/parliament_ballot_adapter_bound.py", "scripts/tests/parliament_ballot_adapter_bound_test.py"})
+for label, paths in (("scoped-diff", check_files), ("shared-status-diff", ["status.md"])):
+    command = ["git", "diff", "--check", "--", *paths]
+    completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+    path = B6 / ("adapter-deletion-" + label + ".txt")
+    require(not path.exists(), "refuse overwriting check log")
+    path.write_text(completed.stdout + completed.stderr)
+    checks.append({"command": command, "exit": completed.returncode,
+                   "log": str(path.relative_to(ROOT)), "log_sha256": sha(path)})
+require(checks[0]["exit"] == 0, "scoped diff check failed")
+require(not live_changes(gate_pins), "gate source changed during reconciliation")
+receipt = {
+    "schema": "parliament-adapter-deletion-coherence-v1",
+    "observed_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "prior_entries": len(old), "prior_manifest_sha256": sha(PRIOR),
+    "updated_live_entries": changes, "frozen_new_manifests": manifests,
+    "historical_adapter_report_sha256": sha(adapter / "report.json"),
+    "current_adapter_input_changes": current_adapter_drift,
+    "current_source_refusal_retained": True, "pins_refreshed": False,
+    "deletion_source_guards_checked": len(math["source_sha256_at_freeze"]),
+    "local_links_checked": len(links), "broken_links": [], "checks": checks,
+    "source_check_receipt": str(gate_path.relative_to(ROOT)),
+    "source_check_receipt_sha256": sha(gate_path),
+    "source_check_subsequent_changes": current_gate_drift,
+    "production_gate_source_sha256": gate_pins,
+    "binding_ballot_available": False, "qualified_attempt_latency_ms": None,
+    "no_experimental_core_torii_dependencies": True,
+    "current_status_roadmap_sha256": {name: sha(ROOT / name) for name in ("status.md", "roadmap.md")},
+    "complete_workspace_certificate": False, "profile_qualified": False,
+    "scope": "Conditional adapter contribution and same-ideal-material adaptive deletion only. The recorded source-contract check fails at its first queue binding; later assertions are unexecuted. Concurrent source changes and shared-status check results are retained without modifying unrelated work.",
+}
+RECEIPT.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+names = set(old) | {str(path.relative_to(ROOT)) for folder in (adapter, deletion) for path in folder.rglob("*") if path.is_file()} | {
+    str(PRIOR.relative_to(ROOT)), str(RECEIPT.relative_to(ROOT)),
+    "docs/validation/parliament_ballot_b6/adapter-deletion-coherence.py.template",
+    "docs/validation/parliament_ballot_b6/adapter-deletion-source-check.py.template",
+    "docs/validation/parliament_ballot_b6/adapter-deletion-source-check.json",
+    "docs/validation/parliament_ballot_b6/adapter-deletion-source-check.txt",
+    "docs/validation/parliament_ballot_b6/adapter-deletion-scoped-diff.txt",
+    "docs/validation/parliament_ballot_b6/adapter-deletion-shared-status-diff.txt",
+    "specs/parliament_ballot_b6_hidden_assignment_deletion.md",
+    "scripts/parliament_ballot_adapter_bound.py", "scripts/tests/parliament_ballot_adapter_bound_test.py",
+}
+INDEX.write_text("".join(sha(ROOT / name) + "  " + name + "\n" for name in sorted(names)))
+verify_manifest(INDEX)
+print(json.dumps({"entries": len(names), "index_sha256": sha(INDEX), "coherence_sha256": sha(RECEIPT),
+                  "adapter_drift_count": len(current_adapter_drift), "links_checked": len(links),
+                  "check_exits": [entry["exit"] for entry in checks]}))

@@ -4415,6 +4415,7 @@ impl Network {
                 Some(consensus_handshake_meta),
                 None,
                 confidential_policy_hash,
+                None,
             );
         let validated = ValidatedNetworkGenesis::new(
             genesis,
@@ -8163,6 +8164,13 @@ impl NetworkBuilder {
                             ConsensusMode::Npos => SumeragiConsensusMode::Npos,
                         }),
                         confidential_policy_hash,
+                        Some(
+                            std::num::NonZeroU64::new(
+                                u64::try_from(block_cadence.as_millis())
+                                    .expect("signed cadence fits u64 milliseconds"),
+                            )
+                            .expect("signed cadence is nonzero"),
+                        ),
                     );
                     assert_genesis_voting_roster_matches_network(&preview_genesis, &peer_topology);
                     (
@@ -15514,6 +15522,95 @@ mod tests {
             "signed handshake metadata must carry the explicit cadence"
         );
     }
+    #[test]
+    fn explicit_cadence_reaches_sccp_genesis_before_preview_execution() {
+        use iroha_data_model::{
+            isi::sccp::InitializeSccpV1,
+            parameter::{SumeragiParameter, governance_clock::GovernanceClockParametersV1},
+            sccp::params::{SCCP_MIN_EPOCH_MS_V1, SccpParametersV1},
+        };
+        use std::num::NonZeroU64;
+
+        init_instruction_registry();
+        let epoch = NonZeroU64::new(64).unwrap();
+        let cadence_ms = SCCP_MIN_EPOCH_MS_V1 / epoch.get();
+        let lag_ms = 2_000 + 4 * cadence_ms;
+        let clock = GovernanceClockParametersV1 {
+            due_work_max_lag_ms: lag_ms,
+            ..GovernanceClockParametersV1::default()
+        };
+        let npos = SumeragiNposParameters {
+            epoch_length_blocks: epoch,
+            max_validators: 4,
+            evidence_horizon_blocks: epoch.get() * 2,
+            slashing_delay_blocks: 1,
+            ..SumeragiNposParameters::default()
+        };
+        let builder = NetworkBuilder::new()
+            .with_peers(4)
+            .with_npos_consensus()
+            .with_npos_genesis_bootstrap(1_000_u64.into())
+            .with_block_cadence(Duration::from_millis(cadence_ms))
+            .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
+                SumeragiParameter::MaxClockDriftMs(1_000),
+            )))
+            .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
+                SumeragiParameter::PayloadRetryIntervalMs(NonZeroU64::new(cadence_ms).unwrap()),
+            )))
+            .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
+                SumeragiParameter::DueWorkMaxLagMs(NonZeroU64::new(lag_ms).unwrap()),
+            )))
+            .with_genesis_instruction(SetParameter::new(Parameter::Custom(CustomParameter::new(
+                GovernanceClockParametersV1::parameter_id().clone(),
+                norito::json::to_json(&clock)
+                    .unwrap()
+                    .parse::<iroha_primitives::json::Json>()
+                    .unwrap(),
+            ))))
+            .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
+                SumeragiParameter::EpochLengthBlocks(epoch),
+            )))
+            .with_genesis_instruction(SetParameter::new(Parameter::Custom(
+                npos.into_custom_parameter(),
+            )))
+            .with_genesis_post_bootstrap_isi(vec![
+                InitializeSccpV1 {
+                    parameters: SccpParametersV1::taira_default(),
+                    reset_nonce: [0x6c; 32],
+                }
+                .into(),
+            ])
+            .with_config_layer(|layer| {
+                layer
+                    .write(
+                        ["nexus", "staking", "unbonding_delay_ms"],
+                        1_814_400_000_i64,
+                    )
+                    .write(["nexus", "staking", "max_slash_bps"], 1_i64)
+                    .write(
+                        ["nexus", "storage", "local_budget_bytes"],
+                        1_073_741_824_i64,
+                    );
+            });
+        // This construction executes both preview and final genesis, including the
+        // original SCCP one-hour guard and generated-policy fixed-point check.
+        let network = build_with_isolated_permit(builder);
+        let parameters = consensus_parameters_from_genesis(&network.genesis());
+        assert_eq!(parameters.sumeragi().epoch_length_blocks.get(), epoch.get());
+        let metadata = consensus_handshake_metadata(&network.genesis())
+            .expect("executed SCCP genesis must retain its signed consensus metadata");
+        assert_eq!(metadata.block_cadence_ms.get(), cadence_ms);
+        assert_eq!(
+            network
+                .consensus_bootstrap_profile()
+                .params
+                .block_cadence_ms
+                .get(),
+            cadence_ms
+        );
+        assert_eq!(epoch.get() * cadence_ms, SCCP_MIN_EPOCH_MS_V1);
+    }
+
     #[test]
     fn configured_block_cadence_reports_explicit_override() {
         let duration = Duration::from_secs(3);

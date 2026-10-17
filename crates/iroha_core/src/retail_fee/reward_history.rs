@@ -195,9 +195,12 @@ pub(crate) fn reward_history_is_closed(
 }
 
 /// Reconcile the exact index and closure invariant on current and rollback restoration.
-pub(crate) fn validate_reward_history_frontier(
-    world: &impl WorldReadOnly,
-) -> Result<(), FeeReadError> {
+///
+/// # Errors
+/// Rejects malformed wallet identities, noncanonical closure periods, unsettled
+/// wallets preceding closed history, and missing or extra frontier rows. Original
+/// local decoder refusals remain distinct from invalid stored state.
+pub fn validate_reward_history_frontier(world: &impl WorldReadOnly) -> Result<(), FeeReadError> {
     let mut expected = BTreeMap::new();
     let mut actual = BTreeMap::new();
     let closed = read_u64(world, &closed_key())?;

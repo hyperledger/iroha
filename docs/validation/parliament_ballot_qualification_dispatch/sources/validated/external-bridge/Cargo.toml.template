@@ -1,0 +1,22 @@
+[package]
+name = "parliament_qualification_bridge"
+version = "0.1.0"
+edition = "2024"
+[workspace]
+[lib]
+crate-type = ["staticlib"]
+[features]
+default = []
+accel = ["iroha_parliament_ballot_proof/accel", "iroha_zkp_vole/accel"]
+[dependencies]
+iroha_parliament_ballot_proof = { path = "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof" }
+iroha_zkp_vole = { path = "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole" }
+norito = { path = "/Users/mtakemiya/dev/iroha/crates/norito", default-features = false, features = ["json"] }
+[dev-dependencies]
+sha3 = { version = "0.10.8", default-features = false, features = ["std"] }
+[patch.crates-io]
+aes = { path = "/Users/mtakemiya/dev/iroha/vendor/aes" }
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

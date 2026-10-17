@@ -1,0 +1,103 @@
+{
+  "audited_repository_reads": [
+    "pytest.ini"
+  ],
+  "call_outcomes": {
+    "failed": 0,
+    "passed": 0,
+    "skipped": 0
+  },
+  "collected_count": 1755,
+  "collection_errors": [],
+  "command": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "docs/validation/parliament_ballot_source_guard_regressions/capture.py.template",
+    "final-collection",
+    "--checker-sha256",
+    "4b160bff09631da0fef6ae61fe94b8e037e281fd2fa358a6b544588df7a5a2ec",
+    "--tests-sha256",
+    "e35855cc059afa7be471dc5678338a06b78d0c6560a282085370d391bdb3a3af"
+  ],
+  "effective_pytest_arguments": [
+    "--import-mode=importlib",
+    "--collect-only",
+    "--maxfail=0",
+    "-q",
+    "scripts/tests/check_sora_parliament_source_contract_test.py"
+  ],
+  "effective_pytest_config": {
+    "collectonly": true,
+    "ini_addopts": [
+      "--import-mode=importlib"
+    ],
+    "inipath": "/Users/mtakemiya/dev/iroha/pytest.ini",
+    "keyword": "",
+    "markexpr": "",
+    "maxfail": 0,
+    "rootpath": "/Users/mtakemiya/dev/iroha"
+  },
+  "elapsed_seconds": 0.19181854114867747,
+  "environment": {
+    "PYTEST_ADDOPTS": null,
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+    "PYTEST_PLUGINS": null
+  },
+  "exit": 0,
+  "expected_checker_sha256": "4b160bff09631da0fef6ae61fe94b8e037e281fd2fa358a6b544588df7a5a2ec",
+  "expected_tests_sha256": "e35855cc059afa7be471dc5678338a06b78d0c6560a282085370d391bdb3a3af",
+  "guarded_path_existence_before": {},
+  "log": "docs/validation/parliament_ballot_source_guard_regressions/final-collection.txt",
+  "log_sha256": "42963785bc115aa92d34b116a146721ce720130962bb40c4f52b5c63331bb096",
+  "nodeids": "docs/validation/parliament_ballot_source_guard_regressions/final-collection-nodeids.json",
+  "nodeids_sha256": "5d707018d48f72a0ec1b68a3cb6fa0e1192db9fb8f487e285523b8b2f14a9344",
+  "observed_at_utc": "2026-10-13T15:04:36.222917+00:00",
+  "path_existence_changes": {},
+  "phase": "final-collection",
+  "production_qualified": false,
+  "profile_qualified": false,
+  "read_scope": "Observed repository source/data/config reads plus explicit tool/config pins and repository imports. Python bytecode caches, the .git/.venv/.pytest_cache directories and generated bundle outputs excluded. Child subprocess read sets are not independently traced; before/after custody is not atomic.",
+  "repository_imports": {
+    "__main__": "docs/validation/parliament_ballot_source_guard_regressions/capture.py.template",
+    "scripts.formal.check_sora_parliament_source_contract": "scripts/formal/check_sora_parliament_source_contract.py",
+    "scripts.tests.check_sora_parliament_source_contract_test": "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "scripts.tests.conftest": "scripts/tests/conftest.py"
+  },
+  "runtime": {
+    "installed_python_pytest_standard_library_trusted": true,
+    "pytest_version": "9.1.1",
+    "python_executable": "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "python_executable_sha256": "1b5cb11d163e5ba34e2a05fc533c0ed89574d4425f9749a9d89405f651980e0d",
+    "python_import_bytecode_cache_coherence_trusted": true,
+    "python_version": "3.14.8 (main, Sep 30 2026, 17:55:09) [Clang 21.0.0 (clang-2100.3.34.2)]"
+  },
+  "schema": "parliament-source-guard-regressions-v1",
+  "scope": "Complete Python source-contract test module, with no keyword selection or fail-fast stop. Structural checker/regression consistency only; no Rust build, native runtime, cryptographic, hardware or production qualification.",
+  "setup_teardown_errors": [],
+  "snapshots": {
+    "docs/validation/parliament_ballot_source_guard_regressions/capture.py.template": "sources/final-collection/docs/validation/parliament_ballot_source_guard_regressions/capture.py.template.template",
+    "pytest.ini": "sources/final-collection/pytest.ini.template",
+    "scripts/formal/check_sora_parliament_source_contract.py": "sources/final-collection/scripts/formal/check_sora_parliament_source_contract.py.template",
+    "scripts/formal/rust_text.py": "sources/final-collection/scripts/formal/rust_text.py.template",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "sources/final-collection/scripts/tests/check_sora_parliament_source_contract_test.py.template",
+    "scripts/tests/conftest.py": "sources/final-collection/scripts/tests/conftest.py.template"
+  },
+  "source_after": {
+    "docs/validation/parliament_ballot_source_guard_regressions/capture.py.template": "36d4bc1b67626a73c42b664903aca84378d74541876ed5719f9190c4af114ec4",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/formal/check_sora_parliament_source_contract.py": "4b160bff09631da0fef6ae61fe94b8e037e281fd2fa358a6b544588df7a5a2ec",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "e35855cc059afa7be471dc5678338a06b78d0c6560a282085370d391bdb3a3af",
+    "scripts/tests/conftest.py": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f"
+  },
+  "source_before": {
+    "docs/validation/parliament_ballot_source_guard_regressions/capture.py.template": "36d4bc1b67626a73c42b664903aca84378d74541876ed5719f9190c4af114ec4",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/formal/check_sora_parliament_source_contract.py": "4b160bff09631da0fef6ae61fe94b8e037e281fd2fa358a6b544588df7a5a2ec",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "e35855cc059afa7be471dc5678338a06b78d0c6560a282085370d391bdb3a3af",
+    "scripts/tests/conftest.py": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f"
+  },
+  "source_changes": {},
+  "source_count": 6,
+  "test_reports": []
+}

@@ -247,18 +247,23 @@ impl StrictQualifiedSourceProfileV1 {
 
 fn rust_blob(bytes: &[u8]) -> String {
     let blob = BlobV1::of(bytes);
-    let decimal = blob.bytes.to_string();
-    let mut literal = String::with_capacity(decimal.len() + decimal.len() / 3);
-    for (index, digit) in decimal.chars().enumerate() {
-        if decimal.len() > 5 && index != 0 && (decimal.len() - index).is_multiple_of(3) {
+    format!(
+        "BuiltinBlob {{ bytes: {}, sha256: {:?} }}",
+        rust_decimal(blob.bytes),
+        blob.sha256
+    )
+}
+
+fn rust_decimal(value: u64) -> String {
+    let digits = value.to_string();
+    let mut literal = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, digit) in digits.chars().enumerate() {
+        if index != 0 && (digits.len() - index).is_multiple_of(3) {
             literal.push('_');
         }
         literal.push(digit);
     }
-    format!(
-        "BuiltinBlob {{ bytes: {literal}, sha256: {:?} }}",
-        blob.sha256
-    )
+    literal
 }
 
 #[cfg(test)]
@@ -266,15 +271,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn decimal_literals_group_digits_without_changing_values() {
+        for (value, expected) in [
+            (0, "0"),
+            (999, "999"),
+            (1_000, "1_000"),
+            (99_999, "99_999"),
+            (100_000, "100_000"),
+            (1_000_000, "1_000_000"),
+            (u64::MAX, "18_446_744_073_709_551_615"),
+        ] {
+            let literal = rust_decimal(value);
+            assert_eq!(literal, expected);
+            assert_eq!(literal.replace('_', "").parse::<u64>().unwrap(), value);
+        }
+    }
+
+    #[test]
     fn generated_blob_lengths_are_readable_and_preserve_original_values_and_hashes() {
         for (length, literal) in [
             (0, "0"),
             (1, "1"),
             (999, "999"),
-            (1000, "1000"),
-            (9999, "9999"),
-            (10_000, "10000"),
-            (99_999, "99999"),
+            (1_000, "1_000"),
+            (9_999, "9_999"),
+            (10_000, "10_000"),
+            (99_999, "99_999"),
             (100_000, "100_000"),
             (244_977, "244_977"),
             (1_000_000, "1_000_000"),

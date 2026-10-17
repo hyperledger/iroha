@@ -1,0 +1,121 @@
+"""Four exact metadata constructions from the frozen mathematical machine."""
+import argparse
+import dataclasses
+import hashlib
+import json
+from pathlib import Path
+import sys
+import time
+
+ROOT = Path(__file__).resolve().parents[2]
+MACHINE = ROOT / 'target/parliament-ideal-machine-stage'
+CAPTURE = ROOT / 'target/parliament-machine-final-capture/capture'
+RECEIPT_SHA = 'a2461d6bc5b1ee066dcaa6a48bf3fe5639d0b886da6512358e5dd0c6eb835e69'
+MANIFEST_SHA = 'dbaf7f5306389646f492862cc3f6618ade622546011de6159b856f1fbec61d93'
+ACCEPTED = ROOT / 'target/parliament-ideal-machine-stage/request-accepted-observation.json'
+ACCEPTED_SHA = '81ffb1db693c94f73f41239da3cd8164893d9c84ddd805d873ec3ede974f4f4c'
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def source_pins():
+    if sha(CAPTURE / 'receipt.json') != RECEIPT_SHA or sha(CAPTURE / 'manifest.sha256') != MANIFEST_SHA:
+        raise ValueError('frozen corrected capture identity changed')
+    receipt = json.loads((CAPTURE / 'receipt.json').read_text())
+    pins = receipt['source_sha256_before']
+    if len(pins) != 152 or receipt['source_sha256_after'] != pins:
+        raise ValueError('frozen selected source map')
+    observed = {name: sha(ROOT / name) for name in pins}
+    if observed != pins or sha(ACCEPTED) != ACCEPTED_SHA:
+        raise ValueError('selected source or accepted-only observation drift')
+    return observed
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--out', type=Path, required=True)
+    args = parser.parse_args()
+    if args.out.exists():
+        parser.error('output exists')
+    before = source_pins()
+    sys.path.insert(0, str(MACHINE))
+    from public_machine import PublicShape
+    from content_request import actual_content_request
+    from request_family import ContentFamily
+    report = dict(schema='parliament-content-family-resource-observation-v1',
+        scope='Four exact fixed-shape mathematical requests; metadata construction only.',
+        parameters=dict(trials=1 << 20, lifetime_requests=1 << 44, length_bits=64,
+                        log_slots=(1 << 44)*((1 << 20)+2), maximum_message_bytes=215150),
+        corrected_capture_receipt_sha256=RECEIPT_SHA,
+        corrected_capture_manifest_sha256=MANIFEST_SHA,
+        accepted_only_observation_sha256=ACCEPTED_SHA,
+        source_sha256_before=before, cases=[],
+        full_elementary_streams_executed=False, native_workspace_measurement=False,
+        family_wide_resource_maximum_proved=False,
+        adaptive_lifetime_driver_executed=False,
+        external_oracle_and_adversary_resources_included=False,
+        raw_descriptor_authentication_implemented=False,
+        complete_family_dispatch_composed=False,
+        complete_simulator_coverage=False, complete_resource_vector=False,
+        complete_public_framing=False, independent_cryptographic_review=False,
+        physical_cost_calibrated=False, profile_qualified=False,
+        production_gate_changed=False)
+    try:
+        for row in ('candidate', 'comparator'):
+            for count in (3, 1000):
+                started = time.monotonic()
+                shape = PublicShape('VOTE', row, list_count=count)
+                request = actual_content_request(ROOT, shape, 1 << 44,
+                    trials=1 << 20, length_bits=64)
+                family = ContentFamily(request)
+                stages = [dict(name=s.name, inputs=s.circuit.inputs,
+                    outputs=s.circuit.outputs, work=s.circuit.work,
+                    gates=s.circuit.cost.as_dict(), source_pieces=s.pieces)
+                    for s in request.generator.plan.stages]
+                case = dict(row=row, role='VOTE', list_count=count,
+                    shape=dataclasses.asdict(shape),
+                    original_registers=request.generator.plan.inputs,
+                    generator_registers=request.generator.plan.layout()['registers'],
+                    stages=stages,
+                    field_positions=request.generator.field_positions(),
+                    base_write_resources=request.base.writes.resources(),
+                    base_return_resources=request.base.returns.resources(),
+                    content_resources=request.resources(),
+                    family_resources=family.resources(),
+                    content_layout={k:v for k,v in request.layout().items() if k != 'generator'},
+                    family_layout={k:v for k,v in family.layout().items() if k != 'generator'},
+                    elapsed_seconds=time.monotonic()-started)
+                report['cases'].append(case)
+                print(json.dumps(dict(row=row,list_count=count,
+                    elapsed_seconds=case['elapsed_seconds'],
+                    gates=case['family_resources']['gates'],
+                    total_logical_bits=case['family_resources']['total_logical_bits'])), flush=True)
+        loaded = {}
+        for module in tuple(sys.modules.values()):
+            path = getattr(module, '__file__', None)
+            if not path:
+                continue
+            p = Path(path).resolve()
+            if p.is_relative_to(ROOT) and p != Path(__file__).resolve():
+                name = str(p.relative_to(ROOT))
+                if name not in before or sha(p) != before[name]:
+                    raise ValueError('loaded repository module is outside selected pins: '+name)
+                loaded[name] = before[name]
+        report['loaded_repository_module_sha256'] = loaded
+        report['source_sha256_after'] = source_pins()
+        if report['source_sha256_after'] != before:
+            raise ValueError('source changed while constructing metadata')
+        report['status'] = 'PASS'
+    except BaseException as exc:
+        report['status'] = 'FAIL'
+        report['error'] = f'{type(exc).__name__}: {exc}'
+        raise
+    finally:
+        with args.out.open('x') as stream:
+            stream.write(json.dumps(report, indent=2, sort_keys=True)+'\n')
+
+
+if __name__ == '__main__':
+    main()

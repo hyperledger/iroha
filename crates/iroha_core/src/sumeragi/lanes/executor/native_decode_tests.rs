@@ -591,6 +591,85 @@ fn signed_lane_clock_wait_cannot_reuse_a_foreign_anchor_identity() {
 }
 
 #[test]
+fn native_lane_first_prepare_rechecks_pinned_clock_after_execution() {
+    use iroha_sumeragi::{crypto::SigningError, testing::prepare_signing_request};
+    let fixture = Fixture::new(true);
+    let block_time_ms = 6_001;
+    let drift = fixture.record.params.max_clock_drift_ms();
+    let boundary = block_time_ms - drift;
+    let (clock, time) =
+        iroha_primitives::time::TimeSource::new_mock(Duration::from_millis(block_time_ms));
+    let mut lane = fixture
+        .recovery_with_clock(time)
+        .complete()
+        .unwrap_or_else(|_| panic!("original native lane"));
+    let Ok(Some(ExecOutcome::Valid { result, admission })) =
+        lane.execute(&fixture.body, &fixture.qc.block_hash, false)
+    else {
+        panic!("actual native lane executes before the clock rewind")
+    };
+    let request = |block_hash, certified| {
+        prepare_signing_request(
+            fixture.body.header().instance,
+            fixture.body.header().epoch,
+            fixture.body.header().height,
+            0,
+            block_hash,
+            result,
+            certified,
+        )
+    };
+    assert_eq!(
+        admission.check(&request(fixture.qc.block_hash, false)),
+        Ok(())
+    );
+    // A later configuration cannot widen the original execution's drift allowance.
+    lane.record.params.max_clock_drift_ms = drift + 10_000;
+    clock.set(Duration::from_millis(boundary - 1));
+    let reserved = fixture.budget.reserved_bytes();
+    for _ in 0..2 {
+        assert_eq!(
+            admission.check(&request(fixture.qc.block_hash, false)),
+            Err(SigningError::ClockAhead {
+                block_time_ms,
+                observed_ms: boundary - 1,
+                max_clock_drift_ms: drift
+            }),
+            "native lane first Prepare must recheck the pinned drift after a wall-clock rewind"
+        );
+        assert_eq!(fixture.budget.reserved_bytes(), reserved);
+        assert_eq!(
+            lane.cache.get(&fixture.qc.block_hash).unwrap().result,
+            result
+        );
+    }
+    assert_eq!(
+        admission.check(&request(fixture.qc.block_hash, true)),
+        Ok(())
+    );
+    assert_eq!(
+        admission.check(&request(Hash32::ZERO, true)),
+        Err(SigningError::InvalidInput)
+    );
+    clock.set(Duration::from_millis(boundary));
+    assert_eq!(
+        admission.check(&request(fixture.qc.block_hash, false)),
+        Ok(())
+    );
+    lane.discard(fixture.body.header().height, &[]);
+    assert_eq!(fixture.budget.reserved_bytes(), reserved);
+    assert_eq!(
+        admission.check(&request(fixture.qc.block_hash, false)),
+        Ok(())
+    );
+    drop(admission);
+    assert_eq!(
+        fixture.budget.reserved_bytes(),
+        reserved - ChargedShared::<LanePrepareAdmission>::allocation_layout().size()
+    );
+}
+
+#[test]
 fn native_lane_first_prepare_admission_binds_original_source_and_retains_its_charge() {
     use iroha_sumeragi::testing::prepare_signing_request;
     let fixture = Fixture::new(true);
@@ -691,11 +770,11 @@ fn native_lane_first_prepare_owner_refusal_preserves_original_decoded_admission(
     let effective = Duration::from_millis(6_001);
     let boundary = effective
         .checked_sub(fixture.record.params.max_clock_drift())
-        .expect("fixture effective time exceeds maximum drift");
+        .expect("fixture timestamp exceeds its drift allowance");
     let (clock, time) = iroha_primitives::time::TimeSource::new_mock(
         boundary
             .checked_sub(Duration::from_millis(1))
-            .expect("fixture boundary exceeds one millisecond"),
+            .expect("fixture boundary permits a one-millisecond rewind"),
     );
     let mut lane = fixture
         .recovery_with_clock(time)

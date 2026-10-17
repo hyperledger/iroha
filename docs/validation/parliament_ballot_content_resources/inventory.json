@@ -1,0 +1,94 @@
+{
+  "complete_resource_vector": false,
+  "files": {
+    "README.md": {
+      "original_path": "target/parliament-content-publication-stage/README.md",
+      "sha256": "cd7d12099b89e9f3947e75ad0b4f4632e178455d4aba19d8837a377b9f313b3e"
+    },
+    "dependency.json": {
+      "generated_by": "prepare.py.template",
+      "sha256": "6be5b7701271ccb0a1cf52a96be483137eed6802b53470fa281fe71b8f756737"
+    },
+    "prepare.py.template": {
+      "original_path": "target/parliament-content-publication-stage/prepare.py",
+      "sha256": "7dc1f65aeef6b2ed825e573ed95131dad5d7d30a35b22ced7f18075f4d24c260"
+    },
+    "record/README.md": {
+      "original_path": "target/parliament-content-resources-stage/README.md",
+      "sha256": "0e21ab10862796119211b2c4ed97100ba291a383b2d5d2d2139f349a31597fe6"
+    },
+    "record/SHA256SUMS": {
+      "original_path": "target/parliament-content-resources-stage/SHA256SUMS",
+      "sha256": "fd2862d191c99df21fe4327fcd52d11842974aeb76907e30929f0d468026717c"
+    },
+    "record/capture.py.template": {
+      "original_path": "target/parliament-content-resources-stage/capture.py",
+      "sha256": "7af988916a9b0698d5e53b95bdddcd72d156046e720c113b6b438109515165e9"
+    },
+    "record/capture/check.stderr": {
+      "original_path": "target/parliament-content-resources-stage/capture/check.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "record/capture/check.stdout": {
+      "original_path": "target/parliament-content-resources-stage/capture/check.stdout",
+      "sha256": "8c00acf0cce9d3da4ef8efdab09309f8b088338d789bfcb03c8909270e4ffc75"
+    },
+    "record/capture/checks.json": {
+      "original_path": "target/parliament-content-resources-stage/capture/checks.json",
+      "sha256": "4cc82fa2aaa8da7d503ccd5474b081286d3f6e2798c11bd4f12ea4429f3c85dd"
+    },
+    "record/capture/observation.json": {
+      "original_path": "target/parliament-content-resources-stage/capture/observation.json",
+      "sha256": "c2f75e568d9b9192940fd53d4974ea71094d1ce7b48a69d194b7914a0857803e"
+    },
+    "record/capture/observe.stderr": {
+      "original_path": "target/parliament-content-resources-stage/capture/observe.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "record/capture/observe.stdout": {
+      "original_path": "target/parliament-content-resources-stage/capture/observe.stdout",
+      "sha256": "bb96dde18c350dd5254c8aec7d6e5af67c828e061c6c77d52e07562cc712f8c9"
+    },
+    "record/capture/receipt.json": {
+      "original_path": "target/parliament-content-resources-stage/capture/receipt.json",
+      "sha256": "bc6cf11be25746f93dfa80dc955b32778b8d0fa686830d150cb37c886bd65ac8"
+    },
+    "record/check.py.template": {
+      "original_path": "target/parliament-content-resources-stage/check.py",
+      "sha256": "114f82d9ec10be00dd60338e76f9e1b74be41f8de5d6b46f7cfe1fbab1f59014"
+    },
+    "record/observe.py.template": {
+      "original_path": "target/parliament-content-resources-stage/observe.py",
+      "sha256": "7f904ed90fd9db899bac161e8340bd09347a5959bd12412752c868f18b9f56d2"
+    },
+    "record/outcome.md": {
+      "original_path": "target/parliament-content-resources-stage/outcome.md",
+      "sha256": "ed7cf0eed162539f3fd8c67f252ae1d9a9c64f13770b1a3490f465b6cac4d5ec"
+    },
+    "reviews/root-byte-buffer-review.json": {
+      "original_path": "target/parliament-content-resource-root-review/receipt.json",
+      "sha256": "44e6e4366aedff5734f92e2d1b5e51479251494c363a23a8fb8f82e42bf1cfea"
+    }
+  },
+  "original_command_atomic_byte_use_attested": false,
+  "original_manifest_sha256": "fd2862d191c99df21fe4327fcd52d11842974aeb76907e30929f0d468026717c",
+  "original_record_unchanged": true,
+  "original_to_retained": {
+    "README.md": "record/README.md",
+    "capture.py": "record/capture.py.template",
+    "capture/check.stderr": "record/capture/check.stderr",
+    "capture/check.stdout": "record/capture/check.stdout",
+    "capture/checks.json": "record/capture/checks.json",
+    "capture/observation.json": "record/capture/observation.json",
+    "capture/observe.stderr": "record/capture/observe.stderr",
+    "capture/observe.stdout": "record/capture/observe.stdout",
+    "capture/receipt.json": "record/capture/receipt.json",
+    "check.py": "record/check.py.template",
+    "observe.py": "record/observe.py.template",
+    "outcome.md": "record/outcome.md"
+  },
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "separate_root_verified_buffer_review": true,
+  "source_files_duplicated": false
+}

@@ -1,0 +1,26 @@
+{
+  "actual_input_primitive_entry": false,
+  "clean_work_bits": 201587,
+  "complete_resource_vector": false,
+  "complete_simulator_coverage": false,
+  "full_generator_implemented": false,
+  "gates": {
+    "base_xor_oracle_calls": 0,
+    "ccx": 141312,
+    "cx": 521630,
+    "elementary_gates": 1230412,
+    "x": 2222
+  },
+  "independent_cryptographic_review": false,
+  "module_test_counts": {
+    "target/parliament-aes-machine-stage/test_aes256.py": 23,
+    "target/parliament-aes-review/test_independent_aes.py": 13
+  },
+  "native_workspace_certificate": false,
+  "passed_tests": 36,
+  "primitive_advantage_assumed": false,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "report_sha256": "3745626fd2386032ee0db21f44eab2d5ddabbac7d37b67dbfbc9bcb27764b5be",
+  "status": "PASS"
+}

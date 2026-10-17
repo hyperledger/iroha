@@ -1,0 +1,241 @@
+"""Publish only the reviewed exception batch after the shared tracked-write release."""
+import argparse
+import datetime
+import gzip
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import tempfile
+import xml.etree.ElementTree as ET
+
+ROOT = Path.cwd().resolve()
+STAGE = ROOT / 'target/parliament-exception-coverage-stage'
+PAYLOAD = STAGE / 'publication/bundle'
+DEST = ROOT / 'docs/validation/parliament_ballot_exception_coverage'
+INVENTORY_SHA = '225a9a683c41d022b970415a926a36dc421ff6d8073fa3b6cdd318cf92c423f8'
+PROPOSAL_SHA = 'a7d4836abbd381bca6fec1ab6b68ffd6857d20675b911c83a65782e2d8a7d902'
+CAPTURE_SHA = '47a7e4398221d0e1fdade89a5be394df3191a98051d847d8d4a332cf659ff65e'
+INSTALL_SHA = 'e5a31908bd95b5ea7357e26b2996e4de3d6106553f102a886181715eddeabb9c'
+PRIOR_SHA = 'e87a08678171b147719e55ff76a3f929409b4d992883c6d41269d1bf11dc3f19'
+ALL_BODY_SHA = 'a0702ee469db6e2408579fe80cbd690dd773469d99f84b1d5cafc40c421db522'
+FLAGS = ('complete_exception_semantics', 'dwarf_fde_cfi_verified', 'complete_native_cost_certificate',
+         'complete_stack_certificate', 'complete_workspace_certificate', 'physical_cost_calibrated',
+         'applies_to_current_checkout', 'profile_qualified', 'production_gate_changed', 'worker_executed')
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def need(ok, message):
+    if not ok:
+        raise RuntimeError(message)
+
+
+def file_map(directory):
+    need(not directory.is_symlink() and not any(p.is_symlink() for p in directory.rglob('*')), 'refuse symlinks')
+    return {str(p.relative_to(directory)): sha(p) for p in directory.rglob('*') if p.is_file()}
+
+
+def original_manifest(directory, expected_sha, count, absolute):
+    need(sha(directory / 'SHA256SUMS') == expected_sha, 'original manifest changed')
+    rows = [line.split('  ', 1) for line in (directory / 'SHA256SUMS').read_text().splitlines()]
+    entries = {name: value for value, name in rows}
+    need(len(rows) == len(entries) == count, 'original manifest membership count')
+    relative = {str((ROOT / name).relative_to(directory)) if absolute else name: value for name, value in entries.items()}
+    actual = file_map(directory)
+    need({name: value for name, value in actual.items() if name != 'SHA256SUMS'} == relative, 'original manifest membership or bytes changed')
+    return actual
+
+
+def verify_capture_copy(folder, expected_sha, count, absolute, map_name):
+    original = original_manifest(STAGE / folder, expected_sha, count, absolute)
+    expected = {folder + '/' + ('STAGED_SHA256SUMS' if name == 'SHA256SUMS' else name): value for name, value in original.items()}
+    need({folder + '/' + name: value for name, value in file_map(PAYLOAD / folder).items()} == expected, 'capture copy differs')
+    need((PAYLOAD / map_name).read_text() == ''.join(value + '  ' + name + '\n' for name, value in sorted(expected.items())), 'final-relative capture map differs')
+    return original
+
+
+def verify_record(receipt, folder, count, command_outcomes):
+    need(receipt['status'] == 'PASS' and receipt['error'] is None and receipt['source_before'] == receipt['source_after']
+         and receipt['runtime_before'] == receipt['runtime_after'], 'unstable or failed capture')
+    need([(c['name'], c['exit_code']) for c in receipt['commands']] == command_outcomes, 'actual command outcomes differ')
+    for name, value in receipt['output_sha256'].items():
+        need(sha(STAGE / folder / name) == value, 'recorded output changed')
+    nodeids = json.loads((STAGE / folder / 'collected-nodeids.json').read_text())
+    expected = [(path[:-3].replace('/', '.'), name) for path, name in (node.split('::', 1) for node in nodeids)]
+    cases = list(ET.parse(STAGE / folder / 'tests.xml').getroot().iter('testcase'))
+    need(len(nodeids) == len(set(nodeids)) == len(cases) == count and [(c.get('classname'), c.get('name')) for c in cases] == expected, 'test collection/JUnit membership differs')
+    need(not any(c.find(tag) is not None for c in cases for tag in ('failure', 'error', 'skipped')), 'JUnit contains failure/error/skip')
+
+
+parser = argparse.ArgumentParser(description=__doc__)
+action = parser.add_mutually_exclusive_group(required=True)
+action.add_argument('--check', action='store_true', help='read-only preflight; no publication')
+action.add_argument('--apply', action='store_true', help='apply only after the shared tracked-write release')
+args = parser.parse_args()
+script = Path(__file__).resolve()
+need(script == STAGE / 'publish.py', 'unexpected script path')
+script_hash = sha(script)
+inventory_path = STAGE / 'publication/inventory.json'
+need(sha(inventory_path) == INVENTORY_SHA, 'inventory changed')
+inventory = json.loads(inventory_path.read_text())
+need(file_map(PAYLOAD) == inventory['bundle_files'] and len(inventory['bundle_files']) == 91, 'payload membership or bytes changed')
+need(not DEST.exists() and not DEST.is_symlink(), 'refuse existing destination')
+proposal_path = STAGE / 'central-document-proposal.json'
+need(sha(proposal_path) == PROPOSAL_SHA == inventory['proposal_sha256'], 'document proposal changed')
+proposal = json.loads(proposal_path.read_text())
+documents = proposal['documents']
+need(set(documents) == set(inventory['central_document_targets']), 'document target membership')
+original_capture = verify_capture_copy('capture', CAPTURE_SHA, 53, True, 'CAPTURE_SHA256SUMS')
+original_install = verify_capture_copy('install-capture', INSTALL_SHA, 17, False, 'INSTALL_CAPTURE_SHA256SUMS')
+original_all_body = verify_capture_copy('all-body-capture', ALL_BODY_SHA, 7, False, 'ALL_BODY_CAPTURE_SHA256SUMS')
+need(ALL_BODY_SHA == inventory['all_body_capture_manifest_sha256'], 'all-body manifest identity')
+need(sha(STAGE / 'all-body-capture/receipt.json') == inventory['all_body_capture_receipt_sha256'], 'all-body receipt identity')
+all_body_capture = json.loads((STAGE / 'all-body-capture/receipt.json').read_text())
+need(all_body_capture['status'] == 'PASS' and all_body_capture['error'] is None and all_body_capture['exit_code'] == 0
+     and all_body_capture['source_before'] == all_body_capture['source_after']
+     and all_body_capture['runtime_before'] == all_body_capture['runtime_after'], 'all-body capture did not pass stably')
+for name, value in all_body_capture['output_sha256'].items():
+    need(sha(STAGE / 'all-body-capture' / name) == value, 'all-body recorded output changed')
+need(CAPTURE_SHA == inventory['capture_manifest_sha256'] and INSTALL_SHA == inventory['install_capture_manifest_sha256'], 'inventory capture identity')
+need(sha(STAGE / 'capture/receipt.json') == inventory['capture_receipt_sha256'] and sha(STAGE / 'install-capture/receipt.json') == inventory['install_capture_receipt_sha256'], 'capture receipt identity')
+capture = json.loads((STAGE / 'capture/receipt.json').read_text())
+install_capture = json.loads((STAGE / 'install-capture/receipt.json').read_text())
+verify_record(capture, 'capture', 182, [('collection', 0), ('tests', 0), ('analysis', 0), ('decoder-comparison', 0), ('require-qualified', 2)])
+verify_record(install_capture, 'install-capture', 113, [('collection', 0), ('tests', 0)])
+normal = gzip.decompress((STAGE / 'capture/analysis.json.gz').read_bytes())
+refusal = gzip.decompress((STAGE / 'capture/refusal.json.gz').read_bytes())
+need(normal == refusal, 'report/refusal differ')
+for name in ('analysis', 'require-qualified'):
+    row = capture['compressed_reports'][name]
+    need(hashlib.sha256(normal).hexdigest() == row['raw_sha256'] == row['decompressed_sha256']
+         and len(normal) == row['raw_bytes'] and sha(STAGE / 'capture' / row['gzip_path']) == row['gzip_sha256'], 'gzip/raw identity mismatch')
+report = json.loads(normal)
+need(report['verdict'] == 'PASS_UNDER_STATED_PREMISES' and report['checked_metadata_and_coverage'] is True, 'conditional report status')
+need(report['selected_input_count'] == 21 and report['input_sha256_before'] == report['input_sha256_after']
+     == {name: row['sha256'] for name, row in capture['selected_inputs'].items()}, 'selected report identity map')
+need(all(report[key] is False and capture[key] is False for key in FLAGS), 'unexpected qualification promotion')
+comparison = json.loads((STAGE / 'capture/decoder-comparison.json').read_text())
+need(comparison['status'] == 'PASS' and comparison['draft_report_sha256'] == hashlib.sha256(normal).hexdigest(), 'LLVM comparison did not bind final report')
+all_body = json.loads((STAGE / 'all-body-capture/comparison.json').read_text())
+need(all_body['status'] == 'PASS' and all_body['final_raw_report_sha256'] == hashlib.sha256(normal).hexdigest(), 'all-body comparison did not bind final report')
+for mode, functions, instructions, native_sites in [('portable', 287, 32998, 248), ('accel', 291, 31299, 244)]:
+    row = all_body['modes'][mode]
+    need(row['all_body_census']['all_body_reachable_functions'] == functions
+         and row['all_body_census']['all_body_instruction_count'] == instructions
+         and row['augmented_function_subset'] is True and row['augmented_instruction_subset'] is True
+         and len(row['additional_instructions']) == 46 and len(row['additional_functions']) == 3
+         and row['native_direct_sites_identical'] is True and row['native_direct_site_count'] == native_sites
+         and len(row['additional_indirect_sites']) == 2 and row['gap_proven_dead'] is False
+         and row['indirect_targets_resolved'] is False, 'all-body scope differs')
+need(all(all_body[name] is False and all_body_capture[name] is False for name in
+         ('complete_exception_semantics', 'complete_workspace_certificate', 'applies_to_current_checkout',
+          'profile_qualified', 'production_gate_changed', 'worker_executed')), 'all-body scope promoted')
+extraction = json.loads((STAGE / 'install-extraction.json').read_text())
+need(extraction == install_capture['extraction'] and extraction['original_tests'] == 119 and extraction['expected_remaining_tests'] == 113
+     and extraction['retained_function_ast_identical'] and extraction['retained_lines_byte_identical'], 'derived test custody')
+need(extraction['original_sha256'] == capture['source_after'][str(STAGE / 'scripts/tests/parliament_ballot_exception_coverage_independent_test.py')], 'original test identity')
+
+
+def check_observed():
+    for receipt in (capture, install_capture, all_body_capture):
+        for name, value in receipt['source_after'].items():
+            need(sha(Path(name)) == value, 'observed source changed: ' + name)
+        for name, value in receipt['runtime_after'].items():
+            need(sha(Path(name)) == value, 'observed runtime changed: ' + name)
+        need(not any(Path(name).exists() for name in receipt.get('absent_conftests', [])), 'pytest configuration changed')
+
+
+check_observed()
+prior = ROOT / 'docs/validation/parliament_ballot_gf_circuit'
+prior_map = original_manifest(prior, PRIOR_SHA, 35, False)
+need(PRIOR_SHA == proposal['prior_manifest_sha256'] == inventory['prior_gf_manifest_sha256'], 'prior GF custody')
+custody = json.loads((PAYLOAD / 'document-custody.json').read_text())
+need(custody['prior_manifest_sha256'] == PRIOR_SHA and custody['proposal_sha256'] == PROPOSAL_SHA and set(custody['documents']) == set(documents), 'document custody membership')
+for name, row in documents.items():
+    item = custody['documents'][name]
+    need(not (ROOT / name).is_symlink(), 'central document symlink')
+    need(row['prior_gf_snapshot'] == item['prior_gf_snapshot'], 'prior archive name')
+    need(sha(ROOT / name) == sha(prior / row['prior_gf_snapshot']) == prior_map[row['prior_gf_snapshot']] == row['before_sha256'], 'central preimage changed: ' + name)
+    need(sha(STAGE / 'pre-component-documents' / name) == sha(PAYLOAD / item['before']['snapshot']) == item['before']['sha256'] == row['before_sha256'], 'document before archive')
+    need(sha(STAGE / 'central-documents' / name) == sha(PAYLOAD / item['after']['snapshot']) == item['after']['sha256'] == row['staged_sha256'], 'document after archive')
+installs = inventory['install_sources']
+need(set(installs) == {'scripts/parliament_ballot_exception_coverage.py', 'scripts/tests/parliament_ballot_exception_coverage_independent_test.py'}, 'install target set')
+for name, row in installs.items():
+    need(not (ROOT / name).exists() and not (ROOT / name).is_symlink(), 'refuse existing target: ' + name)
+    need(sha(STAGE / row['source']) == row['sha256'], 'install candidate changed')
+need(installs['scripts/parliament_ballot_exception_coverage.py']['sha256'] == extraction['helper_sha256']
+     == capture['source_after'][str(STAGE / 'scripts/parliament_ballot_exception_coverage.py')], 'helper differs from captured source')
+need(installs['scripts/tests/parliament_ballot_exception_coverage_independent_test.py']['sha256'] == extraction['derived_sha256'], 'derived test differs from relocated test')
+need(sha(STAGE / 'README.md') == inventory['reviewed_readme_sha256'], 'component note changed')
+if args.check:
+    print(json.dumps(dict(status='PREFLIGHT_PASS', publication_performed=False, payload_entries=91,
+                          expected_final_entries=94, publication_recipe_sha256=script_hash, inventory_sha256=INVENTORY_SHA)))
+    raise SystemExit(0)
+
+completed = []
+try:
+    shutil.copytree(PAYLOAD, DEST)
+    completed.append('bundle payload')
+    for name, row in installs.items():
+        data = (STAGE / row['source']).read_bytes()
+        need(hashlib.sha256(data).hexdigest() == row['sha256'], 'install changed before write')
+        with (ROOT / name).open('xb') as stream:
+            stream.write(data)
+        need(sha(ROOT / name) == row['sha256'], 'installed bytes differ')
+        completed.append(name)
+    for name, row in documents.items():
+        target = ROOT / name
+        need(sha(target) == row['before_sha256'], 'document changed immediately before replacement')
+        data = (STAGE / 'central-documents' / name).read_bytes()
+        need(hashlib.sha256(data).hexdigest() == row['staged_sha256'], 'document proposal changed before write')
+        with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.exception-publication-', delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(data)
+        os.chmod(temporary, target.stat().st_mode & 0o777)
+        os.replace(temporary, target)
+        completed.append(name)
+    need(file_map(DEST) == inventory['bundle_files'], 'copied payload changed')
+    need(sha(script) == script_hash and sha(inventory_path) == INVENTORY_SHA, 'executing publication recipe/inventory changed')
+    shutil.copyfile(script, DEST / 'publish.py.template')
+    shutil.copyfile(inventory_path, DEST / 'publication-inventory.json')
+    need(sha(DEST / 'publish.py.template') == script_hash and sha(DEST / 'publication-inventory.json') == INVENTORY_SHA, 'recipe/inventory copy changed')
+    installed = {name: sha(ROOT / name) for name in installs}
+    doc_after = {name: sha(ROOT / name) for name in documents}
+    need(installed == {name: row['sha256'] for name, row in installs.items()} and doc_after == {name: row['staged_sha256'] for name, row in documents.items()}, 'published source/document drift')
+    check_observed()
+    need(file_map(prior) == prior_map and file_map(STAGE / 'capture') == original_capture
+         and file_map(STAGE / 'install-capture') == original_install
+         and file_map(STAGE / 'all-body-capture') == original_all_body, 'prior evidence changed during publication')
+    receipt = dict(schema='parliament-exception-publication-v1', status='PASS',
+                   published_at_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(), publication_recipe_sha256=script_hash,
+                   payload_inventory_sha256=INVENTORY_SHA, staged_capture_manifest_sha256=CAPTURE_SHA,
+                   staged_capture_receipt_sha256=inventory['capture_receipt_sha256'], install_capture_manifest_sha256=INSTALL_SHA,
+                   install_capture_receipt_sha256=inventory['install_capture_receipt_sha256'], all_body_capture_manifest_sha256=ALL_BODY_SHA,
+                   all_body_capture_receipt_sha256=inventory['all_body_capture_receipt_sha256'], source_install_sha256=installed,
+                   central_document_before_after=documents, central_document_after_sha256=doc_after, prior_gf_manifest_sha256=PRIOR_SHA,
+                   raw_report_sha256=hashlib.sha256(normal).hexdigest(), selected_input_count=21, staged_test_cases=182,
+                   relocated_synthetic_test_cases=113, staged_capture_entries=53, install_capture_entries=17,
+                   expected_final_manifest_entries=94, all_body_capture_entries=7, tests_rerun_during_publication=False, helper_byte_identical_to_captured=True,
+                   installed_tests_derived_from_captured_with_exact_extraction=True,
+                   scope='Publishes retained host/image evidence and a separately tested synthetic-only partition. No clean-clone image revalidation, loaded-unwinder proof, CFI execution or full-resource qualification.',
+                   **{key: False for key in FLAGS})
+    with (DEST / 'publication-receipt.json').open('x') as stream:
+        stream.write(json.dumps(receipt, indent=2, sort_keys=True) + '\n')
+    final = file_map(DEST)
+    need(set(final) == set(inventory['bundle_files']) | {'publish.py.template', 'publication-inventory.json', 'publication-receipt.json'}
+         and len(final) == inventory['expected_final_manifest_entries'] == 94, 'final bundle membership')
+    with (DEST / 'SHA256SUMS').open('x') as stream:
+        for name, value in sorted(final.items()):
+            stream.write(value + '  ' + name + '\n')
+    print(json.dumps(dict(status='PASS', entries=len(final), manifest_sha256=sha(DEST / 'SHA256SUMS'),
+                          publication_receipt_sha256=sha(DEST / 'publication-receipt.json'))))
+except Exception as exc:
+    if DEST.exists():
+        with (DEST / 'publication-failure.json').open('x') as stream:
+            json.dump(dict(status='FAIL', error=str(exc), completed_writes=completed), stream, indent=2)
+            stream.write('\n')
+    raise

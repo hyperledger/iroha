@@ -146,6 +146,9 @@ impl FileBodyRead {
         max_bytes: usize,
         budget: AllocationBudget,
     ) -> Result<Self, BodyReadError> {
+        // Serialize original leaf admission with cooperative publication and retirement.
+        // The operation lock and child directory both retire before this call returns.
+        let _guard = custody.lock().map_err(BodyReadError::Io)?;
         custody.revalidate().map_err(BodyReadError::Io)?;
         let state = match ArtifactRead::open_in_child(
             &custody.directory,
@@ -185,19 +188,33 @@ impl BodyReadJob for FileBodyRead {
                     self.state = ReadState::Absent;
                     return Ok(BodyReadPoll::Absent);
                 }
-                ReadState::Reading(read) => match read.complete(budget) {
-                    Ok(bytes) => self.state = ReadState::Decoding(BodyRecordDecode::new(bytes)),
-                    Err((read, error)) => {
-                        self.state = ReadState::Reading(read);
-                        return match error {
-                            ArtifactReadError::Allocation(error) => {
-                                Ok(BodyReadPoll::Pending(ByteAdmissionError::Buffer(error)))
-                            }
-                            ArtifactReadError::Io(error) => Err(BodyReadError::Io(error)),
-                            ArtifactReadError::ForeignBudget => Err(BodyReadError::ForeignBudget),
+                ReadState::Reading(read) => {
+                    // Cooperating pruning cannot unlink the original child between its
+                    // open and held-file validation. Keep decoding outside this lock;
+                    // arbitrary refund callbacks run only after its guard is released.
+                    let completed = self.budget.with_deferred_refund_notifications(|_| {
+                        let _guard = match self.custody.lock() {
+                            Ok(guard) => guard,
+                            Err(error) => return Err((read, ArtifactReadError::Io(error))),
                         };
+                        read.complete(budget)
+                    });
+                    match completed {
+                        Ok(bytes) => self.state = ReadState::Decoding(BodyRecordDecode::new(bytes)),
+                        Err((read, error)) => {
+                            self.state = ReadState::Reading(read);
+                            return match error {
+                                ArtifactReadError::Allocation(error) => {
+                                    Ok(BodyReadPoll::Pending(ByteAdmissionError::Buffer(error)))
+                                }
+                                ArtifactReadError::Io(error) => Err(BodyReadError::Io(error)),
+                                ArtifactReadError::ForeignBudget => {
+                                    Err(BodyReadError::ForeignBudget)
+                                }
+                            };
+                        }
                     }
-                },
+                }
                 ReadState::Decoding(decode) => match decode.complete(budget) {
                     Ok(record) => self.state = ReadState::Ready(record),
                     Err((decode, error)) => {

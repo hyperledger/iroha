@@ -114,7 +114,7 @@ impl ProducerBudget {
 pub struct HistoryProducerOwner {
     // Reclaim all native producer controls before the last query lease releases credit.
     budget: ChargedShared<ProducerBudget>,
-    reservation: QueryFanoutMemoryReservation,
+    _reservation: QueryFanoutMemoryReservation,
 }
 
 thread_local! {
@@ -168,7 +168,7 @@ impl HistoryProducerOwner {
             return Err(capacity());
         }
         Ok(Self {
-            reservation: reservation.clone(),
+            _reservation: reservation.clone(),
             budget: budget.clone(),
         })
     }
@@ -543,9 +543,9 @@ mod tests {
         };
         inherited.physical_scope(|| {
             assert!(HistoryProducerOwner::validate_finality_inheritance(&admission).is_err());
-            admission._fanout_memory = Some(foreign.reservation.clone());
+            admission._fanout_memory = Some(foreign._reservation.clone());
             assert!(HistoryProducerOwner::validate_finality_inheritance(&admission).is_err());
-            admission._fanout_memory = Some(inherited.reservation.clone());
+            admission._fanout_memory = Some(inherited._reservation.clone());
             HistoryProducerOwner::validate_finality_inheritance(&admission).unwrap();
             assert_eq!(
                 admission
@@ -569,7 +569,7 @@ mod tests {
             HistoryProducerOwner::from_reservation(&QueryFanoutMemoryReservation::new(permit))
                 .is_err()
         );
-        let mut original = owner(48 * 1024 * 1024).reservation;
+        let mut original = owner(48 * 1024 * 1024)._reservation;
         original.admission.as_mut().unwrap().pool_generation += 1;
         assert!(HistoryProducerOwner::from_reservation(&original).is_err());
     }

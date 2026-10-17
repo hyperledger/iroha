@@ -16,6 +16,10 @@ fastpq_isi = { path = "../../fastpq_isi" }
 [workspace]
 members = ["."]
 
+[patch.crates-io]
+# Preserve the root workspace's fallible native-digit allocation handoff.
+num-bigint = { path = "../../../vendor/num-bigint-0.4.6" }
+
 [[bin]]
 name = "trace_builder"
 path = "fuzz_targets/trace_builder.rs"

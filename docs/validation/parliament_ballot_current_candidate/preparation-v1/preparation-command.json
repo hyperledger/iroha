@@ -1,0 +1,32 @@
+{
+  "schema": "parliament-memory-entry-preparation-v1",
+  "source_files": {
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/arena.rs": "1c4a2faceaee40bfd74dd7b956c62fa2a906eaee3edc7e0ab69bce88c164eaa8",
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/budget.rs": "13a9440c02f6feff17dd336b6d49f90f2b95483e4fc646d3477a70726935246f",
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/native.rs": "8cd6365e2df3bcf644ebb647b3fee3be31a57f3c4250137f6b96447e496d7b25",
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/workspace.rs": "875e767119f2f462bf0608c57dcadfd3838cbea1e8c7585c1bdb5605cbaa0dca",
+    "crates/iroha_parliament_ballot_proof/examples/memory_entry/driver.rs": "b3d770a4d44c15069e8cf80bd4685c5a71d565c369e42ce40daaf4b5efda953a",
+    "crates/iroha_parliament_ballot_proof/examples/memory_entry/staging.rs": "fcfebbbdfdc26bc40fa85c8f400fa987bc609693966f3c19f4a269d3fea226f0",
+    "crates/iroha_parliament_ballot_proof/examples/memory_entry/fatal.rs": "c9974b88d8c3f1a6b66088898131af41a8146ada50bf4920571ee17ecf9c3f51",
+    "Cargo.toml": "68762cc6829702719a382b83f1013a241cdb962a5a8459846c429e99c7ae68b6",
+    "Cargo.lock": "d48624bc2e80c2821f6192b466c7afd7b6e62014e54fa9827663e44debbf0284",
+    "rust-toolchain.toml": "b1de581368035db80c693eda64567b0e59252e3584d3749361d837c757b809e7",
+    "scripts/prepare_parliament_ballot_memory_entry.py": "23e10da0074b04d9b650e9c4195f037dc7f45cd7607b6a8ed2b7e527d99be222"
+  },
+  "source_changes": {},
+  "generated_files": {
+    "Cargo.lock": "d48624bc2e80c2821f6192b466c7afd7b6e62014e54fa9827663e44debbf0284",
+    "Cargo.toml": "208b95630d90d631cb10d0e276064bb41e1ce80af222693deb97541af3f48332",
+    "driver.rs": "6df735115e9e126659a8e83116914ad9f080f7cb35f80cbace41724db1c5339b",
+    "fatal.rs": "c9974b88d8c3f1a6b66088898131af41a8146ada50bf4920571ee17ecf9c3f51",
+    "generated_workspace.rs": "d6162ad6b3a34979ee9ef534ef683e5e1a1f76d5b99a4ea7d093c9b8cbafb787",
+    "root-Cargo.lock.template": "d48624bc2e80c2821f6192b466c7afd7b6e62014e54fa9827663e44debbf0284",
+    "staging.rs": "fcfebbbdfdc26bc40fa85c8f400fa987bc609693966f3c19f4a269d3fea226f0",
+    "workspace.diff": "173730421354b8650a7111b8033233f5d8f324f2dd63fec5f311c9471e7cbf0e"
+  },
+  "root": "/Users/mtakemiya/dev/iroha",
+  "output": "/private/tmp/parliament-current-candidate-20261013-v1/worker-src",
+  "root_lock_modified": false,
+  "profile_qualified": false,
+  "complete_workspace_certificate": false
+}

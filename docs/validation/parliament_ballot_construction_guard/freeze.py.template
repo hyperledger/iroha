@@ -1,0 +1,162 @@
+"""Verify and freeze retained construction receipts without rerunning or repinning them.
+
+This captures source/config copies, exact reviewed binding metadata, and later
+worktree drift. It never changes runtime or checker source or claims a fresh run.
+"""
+import ast
+import datetime
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+
+ROOT = Path.cwd()
+OUT = ROOT / "docs/validation/parliament_ballot_construction_guard"
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def digest(path):
+    return sha(path.read_bytes()) if path.is_file() else None
+
+
+def save(name, value):
+    with (OUT / name).open("x") as stream:
+        stream.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
+assert not (OUT / "SHA256SUMS").exists(), "refuse changing frozen bundle"
+controls = json.loads((OUT / "construction-controls.json").read_text())
+source_check = json.loads((OUT / "source-check.json").read_text())
+assert controls["passed"] == 121 and controls["exit"] == 0
+assert controls["source_before"] == controls["source_after"] and controls["source_unchanged"]
+assert len(controls["source_before"]) == 11
+assert source_check["source_before"] == source_check["source_after"]
+assert len(source_check["source_before"]) == 66 and not source_check["source_changes"]
+assert source_check["exit"] == 1 and source_check["probe_matches_cli_result"]
+assert source_check["cli_read_set_independently_traced"] is False
+assert source_check["binding_ballot_available"] is False
+assert source_check["qualified_attempt_latency_ms"] is None
+assert source_check["no_experimental_core_torii_dependencies"] is True
+assert not source_check["absence_changed"]
+expected = dict(source_check["source_before"])
+for name, value in controls["source_before"].items():
+    assert name not in expected or expected[name] == value
+    expected[name] = value
+for receipt in (controls, source_check):
+    assert digest(ROOT / receipt["log"]) == receipt["log_sha256"]
+current = {name: digest(ROOT / name) for name in expected}
+drift = {name: {"captured_sha256": value, "current_sha256": current[name]}
+         for name, value in expected.items() if value != current[name]}
+revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+
+# Retain the checked tool/config bytes, the four complete defining modules, and
+# every input that drifted. Source recovery is accepted only by exact SHA-256.
+names = {
+    "scripts/formal/check_sora_parliament_source_contract.py",
+    "scripts/formal/rust_text.py",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "scripts/tests/conftest.py", "pytest.ini",
+    "crates/iroha_core/src/state/state_block_construction.rs",
+    "crates/iroha_core/src/state/canonical_runtime.rs",
+    "crates/iroha_core/src/state/canonical_runtime/acquisition.rs",
+    "crates/iroha_core/src/state/da_hydration.rs",
+} | set(drift)
+snapshots = {}
+for name in sorted(names):
+    if current[name] == expected[name]:
+        data = (ROOT / name).read_bytes()
+        origin = {"kind": "unchanged_worktree"}
+    else:
+        data = subprocess.check_output(["git", "show", revision + ":" + name])
+        origin = {"kind": "exact_git_object", "revision": revision,
+                  "object": revision + ":" + name}
+    assert sha(data) == expected[name], "original source unavailable: " + name
+    destination = OUT / "sources" / (name + ".template")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("xb") as stream:
+        stream.write(data)
+    snapshots[name] = {"snapshot": destination.relative_to(ROOT).as_posix(),
+                       "sha256": expected[name], "origin": origin}
+save("source-snapshots.json", {
+    "schema": "parliament-construction-source-snapshots-v1",
+    "scope": "Exact retained checker/test/config and defining-module bytes, plus every drifted captured input. Other inputs remain hash-pinned in the original receipts; this is not a full repository snapshot.",
+    "sources": snapshots,
+})
+
+# Parse metadata from the exact checked helper; never execute the checker or
+# reinterpret its digest policy as a semantic Rust proof.
+checker = (ROOT / snapshots["scripts/formal/check_sora_parliament_source_contract.py"]["snapshot"]).read_text()
+function = next(node for node in ast.parse(checker).body
+                if isinstance(node, ast.FunctionDef) and node.name == "require_block_start_construction")
+constants = {}
+
+
+def literal(node):
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name) and node.id in constants:
+        return constants[node.id]
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return [literal(element) for element in node.elts]
+    raise ValueError(ast.dump(node))
+
+
+for node in function.body:
+    if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+        try:
+            constants[node.targets[0].id] = literal(node.value)
+        except ValueError:
+            pass
+owners = constants["owners"]
+routes = literal(next(node.iter for node in function.body if isinstance(node, ast.For) and isinstance(node.target, ast.Tuple) and len(node.target.elts) == 3))
+modules = literal(next(node.iter for node in function.body if isinstance(node, ast.For) and isinstance(node.target, ast.Tuple) and len(node.target.elts) == 2))
+assert (len(owners), len(routes), len(modules)) == (16, 5, 4)
+save("checked-bindings.json", {
+    "schema": "parliament-construction-checked-bindings-v1",
+    "checker_sha256": expected["scripts/formal/check_sora_parliament_source_contract.py"],
+    "complete_items": [dict(zip(("path", "declaration", "owner", "attributes", "obligation", "literal_preserving_token_sha256"), row)) for row in owners],
+    "live_defining_routes": [dict(zip(("path", "declaration", "attributes"), row)) for row in routes],
+    "complete_defining_modules": [dict(zip(("path", "literal_preserving_token_sha256"), row)) for row in modules],
+    "trusted_boundary": "Surrounding Rust crate, dependency name resolution, compiler and runtime semantics remain trusted; token equality and structural controls are not a Rust semantic or concurrency proof.",
+})
+
+assert {name: digest(ROOT / name) for name in expected} == current, "inputs changed while preserving capture"
+assert all(not (ROOT / name).exists() for name in source_check["guarded_absent_paths"])
+save("post-capture-review.json", {
+    "schema": "parliament-construction-post-capture-review-v1",
+    "observed_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "capture_receipt_sha256": {name: digest(OUT / name) for name in ("construction-controls.json", "source-check.json")},
+    "capture_log_hashes_match": True,
+    "captured_controls": {"passed": 121, "source_pins": 11, "before_after_equal": True},
+    "captured_source_check": {"exit": 1, "source_pins": 66, "before_after_equal": True,
+                              "first_error": source_check["observed_main_error"]},
+    "current_source_sha256": current,
+    "post_capture_drift": drift,
+    "drifted_originals_retained_exactly": sorted(drift),
+    "missing_originals": [],
+    "source_snapshot_count": len(snapshots),
+    "source_snapshot_map_sha256": digest(OUT / "source-snapshots.json"),
+    "checked_binding_map_sha256": digest(OUT / "checked-bindings.json"),
+    "scoped_review": {
+        "reviewer": "construction_capture local agent",
+        "checked": ["original receipt and log identities", "capture command and explicit trusted read scope", "exact attributes, sixteen item pins, five module routes and four full defining-module pins", "retained mutation controls for disabled/foreign owners, substituted custody, early retirement, raw macro shadowing and surrounding imports/aliases", "source snapshots equal captured hashes", "explicit post-capture worktree drift"],
+        "tests_rerun": False,
+        "new_runtime_or_checker_edits": False,
+        "independent_cryptographic_review": False,
+    },
+    "applies_to_current_worktree": not drift,
+    "profile_qualified": False,
+    "production_qualified": False,
+    "scope": "Historical captured results only where later drift is recorded. No original receipt was repinned and no later source-contract assertions are claimed executed.",
+})
+files = sorted(path for path in OUT.rglob("*") if path.is_file()
+               and path.name not in {"SHA256SUMS", ".DS_Store"}
+               and "__pycache__" not in path.parts)
+with (OUT / "SHA256SUMS").open("x") as stream:
+    for path in files:
+        stream.write(digest(path) + "  " + path.relative_to(ROOT).as_posix() + "\n")
+print(json.dumps({"entry_count": len(files), "manifest_sha256": digest(OUT / "SHA256SUMS"),
+                  "source_snapshots": len(snapshots), "post_capture_drift_count": len(drift)}))

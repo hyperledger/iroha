@@ -1,0 +1,77 @@
+"""Source-bound diagnostic for the scratch concrete AES circuit; always unqualified."""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+
+import bit_ir
+import aes256
+
+STAGE = Path(__file__).resolve().parent
+ROOT = STAGE.parents[1]
+PINS = {
+    ROOT / 'target/parliament-ideal-machine-stage/bit_ir.py': 'f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64',
+    ROOT / 'crates/iroha_zkp_vole/src/prg.rs': '58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81',
+    STAGE / 'references/FIPS-197-upd1.pdf': '62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1',
+    STAGE / 'references/FIPS-197-upd1.txt': '9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f',
+    STAGE / 'references/AES_Core256.pdf': '8caf33781b8d4b9564c7e95a7690e491ca1d95efe9a31cdea2977deaf4c7b4ce',
+}
+EXECUTING = ('aes256.py', 'report.py', 'test_aes256.py', 'README.md')
+FLAGS = dict(full_generator_implemented=False, complete_simulator_coverage=False,
+             complete_resource_vector=False, actual_input_primitive_entry=False,
+             primitive_advantage_assumed=False, independent_cryptographic_review=False,
+             native_workspace_certificate=False, profile_qualified=False,
+             production_gate_changed=False)
+
+
+def digest(path):
+    """Hash original bytes without running or normalizing the selected source."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def observed():
+    """Refuse different loaded module locations and all selected-source drift."""
+    bit_ir.require(Path(bit_ir.__file__).resolve() == ROOT / 'target/parliament-ideal-machine-stage/bit_ir.py',
+                   'loaded IR path differs')
+    bit_ir.require(Path(aes256.__file__).resolve() == STAGE / 'aes256.py', 'loaded AES path differs')
+    actual = {path: digest(path) for path in PINS}
+    bit_ir.require(actual == PINS, 'selected AES reference/source changed')
+    return {str(path): value for path, value in actual.items()} | {
+        str(STAGE / name): digest(STAGE / name) for name in EXECUTING}
+
+
+def report():
+    """Price only this emitted function, without implying a reduction or generator."""
+    before = observed()
+    kernel = aes256.AES256Kernel()
+    value = dict(schema='parliament-concrete-aes256-circuit-v1',
+                 checked_component_construction=True,
+                 kernel_inputs=kernel.inputs, kernel_outputs=kernel.outputs,
+                 clean_work_bits=kernel.work, gates=kernel.cost.as_dict(),
+                 source_before=before, **FLAGS)
+    value['source_after'] = observed()
+    bit_ir.require(value['source_before'] == value['source_after'], 'source changed during report')
+    return value
+
+
+def main(argv=None):
+    """Keep ordinary diagnostics distinct from the qualification refusal."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--out', type=Path)
+    parser.add_argument('--require-qualified', action='store_true')
+    args = parser.parse_args(argv)
+    try:
+        value, code = report(), 2 if args.require_qualified else 0
+    except (OSError, ValueError) as error:
+        value, code = dict(error=str(error), checked_component_construction=False, **FLAGS), 1
+    encoded = json.dumps(value, indent=2, sort_keys=True) + '\n'
+    if args.out is None:
+        print(encoded, end='')
+    else:
+        with args.out.open('x') as output:
+            output.write(encoded)
+    return code
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

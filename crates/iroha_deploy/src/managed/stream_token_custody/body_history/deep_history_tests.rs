@@ -466,10 +466,10 @@ fn verify_deep_history(fixture: &Fixture, completed: CompletedDeepHistory) {
         .unwrap();
     require_full_census(history.current_history().unwrap());
     drop(history.read_current(&fixture.owner).unwrap());
-    let closure = metadata::test_read_component(&oldest, None, "closed.nrt")
+    let closure = metadata::test_read_component(oldest, None, "closed.nrt")
         .unwrap()
         .unwrap();
-    metadata::test_replace_component(&oldest, None, "closed.nrt", Some(b"changed oldest closure"))
+    metadata::test_replace_component(oldest, None, "closed.nrt", Some(b"changed oldest closure"))
         .unwrap();
     assert!(
         history
@@ -480,7 +480,7 @@ fn verify_deep_history(fixture: &Fixture, completed: CompletedDeepHistory) {
             .is_err()
     );
     assert!(history.read_current(&fixture.owner).is_err());
-    metadata::test_replace_component(&oldest, None, "closed.nrt", Some(&closure)).unwrap();
+    metadata::test_replace_component(oldest, None, "closed.nrt", Some(&closure)).unwrap();
     require_full_census(history.current_history().unwrap());
     drop(history.read_current(&fixture.owner).unwrap());
 

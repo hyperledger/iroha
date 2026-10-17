@@ -50,7 +50,7 @@ impl FastJsonWrite for Base64Bytes<'_> {
     }
 
     fn write_json_to(&self, out: &mut dyn JsonWriteSink) -> Result<(), BoundedJsonError> {
-        dm::json_helpers::base64_vec::serialize_bounded(self.0, out)
+        norito::json::write_base64_json_to(self.0, out)
     }
 }
 
@@ -186,4 +186,54 @@ fn projection<'a>(
             result_preimage: Base64Bytes(certificate.result_preimage()),
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explorer_transaction_proof_base64_preserves_padding_and_exact_sink_bounds() {
+        for (bytes, expected) in [
+            (b"".as_slice(), "\"\""),
+            (b"f".as_slice(), "\"Zg==\""),
+            (b"fo".as_slice(), "\"Zm8=\""),
+            (b"foo".as_slice(), "\"Zm9v\""),
+            (b"\xfb\xff".as_slice(), "\"+/8=\""),
+        ] {
+            let value = Base64Bytes(bytes);
+            assert_eq!(
+                norito::json::to_json_bounded(&value, expected.len()).unwrap(),
+                expected,
+            );
+            let mut ordinary = String::new();
+            value.write_json(&mut ordinary);
+            assert_eq!(ordinary, expected);
+            for limit in 0..expected.len() {
+                assert_eq!(
+                    norito::json::to_json_bounded(&value, limit),
+                    Err(BoundedJsonError::BodyTooLarge),
+                    "certificate bytes must not escape the JSON sink limit {limit}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn explorer_transaction_proof_certificate_has_one_cumulative_output_bound() {
+        let certificate = CertificateProjection {
+            consensus_header: Base64Bytes(b"f"),
+            commit_qc: Base64Bytes(b"fo"),
+            result_preimage: Base64Bytes(b"foo"),
+        };
+        let expected = r#"{"consensus_header":"Zg==","commit_qc":"Zm8=","result_preimage":"Zm9v"}"#;
+        assert_eq!(
+            norito::json::to_json_bounded(&certificate, expected.len()).unwrap(),
+            expected,
+        );
+        assert_eq!(
+            norito::json::to_json_bounded(&certificate, expected.len() - 1),
+            Err(BoundedJsonError::BodyTooLarge),
+        );
+    }
 }

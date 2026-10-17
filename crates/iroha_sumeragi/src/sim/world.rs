@@ -10,6 +10,7 @@
 
 mod clock_guard;
 mod progress;
+mod proposal_admission;
 mod seed_config;
 mod storage;
 mod transport;
@@ -208,6 +209,8 @@ pub struct Replica {
     clock_ready: Option<(u64, u64)>,
     /// Latest original build request; superseded completion events cannot publish.
     build_request: Option<u64>,
+    /// Application source captured at the original request, before worker latency.
+    build_source: Option<crate::api::ControlWitnessContext>,
     /// Completed original payload retained while a regressed wall clock catches up.
     completed_build: Option<(u64, crate::availability::PayloadBytes)>,
     /// Original fresh authored body withheld immediately before proposal signing.
@@ -582,6 +585,7 @@ impl World {
                     pending_ready: None,
                     clock_ready: None,
                     build_request: None,
+                    build_source: None,
                     completed_build: None,
                     authored_clock: None,
                 };
@@ -1293,6 +1297,31 @@ impl World {
                     Err((_, error)) => self.fail(format!("sim authoring failed: {error:?}")),
                 }
             }
+            Action::RecoverProposalAdmission { req, body } => {
+                let header = body.header();
+                let admission = self.original_proposal_admission(
+                    r,
+                    crate::api::ControlWitnessContext {
+                        height: header.height,
+                        view: header.origin_view,
+                        epoch: header.epoch,
+                        parent_hash: header.parent_hash,
+                        parent_result: header.parent_result,
+                    },
+                    body.payload().clone(),
+                );
+                self.schedule(
+                    at + 1,
+                    Ev::Local {
+                        r,
+                        epoch,
+                        event: Box::new(Event::ProposalAdmissionRecovered {
+                            req,
+                            admission: Some(admission),
+                        }),
+                    },
+                );
+            }
             Action::AcquirePayload { source, manifest } => {
                 let bh = source.block_hash();
                 let mut job = crate::availability::PayloadAcquisition::new(source, manifest);
@@ -1955,6 +1984,10 @@ impl World {
         }
         let inst = rep.inst;
         self.replicas[r].build_request = Some(req);
+        self.replicas[r].build_source = self.replicas[r]
+            .host
+            .core()
+            .and_then(|core| core.fresh_proposal_context(req));
         self.replicas[r].completed_build = None;
         self.replicas[r].authored_clock = None;
         self.replicas[r].clock_ready = None;
@@ -2383,6 +2416,7 @@ impl World {
             rep.pending_ready = None;
             rep.clock_ready = None;
             rep.build_request = None;
+            rep.build_source = None;
             rep.completed_build = None;
             rep.authored_clock = None;
             self.ready[r] = Millis::MAX;
@@ -2490,6 +2524,7 @@ impl World {
                     rep.pending_ready = None;
                     rep.clock_ready = None;
                     rep.build_request = None;
+                    rep.build_source = None;
                     rep.completed_build = None;
                     rep.authored_clock = None;
                     rep.applied = rep.store.last().map_or_else(
@@ -2848,7 +2883,9 @@ fn describe_event(event: &Event) -> String {
         Event::PayloadBuilt { req, payload } => {
             format!(
                 "PayloadBuilt req{req} {}B",
-                payload.as_ref().map_or(0, |value| value.as_slice().len())
+                payload
+                    .as_ref()
+                    .map_or(0, |value| value.payload.as_slice().len())
             )
         }
         Event::ControlWitnessBuilt { req, context, .. } => {
@@ -2859,6 +2896,9 @@ fn describe_event(event: &Event) -> String {
         }
         Event::PayloadAuthored { req, body } => {
             format!("PayloadAuthored req{req} h{}", body.header().height)
+        }
+        Event::ProposalAdmissionRecovered { req, .. } => {
+            format!("ProposalAdmissionRecovered req{req}")
         }
         Event::ManifestRejected { manifest } => {
             format!("ManifestRejected h{}", manifest.header.height)
@@ -2922,6 +2962,9 @@ fn summarize(actions: &[Action]) -> String {
             } => format!("build(req{req} h{height} v{view})"),
             Action::AuthorPayload { req, header, .. } => {
                 format!("author(req{req} h{})", header.height)
+            }
+            Action::RecoverProposalAdmission { req, body } => {
+                format!("recover_proposal(req{req} h{})", body.header().height)
             }
             Action::AcquirePayload { source, .. } => format!("acquire(h{})", source.height()),
             Action::ReceivePayloadChunk { chunk, .. } => {

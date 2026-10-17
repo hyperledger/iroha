@@ -3564,7 +3564,7 @@ fn start_iso_bridge_projection_worker(
                     }
                     continue;
                 }
-                received = receiver.recv() => received,
+                outcome = receiver.recv() => outcome,
             };
             match event_result {
                 Ok(EventBox::Pipeline(event)) => {

@@ -322,8 +322,9 @@ impl WorkflowClock for Clock {
     }
     fn sleep(&self, duration: Duration) -> WorkflowFuture<'_, ()> {
         Box::pin(async move {
-            self.0
-                .fetch_add(duration.as_millis() as u64, Ordering::Relaxed);
+            let millis = u64::try_from(duration.as_millis())
+                .expect("fixture sleep duration fits u64 milliseconds");
+            self.0.fetch_add(millis, Ordering::Relaxed);
         })
     }
 }

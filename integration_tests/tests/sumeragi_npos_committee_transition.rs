@@ -104,6 +104,8 @@ mod committee_status;
 mod parliament_contract;
 #[path = "support/parliament_submission.rs"]
 mod parliament_submission;
+#[path = "sccp_key_transition/main.rs"]
+mod sccp_key_transition;
 
 // Paid citizen setup precedes selection; one full preparation epoch then covers every seat.
 const EPOCH: u64 = 64;

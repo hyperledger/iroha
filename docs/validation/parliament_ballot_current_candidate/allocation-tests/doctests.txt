@@ -1,0 +1,24 @@
+   Compiling iroha_allocation v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_allocation)
+    Finished `release` profile [optimized] target(s) in 0.48s
+   Doc-tests iroha_allocation
+
+running 1 test
+test crates/iroha_allocation/src/lib.rs - AllocationScopeControl (line 219) ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 9 tests
+test crates/iroha_allocation/src/lib.rs - OwnedAllocationScope (line 292) - compile fail ... ok
+test crates/iroha_allocation/src/shared.rs - shared::Shared<T,Charge>::project (line 253) - compile fail ... ok
+test crates/iroha_allocation/src/lib.rs - AllocationScope (line 178) - compile fail ... ok
+test crates/iroha_allocation/src/shared.rs - shared::Shared<T,Charge>::project (line 262) - compile fail ... ok
+test crates/iroha_allocation/src/shared.rs - shared::Reserved (line 35) - compile fail ... ok
+test crates/iroha_allocation/src/allocation/refund_batch.rs - refund_batch::AllocationRefundBatch::with_scope (line 35) - compile fail ... ok
+test crates/iroha_allocation/src/lib.rs - OwnedAllocationScope (line 298) - compile fail ... ok
+test crates/iroha_allocation/src/lib.rs - AllocationScope (line 185) - compile fail ... ok
+test crates/iroha_allocation/src/allocation/allocator_refusal.rs - allocator_refusal::AllocatorRefusal (line 21) - compile fail ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+all doctests ran in 0.46s; merged doctests compilation took 0.20s

@@ -1,0 +1,19 @@
+uuF                                                                      [100%]
+=================================== FAILURES ===================================
+____________________________ test_parent (value=1) _____________________________
+
+subtests = <_pytest.subtests.Subtests object at 0x10a0e8450>
+
+    def test_parent(subtests):
+        for value in range(2):
+            with subtests.test(value=value):
+>               assert not (True and value == 1)
+E               assert not (True and 1 == 1)
+
+test_observed_case.py:4: AssertionError
+_________________________________ test_parent __________________________________
+contains 1 failed subtest
+=========================== short test summary info ============================
+SUBFAILED(value=1) test_observed_case.py::test_parent - assert not (True and ...
+FAILED test_observed_case.py::test_parent - contains 1 failed subtest
+2 failed, 1 subtests passed in 0.03s

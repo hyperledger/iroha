@@ -182,6 +182,10 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                     let error = MultisigInstructionBox::try_from(&opaque).expect_err(
                         "canonical CustomInstruction parsing uses the actual decoder scope",
                     );
+                    assert!(matches!(
+                        &error,
+                        norito::Error::TotalAllocationExceeded { limit: 0, .. }
+                    ));
                     {
                         let ExecutionAttemptError::Deferred(actual) =
                             multisig_instruction_decode_attempt(error, |_| ())

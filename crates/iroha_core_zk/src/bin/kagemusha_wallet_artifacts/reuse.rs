@@ -86,7 +86,12 @@ fn selected_originals(request: &ReuseRequest) -> io::Result<Vec<OriginalV1>> {
     Ok(originals)
 }
 
-pub(super) trait CarrierSource {
+/// Select retained original directories without granting source or verifier authority.
+pub trait CarrierSource {
+    /// Locate the retained directory selected for this original digest.
+    ///
+    /// # Errors
+    /// Returns an error if retained candidate input or directory custody fails revalidation.
     fn directory(&self, digest: [u8; 32]) -> io::Result<&DirectoryOriginalsV1>;
 }
 impl CarrierSource for DirectoryOriginalsV1 {
@@ -95,7 +100,8 @@ impl CarrierSource for DirectoryOriginalsV1 {
     }
 }
 
-pub(super) struct Candidates {
+/// Retained read-only candidate inputs awaiting the compiler's independent source checks.
+pub struct Candidates {
     input: Original,
     root: PrivateDirectory,
     directory: DirectoryOriginalsV1,
@@ -141,7 +147,7 @@ impl Candidates {
 
 /// Retained candidates stay in their read-only directory. New compiler originals
 /// go to this run's cache; the final carrier copies only the completed selection.
-pub(super) struct CompilerSources {
+pub struct CompilerSources {
     current: DirectoryOriginalsV1,
     candidates: Option<Candidates>,
 }

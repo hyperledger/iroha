@@ -1,0 +1,178 @@
+"""Reconcile new conditional evidence while preserving historical identities.
+
+Run once from the repository root. No builds, qualification or production writes.
+"""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+import re
+import subprocess
+
+ROOT = Path.cwd()
+B6 = ROOT / "docs/validation/parliament_ballot_b6"
+PRIOR = B6 / "pre-public-sampler-frontend-artifact-manifest.sha256"
+INDEX = B6 / "B6_ARTIFACTS_SHA256SUMS"
+RECEIPT = B6 / "public-sampler-frontend-coherence.json"
+
+
+def require(condition, detail):
+    if not condition:
+        raise RuntimeError(str(detail))
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def inventory(path):
+    entries = {}
+    for line in path.read_text().splitlines():
+        digest, name = line.split("  ", 1)
+        require(name not in entries and re.fullmatch(r"[0-9a-f]{64}", digest), (path, name))
+        entries[name] = digest
+    return entries
+
+
+def verify_manifest(path):
+    entries = inventory(path)
+    for name, expected in entries.items():
+        base = ROOT if name.startswith(("docs/", "specs/", "scripts/", "crates/")) else path.parent
+        require(sha(base / name) == expected, (path, name))
+    return {"path": str(path.relative_to(ROOT)), "sha256": sha(path), "entries": len(entries)}
+
+
+def drift(pins):
+    changes = {}
+    for name, expected in pins.items():
+        path = ROOT / name
+        actual = sha(path) if path.is_file() else None
+        if actual != expected:
+            changes[name] = {"before": expected, "after": actual}
+    return changes
+
+
+require(sha(PRIOR) == "3dadfe520aeed8b2e089c963f2f4261096054bb1c8e240b013ee6eba5a362a22", "wrong prior index")
+require(INDEX.read_bytes() == PRIOR.read_bytes(), "index already changed")
+require(not RECEIPT.exists(), "refuse overwriting receipt")
+old = inventory(PRIOR)
+allowed = {
+    "docs/validation/parliament_ballot_b6.md",
+    "specs/parliament_ballot_arena_sufficiency.md",
+    "specs/parliament_ballot_b6_requirement_audit.md",
+    "specs/parliament_ballot_implementation_goals.md",
+}
+changes = drift(old)
+require(set(changes) == allowed, ("unexpected prior artifact changes", changes))
+folders = {
+    "parliament_ballot_adapter_source_recovery": "00bbaf781ccb78064c84ad92f4ed47c7e2d6b87b3208d7831f75e79191271a4d",
+    "parliament_ballot_ideal_public_sampler": "8a34bdfada5468cfd91fb56998c18143c1d380d74a6f4ca5c2264e40046a7519",
+    "parliament_ballot_frontend_bound": "81bae3e341dbb26915dd45d9a24d763705b983d9f6826d99c8a01d152e173b84",
+}
+manifests = []
+for name, expected in folders.items():
+    path = ROOT / "docs/validation" / name / "SHA256SUMS"
+    require(sha(path) == expected, ("child identity changed", name))
+    manifests.append(verify_manifest(path))
+
+sampler_dir = ROOT / "docs/validation/parliament_ballot_ideal_public_sampler"
+sampler = json.loads((sampler_dir / "receipt.json").read_text())
+require(not sampler["profile_qualified"] and not sampler["complete_quantum_resource_vector"], "sampler qualification changed")
+require(not drift(sampler["source_sha256_at_freeze"]), "sampler source changed")
+for item in sampler["source_references"]:
+    lines = (ROOT / item["path"]).read_bytes().splitlines(keepends=True)
+    value = b"".join(lines[item["start_line"] - 1:item["end_line"]])
+    require(hashlib.sha256(value).hexdigest() == item["excerpt_sha256"], ("excerpt changed", item))
+frontend_dir = ROOT / "docs/validation/parliament_ballot_frontend_bound"
+frontend = json.loads((frontend_dir / "analysis/report.json").read_text())
+require(frontend["verdict"] == "PASS_UNDER_STATED_PREMISES" and not frontend["input_changes"], "frontend capture failed")
+require(not frontend["applies_to_current_checkout"] and not frontend["profile_qualified"], "frontend scope changed")
+require(not drift(frontend["input_sha256"]), "resolved historical inputs changed")
+adapter = json.loads((ROOT / "docs/validation/parliament_ballot_adapter_bound/report.json").read_text())
+current_adapter_drift = drift(adapter["input_sha256"])
+recovery_control = json.loads((B6 / "source-recovery-controls.json").read_text())
+require(recovery_control["exit"] == 0 and recovery_control["test_count"] == 12, "recovery controls failed")
+require(not drift(recovery_control["input_sha256"]), "recovery test inputs changed")
+require(sha(B6 / "source-recovery-controls.txt") == recovery_control["log_sha256"], "recovery test output changed")
+
+gate_path = B6 / "adapter-deletion-source-check.json"
+gate = json.loads(gate_path.read_text())
+require(gate["exit"] == 1 and gate["observed_read_set_matches_cli"] and not gate["source_changes"], "prior source check incoherent")
+current_gate_drift = drift(gate["source_after"])
+iface_path = ROOT / "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs"
+iface = iface_path.read_text()
+require(re.search(r"pub const fn parliament_binding_ballot_available\(\) -> bool \{\s*false\s*\}", iface), "binding gate changed")
+require(re.search(r"pub const fn parliament_sccp_attempt_latency_ms\(\) -> Option<u64> \{\s*None\s*\}", iface), "qualified latency changed")
+gate_pins = {str(iface_path.relative_to(ROOT)): sha(iface_path)}
+for name in ("crates/iroha_core/Cargo.toml", "crates/iroha_torii/Cargo.toml"):
+    require(not re.search(r"iroha[_-](?:parliament[_-]ballot|zkp[_-]vole)", (ROOT / name).read_text()), "experimental production dependency")
+    gate_pins[name] = sha(ROOT / name)
+
+documents = [ROOT / name for name in sorted(allowed)] + [
+    ROOT / "specs/parliament_ballot_b6_ideal_public_sampler.md",
+    *[ROOT / "docs/validation" / name / "README.md" for name in folders],
+]
+links = []
+for doc in documents:
+    for link in re.findall(r"\]\(([^)]+)\)", doc.read_text()):
+        if "://" in link or link.startswith("#"):
+            continue
+        require((doc.parent / link.split("#")[0]).resolve().exists(), ("broken link", doc, link))
+        links.append({"document": str(doc.relative_to(ROOT)), "link": link})
+check_files = sorted(allowed | {
+    "scripts/parliament_ballot_frontend_bound.py", "scripts/tests/parliament_ballot_frontend_bound_test.py",
+    "scripts/tests/parliament_ballot_source_recovery_test.py", "specs/parliament_ballot_b6_ideal_public_sampler.md",
+})
+checks = []
+for label, paths in (("scoped-diff", check_files), ("shared-status-diff", ["status.md"])):
+    command = ["git", "diff", "--check", "--", *paths]
+    completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+    path = B6 / ("public-sampler-frontend-" + label + ".txt")
+    require(not path.exists(), "refuse overwriting check log")
+    path.write_text(completed.stdout + completed.stderr)
+    checks.append({"command": command, "exit": completed.returncode,
+                   "log": str(path.relative_to(ROOT)), "log_sha256": sha(path)})
+require(checks[0]["exit"] == 0, "scoped diff check failed")
+require(not drift(gate_pins), "gate source changed during reconciliation")
+receipt = {
+    "schema": "parliament-public-sampler-frontend-coherence-v1",
+    "observed_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "prior_entries": len(old), "prior_manifest_sha256": sha(PRIOR),
+    "updated_live_entries": changes, "frozen_new_manifests": manifests,
+    "current_adapter_input_changes": current_adapter_drift,
+    "historical_frontend_report_sha256": sha(frontend_dir / "analysis/report.json"),
+    "resolved_frontend_guards_checked": len(frontend["input_sha256"]),
+    "sampler_source_guards_checked": len(sampler["source_sha256_at_freeze"]),
+    "sampler_source_excerpts_checked": len(sampler["source_references"]),
+    "local_links_checked": len(links), "broken_links": [], "checks": checks,
+    "source_check_rerun": False, "source_check_receipt": str(gate_path.relative_to(ROOT)),
+    "source_check_receipt_sha256": sha(gate_path),
+    "source_check_subsequent_changes": current_gate_drift,
+    "production_gate_source_sha256": gate_pins,
+    "binding_ballot_available": False, "qualified_attempt_latency_ms": None,
+    "no_experimental_core_torii_dependencies": True,
+    "current_status_roadmap_sha256": {name: sha(ROOT / name) for name in ("status.md", "roadmap.md")},
+    "complete_workspace_certificate": False, "complete_quantum_resource_vector": False,
+    "profile_qualified": False, "pins_refreshed": False,
+    "scope": "Conditional ideal public sampler, historical source recovery and local framing/dispatch contributions only. The prior source-contract check remains first-failed at the queue binding; its read inputs are compared, not its later assertions executed. Current source differences do not change historical pins. Local reviews do not substitute for independent qualification review.",
+}
+RECEIPT.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+names = set(old) | {str(path.relative_to(ROOT)) for name in folders
+                   for path in (ROOT / "docs/validation" / name).rglob("*") if path.is_file()} | {
+    str(PRIOR.relative_to(ROOT)), str(RECEIPT.relative_to(ROOT)),
+    "docs/validation/parliament_ballot_b6/public-sampler-frontend-coherence.py.template",
+    "docs/validation/parliament_ballot_b6/public-sampler-frontend-scoped-diff.txt",
+    "docs/validation/parliament_ballot_b6/public-sampler-frontend-shared-status-diff.txt",
+    "docs/validation/parliament_ballot_b6/recover-adapter-sources.py.template",
+    "docs/validation/parliament_ballot_b6/source-recovery-controls.json",
+    "docs/validation/parliament_ballot_b6/source-recovery-controls.txt",
+    "scripts/tests/parliament_ballot_source_recovery_test.py",
+    "scripts/parliament_ballot_frontend_bound.py", "scripts/tests/parliament_ballot_frontend_bound_test.py",
+    "specs/parliament_ballot_b6_ideal_public_sampler.md",
+}
+INDEX.write_text("".join(sha(ROOT / name) + "  " + name + "\n" for name in sorted(names)))
+verify_manifest(INDEX)
+print(json.dumps({"entries": len(names), "index_sha256": sha(INDEX), "coherence_sha256": sha(RECEIPT),
+                  "adapter_drift_count": len(current_adapter_drift), "links_checked": len(links),
+                  "core_guard_drift_count": len(current_gate_drift),
+                  "check_exits": [entry["exit"] for entry in checks]}))

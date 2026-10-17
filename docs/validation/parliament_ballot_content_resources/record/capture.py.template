@@ -1,0 +1,70 @@
+"""Run the four metadata cases and independent scalar checks once, retaining failures."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+CAPTURE=ROOT/'target/parliament-machine-final-capture/capture'
+ACCEPTED=ROOT/'target/parliament-ideal-machine-stage/request-accepted-observation.json'
+OUT=HERE/'capture'
+
+
+def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def main():
+    if OUT.exists():raise ValueError('capture directory already exists')
+    pin_receipt=CAPTURE/'receipt.json'
+    if sha(pin_receipt)!='a2461d6bc5b1ee066dcaa6a48bf3fe5639d0b886da6512358e5dd0c6eb835e69':
+        raise ValueError('corrected capture identity')
+    pins=json.loads(pin_receipt.read_text())['source_sha256_before']
+    watched=[ROOT/p for p in pins]+[pin_receipt,CAPTURE/'manifest.sha256',ACCEPTED,
+        HERE/'observe.py',HERE/'check.py',Path(__file__),HERE/'README.md']
+    before={str(p.relative_to(ROOT)):sha(p) for p in watched}
+    if any(before[p]!=h for p,h in pins.items()):raise ValueError('frozen source drift')
+    python=Path(sys.executable).resolve()
+    runtime=dict(executable=str(python),sha256=sha(python),version=sys.version,
+        pythonpath_removed=True,pythonhome_removed=True,bytecode_disabled=True,
+        full_runtime_dependency_closure_claimed=False)
+    OUT.mkdir()
+    receipt=dict(schema='parliament-content-resource-observation-capture-v1',
+        source_sha256_before=before,runtime_before=runtime,commands=[],
+        selected_machine_source_count=len(pins),status='FAIL',
+        full_actual_gate_streams_executed=False,complete_resource_vector=False,
+        profile_qualified=False,production_gate_changed=False)
+    env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1')
+    env.pop('PYTHONPATH',None);env.pop('PYTHONHOME',None)
+    commands=[('observe',[str(python),'-B',str(HERE/'observe.py'),'--out',str(OUT/'observation.json')]),
+        ('check',[str(python),'-B',str(HERE/'check.py'),'--report',str(OUT/'observation.json'),
+            '--accepted',str(ACCEPTED),'--out',str(OUT/'checks.json')])]
+    try:
+        for name,command in commands:
+            start=time.monotonic()
+            with (OUT/(name+'.stdout')).open('xb') as stdout,(OUT/(name+'.stderr')).open('xb') as stderr:
+                run=subprocess.run(command,cwd=ROOT,env=env,stdout=stdout,stderr=stderr)
+            receipt['commands'].append(dict(command=command,exit_code=run.returncode,
+                elapsed_seconds=time.monotonic()-start,stdout=name+'.stdout',stderr=name+'.stderr'))
+            print(json.dumps(receipt['commands'][-1]),flush=True)
+            if run.returncode:raise ValueError(name+' command failed; exact outputs retained')
+        receipt['status']='PASS'
+    except BaseException as exc:
+        receipt['error']=f'{type(exc).__name__}: {exc}'
+        raise
+    finally:
+        receipt['source_sha256_after']={str(p.relative_to(ROOT)):sha(p) for p in watched}
+        receipt['runtime_after']=dict(runtime,sha256=sha(python))
+        receipt['source_stable']=receipt['source_sha256_after']==before
+        receipt['runtime_stable']=receipt['runtime_after']==runtime
+        if not receipt['source_stable'] or not receipt['runtime_stable']:
+            receipt['status']='FAIL';receipt['error']='late selected source/runtime drift'
+        receipt['output_sha256']={p.name:sha(p) for p in OUT.iterdir() if p.is_file()}
+        (OUT/'receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+    if receipt['status']!='PASS':raise ValueError(receipt.get('error','capture failed'))
+
+
+if __name__=='__main__':main()

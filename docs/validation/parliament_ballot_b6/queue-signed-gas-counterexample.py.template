@@ -1,0 +1,62 @@
+"""Retain the peer-discovered false approval in the frozen queue-only checker.
+
+The mutation exists only in memory. This deliberately does not run or modify
+Core, and it does not test the later replacement checker.
+"""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+
+root = Path.cwd()
+folder = root / "docs/validation/parliament_ballot_b6"
+output = folder / "queue-signed-gas-counterexample.json"
+if output.exists():
+    raise RuntimeError("refuse overwriting counterexample capture")
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+names = [
+    "docs/validation/parliament_ballot_b6/queue-only-check_sora_parliament_source_contract.py.template",
+    "scripts/formal/rust_text.py",
+    "crates/iroha_data_model/src/transaction/executable.rs",
+    "crates/iroha_core/src/queue.rs",
+    str(Path(__file__).resolve().relative_to(root)),
+]
+data = {name: (root / name).read_bytes() for name in names}
+before = {name: sha(value) for name, value in data.items()}
+if before[names[0]] != "bd6f4743aba223b8e98715eda06e0183f9bf8d3afa50b437872454c7affbfa0c":
+    raise RuntimeError("wrong historical checker")
+namespace = {"__name__": "frozen_queue_counterexample", "__file__": str(root / "scripts/formal/check_sora_parliament_source_contract.py")}
+exec(compile(data[names[0]], str(root / names[0]), "exec"), namespace)
+executable, queue = data[names[2]].decode(), data[names[3]].decode()
+check = namespace["require_queue_signed_proposal_gas"]
+check(executable, queue)
+declaration = "fn signed_executable_proposal_gas_cost("
+item = namespace["rust_item"](queue, declaration, names[3])
+live = item[:item.index("{")] + "{ Ok(0) }"
+live = live.replace(declaration, "fn signed_executable_proposal_gas_cost /* live replacement */ (", 1)
+mutated = queue.replace(item, live, 1) + "\n#[cfg(any())] impl Queue {\n" + item + "\n}\n"
+check(executable, mutated)
+after = {name: sha((root / name).read_bytes()) for name in names}
+if before != after:
+    raise RuntimeError("counterexample inputs changed")
+value = {
+    "schema": "parliament-queue-guard-historical-counterexample-v1",
+    "observed_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "historical_baseline_accepted": True,
+    "historical_invalid_live_zero_quote_accepted": True,
+    "mutated_queue_sha256": sha(mutated.encode()),
+    "source_sha256_before": before, "source_sha256_after": after,
+    "mutation": "Replace the live signed gas helper with Ok(0), add a comment before its opening parenthesis, and put the intact helper in a cfg(any()) impl Queue decoy.",
+    "live_replacement": live,
+    "production_files_modified": False, "rust_compilation_claimed": False,
+    "later_replacement_checker_tested": False,
+    "profile_qualified": False,
+    "scope": "Concrete Python guard false approval, independent root reproduction. The old 36 focused controls did not cover this combination; the replacement requires its own regression and provenance.",
+}
+output.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+print(json.dumps({"receipt_sha256": sha(output.read_bytes()), "historical_false_approval_reproduced": True}))

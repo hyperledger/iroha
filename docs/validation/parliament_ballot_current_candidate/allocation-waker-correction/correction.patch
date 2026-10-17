@@ -1,0 +1,35 @@
+--- before/crates/iroha_allocation/src/shared.rs
++++ after/crates/iroha_allocation/src/shared.rs
+@@ -84,7 +84,7 @@
+ }
+ 
+ impl<T: SharedWake, Charge: Send + Sync + 'static> Shared<T, Charge> {
+-    /// Transfer exactly this strong reference into the canonical Waker vtable.
++    /// Transfer exactly this strong reference into a waker retaining the original control allocation.
+     pub(crate) fn into_waker(self) -> std::task::Waker {
+         struct Vtable<T, Charge>(std::marker::PhantomData<(T, Charge)>);
+         impl<T: SharedWake, Charge: Send + Sync + 'static> Vtable<T, Charge> {
+--- before/crates/iroha_allocation/src/shared_wake_tests.rs
++++ after/crates/iroha_allocation/src/shared_wake_tests.rs
+@@ -67,7 +67,8 @@
+         .store(std::ptr::from_ref(&*owner) as usize, SeqCst);
+     let waker = without_allocations(|| owner.into_waker());
+     let clone = without_allocations(|| waker.clone());
+-    assert!(waker.will_wake(&clone));
++    // `will_wake` permits false negatives; check original ownership directly.
++    assert_eq!(waker.data(), clone.data());
+     without_allocations(|| waker.wake_by_ref());
+     without_allocations(|| clone.wake());
+     assert_eq!(wake_count.load(SeqCst), 2);
+--- before/crates/iroha_allocation/tests/charged_shared_custody.rs
++++ after/crates/iroha_allocation/tests/charged_shared_custody.rs
+@@ -550,7 +550,8 @@
+     drop(original);
+     let first = owner.into_waker();
+     let last = first.clone();
+-    assert!(first.will_wake(&last));
++    // `will_wake` permits false negatives; check original ownership directly.
++    assert_eq!(first.data(), last.data());
+     first.wake_by_ref();
+     first.wake();
+     assert_eq!(calls.load(SeqCst), 2);

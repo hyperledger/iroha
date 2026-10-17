@@ -1,0 +1,160 @@
+{
+  "absent_conftests": [
+    "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/scripts/conftest.py",
+    "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/conftest.py",
+    "/Users/mtakemiya/dev/iroha/target/conftest.py",
+    "/Users/mtakemiya/dev/iroha/conftest.py",
+    "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/scripts/tests/conftest.py"
+  ],
+  "applies_to_current_checkout": false,
+  "capture_python_version": "3.15.0 (main, Oct  9 2026, 11:16:41) [Clang 21.0.0 (clang-2100.3.34.2)]",
+  "command_line": [
+    "target/parliament-opaque-field-bound-stage/capture.py",
+    "--helper-sha",
+    "3274e232abda676a9b4a1364f1f4e9079093aca80c284a761b8f07a2345b8917",
+    "--test-sha",
+    "afba7c0231ed0ebfb36c69a19a913db0760a26f777c727d6e012e55ade26f73f",
+    "--readme-sha",
+    "d83d2179553e6952107384263fbd5035a2557b56a699c55f409e2500d4b01e56",
+    "--expected-test-cases",
+    "137"
+  ],
+  "commands": [
+    {
+      "command": [
+        "/opt/homebrew/bin/pytest",
+        "-c",
+        "/Users/mtakemiya/dev/iroha/pytest.ini",
+        "-o",
+        "addopts=",
+        "--confcutdir=/Users/mtakemiya/dev/iroha",
+        "--import-mode=importlib",
+        "-p",
+        "no:cacheprovider",
+        "--maxfail=0",
+        "--tb=short",
+        "--basetemp=/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/capture/pytest-tmp",
+        "-q",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/scripts/tests/parliament_ballot_opaque_field_bound_test.py",
+        "--junitxml=/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/capture/tests.xml"
+      ],
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "name": "tests",
+      "seconds": 9.18011529208161,
+      "source_after": {
+        "/Users/mtakemiya/dev/iroha/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/README.md": "d83d2179553e6952107384263fbd5035a2557b56a699c55f409e2500d4b01e56",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/capture.py": "f5da41dd702381aa40859e526f0f2ec920b7f9abe7e681b971a9db4dee32db72",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/scripts/parliament_ballot_opaque_field_bound.py": "3274e232abda676a9b4a1364f1f4e9079093aca80c284a761b8f07a2345b8917",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/scripts/tests/parliament_ballot_opaque_field_bound_test.py": "afba7c0231ed0ebfb36c69a19a913db0760a26f777c727d6e012e55ade26f73f"
+      }
+    },
+    {
+      "command": [
+        "/opt/homebrew/opt/python@3.15/bin/python3.15",
+        "-B",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/scripts/parliament_ballot_opaque_field_bound.py",
+        "--root",
+        "/Users/mtakemiya/dev/iroha",
+        "--out",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/capture/analysis.json"
+      ],
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "name": "analysis",
+      "seconds": 0.435223083011806,
+      "source_after": {
+        "/Users/mtakemiya/dev/iroha/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/README.md": "d83d2179553e6952107384263fbd5035a2557b56a699c55f409e2500d4b01e56",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/capture.py": "f5da41dd702381aa40859e526f0f2ec920b7f9abe7e681b971a9db4dee32db72",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/scripts/parliament_ballot_opaque_field_bound.py": "3274e232abda676a9b4a1364f1f4e9079093aca80c284a761b8f07a2345b8917",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/scripts/tests/parliament_ballot_opaque_field_bound_test.py": "afba7c0231ed0ebfb36c69a19a913db0760a26f777c727d6e012e55ade26f73f"
+      }
+    },
+    {
+      "command": [
+        "/opt/homebrew/opt/python@3.15/bin/python3.15",
+        "-B",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/scripts/parliament_ballot_opaque_field_bound.py",
+        "--root",
+        "/Users/mtakemiya/dev/iroha",
+        "--out",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/capture/refusal.json",
+        "--require-qualified"
+      ],
+      "exit_code": 2,
+      "expected_exit_code": 2,
+      "name": "require-qualified",
+      "seconds": 0.43740949989296496,
+      "source_after": {
+        "/Users/mtakemiya/dev/iroha/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/README.md": "d83d2179553e6952107384263fbd5035a2557b56a699c55f409e2500d4b01e56",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/capture.py": "f5da41dd702381aa40859e526f0f2ec920b7f9abe7e681b971a9db4dee32db72",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/scripts/parliament_ballot_opaque_field_bound.py": "3274e232abda676a9b4a1364f1f4e9079093aca80c284a761b8f07a2345b8917",
+        "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/scripts/tests/parliament_ballot_opaque_field_bound_test.py": "afba7c0231ed0ebfb36c69a19a913db0760a26f777c727d6e012e55ade26f73f"
+      }
+    }
+  ],
+  "complete_workspace_certificate": false,
+  "environment_overrides": {
+    "PYTEST_ADDOPTS": "",
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+    "PYTEST_PLUGINS": "",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONPATH": ""
+  },
+  "error": null,
+  "expected_test_cases": 137,
+  "output_sha256": {
+    "analysis.command.json": "2ebe6420d00aed83fea1501ad41a1624419d0f8ed155a3fb85ecfd11f50c4846",
+    "analysis.json": "c0fd6601a7581d913d3a3ae5afc9d2eb48afbcd4216ce1a7f46a716e1bbcaa1f",
+    "analysis.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "analysis.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pytest-tmp/test_cli_qualification_refusal0/qualified.json": "c0fd6601a7581d913d3a3ae5afc9d2eb48afbcd4216ce1a7f46a716e1bbcaa1f",
+    "pytest-tmp/test_cli_qualification_refusal0/unknown.json": "ed27277148c3bebbcad9e96c6ec5897858d4d3a427502f929312355ff16eefc5",
+    "refusal.json": "c0fd6601a7581d913d3a3ae5afc9d2eb48afbcd4216ce1a7f46a716e1bbcaa1f",
+    "require-qualified.command.json": "431586c863199344e717367cb49da8c70d6e24a6cbb522f12c2a3bc8b17b1916",
+    "require-qualified.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "require-qualified.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sources/00-parliament_ballot_opaque_field_bound.py.template": "3274e232abda676a9b4a1364f1f4e9079093aca80c284a761b8f07a2345b8917",
+    "sources/01-parliament_ballot_opaque_field_bound_test.py.template": "afba7c0231ed0ebfb36c69a19a913db0760a26f777c727d6e012e55ade26f73f",
+    "sources/02-README.md.template": "d83d2179553e6952107384263fbd5035a2557b56a699c55f409e2500d4b01e56",
+    "sources/03-pytest.ini.template": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "sources/04-capture.py.template": "f5da41dd702381aa40859e526f0f2ec920b7f9abe7e681b971a9db4dee32db72",
+    "tests.command.json": "129ddad5d5372704ea301745273a0eb8bda59648ba168858d06c4870e037f87e",
+    "tests.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tests.stdout.txt": "3437d904d0058b6794ef0c0882d6ca74b68d158eb2baaef5367e08eaf16bad7e",
+    "tests.xml": "173e82e738ae2ee68dd95d2869e3645842118831a6d2084f16957a82efdbc3a8"
+  },
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "recorded_at_utc": "2026-10-13T16:37:32.103273+00:00",
+  "runtime_after": {
+    "/opt/homebrew/Cellar/python@3.11/3.11.17/Frameworks/Python.framework/Versions/3.11/bin/python3.11": "bff9a674241830f21e8e2933b7d9563a0b61f60ea0f3206964d0fcccd9ab8fd6",
+    "/opt/homebrew/Cellar/python@3.15/3.15.0/Frameworks/Python.framework/Versions/3.15/bin/python3.15": "15c72833c1ffc09bc4e05d1e1866784d126721ad548d9c4d8f943641262535cb",
+    "/opt/homebrew/bin/pytest": "63aac753282bf709581dee19db2f6f8198954d5ddcaaa0bcc0b1677ebaac4edd"
+  },
+  "runtime_before": {
+    "/opt/homebrew/Cellar/python@3.11/3.11.17/Frameworks/Python.framework/Versions/3.11/bin/python3.11": "bff9a674241830f21e8e2933b7d9563a0b61f60ea0f3206964d0fcccd9ab8fd6",
+    "/opt/homebrew/Cellar/python@3.15/3.15.0/Frameworks/Python.framework/Versions/3.15/bin/python3.15": "15c72833c1ffc09bc4e05d1e1866784d126721ad548d9c4d8f943641262535cb",
+    "/opt/homebrew/bin/pytest": "63aac753282bf709581dee19db2f6f8198954d5ddcaaa0bcc0b1677ebaac4edd"
+  },
+  "schema": "parliament-opaque-field-stage-capture-v1",
+  "scope": "Ignored staged checker/tests, conditional retained-image analysis. Report guards original evidence without duplicating its 2000-plus inputs. Non-atomic observation, interpreter/pytest dependencies, cache coherence and unobserved child reads remain trusted; no Rust build or worker execution.",
+  "source_after": {
+    "/Users/mtakemiya/dev/iroha/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/README.md": "d83d2179553e6952107384263fbd5035a2557b56a699c55f409e2500d4b01e56",
+    "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/capture.py": "f5da41dd702381aa40859e526f0f2ec920b7f9abe7e681b971a9db4dee32db72",
+    "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/scripts/parliament_ballot_opaque_field_bound.py": "3274e232abda676a9b4a1364f1f4e9079093aca80c284a761b8f07a2345b8917",
+    "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/scripts/tests/parliament_ballot_opaque_field_bound_test.py": "afba7c0231ed0ebfb36c69a19a913db0760a26f777c727d6e012e55ade26f73f"
+  },
+  "source_before": {
+    "/Users/mtakemiya/dev/iroha/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/README.md": "d83d2179553e6952107384263fbd5035a2557b56a699c55f409e2500d4b01e56",
+    "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/capture.py": "f5da41dd702381aa40859e526f0f2ec920b7f9abe7e681b971a9db4dee32db72",
+    "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/scripts/parliament_ballot_opaque_field_bound.py": "3274e232abda676a9b4a1364f1f4e9079093aca80c284a761b8f07a2345b8917",
+    "/Users/mtakemiya/dev/iroha/target/parliament-opaque-field-bound-stage/scripts/tests/parliament_ballot_opaque_field_bound_test.py": "afba7c0231ed0ebfb36c69a19a913db0760a26f777c727d6e012e55ade26f73f"
+  },
+  "status": "PASS"
+}

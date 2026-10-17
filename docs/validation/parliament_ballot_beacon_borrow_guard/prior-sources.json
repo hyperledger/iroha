@@ -1,0 +1,10 @@
+{
+  "scripts/formal/check_sora_parliament_source_contract.py": {
+    "archive": "docs/validation/parliament_ballot_beacon_borrow_guard/prior-sources/check_sora_parliament_source_contract.py.template",
+    "sha256": "3c6117dd0ce007ba988fe18840a8463a42a3b355a80a80b73920d743eb0d0e6c"
+  },
+  "scripts/tests/check_sora_parliament_source_contract_test.py": {
+    "archive": "docs/validation/parliament_ballot_beacon_borrow_guard/prior-sources/check_sora_parliament_source_contract_test.py.template",
+    "sha256": "1e5a07771d064e3a7fca1d2a4d2aac9fc7cd84334150b7c93c6f4e821aa6f4a5"
+  }
+}

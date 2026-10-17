@@ -1,0 +1,32 @@
+{
+  "README_sha256": "726b79d8afd61a75e91e566907a6763e3df1e28bef9fdc72a4717c058b0339c1",
+  "capture_manifest_sha256": "7de854554ce5f00ed32df5d63280d3b2b86f95ec7090bc33b5a91d1df89949ed",
+  "capture_receipt_sha256": "6dc37a45cb36debad6aff5a5dce273b3ff125a721cee84175ead677dc3aa287b",
+  "census_sha256": "5cfb1fc77da4b146bc4ae345ba831a20fd4e4ca4237d28a5791b780b64699511",
+  "claims": [
+    "P1 exact REG X maximum occurs at4095/255x6; maximum elementary,CX,CCX attained at4096/256x6.",
+    "P1 REG history/output/F are constant; fixed profile SHAKE dominates scratch throughout the domain.",
+    "P0/P1 VOTE scalar counts enumerated for all998 admitted sizes per row; every reported coordinate nondecreasing.",
+    "R1 per-item delta independently derived and checked at n3,4,32,1000; intercept uses authenticated frozen observation.",
+    "All7849 distinct family SHA3 message lengths checked against frozen kernel metadata, plus6 SHAKE lengths."
+  ],
+  "complete_resource_vector": false,
+  "domain_audit_sha256": "958805c7311b8c27eb10523d4e26332281062144a338fb86a9a30e7a52762839",
+  "domain_audit_source_map_sha256": "941ce5dc48df08c1e58d805727dac49df69565466dcab4e39ae2c72af7301d62",
+  "full_gate_stream_executed": false,
+  "full_request_family_bound": false,
+  "production_candidate_qualified": false,
+  "production_gate_changed": false,
+  "review_source_sha256": {
+    "target/parliament-family-bounds-review/arithmetic.py": "72e2b7bd5937103a514d526655cf0e60cbc7ee868eaa5c98fda5b7c95abe0ed4",
+    "target/parliament-family-bounds-review/capture.py": "382fb162ee4d9991df9b36e2101ab429a37b3ef192f86ef9ef553f05f0569f48",
+    "target/parliament-family-bounds-review/census.py": "b281a2c1d35c8b732c232c4bf18c31870d2191c0d4776e99e9e1f99aabf6b0b1",
+    "target/parliament-family-bounds-review/test_arithmetic.py": "89e041aa884edbb926cab788ccf4e5d8b223d67b60570d567d7a65bfe237f4f8"
+  },
+  "review_source_stable": true,
+  "scope": "Independent scalar component family arithmetic, not a full request or lifetime bound",
+  "selected_frozen_source_stable": true,
+  "source_count": 153,
+  "tests_passed": 37,
+  "vote_census_sha256": "3a91f20cc3e3e7e879eac9a74f0ec587e8c0bc89f83c60e6c6651e639caa2c04"
+}

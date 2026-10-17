@@ -4303,9 +4303,9 @@ impl Iroha {
         // cannot sign or dispatch AMX carriers. Invalid explicit custody fails activation.
         if !emergency_fast {
             let children = amx_relay::start(
-                Arc::clone(&state),
+                &state,
                 config.amx_relay.clone(),
-                supervisor.shutdown_signal(),
+                &supervisor.shutdown_signal(),
             )
             .map_err(|error| Report::new(StartError::StartAmxRelay).attach(error.to_string()))?;
             for child in children {

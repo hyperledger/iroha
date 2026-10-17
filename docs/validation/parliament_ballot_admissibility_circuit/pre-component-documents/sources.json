@@ -1,0 +1,17 @@
+{
+  "documents": {
+    "docs/validation/parliament_ballot_b6.md": {
+      "sha256": "863a65c35ab01dd48fba9bf2ec9a3be7e392316f3d9ed3b80008181bd31c06ec",
+      "snapshot": "docs/validation/parliament_ballot_admissibility_circuit/pre-component-documents/parliament_ballot_b6.md.template"
+    },
+    "specs/parliament_ballot_b6_requirement_audit.md": {
+      "sha256": "0ca574df6d169031962c9770e4660488322c819302692ead3181a0da2732ec1f",
+      "snapshot": "docs/validation/parliament_ballot_admissibility_circuit/pre-component-documents/parliament_ballot_b6_requirement_audit.md.template"
+    },
+    "specs/parliament_ballot_implementation_goals.md": {
+      "sha256": "37dc2e58e73534d2f314080cf7cc56be946a9d14a20813b631ecfa89416f7548",
+      "snapshot": "docs/validation/parliament_ballot_admissibility_circuit/pre-component-documents/parliament_ballot_implementation_goals.md.template"
+    }
+  },
+  "previous_manifest_sha256": "1cfb6670eab77c670ac9addf78e5c34337ce6dfc2c305474455233067f3fe3b7"
+}

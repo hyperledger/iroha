@@ -177,19 +177,19 @@ impl ProfileSummary {
                 format_delta(op.delta_ms)
             )?;
         }
-        if let Some(op) = self.operations.iter().find(|op| op.zero_fill.is_some()) {
-            if let Some(zero_fill) = &op.zero_fill {
-                writeln!(
-                    writer,
-                    "\n- Zero-fill: {} bytes, mean {} ms ({} stage)",
-                    zero_fill
-                        .bytes
-                        .map(format_bytes)
-                        .unwrap_or_else(|| "-".to_owned()),
-                    format_ms(zero_fill.timings.mean_ms),
-                    op.name
-                )?;
-            }
+        if let Some(op) = self.operations.iter().find(|op| op.zero_fill.is_some())
+            && let Some(zero_fill) = &op.zero_fill
+        {
+            writeln!(
+                writer,
+                "\n- Zero-fill: {} bytes, mean {} ms ({} stage)",
+                zero_fill
+                    .bytes
+                    .map(format_bytes)
+                    .unwrap_or_else(|| "-".to_owned()),
+                format_ms(zero_fill.timings.mean_ms),
+                op.name
+            )?;
         }
         match &self.queue {
             Some(queue) => {

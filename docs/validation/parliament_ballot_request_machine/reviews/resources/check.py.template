@@ -1,0 +1,96 @@
+"""Independent arithmetic/provenance review, without importing the observed factory."""
+import hashlib,json
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[2]
+OUT=Path(__file__).resolve().parent
+REPORT=ROOT/'target/parliament-ideal-machine-stage/request-accepted-observation.json'
+EXPECTED='81ffb1db693c94f73f41239da3cd8164893d9c84ddd805d873ec3ede974f4f4c'
+def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+def req(value,why):
+    if not value:raise RuntimeError(why)
+def popsum(n):
+    # Recursive highest-bit split, independent of production per-bit periods.
+    if n<2:return 0
+    k=n.bit_length()-1;high=1<<k
+    return k*(high>>1)+(n-high)+popsum(n-high)
+def gates(x,cx,ccx,f=0):
+    return dict(x=x,cx=cx,ccx=ccx,base_xor_oracle_calls=f,elementary_gates=x+cx+5*ccx)
+req(sha(REPORT)==EXPECTED,'observation identity')
+data=json.loads(REPORT.read_text())
+sources=data['source_sha256_before'];impl=data['selected_implementation_sha256_before']
+req(len(sources)==38 and len(impl)==30,'selected pin counts')
+req(sources==data['source_sha256_after'] and impl==data['selected_implementation_sha256_after'],'capture stability')
+pins={**sources,**impl}
+before={p:sha(ROOT/p) for p in pins}
+req(before==pins,'current observed inputs drift')
+M=1<<20;T=1<<44;N=T*(M+2);b=64;W=215150;v=2112;k=b+8*W;q=k+v;d=N.bit_length()
+req(d==65,'capacity count includes full N')
+log=N*(q+1);append=gates(4*(d*N-popsum(N)),N+1,N*(4*d-2+q)+(d-1)**2)
+checks=[]
+req({(x['row'],x['role']) for x in data['source_cases']}=={(r,s) for r in ('candidate','comparator') for s in ('REG','VOTE')},'four cases')
+for case in data['source_cases']:
+    row,role=case['row'],case['role'];r=case['resources'];gen=r['components']['generator'];w=r['components']['writes'];e=r['components']['returns']
+    tau,g,opening=(33,704,229) if row=='candidate' else (22,696,225)
+    ell=35840 if role=='REG' else 53504;ebytes=ell//8
+    pub=8*(4096+6*256+128+64) if role=='REG' else 8*(64*5+2+128000+128+1)
+    # 736 bytes of fixed fresh coins; two full 256-bit challenge tapes;
+    # tau*ell = all (tau-1) corrections plus d, 10*g c_mult bits.
+    coins=512*M+256*opening+896*tau+tau*ell+10*g+736*8
+    req((r['original_private_coin_bits'],r['original_input_bits'],gen['public_request_bits'])==(coins,coins+pub,pub),'input and coin partition')
+    names=[('public_preparation',pub+384),('schedule_tapes',512*M),('hidden_commitment_coins',896*tau),('frontier_key_coins',256*opening),('corrections',(tau-1)*ell),('mult_corrections',10*g),('challenge_1',2112),('u_tilde',1024),('masked_witness',ell),('challenge_2',832),('coefficients',1536)]
+    regs={};cursor=0
+    for name,width in names:regs[name]=(cursor,width);cursor+=width
+    relation=4736 if role=='REG' else 6336+1024*1000
+    p1=relation+1640;op=896*tau+256*opening
+    for name,width in [('P1',p1),('S0',M+332),('opening',op+16*tau+3328+256*ell),('R0',1024),('R1',322)]:
+        regs[name]=(cursor,width);cursor+=width
+    retained=cursor-(coins+pub)
+    req(retained==r['retained_derived_bits']==gen['retained_derived_bits'],'retained register sum')
+    fp={}
+    def field(name,register,offset,width):fp[name]=[regs[register][0]+offset,width]
+    off=relation
+    for name,width in [('mu',512),('iv',128),('namespace',616),('iv_pre',128),('salt',256)]:
+        field(name,'P1',off,width);off+=width
+    fp['namespace_digest']=[fp['namespace'][0]+104,512]
+    field('commitment','opening',op+16*tau,512);field('decommitment','opening',0,op)
+    for name,off,width in [('challenge',0,256),('counter',256,32),('exhausted',330,1),('primary_flags',332,M)]:field(name,'S0',off,width)
+    field('primary_challenges','schedule_tapes',0,256*M);field('d_tilde','R0',0,1024);field('a0','R1',0,256);field('relation_error','R1',256,66)
+    for name in ('corrections','mult_corrections','challenge_1','u_tilde','masked_witness','challenge_2','coefficients'):field(name,name,0,regs[name][1])
+    req(fp==case['field_positions'],'all supplied field positions')
+    proof=tau*ebytes+10*(g//8)+112*tau+32*opening+404
+    req(proof==e['proof_bytes'],'source proof bytes')
+    req(e['gates']==gates(2,3+20+proof.bit_count(),8*proof),'return exact census')
+    req((e['input_bits'],e['output_bits'])==(8*proof+1,8*proof+97),'return widths')
+    # Key lengths from exact namespace-prefix/field/domain-last framing.
+    keys=(254+(tau-1)*ebytes+10*(g//8),598+ebytes,410)
+    values=(264,104,32);prefixpop=sum(x.bit_count() for x in b'PARL/FAEST/v1')
+    sx=[key.bit_count()+prefixpop+domain.bit_count() for key,domain in zip(keys,(9,10,11))]
+    scx=[8*(key-14+value) for key,value in zip(keys,values)]
+    wx=append['x']*(M+2)+2*(sx[0]+sx[1]+M*sx[2])+4+2*popsum(M)
+    wcx=append['cx']*(M+2)+2*(scx[0]+scx[1]+M*scx[2])+2*M
+    wccx=append['ccx']*(M+2)
+    req(w['gates']==gates(wx,wcx,wccx),'full fixed-scan write census')
+    req(w['fixed_append_scans']==M+2 and w['primary_random_tape_bits']==256*M and w['primary_flag_bits']==M,'all active/disabled trial slots accounted')
+    req(w['auxiliary_tape_inputs']==w['auxiliary_writes']==0,'no auxiliary writes')
+    ww=1+q+d+32
+    req(w['clean_work_bits']==ww,'write reused work')
+    shared=max(gen['shared_clean_work_bits'],ww,1)
+    req(r['shared_work_bits']==shared,'scratch maximum, not sum')
+    req(r['persistent_log_bits']==w['persistent_log_bits']==log and r['persistent_counter_bits']==w['persistent_counter_bits']==d,'one full capacity log/counter')
+    req(r['caller_output_bits']==8*proof+97,'caller output allocated')
+    total=coins+pub+log+d+(8*proof+97)+retained+shared
+    req(total==r['total_logical_bits'],'full local-register sum')
+    forward=gen['forward_gates'];both=gen['forward_and_inverse_gates']
+    req(both=={name:2*value for name,value in forward.items()},'both generator traversals counted')
+    expectedF=2*(8+8*tau+12+4*g)
+    req(both['base_xor_oracle_calls']==expectedF==r['gates']['base_xor_oracle_calls'],'F formula')
+    req(r['gates']=={name:both[name]+w['gates'][name]+e['gates'][name] for name in both},'component sum')
+    for value in (forward,both,r['gates']):req(value['elementary_gates']==value['x']+value['cx']+5*value['ccx'],'elementary convention')
+    for name in ('complete_resource_vector','complete_simulator_coverage','primitive_advantage_assumed','independent_cryptographic_review','profile_qualified','production_gate_changed'):req(r[name] is False,'scope false: '+name)
+    checks.append(dict(row=row,role=role,private_coin_bits=coins,public_bits=pub,retained_bits=retained,shared_work_bits=shared,proof_bytes=proof,F_calls=expectedF,total_bits=total,request_gates=r['gates']))
+for name in ('full_elementary_streams_executed','native_workspace_measurement','family_wide_resource_maximum_proved','invalid_request_controller_included','external_oracle_and_adversary_resources_included','complete_resource_vector','complete_simulator_coverage','profile_qualified','production_gate_changed'):
+    req(data[name] is False,'report scope: '+name)
+after={p:sha(ROOT/p) for p in pins};req(after==before,'review input drift');req(sha(REPORT)==EXPECTED,'report changed')
+result=dict(review='conditional local arithmetic/source-pin consistency; not external cryptographic review',report_sha256=EXPECTED,source_count=len(sources),implementation_count=len(impl),before_sha256=before,after_sha256=after,checker_sha256=sha(Path(__file__)),cases=checks,all_checks_passed=True,full_kernel_gate_totals_reexecuted=False,complete_resource_vector=False,profile_qualified=False)
+(OUT/'report.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+print(json.dumps(dict(all_checks_passed=True,cases=len(checks),source_pins=len(sources),implementation_pins=len(impl),report_sha256=sha(OUT/'report.json'))))

@@ -1,0 +1,80 @@
+"""Assemble reviewed evidence under ignored target; publish is a separate action."""
+from pathlib import Path
+import hashlib
+import json
+
+ROOT=Path(__file__).resolve().parents[2]
+DEST=Path(__file__).resolve().parent/'publication'
+sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def assemble():
+    if DEST.exists():raise ValueError('immutable assembly already exists')
+    capture=ROOT/'target/parliament-machine-final-capture/capture'
+    result=json.loads((capture/'receipt.json').read_text())
+    for name in ('source_stable','captured_source_stable','exact_collection_and_execution_membership','effective_selection_unfiltered','call_kinds_explicit','all_call_reports_passed'):
+        if result[name] is not True:raise ValueError(name)
+    if result['collected_test_count']!=350 or result['executed_test_count']!=350:raise ValueError('test membership changed')
+    if result['parent_call_count']!=350 or result['subtest_call_count']!=74:raise ValueError('parent/subtest census')
+    if any(result[k] for k in ('failed','errors','skipped')) or [x['exit_code'] for x in result['commands']]!=[0,0]:raise ValueError('unsuccessful capture')
+    bundles=(('capture',capture,'manifest.sha256'),
+             ('kernels/aes',ROOT/'target/parliament-aes-machine-stage/capture','SHA256SUMS'),
+             ('kernels/keccak',ROOT/'target/parliament-keccak-machine-stage/capture','SHA256SUMS'),
+             ('components/public',ROOT/'target/parliament-ideal-machine-stage/public-capture','SHA256SUMS'),
+             ('components/response-l0',ROOT/'target/parliament-response-l0-review/capture','manifest.sha256'),
+             ('reviews/validated',ROOT/'target/parliament-validated-review','SHA256SUMS'))
+    DEST.mkdir();inventory={};capture_manifests={}
+    def copy(source,relative,expected=None):
+        relative=Path(relative)
+        if source.suffix in ('.py','.rs') or any(p in ('source','sources') for p in relative.parts):
+            if not relative.name.endswith('.template'):relative=relative.with_name(relative.name+'.template')
+        out=DEST/relative
+        if out.exists():raise ValueError('duplicate artifact: '+str(relative))
+        out.parent.mkdir(parents=True,exist_ok=True);data=source.read_bytes()
+        if expected is not None and hashlib.sha256(data).hexdigest()!=expected:raise ValueError('copy identity changed: '+str(source))
+        out.write_bytes(data)
+        inventory[str(relative)]=dict(original_path=str(source.relative_to(ROOT)),sha256=hashlib.sha256(data).hexdigest())
+    for label,directory,manifest_name in bundles:
+        manifest=directory/manifest_name
+        manifest_data=manifest.read_bytes();manifest_digest=hashlib.sha256(manifest_data).hexdigest()
+        pairs=[line.split('  ',1) for line in manifest_data.decode().splitlines()]
+        entries={name:digest for digest,name in pairs}
+        if len(entries)!=len(pairs):raise ValueError('duplicate manifest member: '+label)
+        namespace='repository-relative' if label in ('kernels/aes','kernels/keccak') else 'bundle-relative'
+        prefix=str(directory.relative_to(ROOT))+'/' if namespace=='repository-relative' else ''
+        if any(not name.startswith(prefix) for name in entries):raise ValueError('unexpected manifest namespace: '+label)
+        entries={name[len(prefix):]:digest for name,digest in entries.items()}
+        for name,digest in entries.items():
+            if Path(name).is_absolute() or '..' in Path(name).parts or sha(directory/name)!=digest:raise ValueError('bundle mismatch: '+name)
+        actual={str(p.relative_to(directory)) for p in directory.rglob('*') if p.is_file() and p!=manifest}
+        if actual!=set(entries):raise ValueError('bundle membership: '+label)
+        capture_manifests[label]=dict(original_manifest=manifest_name,sha256=manifest_digest,entries=len(entries),original_path_namespace=namespace,removed_prefix=prefix)
+        for path in sorted(directory.rglob('*')):
+            if path.is_file():copy(path,Path(label)/path.relative_to(directory),manifest_digest if path==manifest else entries[str(path.relative_to(directory))])
+    for label,directory in (
+        ('resources','parliament-request-resource-review'),('generator','parliament-request-generator-review'),
+        ('writes','parliament-write-review'),('returns','parliament-return-review'),
+        ('family','parliament-family-review'),('dispatch','parliament-request-dispatch-review'),
+        ('domains','parliament-domain-review'),('l0','parliament-l0-review')):
+        source=ROOT/'target'/directory
+        if not source.exists():raise ValueError('missing review: '+directory)
+        for path in sorted(source.iterdir()):
+            if path.is_file():copy(path,Path('reviews')/label/path.name)
+    copy(ROOT/'target/parliament-machine-publication-stage/attempt-1.tar.gz','attempts/attempt-1.tar.gz','f72572e62b6709eec7b8a786014ed196e6502dba032d1323bc62c685f6039677')
+    copy(ROOT/'target/parliament-machine-final-capture/attempt-1-status.json','attempts/attempt-1-status.json')
+    observer=ROOT/'target/parliament-machine-final-capture'
+    observer_manifest=observer/'observer-review.sha256'
+    observer_manifest_data=observer_manifest.read_bytes()
+    for line in observer_manifest_data.decode().splitlines():
+        digest,name=line.split('  ',1)
+        if Path(name).is_absolute() or '..' in Path(name).parts or sha(observer/name)!=digest:raise ValueError('observer review identity')
+        copy(observer/name,Path('reviews/capture-observer')/name,digest)
+    copy(observer_manifest,'reviews/capture-observer/observer-review.sha256',hashlib.sha256(observer_manifest_data).hexdigest())
+    for name,item in inventory.items():
+        if sha(DEST/name)!=item['sha256']:raise ValueError('copied artifact identity: '+name)
+    (DEST/'inventory.json').write_text(json.dumps(dict(schema=1,files=inventory,original_manifests=capture_manifests,
+        source_templates_preserve_exact_bytes=True,complete_resource_vector=False,profile_qualified=False,
+        production_gate_changed=False),indent=2,sort_keys=True)+'\n')
+    print(json.dumps(dict(assembled_files=len(inventory),inventory_sha256=sha(DEST/'inventory.json'))))
+
+if __name__=='__main__':assemble()

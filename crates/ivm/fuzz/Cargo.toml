@@ -15,8 +15,15 @@ ivm_abi = { path = "../../ivm_abi" }
 kotodama_lang = { path = "../../kotodama_lang" }
 iroha_primitives = { path = "../../iroha_primitives" }
 
+[dev-dependencies]
+iroha_allocation = { path = "../../iroha_allocation" }
+
 [workspace]
 members = ["."]
+
+[patch.crates-io]
+# Preserve the root workspace's fallible native-digit allocation handoff.
+num-bigint = { path = "../../../vendor/num-bigint-0.4.6" }
 
 [[bin]]
 name = "tlv_validate"

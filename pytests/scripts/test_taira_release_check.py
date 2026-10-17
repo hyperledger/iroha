@@ -30,8 +30,8 @@ EXPECTED_BEACON_NETWORK_TEST = (
     'production_beacon_bootstrap::four_peer_fresh_custody_bootstrap_reaches_mandatory_pulse'
 )
 PLATFORM_REGRESSION_COUNT = 1 if sys.platform == "linux" else 0
-EXPECTED_BASIC_REGRESSION_COUNT = 2117 + PLATFORM_REGRESSION_COUNT
-EXPECTED_REGRESSION_COUNT = 2150 + PLATFORM_REGRESSION_COUNT
+EXPECTED_BASIC_REGRESSION_COUNT = 2182 + PLATFORM_REGRESSION_COUNT
+EXPECTED_REGRESSION_COUNT = 2215 + PLATFORM_REGRESSION_COUNT
 
 REWARD_ACCOUNTING_SOURCE_TESTS = {
     'smartcontracts/isi/multisig.rs': ('smartcontracts::isi::multisig::tests::', (
@@ -233,6 +233,46 @@ def assert_native_coverage(case, labels=None):
 
 
 class BeaconGateTests(unittest.TestCase):
+    def test_native_clock_controls_are_required_once_in_both_scopes(self):
+        labels = {
+            'native original proposal recovery scheduling',
+            'native original proposal publication admission',
+            'native original execution clock admission',
+            'native original first Prepare admission',
+            'native lane proposal clock and payload admission',
+            'native lane original execution and first Prepare custody',
+            'native original proposal work and captured time',
+        }
+        assert_native_coverage(self, labels)
+        required = {name for label, names in gate.native_owner_stages()
+                    if label in labels for name in names}
+        self.assertEqual(len(required), 42)
+        startup = [test for _, tests in gate.CORE_STARTUP_STAGES for test in tests]
+        for name in required:
+            self.assertEqual(startup.count(name), 1)
+
+    def test_proposal_and_prepare_clock_consensus_controls_are_required(self):
+        sources = {
+            "machine/tests/signing.rs": ("machine::tests::signing", (
+                "det_ct3_proposal_signing_rechecks_original_clock_after_backend_refusal",
+                "det_ct3_successful_proposal_signature_is_durable_before_publication",
+                "det_ct3_restore_authenticates_stored_successful_proposal_signature",
+                "det_ct3_unsigned_proposal_restart_recovers_original_admission_before_signing",
+                "det_ct3_genuine_matching_pqc_reproposes_without_fresh_clock_owner",
+            )),
+            "sim/world/clock_guard/tests.rs": ("sim::world::clock_guard::tests", (
+                "det_ct1_world_retained_execution_rechecks_rewind_before_first_prepare",
+            )),
+        }
+        for relative, (prefix, leaves) in sources.items():
+            source = SCRIPT.resolve().parents[1] / "crates/iroha_sumeragi/src" / relative
+            declarations = source.read_text()
+            for leaf in leaves:
+                with self.subTest(regression=leaf):
+                    self.assertEqual(declarations.count("fn " + leaf + "("), 1)
+                    self.assert_current_amx_owner_control_required(
+                        "sumeragi", prefix + "::" + leaf)
+
     def assert_current_amx_owner_control_required(self, harness, regression):
         for scope in gate.QUALIFICATION_SCOPES:
             stages = gate.qualification_stages(scope).get(harness, ())

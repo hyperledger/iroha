@@ -284,7 +284,10 @@ fn clock_guard_parent_and_creation_floors_hold_independently_at_equality() {
 #[test]
 fn clock_guard_completed_payload_waits_after_build_latency_backstep() {
     let mut sc = Scenario::base("clock_completed_backstep", 23, 4);
-    sc.workload = None;
+    sc.workload = Some(Workload {
+        until: 100,
+        ..Workload::default()
+    });
     guarded(
         &mut sc,
         ClockGuard {
@@ -294,36 +297,66 @@ fn clock_guard_completed_payload_waits_after_build_latency_backstep() {
         },
     );
     let mut world = World::new(sc);
-    world.run_until(1_000);
-    let r = world.machines[0].replicas[0].unwrap();
-    world.machines[0].profile.build_min = 100;
-    world.machines[0].profile.build_max = 100;
-    let tx = encode_tx_with_due(42, false, false, 0);
-    world.replicas[r].txs.insert(42, tx.clone());
-    let req = u64::MAX;
-    let stamp = u64::try_from(world.wall_ms(0)).unwrap();
-    let mut expected = encode_time(stamp).to_vec();
-    expected.extend(tx);
-    let hash = crate::preimage::payload_hash(&world.hasher, &expected);
-    world.build_payload(r, req, 1, 65_536, 1_000, world.now);
-    world.set_wall_offset(0, -500);
-    world.run_until(1_100);
+    for machine in &mut world.machines {
+        machine.profile.build_min = 100;
+        machine.profile.build_max = 100;
+    }
+    // Use the actual outstanding Core request: its owner must bind the same parent/view.
+    let (r, req, expected, delivery) = loop {
+        world.run_until(world.now + 1);
+        assert!(
+            world.now < 5_000,
+            "the actual leader must request a payload"
+        );
+        if let Some(found) = world.queue.iter().find_map(|((at, _), event)| {
+            if let Ev::BuiltPayload {
+                r,
+                req,
+                payload: Some(payload),
+                ..
+            } = event
+            {
+                Some((*r, *req, payload.clone(), *at))
+            } else {
+                None
+            }
+        }) {
+            break found;
+        }
+    };
+    let machine = world.replicas[r].machine;
+    let inst = world.replicas[r].inst;
+    let stamp = block_time(expected.as_slice()).unwrap();
+    let hash = crate::preimage::payload_hash(&world.hasher, expected.as_slice());
+    world.set_wall_offset(machine, -500);
+    world.run_until(delivery);
     assert!(
         world.replicas[r]
             .completed_build
             .as_ref()
-            .is_some_and(|(owner, payload)| *owner == req && payload.as_slice() == expected)
-            && !world.oracle.built.contains(&(0, 0, hash)),
+            .is_some_and(|(owner, payload)| *owner == req && payload == &expected)
+            && !world.oracle.built.contains(&(inst, machine, hash)),
         "CT3 must retain the original completed payload after a build-latency clock backstep"
     );
-    world.completed_clock_ready(r, req - 1);
+    world.completed_clock_ready(r, req.wrapping_add(1));
     assert_eq!(world.replicas[r].completed_build.as_ref().unwrap().0, req);
-    world.run_until(1_499);
-    assert!(!world.oracle.built.contains(&(0, 0, hash)));
-    world.run_until(1_500);
+    let recovery = world.clock_floor_global_time(r, stamp);
+    world.run_until(recovery - 1);
+    assert!(!world.oracle.built.contains(&(inst, machine, hash)));
+    world.run_until(recovery);
     assert!(
-        world.oracle.built.contains(&(0, 0, hash)),
-        "original completed bytes publish at exact wall recovery"
+        world.oracle.built.contains(&(inst, machine, hash)),
+        "original completed bytes publish at exact wall recovery: req={req}, now={}, delivery={delivery}, recovery={recovery}, context={:?}, build={:?}, completed={:?}",
+        world.now,
+        world.replicas[r]
+            .host
+            .core()
+            .and_then(|core| core.fresh_proposal_context(req)),
+        world.replicas[r].build_request,
+        world.replicas[r]
+            .completed_build
+            .as_ref()
+            .map(|(req, _)| req)
     );
     assert!(world.replicas[r].completed_build.is_none());
     world.completed_clock_ready(r, req);
@@ -948,4 +981,107 @@ fn det_ct5_world_retained_execution_rechecks_clock_at_first_prepare() {
         ),
         "ordinary event-time advancement also updates the retained signing clock"
     );
+}
+
+/// CT1 also guards an ordinary cached execution after the actual signing wall rewinds.
+#[test]
+fn det_ct1_world_retained_execution_rechecks_rewind_before_first_prepare() {
+    use crate::crypto::{Signer, SigningError};
+
+    for due in [false, true] {
+        let mut scenario = Scenario::base("ct1-retained-first-prepare", 7, 4);
+        scenario.workload = None;
+        guarded(
+            &mut scenario,
+            ClockGuard {
+                max_clock_drift_ms: 1_000,
+                due_work_max_lag_ms: 60_000,
+                ..ClockGuard::default()
+            },
+        );
+        let mut world = World::new(scenario);
+        let replica = world.replica_of(0, 0).unwrap();
+        let base = u64::try_from(world.wall_ms(0)).unwrap();
+        let mut payload = encode_tx_with_due(11, false, due, 0);
+        world.stamp_block_time(0, &mut payload);
+        let instance = &world.instances[0];
+        let body = fixture_body(
+            crate::message::BlockHeader {
+                control_witness: crate::types::ControlWitness::empty(),
+                epoch: instance.config(1).epoch.id,
+                instance: instance.id,
+                height: 1,
+                origin_view: 0,
+                parent_hash: instance.genesis_hash,
+                parent_result: instance.genesis_result,
+                payload_hash: Hash32::ZERO,
+                availability_digest: Hash32::ZERO,
+                payload_len: 0,
+                proposer: 0,
+                skipped_leaders: Vec::new(),
+            },
+            &payload,
+        );
+        let hash = body.hash(&crate::testing::FakeCrypto::new());
+        let parent = world.instances[0].genesis_result;
+        let (outcome, _) = world.exec_outcome(replica, &body, &hash, &parent, false);
+        let ExecOutcome::Valid { result, admission } = outcome else {
+            panic!("original ordinary and due-work fixtures execute before the rewind");
+        };
+        let request = |certified| {
+            crate::testing::prepare_signing_request(
+                body.header().instance,
+                body.header().epoch,
+                body.header().height,
+                0,
+                hash,
+                result,
+                certified,
+            )
+        };
+        assert_eq!(admission.check(&request(false)), Ok(()));
+        // A later policy must not relax the original execution's captured allowance.
+        world.clock_guard.as_mut().unwrap().max_clock_drift_ms = 10_000;
+        world.set_wall_offset(0, -1_001);
+        let signer = crate::sim::crypto::SimSigner::new(
+            world.replicas[replica].keys[0].clone(),
+            Some(0),
+            world.log.clone(),
+        );
+        let before = world.log.lock().unwrap().len();
+        assert_eq!(
+            signer.sign_prepare(&request(false), &admission),
+            Err(SigningError::ClockAhead {
+                block_time_ms: base,
+                observed_ms: base - 1_001,
+                max_clock_drift_ms: 1_000,
+            }),
+            "a retained World result must not sign after its actual wall clock rewinds beyond the original drift"
+        );
+        assert_eq!(
+            world.log.lock().unwrap().len(),
+            before,
+            "clock-ahead refusal produces no first signature"
+        );
+        assert_eq!(
+            admission.check(&request(true)),
+            Ok(()),
+            "exact certified execution keeps its clock exemption"
+        );
+        let foreign = crate::testing::prepare_signing_request(
+            body.header().instance,
+            body.header().epoch,
+            body.header().height,
+            0,
+            Hash32::ZERO,
+            result,
+            true,
+        );
+        assert_eq!(admission.check(&foreign), Err(SigningError::InvalidInput));
+        world.set_wall_offset(0, -1_000);
+        assert!(
+            signer.sign_prepare(&request(false), &admission).is_ok(),
+            "the original execution resumes at exact drift equality"
+        );
+    }
 }

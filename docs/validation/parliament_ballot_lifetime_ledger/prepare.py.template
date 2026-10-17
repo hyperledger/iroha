@@ -1,0 +1,97 @@
+"""Prepare this selected ledger evidence package in ignored target; never publish."""
+import hashlib
+import json
+from pathlib import Path, PurePosixPath
+import xml.etree.ElementTree as ET
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+OUT=HERE/'bundle'
+CAP=ROOT/'target/parliament-lifetime-composition-stage/capture'
+REV=ROOT/'target/parliament-lifetime-review'
+MAIN=ROOT/'docs/validation/parliament_ballot_request_machine'
+CAP_SHA='197af921c59071e8600e3b26841f2cedcd6d0d9c0abb17cd99de5d7a95b84f14'
+CAP_RECEIPT='94525d2779a8753cd088c14e64a494d4c4591b576faeb322b5ae44a8a98178cc'
+REV_RECEIPT='1f313f3552d80469c8730b98c1cc8abb4e90f0e996cd88cdfa2c828619cf5c6e'
+MAIN_SHA='a1d8a09dbe677b4eee0eb230ab8f998f4e80f90b2546dde1c9faa6b46679923d'
+
+def require(ok,why):
+    if not ok:raise ValueError(why)
+def sha(data):return hashlib.sha256(data).hexdigest()
+def read(path,expected=None):
+    require(not path.is_symlink(),'source symlink')
+    data=path.read_bytes()
+    if expected is not None:require(sha(data)==expected,'source hash: '+str(path))
+    return data
+
+def mapping(data):
+    out={}
+    for line in data.decode().splitlines():
+        h,p=line.split('  ',1);path=PurePosixPath(p)
+        require(not path.is_absolute() and '..' not in path.parts and p not in out,'manifest path')
+        out[p]=h
+    return out
+
+require(not OUT.exists(),'bundle destination must be absent')
+cap_manifest=read(CAP/'SHA256SUMS',CAP_SHA);cap=mapping(cap_manifest)
+require(len(cap)==86,'original capture86')
+receipt=json.loads(read(CAP/'receipt.json',CAP_RECEIPT))
+review=json.loads(read(REV/'review-receipt.json',REV_RECEIPT))
+main_manifest=read(MAIN/'SHA256SUMS',MAIN_SHA);main=mapping(main_manifest)
+require(receipt['source_sha256_before']==receipt['source_sha256_after'],'owned stable source map')
+require(review['source_sha256_before']==review['source_sha256_after'],'review stable source map')
+for source,h in receipt['source_sha256_after'].items():read(ROOT/source,h)
+for source,h in review['source_sha256_after'].items():read(ROOT/source,h)
+require(receipt['test_cases']==68 and review['tests']==72 and review['exit_code']==0,'final outcomes')
+for path,count in ((CAP/'tests.xml',68),(REV/'junit.xml',72)):
+    xml=ET.fromstring(read(path));require(len(xml.findall('.//testcase'))==count,'JUnit count')
+    require(not any(x.tag in ('failure','error','skipped') for x in xml.iter()),'nonpassing JUnit')
+read(REV/'junit.xml',review['junit_sha256'])
+read(REV/'stdout.txt',review['stdout_sha256']);read(REV/'stderr.txt',review['stderr_sha256'])
+read(REV/'prior-review-receipt.json',review['prior_72_pass_receipt_sha256'])
+require(read(CAP/'example.stdout')==read(CAP/'require-qualified.stdout'),'conditional stdout identity')
+require([x['exit_code'] for x in receipt['commands']]==[0,0,2],'owned command exits')
+for r in (receipt,review):
+    for flag in ('complete_resource_vector','independent_cryptographic_review','profile_qualified','production_gate_changed'):
+        require(r[flag] is False,'qualification scope')
+entries={};inputs={}
+def add(source,destination,expected=None):
+    require(destination not in entries,'duplicate bundle entry')
+    data=read(source,expected);entries[destination]=data
+    inputs[source.relative_to(ROOT).as_posix()]=sha(data)
+
+for path,h in cap.items():add(CAP/path,'capture/'+path,h)
+add(CAP/'SHA256SUMS','capture/SHA256SUMS',CAP_SHA)
+review_names=('design-review.md','exploratory-junit.xml','initial-read-pins.json','junit.xml',
+    'ledger-review.md','prior-junit.xml','prior-review-receipt.json','review-receipt.json',
+    'stderr.txt','stdout.txt','test_independent_ledger.py')
+for name in review_names:
+    add(REV/name,'review/'+name+('.template' if name.endswith('.py') else ''))
+for name in ('content_request.py','validated_request.py'):
+    member='capture/source/target/parliament-ideal-machine-stage/'+name+'.template'
+    add(MAIN/member,'replay-supplements/'+name+'.template',main[member])
+add(MAIN/'SHA256SUMS','replay-supplements/main-machine.SHA256SUMS',MAIN_SHA)
+add(HERE/'README.md','README.md');add(HERE/'replay.py.template','replay.py.template')
+add(HERE/'prepare.py','prepare.py.template')
+require(not any(Path(p).suffix in ('.py','.rs') for p in entries),'all executable source snapshots inert')
+# Validate all input identities again before writing any package output.
+for path,h in inputs.items():read(ROOT/path,h)
+OUT.mkdir()
+for path,data in entries.items():
+    destination=OUT/path;destination.parent.mkdir(parents=True,exist_ok=True);destination.write_bytes(data)
+meta=dict(scope='selected frozen metadata evidence; no publication or new qualification',
+    capture_manifest_sha256=CAP_SHA,capture_receipt_sha256=CAP_RECEIPT,
+    final_independent_review_receipt_sha256=REV_RECEIPT,main_machine_manifest_sha256=MAIN_SHA,
+    original_capture_entries=86,review_files=11,
+    replay_supplements='two imports separately authenticated from main machine; historical review pin maps unchanged',
+    input_sha256_before=inputs,input_sha256_after={p:sha(read(ROOT/p)) for p in inputs},
+    bundle_payload_sha256={p:sha(data) for p,data in entries.items()},
+    all_sources_as_templates=True,main_machine_package_changed=False,
+    new_test_run_claimed=False,complete_resource_vector=False,profile_qualified=False,
+    production_gate_changed=False)
+require(meta['input_sha256_before']==meta['input_sha256_after'],'prepare input drift')
+(OUT/'preparation-receipt.json').write_text(json.dumps(meta,indent=2,sort_keys=True)+'\n')
+files=sorted(p for p in OUT.rglob('*') if p.is_file())
+(OUT/'SHA256SUMS').write_text(''.join(sha(read(p))+'  '+p.relative_to(OUT).as_posix()+'\n' for p in files))
+print(json.dumps(dict(bundle=str(OUT),manifest_entries=len(files),manifest_sha256=sha(read(OUT/'SHA256SUMS')),
+    preparation_receipt_sha256=sha(read(OUT/'preparation-receipt.json')))))

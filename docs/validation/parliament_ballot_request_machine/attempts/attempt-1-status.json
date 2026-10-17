@@ -1,0 +1,9 @@
+{
+  "capture_wrapper_exit": 2,
+  "immutable_receipt_sha256": "71cb809dcb795f0d7c61197a5bba2b875a66248b2c241c3ed7a8583474c245d6",
+  "manifest_sha256": "3af16c3baffb8cdacde91d76b623895b7ed50c6e27d992fa55cf76023522e581",
+  "parent_tests": 350,
+  "pytest_exit": 0,
+  "reason": "Observer counted builtin SubtestReport events as parent call reports; exact parent membership check refused. No circuit test failure.",
+  "subtests": 74
+}

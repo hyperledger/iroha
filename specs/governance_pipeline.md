@@ -871,7 +871,7 @@ current source, including its height-based windows.
    bound"; ballot design section 3.4). Wallets, jurors and panelists submit at
    least `2·max_clock_drift_ms` plus inclusion latency before a deadline
    (ballot design section 6; `sccp.md` §4.3). CT5 bounds how stale an anchor
-   is at its first honest Prepare by `gov.due_work_max_lag_ms` (default
+   is at its first honest Prepare by `sumeragi.due_work_max_lag_ms` (default
    60 000, at least `2·max_clock_drift_ms + 4·block_cadence_ms`), but view
    changes or a hidden PrepareQC can add commit lag. A ballot opening that is
    already stale when it commits never shortens voting, because closure is
@@ -907,7 +907,7 @@ normative for its block rules.
 - **Guarantees.** No block exists without due work, so idle chains create no
   empty blocks: an idle chain produces one block per due governance item and
   one per SCCP heartbeat. A keepalive cannot advance chain time (CT1), and due
-  work is anchored within `gov.due_work_max_lag_ms` of honest time (CT5, K4).
+  work is anchored within `sumeragi.due_work_max_lag_ms` of honest time (CT5, K4).
   No external transaction has to land at an exact height. The Parliament
   driver stays an optional convenience for attempt creation and manager
   intents, and the attempt plan is advice, not a reservation (`sccp.md`

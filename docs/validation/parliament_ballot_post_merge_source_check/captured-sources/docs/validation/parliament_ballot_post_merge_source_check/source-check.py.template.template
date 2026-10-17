@@ -1,0 +1,175 @@
+"""Retain the actual source-contract result against the current post-merge source snapshot.
+
+Observes the updated checker's read set, then runs its real CLI against the
+same guarded sources. No Core runtime implementation or production gate is modified.
+"""
+from pathlib import Path
+import contextlib
+import datetime
+import hashlib
+import importlib.util
+import io
+import json
+import re
+import subprocess
+import sys
+import os
+
+root = Path.cwd()
+out = root / "docs/validation/parliament_ballot_post_merge_source_check"
+receipt = out / "source-check.json"
+log = out / "source-check.txt"
+if receipt.exists() or log.exists():
+    raise RuntimeError("refuse overwriting previous source check")
+before = {}
+absent = set()
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def guard(name):
+    observed = sha(root / name)
+    if name in before and before[name] != observed:
+        raise RuntimeError("input changed during observation: " + name)
+    before[name] = observed
+
+
+# Observe repository data/source reads, including import/config reads, before
+# Python consumes them. The installed interpreter/pytest are trusted runtime.
+# Bytecode caches and evidence outputs are not primary source inputs.
+audited_repository_reads = set()
+audit_active = False
+
+
+def audit_read(event, args):
+    global audit_active
+    if event != "open" or audit_active or not isinstance(args[0], (str, bytes)):
+        return
+    mode = args[1]
+    if mode is not None and not mode.startswith("r"):
+        return
+    if mode is None and args[2] & (os.O_WRONLY | os.O_RDWR):
+        return
+    audit_active = True
+    try:
+        path = Path(os.fsdecode(args[0])).resolve()
+        try:
+            relative = path.relative_to(root)
+        except ValueError:
+            return
+        if (not relative.parts or relative.parts[0].startswith(".")
+                or "__pycache__" in relative.parts
+                or path.is_relative_to(root / "docs/validation/parliament_ballot_post_merge_source_check")
+                or not path.is_file()):
+            return
+        key = relative.as_posix()
+        audited_repository_reads.add(key)
+        guard(key)
+    finally:
+        audit_active = False
+
+
+sys.addaudithook(audit_read)
+
+
+script = "scripts/formal/check_sora_parliament_source_contract.py"
+guard(script)
+guard(str(Path(__file__).resolve().relative_to(root)))
+guard("scripts/formal/rust_text.py")
+spec = importlib.util.spec_from_file_location("b6_source_contract", root / script)
+checker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(checker)
+original_read = checker.read
+original_absent = checker.require_path_absent
+
+
+def observed_read(name):
+    guard(name)
+    text = original_read(name)
+    guard(name)
+    return text
+
+
+def observed_absent(name):
+    absent.add(name)
+    original_absent(name)
+
+
+checker.read = observed_read
+checker.require_path_absent = observed_absent
+observed_stdout = io.StringIO()
+observed_stderr = io.StringIO()
+observed_error = None
+with contextlib.redirect_stdout(observed_stdout), contextlib.redirect_stderr(observed_stderr):
+    try:
+        observed_exit = int(checker.main() or 0)
+    except RuntimeError as error:
+        observed_error = str(error)
+        observed_exit = 1
+gate_names = [
+    "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs",
+    "crates/iroha_core/Cargo.toml", "crates/iroha_torii/Cargo.toml",
+]
+for name in gate_names:
+    guard(name)
+command = [sys.executable, script]
+completed = subprocess.run(command, cwd=root, text=True, capture_output=True, check=False)
+log.write_text(completed.stdout + completed.stderr)
+audit_active = True
+repository_imports = {}
+for module_name, module in tuple(sys.modules.items()):
+    module_file = getattr(module, "__file__", None)
+    if module_file is None:
+        continue
+    candidate = Path(module_file).resolve()
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError:
+        continue
+    if relative.parts and not relative.parts[0].startswith(".") and candidate.is_file():
+        name = relative.as_posix()
+        repository_imports[module_name] = name
+        guard(name)
+runtime = {"python_version": sys.version, "python_executable": sys.executable,
+           "python_executable_sha256": sha(Path(sys.executable).resolve()),
+           "installed_runtime_trusted": True}
+after = {name: sha(root / name) if (root / name).is_file() else None for name in before}
+changes = {name: {"before": value, "after": after[name]} for name, value in before.items() if value != after[name]}
+iface = (root / gate_names[0]).read_text()
+binding_closed = re.search(r"pub const fn parliament_binding_ballot_available\(\) -> bool \{\s*false\s*\}", iface) is not None
+latency_unqualified = re.search(r"pub const fn parliament_sccp_attempt_latency_ms\(\) -> Option<u64> \{\s*None\s*\}", iface) is not None
+no_deps = all(not re.search(r"iroha[_-](?:parliament[_-]ballot|zkp[_-]vole)", (root / name).read_text()) for name in gate_names[1:])
+probe_expected_cli_stderr = observed_stderr.getvalue() + ("error: " + observed_error + "\n" if observed_error is not None else "")
+same_failure = (completed.returncode == observed_exit
+                and completed.stdout == observed_stdout.getvalue()
+                and completed.stderr == probe_expected_cli_stderr)
+absence_changed = sorted(name for name in absent if (root / name).exists())
+value = {
+    "schema": "parliament-post-merge-source-check-v1",
+    "observed_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "command": command, "exit": completed.returncode,
+    "log": str(log.relative_to(root)), "log_sha256": sha(log),
+    "observed_main_error": observed_error,
+    "probe_exit": observed_exit,
+    "probe_stdout": observed_stdout.getvalue(),
+    "probe_raw_stderr": observed_stderr.getvalue(),
+    "probe_expected_cli_stderr": probe_expected_cli_stderr,
+    "probe_matches_cli_result": same_failure,
+    "cli_read_set_independently_traced": False,
+    "repository_imports": repository_imports, "runtime": runtime,
+    "audited_repository_read_paths": sorted(audited_repository_reads),
+    "read_scope": "Repository source/data/config reads; Python bytecode caches and generated evidence outputs excluded. Installed interpreter/pytest runtime trusted.",
+    "source_before": before, "source_after": after, "source_changes": changes,
+    "guarded_absent_paths": sorted(absent), "absence_changed": absence_changed,
+    "binding_ballot_available": False if binding_closed else "unrecognized",
+    "qualified_attempt_latency_ms": None if latency_unqualified else "unrecognized",
+    "no_experimental_core_torii_dependencies": no_deps,
+    "profile_qualified": False,
+    "scope": "Fresh source-only observation against the current post-merge input snapshot. Executed in-process probe read set plus separate actual CLI, with exit/stdout/stderr comparison. This does not rerun or transfer the historical 1755-test regression, run Rust/native tests, rebuild mutations, execute the formal model or establish runtime, cryptographic or resource qualification. The CLI read set is not independently traced; installed Python runtime and surrounding resolver/compiler/native semantics remain premises. No checker, test, Rust implementation or production gate is edited by this capture.",
+}
+receipt.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+if changes or absence_changed or not (same_failure and binding_closed and latency_unqualified and no_deps):
+    raise RuntimeError("source recheck drift or production-gate discrepancy; raw evidence retained")
+print(json.dumps({"receipt_sha256": sha(receipt), "source_count": len(before), "exit": completed.returncode, "first_error": observed_error}))

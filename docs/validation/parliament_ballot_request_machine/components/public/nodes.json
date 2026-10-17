@@ -1,0 +1,20 @@
+[
+  "target/parliament-ideal-machine-stage/test_public_hash.py::PublicHashTests::test_actual_two_block_clean_xor_map_and_exact_census",
+  "target/parliament-ideal-machine-stage/test_public_hash.py::PublicHashTests::test_fixed_byte_shake256_boundary_reference",
+  "target/parliament-ideal-machine-stage/test_public_hash.py::PublicHashTests::test_invalid_shape_bits_and_wires_refused",
+  "target/parliament-ideal-machine-stage/test_public_hash.py::PublicHashTests::test_lazy_sha3_actual_emitted_padding_and_clean_work",
+  "target/parliament-ideal-machine-stage/test_public_hash.py::PublicHashTests::test_lazy_sha3_matches_frozen_circuit_and_hashlib",
+  "target/parliament-ideal-machine-stage/test_public_hash.py::PublicHashTests::test_profile_lengths_have_priced_concrete_hash_work",
+  "target/parliament-ideal-machine-stage/test_public_machine.py::PublicMachineTests::test_actual_crt_codec_and_profile_golden_digests",
+  "target/parliament-ideal-machine-stage/test_public_machine.py::PublicMachineTests::test_crt_late_source_drift_and_profile_row_refuse",
+  "target/parliament-ideal-machine-stage/test_public_machine.py::PublicMachineTests::test_frame_constants_and_real_clean_scatter",
+  "target/parliament-ideal-machine-stage/test_public_machine.py::PublicMachineTests::test_public_shape_and_frame_refusals",
+  "target/parliament-ideal-machine-stage/test_public_machine.py::PublicMachineTests::test_relation_public_block_exact_zero_secret_and_little_endian",
+  "target/parliament-ideal-machine-stage/test_public_machine.py::PublicMachineTests::test_shared_f_prefix_charges_full_response_and_repeats_same_address",
+  "target/parliament-ideal-machine-stage/test_public_programs.py::PublicProgramTests::test_actual_p1_both_roles_rows_and_totalized_invalid_vote",
+  "target/parliament-ideal-machine-stage/test_public_programs.py::PublicProgramTests::test_byte_order_kernel_actual_stream_and_inverse",
+  "target/parliament-ideal-machine-stage/test_public_programs.py::PublicProgramTests::test_invalid_fixed_list_count_precedes_order_length_digest",
+  "target/parliament-ideal-machine-stage/test_public_programs.py::PublicProgramTests::test_p0_actual_packed_stream_clean_joint_map_and_counts",
+  "target/parliament-ideal-machine-stage/test_public_programs.py::PublicProgramTests::test_shapes_and_selected_source_drift_refuse",
+  "target/parliament-ideal-machine-stage/test_public_programs.py::PublicProgramTests::test_vote_error_priority_and_exact_payloads"
+]

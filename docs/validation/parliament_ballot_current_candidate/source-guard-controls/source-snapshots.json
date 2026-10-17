@@ -1,0 +1,27 @@
+[
+  {
+    "sha256": "8809287abb1a78e148414cedc2a3cdabc5e720fdb2f51e57be227052f5b55d53",
+    "snapshot": "docs/validation/parliament_ballot_current_candidate/source-guard-controls/sources/scripts/formal/check_sora_parliament_source_contract.py.template",
+    "source": "scripts/formal/check_sora_parliament_source_contract.py"
+  },
+  {
+    "sha256": "55177fa041df26c14717736a1289cf588930bc0a7d3e951533b18d43224c373e",
+    "snapshot": "docs/validation/parliament_ballot_current_candidate/source-guard-controls/sources/scripts/tests/check_sora_parliament_source_contract_test.py.template",
+    "source": "scripts/tests/check_sora_parliament_source_contract_test.py"
+  },
+  {
+    "sha256": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "snapshot": "docs/validation/parliament_ballot_current_candidate/source-guard-controls/sources/scripts/formal/rust_text.py.template",
+    "source": "scripts/formal/rust_text.py"
+  },
+  {
+    "sha256": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f",
+    "snapshot": "docs/validation/parliament_ballot_current_candidate/source-guard-controls/sources/scripts/tests/conftest.py.template",
+    "source": "scripts/tests/conftest.py"
+  },
+  {
+    "sha256": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "snapshot": "docs/validation/parliament_ballot_current_candidate/source-guard-controls/sources/pytest.ini.template",
+    "source": "pytest.ini"
+  }
+]

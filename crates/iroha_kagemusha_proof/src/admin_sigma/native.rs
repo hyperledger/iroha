@@ -415,9 +415,9 @@ macro_rules! admin_prover {
 
             /// Admit this fixed operation's native source and original commitments,
             /// retaining only descriptor/VK metadata and opaque source authority.
-            /// Authentication and source selection requirements match full import.
-            /// Parameters are borrowed; no proving FFTs, masks or caches are constructed
-            /// during admission.
+            /// Authentication and source selection requirements match full import;
+            /// no proving FFTs, masks or caches are constructed during admission.
+            /// Parameters are borrowed for admission and are not retained by the result.
             /// # Errors
             /// The same profile, source, commitment or installed-key mismatch as
             /// full import, or cancellation without a partial source capability.
@@ -446,6 +446,7 @@ macro_rules! admin_prover {
             /// bind this supplied plan to the complete selected built-in profile; a
             /// same-schema foreign plan is not certified by membership. Proof-time source
             /// reconstruction remains mandatory and rejects a different actual source.
+            /// Parameters are borrowed for admission and are not retained by the result.
             /// # Errors
             /// The ordinary importer errors, closed-member mismatch, or cancellation.
             #[allow(clippy::too_many_arguments)]

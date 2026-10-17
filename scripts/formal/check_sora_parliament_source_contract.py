@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -1379,138 +1380,292 @@ def require_sortition_retry_liveness(reducer: str) -> None:
     )
 
 
+def construction_rust_item(source: str, declaration: str, path: str,
+                           owner: str | None = None,
+                           attributes: tuple[str, ...] = ()) -> str:
+    """Locate one reviewed construction item, allowing only its exact attributes.
+
+    Attribute tokens and literals are compared before removing that one item's
+    attribute run. The existing owner locator then rejects conditional parents,
+    qualifier changes, nested/foreign owners and inner attributes. Semicolon
+    declarations are temporarily given an empty body only for that same owner
+    check; no source or execution behavior is changed.
+    """
+    code = mask_rust(source)
+    tokens = re.findall(r"[A-Za-z_][A-Za-z_0-9]*|[^\s]", declaration)
+    pattern = r"\s*".join(
+        rf"\b{re.escape(token)}\b" if re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", token)
+        else re.escape(token) for token in tokens
+    )
+    matches = list(re.finditer(pattern, code))
+    if len(matches) != 1:
+        raise RuntimeError(f"{path}: start construction requires one declaration {declaration!r}")
+    # Rust raw identifiers denote the same item. Never ignore a raw live owner
+    # while accepting an intact normal-name declaration in a conditional decoy.
+    named = re.search(r"\b(fn|struct|mod)\s+([A-Za-z_][A-Za-z_0-9]*)", declaration)
+    if named and len(re.findall(
+            rf"\b{named[1]}\s+(?:r#)?{re.escape(named[2])}\b", code)) != 1:
+        raise RuntimeError(f"{path}: start construction has ambiguous equivalent item names")
+    macro = re.search(r"\bmacro_rules\s*!\s*([A-Za-z_][A-Za-z_0-9]*)", declaration)
+    if macro and len(re.findall(
+            rf"\bmacro_rules\s*!\s*(?:r#)?{re.escape(macro[1])}\b", code)) != 1:
+        raise RuntimeError(f"{path}: start construction has ambiguous equivalent macro names")
+    start = matches[0].start()
+    first, end, actual = start, len(code[:start].rstrip()), []
+    while end and code[end - 1] == "]":
+        depth, index = 0, end - 1
+        while index >= 0:
+            depth += (code[index] == "]") - (code[index] == "[")
+            if depth == 0:
+                break
+            index -= 1
+        if index < 1 or code[index - 1] != "#":
+            break
+        first = index - 1
+        actual.append(source[first:end])
+        end = len(code[:first].rstrip())
+    if rust_token_digest(" ".join(reversed(actual))) != rust_token_digest(" ".join(attributes)):
+        raise RuntimeError(f"{path}: start construction changed reviewed item attributes")
+    located = source[:first] + " " * (start - first) + source[start:]
+    if declaration.rstrip().endswith(";"):
+        terminal = matches[0].end() - 1
+        located = located[:terminal] + "{}" + located[terminal + 1:]
+        unconditional_rust_item(located, declaration.rstrip()[:-1], path, owner)
+        return source[start:matches[0].end()]
+    return unconditional_rust_item(located, declaration, path, owner)
+
+
 def require_block_start_construction(state: str) -> None:
-    """Follow the actual constructor into its original-writer, armed-owner handoff."""
+    """Bind exact acquired/executing owners and conditional replacement custody.
+
+    This conservative source check pins complete reviewed items with literal-
+    preserving tokens. The conditional DA notification owner has the same exact
+    test/core-tests/bench predicate at creation, transfer and retirement. All
+    ordinary World/membership/Cell/hash owners and joint retirement remain
+    unconditional. These are structural obligations, not native qualification.
+    """
     state_path = "crates/iroha_core/src/state.rs"
     path = "crates/iroha_core/src/state/state_block_construction.rs"
-
-    def compact(text: str) -> str:
-        return re.sub(r"\s+", "", re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.S))
-
-    state_code = compact(state)
-    declaration = '#[path="state/state_block_construction.rs"]modstate_block_construction;'
-    if state_code.count(declaration) != 1:
-        raise RuntimeError(f"{state_path}: start construction must use its defining module")
-    code = compact(read(path))
-    signature = (
-        "implState{pub(super)fnconstruct_acquired_block<'state,R>("
-        "&'stateself,acquired:canonical_runtime::AcquiredRuntimeBlock<'state>,"
-        "curr_block:BlockHeader,finish:implFnOnce(StateBlock<'state>)->R,)->R{"
-    )
-    if not code.startswith("usesuper::*;" + signature):
-        raise RuntimeError(f"{path}: start construction must consume the original acquisition")
-    ordered = (
-        "letmutfinish=Some(finish);",
-        "letmutoriginal=Some(acquired);",
-        'letacquired=original.as_ref().expect("originalacquiredStateblock").fields();',
-        "gas_limit_per_block=Some(gas_limit_from_parameters(acquired.world.parameters()));",
-        "runtime_policy=Some(canonical_runtime::CapturedRuntimePolicy::capture(",
-        "finish_state_block_construction(||{",
-    )
-    positions = [code.find(token) for token in ordered]
-    if any(code.count(token) != 1 for token in ordered) or positions != sorted(positions):
-        raise RuntimeError(f"{path}: start construction must retain original writers through metadata")
-    handoff = section(code, "finish_state_block_construction(||{", "})}}#[inline(never)]", path)
-    prefix = (
-        "letcanonical_runtime::AcquiredRuntimeBlockFields{world,transactions,"
-        "commit_topology,prev_commit_topology,canonical_runtime,native_execution_tip,"
-        "projection,block_hashes,da_rewind_releases,}=original.take()"
-        '.expect("originalacquiredStateblock").into_fields();'
-        "letblock=StateBlock::from_fields(StateBlockFields{"
-    )
-    suffix = '});finish.take().expect("originalStatefinishcontinuation")(block)'
-    if not handoff.startswith(prefix) or not handoff.endswith(suffix):
-        raise RuntimeError(f"{path}: start construction must arm the original block before its continuation")
-    fields = handoff[len(prefix):-len(suffix)]
-    # Split only top-level field separators; nested calls, attributes and strings
-    # cannot forge a second shorthand writer or substitute a commented binding.
-    parts, start, depth, quoted, escaped = [], 0, 0, False, False
-    for index, char in enumerate(fields):
-        if quoted:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                quoted = False
-        elif char == '"':
-            quoted = True
-        elif char in "([{":
-            depth += 1
-        elif char in ")]}":
-            depth -= 1
-        elif char == "," and depth == 0:
-            parts.append(fields[start:index])
-            start = index + 1
-    if fields[start:] or depth != 0 or quoted:
-        raise RuntimeError(f"{path}: start construction has an incomplete original field handoff")
-    bindings = {}
-    for field in parts:
-        field = re.sub(r'^#\[cfg\(feature="[^"]+"\)\]', "", field)
-        name, separator, value = field.partition(":")
-        if name in bindings or re.fullmatch(r"[a-z_][a-z_0-9]*", name) is None:
-            raise RuntimeError(f"{path}: start construction has duplicate or invalid original fields")
-        bindings[name] = value if separator else name
-    expected = {name: name for name in (
-        "world",
-    )}
-    expected.update({
-        "_da_rewind_releases": "da_rewind_releases",
-        "canonical_runtime": "block_field::BlockField::new(canonical_runtime)",
-        "native_execution_tip": "block_field::BlockField::new(native_execution_tip)",
-        "block_hashes": "block_hash_field::BlockHashField::new(block_hashes)",
-        "transactions": "storage_transactions::TransactionsBlockField::new(transactions)",
-        "commit_topology": "block_field::BlockField::new(commit_topology)",
-        "prev_commit_topology": "block_field::BlockField::new(prev_commit_topology)",
-        "local_storage_refusal": "None",
-        "_da_rewind_releases": "da_rewind_releases",
-        "_read_releases": "StateViewReleases::new(self)",
-        "state_ref": "self", "_curr_block": "curr_block",
-        "nexus": "projection.nexus", "start_of_block_effects_applied": "false",
-        "pending_parliament_telemetry_events":
-            'pending_parliament_telemetry_events.take().expect("preparedStateinput")',
-    })
-    if any(bindings.get(name) != value for name, value in expected.items()):
-        raise RuntimeError(f"{path}: start construction substituted original writers or Parliament inputs")
-    if not code.endswith("#[inline(never)]fnfinish_state_block_construction<R>(finish:implFnOnce()->R)->R{finish()}"):
-        raise RuntimeError(f"{path}: start construction must retain its bounded borrowed finish")
-    for owner in (
-        "impl<'state>StateBlock<'state>{fnfrom_fields(fields:StateBlockFields<'state>)->Self{Self{fields:Some(fields),world_cut_capture:None,publication:None,}}",
-        (
-            "implDropforStateBlock<'_>{fndrop(&mutself){"
-            "letSome(fields)=self.fields.as_ref()else{return;};"
-            "letexecution=fields.pipeline_ivm_prepared_cache.execution_budget().clone();"
-            "letmembership=fields.state_ref.transactions.budget.clone();"
-            "lethashes=fields.state_ref.block_hashes.budget.clone();"
-            "execution.with_deferred_refund_notifications(|_|{"
-            "membership.with_deferred_refund_notifications(|_|{"
-            "hashes.with_deferred_refund_notifications(|_|{"
-            "mv::BlockRetirement::release_writers(self);"
-            "drop(self.world_cut_capture.take());drop(self.fields.take());drop(self.publication.take());})})});}}"
-        ),
+    acquisition_path = "crates/iroha_core/src/state/canonical_runtime/acquisition.rs"
+    runtime_path = "crates/iroha_core/src/state/canonical_runtime.rs"
+    hydration_path = "crates/iroha_core/src/state/da_hydration.rs"
+    module_lint = "#![allow(clippy::items_after_statements, clippy::used_underscore_binding)]"
+    if state.count(module_lint) != 1:
+        raise RuntimeError(f"{state_path}: start construction changed reviewed module lint")
+    sources = {state_path: state.replace(module_lint, "", 1),
+               path: read(path), acquisition_path: read(acquisition_path),
+               runtime_path: read(runtime_path), hydration_path: read(hydration_path)}
+    gate = '#[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]'
+    lint = '''#[expect(clippy::large_types_passed_by_value,
+        reason = "the acquired block owns the supplied header independently of its caller")]'''
+    replacement_lint = '''#[expect(clippy::large_types_passed_by_value,
+        reason = "the replacement block owns the supplied header independently of its caller")]'''
+    # Pin the defining module routes as actual top-level declarations. An intact
+    # path spelling below cfg(any()), a macro or another module is not a route.
+    for location, declaration, attributes in (
+        (state_path, "mod state_block_construction;", ('#[path = "state/state_block_construction.rs"]',)),
+        (state_path, "mod canonical_runtime;", ()),
+        (state_path, "mod da_hydration;", ()),
+        (runtime_path, "mod acquisition;", ('#[path = "canonical_runtime/acquisition.rs"]',)),
+        (runtime_path, "pub(super) use acquisition::{AcquiredRuntimeBlock, AcquiredRuntimeBlockFields};", ()),
     ):
-        if state_code.count(owner) != 1:
-            raise RuntimeError(f"{state_path}: start construction must install the original armed State owner")
+        construction_rust_item(sources[location], declaration, location, attributes=attributes)
+
+    # Full-item pins prevent early returns, extra effects, shadowed bindings and
+    # intact handoff text hidden inside a conditional. The macro pin includes the
+    # matching acquired-field declaration/init cfg and original release order;
+    # its invocation binds exactly the original four State Cell sources.
+    owners = (
+        (path, "pub(super) fn construct_acquired_block<'state, R>(", "impl State", (lint,),
+         "original writers and armed continuation", "7545fc82741ac8b26c72c5417690613736c6f5caca82dccc54180742b26e8ab2"),
+        (path, "fn finish_state_block_construction<R>(", None, ("#[inline(never)]",),
+         "bounded borrowed finish", "aa4f6e7dd39969dd98751ac40f7f1b87bd4664a960a937cd8ccadc99487831b1"),
+        (acquisition_path, "macro_rules! runtime_cells", None, (),
+         "original acquisition field and release inventory", "9cb2d3ab7b464383a53bd8cef93cb1a9a955a4c02fc4101bb5f6481b7126745c"),
+        (acquisition_path, "runtime_cells! {", None, (),
+         "original four Cell sources", "f9ba176bbbc91b965a3d867296e37fcc62c3ccf5479e507fe5b20919b565821d"),
+        (acquisition_path, "pub(in crate::state) struct AcquiredRuntimeBlock<'state>", None, (),
+         "original acquisition target and field custody", "b34075a2f01296fb6cf8270ae66fba518214d00650e3c4873d86f417cd9329ad"),
+        (acquisition_path, "impl<'state> AcquiredRuntimeBlock<'state>", None, (),
+         "same-State rewind owner and one-shot field transfer", "5204fed5625dcfe0161bc6af8807f595270a8730383a9a0426d32e39b000207c"),
+        (acquisition_path, "impl Drop for AcquiredRuntimeBlock<'_>", None, (),
+         "original acquisition retirement", "8b8b13aa7aa4be8c2b2468e72e3a946b2912dc4215e4937f20bcfbe741c1ba0b"),
+        (hydration_path, "pub(super) struct DaRewindReleases<'state>", None, (gate,),
+         "conditional original rewind owner", "d7723d392ad6aabb7360677f49a52d598c2f5b753fec29d0dcf1fce13cf4df85"),
+        (hydration_path, "impl<'state> DaRewindReleases<'state>", None, (gate,),
+         "conditional original rewind sources", "2154aecc0c638b4f0fdf7d8ae636cd20746dd373a1360d6b30355df3dd683ac1"),
+        (hydration_path, "pub(super) fn rewind_da_indexes_to_height_with_releases(", "impl State", (gate,),
+         "borrowed original rewind kernel", "4da09f62d000c110745209e8993f4c3fa669d8c5bf640fe7eec2a8aceaf9b3a8"),
+        (state_path, "pub struct StateBlock<'state>", None, (),
+         "original armed State owner", "7e13644044a601096aaeb2925833a17155627e291f47483344d61dd793e0397b"),
+        (state_path, "pub struct StateBlockFields<'state>", None, (),
+         "original armed State owner fields and paired cfg", "7df6bd7f2d33ab7336fd8d0d153fcab3d2edf32bd244b45283863ca1ca6416d6"),
+        (state_path, "fn from_fields(", "impl<'state> StateBlock<'state>", (),
+         "original armed State owner", "a946ab2482fdd67135614e20b672dba30bfd09176105b2d94838ba89ef09eac9"),
+        (state_path, "impl mv::BlockRetirement for StateBlock<'_>", None, (),
+         "original armed State owner writer retirement", "2e13183a5b1d2bf71b0e24ebe42df5cecc2f97025d4930b9a9c8f0be410b53e1"),
+        (state_path, "impl Drop for StateBlock<'_>", None, (),
+         "original armed State owner refund and notice order", "777282508d62d77ce46bdcf1b6bd52824be655d44dab69a9b92940e3e89866ba"),
+        (state_path, "fn block_and_revert_with_pristine_carrier_stage_inner<E: std::fmt::Debug>(",
+         "impl State", (replacement_lint, gate),
+         "conditional replacement acquisition and handoff", "27a546fa940d1e6df8228b71f3580e85065c555fb8f75eb6b3aaacc3ea7f6961"),
+    )
+    for location, declaration, owner, attributes, obligation, expected in owners:
+        item = construction_rust_item(sources[location], declaration, location, owner, attributes)
+        if rust_token_digest(item) != expected:
+            raise RuntimeError(f"{location}: start construction changed {obligation}")
+    # Item tokens alone do not resolve names: a new import/type alias or later
+    # macro definition can change an otherwise identical body. These four
+    # defining modules are therefore pinned in full, including every import,
+    # macro and module item, rather than normalizing arbitrary binding surfaces.
+    # Changes anywhere in these small sources require another scoped review.
+    # This still trusts the surrounding Rust crate/dependency resolver/compiler;
+    # it is not a complete semantic proof of arbitrary Rust programs.
+    for location, expected in (
+        (path, "d324460a8058557da656cf365a2ef0218c05a3cf5beb6c94811178c5335cdb7f"),
+        (runtime_path, "7a2d8cdd6a1a1e0d9aa5c0c18feb4e99aa08142c5644f68996e6a8c9f6ed6114"),
+        (acquisition_path, "876c3b13faf12679ac157b5dd030780f30dbdfd74686fb0ef7874d279ede035a"),
+        (hydration_path, "da39434761a9214486ebf0d5b65e697e763bf247358d784a9eeeafac55c06755"),
+    ):
+        if rust_token_digest(sources[location]) != expected:
+            raise RuntimeError(f"{location}: start construction changed its defining module tokens")
 
 
-def require_block_start_enactment_phases(state: str) -> None:
-    """Bind original ordered start ownership to bounded borrowed phase helpers."""
+def torii_release_without_lint_attributes(source: str) -> str:
+    """Remove only the four reviewed leading Torii lint attributes for ownership checks.
+
+    The complete literal-preserving attribute tokens are pinned before removal.
+    New inner cfg/allow attributes, non-leading attributes, altered conditions or
+    additional code refuse. No general attribute stripping is performed.
+    """
+    path = "crates/iroha_torii/src/lib.rs"
+    code = mask_rust(source)
+    spans: list[tuple[int, int]] = []
+    end = 0
+    for match in re.finditer(r"#\s*!\s*\[", code):
+        if code[end:match.start()].strip():
+            raise RuntimeError(f"{path}: local release has non-leading inner attributes")
+        depth, end = 1, match.end()
+        while end < len(code) and depth:
+            depth += (code[end] == "[") - (code[end] == "]")
+            end += 1
+        if depth:
+            raise RuntimeError(f"{path}: local release has an unclosed inner attribute")
+        spans.append((match.start(), end))
+    attributes = " ".join(source[start:end] for start, end in spans)
+    if rust_token_digest(attributes) != "18eabee7073a396c1adfb7c8fcddf88d731c76f72cb7fae33b41331cee972648":
+        raise RuntimeError(f"{path}: local release changed reviewed leading lint attributes")
+    located = list(source)
+    for start, end in spans:
+        located[start:end] = " " * (end - start)
+    return "".join(located)
+
+
+def require_local_partial_release_boundary(local_release: str, torii: str) -> None:
+    """Bind the current private local-release adapter and its physical permit handoff.
+
+    Complete reviewed items pin identifier/body rejection, handler ordering,
+    the original owned permit moved into physical work, committed-view lookup,
+    recovery and closed error mapping. Small service/recovery module pins also
+    bind imports and macros. Admission and recovery implementations below are
+    explicit source premises, not runtime tests or a cancellation theorem.
+
+    The canonical-authentication route macro/mount/middleware chain, surrounding
+    Torii name resolution, dependency semantics and native execution remain
+    upstream premises. This check neither qualifies the anonymous-ballot worker
+    nor changes any production availability or latency gate.
+    """
+    service_path = "crates/iroha_torii/src/parliament_tle_release.rs"
+    torii_path = "crates/iroha_torii/src/lib.rs"
+    recovery_path = "crates/iroha_torii/src/panic_recovery.rs"
+    located = torii_release_without_lint_attributes(torii)
+    # The reviewed struct relies on ordinary declaration-order field retirement.
+    # Reject direct custom Drop impls for this spelling, including qualified/raw
+    # paths and parenthesized Self types, even inside cfg-disabled scopes. This
+    # is a conservative lexical boundary; aliases/name resolution elsewhere in
+    # Torii remain the explicitly stated surrounding-source premise above.
+    permit_code = re.sub(r"\br#(?=[A-Za-z_])", "", mask_rust(located))
+    for implementation in re.finditer(r"\bimpl\b([^{};]*)\{", permit_code):
+        header = implementation[1]
+        if re.search(r"\bDrop\s+for\b", header) and re.search(
+                r"\bfor\s+(?:\(\s*)*(?:::)?(?:[A-Za-z_][A-Za-z_0-9]*\s*::\s*)*"
+                r"QueryAdmissionPermit\b", header):
+            raise RuntimeError(f"{torii_path}: local release permit has a custom Drop implementation")
+    sources = {"service": local_release, "torii": located, "recovery": read(recovery_path)}
+    paths = {"service": service_path, "torii": torii_path, "recovery": recovery_path}
+    for declaration, attributes in (
+        ("mod parliament_tle_release;", ('#[cfg(feature = "app_api")]',)),
+        ("mod panic_recovery;", ()),
+    ):
+        construction_rust_item(located, declaration, torii_path, attributes=attributes)
+    owners = (
+        ('service', 'pub async fn require_empty_body_v1(', (),
+         'bounded empty-body gate', '51e91a9d77fab127d9a1d011a7ac70c6d8c73e805523f93ac518a5f3d855a329'),
+        ('service', 'fn parse_ballot_attempt_id(', (),
+         'canonical nonzero identifier', '75ec4f376159e69887cdba3428401984d098d2b466895f85eac344594058611a'),
+        ('service', 'fn map_coordinator_error(', (),
+         'closed payload-free coordinator failures', '763aa0283bba7c70b3521d6d76985b21c4aeed0ea03b6e847d15faeca35ee772'),
+        ('service', 'pub async fn request_local_partial_release_v1(', (),
+         'physical signer admission and committed-view handoff', 'b9a7af91b8df70926ad125b3f9dcc62b45ff91f1672a94444209fabc6fd711f8'),
+        ('torii', 'async fn handler_gov_parliament_tle_partial_release(', ('#[cfg(feature = "app_api")]',),
+         'access/body/admission/service/response order', 'd773a1bf836cf9e3f8b9b1f8bcd4dd42722ee02f51767fdb4cf53be2dc967e54'),
+        ('torii', 'pub(crate) struct QueryAdmissionPermit', (),
+         'original admission field custody and release order', 'f046085d91ed25e4d2e2c83dc0fcfa1a684916f9e8648d9cd5b329a1faa88981'),
+        ('torii', 'async fn acquire_query_admission(', (),
+         'original general and heavy admission with one deadline', '420d2c33c882755e9f8765bd91a67c1783fe2b5b20caaf797c14158af3665a3d'),
+        ('recovery', 'pub fn spawn_blocking_recoverable<F, T>(', (),
+         'physical recovery boundary', '9d1d186b77134785525359e98f980bbb747acd0688638b786efbd6107ff1be2d'),
+        ('recovery', 'pub async fn join_recoverable<T>(', (),
+         'opaque recovery join result', 'e34b8731f861a956bbb730b13d613cb715744153ddcfa807951a68ba32326f92'),
+    )
+    for location, declaration, attributes, obligation, expected in owners:
+        item = construction_rust_item(sources[location], declaration, paths[location],
+                                      attributes=attributes)
+        if rust_token_digest(item) != expected:
+            raise RuntimeError(f"{paths[location]}: local release changed {obligation}")
+    for location, expected in (
+        ("service", "990ac558884cbe32066a5481dc546429041d76771ef0dea5af49d7e0fe0df075"),
+        ("recovery", "036e22a03809def9017788c93deb89f3141bff658078478ccacb071480d16fe1"),
+    ):
+        if rust_token_digest(sources[location]) != expected:
+            raise RuntimeError(f"{paths[location]}: local release changed its defining module tokens")
+
+
+def require_block_start_phase_call_order(state: str) -> None:
+    """Bind the current same-block SCCP/Parliament call order before continuation.
+
+    This checks only the constructor's source boundary. The defining construction
+    owner and phase implementations remain separate mandatory checks below.
+    """
     state_path = "crates/iroha_core/src/state.rs"
-    wrapper = compact_rust(mask_rust(rust_item(
-        state,
-        "    fn block_with_owned_start_stages<'state, E: std::fmt::Debug, T, R>(",
-        state_path,
-    )))
+    # These exact current lint attributes cannot disable an owner. All other
+    # attributes remain visible to the scoped unconditional-owner locator.
+    module_lint = "#![allow(clippy::items_after_statements, clippy::used_underscore_binding)]"
+    method_lints = '''    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the acquired block owns the supplied header independently of its caller"
+    )]
+'''
+    if state.count(module_lint) != 1 or state.count(method_lints) != 2:
+        raise RuntimeError(f"{state_path}: start phases changed their reviewed lint attributes")
+    located = state.replace(module_lint, "", 1).replace(method_lints, "")
+    wrapper_source = unconditional_rust_item(
+        located,
+        "fn block_with_owned_start_stages<'state, E: std::fmt::Debug, T, R>(",
+        state_path, "impl State",
+    )
+    wrapper = compact_rust(mask_rust(wrapper_source))
     delegate = (
         "self.block_with_owned_start_stages_with_carrier("
         "curr_block,None,before_start,after_start)"
     )
     if wrapper.count(delegate) != 1 or not wrapper.endswith("{" + delegate + "}"):
         raise RuntimeError(f"{state_path}: start phases must retain their original carrier delegate")
-    constructor = rust_item(
-        state,
-        "    fn block_with_owned_start_stages_with_carrier<'state, E: std::fmt::Debug, T, R>(",
-        state_path,
+    constructor = unconditional_rust_item(
+        located,
+        "fn block_with_owned_start_stages_with_carrier<'state, E: std::fmt::Debug, T, R>(",
+        state_path, "impl State",
     )
     phases = section(
         constructor,
@@ -1519,25 +1674,29 @@ def require_block_start_enactment_phases(state: str) -> None:
         state_path,
     )
     # This small statement region contains only the original height and the
-    # four unconditional calls: private-settlement expiry, the SCCP begin-block
-    # step (specs/sccp.md S0, before the governance pass), Parliament enactment,
-    # then SCCP G4 fast-pause lapse cleanup (§4.7.2, §4.14.7). Ignore line
-    # comments, but reject hidden conditions,
+    # unconditional calls: private-settlement expiry, SCCP S0, G0 draw, G2a
+    # reconciliation, Parliament enactment, the same returned pause batch's G3
+    # enactment, then G4 lapse cleanup (specs/sccp.md §4.7.2, §4.14.7).
+    # Ignore comments, but reject hidden conditions,
     # substituted owners/heights, duplicate calls, or swapped execution order.
-    phases = re.sub(r"//[^\n]*", "", phases)
+    phases = strip_rust_comments(phases)
     expected = (
         "let now_h = sb._curr_block.height().get();"
         "Self::apply_block_start_private_settlement_expiry(&mut sb, now_h)"
         ".map_err(StateBlockStartError::Storage)?;"
         "crate::smartcontracts::isi::sccp::hook::begin_block(&mut sb)"
         ".map_err(StateBlockStartError::Storage)?;"
+        "crate::smartcontracts::isi::sccp::fast_pause::draw::at_boundary(&mut sb)?;"
+        "let sccp_pauses = "
+        "crate::smartcontracts::isi::sccp::governance_clock::advance_reconciliation(&mut sb)?;"
         "Self::apply_block_start_parliament_enactments(&mut sb, now_h)?;"
+        "sccp_pauses.enact(&mut sb)?;"
         "crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mut sb)"
         ".map_err(StateBlockStartError::Storage)?;"
     )
     if re.sub(r"\s+", "", phases) != re.sub(r"\s+", "", expected):
         raise RuntimeError(f"{state_path}: start phases must use the original block and height in order")
-    compact = re.sub(r"\s+", "", constructor)
+    compact = compact_rust(mask_rust(constructor))
     # The source quota owner may complete an intrinsic rejection before shared
     # start effects. Bind that exact owner and remove only this checked branch
     # before checking the one ordinary after-start continuation.
@@ -1560,7 +1719,10 @@ def require_block_start_enactment_phases(state: str) -> None:
         "letcontinuation=before_start(&mutsb).map_err(StateBlockStartError::Stage)?;",
         "Self::apply_block_start_private_settlement_expiry(&mutsb,now_h).map_err(StateBlockStartError::Storage)?;",
         "crate::smartcontracts::isi::sccp::hook::begin_block(&mutsb).map_err(StateBlockStartError::Storage)?;",
+        "crate::smartcontracts::isi::sccp::fast_pause::draw::at_boundary(&mutsb)?;",
+        "letsccp_pauses=crate::smartcontracts::isi::sccp::governance_clock::advance_reconciliation(&mutsb)?;",
         "Self::apply_block_start_parliament_enactments(&mutsb,now_h)?;",
+        "sccp_pauses.enact(&mutsb)?;",
         "crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mutsb)"
         ".map_err(StateBlockStartError::Storage)?;",
         "sb.start_of_block_effects_applied=true;",
@@ -1570,6 +1732,18 @@ def require_block_start_enactment_phases(state: str) -> None:
     positions = [compact.find(token) for token in ordered]
     if any(compact.count(token) != 1 for token in ordered) or positions != sorted(positions):
         raise RuntimeError(f"{state_path}: start phases must finish before the original continuation")
+    # Region matching alone cannot rule out an outer conditional, substituted
+    # closure, or early successful return around intact call text. Pin the whole
+    # reviewed entry bodies with literal-preserving tokens; changes need review.
+    if (rust_token_digest(wrapper_source) != "36d421b3f6c6311c4a41af89ad1982e9f9c9647fed5c27659b86b219487c8ca8"
+            or rust_token_digest(constructor) != "a16aaff7c62e261bbdb0c1654b64bbd221e43a3a8d8bbb5390bf87d108541021"):
+        raise RuntimeError(f"{state_path}: start phases changed their reviewed complete entry bodies")
+
+
+def require_block_start_enactment_phases(state: str) -> None:
+    """Bind original ordered start ownership to bounded borrowed phase helpers."""
+    state_path = "crates/iroha_core/src/state.rs"
+    require_block_start_phase_call_order(state)
     require_block_start_construction(state)
     expiry = section(
         state,
@@ -1747,6 +1921,210 @@ def require_completed_replay_source(source: str) -> None:
         raise RuntimeError(f"{path}: completed replay must stream the complete canonical committee preimage")
 
 
+def unconditional_rust_item(source: str, declaration: str, path: str,
+                            owner: str | None = None) -> str:
+    """Locate unique declaration tokens in the exact unconditional inherent owner.
+
+    This deliberately narrow locator supports module-level items and methods in
+    one top-level inherent impl. Comments/spacing cannot hide another owner;
+    cfg-disabled, test, nested-module, macro and foreign-impl decoys refuse.
+    It is used only by the queue/Kura checks added for current source ownership.
+    """
+    code = mask_rust(source)
+    # None of these current scoped owners uses inner attributes. Checking the
+    # entire masked input also catches crate/impl cfg attributes separated from
+    # the selected method by another item, where a local boundary check cannot.
+    if re.search(r"#\s*!\s*\[", code):
+        raise RuntimeError(f"{path}: unconditional owner input contains an inner attribute")
+    tokens = re.findall(r"[A-Za-z_][A-Za-z_0-9]*|[^\s]", declaration)
+    pattern = r"\s*".join(
+        rf"\b{re.escape(token)}\b" if re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", token)
+        else re.escape(token) for token in tokens
+    )
+    matches = list(re.finditer(pattern, code))
+    if len(matches) != 1:
+        raise RuntimeError(f"{path}: expected one live declaration token owner {declaration!r}, found {len(matches)}")
+    start = matches[0].start()
+    # A supported method has exactly one enclosing brace, opened by its exact
+    # attribute-free inherent impl. A supported free item has no enclosing scope.
+    ancestors: list[str] = []
+    boundary = 0
+    for index, character in enumerate(code[:start]):
+        if character == "{":
+            ancestors.append(code[boundary:index])
+            boundary = index + 1
+        elif character == "}":
+            if not ancestors:
+                raise RuntimeError(f"{path}: unmatched Rust owner scope")
+            ancestors.pop()
+            boundary = index + 1
+        elif character == ";":
+            boundary = index + 1
+    expected = [] if owner is None else [compact_rust(owner)]
+    if [compact_rust(item) for item in ancestors] != expected:
+        raise RuntimeError(f"{path}: declaration must retain its unconditional owner {owner!r}")
+    prefix = compact_rust(code[boundary:start])
+    if prefix not in ("", "#[must_use]", "#[derive(Debug,Default)]"):
+        # Checking from the item boundary also sees attributes before an
+        # unexpected pub/async/unsafe qualifier, not just immediately before fn.
+        raise RuntimeError(f"{path}: declaration owner must be unconditional with its original qualifiers")
+    opening = code.find("{", start)
+    if opening < 0:
+        raise RuntimeError(f"{path}: unconditional item has no body")
+    depth = 0
+    for index in range(opening, len(code)):
+        depth += (code[index] == "{") - (code[index] == "}")
+        if depth == 0:
+            return source[start:index + 1]
+    raise RuntimeError(f"{path}: unclosed unconditional item {declaration!r}")
+
+
+def require_kura_claim_cleanup(lease: str, raw: str, retained: str) -> None:
+    """Bind the current four-fence wrapper and its inert original claim notices.
+
+    Exact live owners keep the wrapper migration from silently weakening the
+    old physical-prefix check. This checks source structure; it does not replace
+    the native HC274/HC352 callback and concurrency qualification.
+    """
+    lease_path = "crates/iroha_core/src/kura/publication_lease.rs"
+    raw_path = "crates/iroha_core/src/kura/lane_geometry/raw_attempt.rs"
+    retained_path = "crates/iroha_core/src/kura/publication_lease/retained.rs"
+
+    def exact(source: str, path: str, declaration: str, expected: str,
+              owner: str | None = None) -> None:
+        item = unconditional_rust_item(source, declaration, path, owner)
+        if compact_rust(strip_rust_comments(item)) != compact_rust(expected):
+            raise RuntimeError(f"{path}: original Kura claim cleanup owner changed: {declaration}")
+
+    exact(retained, retained_path, "pub(crate) fn new(kura: &'kura Kura)", """
+        pub(crate) fn new(kura: &'kura Kura) -> Self {
+            Self { kura, lease: None, releases: KuraPublicationReleases::new(kura), }
+        }
+    """, "impl<'kura> KuraPublicationSlot<'kura>")
+    exact(lease, lease_path, "pub(crate) struct KuraPublicationReleases", """
+        pub(crate) struct KuraPublicationReleases {
+            source: super::KuraInstanceIdentity,
+            fences: [iroha_allocation::release::DeferredReleaseBatch; 4],
+            claims: super::lane_geometry::RawGeometryReleases,
+        }
+    """)
+    exact(lease, lease_path, "impl KuraPublicationReleases", """
+        impl KuraPublicationReleases {
+            pub(crate) fn new(kura: &Kura) -> Self {
+                Self {
+                    source: kura.instance_identity(),
+                    fences: [
+                        kura.sidecar_lock.deferred_releases(),
+                        kura.lane_geometry_lock.deferred_releases(),
+                        kura.canonical_chain_lock.deferred_releases(),
+                        kura.prune_lock.deferred_releases(),
+                    ],
+                    claims: super::lane_geometry::RawGeometryReleases::default(),
+                }
+            }
+            fn retain(&mut self, mut cleanup: KuraPublicationCleanup) {
+                for (notice, batch) in cleanup.fences.iter_mut().zip(&mut self.fences) {
+                    if let Some(notice) = notice.take() {
+                        assert!(notice.try_merge_into(batch).is_ok(), "original Kura cleanup source");
+                    }
+                }
+                self.claims.append(std::mem::take(&mut cleanup.claims));
+            }
+        }
+    """)
+    exact(raw, raw_path, "pub(crate) struct RawGeometryReleases", """
+        pub(crate) struct RawGeometryReleases { head: Option<Arc<ClaimSignal>>, }
+    """)
+    exact(raw, raw_path, "impl RawGeometryReleases", """
+        impl RawGeometryReleases {
+            fn push(&mut self, signal: Arc<ClaimSignal>) {
+                *signal.next.lock() = self.head.take();
+                self.head = Some(signal);
+            }
+            fn pop(&mut self) -> Option<Arc<ClaimSignal>> {
+                let signal = self.head.take()?;
+                self.head = signal.next.lock().take();
+                Some(signal)
+            }
+            pub(crate) fn append(&mut self, mut other: Self) {
+                while let Some(signal) = other.pop() { self.push(signal); }
+            }
+        }
+    """)
+    exact(raw, raw_path, "impl Drop for RawGeometryReleases", """
+        impl Drop for RawGeometryReleases {
+            fn drop(&mut self) {
+                while let Some(signal) = self.pop() { signal.released.send_replace(true); }
+            }
+        }
+    """)
+    exact(raw, raw_path, "pub(in crate::kura) fn begin_publication(", """
+        pub(in crate::kura) fn begin_publication(&self) {
+            let mut state = self.state.lock();
+            debug_assert!(!state.publication);
+            state.publication = true;
+        }
+    """, "impl RawGeometryClaimGate")
+    exact(raw, raw_path, "pub(in crate::kura) fn end_publication(", """
+        pub(in crate::kura) fn end_publication(&self) -> RawGeometryReleases {
+            let mut state = self.state.lock();
+            state.publication = false;
+            std::mem::take(&mut state.releases)
+        }
+    """, "impl RawGeometryClaimGate")
+    exact(raw, raw_path, "fn release(&self, abandoned: bool)", """
+        fn release(&self, abandoned: bool) {
+            let mut immediate = RawGeometryReleases::default();
+            {
+                let mut state = self.state.lock();
+                if state.active.ptr_eq(&Arc::downgrade(&self.signal)) {
+                    state.active = Weak::new();
+                    state.abandoned |= abandoned;
+                }
+                if !self.signal.ready.swap(true, Ordering::AcqRel) {
+                    if state.publication && !cfg!(all(test, sumeragi_core_mutation = "HC352")) {
+                        state.releases.push(Arc::clone(&self.signal));
+                    } else { immediate.push(Arc::clone(&self.signal)); }
+                }
+            }
+            drop(immediate);
+        }
+    """, "impl RawGeometryClaim")
+    exact(lease, lease_path, "fn prepare_publication_fences<'kura>(", """
+    fn prepare_publication_fences<'kura>(
+        &'kura self, fences: &mut AcquiredKuraPublicationFences<'kura>,
+    ) -> Result<u64, KuraPublicationPreparationError> {
+        fn acquire<'kura>(field: &'static str, lock: &'kura PublicationMutex,
+        ) -> Result<PublicationGuard<'kura>, KuraPublicationPreparationError> {
+            lock.try_lock_or_wait().map_err(|wait| KuraPublicationPreparationError::Busy { field, wait })
+        }
+        self.ensure_canonical_storage_not_poisoned().map_err(KuraPublicationPreparationError::Storage)?;
+        fences.prune = Some(acquire("prune_lock", &self.prune_lock)?);
+        self.ensure_prune_recovery_not_required().map_err(KuraPublicationPreparationError::Storage)?;
+        fences.canonical = Some(acquire("canonical_chain_lock", &self.canonical_chain_lock)?);
+        let pending_canonical_bytes = self.try_pending_canonical_capacity_bytes_under_prune_and_canonical_guards()?;
+        fences.geometry = Some(acquire("lane_geometry_lock", &self.lane_geometry_lock)?);
+        fences.sidecar = Some(acquire("sidecar_lock", &self.sidecar_lock)?);
+        self.ensure_prune_recovery_not_required().map_err(KuraPublicationPreparationError::Storage)?;
+        self.ensure_canonical_storage_not_poisoned()
+            .map_err(KuraPublicationPreparationError::Storage)?;
+        self.raw_geometry_claim.begin_publication();
+        fences.claims = Some(&self.raw_geometry_claim);
+        Ok(pending_canonical_bytes)
+    }
+    """, "impl Kura")
+    for declaration, owner in (
+        ("fn release_into(", "impl AcquiredKuraPublicationFences<'_>"),
+        ("pub(crate) fn retire_notices(", "impl<'kura> KuraPublicationSlot<'kura>"),
+        ("pub(crate) fn try_prepare(", "impl<'kura> KuraPublicationSlot<'kura>"),
+        ("fn release_writers(", "impl<'kura> KuraPublicationSlot<'kura>"),
+        ("impl Drop for Acquisition<'_, '_>", None),
+        ("impl Drop for KuraPhysicalScope<'_, '_>", None),
+        ("impl Drop for KuraPublicationSlot<'_>", None),
+    ):
+        unconditional_rust_item(retained, declaration, retained_path, owner)
+
+
 def require_publication_kura_cleanup(publication: str) -> None:
     """Bind retained Kura release custody to the actual State attempt and cleanup."""
     path = "crates/iroha_core/src/state/publication.rs"
@@ -1809,9 +2187,12 @@ def require_publication_kura_cleanup(publication: str) -> None:
     release = compact_rust(strip_rust_comments(rust_item(
         retained, "    fn release_into(", retained_path,
     )))
-    if release != compact_rust('''fn release_into(&mut self, releases: &mut [DeferredReleaseBatch; 4]) {
+    if release != compact_rust('''fn release_into(&mut self, releases: &mut KuraPublicationReleases) {
+        if let Some(gate) = self.claims.take() {
+            releases.claims.append(gate.end_publication());
+        }
         for (guard, batch) in [ &mut self.sidecar, &mut self.geometry,
-            &mut self.canonical, &mut self.prune, ].into_iter().zip(releases) {
+            &mut self.canonical, &mut self.prune, ].into_iter().zip(&mut releases.fences) {
             if let Some(guard) = guard.take() {
                 if cfg!(all(test, sumeragi_core_mutation = "HC274")) {
                     drop(guard); continue;
@@ -1859,16 +2240,16 @@ def require_publication_kura_cleanup(publication: str) -> None:
     if retire != compact_rust('''
         pub(crate) fn retire_notices(&mut self) {
             assert!(self.lease.is_none(), "original Kura physical scope must end before notification");
-            let fresh = [
-                self.kura.sidecar_lock.deferred_releases(),
-                self.kura.lane_geometry_lock.deferred_releases(),
-                self.kura.canonical_chain_lock.deferred_releases(),
-                self.kura.prune_lock.deferred_releases(),
-            ];
+            let fresh = KuraPublicationReleases::new(self.kura);
             drop(std::mem::replace(&mut self.releases, fresh));
         }
     '''):
         raise RuntimeError(f"{retained_path}: notices must retain the four exact original Kura sources")
+    require_kura_claim_cleanup(
+        read("crates/iroha_core/src/kura/publication_lease.rs"),
+        read("crates/iroha_core/src/kura/lane_geometry/raw_attempt.rs"),
+        retained,
+    )
     # These genuine native callbacks probe State, effect, and Kura siblings;
     # their three distinct paths remain the executable HC274 regression owner.
     tests_path = "crates/iroha_core/src/state/publication_effect_kura_tests.rs"
@@ -2243,6 +2624,7 @@ def require_parliament_commit_publication(state: str) -> None:
 
 EPOCH_BEACON_PATH = "crates/iroha_core/src/sumeragi/epoch_beacon.rs"
 BEACON_PRODUCER_PATH = "crates/iroha_core/src/sumeragi/epoch_beacon/producer.rs"
+BEACON_CONTROL_PATH = "crates/iroha_core/src/sumeragi/epoch_beacon/control.rs"
 BEACON_READINESS_PATH = (
     "crates/iroha_core/src/sumeragi/epoch_beacon/producer/readiness.rs"
 )
@@ -2349,6 +2731,69 @@ def require_borrowed_beacon_roster_and_sealed_binding() -> None:
         "ifsource.transcript_hash!=expected.transcript_hash{returnErr(GlobalThresholdBeaconError::TranscriptMismatch);}",
         "beacon::validate_adaptive_dkg_geometry(source)?;",
     ))
+
+
+def require_beacon_borrowed_witness(beacon: str, producer: str, control: str) -> None:
+    """Bind the original prepared context to the exact borrowed witness encoder.
+
+    The complete build/encode items, direct module routes and producer import
+    are bound. The small codec module pin includes its imports and macros.
+    Surrounding producer type/name resolution, Pulse/ControlWitness definitions,
+    Norito serializer semantics and compiler/runtime behavior remain explicit
+    premises. This source check does not establish byte, allocation or runtime
+    equivalence and does not qualify production.
+    """
+    for declaration in ("pub(crate) mod control;", "pub(crate) mod producer;"):
+        construction_rust_item(beacon, declaration, EPOCH_BEACON_PATH)
+    construction_rust_item(producer, "use super::control;", BEACON_PRODUCER_PATH)
+    build = construction_rust_item(
+        producer, "pub(crate) fn build(", BEACON_PRODUCER_PATH, "impl NativeBeaconProducer")
+    expected_build = """
+        pub(crate) fn build(
+            &self,
+            context: &ControlWitnessContext,
+        ) -> Result<ControlWitness, NativeBeaconError> {
+            let source = ApplicationControlContext {
+                instance: self.instance,
+                epoch: context.epoch,
+                height: context.height,
+                parent_hash: context.parent_hash,
+                parent_result: context.parent_result,
+            };
+            if self.prepared.as_ref() != Some(&source) {
+                return Err(NativeBeaconError::Context);
+            }
+            let pulse = match &self.active {
+                None => None,
+                Some(active) => Some(active.finalized.ok_or(NativeBeaconError::AwaitingShares {
+                    height: context.height,
+                })?),
+            };
+            control::encode(pulse.as_ref()).map_err(NativeBeaconError::from)
+        }
+    """
+    if rust_token_digest(build) != rust_token_digest(expected_build):
+        raise RuntimeError(
+            f"{BEACON_PRODUCER_PATH}: original prepared context and actual demanded shares "
+            "must reach the borrowed witness encoder with error propagation"
+        )
+    encode = construction_rust_item(control, "pub(crate) fn encode(", BEACON_CONTROL_PATH)
+    expected_encode = """
+        pub(crate) fn encode(pulse: Option<&Pulse>) -> Result<ControlWitness, ControlCodecError> {
+            let mut witness = ControlWitness::empty();
+            if let Some(pulse) = pulse {
+                norito::core::write_canonical_to_writer(pulse, &mut witness)?;
+            }
+            Ok(witness)
+        }
+    """
+    if rust_token_digest(encode) != rust_token_digest(expected_encode):
+        raise RuntimeError(
+            f"{BEACON_CONTROL_PATH}: borrowed original pulse must stream into its returned "
+            "witness with codec error propagation"
+        )
+    if rust_token_digest(control) != "477c9f6fe212385c3c7eb308d3ab42e711a86f138d866f37984ed68a07660e04":
+        raise RuntimeError(f"{BEACON_CONTROL_PATH}: borrowed witness codec changed defining module tokens")
 
 
 def require_parliament_beacon_requirement(beacon: str, producer: str, readiness: str) -> None:
@@ -2692,23 +3137,7 @@ def require_parliament_beacon_requirement(beacon: str, producer: str, readiness:
         raise RuntimeError(
             f"{producer_path}: native production must activate only on the committed demand"
         )
-    build = compact_rust(rust_item(producer, "    pub(crate) fn build(", producer_path))
-    witness = compact_rust("""
-            let pulse = match &self.active {
-                None => None,
-                Some(active) => Some(active.finalized.ok_or(NativeBeaconError::AwaitingShares {
-                    height: context.height,
-                })?),
-            };
-            control::encode(pulse).map_err(NativeBeaconError::from)
-        }
-    """)
-    if (not build.endswith(witness)
-            or "ifself.prepared.as_ref()!=Some(&source){returnErr(NativeBeaconError::Context);}"
-            not in build):
-        raise RuntimeError(
-            f"{producer_path}: a demanded pulse must await actual shares, never an empty witness"
-        )
+    require_beacon_borrowed_witness(beacon, producer, read(BEACON_CONTROL_PATH))
     # The current producer verifies original share custody directly before its
     # first signing call. A cached source/share cannot turn this into a detached
     # attestation flag or project the signing refusal into a successful output.
@@ -2814,6 +3243,12 @@ def require_parliament_pulse_isolation_evidence(
     the restore tests show a wait survives a snapshot on its exact slot; the
     rotation test shows late consumption uses the retained session and nothing
     else. The mutation gate and the spec each carry exactly one HC224 row.
+
+    The two Result-aware assertion owners have complete literal-preserving item
+    pins: extra branches, loops or dormant closures cannot keep their assertion
+    text while disabling it. Surrounding helpers/fixtures, macro and type/name
+    resolution, compiler and runtime behavior remain explicit premises. These
+    source checks do not execute or qualify the native tests.
     """
     path = BEACON_EXECUTION_TESTS_PATH
     pinned_helper(execution_tests, path, "fn admit(", (
@@ -2860,7 +3295,7 @@ def require_parliament_pulse_isolation_evidence(
         "assert_eq!(stored.commitment().beacon,None);",
     ))
     pinned_helper(execution_tests, path, "fn invalid(", (
-        "assert!(matches!(executor.execute(candidate,&hash,false),Some(ExecOutcome::Invalid)));",
+        "assert!(matches!(executor.execute(candidate,&hash,false),Ok(Some(ExecOutcome::Invalid))));",
         "assert_eq!(u64::try_from(view.height()).unwrap(),chain.height());",
         "assert!(view.world().global_beacon_pulses().is_empty());",
         "assert!(view.world().global_beacon_pulse_slots().is_empty());",
@@ -2890,12 +3325,12 @@ def require_parliament_pulse_isolation_evidence(
         "assert_sortition_awaits(&chain,attempt_id,SLOT);assert_eq!(slot_index(&chain),index);",
         # The same body carrying a genuine pulse is Invalid; without it, Valid.
         "with_pulse.control_witness="
-        "control::encode(Some(genuine_pulse_at_next_height(&custody,&custody.chain))).unwrap();"
+        "control::encode(Some(genuine_pulse_at_next_height(&custody,&custody.chain)).as_ref()).unwrap();"
         "letunrequested=custody.chain.author_payload(with_pulse,bytes.clone());"
         "invalid(&mutexecutor_in(&custody.chain,ConsensusMode::Permissioned),"
         "&custody.chain,&unrequested,);",
         "assert!(matches!(executor_in(&custody.chain,ConsensusMode::Permissioned)"
-        ".execute(&requested_nothing,&hash,false),Some(ExecOutcome::Valid(_))),",
+        ".execute(&requested_nothing,&hash,false),Ok(Some(ExecOutcome::Valid{..}))),",
         "assert_sortition_awaits(&custody.chain,attempt_id,SLOT);",
         # Every later block likewise, far past the unserved slot.
         "whilechain.height()+1<release{assert_no_demand_at_next_height(&chain);"
@@ -2917,6 +3352,15 @@ def require_parliament_pulse_isolation_evidence(
         "assert_sortition_awaits(&chain,attempt_id,SLOT);letview=chain.state().view();",
         "assert!(stored.requires_beacon_pulse_at(logical_session(&chain),release));}",
     ))
+    # Preserve the exact bodies as well as their explanatory assertion sequence.
+    # Token presence alone would allow an intact assertion under `if false`.
+    for declaration, attributes, expected in (
+        ("fn invalid(", (), "045a760fa0aa5154363c63fc4d47e6ba8d7738549082eda95a74e4b4317cc57a"),
+        (f"fn {HC224_KILL_TEST}() {{", ("#[test]",), "2099c082cc5bb3029f70eaa301552f9d78f9939b56eb13b0494b14c928da63b9"),
+    ):
+        item = construction_rust_item(execution_tests, declaration, path, attributes=attributes)
+        if rust_token_digest(item) != expected:
+            raise RuntimeError(f"{path}: Result-aware assertion owner changed its complete body")
     # The native obligation at the NPoS pre-boundary height is unchanged by a pending
     # governance slot that the alignment rule put on that same height.
     pinned_test(
@@ -4151,14 +4595,21 @@ def require_threshold_signer_startup_readiness(runtime_deps: str, daemon: str) -
     if mask_rust(daemon).count("preflight_threshold_signer_startup_readiness_v1(") != 1:
         raise RuntimeError(f"{daemon_path}: startup must call the custody preflight exactly once")
     entry_owner = "pub(crate) async fn start_with_runtime_deps("
-    entry, _ = live_rust_item(daemon, entry_owner, daemon_path)
+    # Accept exactly the reviewed boxed handoff, not arbitrary wrapper removal.
+    # The original unconditional Iroha owner, complete signature and direct
+    # awaits/error propagation are pinned. Surrounding Box/name resolution,
+    # allocator/compiler/runtime behavior remain premises; this is source
+    # structure, not startup execution or memory qualification.
+    entry_source = construction_rust_item(daemon, entry_owner, daemon_path, "impl Iroha")
+    entry = compact_rust(mask_rust(entry_source))
     entry_body = compact_rust("""
-        { let prepared = PreparedStartup::prepare(config, genesis).await?;
-          Self::activate_with_runtime_deps(
+        { let prepared = Box::pin(PreparedStartup::prepare(config, genesis)).await?;
+          Box::pin(Self::activate_with_runtime_deps(
               build, prepared, logger, shutdown_signal, runtime_deps, musubi_publication_factory,
-          ).await }
+          )).await }
     """)
-    if entry[entry.index("{"):] != entry_body:
+    if (entry[entry.index("{"):] != entry_body
+            or rust_token_digest(entry_source) != "abcb73261aad256d57bd32ad6a2776bc637e7062ff1ffce278988e09fe96e4f4"):
         raise RuntimeError(f"{daemon_path}: startup must propagate original preparation into awaited activation")
     startup_owner = "async fn activate_with_runtime_deps("
     startup, _ = live_rust_item(daemon, startup_owner, daemon_path)
@@ -4316,6 +4767,205 @@ def require_threshold_signer_startup_readiness(runtime_deps: str, daemon: str) -
     ))
 
 
+def rust_token_digest(source: str) -> str:
+    """Pin code tokens and exact literals while ignoring comments/code whitespace.
+
+    Literal boundaries must agree with the shared Rust mask. Length-prefixing
+    each token avoids both token concatenation and embedded-delimiter ambiguity.
+    Unknown or malformed literal regions refuse instead of being repinned.
+    """
+    stripped = strip_rust_comments(source)
+    masked = mask_rust(source)
+    tokens = re.compile(
+        r"r#[A-Za-z_][A-Za-z_0-9]*|[A-Za-z_0-9]+|"
+        r"<<=|>>=|\.\.=|\.\.\.|&&|\|\||->|=>|::|==|!=|<=|>=|"
+        r"\+=|-=|\*=|/=|%=|\^=|&=|\|=|<<|>>|\.\.|[^\s]"
+    )
+    result = hashlib.sha256()
+    index = 0
+    while index < len(stripped):
+        if stripped[index].isspace():
+            index += 1
+            continue
+        if stripped[index] != masked[index]:
+            raw = re.match(r'(?:br|cr|r)(#*)"', stripped[index:])
+            if raw:
+                ending = '"' + raw.group(1)
+                closing = stripped.find(ending, index + raw.end())
+                if closing < 0:
+                    raise RuntimeError("unclosed Rust raw literal in source pin")
+                end = closing + len(ending)
+            else:
+                opening = re.match(r"[bc]?[\"']", stripped[index:])
+                if opening is None:
+                    raise RuntimeError("Rust source pin disagrees with literal mask")
+                quote = opening.group()[-1]
+                end = index + opening.end()
+                while end < len(stripped) and stripped[end] != quote:
+                    end += 2 if stripped[end] == "\\" else 1
+                if end >= len(stripped):
+                    raise RuntimeError("unclosed Rust literal in source pin")
+                end += 1
+            if any(character not in " \n" for character in masked[index:end]):
+                raise RuntimeError("Rust source pin literal boundary disagrees with mask")
+        else:
+            match = tokens.match(stripped, index)
+            if match is None:
+                raise RuntimeError("unrecognized Rust source pin token")
+            end = match.end()
+        token = stripped[index:end].encode("utf-8")
+        result.update(len(token).to_bytes(8, "big"))
+        result.update(token)
+        index = end
+    return result.hexdigest()
+
+
+def require_queue_signed_proposal_gas(executable: str, queue: str) -> None:
+    """Bind proved/runtime proposal charging to its signed, fail-closed owner.
+
+    The retired telemetry meter inspected ``proved.overlay`` separately. The
+    current queue retains the admitted signed quote instead. Check the actual
+    classifier, quote and entrypoint routing, not an incidental match binding.
+    This is a conservative structural guard, not a Rust semantic proof.
+    """
+    executable_path = "crates/iroha_data_model/src/transaction/executable.rs"
+    queue_path = "crates/iroha_core/src/queue.rs"
+    signatures = {
+        "pub fn requires_transaction_gas_limit(": "pub fn requires_transaction_gas_limit(&self) -> bool",
+        "pub const fn parse_transaction_gas_limit(": "pub const fn parse_transaction_gas_limit(fee_payment: &FeePaymentIntent) -> Option<u64>",
+        "pub const fn require_transaction_gas_limit(": "pub const fn require_transaction_gas_limit(fee_payment: &FeePaymentIntent,) -> Result<u64, TransactionGasLimitError>",
+        "fn signed_executable_proposal_gas_cost(": "fn signed_executable_proposal_gas_cost(signed: &iroha_data_model::transaction::SignedTransaction, zk_gas: &ConfidentialGas,) -> Result<u64, crate::execution_attempt::ExecutionAttemptError<ProposalGasCostError>>",
+        "pub(crate) fn compute_proposal_gas_cost(": "pub(crate) fn compute_proposal_gas_cost(tx: &AcceptedTransaction<'_>, zk_gas: &ConfidentialGas,) -> Result<u64, crate::execution_attempt::ExecutionAttemptError<ProposalGasCostError>>",
+    }
+
+    def exact_body(source: str, path: str, declaration: str, expected: str,
+                   owner: str | None = None) -> None:
+        item = mask_rust(unconditional_rust_item(source, declaration, path, owner))
+        if compact_rust(item[:item.index("{")]) != compact_rust(signatures[declaration]):
+            raise RuntimeError(f"{path}: signed proposal gas signature changed: {declaration}")
+        body = item[item.index("{"):]
+        if re.sub(r"\s+", "", body) != re.sub(r"\s+", "", expected):
+            raise RuntimeError(f"{path}: signed proposal gas body changed: {declaration}")
+
+    exact_body(executable, executable_path, "pub fn requires_transaction_gas_limit(", """{
+        match self {
+            Self::Instructions(_) => false,
+            Self::Batch(items) => items.iter()
+                .any(|item| matches!(item, ExecutableBatchItem::ContractCall(_))),
+            Self::ContractCall(_) | Self::Ivm(_) | Self::IvmProved(_) => true,
+        }
+    }""", "impl Executable")
+    exact_body(executable, executable_path, "pub const fn parse_transaction_gas_limit(", """{
+        match fee_payment.gas_limit() {
+            Some(limit) => Some(limit.get()),
+            None => None,
+        }
+    }""")
+    exact_body(executable, executable_path, "pub const fn require_transaction_gas_limit(", """{
+        match parse_transaction_gas_limit(fee_payment) {
+            Some(limit) => Ok(limit),
+            None => Err(TransactionGasLimitError::Missing),
+        }
+    }""")
+    exact_body(queue, queue_path, "fn signed_executable_proposal_gas_cost(", """{
+        let executable = signed.instructions();
+        if executable.requires_transaction_gas_limit() {
+            return iroha_data_model::transaction::require_transaction_gas_limit(
+                signed.fee_payment_intent(),
+            ).map_err(|_| ProposalGasCostError::MissingSignedGasLimit.into());
+        }
+        match executable {
+            Executable::Instructions(batch) => gas::meter_instructions(batch.as_ref(), zk_gas)
+                .map_err(|original| {
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(original.into())
+                }),
+            Executable::Batch(items) => {
+                let instructions = items.iter().filter_map(|item| match item {
+                    ExecutableBatchItem::Instruction(instruction) => Some(instruction.clone()),
+                    ExecutableBatchItem::ContractCall(_) => None,
+                }).collect::<Vec<_>>();
+                gas::meter_instructions(&instructions, zk_gas).map_err(|original| {
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(original.into())
+                })
+            }
+            Executable::ContractCall(_) | Executable::Ivm(_) | Executable::IvmProved(_) => {
+                Err(ProposalGasCostError::MissingSignedGasLimit.into())
+            }
+        }
+    }""", "impl Queue")
+    exact_body(queue, queue_path, "pub(crate) fn compute_proposal_gas_cost(", """{
+        match tx.entrypoint() {
+            iroha_data_model::transaction::TransactionEntrypoint::External(signed) => {
+                Self::signed_executable_proposal_gas_cost(signed, zk_gas)
+            }
+            iroha_data_model::transaction::TransactionEntrypoint::SealedCommitment(_) => {
+                Ok(gas::meter_sealed_transaction_commitment(tx.encoded_len()))
+            }
+            iroha_data_model::transaction::TransactionEntrypoint::SealedReveal(reveal) => {
+                Self::signed_executable_proposal_gas_cost(reveal.signed_transaction(), zk_gas)
+            }
+        }
+    }""", "impl Queue")
+
+    declaration = "fn prepare_checked_for_enqueue<C: QueueAdmissionStateAccess>("
+    original_admission = unconditional_rust_item(queue, declaration, queue_path, "impl Queue")
+    admission = mask_rust(original_admission)
+    signature = """fn prepare_checked_for_enqueue<C: QueueAdmissionStateAccess>(
+        &self, checked: CheckedTransaction<'static>, routing_plan: RoutingPlan,
+        state_access: &mut C, _gossip_payload: Option<Arc<Vec<u8>>>,
+        #[cfg(feature = "telemetry")] telemetry_handle: &StateTelemetry,
+    ) -> Result<PreparedQueueAdmission, Failure>"""
+    if compact_rust(strip_rust_comments(original_admission[:original_admission.index("{")])) != compact_rust(signature):
+        raise RuntimeError(f"{queue_path}: signed proposal gas admission signature changed")
+    tail = """
+        let zk_gas = state_access.verification_gas();
+        let proposal_gas_cost = Self::compute_proposal_gas_cost(checked.as_accepted(), &zk_gas)
+            .map_err(|error| Failure {
+                tx: Box::new(checked.as_accepted().clone()),
+                err: match error {
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(original) => {
+                        Error::Deferred(original)
+                    }
+                    crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
+                        Error::NexusFeeAdmissionRejected {
+                            code: FeeRejectionCode::InvalidGasLimit,
+                            reason: error.to_string(),
+                        }
+                    }
+                },
+            })?;
+        let enqueued_at_ms = self.validation_timestamp_ms(checked.as_accepted());
+        #[cfg(feature = "telemetry")]
+        let pending_teu = proposal_gas_cost;
+        Ok(PreparedQueueAdmission {
+            checked, hash, sccp_exempt, routing_decision, routing_plan, encoded_len,
+            proposal_gas_cost, enqueued_at_ms, fee_reservation,
+            #[cfg(feature = "telemetry")]
+            pending_teu,
+        })
+    }"""
+    compact = re.sub(r"\s+", "", admission)
+    # Mask literals in the expected tail just as in production code. The cfg
+    # string is additionally checked below without blanking literals.
+    expected = re.sub(r"\s+", "", mask_rust(tail))
+    anchor = "letzk_gas=state_access.verification_gas();"
+    if (compact.count(anchor) != 1 or not compact.endswith(expected)
+            or compact.count("PreparedQueueAdmission{") != 1):
+        raise RuntimeError(f"{queue_path}: signed proposal gas admission tail changed")
+    prefix = compact[:compact.index(anchor)]
+    if prefix.count("{") - prefix.count("}") != 1:
+        raise RuntimeError(f"{queue_path}: signed proposal gas quote must be at admission scope")
+    # The pre-quote code may have early rejections, but textual `return Err`
+    # alone cannot prove rejection: Err can be shadowed or recovered with
+    # or_else. Pin the complete reviewed prefix instead of interpreting it.
+    quote = re.search(r"\blet\s+zk_gas\s*=", admission)
+    if quote is None or rust_token_digest(original_admission[:quote.start()]) != "75879537905a9ca06b60466f02ee8660f7cbdd9b1b5a61804a0e7f3c1cc2c529":
+        raise RuntimeError(f"{queue_path}: signed proposal gas admission prefix changed")
+    literal_admission = re.sub(r"\s+", "", strip_rust_comments(original_admission))
+    if not literal_admission.endswith(re.sub(r"\s+", "", tail)):
+        raise RuntimeError(f"{queue_path}: signed proposal gas admission cfg changed")
+
+
 def main() -> int:
     ivm_executable_path = "crates/iroha_data_model/src/transaction/executable.rs"
     ivm_executable = read(ivm_executable_path)
@@ -4364,12 +5014,9 @@ def main() -> int:
             "crates/iroha_core/src/validation_fee.rs",
             ("enforce_validation_fee_admission", "enforce_ivm_proved_completed_axt_admission"),
         ),
-        (
-            "crates/iroha_core/src/queue.rs",
-            ("Executable::IvmProved(proved)",),
-        ),
     ):
         require_all(ivm_path, read(ivm_path), bindings)
+    require_queue_signed_proposal_gas(ivm_executable, read("crates/iroha_core/src/queue.rs"))
     torii_path = "crates/iroha_torii/src/lib.rs"
     torii_source = read(torii_path)
     for retired in (
@@ -6545,41 +7192,10 @@ def main() -> int:
                 f"{casting_path}: casting archive exposes forbidden material {forbidden!r}"
             )
 
-    local_release_path = "crates/iroha_torii/src/parliament_tle_release.rs"
-    local_release = read(local_release_path)
-    require_all(
-        local_release_path,
-        local_release,
-        (
-            "pub(crate) async fn request_local_partial_release_v1(",
-            "ballot_attempt_id: String",
-            "signer_admission: crate::QueryAdmissionPermit",
-            "crate::panic_recovery::join_recoverable(",
-            "crate::panic_recovery::spawn_blocking_recoverable(",
-            "let _signer_admission = signer_admission;",
-            "coordinator.request_partial_release(&view, ballot_attempt_id)",
-            "TleReleaseCoordinatorErrorV1::SignerUnavailable",
-            "TleReleaseCoordinatorErrorV1::InvalidSignerOutput",
-        ),
-    )
-
+    local_release = read("crates/iroha_torii/src/parliament_tle_release.rs")
     torii_path = "crates/iroha_torii/src/lib.rs"
     torii = read(torii_path)
-    partial_handler = section(
-        torii,
-        "async fn handler_gov_parliament_tle_partial_release(",
-        "async fn handler_gov_citizen_status(",
-        torii_path,
-    )
-    require_all(
-        torii_path,
-        partial_handler,
-        (
-            '"v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release"',
-            "let signer_admission = acquire_query_admission(app.as_ref(), true).await?;",
-            "ballot_attempt_id,\n        signer_admission,",
-        ),
-    )
+    require_local_partial_release_boundary(local_release, torii)
 
     route_catalog_path = "crates/iroha_torii_shared/src/route_catalog.rs"
     route_catalog = read(route_catalog_path)

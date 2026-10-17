@@ -93,6 +93,7 @@ application.explorer_rwas_by_rwa_id_get	GET	/v1/explorer/rwas/{rwa_id}	public	op
 application.explorer_rwas_get	GET	/v1/explorer/rwas	public	optional_canonical_account_signature	dataspace_visible	read	http	feature(app_api)	true	true	false	true
 application.explorer_rwas_query_post	POST	/v1/explorer/rwas/query	public	optional_canonical_account_signature	dataspace_visible	read	http	feature(app_api)	true	true	false	true
 application.explorer_transactions_by_hash_get	GET	/v1/explorer/transactions/{hash}	public	optional_canonical_account_signature	dataspace_visible	read	http	feature(app_api)	true	true	false	true
+application.explorer_transactions_by_hash_proof_get	GET	/v1/explorer/transactions/{hash}/proof	public	optional_canonical_account_signature	dataspace_visible	read	http	feature(app_api)	true	true	false	true
 application.explorer_transactions_get	GET	/v1/explorer/transactions	public	optional_canonical_account_signature	dataspace_visible	read	http	feature(app_api)	true	true	false	true
 application.explorer_transactions_latest_get	GET	/v1/explorer/transactions/latest	public	optional_canonical_account_signature	dataspace_visible	read	http	feature(app_api)	true	true	false	true
 application.explorer_transactions_latest_query_post	POST	/v1/explorer/transactions/latest/query	public	optional_canonical_account_signature	dataspace_visible	read	http	feature(app_api)	true	true	false	true

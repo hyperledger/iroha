@@ -21,7 +21,7 @@ pub(crate) use reward_history::{
 };
 
 /// Canonical retail-state fixtures for component integration tests.
-#[cfg(feature = "iroha-core-tests")]
+#[cfg(any(test, feature = "iroha-core-tests"))]
 pub mod test_support {
     use super::*;
 
@@ -249,7 +249,14 @@ pub fn account_state(
         .transpose()
 }
 /// Write authoritative wallet state and its exact unsettled-month frontier together.
-pub(crate) fn write_account(
+///
+/// The caller must authorize the transition and discard the transaction on error.
+/// This storage operation does not grant enrollment or payment authority.
+///
+/// # Errors
+/// Rejects malformed or permanently closed earning history and preserves local
+/// read or encoding refusals through the transaction's execution owner.
+pub fn write_account(
     world: &mut WorldTransaction<'_, '_>,
     record: &RetailFeeAccountStateV1,
 ) -> Result<(), InstructionExecutionError> {
@@ -431,11 +438,11 @@ fn retail_registry_preserves_original_json_scope_and_completed_malformed_diagnos
         // A zero archive field bound does not refuse this typed JSON decode. Exercise
         // the completed empty registry separately; it is not local-refusal evidence.
         let empty = ValidationFeePolicyRegistryV1 {
+            history: None,
             registered_policies: Vec::new(),
             payout_policies: ValidationFeePayoutPolicyRegistryV1 {
                 entries: Vec::new(),
             },
-            history: None,
         };
         transaction
             .world
@@ -445,7 +452,7 @@ fn retail_registry_preserves_original_json_scope_and_completed_malformed_diagnos
                 empty
                     .clone()
                     .into_custom_parameter()
-                    .expect("empty registry encodes"),
+                    .expect("empty registry fits the canonical JSON parameter"),
             ))
             .unwrap();
         assert_eq!(

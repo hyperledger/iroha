@@ -1,0 +1,105 @@
+"""Verify retained execution-result source captures and freeze this new evidence bundle once."""
+from pathlib import Path
+import ast
+import hashlib
+import json
+import re
+import subprocess
+
+ROOT = Path.cwd()
+FOLDER = ROOT / 'docs/validation/parliament_ballot_execution_result_guard'
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def read(name):
+    return json.loads((FOLDER / name).read_text())
+
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(str(message))
+
+
+require(not (FOLDER / 'SHA256SUMS').exists(), 'bundle already frozen')
+controls = read('execution-result-controls.json')
+source = read('source-check.json')
+peer = read('peer-review.json')
+require(controls['exit'] == 0 and controls['passed'] == 204 and controls['source_unchanged'], 'controls failed')
+require(source['exit'] == 0 and source['probe_matches_cli_result']
+        and not source['cli_read_set_independently_traced']
+        and not source['source_changes'] and not source['absence_changed']
+        and source['observed_main_error'] is None, 'unexpected source-check scope')
+require(source['binding_ballot_available'] is False
+        and source['qualified_attempt_latency_ms'] is None
+        and source['no_experimental_core_torii_dependencies'], 'production gate changed')
+pins = {}
+for receipt in (controls, source):
+    require(receipt['source_before'] == receipt['source_after'], 'capture input drift')
+    require(sha(ROOT / receipt['log']) == receipt['log_sha256'], 'capture log changed')
+    for name, expected in receipt['source_after'].items():
+        require(name not in pins or pins[name] == expected, ('conflicting capture inputs', name))
+        pins[name] = expected
+history = read('execution-result-history.json')
+require(history['source_before'] == history['source_after'], 'history source drift')
+require(all(item['pre_commit_tokens_recovered'] for item in history['items'].values()), 'history comparison changed')
+for name, expected in history['source_after'].items():
+    require(name not in pins or pins[name] == expected, ('conflicting history source', name))
+    pins[name] = expected
+require(sha(ROOT / 'scripts/formal/check_sora_parliament_source_contract.py') == peer['reviewed_checker_sha256'], 'reviewed checker changed')
+require(sha(ROOT / 'scripts/tests/check_sora_parliament_source_contract_test.py') == peer['reviewed_tests_sha256'], 'reviewed tests changed')
+require(peer['independent_controls_reported']['passed'] == 68 and not peer['remaining_findings_under_stated_premises'], 'peer review scope changed')
+for name, entry in read('prior-sources.json').items():
+    require(sha(ROOT / entry['archive']) == entry['sha256'], ('prior snapshot changed', name))
+snapshots = {}
+for name, expected in sorted(pins.items()):
+    require(sha(ROOT / name) == expected, ('post-capture source drift', name))
+    archive = FOLDER / 'captured-sources' / (name + '.template')
+    if archive.exists():
+        require(sha(archive) == expected, ('original snapshot changed', name))
+    else:
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        archive.write_bytes((ROOT / name).read_bytes())
+        require(sha(archive) == expected, ('snapshot copy drift', name))
+    snapshots[name] = {'sha256': expected, 'archive': str(archive.relative_to(ROOT))}
+(FOLDER / 'captured-sources.json').write_text(json.dumps(snapshots, indent=2, sort_keys=True) + '\n')
+for name in ('execution-result-controls.py.template', 'source-check.py.template', 'freeze.py.template'):
+    ast.parse((FOLDER / name).read_text())
+command = ['git', 'diff', '--check', '--', 'scripts/formal/check_sora_parliament_source_contract.py', 'scripts/tests/check_sora_parliament_source_contract_test.py']
+completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True)
+(FOLDER / 'scoped-diff.txt').write_text(completed.stdout + completed.stderr)
+require(completed.returncode == 0, 'scoped whitespace check failed')
+links = []
+for link in re.findall(r'\]\(([^)]+)\)', (FOLDER / 'README.md').read_text()):
+    if '://' not in link and not link.startswith('#'):
+        require((FOLDER / link.split('#')[0]).resolve().exists(), ('missing local target', link))
+        links.append(link)
+for name, expected in pins.items():
+    require(sha(ROOT / name) == expected, ('late source drift', name))
+value = {
+    'schema': 'parliament-execution-result-guard-freeze-v1',
+    'controls_receipt_sha256': sha(FOLDER / 'execution-result-controls.json'),
+    'source_check_receipt_sha256': sha(FOLDER / 'source-check.json'),
+    'peer_review_sha256': sha(FOLDER / 'peer-review.json'),
+    'control_count': controls['passed'], 'control_input_count': len(controls['source_after']),
+    'source_check_input_count': len(source['source_after']), 'source_snapshot_count': len(snapshots),
+    'source_snapshot_map_sha256': sha(FOLDER / 'captured-sources.json'),
+    'source_sha256_at_freeze': pins, 'post_capture_drift': {},
+    'source_check_exit': source['exit'], 'source_check_first_error': source['observed_main_error'],
+    'scoped_diff_command': command, 'scoped_diff_exit': completed.returncode,
+    'scoped_diff_log_sha256': sha(FOLDER / 'scoped-diff.txt'), 'local_links_checked': links,
+    'scope': 'Local structural evidence only. Exact source/config/import identities and executing recipes are retained; installed Python/pytest runtime, surrounding helpers/fixtures, macro/type/name resolution, Result/Option pattern semantics, serializer and compiler/runtime behavior remain premises. The actual source CLI passes all its structural assertions; no native Rust tests, mutation builds, formal-model or performance qualification were executed by this capture.',
+    'binding_ballot_available': False, 'qualified_attempt_latency_ms': None,
+    'profile_qualified': False, 'production_qualified': False,
+}
+(FOLDER / 'freeze-receipt.json').write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
+files = sorted(p for p in FOLDER.rglob('*') if p.is_file() and p.name != 'SHA256SUMS'
+               and '__pycache__' not in p.parts and p.name != '.DS_Store')
+manifest = FOLDER / 'SHA256SUMS'
+manifest.write_text(''.join(sha(p) + '  ' + str(p.relative_to(ROOT)) + '\n' for p in files))
+for line in manifest.read_text().splitlines():
+    expected, name = line.split('  ', 1)
+    require(sha(ROOT / name) == expected, ('manifest drift', name))
+print(json.dumps({'entries': len(files), 'manifest_sha256': sha(manifest), 'freeze_receipt_sha256': sha(FOLDER / 'freeze-receipt.json'), 'snapshots': len(snapshots)}))

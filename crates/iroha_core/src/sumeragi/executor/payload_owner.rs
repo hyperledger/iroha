@@ -11,7 +11,7 @@ pub(super) struct OriginalPayloadScope {
     max_bytes: u32,
     exec_budget_ms: u32,
     generation: u64,
-    parent: Option<NativeExecutionTip>,
+    pub(super) parent: Option<NativeExecutionTip>,
 }
 
 impl OriginalPayloadScope {
@@ -53,8 +53,7 @@ impl OriginalPayloadScope {
         })
     }
 
-    #[cfg(test)]
-    fn is_current(
+    pub(super) fn is_current(
         self,
         state: &State,
         view: &crate::state::StateView<'_>,
@@ -81,7 +80,9 @@ pub(super) struct CompletedPayload {
     pending_inputs: crate::queue::PendingPayloadLease,
     payload: PayloadBytes,
     /// The original source's canonical time, used only for local publication pacing.
-    creation_time: Duration,
+    pub(super) creation_time: Duration,
+    /// Same charged publication owner is lent on every original-output retry.
+    pub(super) proposal_admission: Option<iroha_sumeragi::proposal_admission::ProposalAdmission>,
 }
 
 /// Clock waiting keeps the existing driver's timed retry armed without inventing new work.
@@ -335,6 +336,7 @@ impl Worker<'_> {
                 pending_inputs: pending_inputs.expect("exact original lease checked above"),
                 payload: payload.clone(),
                 creation_time,
+                proposal_admission: None,
             })
         } else {
             None
@@ -385,6 +387,29 @@ mod tests {
         hash
     }
 
+    fn advance_custody_fixture_clock(
+        chain: &CertifiedTestChain,
+        worker: &Worker<'_>,
+        minimum: Duration,
+    ) {
+        let view = worker.state.view();
+        let parent = view.latest_block().unwrap().unwrap();
+        let height = parent.header().height().get().checked_add(1).unwrap();
+        let cadence = Duration::from_millis(worker.scheduled(height).unwrap().params.block_time_ms);
+        let floor = parent
+            .header()
+            .creation_time()
+            .checked_add(cadence)
+            .unwrap();
+        let merges = lanes::merge::propose(&view, &*worker.context.lane_blocks, height).unwrap();
+        let floor = if merges.merges.is_empty() {
+            floor
+        } else {
+            floor.max(Duration::from_millis(merges.time_floor_ms))
+        };
+        chain.set_execution_time(worker.context.time_source.now().max(minimum).max(floor));
+    }
+
     fn attach_queue(
         chain: &CertifiedTestChain,
         worker: &mut Worker<'_>,
@@ -399,6 +424,9 @@ mod tests {
             iroha_config::parameters::actual::Queue::default(),
             &time,
         ));
+        // Ordinary custody fixtures must reach the original signed input's time.
+        // Explicit clock tests inject a separate worker clock and retain its policy.
+        advance_custody_fixture_clock(chain, worker, time.now());
         queue_work(chain, 2_000, &queue, &time);
         worker.queue = Some(Arc::clone(&queue));
         (queue, clock, time)
@@ -422,12 +450,12 @@ mod tests {
                     assert_ne!(unrelated, input);
                     let retained = worker.build(2, 0, 1 << 20, 100).unwrap().unwrap();
                     assert_eq!(
-                        retained.as_slice().as_ptr(),
-                        original.as_slice().as_ptr(),
+                        retained.payload.as_slice().as_ptr(),
+                        original.payload.as_slice().as_ptr(),
                         "unrelated Queue admissions must not replace the original completed Global payload"
                     );
-                    assert_eq!(retained.as_slice(), original.as_slice());
-                    let proposal = payload::decode(retained.as_slice()).unwrap();
+                    assert_eq!(retained.payload.as_slice(), original.payload.as_slice());
+                    let proposal = payload::decode(retained.payload.as_slice()).unwrap();
                     assert_eq!(proposal.network_entrypoint_count(), 1);
                     assert_eq!(proposal.network_entrypoints().next().unwrap().hash(), input);
                 }
@@ -435,8 +463,8 @@ mod tests {
                 assert_eq!(queue_work(chain, 2_000, &queue, &time), input);
                 let readmitted = worker.build(2, 0, 1 << 20, 100).unwrap().unwrap();
                 assert_ne!(
-                    readmitted.as_slice().as_ptr(),
-                    original.as_slice().as_ptr(),
+                    readmitted.payload.as_slice().as_ptr(),
+                    original.payload.as_slice().as_ptr(),
                     "same-hash readmission must acquire its own current admission custody"
                 );
                 assert_eq!(worker.state.view().height(), 1);
@@ -458,7 +486,7 @@ mod tests {
                 let input = queue_work(chain, 2_000, &queue, &time);
                 worker.queue = Some(Arc::clone(&queue));
                 let first = worker.build(2, 0, 1 << 20, 100).unwrap().unwrap();
-                let original = payload::decode(first.as_slice()).unwrap();
+                let original = payload::decode(first.payload.as_slice()).unwrap();
                 assert_eq!(
                     original.header().creation_time(),
                     Duration::from_millis(2_001)
@@ -467,10 +495,13 @@ mod tests {
 
                 clock.set(Duration::from_millis(20_000));
                 let retained = worker.build(2, 0, 1 << 20, 100).unwrap().unwrap();
-                assert_eq!(retained.as_slice().as_ptr(), first.as_slice().as_ptr());
-                assert_eq!(retained.as_slice(), first.as_slice());
+                assert_eq!(
+                    retained.payload.as_slice().as_ptr(),
+                    first.payload.as_slice().as_ptr()
+                );
+                assert_eq!(retained.payload.as_slice(), first.payload.as_slice());
                 let fresh = worker.build(2, 1, 1 << 20, 100).unwrap().unwrap();
-                let proposal = payload::decode(fresh.as_slice()).unwrap();
+                let proposal = payload::decode(fresh.payload.as_slice()).unwrap();
                 assert_eq!(
                     proposal.header().creation_time(),
                     Duration::from_millis(20_000),
@@ -534,8 +565,8 @@ mod tests {
                 );
                 clock.set(creation_time);
                 let output = worker.build(2, 0, 1 << 20, 100).unwrap().unwrap();
-                let original_pointer = output.as_slice().as_ptr();
-                let block = payload::decode(output.as_slice()).unwrap();
+                let original_pointer = output.payload.as_slice().as_ptr();
+                let block = payload::decode(output.payload.as_slice()).unwrap();
                 assert_eq!(block.header().creation_time(), creation_time);
                 assert_eq!(block.network_entrypoints().next().unwrap().hash(), hash);
                 assert!(worker.payload_build.is_none());
@@ -558,7 +589,7 @@ mod tests {
                 );
                 clock.set(creation_time);
                 let retry = worker.build(2, 0, 1 << 20, 100).unwrap().unwrap();
-                assert_eq!(retry.as_slice().as_ptr(), original_pointer);
+                assert_eq!(retry.payload.as_slice().as_ptr(), original_pointer);
                 assert!(queue.contains_entrypoint_hash(hash));
                 assert_eq!(queue.queued_len(), 1);
                 assert_eq!(worker.state.view().height(), 1);
@@ -626,7 +657,10 @@ mod tests {
                         );
                         clock.set(creation_time);
                         let retry = worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();
-                        assert_eq!(retry.as_slice().as_ptr(), output.as_slice().as_ptr());
+                        assert_eq!(
+                            retry.payload.as_slice().as_ptr(),
+                            output.payload.as_slice().as_ptr()
+                        );
                         assert_eq!(queue.queued_len(), 0);
                         assert_eq!(worker.state.view().height() as u64, chain.height());
                     },
@@ -712,6 +746,7 @@ mod tests {
                 1 << 20,
             ),
             preparation_refusal: None,
+            proposal_admission: None,
         });
         drop((current_view, parent, selected));
         worker
@@ -821,12 +856,12 @@ mod tests {
             let Some(output) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("the restored actual original source must release its same first output");
             };
-            assert_eq!(output.as_slice().as_ptr(), pointer);
+            assert_eq!(output.payload.as_slice().as_ptr(), pointer);
             assert_eq!(
-                payload::decode(output.as_slice()).unwrap().hash(),
+                payload::decode(output.payload.as_slice()).unwrap().hash(),
                 source_hash
             );
-            assert!(output.admitted_to(&budget));
+            assert!(output.payload.admitted_to(&budget));
             assert!(worker.payload_build.is_none());
             assert!(chain.kura().canonical_query_reads_for_test().0 > 0);
             assert_eq!(queue.queued_len(), 1);
@@ -875,8 +910,8 @@ mod tests {
             let Some(output) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("only the original journal object restores first-output custody");
             };
-            assert_eq!(output.as_slice().as_ptr(), pointer);
-            assert!(output.admitted_to(&budget));
+            assert_eq!(output.payload.as_slice().as_ptr(), pointer);
+            assert!(output.payload.admitted_to(&budget));
             assert!(chain.kura().canonical_query_reads_for_test().0 > 0);
             assert_eq!(queue.queued_len(), 1);
             drop(output);
@@ -957,8 +992,8 @@ mod tests {
             let Some(output) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("both actual physical releases permit the same paid original wire");
             };
-            assert_eq!(output.as_slice().as_ptr(), pointer);
-            assert!(output.admitted_to(&budget));
+            assert_eq!(output.payload.as_slice().as_ptr(), pointer);
+            assert!(output.payload.admitted_to(&budget));
             assert_eq!(queue.queued_len(), 1);
             drop(output);
         });
@@ -1064,10 +1099,11 @@ mod tests {
                     clock.advance(Duration::from_millis(1));
                     queue_work(chain, 2_001, &queue, &time);
                     assert!(!queue.contains_entrypoint_hash(original_hash));
+                    advance_custody_fixture_clock(chain, worker, time.now());
                     let Some(output) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                         panic!("the current actual admission must replace the withdrawn selection");
                     };
-                    let block = payload::decode(output.as_slice()).unwrap();
+                    let block = payload::decode(output.payload.as_slice()).unwrap();
                     assert_eq!(block.network_entrypoint_count(), 1);
                     assert!(
                         block
@@ -1290,7 +1326,7 @@ mod tests {
                 &worker.state.view(),
                 &fresh.pending_inputs
             ));
-            let block = payload::decode(output.as_slice()).unwrap();
+            let block = payload::decode(output.payload.as_slice()).unwrap();
             assert_eq!(block.network_entrypoint_count(), 1);
             assert!(
                 block
@@ -1330,12 +1366,13 @@ mod tests {
                                 .is_none()
                         );
                         let first_hash = certify(1, parent_height, vec![first]);
+                        advance_custody_fixture_clock(chain, worker, time.now());
                         let Some(output) = worker.build(height, 0, 1 << 20, 100).unwrap() else {
                             panic!(
                                 "newly certified mandatory lane work must rebuild the old Queue-only plan"
                             );
                         };
-                        let block = payload::decode(output.as_slice()).unwrap();
+                        let block = payload::decode(output.payload.as_slice()).unwrap();
                         let section = block.lane_merge().unwrap();
                         assert_eq!(section.merges.len(), 1);
                         assert_eq!(section.merges[0].to, 1);
@@ -1358,6 +1395,7 @@ mod tests {
                         );
                         assert_eq!(original.block.lane_merge().unwrap().merges[0].to, 1);
                         let second_hash = certify(2, parent_height, vec![second]);
+                        advance_custody_fixture_clock(chain, worker, time.now());
                         let current = lanes::merge::propose(
                             &worker.state.view(),
                             &*worker.context.lane_blocks,
@@ -1369,7 +1407,7 @@ mod tests {
                                 "growth of the real certified journal must rebuild the old mixed range"
                             );
                         };
-                        let block = payload::decode(output.as_slice()).unwrap();
+                        let block = payload::decode(output.payload.as_slice()).unwrap();
                         let section = block.lane_merge().unwrap();
                         assert_eq!(section.merges, current.merges);
                         assert_eq!(section.time_floor_ms, current.time_floor_ms);
@@ -1390,7 +1428,7 @@ mod tests {
                                 "current mixed work must preserve the mandatory lane plan and new actual admission"
                             );
                         };
-                        let block = payload::decode(output.as_slice()).unwrap();
+                        let block = payload::decode(output.payload.as_slice()).unwrap();
                         assert_eq!(block.lane_merge().unwrap().merges, current.merges);
                         assert_eq!(block.network_entrypoint_count(), 1);
                         assert!(
@@ -1425,7 +1463,7 @@ mod tests {
                 panic!("original real signed work must produce nonempty funded custody");
             };
 
-            let pointer = original.as_slice().as_ptr();
+            let pointer = original.payload.as_slice().as_ptr();
             let retained = budget.reserved_bytes();
             assert!(retained > baseline);
             assert!(worker.completed_payload.is_some());
@@ -1437,11 +1475,11 @@ mod tests {
                 panic!("the new request must lend the actual completed original");
             };
             assert_eq!(
-                retried.as_slice().as_ptr(),
+                retried.payload.as_slice().as_ptr(),
                 pointer,
                 "no assembly or encoding allocates a replacement"
             );
-            assert_eq!(retried.as_slice(), original.as_slice());
+            assert_eq!(retried.payload.as_slice(), original.payload.as_slice());
             assert_eq!(
                 budget.reserved_bytes(),
                 retained,
@@ -1477,7 +1515,7 @@ mod tests {
                 panic!("original")
             };
             let original_hash = {
-                let block = payload::decode(original.as_slice()).unwrap();
+                let block = payload::decode(original.payload.as_slice()).unwrap();
                 assert_eq!(block.network_entrypoint_count(), 1);
 
                 block.network_entrypoints().next().unwrap().hash()
@@ -1487,9 +1525,12 @@ mod tests {
             let Some(next) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("next input")
             };
-            assert_eq!(next.as_slice().as_ptr(), original.as_slice().as_ptr());
+            assert_eq!(
+                next.payload.as_slice().as_ptr(),
+                original.payload.as_slice().as_ptr()
+            );
             {
-                let next_block = payload::decode(next.as_slice()).unwrap();
+                let next_block = payload::decode(next.payload.as_slice()).unwrap();
                 assert_eq!(
                     next_block.network_entrypoint_count(),
                     1,
@@ -1512,6 +1553,7 @@ mod tests {
                 "actual proposal rejection withdraws reuse authority"
             );
             drop(next);
+            advance_custody_fixture_clock(chain, worker, Duration::from_millis(2_002));
             let Some(expiring) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("expiring original")
             };
@@ -1536,20 +1578,23 @@ mod tests {
             let Some(other_view) = worker.build(2, 1, 1 << 20, 100).unwrap() else {
                 panic!("view")
             };
-            assert_ne!(other_view.as_slice().as_ptr(), original.as_slice().as_ptr());
+            assert_ne!(
+                other_view.payload.as_slice().as_ptr(),
+                original.payload.as_slice().as_ptr()
+            );
             let Some(other_limit) = worker.build(2, 1, (1 << 20) - 1, 100).unwrap() else {
                 panic!("limit")
             };
             assert_ne!(
-                other_limit.as_slice().as_ptr(),
-                other_view.as_slice().as_ptr()
+                other_limit.payload.as_slice().as_ptr(),
+                other_view.payload.as_slice().as_ptr()
             );
             let Some(other_budget) = worker.build(2, 1, (1 << 20) - 1, 101).unwrap() else {
                 panic!("budget")
             };
             assert_ne!(
-                other_budget.as_slice().as_ptr(),
-                other_limit.as_slice().as_ptr()
+                other_budget.payload.as_slice().as_ptr(),
+                other_limit.payload.as_slice().as_ptr()
             );
             worker.serve(Request::AttachQueue(Arc::clone(
                 worker.queue.as_ref().unwrap(),
@@ -1562,8 +1607,8 @@ mod tests {
                 panic!("reattached")
             };
             assert_ne!(
-                reattached.as_slice().as_ptr(),
-                other_budget.as_slice().as_ptr()
+                reattached.payload.as_slice().as_ptr(),
+                other_budget.payload.as_slice().as_ptr()
             );
             worker.retire_completed_payload(2);
             assert!(worker.completed_payload.is_none());
@@ -1633,6 +1678,7 @@ mod tests {
                     1 << 20,
                 ),
                 preparation_refusal: None,
+                proposal_admission: None,
             });
             queue.clear_all();
             clock.advance(Duration::from_millis(1));
@@ -1653,8 +1699,22 @@ mod tests {
                     .network_entrypoint_count(),
                 1
             );
+            assert!(
+                matches!(
+                    worker.admit_built_payload(payload.clone(), 2, 0),
+                    Err(PublicationError::Retryable(_))
+                ),
+                "withdrawn original input custody must retry instead of halting consensus"
+            );
             // New admission has its actual current timestamp and may capture its own fresh receipt.
             assert!(queue.contains_pending_hash(hash, worker.state));
+            let fresh = worker.build(2, 0, 1 << 20, 100).unwrap().unwrap();
+            assert_ne!(
+                fresh.payload.as_slice().as_ptr(),
+                payload.as_slice().as_ptr()
+            );
+            let repeated = worker.build(2, 0, 1 << 20, 100).unwrap().unwrap();
+            assert_eq!(fresh.admission, repeated.admission);
             drop((payload, parent, time));
         });
     }
@@ -1786,6 +1846,7 @@ mod tests {
                         1 << 20,
                     ),
                     preparation_refusal: None,
+                    proposal_admission: None,
                 });
                 // The original staged builder already owns its real signed source.
                 // A genuine publisher then opens before the output physically completes.
@@ -1912,7 +1973,7 @@ mod tests {
             let Some(original) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("original")
             };
-            let pointer = original.as_slice().as_ptr();
+            let pointer = original.payload.as_slice().as_ptr();
             let occupied = budget.reserved_bytes();
             let release = state.with_held_header_for_reader_test(|release| {
                 let context = &mut Context::from_waker(Waker::noop());
@@ -1950,8 +2011,8 @@ mod tests {
             let Some(retried) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("retry")
             };
-            assert_eq!(retried.as_slice().as_ptr(), pointer);
-            assert_eq!(retried.as_slice(), original.as_slice());
+            assert_eq!(retried.payload.as_slice().as_ptr(), pointer);
+            assert_eq!(retried.payload.as_slice(), original.payload.as_slice());
             assert_eq!(budget.reserved_bytes(), occupied);
             drop((retried, original));
             worker.retire_completed_payload(2);
@@ -2000,7 +2061,7 @@ mod tests {
                 panic!("original signed input");
             };
             let original_hash = {
-                let block = payload::decode(original.as_slice()).unwrap();
+                let block = payload::decode(original.payload.as_slice()).unwrap();
                 assert_eq!(block.network_entrypoint_count(), 1);
 
                 block.network_entrypoints().next().unwrap().hash()
@@ -2045,7 +2106,7 @@ mod tests {
                 panic!("original source must build under the changed request");
             };
             {
-                let next_block = payload::decode(next.as_slice()).unwrap();
+                let next_block = payload::decode(next.payload.as_slice()).unwrap();
                 assert_eq!(
                     next_block.network_entrypoint_count(),
                     1,
@@ -2064,15 +2125,19 @@ mod tests {
             let Some(after_wake) = worker.build(2, 0, 1 << 20, 101).unwrap() else {
                 panic!("unrelated callback admission must retain the completed original");
             };
-            assert_eq!(after_wake.as_slice().as_ptr(), next.as_slice().as_ptr());
-            assert_eq!(after_wake.as_slice(), next.as_slice());
+            assert_eq!(
+                after_wake.payload.as_slice().as_ptr(),
+                next.payload.as_slice().as_ptr()
+            );
+            assert_eq!(after_wake.payload.as_slice(), next.payload.as_slice());
             // A genuinely changed request retires that completed selection and can
             // select the callback's pending suffix. Mere arrival cannot revoke it.
+            advance_custody_fixture_clock(chain, worker, Duration::from_millis(2_002));
             let Some(changed_request) = worker.build(2, 0, 1 << 20, 102).unwrap() else {
                 panic!("a fresh request must see actual newly admitted signed work");
             };
             {
-                let after_wake_block = payload::decode(changed_request.as_slice()).unwrap();
+                let after_wake_block = payload::decode(changed_request.payload.as_slice()).unwrap();
                 assert_eq!(
                     after_wake_block.network_entrypoint_count(),
                     1,
@@ -2133,8 +2198,11 @@ mod tests {
             let Some(restored) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("restored");
             };
-            assert_ne!(restored.as_slice().as_ptr(), original.as_slice().as_ptr());
-            assert_eq!(restored.as_slice(), original.as_slice());
+            assert_ne!(
+                restored.payload.as_slice().as_ptr(),
+                original.payload.as_slice().as_ptr()
+            );
+            assert_eq!(restored.payload.as_slice(), original.payload.as_slice());
             assert!(chain.kura().canonical_query_reads_for_test().0 > 0);
             drop((restored, original));
         });
@@ -2181,13 +2249,14 @@ mod tests {
                         ));
                         worker.queue = Some(Arc::clone(&queue));
                         let lane_hash = certify(1, parent_height, vec![first]);
+                        advance_custody_fixture_clock(chain, worker, time.now());
                         let budget = worker.state.ivm_execution_budget();
                         let original = worker
                             .build(height, 0, 1 << 20, 100)
                             .unwrap()
                             .expect("genuine certified lane work");
-                        assert!(original.admitted_to(&budget));
-                        let decoded = payload::decode(original.as_slice()).unwrap();
+                        assert!(original.payload.admitted_to(&budget));
+                        let decoded = payload::decode(original.payload.as_slice()).unwrap();
                         assert_eq!(decoded.network_entrypoint_count(), 0);
                         let section = decoded.lane_merge().expect("actual certified lane range");
                         assert_eq!(section.merges.len(), 1);
@@ -2205,11 +2274,14 @@ mod tests {
                             .unwrap()
                             .expect("same original certified lane work remains mandatory");
                         assert!(
-                            std::ptr::eq(original.as_slice().as_ptr(), retry.as_slice().as_ptr()),
+                            std::ptr::eq(
+                                original.payload.as_slice().as_ptr(),
+                                retry.payload.as_slice().as_ptr()
+                            ),
                             "completed certified lane payload must retain its exact output across build deadline retry"
                         );
-                        assert_eq!(retry.as_slice(), original.as_slice());
-                        assert!(retry.admitted_to(&budget));
+                        assert_eq!(retry.payload.as_slice(), original.payload.as_slice());
+                        assert!(retry.payload.admitted_to(&budget));
                         assert_eq!(queue.queued_len(), 0);
                         worker.retire_completed_payload(height);
                         assert!(worker.payload_build.is_none());
@@ -2233,6 +2305,7 @@ mod tests {
                         let height = parent_height.checked_add(1).unwrap();
                         let (queue, clock, time) = attach_queue(chain, worker);
                         let first_hash = certify(1, parent_height, vec![first]);
+                        advance_custody_fixture_clock(chain, worker, time.now());
                         let original = worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();
                         let budget = worker.state.ivm_execution_budget();
                         let source = worker.payload_build.as_ref().unwrap().job.source();
@@ -2240,7 +2313,7 @@ mod tests {
                         assert!(source.pending_inputs.as_ref().unwrap().belongs_to(&budget));
                         let original_range = source.block.lane_merge().unwrap().merges.as_ptr();
                         let original_hash = {
-                            let block = payload::decode(original.as_slice()).unwrap();
+                            let block = payload::decode(original.payload.as_slice()).unwrap();
                             assert_eq!(block.network_entrypoint_count(), 1);
                             assert_eq!(
                                 block.lane_merge().unwrap().merges[0].tip_hash,
@@ -2251,8 +2324,8 @@ mod tests {
                         let held = budget.reserved_bytes();
                         let retry = worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();
                         assert!(std::ptr::eq(
-                            original.as_slice().as_ptr(),
-                            retry.as_slice().as_ptr()
+                            original.payload.as_slice().as_ptr(),
+                            retry.payload.as_slice().as_ptr()
                         ));
                         assert_eq!(
                             worker
@@ -2275,6 +2348,7 @@ mod tests {
                         // height or generation. Its new exact range and time floor revoke
                         // the old complete source; copied tip scalars grant no reuse.
                         let second_hash = certify(2, parent_height, vec![second]);
+                        advance_custody_fixture_clock(chain, worker, time.now());
                         let expected = lanes::merge::propose(
                             &worker.state.view(),
                             &*worker.context.lane_blocks,
@@ -2283,11 +2357,11 @@ mod tests {
                         .unwrap();
                         let grown = worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();
                         assert!(!std::ptr::eq(
-                            original.as_slice().as_ptr(),
-                            grown.as_slice().as_ptr()
+                            original.payload.as_slice().as_ptr(),
+                            grown.payload.as_slice().as_ptr()
                         ));
                         {
-                            let block = payload::decode(grown.as_slice()).unwrap();
+                            let block = payload::decode(grown.payload.as_slice()).unwrap();
                             let section = block.lane_merge().unwrap();
                             assert_eq!(section.merges, expected.merges);
                             assert_eq!(section.time_floor_ms, expected.time_floor_ms);
@@ -2304,11 +2378,11 @@ mod tests {
                         assert_ne!(new_hash, original_hash);
                         let replaced = worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();
                         assert!(!std::ptr::eq(
-                            grown.as_slice().as_ptr(),
-                            replaced.as_slice().as_ptr()
+                            grown.payload.as_slice().as_ptr(),
+                            replaced.payload.as_slice().as_ptr()
                         ));
                         {
-                            let block = payload::decode(replaced.as_slice()).unwrap();
+                            let block = payload::decode(replaced.payload.as_slice()).unwrap();
                             assert_eq!(block.network_entrypoint_count(), 1);
                             assert_eq!(
                                 block.network_entrypoints().next().unwrap().hash(),
@@ -2320,7 +2394,7 @@ mod tests {
                                 expected.time_floor_ms
                             );
                         }
-                        assert!(replaced.admitted_to(&budget));
+                        assert!(replaced.payload.admitted_to(&budget));
                         assert!(worker.completed_payload.is_none());
                         assert_eq!(queue.queued_len(), 1);
                         assert!(!queue.contains_entrypoint_hash(original_hash));
@@ -2361,6 +2435,7 @@ mod tests {
                             &time,
                         )));
                         certify(1, chain.height(), vec![first]);
+                        advance_custody_fixture_clock(chain, worker, time.now());
                         let original = worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();
                         let state = worker.state;
                         let budget = state.ivm_execution_budget();
@@ -2408,29 +2483,29 @@ mod tests {
                         });
                         let retry = worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();
                         assert!(std::ptr::eq(
-                            original.as_slice().as_ptr(),
-                            retry.as_slice().as_ptr()
+                            original.payload.as_slice().as_ptr(),
+                            retry.payload.as_slice().as_ptr()
                         ));
                         assert_eq!(budget.reserved_bytes(), held);
                         drop(retry);
                         let new_view = worker.build(height, 1, 1 << 20, 100).unwrap().unwrap();
                         assert!(!std::ptr::eq(
-                            original.as_slice().as_ptr(),
-                            new_view.as_slice().as_ptr()
+                            original.payload.as_slice().as_ptr(),
+                            new_view.payload.as_slice().as_ptr()
                         ));
                         assert_eq!(worker.payload_build.as_ref().unwrap().scope.view, 1);
                         let new_policy = worker.build(height, 1, 1 << 20, 101).unwrap().unwrap();
                         assert!(!std::ptr::eq(
-                            new_view.as_slice().as_ptr(),
-                            new_policy.as_slice().as_ptr()
+                            new_view.payload.as_slice().as_ptr(),
+                            new_policy.payload.as_slice().as_ptr()
                         ));
                         let new_cap = worker
                             .build(height, 1, (1 << 20) - 1, 101)
                             .unwrap()
                             .unwrap();
                         assert!(!std::ptr::eq(
-                            new_policy.as_slice().as_ptr(),
-                            new_cap.as_slice().as_ptr()
+                            new_policy.payload.as_slice().as_ptr(),
+                            new_cap.payload.as_slice().as_ptr()
                         ));
                         worker.reject(height, 1, Hash32::ZERO);
                         assert!(

@@ -3976,7 +3976,7 @@ def test_funded_offender_graph_mutation_uses_original_lane_pool_and_exact_contro
     assert 'all(test, sumeragi_core_mutation = "HC180")' in owner
     assert "AllocationBudget::new(budget.limit_bytes())" in owner
     controls = (source / "sumeragi/evidence_history/lane/tests.rs").read_text()
-    body = controls.split("fn " + name + "(", 1)[1]
+    body = controls.split("fn " + name + "(", 1)[1].split("\n}", 1)[0]
     for obligation in ["reader.poll().unwrap()", ".try_reserve_bytes(", "reader.verify(&proof)",
                        "occupied original offender pool must refuse", "let error = result.expect_err(",
                        "EvidencePreparationError::Admission(actual)", "actual == expected",
@@ -7097,7 +7097,7 @@ def causal_rule(mid):
     return gate.index_mutations(gate.MODEL_MUTATIONS if mid == 'DM34' else gate.CORE_MUTATIONS)[mid]
 
 
-@pytest.mark.parametrize('mid', ['HC246', 'HC247', 'HC248', 'HC252', 'HC254', 'HC255', 'HC256', 'DM34'])
+@pytest.mark.parametrize('mid', ['HC246', 'HC247', 'HC248', 'HC252', 'HC254', 'HC255', 'HC256', 'HC328', 'HC329', 'DM34'])
 @pytest.mark.parametrize('corruption', ['none', 'unrelated', 'incidental', 'source', 'owner', 'missing_panic', 'extra_panic', 'outside_section', 'duplicate_section', 'one_passes', 'all_pass'])
 def test_declared_causal_mutation_requires_every_owned_cause(monkeypatch, tmp_path, mid, corruption):
     rule = causal_rule(mid)
@@ -7132,7 +7132,7 @@ def test_declared_causal_mutation_requires_every_owned_cause(monkeypatch, tmp_pa
         assert result['named']['causal_failures'] == dict.fromkeys(rule.tests, True)
 
 
-@pytest.mark.parametrize('mid', ['HC247', 'HC248', 'HC252'])
+@pytest.mark.parametrize('mid', ['HC247', 'HC248', 'HC252', 'HC328', 'HC329'])
 @pytest.mark.parametrize('corruption', ['join_owner', 'join_source', 'join_message', 'reversed', 'missing_join'])
 def test_declared_causal_worker_requires_original_child_and_join(monkeypatch, tmp_path, mid, corruption):
     rule = causal_rule(mid)
@@ -7218,17 +7218,63 @@ def test_amx_discovery_mutation_requires_authenticated_zero_record_progress_fail
     ("HC329",
      "sumeragi::executor::clock_tests::authenticated_proposer_time_above_floor_executes_and_replays_without_restamping",
      "crates/iroha_core/src/sumeragi/executor/clock_tests.rs",
-     "authenticated proposer time above the input floor must execute"),
+     "authenticated proposer time above the input floor must execute: Ok(Some(Invalid))"),
 ])
 def test_authenticated_proposer_time_mutations_require_exact_native_regressions(
     mutation, test, path, cause
 ):
     rule = gate.index_mutations(gate.CORE_MUTATIONS)[mutation]
     assert rule.tests == (test,)
-    assert rule.causes == (gate.ExpectedFailure(cause, path),)
+    assert rule.causes == (gate.ExpectedFailure(
+        cause, path,
+        worker_thread="sumeragi-publication-test",
+        join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+        join_message="publication worker fixture: Any { .. }",
+    ),)
     assert gate.has_switch(mutation, core=True)
     assert not gate.has_switch(mutation)
     assert not gate.has_switch(mutation, model=True)
+
+
+@pytest.mark.parametrize("mutation,test,path,message", [
+    ("HC328",
+     "sumeragi::executor::payload_owner::tests::fresh_view_refreshes_authenticated_block_time_without_replacing_signed_input",
+     "crates/iroha_core/src/sumeragi/executor/payload_owner.rs",
+     "assertion `left == right` failed: fresh view must refresh certified time without another signed transaction"),
+    ("HC329",
+     "sumeragi::executor::clock_tests::authenticated_proposer_time_above_floor_executes_and_replays_without_restamping",
+     "crates/iroha_core/src/sumeragi/executor/clock_tests.rs",
+     "authenticated proposer time above the input floor must execute: Ok(Some(Invalid))"),
+])
+def test_authenticated_proposer_time_accepts_exact_publication_worker_failure(
+    mutation, test, path, message
+):
+    # Literal native panic shapes are independent of the expected-cause declaration.
+    output = (
+        f"---- {test} stdout ----\n\n"
+        f"thread 'sumeragi-publication-test' (12) panicked at {path}:123:7:\n{message}\n"
+        f"\nthread '{test}' (13) panicked at "
+        "crates/iroha_core/src/sumeragi/executor_publication_tests.rs:142:10:\n"
+        "publication worker fixture: Any { .. }\n"
+    )
+    panics, valid = gate.captured_test_panics(output)
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mutation]
+    assert valid and gate.expected_test_failure(test, rule.causes[0], panics[test])
+
+
+@pytest.mark.parametrize("outcome", ["Ok(None)", "Err(StorageBusy)", "Ok(Some(Valid))", ""])
+def test_authenticated_proposer_time_rejects_unrelated_execution_outcome(outcome):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC329"]
+    name, expected = rule.tests[0], rule.causes[0]
+    panics = [
+        dict(thread="sumeragi-publication-test",
+             source="crates/iroha_core/src/sumeragi/executor/clock_tests.rs",
+             message="authenticated proposer time above the input floor must execute: " + outcome),
+        dict(thread=name,
+             source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+             message="publication worker fixture: Any { .. }"),
+    ]
+    assert not gate.expected_test_failure(name, expected, panics)
 
 
 @pytest.mark.parametrize("mutation,daemon,test,path,cause", [
@@ -7799,7 +7845,10 @@ def test_native_first_prepare_mutations_bind_original_control(mutation, test, ca
     rule = gate.index_mutations(gate.CORE_MUTATIONS)[mutation]
     expected_tests = (test,)
     expected_causes = (gate.ExpectedFailure(cause,
-        "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs"),)
+        "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs",
+        worker_thread="ct5-paid-original",
+        join_source="crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs",
+        join_message="called `Result::unwrap()` on an `Err` value: Any { .. }"),)
     if mutation == "HC334":
         expected_tests += ("sumeragi::executor::clock_tests::sccp_ct5_completion_resamples_clock_and_retains_original_for_certified_retry",)
         expected_causes += (gate.ExpectedFailure(
@@ -8458,6 +8507,47 @@ def test_native_frame_physical_notifications_outlive_all_original_storage_fences
         assert name in selected
     rows = re.findall(r"^\| HC355 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
     assert len(rows) == 1 and all(name.rsplit("::", 1)[-1] in rows[0] for name in names)
+
+
+@pytest.mark.parametrize(
+    ("mutation_id", "owner", "test_name"),
+    [
+        ("HC377", "sumeragi/proposal_admission.rs",
+         "native_original_proposal_rechecks_clock_after_worker_wait_and_restart"),
+        ("HC378", "sumeragi/driver/exec.rs",
+         "proposal_recovery_replacement_rejects_stale_worker_and_retains_only_latest_body"),
+        ("HC379", "sumeragi/driver/exec.rs",
+         "proposal_recovery_terminal_original_propagates_even_after_request_replacement"),
+        ("HC380", "sumeragi/executor/proposal_publication.rs",
+         "completed_original_payload_cannot_adopt_clear_and_readmission_during_original_build"),
+        ("HC381", "sumeragi/driver/exec.rs",
+         "proposal_recovery_discard_retires_original_waiter_before_decode_refund"),
+        ("HC382", "sumeragi/executor/prepare_admission.rs",
+         "ct1_native_first_prepare_rechecks_original_clock_after_execution"),
+        ("HC383", "sumeragi/lanes/executor.rs",
+         "native_lane_first_prepare_rechecks_pinned_clock_after_execution"),
+        ("HC384", "sumeragi/payload.rs",
+         "fresh_proposal_progress_recheck_uses_captured_time_with_original_signed_input"),
+    ],
+)
+def test_sccp_clock_mutation_ids_are_distinct_from_storage_controls(
+    mutation_id, owner, test_name
+):
+    rules = gate.index_mutations(gate.CORE_MUTATIONS)
+    rule = rules[mutation_id]
+    assert any(name.rsplit("::", 1)[-1] == test_name for name in rule.tests)
+    assert len(rule.causes) == len(rule.tests)
+    assert not rule.scenarios
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(root).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"' + mutation_id + '"', path.read_text())}
+    assert owners == {owner}
+    rows = re.findall(r"^\| " + mutation_id + r" \|.*$",
+                      (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and test_name in rows[0]
+    for storage_number in range(353, 364):
+        storage_id = f"HC{storage_number}"
+        assert set(rule.tests).isdisjoint(rules[storage_id].tests)
 
 
 def test_recovery_capacity_notifications_outlive_fences_and_final_accounting():

@@ -1,0 +1,123 @@
+{
+  "schema": "parliament-construction-source-snapshots-v1",
+  "scope": "Exact retained checker/test/config and defining-module bytes, plus every drifted captured input. Other inputs remain hash-pinned in the original receipts; this is not a full repository snapshot.",
+  "sources": {
+    "crates/iroha_core/src/block.rs": {
+      "origin": {
+        "kind": "exact_git_object",
+        "object": "d4a45e6faed2135025df302f9ae411a77e4580e8:crates/iroha_core/src/block.rs",
+        "revision": "d4a45e6faed2135025df302f9ae411a77e4580e8"
+      },
+      "sha256": "b07189a0a0c2d44ed3ac0bac0cfbbde83e9d3ea6524c9261c98223374abbaf29",
+      "snapshot": "docs/validation/parliament_ballot_construction_guard/sources/crates/iroha_core/src/block.rs.template"
+    },
+    "crates/iroha_core/src/smartcontracts/isi/world.rs": {
+      "origin": {
+        "kind": "exact_git_object",
+        "object": "d4a45e6faed2135025df302f9ae411a77e4580e8:crates/iroha_core/src/smartcontracts/isi/world.rs",
+        "revision": "d4a45e6faed2135025df302f9ae411a77e4580e8"
+      },
+      "sha256": "f8bd25136e553f071f61e380a32a1a844bc531ad682f3cdfc3f51137816b5e0d",
+      "snapshot": "docs/validation/parliament_ballot_construction_guard/sources/crates/iroha_core/src/smartcontracts/isi/world.rs.template"
+    },
+    "crates/iroha_core/src/state.rs": {
+      "origin": {
+        "kind": "exact_git_object",
+        "object": "d4a45e6faed2135025df302f9ae411a77e4580e8:crates/iroha_core/src/state.rs",
+        "revision": "d4a45e6faed2135025df302f9ae411a77e4580e8"
+      },
+      "sha256": "a0771a785a8cd3a2606e63626b0ba542e82e2ae183826434de592dfa417a3d2c",
+      "snapshot": "docs/validation/parliament_ballot_construction_guard/sources/crates/iroha_core/src/state.rs.template"
+    },
+    "crates/iroha_core/src/state/canonical_runtime.rs": {
+      "origin": {
+        "kind": "unchanged_worktree"
+      },
+      "sha256": "188c377a8d0db08d4709e825f5ccdeccadba07b59a545fbc5c75a509a93cfcbc",
+      "snapshot": "docs/validation/parliament_ballot_construction_guard/sources/crates/iroha_core/src/state/canonical_runtime.rs.template"
+    },
+    "crates/iroha_core/src/state/canonical_runtime/acquisition.rs": {
+      "origin": {
+        "kind": "unchanged_worktree"
+      },
+      "sha256": "8594861a21d315407e2d607ed19ba3db5190573166e9699cb9d4f9a7a5f84407",
+      "snapshot": "docs/validation/parliament_ballot_construction_guard/sources/crates/iroha_core/src/state/canonical_runtime/acquisition.rs.template"
+    },
+    "crates/iroha_core/src/state/da_hydration.rs": {
+      "origin": {
+        "kind": "unchanged_worktree"
+      },
+      "sha256": "db03ce97fd474d499a7dca72706c1b601c286b2c592797915fa2caca637cfd42",
+      "snapshot": "docs/validation/parliament_ballot_construction_guard/sources/crates/iroha_core/src/state/da_hydration.rs.template"
+    },
+    "crates/iroha_core/src/state/deserialize_world.rs": {
+      "origin": {
+        "kind": "exact_git_object",
+        "object": "d4a45e6faed2135025df302f9ae411a77e4580e8:crates/iroha_core/src/state/deserialize_world.rs",
+        "revision": "d4a45e6faed2135025df302f9ae411a77e4580e8"
+      },
+      "sha256": "fc7884287753d54ec95d6927436a67ff42f0dd2401c44bbd5883c36e4d6b0cc2",
+      "snapshot": "docs/validation/parliament_ballot_construction_guard/sources/crates/iroha_core/src/state/deserialize_world.rs.template"
+    },
+    "crates/iroha_core/src/state/state_block_construction.rs": {
+      "origin": {
+        "kind": "unchanged_worktree"
+      },
+      "sha256": "f845c8ac1597009a5ff73ceb62fed57bb34d55a9c3ebff6026059b4b4b996ac0",
+      "snapshot": "docs/validation/parliament_ballot_construction_guard/sources/crates/iroha_core/src/state/state_block_construction.rs.template"
+    },
+    "crates/iroha_core/src/validation_fee.rs": {
+      "origin": {
+        "kind": "exact_git_object",
+        "object": "d4a45e6faed2135025df302f9ae411a77e4580e8:crates/iroha_core/src/validation_fee.rs",
+        "revision": "d4a45e6faed2135025df302f9ae411a77e4580e8"
+      },
+      "sha256": "75748375c739abe60f107fb28ef422fd33369885fc3f45780a6ce18032bf6b32",
+      "snapshot": "docs/validation/parliament_ballot_construction_guard/sources/crates/iroha_core/src/validation_fee.rs.template"
+    },
+    "crates/iroha_torii/src/lib.rs": {
+      "origin": {
+        "kind": "exact_git_object",
+        "object": "d4a45e6faed2135025df302f9ae411a77e4580e8:crates/iroha_torii/src/lib.rs",
+        "revision": "d4a45e6faed2135025df302f9ae411a77e4580e8"
+      },
+      "sha256": "1a4a4b5bfb2745c6446326263da67ca2e430de5ac07044045836588309258366",
+      "snapshot": "docs/validation/parliament_ballot_construction_guard/sources/crates/iroha_torii/src/lib.rs.template"
+    },
+    "pytest.ini": {
+      "origin": {
+        "kind": "unchanged_worktree"
+      },
+      "sha256": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+      "snapshot": "docs/validation/parliament_ballot_construction_guard/sources/pytest.ini.template"
+    },
+    "scripts/formal/check_sora_parliament_source_contract.py": {
+      "origin": {
+        "kind": "unchanged_worktree"
+      },
+      "sha256": "c180d0fed3c37bcc1cc85f32ffdc839e683e4dd6fc9045d79eaa5012836b05fb",
+      "snapshot": "docs/validation/parliament_ballot_construction_guard/sources/scripts/formal/check_sora_parliament_source_contract.py.template"
+    },
+    "scripts/formal/rust_text.py": {
+      "origin": {
+        "kind": "unchanged_worktree"
+      },
+      "sha256": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+      "snapshot": "docs/validation/parliament_ballot_construction_guard/sources/scripts/formal/rust_text.py.template"
+    },
+    "scripts/tests/check_sora_parliament_source_contract_test.py": {
+      "origin": {
+        "kind": "unchanged_worktree"
+      },
+      "sha256": "9bde961349a97daab258b433cc5137df90b26899074ff97011717e087678fb15",
+      "snapshot": "docs/validation/parliament_ballot_construction_guard/sources/scripts/tests/check_sora_parliament_source_contract_test.py.template"
+    },
+    "scripts/tests/conftest.py": {
+      "origin": {
+        "kind": "unchanged_worktree"
+      },
+      "sha256": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f",
+      "snapshot": "docs/validation/parliament_ballot_construction_guard/sources/scripts/tests/conftest.py.template"
+    }
+  }
+}

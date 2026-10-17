@@ -1,0 +1,57 @@
+"""Verify shared-dispatch evidence and freeze exactly this new bundle."""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+import re
+
+root = Path.cwd()
+out = root/"docs/validation/parliament_ballot_qualification_dispatch"
+manifest = out/"SHA256SUMS"
+review_path = out/"freeze-review.json"
+if manifest.exists() or review_path.exists():
+    raise RuntimeError("refuse modifying frozen dispatch evidence")
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+receipt = json.loads((out/"receipt.json").read_text())
+assert receipt["source_before"] == receipt["source_after"] and not receipt["source_changes"]
+for name, value in receipt["source_after"].items():
+    assert sha(Path(name)) == value, name
+for name, value in receipt["retained_file_sha256"].items():
+    assert sha(out/name) == value, name
+mapping = json.loads((out/"captured-sources.json").read_text())
+assert len(mapping["changed_sources"]) == 4 and len(mapping["validated_inputs"]) == 69
+for row in mapping["changed_sources"].values():
+    for side in ("before", "after"):
+        assert sha(out/row[side]["snapshot"]) == row[side]["sha256"]
+for row in mapping["validated_inputs"].values():
+    assert sha(out/row["snapshot"]) == row["sha256"]
+for target in re.findall(r"\]\(([^)]+)\)", (out/"README.md").read_text()):
+    if "://" not in target and out/target not in {manifest, review_path}:
+        assert (out/target).exists(), target
+review = {
+    "schema": "parliament-qualification-dispatch-freeze-v1",
+    "frozen_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "receipt_sha256": sha(out/"receipt.json"),
+    "source_sha256_at_freeze": receipt["source_after"],
+    "watched_input_count": 69, "exact_snapshot_count": 73,
+    "all_recorded_sources_snapshots_outputs_match": True,
+    "scope": "Host bridge strict Clippy and17 shared/host tests in each mode. Preserves initial bridge dead-code failures and exact prior sources; no earlier resource or device result is transferred.",
+    "physical_device_qualification": False, "independent_cryptographic_review": False,
+    "full_resource_vector": False, "production_qualified": False,
+}
+with review_path.open("x") as stream:
+    stream.write(json.dumps(review, indent=2, sort_keys=True)+"\n")
+paths = sorted(path for path in out.rglob("*") if path.is_file() and path != manifest)
+with manifest.open("x") as stream:
+    for path in paths:
+        stream.write(sha(path)+"  "+path.relative_to(root).as_posix()+"\n")
+for line in manifest.read_text().splitlines():
+    value, name = line.split("  ", 1)
+    assert sha(root/name) == value
+print(json.dumps({"entries": len(paths), "manifest_sha256": sha(manifest),
+                  "freeze_review_sha256": sha(review_path)}))

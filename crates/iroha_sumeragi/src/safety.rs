@@ -87,6 +87,8 @@ pub struct SafetyRecord {
     pub parent_commit_qc: Option<Qc>,
     /// Last proposal reserved for signing, including a refused attempt.
     pub proposal: Option<RecordedProposal>,
+    /// Exact successful proposal signature; absent for an unsigned reservation.
+    pub proposal_signature: Option<Signature>,
     /// Last Prepare reserved for signing, including a refused attempt.
     pub prepare: Option<RecordedVote>,
     /// Exact successfully produced Prepare signature; absent for an unsigned reservation.
@@ -116,6 +118,7 @@ impl SafetyRecord {
             height,
             parent_commit_qc,
             proposal: None,
+            proposal_signature: None,
             prepare: None,
             prepare_signature: None,
             timeout: None,
@@ -167,7 +170,8 @@ impl SafetyRecord {
         }
         let record = envelope.record;
         record.check_consistency()?;
-        if !record.prepare_signature_verifies(crypto) {
+        if !record.prepare_signature_verifies(crypto) || !record.proposal_signature_verifies(crypto)
+        {
             return Err(RecordError::Inconsistent);
         }
         Ok(record)
@@ -198,6 +202,33 @@ impl SafetyRecord {
         }
     }
 
+    /// Authenticate exact successful proposal bytes before allowing restart retransmission.
+    pub fn proposal_signature_verifies(&self, crypto: &dyn Crypto) -> bool {
+        if cfg!(sumeragi_mutation = "MS77") {
+            return true;
+        }
+        match (&self.proposal, self.proposal_signature) {
+            (_, None) => true,
+            (None, Some(_)) => false,
+            (Some(proposal), Some(signature)) => crypto.verify(
+                &self.key,
+                &crate::preimage::prop_preimage(
+                    &self.instance,
+                    &self.epoch,
+                    self.height,
+                    proposal.view,
+                    &proposal.block_hash,
+                    &crate::preimage::att_digest(
+                        crypto,
+                        proposal.justify.as_ref(),
+                        self.parent_commit_qc.as_ref(),
+                    ),
+                ),
+                &signature,
+            ),
+        }
+    }
+
     /// Internal consistency of a decoded record.
     // SPEC: §7.4 R1 only names checksum/decode failures and instance/key mismatches. A record
     // that decodes but contradicts itself (certificates of other heights, instances or kinds; a
@@ -218,6 +249,7 @@ impl SafetyRecord {
                 && message::check_tc(tc).is_ok()
         };
         let valid = (self.prepare_signature.is_none() || self.prepare.is_some())
+            && (self.proposal_signature.is_none() || self.proposal.is_some())
             && self.key.is_well_formed()
             && self.parent_commit_qc.as_ref().is_none_or(|qc| {
                 qc.kind == VoteKind::Commit
@@ -571,6 +603,7 @@ mod tests {
                 block_hash: h(2),
                 justify: Some(justify),
             }),
+            proposal_signature: None,
             prepare: Some(RecordedVote {
                 view: 3,
                 block_hash: h(2),
@@ -873,6 +906,7 @@ mod tests {
                 block_hash: h(2),
                 justify: Some(justify),
             }),
+            proposal_signature: None,
             prepare: Some(RecordedVote {
                 view: 4,
                 block_hash: h(2),

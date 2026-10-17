@@ -511,6 +511,9 @@ pub mod multisig {
         }
     }
     /// Native ledger value for a multisig proposal state entry.
+    ///
+    /// Construct with named fields to keep the original occurrence identity, TTL choice,
+    /// and instruction fingerprint explicit.
     #[derive(
         Debug,
         Clone,
@@ -714,7 +717,10 @@ pub mod multisig {
         /// Multisig transaction time-to-live in milliseconds based on block timestamps. Defaults to [`DEFAULT_MULTISIG_TTL_MS`]
         pub transaction_ttl_ms: NonZeroU64,
     }
-    /// Metadata value for a multisig transaction proposal
+    /// Metadata value for a multisig transaction proposal.
+    ///
+    /// Construct with named fields to keep the original occurrence identity, TTL choice,
+    /// and proposal contents explicit.
     #[derive(
         Debug,
         Clone,

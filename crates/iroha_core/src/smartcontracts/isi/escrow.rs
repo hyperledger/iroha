@@ -355,9 +355,6 @@ fn reject_native_orderbook_lock(
     Ok(())
 }
 /// Derive the deterministic protocol custody account for an escrow.
-///
-/// # Errors
-/// This derivation is infallible and currently always returns `Ok`.
 pub fn escrow_custody_account_id(
     network_id: &iroha_data_model::NetworkId,
     escrow_id: &EscrowId,

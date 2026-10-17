@@ -1,0 +1,18 @@
+Actual focused test invocation retained from exec session 35857:
+
+.venv/bin/python -m pytest scripts/tests/parliament_ballot_current_correspondence_test.py -q --tb=short
+
+Initial tool result: one passing-test dot; process still running.
+Completion tool result: remaining 48 passing-test dots, [100%].
+49 passed in 18.62s
+Process exit code: 0
+
+Helper SHA256 after this run:
+3c90c6805dbba9da5b9b1d9beb8fcf612557c815f6f5bbdb8b58602bfc413953
+Tests SHA256 after this run:
+f7a6c6e6fec6ceaa5e4d408e6b6aebc24b2def5024bb823217076073613769fa
+
+This is a retained tool transcript, not a newly executed pytest log or a claim
+that the final CLI capture reran the unchanged test suite. Test controls use
+temporary report directories and in-process byte mutations; no shared build
+inputs or historical artifacts were changed.

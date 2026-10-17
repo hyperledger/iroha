@@ -21,24 +21,20 @@ fn limits(from: u64, to: u64) -> NativeFinalityProofIntervalLimits {
     )
     .unwrap()
 }
-fn test_budget(frames: iroha_allocation::AllocationBudget) -> NativeFinalityProofBudget {
-    // Same finite graph corridor as the State interval and original proof-reader controls.
-    NativeFinalityProofBudget::new(
-        frames,
-        iroha_allocation::AllocationBudget::new(33_312_848),
-        decode_limits(),
-    )
-}
-fn context() -> DecodeBudgetContext {
-    DecodeBudgetContext::new(decode_limits())
-}
-fn decode_limits() -> norito::DecodeLimits {
+fn codec_limits() -> norito::DecodeLimits {
     norito::DecodeLimits::new(
         1024 * 1024,
         MAX_FINALITY_BLOCK_BYTES,
         8 * 1024 * 1024,
         usize::MAX,
         128,
+    )
+}
+fn test_budget(frames: iroha_allocation::AllocationBudget) -> NativeFinalityProofBudget {
+    NativeFinalityProofBudget::new(
+        frames,
+        iroha_allocation::AllocationBudget::new(33_312_848),
+        codec_limits(),
     )
 }
 #[inline(never)]
@@ -490,7 +486,7 @@ fn check_stop(chain: &CertifiedTestChain) {
         view.kura(),
     );
     let budget = view.execution_budget();
-    let original = context();
+    let original = DecodeBudgetContext::new(codec_limits());
     let owner = test_budget(budget.clone());
     let reserved = budget.reserved_bytes();
     chain.kura().reset_canonical_query_reads_for_test();

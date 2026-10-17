@@ -469,6 +469,209 @@ fn original_body_read_can_be_pruned_and_reports_only_actual_missing_source() {
     assert_eq!(budget.reserved_bytes(), charged);
 }
 
+// Exercise the exact child-open/held-file-validation window without timing sleeps.
+// With no operation lock, the cooperating prune completes inside that window; with
+// the lock, it announces its failed nonblocking probe and then waits for the reader.
+#[cfg(unix)]
+fn prune_during_child_validation<T>(
+    store: Arc<FileBodyStore>,
+    height: u64,
+    read: impl FnOnce() -> T,
+) -> (T, bool) {
+    use std::{sync::mpsc, time::Duration};
+
+    let (start_tx, start_rx) = mpsc::sync_channel(0);
+    let (observed_tx, observed_rx) = mpsc::sync_channel(0);
+    let worker = std::thread::spawn(move || {
+        start_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let probe = File::open(store.dir().join(LOCK_NAME)).unwrap();
+        let blocked = match probe.try_lock() {
+            Ok(()) => false,
+            Err(std::fs::TryLockError::WouldBlock) => true,
+            Err(error) => panic!("operation lock probe failed: {error}"),
+        };
+        drop(probe);
+        if blocked {
+            observed_tx.send(()).unwrap();
+            store.prune_through(height).unwrap();
+        } else {
+            store.prune_through(height).unwrap();
+            observed_tx.send(()).unwrap();
+        }
+        blocked
+    });
+    let result = crate::sumeragi::artifact_read::with_child_revalidation_hook(
+        move || {
+            start_tx.send(()).unwrap();
+            observed_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        },
+        read,
+    );
+    (result, worker.join().unwrap())
+}
+
+#[cfg(unix)]
+#[test]
+fn body_read_open_serializes_child_validation_with_cooperative_prune() {
+    let root = tempfile::tempdir().unwrap();
+    let (body, source, budget) = fixture(1025);
+    let store = Arc::new(open(root.path(), &source, &budget));
+    store.put(&source.block_hash(), &body).unwrap();
+    let (result, prune_waited) =
+        prune_during_child_validation(store.clone(), source.height(), || {
+            store.begin_read(source.clone())
+        });
+    let mut read = result.unwrap_or_else(|error| panic!("original open failed: {error}"));
+    assert!(prune_waited, "retirement crossed original file admission");
+    assert_eq!(read.source(), &source);
+    assert!(store.retirement_authorized(source.height()));
+    assert_eq!(store.bytes().unwrap(), 0);
+    assert!(
+        matches!(read.poll(&budget), Err(BodyReadError::Io(error)) if error.kind() == io::ErrorKind::NotFound),
+        "a later completed prune must retain the existing explicit retirement handoff"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn body_read_poll_serializes_child_validation_with_cooperative_prune() {
+    let root = tempfile::tempdir().unwrap();
+    let (body, source, budget) = fixture(1025);
+    let store = Arc::new(open(root.path(), &source, &budget));
+    store.put(&source.block_hash(), &body).unwrap();
+    let mut read = store.begin_read(source.clone()).unwrap();
+    let (result, prune_waited) =
+        prune_during_child_validation(store.clone(), source.height(), || read.poll(&budget));
+    let BodyReadPoll::Ready(restoration) =
+        result.unwrap_or_else(|error| panic!("original read failed: {error}"))
+    else {
+        panic!("the original body must finish before cooperating retirement")
+    };
+    assert!(prune_waited, "retirement crossed held-file validation");
+    assert_eq!(read.source(), &source);
+    assert!(store.retirement_authorized(source.height()));
+    assert_eq!(store.bytes().unwrap(), 0);
+    assert_eq!(
+        restoration
+            .complete(&budget, &BlsCrypto::new())
+            .unwrap_or_else(|(_, error)| panic!("original signed body: {error:?}")),
+        body
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn body_read_validation_still_rejects_uncooperative_hardlinks() {
+    let root = tempfile::tempdir().unwrap();
+    let (body, source, budget) = fixture(1025);
+    let store = open(root.path(), &source, &budget);
+    store.put(&source.block_hash(), &body).unwrap();
+    let mut read = store.begin_read(source.clone()).unwrap();
+    let original = store.body_path(source.height(), &source.block_hash());
+    let extra = root.path().join("extra-body-link");
+    let extra_hook = extra.clone();
+    let result = crate::sumeragi::artifact_read::with_child_revalidation_hook(
+        move || fs::hard_link(original, extra_hook).unwrap(),
+        || read.poll(&budget),
+    );
+    assert!(
+        matches!(result, Err(BodyReadError::Io(error)) if error.kind() == io::ErrorKind::PermissionDenied)
+    );
+    assert!(!store.retirement_authorized(source.height()));
+    fs::remove_file(extra).unwrap();
+    let BodyReadPoll::Ready(restoration) = read.poll(&budget).unwrap() else {
+        panic!("the retained original read must recover after the same inode is repaired")
+    };
+    assert_eq!(
+        restoration
+            .complete(&budget, &BlsCrypto::new())
+            .unwrap_or_else(|(_, error)| panic!("original signed body: {error:?}")),
+        body
+    );
+}
+
+#[test]
+fn body_read_refund_callbacks_reenter_after_physical_read_lock_release() {
+    use iroha_allocation::{AllocationRefusal, ChargedBuffer, release::ReleaseRegistration};
+    use std::{
+        panic::{AssertUnwindSafe, catch_unwind},
+        sync::atomic::AtomicUsize,
+        task::{Context, Poll, Wake, Waker},
+    };
+
+    struct Probe {
+        store: Arc<FileBodyStore>,
+        calls: AtomicUsize,
+        operation_free: AtomicBool,
+    }
+    impl Wake for Probe {
+        fn wake(self: Arc<Self>) {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let operation = File::open(self.store.dir().join(LOCK_NAME)).unwrap();
+            let free = operation.try_lock().is_ok();
+            self.operation_free.store(free, Ordering::SeqCst);
+            drop(operation);
+            // Fail an assertion rather than deadlock if the callback ran under the lock.
+            if free {
+                assert!(self.store.bytes().unwrap() > 0);
+            }
+        }
+    }
+
+    for unwind in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let (body, source, budget) = fixture(1025);
+        let store = Arc::new(open(root.path(), &source, &budget));
+        store.put(&source.block_hash(), &body).unwrap();
+        let mut read = store.begin_read(source).unwrap();
+        let refund = ChargedBuffer::<u8>::new(1, &budget).unwrap();
+        let mut registration = ReleaseRegistration::from_reservation(
+            &mut budget
+                .try_reserve(ReleaseRegistration::allocation_layout())
+                .unwrap(),
+        )
+        .unwrap();
+        let probe = Arc::new(Probe {
+            store: store.clone(),
+            calls: AtomicUsize::new(0),
+            operation_free: AtomicBool::new(false),
+        });
+        let waker = Waker::from(probe.clone());
+        let AllocationRefusal::Capacity { release, .. } =
+            budget.try_reserve_bytes(budget.limit_bytes()).unwrap_err()
+        else {
+            panic!("an occupied original pool supplies the release observation")
+        };
+        assert_eq!(
+            registration.poll_wait(&release, &mut Context::from_waker(&waker)),
+            Poll::Pending
+        );
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            crate::sumeragi::artifact_read::with_child_revalidation_hook(
+                move || {
+                    drop(refund);
+                    assert!(!unwind, "original physical read unwound");
+                },
+                || read.poll(&budget),
+            )
+        }));
+        if unwind {
+            assert!(result.is_err());
+        } else {
+            assert!(matches!(result.unwrap().unwrap(), BodyReadPoll::Ready(_)));
+        }
+        assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
+        assert!(
+            probe.operation_free.load(Ordering::SeqCst),
+            "original body-read refund ran under the operation lock"
+        );
+        assert_eq!(
+            registration.poll_wait(&release, &mut Context::from_waker(&waker)),
+            Poll::Ready(())
+        );
+    }
+}
+
 #[test]
 fn distinct_body_handles_share_one_capacity_lock_and_retained_loser_retries_after_prune() {
     let root = tempfile::tempdir().unwrap();

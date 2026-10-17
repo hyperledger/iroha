@@ -23,6 +23,7 @@ fn original_source(
     let block_time = parent.header().creation_time() + cadence;
     let tx = chain.tick(u64::try_from(block_time.as_millis()).unwrap() - 1);
     let (_, time) = iroha_primitives::time::TimeSource::new_mock(block_time);
+    chain.set_execution_time(block_time);
     let accepted = crate::tx::AcceptedTransaction::accept_with_time_source(
         tx,
         &chain.network_id(),
@@ -39,7 +40,7 @@ fn original_source(
             parent: &parent,
             view: 0,
             cadence,
-            proposed_time: std::time::Duration::ZERO,
+            proposed_time: block_time,
         },
         &[accepted],
     )
@@ -74,6 +75,7 @@ fn install_original(
         scope,
         job: PayloadBuild::new(source, budget, max_bytes as usize),
         preparation_refusal: None,
+        proposal_admission: None,
     });
     scope
 }
@@ -154,7 +156,12 @@ fn original_local_payload_signature_refusal_keeps_job_and_exact_release_owner() 
             };
             assert_eq!(again.allocation_refusal(), returned.allocation_refusal());
             assert_eq!(again.release_wait(), returned.release_wait());
-            assert!(again.execution().is_none() && returned.execution().is_none());
+            for deferred in [again.execution(), returned.execution()] {
+                let original = deferred.expect("canonical original allocation refusal owner");
+                assert_eq!(original.allocation_refusal(), returned.allocation_refusal());
+                assert!(original.phase().is_none());
+                assert!(original.decode_refusal().is_none());
+            }
             assert_eq!(
                 registration.poll_wait(&release, &mut context),
                 Poll::Pending

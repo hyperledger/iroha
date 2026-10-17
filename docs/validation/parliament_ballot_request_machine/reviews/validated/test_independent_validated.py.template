@@ -1,0 +1,153 @@
+"""Independent fixed-shape P0/writes/return joins; no full sampler certificate."""
+from collections import Counter
+from pathlib import Path
+import hashlib
+import random
+import sys
+
+import pytest
+
+STAGE=Path(__file__).resolve().parents[1]/'parliament-ideal-machine-stage'
+sys.path.insert(0,str(STAGE))
+from bit_ir import apply_gates,bits,unpack
+from public_hash import load_public_keccak
+from public_machine import PublicShape,vote_validation
+from write_machine import Frame,ProgrammedWrites
+from return_machine import ReturnProjection
+from validated_request import ValidatedWrites,ValidatedReturn
+
+ROOT=STAGE.parents[1]
+
+
+def small(trials=3,capacity=7):
+    frames=(Frame(b'Q',(('ns',1),('mu',2)),9,1),
+            Frame(b'Q',(('ns',1),('challenge_1',1)),10,1),
+            Frame(b'Q',(('challenge_2',1),('ns',1),('counter_u32_le',4)),11,1))
+    return ProgrammedWrites(frames,trials,capacity,4,8,1)
+
+
+def write_state(c,valid,flagword,previous):
+    p=c.layout();state=[0]*p['size'];r=random.Random(919)
+    for name,(start,width) in p['fields'].items():state[start:start+width]=[r.randrange(2) for _ in range(width)]
+    state[p['primary']:p['flags']]=[r.randrange(2) for _ in range(p['primary_bits'])]
+    state[p['flags']:p['valid']]=bits(flagword,c.writes.trials);state[p['valid']]=valid
+    record_width=1+c.append().record_bits
+    # Arbitrary prior record contents are retained; only the active prefix and
+    # blank suffix are needed by append, which never inspects old key values.
+    for i in range(previous):
+        start=p['log']+i*record_width;state[start]=1
+        state[start+1:start+record_width]=[r.randrange(2) for _ in range(record_width-1)]
+    state[p['counter']:p['enable']]=bits(previous,c.append().counter_bits)
+    return state
+
+
+@pytest.mark.parametrize('flags',range(8))
+@pytest.mark.parametrize('previous',[0,7])
+def test_rejection_all_flag_words_and_full_or_empty_log_is_joint_identity(flags,previous):
+    c=ValidatedWrites(small());state=write_state(c,0,flags,previous);before=state[:]
+    apply_gates(state,c.emit());assert state==before
+    apply_gates(state,c.emit(inverse=True));assert state==before
+    assert not any(state[c.layout()['enable']:])
+
+
+@pytest.mark.parametrize('seed',range(6))
+def test_write_reverse_is_actual_gate_inverse_even_off_the_semantic_invariant(seed):
+    # This checks permutation inversion, not append semantics on dirty work.
+    c=ValidatedWrites(small());rng=random.Random(1234+seed)
+    state=[rng.randrange(2) for _ in range(c.layout()['size'])];original=state[:]
+    apply_gates(state,c.emit());apply_gates(state,c.emit(inverse=True));assert state==original
+
+
+@pytest.mark.parametrize('trials',[1,3,8])
+def test_gate_delta_and_valid_input_are_exact_without_extra_workspace(trials):
+    base=small(trials,trials+2);c=ValidatedWrites(base)
+    expected=base.resources()['gates'];r=c.resources();actual=r['gates']
+    assert actual['x']==expected['x']-4
+    assert actual['cx']==expected['cx']+4-2*trials
+    assert actual['ccx']==expected['ccx']+2*trials
+    assert r['clean_work_bits']==base.resources()['clean_work_bits']
+    assert r['input_bits']==base.resources()['input_bits']+1
+    for inverse in (False,True):
+        count=Counter(g[0] for g in c.emit(inverse=inverse))
+        assert count=={k:actual[k] for k in ('x','cx','ccx')}
+    p=c.layout();q=base.layout()
+    assert p['fields']==q['fields'] and p['flags']==q['flags'] and p['valid']==q['input_bits']
+    assert all(p[name]==q[name]+1 for name in ('log','counter','enable','staging','append_work','trial','size'))
+
+
+def frame(tag,fields):
+    return len(tag).to_bytes(2,'little')+tag+len(fields).to_bytes(2,'little')+b''.join(
+        len(x).to_bytes(4,'little')+x for x in fields)
+
+
+@pytest.fixture(scope='module')
+def canonical_p0_cases():
+    shape=PublicShape('VOTE',list_count=3);program=vote_validation(shape,load_public_keccak(ROOT),ROOT)
+    assert program.output_regions==( ('valid',(0,1)),('error_code',(1,4)),('order_index',(4,20)),
+        ('actual_count',(20,36)),('declared_count',(36,52)),('vote_value',(52,60)))
+    good={name:bytes(len(w)//8) for name,w in shape.input_regions()}
+    good.update(list=b''.join(i.to_bytes(128,'big') for i in range(3)),vote=b'\x02',size=b'\x03\x00')
+    good['list_digest']=hashlib.sha3_512(frame(b'PARL/LIST/v1',(b'PARL-SHAKE-V1\0\0\0',
+        good['body_digest'],b'\x03\x00',good['list']))).digest()
+    variants=[(good,(1,0,0,0,0,0)),
+        (dict(good,vote=b'\xff',list=bytes(384),size=b'\xff\xff',list_digest=bytes(64)),(0,1,0,0,0,255)),
+        (dict(good,list=bytes(384),size=b'\xff\xff',list_digest=bytes(64)),(0,3,1,0,0,0)),
+        (dict(good,size=b'\xff\xff',list_digest=bytes(64)),(0,4,0,3,65535,0)),
+        (dict(good,list_digest=bytes(64)),(0,5,0,0,0,0))]
+    result=[]
+    for fields,expected in variants:
+        raw=b''.join(fields[name] for name,_ in shape.input_regions())
+        values=tuple(v for byte in raw for v in bits(byte,8));validation=program.block.evaluate(values)
+        assert tuple(unpack(validation[a:b]) for _,(a,b) in program.output_regions)==expected
+        result.append(validation)
+    return result
+
+
+@pytest.mark.parametrize('exhausted',[0,1])
+def test_actual_p0_first_error_payload_joins_exact_return_union(canonical_p0_cases,exhausted):
+    e=ReturnProjection((('second',2),('first',1)),('first','second'),last_counter=0xffffffff)
+    c=ValidatedReturn(e);p=c.layout();regions=c.output_regions()
+    assert regions=={'tag':(0,2),'public_error':(2,59),'last':(61,32),'length':(93,64),'proof':(157,24)}
+    for p0 in canonical_p0_cases:
+        inputs=p0+(exhausted,)+bits(0x4a,8)+bits(0x92ef,16)
+        target=tuple((i*7+3)%2 for i in range(c.output_bits))
+        state=list(inputs)+[0]*(p['output_start']-len(inputs))+list(target);original=state[:]
+        if not p0[0]:want=bits(2,2)+p0[1:]+(0,)*(32+64+24)
+        elif exhausted:want=bits(1,2)+(0,)*59+bits(0xffffffff,32)+(0,)*(64+24)
+        else:want=(0,)*(2+59+32)+bits(3,64)+bits(0x92ef,16)+bits(0x4a,8)
+        gates=tuple(c.emit_clean());apply_gates(state,gates)
+        assert state[:c.input_bits]==list(inputs)
+        assert not any(state[c.input_bits:p['output_start']])
+        assert state[p['output_start']:]==[a^b for a,b in zip(target,want)]
+        apply_gates(state,gates);assert state==original
+        counts=Counter(g[0] for g in gates);g=c.resources()['gates'];base=e.resources()['gates']
+        assert counts==dict(x=g['x'],cx=g['cx'],ccx=g['ccx'])
+        assert g['x']==2*base['x']+2 and g['cx']==2*base['cx']+3
+        assert g['ccx']==2*base['ccx']+e.output_bits+59
+        assert c.resources()['clean_work_bits']==e.output_bits+2
+
+
+def test_bypassing_primary_valid_control_is_detected():
+    c=ValidatedWrites(small());p=c.layout();state=write_state(c,0,1,0);original=state[:]
+    gates=list(c.emit());changed=0
+    for i,gate in enumerate(gates):
+        if gate==('ccx',p['valid'],p['flags'],p['enable']):
+            gates[i]=('cx',p['flags'],p['enable']);changed+=1
+    assert changed==2
+    apply_gates(state,gates)
+    assert state!=original and unpack(state[p['counter']:p['enable']])==1
+    assert not any(state[p['enable']:])  # semantic leak, not merely dirty work
+
+
+def test_bypassing_return_valid_control_leaks_proof_on_rejection():
+    e=ReturnProjection((('a',1),),('a',));c=ValidatedReturn(e);p=c.layout()
+    validation=(0,)+bits(5,3)+(0,)*56;inputs=validation+(0,)+bits(0xff,8)
+    state=list(inputs)+[0]*(p['size']-len(inputs));gates=list(c.emit_clean())
+    proof_start=p['output_start']+c.output_regions()['proof'][0]
+    changed=0
+    for i,gate in enumerate(gates):
+        if gate[0]=='ccx' and gate[1]==p['valid'] and gate[-1]>=proof_start:
+            gates[i]=('cx',gate[2],gate[3]);changed+=1
+    assert changed==8
+    apply_gates(state,gates)
+    assert any(state[proof_start:]) and not any(state[c.input_bits:p['output_start']])

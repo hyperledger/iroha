@@ -1,0 +1,322 @@
+{
+  "changed_sources": {
+    "crates/iroha_parliament_ballot_proof/examples/QUALIFICATION.md": {
+      "after": {
+        "sha256": "bde3ac0ba4c2c75dcc7d0afb4e9e063bc807e3cfbbc805274092a365d59ff6ec",
+        "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/examples/QUALIFICATION.md.template"
+      },
+      "before": {
+        "sha256": "506d20d66b75826765cf1422709666913c498866c5d6adef581d8f0802116c26",
+        "snapshot": "sources/before/crates/iroha_parliament_ballot_proof/examples/QUALIFICATION.md.template"
+      }
+    },
+    "crates/iroha_parliament_ballot_proof/examples/qualification/mod.rs": {
+      "after": {
+        "sha256": "60491167fc591379960cc36cdfa996e198f9b3547bbb5903a6c74932e6fb1072",
+        "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/examples/qualification/mod.rs.template"
+      },
+      "before": {
+        "sha256": "3a599dea55abe8751866d8e61e95c65a686f0a294052784aea6ed73c5e5b3725",
+        "snapshot": "sources/before/crates/iroha_parliament_ballot_proof/examples/qualification/mod.rs.template"
+      }
+    },
+    "crates/iroha_parliament_ballot_proof/examples/qualification/tests.rs": {
+      "after": {
+        "sha256": "ef34b6ef1d8567e80f9c5b5ec044c138e656c934a9d3ca52ef0827fa6aa964ab",
+        "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/examples/qualification/tests.rs.template"
+      },
+      "before": {
+        "sha256": "9504726b67dc3a987b3ee75b6db24f6aba81108a59925b89f67c243a9940a910",
+        "snapshot": "sources/before/crates/iroha_parliament_ballot_proof/examples/qualification/tests.rs.template"
+      }
+    },
+    "crates/iroha_parliament_ballot_proof/examples/qualify.rs": {
+      "after": {
+        "sha256": "4facea305eb3e5770301c57eeb80c4c211e2ce90b726aba2aec70f480e11f2e8",
+        "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/examples/qualify.rs.template"
+      },
+      "before": {
+        "sha256": "94fe7a73d3d2c59c342f0b7881588d935f0c9f9ff72edc2f6be0115524ba1749",
+        "snapshot": "sources/before/crates/iroha_parliament_ballot_proof/examples/qualify.rs.template"
+      }
+    }
+  },
+  "validated_inputs": {
+    "/Users/mtakemiya/dev/iroha/Cargo.lock": {
+      "sha256": "d185eaad173f871c2ac9ecd48923119b0276546739e87963fd5a6532781b9442",
+      "snapshot": "sources/validated/Cargo.lock.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/QUALIFICATION.md": {
+      "sha256": "bde3ac0ba4c2c75dcc7d0afb4e9e063bc807e3cfbbc805274092a365d59ff6ec",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/examples/QUALIFICATION.md.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/qualification/malformed.rs": {
+      "sha256": "c5034b3596a4ba23b1c8cf5bf9c7b4713809598364f0069b55f1cb0466a32973",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/examples/qualification/malformed.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/qualification/malformed/tests.rs": {
+      "sha256": "b5241b0b7e2e6865abea750efd156917292667fd1f7a6ea36dba46e7c7156e35",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/examples/qualification/malformed/tests.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/qualification/mod.rs": {
+      "sha256": "60491167fc591379960cc36cdfa996e198f9b3547bbb5903a6c74932e6fb1072",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/examples/qualification/mod.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/qualification/tests.rs": {
+      "sha256": "ef34b6ef1d8567e80f9c5b5ec044c138e656c934a9d3ca52ef0827fa6aa964ab",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/examples/qualification/tests.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/qualify.rs": {
+      "sha256": "4facea305eb3e5770301c57eeb80c4c211e2ce90b726aba2aec70f480e11f2e8",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/examples/qualify.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/src/credential.rs": {
+      "sha256": "9cef899f6864c4b8517cab01b66ec66e38e0d5350d7a1ce02cfb889bdca02b34",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/src/credential.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/src/framing.rs": {
+      "sha256": "784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/src/framing.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": {
+      "sha256": "f757f491b81c52563b34e425a9ded20547419200c848c4ad5231ef1fd32374f5",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/src/keccak_relation.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/src/layout.rs": {
+      "sha256": "33db7b2cb59ccebaa557a73ee6db899c3cfa32a288bdc3382384d151fab4c6f0",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/src/layout.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/src/lib.rs": {
+      "sha256": "503a358e552e53284d8a1c8b15b2df24b2111b766dfaa004f5f4c7091b07604e",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/src/lib.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/src/profile.rs": {
+      "sha256": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/src/profile.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/src/proving.rs": {
+      "sha256": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/src/proving.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/src/registration.rs": {
+      "sha256": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/src/registration.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/src/sealed_list.rs": {
+      "sha256": "769eb3de9f35211bd80067f1c0669645995d603cce3aa2f0e2818699be834de0",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/src/sealed_list.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/src/selector.rs": {
+      "sha256": "1d96fee19e79b781434580a00e355048585994c15e9210fdc62c3665ddd37d75",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/src/selector.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/src/test_codec.rs": {
+      "sha256": "5251b4aa9ac0867986b054c4fad6214654032ecdac8dc411ab9a2da542735cb1",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/src/test_codec.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/src/vote.rs": {
+      "sha256": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+      "snapshot": "sources/validated/crates/iroha_parliament_ballot_proof/src/vote.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/bavc.rs": {
+      "sha256": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/bavc.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/codec.rs": {
+      "sha256": "ac354c72e09fb022b1dcb300cf339fa66303abdf76ae5518f7f9e243cc5e5a2f",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/codec.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt.rs": {
+      "sha256": "2a45b530a22d3439678b06121c98c84499a3512652bfb95f78745023f33446e6",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/algo.rs": {
+      "sha256": "d41d00fb74b15ccfa4272d139b11d60b9a01d3aa84c7d4c08048a0d964dc717a",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/algo.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/bits.rs": {
+      "sha256": "2b4ab26994a3f6debb543c29ace1676233881cca0e59f91351f6966387b52912",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/bits.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/codec.rs": {
+      "sha256": "9da70396e4e6aa637f8033e95855eeaccae276c10ae4576469da42139349a68a",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/codec.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/cost.rs": {
+      "sha256": "5daac07b60251bc1c8067b0500017e3e6dc5121e8c81c9922f2eba8394fdb216",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/cost.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/error.rs": {
+      "sha256": "a5c5f15a28a55ed94604635cb84f3e546af3158c93e579551b3ce58820feabae",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/error.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/f4.rs": {
+      "sha256": "c1c164c1591cee3b614adb05112d2d99af93f030026dc7a3e01fd0df0cc6db6e",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/f4.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/generated.rs": {
+      "sha256": "0426a8ecc21975316132db16e6ddfc0b63836c871eb69173d5f6bf230ffd7f98",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/generated.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/generated/faest_128f_tables.rs": {
+      "sha256": "9a05abd92ef7a8d097991601c6bac349d401067701434d9807a26b751b6aabfe",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/generated/faest_128f_tables.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/generated/faest_128s_tables.rs": {
+      "sha256": "8786e2443b58eaeb4a6dcc53ec184011231cdaf718bc2ed1d4fc52d1260b4dd2",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/generated/faest_128s_tables.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/generated/faest_192f_tables.rs": {
+      "sha256": "a66463944679af082a222aead57d6251262e8ee0531fd6e9dc18f57c2518ed0d",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/generated/faest_192f_tables.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/generated/faest_192s_tables.rs": {
+      "sha256": "2582017126a093589ef95402cebe68c8e1d4ec8bcadd7e460b7b693662e27d31",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/generated/faest_192s_tables.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs": {
+      "sha256": "a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs": {
+      "sha256": "535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/generated/faest_em_192f_tables.rs": {
+      "sha256": "180b8e52139d916a75b8663adf6ec0f97f843e618b3f85dc2e310cf42766f762",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/generated/faest_em_192f_tables.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/generated/faest_em_192s_tables.rs": {
+      "sha256": "c8c922db88dddccf09e4c4e801cc7b7b3e0186df73ea9abb0e7f24d47a4bf685",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/generated/faest_em_192s_tables.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/generator.rs": {
+      "sha256": "23ba6267630ee88c5d95737e66e3b216da1c74531310a333adb9812dea91df35",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/generator.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/gf2poly.rs": {
+      "sha256": "6ab7d628b757c51d7b012d6779694eb60168e4c0d4a01cafd8c169a29bb47e3d",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/gf2poly.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/linalg.rs": {
+      "sha256": "2769b22f48149eea350f2a913bbe367ab2d0db53c3b27ceea7adb7a374818fa9",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/linalg.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/matrix.rs": {
+      "sha256": "810bad5d8087109e52ce650a5ac596e87e6df8a167cde36b97f24834bbf7281f",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/matrix.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/crt/tables.rs": {
+      "sha256": "77c1197bba8e107fda8e833be0550e98b45825f805d3630c7dbac92810bac3cb",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/crt/tables.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/faest.rs": {
+      "sha256": "2cb74ee28bdbfc01fe13122c71f3f108c779a56d00913037af543809faaa22a0",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/faest.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/faest/cipher.rs": {
+      "sha256": "744af4a7bd343e6ec9cc052585505e12b764fe4fab84599f9a39572cd8fc3d2b",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/faest/cipher.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/faest/relation.rs": {
+      "sha256": "fd50765a90875151cf6857c4e9b1c04ffc1e47a51b9ab814c2f2287174cf68b7",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/faest/relation.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/field.rs": {
+      "sha256": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/field.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/field/poly.rs": {
+      "sha256": "b11fd7a04a20614d4780d18a05421c443130a7d554a86579766434b424a880e9",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/field/poly.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/hash.rs": {
+      "sha256": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/hash.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/lib.rs": {
+      "sha256": "aeb97c943cd993f7fa721e62c83c3b74d2e53626c8b470d7ebecd2eadc187f02",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/lib.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/params.rs": {
+      "sha256": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/params.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/prg.rs": {
+      "sha256": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/prg.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/proof.rs": {
+      "sha256": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/proof.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/quicksilver.rs": {
+      "sha256": "99260f5f4f0cb1b8e8e6356ce14b0deb20099d25549b852441bc541588c6f3ad",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/quicksilver.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/quicksilver/plain.rs": {
+      "sha256": "0b1e3118e2f24a806e0ea7c21e81ed93ba3d1090b776c85505c89ce296281bb5",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/quicksilver/plain.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/quicksilver/prover.rs": {
+      "sha256": "85d7e743228f7b808c33c74be1e3a6d3b151d78f75b1c42db7dfd4782aaf5c63",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/quicksilver/prover.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/quicksilver/verifier.rs": {
+      "sha256": "7b038e8b2aa647d89f06d38bcdf371efb97b4abf6f2edb43585be89609051dfe",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/quicksilver/verifier.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/randomness.rs": {
+      "sha256": "8d57e99b8eb555687ed2c4d82465d7242890e036d35bdca10399ef1bca7ddb26",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/randomness.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/transcript.rs": {
+      "sha256": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/transcript.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/universal_hash.rs": {
+      "sha256": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/universal_hash.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/variant.rs": {
+      "sha256": "50d8c414309f5ccc315181abefbdabe79ed092f0644dc72e04596c93c58059b9",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/variant.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/vole.rs": {
+      "sha256": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/vole.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/vole/bits.rs": {
+      "sha256": "4e41952eb31574505fcf97d02a4f9074035818660958ff3dbf9cf2650749d079",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/vole/bits.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/vole/convert.rs": {
+      "sha256": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+      "snapshot": "sources/validated/crates/iroha_zkp_vole/src/vole/convert.rs.template"
+    },
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_b6/ios_host_template/bridge/Cargo.lock.template": {
+      "sha256": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+      "snapshot": "sources/validated/docs/validation/parliament_ballot_b6/ios_host_template/bridge/Cargo.lock.template.template"
+    },
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_b6/ios_host_template/bridge/Cargo.toml": {
+      "sha256": "6cfb0f21936366664872485c3f502be2b80e2caf7f7a5f5fbb5c0e4562940d57",
+      "snapshot": "sources/validated/docs/validation/parliament_ballot_b6/ios_host_template/bridge/Cargo.toml.template"
+    },
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_b6/ios_host_template/bridge/src/lib.rs": {
+      "sha256": "3be9c32fff1d4bb83c99bed1b1cd79a5dc1a1a17935d004db54893c7f4ac0afd",
+      "snapshot": "sources/validated/docs/validation/parliament_ballot_b6/ios_host_template/bridge/src/lib.rs.template"
+    },
+    "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.lock": {
+      "sha256": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+      "snapshot": "sources/validated/external-bridge/Cargo.lock.template"
+    },
+    "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.toml": {
+      "sha256": "23233de072e024a906ae84623c1809fe71cb4900d6ab3fbd8c668284d33b26ba",
+      "snapshot": "sources/validated/external-bridge/Cargo.toml.template"
+    },
+    "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/src/lib.rs": {
+      "sha256": "456f26bad77182d3117956acc583c3ce2607192edb7c4cdaed6dbb5d0cf700e7",
+      "snapshot": "sources/validated/external-bridge/src/lib.rs.template"
+    }
+  }
+}

@@ -18,6 +18,7 @@ pub(super) struct NativePrepareAdmission {
     result: Hash32,
     block_time_ms: u64,
     max_lag_ms: u64,
+    max_clock_drift_ms: u64,
     sensitive: bool,
     time_source: iroha_primitives::time::TimeSource,
     progress_clock: Option<crate::smartcontracts::isi::sccp::keepalive::ProgressClock>,
@@ -62,6 +63,7 @@ impl NativePrepareAdmission {
             result,
             block_time_ms,
             max_lag_ms: original.due_work_max_lag_ms,
+            max_clock_drift_ms: original.max_clock_drift_ms,
             sensitive,
             time_source: time_source.clone(),
             progress_clock: original.progress_clock,
@@ -104,6 +106,10 @@ impl NativePrepareAdmission {
         }
         let observed_ms = u64::try_from(self.time_source.now().as_millis())
             .map_err(|_| SigningError::InvalidInput)?;
+        self.freshness_at(observed_ms)
+    }
+
+    fn freshness_at(&self, observed_ms: u64) -> Result<(), SigningError> {
         if self.sensitive && observed_ms.saturating_sub(self.block_time_ms) > self.max_lag_ms {
             return Err(SigningError::StaleExecution {
                 block_time_ms: self.block_time_ms,
@@ -135,10 +141,27 @@ impl PrepareAdmission for NativePrepareAdmission {
         {
             return Err(SigningError::InvalidInput);
         }
+        // Execution may have completed before a local stage/signing wait. Retain the
+        // original parent's allowance and refuse only this first signing attempt.
+        if request.certified() {
+            return Ok(());
+        }
+        let observed_ms = u64::try_from(self.time_source.now().as_millis())
+            .map_err(|_| SigningError::InvalidInput)?;
+        if self.height > 1
+            && !cfg!(all(test, sumeragi_core_mutation = "HC382"))
+            && self.block_time_ms.saturating_sub(observed_ms) > self.max_clock_drift_ms
+        {
+            return Err(SigningError::ClockAhead {
+                block_time_ms: self.block_time_ms,
+                observed_ms,
+                max_clock_drift_ms: self.max_clock_drift_ms,
+            });
+        }
         if cfg!(all(test, sumeragi_core_mutation = "HC337")) {
             return Ok(());
         }
-        self.freshness(request.certified())
+        self.freshness_at(observed_ms)
     }
 }
 

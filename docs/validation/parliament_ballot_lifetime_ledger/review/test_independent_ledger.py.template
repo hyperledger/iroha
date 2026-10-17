@@ -1,0 +1,303 @@
+"""Independent conditional ledger checks; no adaptive driver or native execution."""
+import dataclasses
+import importlib.util
+import json
+from pathlib import Path
+import sys
+
+import pytest
+
+ROOT=Path(__file__).resolve().parents[2]
+STAGE=ROOT/'target/parliament-lifetime-composition-stage'
+spec=importlib.util.spec_from_file_location('independent_lifetime_ledger',STAGE/'ledger.py')
+ledger=importlib.util.module_from_spec(spec)
+sys.modules[spec.name]=ledger
+spec.loader.exec_module(ledger)
+sys.path.insert(0,str(ROOT/'target/parliament-ideal-machine-stage'))
+from write_machine import ProgrammedWrites,actual_frames
+from request_family import RejectedVoteFamily
+from l0_machine import OverlayLookup
+
+
+@pytest.fixture(scope='module')
+def catalog():
+    return ledger.Catalog(ROOT)
+
+
+def experiment(t=4,q=3,b=64,coins='classical-retained'):
+    return ledger.Experiment(t,q,b,ledger.MIN_MESSAGE+17,'one shared F','one completion',coins)
+
+
+def accepted(cat,ex,row='candidate',role='REG',name='a'):
+    case=next(c for c in cat.cases if (c.row,c.role)==(row,role))
+    return ledger.AcceptedRequest(name,ex.interface,row,role,*case.shape)
+
+
+def popsum_reference(n):
+    # Independently sum each binary column over complete and partial periods.
+    answer=0
+    for bit in range(n.bit_length()):
+        half=1<<bit; period=half<<1
+        answer+=(n//period)*half+max(0,n%period-half)
+    return answer
+
+
+@pytest.mark.parametrize('n',[0,1,2,3,4,7,8,31,32,33,255,256,257,(1<<64)+23])
+def test_population_sum_by_independent_columns(n):
+    assert ledger.popsum(n)==popsum_reference(n)
+    if n<300:
+        assert ledger.popsum(n)==sum(i.bit_count() for i in range(n))
+
+
+@pytest.mark.parametrize('row,role',[('candidate','REG'),('candidate','VOTE'),('comparator','REG'),('comparator','VOTE')])
+@pytest.mark.parametrize('t,b',[(1,23),(2,64),(1<<44,4096),(1<<64,64)])
+def test_rebased_w_matches_frozen_component_and_independent_append(row,role,t,b):
+    ex=experiment(t=t,b=b);i=ex.interface
+    w=ProgrammedWrites(actual_frames(ROOT,row,'registration' if role=='REG' else 'vote'),
+                       1<<20,i.capacity,b,215150)
+    result,work=ledger.write_resources(i,row,role)
+    assert result.report()==w.resources()['gates']
+    assert work==w.resources()['clean_work_bits']
+    a=w.append();n=i.capacity;d=max(2,n.bit_length());q=b+8*215150+2112
+    raw=a.resources()['gates']
+    assert (raw['x'],raw['cx'],raw['ccx'])==(4*(d*n-popsum_reference(n)),n+1,
+            n*(4*d-2+q)+(d-1)**2)
+    assert i.log_bits==n*(1+q)==w.layout()['log_bits']
+    assert i.counter_bits==d==a.counter_bits
+    assert work==1+q+d+32
+    assert result.f==0
+
+
+@pytest.mark.parametrize('t,b',[(0,23),(1,64),(7,4096),(1<<64,64)])
+def test_lookup_exact_frozen_component_and_no_duplicate_counter(t,b):
+    ex=experiment(t=t,b=b);i=ex.interface
+    old=OverlayLookup(i.capacity,b,215150,ex.message_bytes)
+    count,work=ledger.query_resources(i)
+    assert count.report()==old.resources()['gates']
+    assert work==old.resources()['clean_work_bits']
+    assert count.f==2
+    assert old.resources()['append_counter_bits_excluded'] is True
+
+
+def test_catalog_authenticates_exact_selected_case_inventory(catalog):
+    raw=json.loads((ROOT/ledger.OBSERVATION).read_text())
+    assert len(catalog.pins)==72
+    assert len(catalog.cases)==4
+    for c in catalog.cases:
+        original=next(x['resources'] for x in raw['source_cases'] if (x['row'],x['role'])==(c.row,c.role))
+        assert c.public+c.coins==original['original_input_bits']
+        assert c.output==original['caller_output_bits']
+        proof={('candidate','REG'):160148,('candidate','VOTE'):233012,
+               ('comparator','REG'):109498,('comparator','VOTE'):158074}[c.row,c.role]
+        assert c.output==97+8*proof
+        tau,g,opening=(33,704,229) if c.row=='candidate' else (22,696,225)
+        ell=35840 if c.role=='REG' else 53504
+        assert c.coins==512*(1<<20)+256*opening+896*tau+tau*ell+10*g+736*8
+        assert c.generator.f==(6200 if c.row=='candidate' else 5960)
+
+
+def test_mixed_trace_counts_actual_source_parts_and_once_only_storage(catalog):
+    ex=experiment()
+    a=accepted(catalog,ex)
+    r=ledger.RejectedVote('r',ex.interface,'comparator',(1<<63)+3)
+    q=ledger.Query('q',ex.interface,ledger.MIN_MESSAGE)
+    out=ledger.account(catalog,ex,(a,q,r))
+    c=catalog.accepted(a);w,ww=ledger.write_resources(ex.interface,a.row,a.role)
+    lc,lw=ledger.query_resources(ex.interface)
+    rejected=RejectedVoteFamily(r.list_count,158074).resources()
+    expected=c.generator+w+c.returns+lc+ledger.Gates.from_report(rejected['gates'])
+    assert out['body_gates']==expected.report()
+    allocations={x['name']:x for x in out['ownership']['allocations']}
+    assert allocations['event.a.public']['bits']==c.public
+    assert allocations['event.a.coins']['bits']==c.coins
+    assert allocations['event.a.output']['bits']==c.output
+    assert allocations['event.r.public']['bits']==3608+1024*r.list_count
+    assert allocations['event.r.output']['bits']==253+158074*8
+    assert 'event.r.coins' not in allocations
+    assert allocations['event.q.query']['bits']==ex.length_bits+8*q.message_bytes
+    assert allocations['event.q.response']['bits']==2112
+    assert allocations['event.q.enable']['bits']==1
+    assert set(k for k in allocations if k.startswith('persistent.'))=={'persistent.log','persistent.counter'}
+    work=max(c.retained+max(c.generator_work,ww,1),lw,519)
+    assert allocations['reusable.clean']['bits']==work
+    assert out['ownership']['known_allocated_bits']==sum(x['bits'] for x in allocations.values())
+    assert out['capacity']['reserved_upper']==(1<<20)+2
+    assert out['capacity']['actual_occupancy'] is None
+    assert [x['conservative_log_occupancy_upper'] for x in out['events']]==[(1<<20)+2]*3
+    assert out['events'][2]['actual_appends']==0
+    assert out['events'][0]['actual_appends'] is None
+
+
+def test_empty_lifetime_retains_only_explicit_counter(catalog):
+    ex=experiment(t=0,q=0)
+    out=ledger.account(catalog,ex,())
+    assert out['body_gates']==ledger.Gates().report()
+    assert out['ownership']['allocations']==[{'name':'persistent.counter','start':0,'bits':2}]
+    assert out['ownership']['known_allocated_bits']==2
+    assert out['capacity']['reserved_upper']==0
+
+
+def test_l0_only_no_log_has_two_oracles_per_call(catalog):
+    ex=experiment(t=0,q=2)
+    out=ledger.account(catalog,ex,(ledger.Query('q1',ex.interface,ledger.MIN_MESSAGE),
+                                  ledger.Query('q2',ex.interface,ex.message_bytes)))
+    assert out['body_gates']==ledger.Gates(ccx=2*2112,f=4).report()
+    assert out['ownership']['reusable_clean_bits']==2112
+    assert out['capacity']['slots']==0
+
+
+@pytest.mark.parametrize('n',[0,2,1001,65536,(1<<64)-1])
+@pytest.mark.parametrize('row,proof',[('candidate',233012),('comparator',158074)])
+def test_rejected_size_retains_fullwidth_input_without_coin_or_log_effect(catalog,n,row,proof):
+    ex=experiment(t=1,q=0)
+    out=ledger.account(catalog,ex,(ledger.RejectedVote('r',ex.interface,row,n),))
+    old=RejectedVoteFamily(n,proof).resources()
+    assert out['body_gates']==old['gates']
+    assert out['body_gates']['elementary_gates']==5881+2*n.bit_count()
+    assert out['events'][0]['public_input_bits']==3608+1024*n
+    assert out['events'][0]['original_coin_bits']==0
+    assert out['ownership']['reusable_clean_bits']==519
+    assert out['capacity']['reserved_upper']==0
+
+
+def test_purification_adds_one_purifier_and_separate_h_cx_per_coin(catalog):
+    normal=experiment(t=1,q=0)
+    purified=dataclasses.replace(normal,coins='purified-retained')
+    a=accepted(catalog,normal)
+    x=ledger.account(catalog,normal,(a,));y=ledger.account(catalog,purified,(a,))
+    n=catalog.accepted(a).coins
+    assert x['body_gates']==y['body_gates']
+    assert y['ownership']['known_allocated_bits']-x['ownership']['known_allocated_bits']==n
+    assert y['coin_preparation']==dict(model='canonical retained purification',hadamard=n,cx=n,
+                                       additional_to_body=True,executed=False,requires_clean_coin_and_purifier_inputs=True)
+
+
+@pytest.mark.parametrize('field,value',[('capacity',17),('length_bits',63),('oracle','other F'),('completion','other completion')])
+def test_same_n_b_f_completion_required(catalog,field,value):
+    ex=experiment()
+    bad=dataclasses.replace(ex.interface,**{field:value})
+    q=ledger.Query('q',bad,ledger.MIN_MESSAGE)
+    with pytest.raises(ValueError,match='mismatch'):
+        ledger.account(catalog,ex,(q,))
+
+
+@pytest.mark.parametrize('role,changes',[('REG',dict(body_bytes=0)),('REG',dict(context_bytes=(255,)*6)),
+                                        ('VOTE',dict(list_count=3)),('VOTE',dict(list_count=999)),
+                                        ('VOTE',dict(list_count=1001))])
+def test_unobserved_accepted_shapes_do_not_get_endpoint_maxima(catalog,role,changes):
+    ex=experiment();a=dataclasses.replace(accepted(catalog,ex,role=role),**changes)
+    with pytest.raises(ValueError,match='unsupported accepted shape'):
+        ledger.account(catalog,ex,(a,))
+
+
+def test_request_and_query_caps_count_rejected_calls_too(catalog):
+    ex=experiment(t=1,q=1)
+    r=ledger.RejectedVote('r',ex.interface,'candidate',0)
+    q=ledger.Query('q',ex.interface,ledger.MIN_MESSAGE)
+    with pytest.raises(ValueError,match='request cap'):
+        ledger.account(catalog,ex,(r,dataclasses.replace(r,event_id='r2')))
+    with pytest.raises(ValueError,match='query capacity'):
+        ledger.account(catalog,ex,(q,dataclasses.replace(q,event_id='q2')))
+    with pytest.raises(ValueError,match='duplicate event'):
+        ledger.account(catalog,ex,(r,r))
+    with pytest.raises(ValueError,match='length envelope'):
+        ledger.account(catalog,ex,(dataclasses.replace(q,message_bytes=ex.message_bytes+1),))
+
+
+def test_exact_disjoint_allocation_rejects_alias_missing_and_wrong_width(catalog):
+    ex=experiment(t=1,q=0);ev=(ledger.RejectedVote('r',ex.interface,'candidate',0),)
+    out=ledger.account(catalog,ex,ev)
+    p=tuple(ledger.Allocation(**a) for a in out['ownership']['allocations'])
+    shifted=tuple(dataclasses.replace(a,start=a.start+73) for a in p)
+    moved=ledger.account(catalog,ex,ev,shifted)
+    assert moved['body_gates']==out['body_gates']
+    assert moved['ownership']['known_allocated_bits']==out['ownership']['known_allocated_bits']
+    assert moved['ownership']['address_span_bits']==out['ownership']['address_span_bits']+73
+    with pytest.raises(ValueError,match='overlapping'):
+        ledger.account(catalog,ex,ev,(p[0],dataclasses.replace(p[1],start=0),*p[2:]))
+    for bad in (p[:-1],(dataclasses.replace(p[0],bits=p[0].bits+1),*p[1:]),(*p[:-1],p[0])):
+        with pytest.raises(ValueError,match='membership'):
+            ledger.account(catalog,ex,ev,bad)
+
+
+def test_all_whole_experiment_claims_remain_unqualified(catalog):
+    out=ledger.account(catalog,experiment(t=0,q=0),())
+    for key in ('full_quantum_joint_state_theorem_proved','full_adaptive_driver_executed',
+                'family_wide_resource_maximum_proved','complete_resource_vector',
+                'actual_input_primitive_bridge','independent_cryptographic_review',
+                'physical_workspace_bound','current_candidate_qualified','profile_qualified',
+                'production_gate_changed'):
+        assert out[key] is False
+    assert all(value is None for value in out['unknown_external_terms'].values())
+    assert 'caller_assertions_not_verified' in out
+
+
+@pytest.mark.parametrize('malformed',[{},'',(),None,False,0])
+def test_json_event_collection_must_be_array(malformed):
+    with pytest.raises((ValueError,TypeError)):
+        ledger.parse_document({'experiment':dataclasses.asdict(experiment()),'events':malformed})
+
+
+def test_catalog_is_immutable_and_has_no_caller_case_override(catalog):
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        catalog.cases=()
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        catalog.pins=()
+    with pytest.raises(TypeError):
+        ledger.Catalog(ROOT,cases=())
+
+
+def test_before_and_after_source_verification_refuses_drift(catalog,monkeypatch):
+    original=ledger.digest
+    watched=catalog.root/catalog.pins[0][0]
+    seen=0
+    def changing(path):
+        nonlocal seen
+        if Path(path)==watched:
+            seen+=1
+            if seen==2:
+                return '0'*64
+        return original(path)
+    monkeypatch.setattr(ledger,'digest',changing)
+    with pytest.raises(ValueError,match='source drift'):
+        ledger.account(catalog,experiment(t=0,q=0),())
+    assert seen==2
+
+
+def test_observation_bad_bytes_refuse_before_any_metadata_parsing(tmp_path):
+    target=tmp_path/ledger.OBSERVATION
+    target.parent.mkdir(parents=True)
+    target.write_text('{}')
+    with pytest.raises(ValueError,match='observation source drift'):
+        ledger.Catalog(tmp_path)
+
+
+def test_selected_helper_drift_refuses_catalog(tmp_path,catalog):
+    for name,_ in catalog.pins:
+        dst=tmp_path/name;dst.parent.mkdir(parents=True,exist_ok=True)
+        if name.endswith('/request_family.py'):
+            dst.write_bytes((ROOT/name).read_bytes()+b'\n# changed bytes\n')
+        else:
+            dst.symlink_to(ROOT/name)
+    with pytest.raises(ValueError,match='source drift'):
+        ledger.Catalog(tmp_path)
+
+
+def test_cli_normal_and_qualification_refusal_identical_report(tmp_path):
+    import os
+    import subprocess
+    value={'experiment':dataclasses.asdict(experiment(t=0,q=0)),'events':[]}
+    path=tmp_path/'trace.json';path.write_text(json.dumps(value))
+    cmd=[sys.executable,str(STAGE/'ledger.py'),'--root',str(ROOT),'--events',str(path)]
+    env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1')
+    ordinary=subprocess.run(cmd,capture_output=True,text=True,env=env,check=False)
+    refused=subprocess.run([*cmd,'--require-qualified'],capture_output=True,text=True,env=env,check=False)
+    assert ordinary.returncode==0 and refused.returncode==2
+    assert not ordinary.stderr and not refused.stderr
+    assert ordinary.stdout==refused.stdout
+    report=json.loads(ordinary.stdout)
+    assert report['complete_resource_vector'] is False
+    value['events']=[{'kind':'unpriced_content_p0'}]
+    path.write_text(json.dumps(value))
+    unknown=subprocess.run(cmd,capture_output=True,text=True,env=env,check=False)
+    assert unknown.returncode==1 and not unknown.stdout

@@ -1,0 +1,19 @@
+[
+  "/opt/homebrew/bin/pytest",
+  "-o",
+  "addopts=",
+  "-p",
+  "no:cacheprovider",
+  "--noconftest",
+  "-p",
+  "capture_observer",
+  "-k",
+  "",
+  "-m",
+  "",
+  "--maxfail=0",
+  "--basetemp=/Users/mtakemiya/dev/iroha/target/parliament-machine-final-capture/observer-final-temp/test_actual_parent_and_subtest0/pytest-temp",
+  "--junitxml=/Users/mtakemiya/dev/iroha/target/parliament-machine-final-capture/observer-final-temp/test_actual_parent_and_subtest0/junit.xml",
+  "-q",
+  "/Users/mtakemiya/dev/iroha/target/parliament-machine-final-capture/observer-final-temp/test_actual_parent_and_subtest0/test_observed_case.py"
+]

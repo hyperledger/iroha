@@ -1,0 +1,41 @@
+{
+  "status": "PASS",
+  "draft_report_sha256": "9460da92323a358a6bdf13cb27ad286bb6ee5799ab88189b1db05bcd3c1dce70",
+  "modes": [
+    {
+      "mode": "portable",
+      "checked_cies": 71,
+      "checked_fdes": 606,
+      "checked_nonzero_lsda": 228,
+      "tool_stdout_sha256": "7f56ed03be719fe109249ae70c809c0aa4e38df10550334e288cc46a68c955a7",
+      "matching_fields": [
+        "offset",
+        "total record length",
+        "CIE linkage",
+        "function start/end",
+        "LSDA address",
+        "personality pointer slot",
+        "CIE version/augmentation/code-data alignment/return register"
+      ]
+    },
+    {
+      "mode": "accel",
+      "checked_cies": 71,
+      "checked_fdes": 598,
+      "checked_nonzero_lsda": 228,
+      "tool_stdout_sha256": "32d879eaf51485f4f58b49851134ecdd9b80cd4671022ece40ce19495a1470d5",
+      "matching_fields": [
+        "offset",
+        "total record length",
+        "CIE linkage",
+        "function start/end",
+        "LSDA address",
+        "personality pointer slot",
+        "CIE version/augmentation/code-data alignment/return register"
+      ]
+    }
+  ],
+  "complete_exception_semantics": false,
+  "native_stack_certificate": false,
+  "scope": "Selected draft parser metadata agrees row-by-row with independent LLVM text decode; no loaded-runtime or CFI interpretation claim"
+}

@@ -1,0 +1,120 @@
+{
+  "inputs": {
+    "accel_binary": {
+      "bytes": 1043504,
+      "sha256": "40219e559636f092c3b4197f6e65eb1ab083f25444fcafd2b635221b4f7e18e7",
+      "snapshot": "inputs/accel_binary",
+      "source_path": "/private/tmp/parliament-current-candidate-20261013-v1/binaries-v2/worker-accel"
+    },
+    "accel_disassembly": {
+      "bytes": 4783933,
+      "sha256": "a43721df6e2ce58c92d3a5304cdc3f483c6b5d5d3a8774a13dfae15a5a75d596",
+      "snapshot": "inputs/accel_disassembly",
+      "source_path": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/accel/disassembly.txt"
+    },
+    "accel_stack_report": {
+      "bytes": 1357581,
+      "sha256": "26fd43aabade5451bd5b0b130107b3ca052d1905963f75947d4a00194b734348",
+      "snapshot": "inputs/accel_stack_report",
+      "source_path": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/accel.json"
+    },
+    "accel_starts": {
+      "bytes": 93356,
+      "sha256": "fa77d078fcc9b7a0d27ed96d1f21261c5b1c8885d5644db1a4d7acfec7f4f853",
+      "snapshot": "inputs/accel_starts",
+      "source_path": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/accel/starts.txt"
+    },
+    "accel_stubs": {
+      "bytes": 6713,
+      "sha256": "9ba48479e64abe79f6a2417a24fd8692f120ff72f9c08c2d68d7c0004a64ed4d",
+      "snapshot": "inputs/accel_stubs",
+      "source_path": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/accel/stubs.txt"
+    },
+    "accel_unwind": {
+      "bytes": 66567,
+      "sha256": "59d25bfdf0670ac6a17188916d230dfb286d43d7a6f9c4a73decab0bb5f45684",
+      "snapshot": "inputs/accel_unwind",
+      "source_path": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/accel/unwind.txt"
+    },
+    "build_receipt": {
+      "bytes": 366797,
+      "sha256": "4ef33ae9c643febd2d98904a556cc89fe559b48b4a852193ff3ffd6f7d09bba6",
+      "snapshot": "inputs/build_receipt",
+      "source_path": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/build-v2/build-receipt.json"
+    },
+    "candidate_manifest": {
+      "bytes": 18768,
+      "sha256": "40b01704bcad1551c5a44cf8b5b8311f64d3f751a19caf36fb2ec1641611c7ba",
+      "snapshot": "inputs/candidate_manifest",
+      "source_path": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/SHA256SUMS"
+    },
+    "compact_header": {
+      "bytes": 22152,
+      "sha256": "3cc6fb9161ed9f8096983c65cc4c39be857a2628a6e01372e45f80dd9b367cf8",
+      "snapshot": "inputs/compact_header",
+      "source_path": "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/mach-o/compact_unwind_encoding.h"
+    },
+    "portable_binary": {
+      "bytes": 1059408,
+      "sha256": "3f658228a903c50c9a549baedd0b822e14fca03f654659720cb434b83d9bb9dc",
+      "snapshot": "inputs/portable_binary",
+      "source_path": "/private/tmp/parliament-current-candidate-20261013-v1/binaries-v2/worker-portable"
+    },
+    "portable_disassembly": {
+      "bytes": 4867896,
+      "sha256": "1f8f8e31db679a2738e2916efd73f55b0b4581698294080dcc8b0a457ea06cdd",
+      "snapshot": "inputs/portable_disassembly",
+      "source_path": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/portable/disassembly.txt"
+    },
+    "portable_stack_report": {
+      "bytes": 1372477,
+      "sha256": "670b6941ef2c3b798813a482077e82a7acf2dade43a09bba61280e2ac70e16e8",
+      "snapshot": "inputs/portable_stack_report",
+      "source_path": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/portable.json"
+    },
+    "portable_starts": {
+      "bytes": 93019,
+      "sha256": "bcf217bd0a5dc8bfc3a25c13ae5cc98bf15f43d1c9cf43c1bac34dbcf2a9abc9",
+      "snapshot": "inputs/portable_starts",
+      "source_path": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/portable/starts.txt"
+    },
+    "portable_stubs": {
+      "bytes": 6716,
+      "sha256": "b9e1b3f3beb9e5ce33e678adcc47e5ec49590f657b49081cafcdc06439503f8b",
+      "snapshot": "inputs/portable_stubs",
+      "source_path": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/portable/stubs.txt"
+    },
+    "portable_unwind": {
+      "bytes": 67195,
+      "sha256": "e05d192345f53c0e6770080796f64cd8f73813326e3c6d33b17131455c2f5a7f",
+      "snapshot": "inputs/portable_unwind",
+      "source_path": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/portable/unwind.txt"
+    },
+    "prior_analyzer": {
+      "bytes": 23282,
+      "sha256": "d54365c9f3460635cd9ba653d7139827b737161052a1d409ecaf06f9dd19830e",
+      "snapshot": "inputs/prior_analyzer",
+      "source_path": "/Users/mtakemiya/dev/iroha/scripts/parliament_ballot_stack_audit.py"
+    },
+    "rust_eh": {
+      "bytes": 31037,
+      "sha256": "156898fff2558c1808fcd2859ecc36e7129dc194572155f9bf1d97cc08fdf84e",
+      "snapshot": "inputs/rust_eh",
+      "source_path": "/Users/mtakemiya/.rustup/toolchains/1.93.1-aarch64-apple-darwin/share/doc/rust/html/src/std/sys/personality/dwarf/eh.rs.html"
+    },
+    "rust_gcc": {
+      "bytes": 39906,
+      "sha256": "8ec6f7c6ba251bb777b5fc9a4c6bf26762ca1302f495381f0f4558f99a3fbb9a",
+      "snapshot": "inputs/rust_gcc",
+      "source_path": "/Users/mtakemiya/.rustup/toolchains/1.93.1-aarch64-apple-darwin/share/doc/rust/html/src/std/sys/personality/gcc.rs.html"
+    },
+    "stack_receipt": {
+      "bytes": 370656,
+      "sha256": "d1e6571ba7452584c87e981027020564541d88a4a0b6e1ce17b3e3ed54d30acb",
+      "snapshot": "inputs/stack_receipt",
+      "source_path": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/receipt.json"
+    }
+  },
+  "schema": "parliament-exception-inputs-v1",
+  "scope": "Selected authenticated retained-image and capture inputs, plus local reference source. Not full build closure or live-checkout qualification."
+}

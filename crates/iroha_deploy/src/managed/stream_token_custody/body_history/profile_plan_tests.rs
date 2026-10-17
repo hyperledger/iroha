@@ -105,10 +105,11 @@ fn unsigned_body_reads_share_one_plan_and_recheck_complete_profile_on_every_call
     generation
         .write_atomic("peer3.toml", &changed, PublishMode::Replace)
         .unwrap();
-    for result in [
-        history.read_current(&fixture.owner).map(Some),
-        BodyHistory::open(&fixture.owner, CustodyPurpose::Renewal(2)),
-    ] {
+    let mut results = Vec::with_capacity(2);
+    results.push(history.read_current(&fixture.owner).map(Some));
+    let reopened = BodyHistory::open(&fixture.owner, CustodyPurpose::Renewal(2));
+    results.push(reopened);
+    for result in results {
         assert!(
             matches!(result, Err(crate::managed::Error::Invalid(message))
             if message == "retained service profile input custody differs")
@@ -274,9 +275,9 @@ fn changed_profile_during_actual_historical_read_refuses_attester_and_original_p
         unsigned
     );
     assert!(
-        !metadata::test_read_component(&body, None, "dispatch.nrt")
+        metadata::test_read_component(&body, None, "dispatch.nrt")
             .unwrap()
-            .is_some()
+            .is_none()
     );
     assert!(!body.path().join("attempts").exists());
     assert_eq!(fixture.native.chain.height(), 4);

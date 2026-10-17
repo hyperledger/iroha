@@ -33,13 +33,15 @@ fn share(key: &StakeKey, bonded: Quantity) -> PublicLaneStakeShare {
 #[test]
 fn maximum_service_capture_visits_only_exact_current_and_undo_prefixes() {
     let started = Instant::now();
-    let validators: Vec<_> = (0..u32::try_from(VALIDATORS_PER_LANE).unwrap())
+    let validators: Vec<_> = (0..u32::try_from(VALIDATORS_PER_LANE)
+        .expect("128 validators fit u32"))
         .map(account)
         .collect();
-    let stakers: Vec<_> = (10_000..10_000 + u32::try_from(MAX_REWARD_RECIPIENTS).unwrap())
+    let stakers: Vec<_> = (10_000
+        ..10_000 + u32::try_from(MAX_REWARD_RECIPIENTS).expect("256 recipients fit u32"))
         .map(account)
         .collect();
-    let new_stakers: Vec<_> = (20_000..20_256).map(account).collect();
+    let transient_stakers: Vec<_> = (20_000..20_256).map(account).collect();
     let lane = LaneId::new(512);
     let selected = BTreeMap::from([(
         lane,
@@ -61,7 +63,7 @@ fn maximum_service_capture_visits_only_exact_current_and_undo_prefixes() {
             };
             (0..count).map(move |staker_index| {
                 let key = (
-                    LaneId::new(u32::try_from(lane_index).unwrap()),
+                    LaneId::new(u32::try_from(lane_index).expect("lane index below 1024")),
                     validators[validator_index].clone(),
                     stakers[staker_index].clone(),
                 );
@@ -107,7 +109,7 @@ fn maximum_service_capture_visits_only_exact_current_and_undo_prefixes() {
                 continue;
             }
             block.remove((
-                LaneId::new(u32::try_from(lane_index).unwrap()),
+                LaneId::new(u32::try_from(lane_index).expect("lane index below 1024")),
                 validator.clone(),
                 stakers[0].clone(),
             ));
@@ -119,12 +121,12 @@ fn maximum_service_capture_visits_only_exact_current_and_undo_prefixes() {
         }
         let changed = (lane, validator.clone(), stakers[16].clone());
         block.insert(changed.clone(), share(&changed, Quantity::zero()));
-        for staker in &new_stakers {
+        for staker in &transient_stakers {
             let key = (lane, validator.clone(), staker.clone());
             block.insert(key.clone(), share(&key, Quantity::from(9_000_000u32)));
             block.remove(key);
         }
-        for staker in &new_stakers[..16] {
+        for staker in &transient_stakers[..16] {
             let key = (lane, validator.clone(), staker.clone());
             block.insert(key.clone(), share(&key, Quantity::one()));
         }
@@ -283,7 +285,7 @@ fn malformed_parent_identity_and_excess_recipient_count_are_rejected() {
             let key = (
                 lane,
                 validator.clone(),
-                account(u32::try_from(index).unwrap() + 100),
+                account(u32::try_from(index).expect("recipient index at most 256") + 100),
             );
             (key.clone(), share(&key, Quantity::one()))
         })
@@ -316,15 +318,16 @@ fn malformed_parent_identity_and_excess_recipient_count_are_rejected() {
         block.remove((
             lane,
             validator.clone(),
-            account(u32::try_from(index).unwrap() + 100),
+            account(u32::try_from(index).expect("recipient index at most 256") + 100),
         ));
     }
-    visits = 0;
-    assert!(capture_stakes(&block, &selected, |_| visits += 1).is_err());
+    assert!(block.is_empty());
+    let mut visits = [0_usize; 3];
+    assert!(capture_stakes(&block, &selected, |v| visits[v as usize] += 1).is_err());
     assert_eq!(
         visits,
-        MAX_REWARD_RECIPIENTS + 1,
-        "oversized undo prefixes stop at the first impossible recipient"
+        [0, MAX_REWARD_RECIPIENTS + 1, 0],
+        "oversized parent prefixes stop at the first impossible undo recipient"
     );
 }
 
@@ -356,7 +359,7 @@ fn maximum_retained_universe_range_seek_has_bounded_work() {
     // the memory or serialization cost of 33m full production stake records.
     let total = LANES * VALIDATORS_PER_LANE * MAX_REWARD_RECIPIENTS;
     let build_started = Instant::now();
-    let storage: Storage<_, _> = (0..u32::try_from(total).unwrap())
+    let storage: Storage<_, _> = (0..u32::try_from(total).expect("33,554,432 index rows fit u32"))
         .map(|key| (IndexKey(key), ()))
         .collect();
     let block = storage.block();
@@ -367,7 +370,7 @@ fn maximum_retained_universe_range_seek_has_bounded_work() {
     let mut visited = 0;
     // Include both end leaves and many distinct interior paths at full depth.
     for prefix in (0..31).map(|index| index * (LANES * VALIDATORS_PER_LANE - 1) / 30) {
-        let start = u32::try_from(prefix).unwrap() * 256;
+        let start = u32::try_from(prefix).expect("prefix index below 131,072") * 256;
         let mut expected = start;
         for (key, ()) in block.range(IndexKey(start)..IndexKey(start + 256)) {
             assert_eq!(key.0, expected);
