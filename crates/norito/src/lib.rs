@@ -5624,6 +5624,10 @@ pub mod json {
         fn json_from_value(value: &Value) -> Result<Self, Error> {
             value_depth::ensure(value)?;
             if let Value::Array(items) = value {
+                crate::core::enforce_decode_sequence_length(
+                    u64::try_from(items.len()).map_err(|_| Error::DecodeResourceLimit)?,
+                )
+                .map_err(Error::from_decode_resource)?;
                 let mut out = try_decode_vec_with_capacity(items.len())?;
                 for item in items {
                     out.push(T::json_from_value(item)?);
@@ -5666,6 +5670,10 @@ pub mod json {
         fn json_from_value(value: &Value) -> Result<Self, Error> {
             value_depth::ensure(value)?;
             if let Value::Array(items) = value {
+                crate::core::enforce_decode_sequence_length(
+                    u64::try_from(items.len()).map_err(|_| Error::DecodeResourceLimit)?,
+                )
+                .map_err(Error::from_decode_resource)?;
                 crate::core::reserve_decode_btree_allocation::<T, ()>(items.len())
                     .map_err(Error::from_decode_resource)?;
                 let mut set = std::collections::BTreeSet::new();
@@ -5690,7 +5698,14 @@ pub mod json {
         }
         fn json_from_value(value: &Value) -> Result<Self, Error> {
             value_depth::ensure(value)?;
-            Ok(value.clone())
+            match value {
+                Value::Null => Ok(Value::Null),
+                Value::Bool(value) => Ok(Value::Bool(*value)),
+                Value::Number(value) => Ok(Value::Number(*value)),
+                Value::String(value) => try_decode_string_copy(value).map(Value::String),
+                Value::Array(_) => Vec::<Value>::json_from_value(value).map(Value::Array),
+                Value::Object(_) => Map::json_from_value(value).map(Value::Object),
+            }
         }
     }
     /// Structural index (scalar) representing offsets of JSON structural characters
@@ -8416,6 +8431,8 @@ pub mod json {
     where
         T: FastFromJson<'a> + JsonDeserialize,
     {
+        // Refuse the complete document before Stage-1 can allocate its structural tape.
+        ensure_json_value_depth(document_json_value_depth(s))?;
         // Tape-first path: build structural index, then invoke the type's fast parser.
         let mut w = TapeWalker::new(s);
         w.ensure_document_depth()?;
@@ -8742,6 +8759,10 @@ pub mod json {
         fn json_from_value(value: &Value) -> Result<Self, Error> {
             value_depth::ensure(value)?;
             if let Value::Object(obj) = value {
+                crate::core::enforce_decode_sequence_length(
+                    u64::try_from(obj.len()).map_err(|_| Error::DecodeResourceLimit)?,
+                )
+                .map_err(Error::from_decode_resource)?;
                 crate::core::reserve_decode_hash_table_allocation::<(K, V)>(obj.len())
                     .map_err(Error::from_decode_resource)?;
                 let mut map = std::collections::HashMap::new();
@@ -8787,6 +8808,10 @@ pub mod json {
         fn json_from_value(value: &Value) -> Result<Self, Error> {
             value_depth::ensure(value)?;
             if let Value::Object(obj) = value {
+                crate::core::enforce_decode_sequence_length(
+                    u64::try_from(obj.len()).map_err(|_| Error::DecodeResourceLimit)?,
+                )
+                .map_err(Error::from_decode_resource)?;
                 crate::core::reserve_decode_btree_allocation::<K, V>(obj.len())
                     .map_err(Error::from_decode_resource)?;
                 let mut map = std::collections::BTreeMap::new();
@@ -8836,6 +8861,10 @@ pub mod json {
         fn json_from_value(value: &Value) -> Result<Self, Error> {
             value_depth::ensure(value)?;
             if let Value::Array(items) = value {
+                crate::core::enforce_decode_sequence_length(
+                    u64::try_from(items.len()).map_err(|_| Error::DecodeResourceLimit)?,
+                )
+                .map_err(Error::from_decode_resource)?;
                 crate::core::reserve_decode_hash_table_allocation::<T>(items.len())
                     .map_err(Error::from_decode_resource)?;
                 let mut set = std::collections::HashSet::new();

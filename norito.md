@@ -593,9 +593,11 @@ storage; malformed, oversized, or over-depth wire values never become a
 `Json`. Raw JSON producers use the fallible `Json::from_raw_json`, while plain
 text that should become a JSON string uses `Json::new` or `Json::from`.
 Each generic or tape-first typed document entry point preflights the complete
-document's maximum value depth once with an allocation-free, quote-aware scalar
+document's maximum value depth with an allocation-free, quote-aware scalar
 scan before generated `JsonDeserialize` or custom `FastFromJson` recursion
-begins. Generic-to-tape adapters may validate the exact next subtree again to
+begins. Fast entry checks depth before allocating the Stage-1 tape and retains
+the walker's cached-depth guard; constructing the walker scans depth again.
+Generic-to-tape adapters may validate the exact next subtree again to
 find its boundary, but construct their tape over only that non-overlapping
 slice and never rescan unrelated enclosing bytes. The security bound is
 independent of the selected hardware Stage-1 tape, so every node reaches the
@@ -613,6 +615,16 @@ from an existing `Value` uses a bounded, allocation-free borrowed traversal
 before cloning or serializing it, and the consuming conversion retains its
 iterative cleanup path on refusal. Transparent `Box` ownership does not add a
 JSON structural level; its separate fixed recursion guard remains enforced.
+
+Native `Value` and collection conversions charge each array or object entry
+against the active per-sequence and cumulative element budgets before reserving
+destination storage or converting children. A native `Value` copy uses the same
+charged string, vector and map owners, including copied object keys and nested
+values. The original scope owns these additional allocations; already owning
+the input does not fund a second copy. Scalar and empty native `Value` variants
+need no element or heap charge. Transparent `Option` and `Box` conversions do
+not duplicate collection counts; `Box` still charges its own storage.
+
 Owned JSON cleanup threads parent ownership through existing child slots and
 releases only leaves or empty containers with ordinary drop. It therefore uses
 constant native stack space and allocates no cleanup storage, including for

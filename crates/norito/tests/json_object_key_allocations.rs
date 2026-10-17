@@ -262,3 +262,126 @@ fn refused_public_value_conversion_releases_the_original_deep_comb() {
     ));
     assert_fully_released(&built, &dropped);
 }
+
+#[derive(Debug, PartialEq, Eq, norito_derive::FastJson, norito_derive::JsonDeserialize)]
+#[norito(no_fast_from_json)]
+struct FastDepthLeaf {
+    value: u64,
+}
+
+#[derive(Debug, PartialEq, Eq, norito_derive::FastJson, norito_derive::JsonDeserialize)]
+#[norito(no_fast_from_json)]
+struct FastDepthProbe {
+    nested: Vec<FastDepthLeaf>,
+}
+
+fn decode_fast_depth(input: &str) -> Result<FastDepthProbe, json::Error> {
+    json::from_json_fast(input)
+}
+
+fn decode_smart_depth(input: &str) -> Result<FastDepthProbe, json::Error> {
+    json::from_json_fast_smart(input)
+}
+
+fn decode_auto_depth(input: &str) -> Result<FastDepthProbe, json::Error> {
+    json::from_json_auto(input)
+}
+
+fn fast_depth_limits(depth: usize) -> norito::DecodeLimits {
+    norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, depth)
+}
+
+fn pad_document(document: &str, length: usize) -> String {
+    assert!(document.len() <= length);
+    let mut padded = String::with_capacity(length);
+    padded.push_str(document);
+    for _ in document.len()..length {
+        padded.push(' ');
+    }
+    padded
+}
+
+#[test]
+fn fast_entry_active_depth_refuses_before_any_tape_allocation() {
+    for length in [256, 257] {
+        let input = pad_document(r#"{"nested":[{"value":7}]}"#, length);
+        for decode in [decode_fast_depth, decode_smart_depth, decode_auto_depth] {
+            // Warm unrelated one-time state and validate the same successful input
+            // outside measurement. The inherited scope is also established first.
+            let expected = FastDepthProbe {
+                nested: vec![FastDepthLeaf { value: 7 }],
+            };
+            assert_eq!(
+                norito::with_decode_limits_scope(fast_depth_limits(3), || decode(&input)).unwrap(),
+                expected
+            );
+            let (result, count, bytes) =
+                norito::with_decode_limits_scope(fast_depth_limits(2), || {
+                    measured(|| decode(&input))
+                });
+            let error = result.expect_err("active depth must refuse before tape allocation");
+            assert_eq!(
+                error.into_core_error().decode_resource_error(),
+                Some(norito::core::DecodeResourceError::NestingDepthExceeded {
+                    depth: 3,
+                    limit: 2,
+                    context: "decode budget",
+                })
+            );
+            assert_eq!((count, bytes), (0, 0));
+        }
+    }
+}
+
+#[test]
+fn fast_entry_fixed_depth_precedes_active_depth_without_tape_allocation() {
+    let document = format!(
+        "{}0{}",
+        "[".repeat(json::MAX_JSON_VALUE_NESTING_DEPTH),
+        "]".repeat(json::MAX_JSON_VALUE_NESTING_DEPTH)
+    );
+    for length in [256, 257] {
+        let input = pad_document(&document, length);
+        for decode in [decode_fast_depth, decode_smart_depth, decode_auto_depth] {
+            let (result, count, bytes) =
+                norito::with_decode_limits_scope(fast_depth_limits(0), || {
+                    measured(|| decode(&input))
+                });
+            assert!(matches!(
+                result,
+                Err(json::Error::NestingDepthExceeded {
+                    depth,
+                    limit: json::MAX_JSON_VALUE_NESTING_DEPTH,
+                    context: "JSON value",
+                }) if depth == json::MAX_JSON_VALUE_NESTING_DEPTH + 1
+            ));
+            assert_eq!((count, bytes), (0, 0));
+        }
+    }
+}
+
+#[test]
+fn fast_dispatch_exact_depth_and_trailing_refusal_preserve_both_threshold_sides() {
+    let expected = FastDepthProbe {
+        nested: vec![FastDepthLeaf { value: 7 }],
+    };
+    for length in [256, 257] {
+        let input = pad_document(r#"{"nested":[{"value":7}]}"#, length);
+        let mut trailing = pad_document(r#"{"nested":[{"value":7}]}"#, length - 1);
+        trailing.push('0');
+        for decode in [decode_fast_depth, decode_smart_depth, decode_auto_depth] {
+            assert_eq!(
+                norito::with_decode_limits_scope(fast_depth_limits(3), || decode(&input)).unwrap(),
+                expected
+            );
+            let error =
+                norito::with_decode_limits_scope(fast_depth_limits(3), || decode(&trailing))
+                    .expect_err("the original trailing byte must remain rejected");
+            assert!(matches!(
+                error,
+                json::Error::TrailingCharacters { byte, line: 1, col }
+                    if byte == length - 1 && col == length
+            ));
+        }
+    }
+}
