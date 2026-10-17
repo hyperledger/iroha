@@ -2795,3 +2795,7 @@ mod request_id_middleware_tests {
         assert_ne!(generated, "second-valid-id");
     }
 }
+
+#[cfg(all(test, feature = "telemetry", feature = "app_api"))]
+#[path = "http_failure_observability_tests.rs"]
+mod http_failure_observability_tests;

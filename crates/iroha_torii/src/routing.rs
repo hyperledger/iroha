@@ -59944,10 +59944,10 @@ pub async fn handle_status(
     ensure_status_visible(telemetry, "status").map_err(status_visibility_failure)?;
     // The actor owns classification, height, and routing policy in one response.
     // Do not join a pre-await State height to a later mutable metrics registry.
-    let owned = telemetry
-        .status_snapshot(build)
-        .await
-        .map_err(status_snapshot_failure)?;
+    let owned = match telemetry.status_snapshot(build).await {
+        Ok(owned) => owned,
+        Err(error) => return Ok(status_snapshot_failure_response(error)),
+    };
     let (status, classified_height) = owned.into_parts();
     ensure_status_metrics_match_authoritative_height(&status, classified_height)?;
     iroha_logger::debug!(

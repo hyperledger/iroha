@@ -6073,6 +6073,7 @@ dependencies = [
  "tokio-tungstenite",
  "tower",
  "tower-http",
+ "tracing-subscriber",
  "tungstenite",
  "url",
  "urlencoding",

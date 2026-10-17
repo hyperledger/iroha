@@ -6453,6 +6453,13 @@ async fn record_http_metrics(
     }
     use axum::body::HttpBody as _;
     let method = req.method().clone();
+    // Copy the validated/generated ID before the request is consumed. The
+    // failure event must remain attributable when the DEBUG span is disabled.
+    let request_id = req
+        .extensions()
+        .get::<RequestCorrelationId>()
+        .map(|id| id.0.clone())
+        .unwrap_or_else(|| "missing".to_owned());
     let route_metadata = req
         .extensions()
         .get::<MatchedRouteMetadata>()
@@ -6507,6 +6514,29 @@ async fn record_http_metrics(
             },
             utils::HttpErrorCode::as_str,
         );
+    if status.is_server_error() {
+        #[cfg(feature = "telemetry")]
+        let status_busy_cause = response
+            .extensions()
+            .get::<utils::HttpStatusBusyCause>()
+            .map_or("none", utils::HttpStatusBusyCause::as_str);
+        #[cfg(not(feature = "telemetry"))]
+        let status_busy_cause = "none";
+        // Use catalog templates and bounded internal diagnostic extensions only.
+        // Never emit the raw URI, headers, body, or human-readable error detail.
+        iroha_logger::error!(
+            event = "torii.http.response_failure",
+            request_id = request_id.as_str(),
+            method = method.as_str(),
+            route_id = route_metadata.stable_route_id(),
+            route_template = route_metadata.path_template(),
+            error_code,
+            status_busy_cause,
+            status = status.as_u16(),
+            duration_ms = duration.as_secs_f64() * 1000.0,
+            "Torii HTTP response failed"
+        );
+    }
     let gateway_response = gateway_request.map(|request| {
         let result = if status.is_success() || status.is_redirection() {
             "success"
