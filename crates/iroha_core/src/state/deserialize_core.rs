@@ -1645,10 +1645,8 @@ fn restore_snapshot_nexus_owner_policy(
 pub(in crate::state) fn decode_world_snapshot_projection_for_testing(
     value: json::Value,
     reference_block_hashes: &[HashOf<BlockHeader>],
+    execution_budget: &iroha_allocation::AllocationBudget,
 ) -> Result<World, StateRestoreError> {
-    let execution_budget = &iroha_allocation::AllocationBudget::new(
-        iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-    );
     (|| {
         let json::Value::Object(fields) = value else {
             return Err(json::Error::Message(
@@ -2997,11 +2995,10 @@ mod evidence_record_restore_adapter_tests {
     fn partial_original_record() -> String {
         let key =
             json::to_json(&iroha_crypto::Hash::new(b"original partial restore claim")).unwrap();
-        // The native byte destination is reached before this later unknown field.
-        // No native certificate or attribution authority is manufactured by the fixture.
-        format!(
-            "{{\"revert\":{{}},\"blocks\":{{{key}:{{\"evidence\":{{\"native\":[1],\"later_unknown\":null}}}}}}}}"
-        )
+        // The original discriminator control is admitted before inspecting record keys.
+        // This malformed record needs no fabricated certificate or retired proof envelope;
+        // its short unknown key fits the unchanged 64-byte pool after control admission.
+        format!("{{\"revert\":{{}},\"blocks\":{{{key}:{{\"late\":null}}}}}}")
     }
 
     #[test]
@@ -3009,7 +3006,7 @@ mod evidence_record_restore_adapter_tests {
         let source = partial_original_record();
         let budget = AllocationBudget::new(64);
         let occupied = budget.try_reserve_bytes(budget.limit_bytes()).unwrap();
-        let layout = std::alloc::Layout::array::<u8>(1).unwrap();
+        let layout = norito::core::DecodeBudgetContext::allocation_layout();
         let expected = budget.try_reserve(layout).unwrap_err();
         assert!(matches!(&expected, AllocationRefusal::Capacity { .. }));
         let Err(error) = SnapshotJsonField::Borrowed { raw: &source }.decode_evidence(&budget)
@@ -3031,7 +3028,7 @@ mod evidence_record_restore_adapter_tests {
         };
         assert!(
             matches!(error, StateRestoreError::Serialization(json::Error::InvalidField {ref field, ref message})
-            if field == "consensus_evidence" && message.contains("later_unknown"))
+            if field == "consensus_evidence" && message.contains("late"))
         );
         assert_eq!(budget.reserved_bytes(), 0);
     }

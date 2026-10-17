@@ -786,6 +786,130 @@ async fn snapshot_json_scanner_enforces_every_resource_budget() {
         }
     }
 }
+// Root values have depth one; every object/array adds one child level.
+fn snapshot_nested_value(depth: usize, arrays: bool) -> String {
+    let (open, close) = if arrays {
+        ("[", "]")
+    } else {
+        (r#"{"child":"#, "}")
+    };
+    format!("{}0{}", open.repeat(depth - 1), close.repeat(depth - 1))
+}
+
+#[test]
+fn snapshot_scanner_direct_policy_cannot_relax_fixed_structural_depth() {
+    let limit = norito::core::MAX_VALUE_NESTING_DEPTH;
+    let policy = SnapshotResourcePolicy {
+        max_decode_depth: NonZeroUsize::MAX,
+        ..SnapshotResourcePolicy::default()
+    };
+    for arrays in [false, true] {
+        for depth in [1, limit] {
+            validate_snapshot_json_resources(
+                snapshot_nested_value(depth, arrays).as_bytes(),
+                policy,
+            )
+            .expect("values through the exact fixed structural ceiling are admitted");
+        }
+        let refused = validate_snapshot_json_resources(
+            snapshot_nested_value(limit + 1, arrays).as_bytes(),
+            policy,
+        );
+        assert!(
+            matches!(refused, Err(TryReadError::SnapshotResourceLimit(ref reason))
+                if reason == &format!("JSON nesting depth {} exceeds Norito structural limit {limit}", limit + 1)),
+            "direct snapshot policy must not relax the fixed structural depth"
+        );
+    }
+}
+
+#[test]
+fn snapshot_scanner_keeps_the_original_lower_local_depth() {
+    let limit = 2;
+    let policy = SnapshotResourcePolicy {
+        max_decode_depth: NonZeroUsize::new(limit).unwrap(),
+        ..SnapshotResourcePolicy::default()
+    };
+    for arrays in [false, true] {
+        validate_snapshot_json_resources(snapshot_nested_value(limit, arrays).as_bytes(), policy)
+            .expect("the original lower local limit is inclusive");
+        assert!(matches!(
+            validate_snapshot_json_resources(snapshot_nested_value(limit + 1, arrays).as_bytes(), policy),
+            Err(TryReadError::SnapshotResourceLimit(reason))
+                if reason == "JSON nesting depth 3 exceeds configured limit 2"
+        ));
+    }
+}
+
+#[tokio::test]
+async fn signed_snapshot_reader_refuses_depth_before_state_decode_with_direct_policy() {
+    let root = tempdir().unwrap();
+    let store = root.path().join("snapshot");
+    let state = state_factory();
+    let key = checked_random_snapshot_keypair();
+    let mut payload = String::from_utf8(exact_snapshot_payload_bytes(&state)).unwrap();
+    assert_eq!(payload.pop(), Some('}'));
+    payload.push_str(",\"restore_depth_probe\":");
+    // The State object is depth one; this value starts at depth two.
+    payload.push_str(&snapshot_nested_value(
+        norito::core::MAX_VALUE_NESTING_DEPTH,
+        true,
+    ));
+    payload.push('}');
+    write_snapshot_bundle_from_bytes(&store, payload.as_bytes(), &key);
+    let pointer = std::fs::read(store.join(SNAPSHOT_CURRENT_FILE_NAME)).unwrap();
+    let read_budget = AllocationBudget::new(payload.len());
+    let kura = state.kura_handle();
+    let lane_manifests = state.lane_manifests.read().clone();
+    let nexus = state.nexus_snapshot();
+    let block_count = BlockCount(state.view().height());
+    let execution_budget = state.ivm_execution_budget();
+    let original_execution_bytes = execution_budget.reserved_bytes();
+    let policy = SnapshotResourcePolicy {
+        max_decode_depth: NonZeroUsize::MAX,
+        ..SnapshotResourcePolicy::default()
+    };
+    let refused = try_read_snapshot_with_limits(
+        &execution_budget,
+        &store,
+        &kura,
+        &lane_manifests,
+        &nexus,
+        LiveQueryStore::start_test,
+        block_count,
+        TEST_CHUNK_SIZE,
+        defaults::snapshot::MAX_PAYLOAD_BYTES,
+        policy,
+        key.public_key(),
+        &state.chain_id,
+        &state.network_id,
+        &crate::state::default_zk_config(),
+        #[cfg(feature = "telemetry")]
+        StateTelemetry::new(<_>::default(), true),
+        &read_budget,
+    );
+    assert!(
+        matches!(refused, Err(TryReadError::SnapshotResourceLimit(ref reason))
+            if reason == &format!("JSON nesting depth {} exceeds Norito structural limit {}",
+                norito::core::MAX_VALUE_NESTING_DEPTH + 1, norito::core::MAX_VALUE_NESTING_DEPTH)),
+        "signed snapshot depth must refuse before typed State decoding"
+    );
+    assert_eq!(
+        read_budget.reserved_bytes(),
+        0,
+        "original payload charge is refunded"
+    );
+    assert_eq!(execution_budget.reserved_bytes(), original_execution_bytes);
+    assert_eq!(
+        std::fs::read(store.join(SNAPSHOT_CURRENT_FILE_NAME)).unwrap(),
+        pointer
+    );
+    assert_eq!(
+        std::fs::read(current_generation_artifact(&store, SNAPSHOT_FILE_NAME)).unwrap(),
+        payload.as_bytes()
+    );
+}
+
 #[tokio::test]
 async fn snapshot_json_scanner_rejects_noncanonical_spelling() {
     let policy = SnapshotResourcePolicy::default();

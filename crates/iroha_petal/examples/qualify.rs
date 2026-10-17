@@ -3,18 +3,6 @@
 //! `cargo run --release -p iroha_petal --example qualify -- [trials] [filter] [--verbose]`
 //!
 //! `--verbose` prints one line per trial (pose and the lanes that decoded).
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    clippy::many_single_char_names,
-    clippy::similar_names,
-    clippy::manual_is_multiple_of,
-    clippy::option_if_let_else,
-    clippy::suboptimal_flops,
-    clippy::too_many_lines,
-    clippy::type_complexity
-)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 

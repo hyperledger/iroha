@@ -22,6 +22,46 @@ gate = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = gate
 SPEC.loader.exec_module(gate)
 
+RUST_INDEX_SPEC = importlib.util.spec_from_file_location(
+    "sumeragi_mutation_rust_index", ROOT / "scripts" / "zk_rust_lexical_index.py"
+)
+assert RUST_INDEX_SPEC is not None and RUST_INDEX_SPEC.loader is not None
+rust_index = importlib.util.module_from_spec(RUST_INDEX_SPEC)
+RUST_INDEX_SPEC.loader.exec_module(rust_index)
+
+
+def named_rust_function(source: str, name: str) -> str:
+    """Select one complete function without borrowing neighboring controls."""
+    matches = [item for item in rust_index.functions(source) if item.name == name]
+    assert len(matches) == 1, f"expected one Rust function {name}, found {len(matches)}"
+    function = matches[0]
+    return source[function.header_start:function.end]
+
+
+def test_named_rust_function_keeps_nested_blocks_but_excludes_neighboring_controls():
+    source = '''
+#[test]
+fn original() {
+    let message = r#"a brace } and fn original() { inside a string"#;
+    // A comment with } does not end the control.
+    if ready() { reader.verify(&proof); }
+}
+fn unrelated_helper() { budget.set_limit_bytes(0); }
+#[test]
+fn later_control() { drop(blocker); AllocationBudget::new(1); }
+'''
+    body = named_rust_function(source, "original")
+    assert "reader.verify(&proof)" in body
+    assert "set_limit_bytes" not in body
+    assert "AllocationBudget::new" not in body
+    assert "drop(blocker)" not in body
+
+
+@pytest.mark.parametrize("source", ["fn other() {}", "fn original() {} fn original() {}"])
+def test_named_rust_function_rejects_missing_or_ambiguous_controls(source):
+    with pytest.raises(AssertionError, match="expected one Rust function original"):
+        named_rust_function(source, "original")
+
 
 def selected_cargo_results(monkeypatch, code, output, names=("tests::named",), seconds=1.0):
     """Supply a completed executable inventory and a separate runtime response."""
@@ -2723,6 +2763,9 @@ MODEL_NAMES = {
     "DM38": "sumeragi_amx::approval_proof::tests::exact_debit_approval_rejects_substituted_roots_terms_relays_schema_and_permission_preimages",
     "DM39": "sumeragi_amx::tests::time_tests::sumeragi_amx_time_boundary_is_exclusive_and_height_boundary_inclusive",
     "DM40": "sumeragi_amx::tests::time_tests::sumeragi_amx_time_expiry_preserves_all_pending_rows_on_writer_refusal",
+    "DM41": "compute::tests::price_delta_bounds_keep_full_width_before_comparison",
+    "DM42": "compute::tests::sponsor_caps_keep_exact_daily_total_and_per_call_precedence",
+    "DM43": "compute::tests::price_delta_wide_numerator_rejects_extreme_reduction",
 }
 MODEL_ALLOCATION_OBSERVER = "amx_prepare_streaming_allocations::observer_counts_all_three_allocation_routes_and_resets_after_unwind"
 
@@ -3008,6 +3051,18 @@ def model_build_script(tmp_path_factory):
     (True, "DM34", "", True, True), (False, "DM34", "", True, False),
     (True, "DM35", "", True, True), (False, "DM35", "", True, False),
     (True, "DM36", "", True, True), (False, "DM36", "", True, False),
+    (True, "DM41", "", True, True), (False, "DM41", "", True, False),
+    (True, "DM42", "", True, True), (False, "DM42", "", True, False),
+    (True, "DM43", "", True, True), (False, "DM43", "", True, False),
+    (False, None, '--cfg\x1fsumeragi_model_mutation="DM41"', False, False),
+    (False, None, '--cfg\x1fsumeragi_model_mutation="DM42"', False, False),
+    (False, None, '--cfg\x1fsumeragi_model_mutation="DM43"', False, False),
+    (True, "DM41", '--cfg\x1fsumeragi_model_mutation="DM41"', False, False),
+    (True, "DM42", '--cfg\x1fsumeragi_model_mutation="DM42"', False, False),
+    (True, "DM43", '--cfg\x1fsumeragi_model_mutation="DM43"', False, False),
+    (True, "DM41", '--cfg\x1fsumeragi_model_mutation="DM42"', False, False),
+    (True, "DM42", '--cfg\x1fsumeragi_model_mutation="DM43"', False, False),
+    (True, "DM43", '--cfg\x1fsumeragi_model_mutation="DM41"', False, False),
     (True, "unknown_rule", "", False, False), (True, "HC1", "", False, False),
     (False, None, '--cfg\x1fsumeragi_model_mutation="DM1"', False, False),
     (True, "DM1", '--cfg\x1fsumeragi_model_mutation="DM2"', False, False),
@@ -3024,6 +3079,10 @@ def test_model_build_script_selects_only_registered_owned_test_cfg(model_build_s
     expected_values = ", ".join(f'"{identifier}"' for identifier in MODEL_NAMES)
     assert f"cargo:rustc-check-cfg=cfg(sumeragi_model_mutation, values({expected_values}))" in result.stdout
     assert (f'cargo:rustc-cfg=sumeragi_model_mutation="{mutation}"' in result.stdout) == emitted
+    assert re.findall(r'^cargo:rustc-cfg=sumeragi_model_mutation="([^"]+)"$', result.stdout, re.MULTILINE) == ([mutation] if emitted else [])
+    if not accepted:
+        expected_reason = "cannot be injected through compiler flags" if flags else "unknown Model mutation id"
+        assert expected_reason in result.stderr
     for prefix in ("sumeragi_mutation", "sumeragi_core_mutation", "sumeragi_daemon_mutation"):
         assert f"cargo:rustc-cfg={prefix}=" not in result.stdout
 
@@ -3976,7 +4035,7 @@ def test_funded_offender_graph_mutation_uses_original_lane_pool_and_exact_contro
     assert 'all(test, sumeragi_core_mutation = "HC180")' in owner
     assert "AllocationBudget::new(budget.limit_bytes())" in owner
     controls = (source / "sumeragi/evidence_history/lane/tests.rs").read_text()
-    body = controls.split("fn " + name + "(", 1)[1].split("\n}", 1)[0]
+    body = named_rust_function(controls, name)
     for obligation in ["reader.poll().unwrap()", ".try_reserve_bytes(", "reader.verify(&proof)",
                        "occupied original offender pool must refuse", "let error = result.expect_err(",
                        "EvidencePreparationError::Admission(actual)", "actual == expected",
@@ -9021,3 +9080,97 @@ def test_sns_shared_native_selection_and_witness_have_independent_causal_mutatio
     retry = attempt[attempt.index("AliasAutoRenewAttempt::Retry(error) =>") :]
     assert retry.index("drop(transaction)") < retry.index("drop(witness)") < retry.index("record_alias_auto_renew_failure")
     assert 'sumeragi_core_mutation = "HC365"' not in sns
+
+
+@pytest.mark.parametrize("identifier,function,statement,control,cause", [
+    ("HC377", "new_inner",
+     "world_acquisition::validate_world_original_pools(&world, &execution_budget)",
+     "state::world_acquisition::pool_identity_tests::fresh_state_refuses_a_foreign_pool_before_resource_admission",
+     "fresh State must reject the original foreign pool before admission"),
+    ("HC378", "write_sccp_execution_delta", "storage!(sccp_destination_pending_generations);",
+     "state::tests::sccp_derived_indexes_bind_inserted_keys_and_deletions_in_merge_write_sets",
+     "every changed SCCP index must appear in its canonical delta"),
+    ("HC379", "write_sccp_execution_delta", "storage!(sccp_reconciliation_due);",
+     "state::tests::sccp_derived_indexes_bind_inserted_keys_and_deletions_in_merge_write_sets",
+     "every changed SCCP index must appear in its canonical delta"),
+])
+def test_original_state_pool_and_sccp_delta_mutations_keep_exact_owned_controls(
+    identifier, function, statement, control, cause
+):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[identifier]
+    assert rule.tests == (control,)
+    assert not rule.scenarios
+    assert len(rule.causes) == 1 and rule.causes[0].cause == cause
+    source = (ROOT / "crates/iroha_core/src/state.rs").read_text()
+    body = named_rust_function(source, function)
+    guard = f'#[cfg(not(all(test, sumeragi_core_mutation = "{identifier}")))]'
+    assert re.search(re.escape(guard) + r"\s*" + re.escape(statement), body)
+    assertion = (ROOT / rule.causes[0].source).read_text()
+    assert f'"{cause}"' in named_rust_function(assertion, control.rsplit("::", 1)[-1])
+
+
+def test_snapshot_structural_depth_mutation_keeps_public_and_scanner_controls():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC380"]
+    controls = (
+        "snapshot::tests::snapshot_scanner_direct_policy_cannot_relax_fixed_structural_depth",
+        "snapshot::tests::signed_snapshot_reader_refuses_depth_before_state_decode_with_direct_policy",
+    )
+    assert rule.tests == controls and not rule.scenarios
+    assert [cause.cause for cause in rule.causes] == [
+        "direct snapshot policy must not relax the fixed structural depth",
+        "signed snapshot depth must refuse before typed State decoding",
+    ]
+    source = (ROOT / "crates/iroha_core/src/snapshot.rs").read_text()
+    body = named_rust_function(source, "parse_value")
+    guard = '#[cfg(not(all(test, sumeragi_core_mutation = "HC380")))]'
+    assert re.search(re.escape(guard) + r"\s*if depth > norito::core::MAX_VALUE_NESTING_DEPTH", body)
+    assert body.index("depth > self.policy.max_decode_depth.get()") < body.index(guard)
+    assert body.index(guard) < body.index("let token = self.peek()")
+    tests = (ROOT / "crates/iroha_core/src/snapshot/support_policy_tests.rs").read_text()
+    for control, cause in zip(controls, rule.causes, strict=True):
+        assert f'"{cause.cause}"' in named_rust_function(tests, control.rsplit("::", 1)[-1])
+    public = named_rust_function(tests, controls[1].rsplit("::", 1)[-1])
+    assert "try_read_snapshot_with_limits(" in public
+    assert "write_snapshot_bundle_from_bytes(" in public
+    assert "read_budget.reserved_bytes()" in public
+    rows = re.findall(r"^\| HC380 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and all(control.rsplit("::", 1)[-1] in rows[0] for control in controls)
+
+
+def test_compute_full_width_model_mutations_preserve_owner_and_shipping_guards():
+    rules = gate.index_mutations(gate.MODEL_MUTATIONS)
+    source_path = "crates/iroha_data_model/src/compute/mod.rs"
+    source = (ROOT / source_path).read_text()
+    build = (ROOT / "crates/iroha_data_model/build.rs").read_text()
+    spec = (ROOT / "specs/sumeragi.md").read_text()
+    cases = {
+        "DM41": ("price_delta_bounds_keep_full_width_before_comparison", "delta_bps",
+                 "price updates must compare full-width deltas before applying bounds"),
+        "DM42": ("sponsor_caps_keep_exact_daily_total_and_per_call_precedence", "enforce_sponsor_policy",
+                 "the full daily sum must retain per-call refusal precedence"),
+        "DM43": ("price_delta_wide_numerator_rejects_extreme_reduction", "delta_bps",
+                 "price percentage must widen the numerator before multiplication"),
+    }
+    for mid, (control, owner, cause) in cases.items():
+        rule = rules[mid]
+        assert rule.tests == (f"compute::tests::{control}",) and not rule.scenarios
+        assert [(item.cause, item.source) for item in rule.causes] == [(cause, source_path)]
+        assert f'"{mid}"' in build
+        kernel = named_rust_function(source, owner)
+        assert f'#[cfg(all(test, sumeragi_model_mutation = "{mid}"))]' in kernel
+        test = named_rust_function(source, control)
+        assert cause in test and "sumeragi_model_mutation" not in test
+        rows = re.findall(rf"^\| {mid} \|.*$", spec, re.MULTILINE)
+        assert len(rows) == 1 and f"compute::tests::{control}" in rows[0]
+    delta = named_rust_function(source, "delta_bps")
+    assert "u128::from(current.get())" in delta and "u128::from(updated.get())" in delta
+    assert "let numerator = delta * 10_000;" in delta
+    assert '#[cfg(not(all(test, sumeragi_model_mutation = "DM41")))]' in delta
+    sponsor = named_rust_function(source, "enforce_sponsor_policy")
+    assert '#[cfg(not(all(test, sumeragi_model_mutation = "DM42")))]' in sponsor
+    assert "u128::from(consumed_today) + u128::from(requested_cu)" in sponsor
+    assert sponsor.index("requested_cu > policy.max_cu_per_call.get()") < sponsor.index("let running_total")
+    config = (ROOT / "crates/iroha_config/src/parameters/actual.rs").read_text()
+    assert "fn delta_bps(" not in config
+    assert "iroha_data_model::compute::validate_price_family_update(" in config
+    assert "iroha_data_model::compute::enforce_sponsor_policy(" in config

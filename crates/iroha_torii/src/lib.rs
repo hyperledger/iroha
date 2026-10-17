@@ -10,51 +10,6 @@
     )
 )]
 #![allow(unexpected_cfgs)]
-// Temporarily relax a curated set of clippy lints while the Torii refactor is in flight.
-// Trim this list further as the remaining call sites are cleaned up.
-#![allow(
-    clippy::too_many_lines,
-    clippy::type_complexity,
-    clippy::doc_markdown,
-    clippy::explicit_iter_loop,
-    clippy::explicit_into_iter_loop,
-    clippy::uninlined_format_args,
-    clippy::used_underscore_binding,
-    clippy::ptr_arg,
-    clippy::match_same_arms,
-    clippy::single_match_else,
-    clippy::manual_midpoint,
-    clippy::manual_map,
-    clippy::needless_borrows_for_generic_args,
-    clippy::io_other_error,
-    clippy::default_trait_access,
-    clippy::return_self_not_must_use,
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_possible_wrap,
-    clippy::cast_lossless,
-    clippy::items_after_statements,
-    clippy::unnecessary_map_or,
-    clippy::map_unwrap_or,
-    clippy::redundant_locals,
-    clippy::clone_on_copy,
-    clippy::unreadable_literal,
-    clippy::if_not_else,
-    clippy::nonminimal_bool,
-    clippy::let_unit_value,
-    clippy::ignored_unit_patterns,
-    clippy::useless_format,
-    clippy::to_string_in_format_args,
-    clippy::bool_to_int_with_if,
-    clippy::redundant_as_str,
-    clippy::collapsible_if,
-    clippy::drain_collect,
-    clippy::iter_with_drain,
-    clippy::len_zero,
-    clippy::suboptimal_flops,
-    clippy::needless_pass_by_value
-)]
-#![allow(clippy::unused_async)]
 //!
 //! Crate features:
 //! - `telemetry` (on by default): Status and Metrics endpoints

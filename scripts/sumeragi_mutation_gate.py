@@ -1444,6 +1444,29 @@ CORE_MUTATIONS = [
       causes=(ExpectedFailure("reader retirement must resume directly after source descriptors retire",
           "crates/iroha_core/src/state/publication/retained_musubi_group/production_tests.rs"),)),
 
+    m("HC377", "State construction: omit original prepaid World pool identity preflight",
+      ["state::world_acquisition::pool_identity_tests::fresh_state_refuses_a_foreign_pool_before_resource_admission"],
+      causes=(ExpectedFailure("fresh State must reject the original foreign pool before admission",
+          "crates/iroha_core/src/state/world_acquisition/pool_identity_tests.rs"),)),
+
+    m("HC378", "SCCP write set: omit the destination pending-generation index",
+      ["state::tests::sccp_derived_indexes_bind_inserted_keys_and_deletions_in_merge_write_sets"],
+      causes=(ExpectedFailure("every changed SCCP index must appear in its canonical delta",
+          "crates/iroha_core/src/state/tests.rs"),)),
+
+    m("HC379", "SCCP write set: omit the reconciliation deadline index",
+      ["state::tests::sccp_derived_indexes_bind_inserted_keys_and_deletions_in_merge_write_sets"],
+      causes=(ExpectedFailure("every changed SCCP index must appear in its canonical delta",
+          "crates/iroha_core/src/state/tests.rs"),)),
+
+    m("HC380", "Snapshot restore: let a direct local policy relax the fixed structural depth",
+      ["snapshot::tests::snapshot_scanner_direct_policy_cannot_relax_fixed_structural_depth",
+       "snapshot::tests::signed_snapshot_reader_refuses_depth_before_state_decode_with_direct_policy"],
+      causes=(ExpectedFailure("direct snapshot policy must not relax the fixed structural depth",
+          "crates/iroha_core/src/snapshot/support_policy_tests.rs"),
+          ExpectedFailure("signed snapshot depth must refuse before typed State decoding",
+          "crates/iroha_core/src/snapshot/support_policy_tests.rs"))),
+
     m("HC365", "Retail idle maintenance: omit original native receipt-purpose admission",
       ['retail_fee_tests::original_idle_sweep_admits_exact_native_receipts_before_carrier_execution', 'retail_fee_tests::original_idle_sweep_keeps_bounded_month_prefix_and_fair_native_share', 'retail_fee_tests::original_one_entry_native_policy_alternates_retail_and_sns_admission'],
       causes=(
@@ -2030,6 +2053,19 @@ MODEL_MUTATIONS = [
     m("DM40", "time expiry mutates a pending decision before its original writer accepts",
       ["sumeragi_amx::tests::time_tests::sumeragi_amx_time_expiry_preserves_all_pending_rows_on_writer_refusal"], causes=(ExpectedFailure("failed witness publication cannot prune time-expired obligations",
           "crates/iroha_data_model/src/sumeragi_amx/time_tests.rs"),)),
+
+    m("DM41", "compute price bounds: cap the observed delta to the bound domain",
+      ["compute::tests::price_delta_bounds_keep_full_width_before_comparison"],
+      causes=(ExpectedFailure("price updates must compare full-width deltas before applying bounds",
+          "crates/iroha_data_model/src/compute/mod.rs"),)),
+    m("DM42", "compute sponsor bounds: saturate daily usage before comparison",
+      ["compute::tests::sponsor_caps_keep_exact_daily_total_and_per_call_precedence"],
+      causes=(ExpectedFailure("the full daily sum must retain per-call refusal precedence",
+          "crates/iroha_data_model/src/compute/mod.rs"),)),
+    m("DM43", "compute price bounds: saturate the percentage numerator to u64",
+      ["compute::tests::price_delta_wide_numerator_rejects_extreme_reduction"],
+      causes=(ExpectedFailure("price percentage must widen the numerator before multiplication",
+          "crates/iroha_data_model/src/compute/mod.rs"),)),
 
 ]
 

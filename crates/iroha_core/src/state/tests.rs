@@ -813,8 +813,9 @@ state_test! { sync test_state_constructor_installs_default_lane_manifest
 }
 state_test! { sync feature_stable_fallible_constructor_preserves_chain_id
     let chain_id = ChainId::from("feature-stable-state-constructor");
+    let constructor_world = World::default();
     let_row! { state = State::try_new_with_chain_with_telemetry(
-crate::state::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), World::default(), Kura::blank_kura_for_testing(), LiveQueryStore::start_test(), chain_id.clone(), StateTelemetry::default(), ) .expect("feature-stable State construction must validate empty durable storage") };
+constructor_world.sccp_committee_generations.allocation_budget().clone(), constructor_world, Kura::blank_kura_for_testing(), LiveQueryStore::start_test(), chain_id.clone(), StateTelemetry::default(), ) .expect("feature-stable State construction must validate empty durable storage") };
     assert_eq!(state.chain_id, chain_id);
 }
 fn world_with_privacy_tightenings(
@@ -1284,9 +1285,9 @@ state_test! { large_stack pre_genesis_installer_retains_nondefault_dataspace_bas
             &requested.lane_catalog,
         )
         .expect("configured Kura");
+        let constructor_world = World::default();
         let mut state = State::try_new(
-crate::state::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES),
-            World::default(),
+constructor_world.sccp_committee_generations.allocation_budget().clone(), constructor_world,
             kura,
             LiveQueryStore::start_test(),
             #[cfg(feature = "telemetry")]
@@ -1510,8 +1511,9 @@ ledger::nft::create_for_all_users();
 state_test! { sync fallible_state_constructor_rejects_poisoned_kura_before_initialization
     let kura = Kura::blank_kura_for_testing();
     kura.poison_canonical_storage_for_tests();
+    let constructor_world = World::default();
     let_row! { result = State::try_new(
-crate::state::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), World::default(), kura, LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] StateTelemetry::default(), ) };
+constructor_world.sccp_committee_generations.allocation_budget().clone(), constructor_world, kura, LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] StateTelemetry::default(), ) };
     assert!(
         matches!(result, Err(MergeLedgerCommitError::Persistence(_))),
         "canonical-storage poison must be returned by the production constructor"
@@ -1521,8 +1523,9 @@ state_test! { sync fallible_state_constructor_rejects_malformed_durable_commit_m
     let kura = Kura::blank_kura_for_testing();
     kura.overwrite_commit_marker_for_tests(b"not a canonical commit marker")
         .expect("corrupt durable commit marker fixture");
+    let constructor_world = World::default();
     let_row! { result = State::try_new(
-crate::state::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), World::default(), kura, LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] StateTelemetry::default(), ) };
+constructor_world.sccp_committee_generations.allocation_budget().clone(), constructor_world, kura, LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] StateTelemetry::default(), ) };
     assert!(
         matches!(result, Err(MergeLedgerCommitError::Persistence(_))),
         "malformed durable authority must fail before State can be constructed"
@@ -2951,8 +2954,10 @@ state_test! { sync explicit_asset_ownership_survives_alias_changes_and_snapshot_
     }
     block.commit_world_overlay_for_testing().expect("retain component alias clear");
     let snapshot = norito::json::to_value(&state).expect("serialize state");
-    let decoded_world = decode_financial_snapshot_world_component(snapshot, &[])
-        .expect("restore typed asset ownership component");
+    let budget = state.ivm_execution_budget();
+    let decoded_world = deserialize::decode_world_snapshot_projection_for_testing(snapshot, &[], &budget)
+        .expect("restore typed asset ownership component in the State's original pool");
+    assert!(decoded_world.sccp_committee_generations.allocation_budget().same_pool(&budget));
     state.world = decoded_world;
     let restored = state;
     assert_eq!(restored.committed_height(), 0, "decoded World grants no native history");
@@ -4968,11 +4973,13 @@ fn autoscale_storage_state_for_testing(
     kura: Arc<Kura>,
     query_handle: crate::query::store::LiveQueryStoreHandle,
 ) -> State {
+    let constructor_world = World::default();
     let mut state = State::try_new(
-        crate::state::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
-        World::default(),
+        constructor_world
+            .sccp_committee_generations
+            .allocation_budget()
+            .clone(),
+        constructor_world,
         kura,
         query_handle,
         #[cfg(feature = "telemetry")]
@@ -6008,6 +6015,7 @@ state_test! { sync prev_block_hash_fast_reads_block_hash_journal
 }
 state_test! { sync pipeline_snapshot_reflects_latest_pipeline_config
     let mut state = blank_test_state();
+    let committed_minimum = state.pipeline_snapshot().query_stored_min_gas_units;
     let mut updated = state.pipeline_snapshot();
     updated.query_default_cursor_mode = iroha_config::parameters::actual::QueryCursorMode::Stored;
     updated.query_stored_min_gas_units = updated.query_stored_min_gas_units.saturating_add(77);
@@ -6017,10 +6025,24 @@ state_test! { sync pipeline_snapshot_reflects_latest_pipeline_config
         snapshot.query_default_cursor_mode,
         iroha_config::parameters::actual::QueryCursorMode::Stored
     );
-    assert_eq!(
-        snapshot.query_stored_min_gas_units,
-        updated.query_stored_min_gas_units
-    );
+    assert_eq!(state.installed_pipeline().query_stored_min_gas_units, updated.query_stored_min_gas_units);
+    assert_eq!(snapshot.query_stored_min_gas_units, committed_minimum,
+        "a local setting cannot replace consensus query validity");
+    let mut policy = crate::pipeline_validity_policy::PipelineValidityPolicyV1::protocol_default();
+    policy.query_stored_min_gas_units = updated.query_stored_min_gas_units;
+    {
+        let mut parameters = state.world.parameters.block();
+        parameters.get_mut().set_parameter(Parameter::Custom(policy.clone().into_custom_parameter())).unwrap();
+        parameters.commit();
+    }
+    assert_eq!(state.pipeline_snapshot().query_stored_min_gas_units, updated.query_stored_min_gas_units);
+    assert_eq!(state.view().pipeline().query_stored_min_gas_units, updated.query_stored_min_gas_units);
+    updated.query_stored_min_gas_units += 1;
+    state.set_pipeline(updated);
+    let snapshot = state.pipeline_snapshot();
+    assert_eq!(snapshot.query_default_cursor_mode, iroha_config::parameters::actual::QueryCursorMode::Stored);
+    assert_eq!(snapshot.query_stored_min_gas_units, policy.query_stored_min_gas_units,
+        "pipeline reload preserves the latest committed query policy");
 }
 #[test]
 fn executor_reconciliation_cannot_replace_signed_npos_parameters() {
@@ -10447,8 +10469,9 @@ fn authenticated_startup_state_for_testing(
     configured: &LaneCatalog,
 ) -> (Arc<Kura>, State) {
     let kura = authenticated_kura_for_testing(store_root, configured);
+    let constructor_world = World::default();
     let_row! { mut state = State::try_new_with_chain(
-    crate::state::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), World::default(), Arc::clone(&kura), LiveQueryStore::start_test(), (*DEFAULT_TEST_CHAIN_ID).clone(), #[cfg(feature = "telemetry")] <_>::default(), ) .expect("construct production-like authenticated startup State") };
+    constructor_world.sccp_committee_generations.allocation_budget().clone(), constructor_world, Arc::clone(&kura), LiveQueryStore::start_test(), (*DEFAULT_TEST_CHAIN_ID).clone(), #[cfg(feature = "telemetry")] <_>::default(), ) .expect("construct production-like authenticated startup State") };
     state
         .prepare_configured_primary_geometry_anchor(configured)
         .expect("anchor authenticated configured primary");
@@ -10464,8 +10487,9 @@ fn authenticated_startup_anchors_custom_primary_and_journals_secondaries_exactly
     let_row! { configured = LaneCatalog::new( nonzero!(2_u32), vec![ LaneConfig { alias: "configured-custom-primary".to_owned(), ..LaneConfig::default() }, LaneConfig { id: LaneId::new(1), alias: "configured-secondary".to_owned(), ..LaneConfig::default() }, ], ) .expect("custom-primary configured catalog") };
     for restart in 0..2 {
         let kura = authenticated_kura_for_testing(store_root.clone(), &configured);
+        let constructor_world = World::default();
         let_row! { mut state = State::try_new_with_chain(
-        crate::state::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), World::default(), Arc::clone(&kura), LiveQueryStore::start_test(), (*DEFAULT_TEST_CHAIN_ID).clone(), #[cfg(feature = "telemetry")] <_>::default(), ) .expect("construct production-like authenticated startup State") };
+        constructor_world.sccp_committee_generations.allocation_budget().clone(), constructor_world, Arc::clone(&kura), LiveQueryStore::start_test(), (*DEFAULT_TEST_CHAIN_ID).clone(), #[cfg(feature = "telemetry")] <_>::default(), ) .expect("construct production-like authenticated startup State") };
         let secondary_blocks = fixture_static_storage_identity(&state, &configured, LaneId::new(1))
             .blocks_dir(&store_root);
         if restart == 0 {
@@ -16613,8 +16637,9 @@ fn hydrate_da_indexes_replays_multiple_shards() {
     let (kura, _) = Kura::open_test_kura_with_configured_lane_config(&kura_cfg, &lane_config)
         .expect("init kura");
     let query_handle = LiveQueryStore::start_test();
+    let constructor_world = World::default();
     let_row! { mut state = State::try_new(
-    crate::state::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), World::default(), Arc::clone(&kura), query_handle, #[cfg(feature = "telemetry")] <_>::default(), ) .expect("open multi-bundle DA test State against configured Kura") };
+    constructor_world.sccp_committee_generations.allocation_budget().clone(), constructor_world, Arc::clone(&kura), query_handle, #[cfg(feature = "telemetry")] <_>::default(), ) .expect("open multi-bundle DA test State against configured Kura") };
     state.install_pre_genesis_nexus_for_testing(iroha_config::parameters::actual::Nexus {
         lane_catalog: catalog,
         lane_config,
@@ -16671,8 +16696,9 @@ fn hydrate_da_indexes_replays_multi_shard_bundle() {
     let (kura, _) = Kura::open_test_kura_with_configured_lane_config(&kura_cfg, &lane_config)
         .expect("init kura");
     let query_handle = LiveQueryStore::start_test();
+    let constructor_world = World::default();
     let_row! { mut state = State::try_new(
-    crate::state::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), World::default(), Arc::clone(&kura), query_handle, #[cfg(feature = "telemetry")] <_>::default(), ) .expect("open dual-lane DA test State against configured Kura") };
+    constructor_world.sccp_committee_generations.allocation_budget().clone(), constructor_world, Arc::clone(&kura), query_handle, #[cfg(feature = "telemetry")] <_>::default(), ) .expect("open dual-lane DA test State against configured Kura") };
     state.install_pre_genesis_nexus_for_testing(iroha_config::parameters::actual::Nexus {
         lane_catalog: catalog,
         lane_config: lane_config.clone(),
@@ -17738,9 +17764,9 @@ state_test! { sync confidential_compute_receipts_hydrate_from_kura
         &catalog,
     )
     .expect("configured confidential lane Kura");
+    let constructor_world = World::default();
     let_row! { mut state = State::try_new(
-crate::state::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES),
-        World::default(),
+constructor_world.sccp_committee_generations.allocation_budget().clone(), constructor_world,
         Arc::clone(&kura),
         LiveQueryStore::start_test(),
         #[cfg(feature = "telemetry")]
@@ -18807,8 +18833,10 @@ state_test! { sync axt_policy_snapshot_metrics_record_cache_hit
         temp_dir.path().join("kura"),
         &nexus.lane_catalog,
     );
+    let budget = world.sccp_committee_generations.allocation_budget().clone();
     let_row! { mut state = State::try_new_with_chain(
-crate::state::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), world, kura, LiveQueryStore::start_test(), (*DEFAULT_TEST_CHAIN_ID).clone(), telemetry, ) .expect("telemetry fixture durable State startup journals must validate") };
+budget.clone(), world, kura, LiveQueryStore::start_test(), (*DEFAULT_TEST_CHAIN_ID).clone(), telemetry, ) .expect("telemetry fixture durable State startup journals must validate") };
+    assert!(state.ivm_execution_budget().same_pool(&budget));
     state.install_pre_genesis_nexus_for_testing(nexus);
     state.configure_test_runtime_defaults();
     let block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 1, 0));
@@ -22593,7 +22621,13 @@ fn decode_financial_snapshot_world_component(
     snapshot: norito::json::Value,
     reference_hashes: &[HashOf<BlockHeader>],
 ) -> Result<World, deserialize::StateRestoreError> {
-    deserialize::decode_world_snapshot_projection_for_testing(snapshot, reference_hashes)
+    deserialize::decode_world_snapshot_projection_for_testing(
+        snapshot,
+        reference_hashes,
+        &iroha_allocation::AllocationBudget::new(
+            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+        ),
+    )
 }
 fn assert_financial_snapshot_requires_native_replay(snapshot: norito::json::Value) {
     assert!(matches!(
@@ -30859,3 +30893,99 @@ mod publication_effect_manifest_tests;
 
 #[path = "publication_effect_kura_tests.rs"]
 mod publication_effect_kura_tests;
+
+#[test]
+fn sccp_derived_indexes_bind_inserted_keys_and_deletions_in_merge_write_sets() {
+    use iroha_data_model::bridge::SccpNetworkV1;
+    let world = World::new();
+    let fields = [
+        "sccp_destination_pending_generations",
+        "sccp_reconciliation_due",
+    ];
+    for (index, field) in fields.iter().enumerate() {
+        let mut inserted = Vec::new();
+        for key in [7, 8] {
+            let mut block = world.block();
+            assert!(block.sccp_execution_write_set_bytes().is_empty());
+            let before = block.merge_execution_write_set_bytes();
+            if index == 0 {
+                block.sccp_destination_pending_generations.insert(key, ());
+            } else {
+                block
+                    .sccp_reconciliation_due
+                    .try_insert_admitted((key, SccpNetworkV1::EthereumMainnet, 1), ())
+                    .unwrap();
+            }
+            let delta = block.sccp_execution_write_set_bytes();
+            assert!(
+                delta
+                    .windows(field.len())
+                    .any(|bytes| bytes == field.as_bytes()),
+                "every changed SCCP index must appear in its canonical delta"
+            );
+            let mut streamed = Vec::new();
+            block.write_sccp_execution_delta(&mut streamed).unwrap();
+            assert_eq!(streamed, delta);
+            let merge = block.merge_execution_write_set_bytes();
+            assert_ne!(
+                merge, before,
+                "a derived index change must affect merge certification"
+            );
+            assert!(merge.ends_with(&delta));
+            inserted.push(delta);
+            drop(block);
+            assert!(world.sccp_destination_pending_generations.view().is_empty());
+            assert!(world.sccp_reconciliation_due.view().is_empty());
+        }
+        assert_ne!(
+            inserted[0], inserted[1],
+            "equal unit values cannot hide different keys"
+        );
+    }
+    {
+        let mut seed = world.block();
+        seed.sccp_destination_pending_generations.insert(7, ());
+        seed.sccp_reconciliation_due
+            .try_insert_admitted((7, SccpNetworkV1::EthereumMainnet, 1), ())
+            .unwrap();
+        seed.commit();
+    }
+    for (index, field) in fields.iter().enumerate() {
+        let mut block = world.block();
+        assert!(block.sccp_execution_write_set_bytes().is_empty());
+        let before = block.merge_execution_write_set_bytes();
+        if index == 0 {
+            block.sccp_destination_pending_generations.remove(7);
+        } else {
+            block
+                .sccp_reconciliation_due
+                .try_remove_admitted((7, SccpNetworkV1::EthereumMainnet, 1))
+                .unwrap();
+        }
+        let delta = block.sccp_execution_write_set_bytes();
+        assert!(
+            delta
+                .windows(field.len())
+                .any(|bytes| bytes == field.as_bytes())
+        );
+        assert_ne!(block.merge_execution_write_set_bytes(), before);
+        assert!(block.merge_execution_write_set_bytes().ends_with(&delta));
+        assert_eq!(
+            delta.last(),
+            Some(&0),
+            "the removed key retains its deletion tag"
+        );
+        drop(block);
+        assert_eq!(
+            world.sccp_destination_pending_generations.view().get(&7),
+            Some(&())
+        );
+        assert_eq!(
+            world
+                .sccp_reconciliation_due
+                .view()
+                .get(&(7, SccpNetworkV1::EthereumMainnet, 1)),
+            Some(&())
+        );
+    }
+}

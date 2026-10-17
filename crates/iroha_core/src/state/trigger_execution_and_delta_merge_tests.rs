@@ -935,6 +935,118 @@ fn generic_trigger_resolution_retains_original_allocation_refusal() {
     assert_eq!(retained.allocation_refusal(), Some(&original_allocation));
 }
 
+/// Retain an explicit component window from the original signed epoch and unchanged caps.
+/// World-only fixture publication does not advance native history or the production schedule.
+/// This helper supplies no new authority, boundary decision or lag-two parameter change.
+fn seed_trigger_component_window(
+    block: &mut StateBlock<'_>,
+) -> core::result::Result<(), crate::sumeragi::schedule::ScheduleError> {
+    let retained = crate::sumeragi::schedule::test_support::retain_same_epoch_component_window(
+        &block.world,
+        block._curr_block.height().get(),
+        &block.execution_budget(),
+    )?;
+    *block.world.consensus_schedule.get_mut() = retained;
+    Ok(())
+}
+
+#[test]
+fn trigger_component_window_preserves_original_policy_and_refuses_unsupported_heights() {
+    use crate::{resource_coherence::PolicyCoherenceError, sumeragi::schedule::ScheduleError};
+    use iroha_data_model::parameter::system::SumeragiParameter;
+
+    let state = authenticate_trigger_fixture(blank_state());
+    let original = state.world.consensus_schedule.view().get().clone();
+    let original_config = original.ready(2).expect("original signed successor slot");
+    let finalized_hash = state.view().latest_block_hash();
+    let carrier = trigger_component_block(&state, 2);
+    let mut block = state.block(carrier.as_ref().header());
+    assert_eq!(
+        crate::resource_coherence::validate_final_policy(&block.world, 3),
+        Err(PolicyCoherenceError::MissingScheduledParameters { height: 4 }),
+        "the unadvanced component window must fail closed at its unsupported successor"
+    );
+    seed_trigger_component_window(&mut block).expect("original same-epoch component window");
+    let schedule = block.world.consensus_schedule();
+    assert_eq!(schedule.tip(), Some(2));
+    assert_eq!(schedule.entries().len(), 3);
+    for height in 2..=4 {
+        let slot = schedule
+            .ready(height)
+            .expect("exact retained component height");
+        assert_eq!(slot.epoch, original_config.epoch);
+        assert_eq!(slot.params, original_config.params);
+        slot.height_config()
+            .expect("height stays in its original signed epoch");
+    }
+    crate::resource_coherence::validate_final_policy(&block.world, 3)
+        .expect("H3 requires the now retained H4 cap");
+    assert_eq!(
+        crate::resource_coherence::validate_final_policy(&block.world, 4),
+        Err(PolicyCoherenceError::MissingScheduledParameters { height: 5 }),
+        "explicit component coverage cannot grant an unretained successor"
+    );
+    block.commit_world_overlay_for_testing().unwrap();
+    assert_eq!(state.committed_height(), 1);
+    assert_eq!(state.view().latest_block_hash(), finalized_hash);
+    assert_eq!(state.view().kura().blocks_count(), 1);
+
+    // A changed parameter record needs actual lag-two publication, not this fixture helper.
+    let mut changed = state.block(carrier.as_ref().header());
+    let previous = changed.world.consensus_schedule().clone();
+    let original_cap = original_config.params.max_block_bytes;
+    changed
+        .world
+        .parameters
+        .get_mut()
+        .set_parameter(Parameter::Sumeragi(SumeragiParameter::MaxBlockBytes(
+            NonZeroU32::new(original_cap - 1).unwrap(),
+        )))
+        .expect("nonzero changed component cap");
+    let error = seed_trigger_component_window(&mut changed)
+        .expect_err("changed parameters cannot impersonate the original retained record");
+    assert!(matches!(error, ScheduleError::Epoch(ref reason)
+        if reason == "component schedule cannot replace authenticated chain parameters"));
+    assert_eq!(changed.world.consensus_schedule(), &previous);
+    drop(changed);
+
+    // A retained successor is independent lag-two authority, even within the same epoch.
+    let mut replaced = state.block(carrier.as_ref().header());
+    let mut entries = replaced.world.consensus_schedule().entries().to_vec();
+    let crate::sumeragi::schedule::ScheduledSlot::Ready(next) = &mut entries[1] else {
+        panic!("the original permissioned successor is ready");
+    };
+    next.params.max_block_bytes = original_cap - 1;
+    let changed_graph = crate::sumeragi::schedule::ConsensusSchedule::from_owned_entries(entries)
+        .expect("same epoch with independently different successor parameters");
+    let changed_owner = crate::sumeragi::schedule::RetainedConsensusSchedule::admit(
+        &changed_graph,
+        &replaced.execution_budget(),
+    )
+    .unwrap();
+    *replaced.world.consensus_schedule.get_mut() = changed_owner;
+    let previous = replaced.world.consensus_schedule().clone();
+    let error = seed_trigger_component_window(&mut replaced)
+        .expect_err("original current parameters cannot overwrite another retained successor");
+    assert!(matches!(error, ScheduleError::Epoch(ref reason)
+        if reason == "component schedule cannot replace an authenticated successor slot"));
+    assert_eq!(replaced.world.consensus_schedule(), &previous);
+    drop(replaced);
+    assert_eq!(state.committed_height(), 1);
+    assert_eq!(state.view().latest_block_hash(), finalized_hash);
+    assert_eq!(
+        state
+            .world
+            .parameters
+            .view()
+            .get()
+            .sumeragi()
+            .max_block_bytes()
+            .get(),
+        original_cap
+    );
+}
+
 #[test]
 fn ivm_time_trigger_reuses_cache_across_blocks() {
     if crate::unit_test_support::run_in_isolated_harness(
@@ -994,12 +1106,16 @@ fn ivm_time_trigger_reuses_cache_across_blocks() {
     state_block.commit_world_overlay_for_testing().unwrap();
     let state = authenticate_trigger_fixture(state);
     let block2 = trigger_component_block(&state, 2);
-    let (state_block2, recording, outputs, _) =
+    let (mut state_block2, recording, outputs, _) =
         crate::state::run_empty_network_owner_fixture(&state, block2.as_ref());
     assert_eq!(outputs.len(), 1);
     assert!(
-        matches!(&outputs[0], iroha_data_model::block::execution_output::ExecutionOutputV1::Time(row) if row.result.is_ok())
+        matches!(&outputs[0], iroha_data_model::block::execution_output::ExecutionOutputV1::Time(row) if row.result.is_ok()),
+        "time trigger returned {:?}",
+        outputs[0].result()
     );
+    seed_trigger_component_window(&mut state_block2)
+        .expect("retain original H2 through H4 component policy coverage");
     state_block2.commit_world_overlay_for_testing().unwrap();
     let after_first = state.trigger_ivm_cache.lock().stats();
     drop(recording);
@@ -1008,7 +1124,9 @@ fn ivm_time_trigger_reuses_cache_across_blocks() {
         crate::state::run_empty_network_owner_fixture(&state, block3.as_ref());
     assert_eq!(outputs.len(), 1);
     assert!(
-        matches!(&outputs[0], iroha_data_model::block::execution_output::ExecutionOutputV1::Time(row) if row.result.is_ok())
+        matches!(&outputs[0], iroha_data_model::block::execution_output::ExecutionOutputV1::Time(row) if row.result.is_ok()),
+        "time trigger returned {:?}",
+        outputs[0].result()
     );
     state_block3.commit_world_overlay_for_testing().unwrap();
     let after_second = state.trigger_ivm_cache.lock().stats();

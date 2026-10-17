@@ -98,14 +98,6 @@ impl StateBlock<'_> {
             .map_err(ReadFailure::Source)?
             .advance_configured_original_musubi_validation()
     }
-    pub(in crate::state) fn with_validated_original_musubi_rows<R>(
-        &mut self,
-        limit: usize,
-        callback: impl for<'read> FnOnce(OriginalMusubiRows<'read>, OriginalMusubiRevision<'read>) -> R,
-    ) -> Result<R, RetainedMusubiGroupReadError> {
-        self.original_musubi_capture()?
-            .with_validated_original_musubi_rows(limit, callback)
-    }
     pub(in crate::state) fn with_validated_original_musubi_materializers<R>(
         &mut self,
         limit: usize,

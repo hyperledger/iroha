@@ -55,10 +55,7 @@ fn build_test_and_transient_state() -> State {
     let _guard = RUNTIME.enter();
     let query_handle = LiveQueryStore::start_test();
     let (account_id, key_pair) = gen_account_in(&*STARTER_DOMAIN);
-    let state = State::try_new(
-        iroha_allocation::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+    let state = State::new(
         {
             let domain = Domain::new(STARTER_DOMAIN.clone()).build(&account_id);
             let account = Account::new(account_id.clone()).build(&account_id);
@@ -68,8 +65,7 @@ fn build_test_and_transient_state() -> State {
         query_handle,
         #[cfg(feature = "telemetry")]
         <_>::default(),
-    )
-    .expect("benchmark State startup must validate");
+    );
     let nexus = state.nexus_snapshot();
     state
         .install_materialized_lane_manifests_for_catalog(
@@ -324,17 +320,13 @@ fn sign_blocks(criterion: &mut Criterion) {
     // Ensure Tokio reactor is available for LiveQueryStore background task
     let _guard = RUNTIME.enter();
     let query_handle = LiveQueryStore::start_test();
-    let state = State::try_new(
-        iroha_allocation::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+    let state = State::new(
         World::new(),
         kura,
         query_handle,
         #[cfg(feature = "telemetry")]
         <_>::default(),
-    )
-    .expect("benchmark State startup must validate");
+    );
     let network_id = *state.network_id_ref();
     let (max_clock_drift, tx_limits) = {
         let state_view = state.world.view();

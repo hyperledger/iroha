@@ -6,15 +6,6 @@
 //! counts, over random poses, the frames in which each lane decodes.
 //!
 //! `cargo run --release -p iroha_petal --example stress -- [trials] [filter]`
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    clippy::many_single_char_names,
-    clippy::suboptimal_flops,
-    clippy::too_many_lines,
-    clippy::type_complexity
-)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use iroha_petal::decode::{DecodeOptions, decode};

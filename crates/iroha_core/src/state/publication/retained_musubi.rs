@@ -5,9 +5,8 @@
 //! raw physical rows are non-authorizing: undo alone is not the predecessor.
 //! The optional fourteen-map structural owner shares the same cursor kernel.
 //! The group also retains the actual staged revision pair.
-//! TODO: connect the retained group predecessor descriptors to semantic read-plan
-//! admission and the semantic
-//! materializer before full-State use.
+//! The retained group supplies semantic admission and canonical materializers.
+//! TODO: authenticate complete State and retained history before accelerated restore.
 
 use super::*;
 use iroha_allocation::{ChargedBuffer, ChargedBufferError, OwnedAllocationScope};
@@ -17,13 +16,6 @@ type PackageValue = iroha_data_model::musubi::MusubiPackageRecordV1;
 
 /// Exact local structural/admission cause; no physical lock wait is fabricated.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TODO: connect admitted semantic Musubi read plans; preserve the original charged current/undo positions across refusal and reader-held retirement"
-    )
-)]
 pub(crate) enum RetainedPackageReadError {
     /// Only the original completely frozen, nonterminal publisher may capture.
     NotFrozen,

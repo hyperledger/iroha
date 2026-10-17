@@ -16,55 +16,54 @@ fn world_on(source: &AllocationBudget) -> World {
 // Measure all independently exercised prepaid tables alongside the exact Cell
 // and aggregate layouts. Their real empty-undo resets and publication owners
 // share one original refund scope, just as they do in World acquisition.
-fn prepaid_world_table_writer_bytes(mode: BlockMode, freeze: bool) -> usize {
+pub(in crate::state) fn prepaid_world_table_writer_bytes(mode: BlockMode, freeze: bool) -> usize {
+    use crate::state::{LightClientSetStorage, sccp_reconciliation_store};
     use mv::BlockCapture;
     let source = AllocationBudget::new(1 << 20);
-    let table = CommitteeStorage::try_new_admitted(source.clone()).unwrap();
-    let anchors = AnchorStorage::try_new_admitted(source.clone()).unwrap();
-    let offences = OffenceStorage::try_new_admitted(source.clone()).unwrap();
-    let baseline = source.reserved_bytes();
     let scope = source.try_owned_refund_scope().unwrap();
-    let mut slot = table.try_block_acquisition_owned(&scope).unwrap();
-    slot.try_initialize(mode).unwrap();
-    let block = slot.take_block();
-    drop(slot);
-    let mut anchor_slot = anchors.try_block_acquisition_owned(&scope).unwrap();
-    anchor_slot.try_initialize(mode).unwrap();
-    let anchor_block = anchor_slot.take_block();
-    drop(anchor_slot);
-    let mut offence_slot = offences.try_block_acquisition_owned(&scope).unwrap();
-    offence_slot.try_initialize(mode).unwrap();
-    let offence_block = offence_slot.take_block();
-    drop(offence_slot);
-    if freeze {
-        let mut capture = block.capture_slot();
-        capture.try_capture(|_| Ok::<_, ()>(())).unwrap();
-        let (journal, cleanup) = capture.into_detached();
-        let mut anchor_capture = anchor_block.capture_slot();
-        anchor_capture.try_capture(|_| Ok::<_, ()>(())).unwrap();
-        let (anchor_journal, anchor_cleanup) = anchor_capture.into_detached();
-        let mut offence_capture = offence_block.capture_slot();
-        offence_capture.try_capture(|_| Ok::<_, ()>(())).unwrap();
-        let (offence_journal, offence_cleanup) = offence_capture.into_detached();
-        drop(cleanup);
-        drop(anchor_cleanup);
-        drop(offence_cleanup);
-        drop(scope);
-        let bytes = source.reserved_bytes() - baseline;
-        drop(journal);
-        drop(anchor_journal);
-        drop(offence_journal);
-        assert_eq!(source.reserved_bytes(), baseline);
-        bytes
-    } else {
-        let bytes = source.reserved_bytes() - baseline;
-        drop(block);
-        drop(anchor_block);
-        drop(offence_block);
-        drop(scope);
-        assert_eq!(source.reserved_bytes(), baseline);
-        bytes
+    let scope_bytes = source.reserved_bytes();
+    assert_eq!(
+        scope_bytes,
+        iroha_allocation::OwnedAllocationScope::allocation_layout().size()
+    );
+    // Detached map journals no longer own a physical writer scope. The World
+    // journal retains its own control explicitly; count it only at that caller.
+    let mut bytes = if freeze { 0 } else { scope_bytes };
+    macro_rules! measure {
+        ($table:ty) => {{
+            let table = <$table>::try_new_admitted(source.clone()).unwrap();
+            let baseline = source.reserved_bytes();
+            let mut slot = table.try_block_acquisition_owned(&scope).unwrap();
+            slot.try_initialize(mode).unwrap();
+            let block = slot.take_block();
+            drop(slot);
+            if freeze {
+                let mut capture = block.capture_slot();
+                capture.try_capture(|_| Ok::<_, ()>(())).unwrap();
+                let (journal, cleanup) = capture.into_detached();
+                drop(cleanup);
+                bytes += source.reserved_bytes() - baseline;
+                drop(journal);
+            } else {
+                bytes += source.reserved_bytes() - baseline;
+                drop(block);
+            }
+            assert_eq!(source.reserved_bytes(), baseline);
+            drop(table);
+            assert_eq!(source.reserved_bytes(), scope_bytes);
+        }};
     }
+    measure!(CommitteeStorage);
+    measure!(AnchorStorage);
+    measure!(OffenceStorage);
+    measure!(LightClientSetStorage);
+    measure!(sccp_reconciliation_store::Records);
+    measure!(sccp_reconciliation_store::Proofs);
+    measure!(sccp_reconciliation_store::Refunds);
+    measure!(sccp_reconciliation_store::Due);
+    drop(scope);
+    assert_eq!(source.reserved_bytes(), 0);
+    bytes
 }
 
 macro_rules! count_world_successors {

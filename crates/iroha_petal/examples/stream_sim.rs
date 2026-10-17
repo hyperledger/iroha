@@ -2,11 +2,6 @@
 //! camera watching it (frame blending and rolling-shutter tearing included).
 //!
 //! `cargo run --release -p iroha_petal --example stream_sim -- [trials] [payload bytes] [display fps] [camera filter]`
-#![allow(
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss
-)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use iroha_petal::prng::Xorshift32;

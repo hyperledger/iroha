@@ -30,8 +30,20 @@ impl Wake for Wakes {
     }
 }
 
-fn stage_musubi(world: &mut WorldBlock<'_>) {
-    let seeded = deserialize::seeded_musubi_publication_world_for_testing();
+enum MusubiFixture {
+    Empty,
+    Publication,
+    Attested,
+}
+
+fn stage_musubi(world: &mut WorldBlock<'_>, fixture: MusubiFixture) {
+    let seeded = match fixture {
+        MusubiFixture::Empty => return,
+        MusubiFixture::Publication => deserialize::seeded_musubi_publication_world_for_testing(),
+        MusubiFixture::Attested => {
+            deserialize::seeded_musubi_attested_publication_world_for_testing()
+        }
+    };
     // Copy the existing fixture's complete populated registry, retaining the
     // real State's genesis accounts, runtime catalog and other authority tables.
     macro_rules! copy_rows {
@@ -49,6 +61,11 @@ fn stage_musubi(world: &mut WorldBlock<'_>) {
         musubi_packages,
         musubi_archives,
         musubi_archive_availability,
+        musubi_archive_locations,
+        musubi_locations_by_pin,
+        musubi_locations_by_provider,
+        musubi_locations_by_replication_order,
+        musubi_provider_bundle_attestations,
         musubi_archive_reverse_references,
         musubi_releases,
         musubi_resolver_index,
@@ -70,15 +87,42 @@ pub(in crate::state) fn staged_block(
     replacement: bool,
     populate: bool,
 ) -> StateBlock<'_> {
+    let fixture = if populate {
+        MusubiFixture::Publication
+    } else {
+        MusubiFixture::Empty
+    };
+    staged_block_with_fixture(state, header, replacement, fixture)
+}
+
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the acquired block owns the supplied header independently of the caller"
+)]
+pub(in crate::state) fn staged_attested_block(
+    state: &State,
+    header: BlockHeader,
+) -> StateBlock<'_> {
+    staged_block_with_fixture(state, header, false, MusubiFixture::Attested)
+}
+
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the acquired block owns the supplied header independently of the caller"
+)]
+fn staged_block_with_fixture(
+    state: &State,
+    header: BlockHeader,
+    replacement: bool,
+    fixture: MusubiFixture,
+) -> StateBlock<'_> {
     let mut block = if replacement {
         state.block_and_revert_with_pristine_stage(header, |_| Ok::<(), &'static str>(()))
     } else {
         state.block_with_pristine_stage(header, |_| Ok::<(), &'static str>(()))
     }
     .unwrap_or_else(|error| panic!("actual State block start: {error:?}"));
-    if populate {
-        stage_musubi(&mut block.world);
-    }
+    stage_musubi(&mut block.world, fixture);
     // The original direct-commit fixture stages these exact empty membership and
     // header records. None of the production publication guards are bypassed.
     block.finalize_axt_asset_incarnations().unwrap();
@@ -119,21 +163,60 @@ fn replacement_state_musubi_scratch_refusal_preserves_published_predecessor_then
 }
 
 fn check_direct_refusal(replacement: bool) {
+    // State construction replaces the World's initial AMX pair with newly admitted
+    // authority-free generations. Pin before construction so the old pair cannot
+    // retire unpredictably between our baseline and the publication assertions.
+    let constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let header = proposal.header();
     let budget = state.ivm_execution_budget();
+    assert!(
+        state
+            .world
+            .sumeragi_amx_participant
+            .view()
+            .get()
+            .canonical()
+            .is_none(),
+        "the original constructor AMX pair has no retained participant graph"
+    );
+    assert!(
+        state
+            .world
+            .sumeragi_amx_participant
+            .predecessor_view()
+            .get()
+            .is_none(),
+        "the original constructor AMX pair has no predecessor graph"
+    );
+    let retired_constructor_bytes = mv::cell::Cell::<
+        crate::sumeragi::amx::RetainedNativeAmx,
+        iroha_allocation::AllocationCharge,
+    >::allocation_layouts()
+    .iter()
+    .map(std::alloc::Layout::size)
+    .sum::<usize>();
+    let constructor_settled_bytes = budget
+        .reserved_bytes()
+        .checked_sub(retired_constructor_bytes)
+        .expect("the original retired AMX pair remains funded while pinned");
+    constructor_retirement.flush();
+    drop(constructor_retirement);
+    collect_original_ebr_until(&budget, constructor_settled_bytes);
     let mut registration = crate::unit_test_support::release_registration(&budget);
     let initial_reserved = budget.reserved_bytes();
     let successor_bytes = original_cell_successor_bytes(&state);
-    let [scalar_current, scalar_undo] =
-        mv::cell::Cell::<u64, iroha_allocation::AllocationCharge>::allocation_layouts();
-    let [amx_current, amx_undo] = mv::cell::Cell::<
-        crate::sumeragi::amx::RetainedNativeAmx,
-        iroha_allocation::AllocationCharge,
-    >::allocation_layouts();
-    let amx_stage = amx_current.size()
-        + amx_undo.size()
-        + mv::cell::CellPublicationSuccessor::allocation_layout().size();
+    let (funded_generations, funded_successors) =
+        crate::state::world_acquisition::original_world_funded_cell_bytes(&state.world);
+    let funded_stage = funded_generations + funded_successors;
+    let published_bytes = initial_reserved + successor_bytes - funded_stage;
+    let mode = if replacement {
+        mv::BlockMode::Replace
+    } else {
+        mv::BlockMode::Ordinary
+    };
+    let table_writer_bytes =
+        crate::state::world_acquisition::prepaid_world_table_writer_bytes(mode, false);
 
     if replacement {
         // Establish a genuine published predecessor. The replacement takes the
@@ -141,13 +224,9 @@ fn check_direct_refusal(replacement: bool) {
         staged_block(&state, header, false, false)
             .commit()
             .expect("original empty carrier publishes");
-        // Empty ordinary publication changes every identity and scalar undo,
-        // but keeps the untouched scalar current in its original foreign pool.
-        // Settle the retired tip undo before taking the retry baseline.
-        collect_original_ebr_until(
-            &budget,
-            initial_reserved + successor_bytes - amx_stage - scalar_current.size(),
-        );
+        // Every funded Cell/map replaces its original same-pool generations and
+        // identity. Only previously untracked Cell identities add retained bytes.
+        collect_original_ebr_until(&budget, published_bytes);
     }
     let before = crate::snapshot::canonical_state_snapshot_hash(&state).unwrap();
     let before_height = state.transactions.latest_height();
@@ -162,8 +241,9 @@ fn check_direct_refusal(replacement: bool) {
         original_staged_bytes,
         core::mem::size_of::<crate::state::WorldBlockFields<'_>>()
             + successor_bytes
-            + original_native_tip_stage_bytes(),
-        "the actual World shell, complete Cell tokens and charged native tip generations are retained",
+            + original_native_tip_stage_bytes()
+            + table_writer_bytes,
+        "the original World shell, Cell generations, prepaid map writers and shared refund scope are retained",
     );
     let requested_bytes = core::mem::size_of::<&MusubiOrderedPackageEntryV1>();
     assert_eq!(block.world.musubi_public_directory.len(), 1);
@@ -257,6 +337,19 @@ fn check_direct_refusal(replacement: bool) {
     // A fresh attempt obtains the real original World/membership writers and
     // completes every semantic/publication guard after the same owner releases.
     let retirement_pin = crossbeam_epoch::pin();
+    let original_generations = original_funded_generations(&state);
+    assert_eq!(
+        original_generations
+            .iter()
+            .map(|(_, bytes)| bytes)
+            .sum::<usize>(),
+        funded_generations
+            + crate::state::native_execution_tip::TipCell::allocation_layouts()
+                .iter()
+                .map(std::alloc::Layout::size)
+                .sum::<usize>(),
+        "every funded World Cell and the native tip must be observed",
+    );
     staged_block(&state, header, replacement, true)
         .commit()
         .expect("retry publishes after original pool release");
@@ -275,25 +368,19 @@ fn check_direct_refusal(replacement: bool) {
         crate::snapshot::canonical_state_snapshot_hash(&state).unwrap(),
         before
     );
-    // Populated publication owns both scalar generations in this exact pool.
-    // Every untracked Cell adds its funded identity once; native-tip identities
-    // and generations replace the already funded initial owners at equal sizes.
-    // The native AMX Cell starts in this same pool: its successor replaces the
-    // funded identity, and its generations replace the funded initial pair.
-    let published_bytes = initial_reserved + successor_bytes - amx_stage;
-    let [tip_current, tip_undo] = crate::state::native_execution_tip::TipCell::allocation_layouts();
-    let retired_bytes = if replacement {
-        // Replace publishes both tip generations. The first empty publication
-        // also left its scalar undo in this pool, while its current stayed foreign.
-        tip_current.size()
-            + tip_undo.size()
-            + scalar_undo.size()
-            + amx_current.size()
-            + amx_undo.size()
-    } else {
-        // Ordinary unchanged native tip keeps its original current generation.
-        tip_undo.size() + amx_undo.size()
-    };
+    // The epoch pins the exact replaced allocations. Observe both physical
+    // generations of every funded Cell; equal values do not imply equal owners.
+    let published_generations = original_funded_generations(&state);
+    assert_eq!(original_generations.len(), published_generations.len());
+    let retired_bytes = original_generations
+        .iter()
+        .zip(&published_generations)
+        .map(|((before, bytes), (after, current_bytes))| {
+            assert_eq!(bytes, current_bytes);
+            if before == after { 0 } else { *bytes }
+        })
+        .sum::<usize>();
+    assert!(retired_bytes > 0);
     retirement_pin.flush();
     assert_eq!(
         budget.reserved_bytes(),
@@ -312,6 +399,44 @@ fn check_direct_refusal(replacement: bool) {
     drop(state);
     collect_original_ebr_until(&budget, 0);
     assert_eq!(budget.reserved_bytes(), 0);
+}
+
+fn original_funded_generations(state: &State) -> Vec<(usize, usize)> {
+    fn pair<V: mv::Value>(
+        cell: &mv::cell::Cell<V, iroha_allocation::AllocationCharge>,
+    ) -> [(usize, usize); 2] {
+        let [current, undo] =
+            mv::cell::Cell::<V, iroha_allocation::AllocationCharge>::allocation_layouts();
+        [
+            (std::ptr::from_ref(cell.view().get()).addr(), current.size()),
+            (
+                std::ptr::from_ref(cell.predecessor_view().get()).addr(),
+                undo.size(),
+            ),
+        ]
+    }
+    [
+        pair(&state.world.sumeragi_amx_participant),
+        pair(&state.world.musubi_replication_shortfall_releases),
+        pair(&state.world.sccp_committee_current),
+        pair(&state.world.sccp_liability_clock),
+        pair(&state.world.sccp_degraded_run),
+        pair(&state.world.sccp_anchor_open),
+        pair(&state.world.sccp_forgery_max_generation),
+        pair(&state.native_execution_tip),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+fn original_world_probe_bytes(state: &State) -> usize {
+    core::mem::size_of::<crate::state::WorldBlockFields<'_>>()
+        + crate::state::world_acquisition::original_world_cell_control_bytes(&state.world)
+        + crate::state::world_acquisition::prepaid_world_table_writer_bytes(
+            mv::BlockMode::Ordinary,
+            false,
+        )
 }
 
 fn original_native_tip_stage_bytes() -> usize {
@@ -483,10 +608,12 @@ fn retained_state_deferred_releases_complete_inventory_while_frozen_reads_keep_o
                 .unwrap()
                 .1,
         );
-        let occupied = budget
+        let mut occupied = budget
             .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
             .unwrap();
-        for _ in 0..3 {
+        let probe_bytes = original_world_probe_bytes(&state);
+        let mut probe_refills = [None, None, None];
+        for refill in &mut probe_refills {
             assert!(matches!(
                 original.as_mut().unwrap().try_publish(),
                 StatePublicationOutcome::Deferred(_)
@@ -494,12 +621,14 @@ fn retained_state_deferred_releases_complete_inventory_while_frozen_reads_keep_o
             // A separate thread acquires the complete real World inventory plus
             // all runtime Cells and membership. A failed regression is unwound
             // before join, so the assertion cannot strand a blocked writer.
+            drop(occupied.try_partition_bytes(probe_bytes).unwrap());
+            assert_eq!(budget.reserved_bytes(), budget.limit_bytes() - probe_bytes);
             std::thread::scope(|scope| {
                 let (ready, observed) = mpsc::channel();
                 let (release, wait) = mpsc::channel();
                 let state = &state;
                 let probe = scope.spawn(move || {
-                    let probe_budget = AllocationBudget::new(16 * 1024 * 1024);
+                    let probe_budget = state.ivm_execution_budget();
                     let world = state.world.try_block(&probe_budget).unwrap();
                     let runtime = state.canonical_runtime.block();
                     let previous = state.prev_commit_topology.block();
@@ -533,9 +662,12 @@ fn retained_state_deferred_releases_complete_inventory_while_frozen_reads_keep_o
                     "frozen reads retain exact original storage while other writers are held"
                 );
             });
+            assert_eq!(budget.reserved_bytes(), budget.limit_bytes() - probe_bytes);
+            *refill = Some(budget.try_reserve_bytes(probe_bytes).unwrap());
             assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
         }
         drop(occupied);
+        drop(probe_refills);
         let block = original.as_mut().unwrap();
         assert!(matches!(
             block.try_publish(),
@@ -674,7 +806,43 @@ fn retained_state_da_capacity_refusal_keeps_original_bundle_and_all_writers_free
     });
     let owner = std::ptr::from_ref(&*original);
     let world_owner = std::ptr::from_ref(&**original.world.fields.as_ref().unwrap());
-    let occupied = budget
+    // Reach the actual DA boundary after the preceding retained Musubi capture.
+    // A physical refusal preserves this same bundle before the capacity controls
+    // below; filling the pool earlier would test capture admission instead of DA.
+    let layout = std::alloc::Layout::array::<DaCommitmentKey>(1).unwrap();
+    let (outcome, denied) =
+        crate::test_allocations::refuse_one_layout_during(layout, || original.try_publish());
+    assert!(
+        denied,
+        "the original DA key backing must reach its allocator"
+    );
+    let StatePublicationOutcome::Deferred(
+        storage_transactions::TransactionsBlockError::ExecutionDeferred(reason),
+    ) = outcome
+    else {
+        panic!("the original DA physical refusal must remain local: {outcome:?}");
+    };
+    assert_eq!(
+        reason.reason(),
+        ivm::error::ExecutionDeferral::AllocationUnavailable
+    );
+    assert!(
+        reason.allocation_refusal().is_none(),
+        "physical allocation supplies no capacity wake"
+    );
+    assert_eq!(std::ptr::from_ref(&*original), owner);
+    assert_eq!(
+        original
+            .pending_da_commitments
+            .as_ref()
+            .unwrap()
+            .bundle
+            .commitments()
+            .as_ptr(),
+        bundle_backing
+    );
+    assert!(!original.publication_identity_for_test().2);
+    let mut occupied = budget
         .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
         .unwrap();
     let demand = 2
@@ -683,7 +851,9 @@ fn retained_state_da_capacity_refusal_keeps_original_bundle_and_all_writers_free
             .size()
             + std::alloc::Layout::array::<usize>(1).unwrap().size());
     let mut prepared_identity = None;
-    for _ in 0..3 {
+    let probe_bytes = original_world_probe_bytes(&state);
+    let mut probe_refills = [None, None, None];
+    for refill in &mut probe_refills {
         let StatePublicationOutcome::Deferred(
             storage_transactions::TransactionsBlockError::ExecutionDeferred(reason),
         ) = original.try_publish()
@@ -727,11 +897,13 @@ fn retained_state_da_capacity_refusal_keeps_original_bundle_and_all_writers_free
         // The other thread must acquire every real writer. A failing control
         // drops the original before joining, so a regression cannot deadlock.
         let mut retained = Some(original);
+        drop(occupied.try_partition_bytes(probe_bytes).unwrap());
+        assert_eq!(budget.reserved_bytes(), budget.limit_bytes() - probe_bytes);
         std::thread::scope(|scope| {
             let (ready, observed) = std::sync::mpsc::channel();
             let state = &state;
             let probe = scope.spawn(move || {
-                let probe_budget = AllocationBudget::new(16 * 1024 * 1024);
+                let probe_budget = state.ivm_execution_budget();
                 let world = state.world.try_block(&probe_budget).unwrap();
                 let runtime = state.canonical_runtime.block();
                 let previous = state.prev_commit_topology.block();
@@ -749,9 +921,13 @@ fn retained_state_da_capacity_refusal_keeps_original_bundle_and_all_writers_free
             probe.join().unwrap();
             assert!(free, "DA capacity refusal must free every original writer");
         });
+        assert_eq!(budget.reserved_bytes(), budget.limit_bytes() - probe_bytes);
+        *refill = Some(budget.try_reserve_bytes(probe_bytes).unwrap());
+        assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
         original = retained.take().unwrap();
     }
     drop(occupied);
+    drop(probe_refills);
     assert!(matches!(
         original.try_publish(),
         StatePublicationOutcome::Published

@@ -196,9 +196,7 @@ fn block_validation_sequential_entrypoints_execute_rejected_transaction_pipeline
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::try_new_with_chain_and_network_id_with_default_telemetry(
-        crate::state::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+        world.sccp_committee_generations.allocation_budget().clone(),
         world,
         kura,
         query_handle,

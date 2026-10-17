@@ -121,11 +121,13 @@ mod transaction_history_restore_tests {
         let kura = Kura::blank_kura_for_testing();
         let budget = kura.transaction_history_budget();
         let full = budget.try_reserve_bytes(budget.limit_bytes()).unwrap();
+        let constructor_world = World::default();
         let result = State::try_new(
-            iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
-            World::default(),
+            constructor_world
+                .sccp_committee_generations
+                .allocation_budget()
+                .clone(),
+            constructor_world,
             Arc::clone(&kura),
             crate::query::store::LiveQueryStore::start_test(),
             #[cfg(feature = "telemetry")]
@@ -137,11 +139,13 @@ mod transaction_history_restore_tests {
         ));
         assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
         drop(full);
+        let constructor_world = World::default();
         let state = State::try_new(
-            iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
-            World::default(),
+            constructor_world
+                .sccp_committee_generations
+                .allocation_budget()
+                .clone(),
+            constructor_world,
             kura,
             crate::query::store::LiveQueryStore::start_test(),
             #[cfg(feature = "telemetry")]

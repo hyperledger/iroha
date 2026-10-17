@@ -697,22 +697,15 @@ fn musubi_restore_keeps_local_scratch_refusal_separate_from_malformed_world() {
         &seed,
     )
     .unwrap();
-    let retired_generations =
-        mv::cell::Cell::<u64, iroha_allocation::AllocationCharge>::allocation_layouts()
-            .into_iter()
-            .chain(mv::cell::Cell::<
-                crate::sumeragi::amx::RetainedNativeAmx,
-                iroha_allocation::AllocationCharge,
-            >::allocation_layouts())
-            .map(|layout| layout.size())
-            .sum::<usize>();
+    let (retired_generations, _) =
+        crate::state::world_acquisition::original_world_funded_cell_bytes(&restored);
     let retirement_pin = crossbeam_epoch::pin();
     drop(restored);
     retirement_pin.flush();
     assert_eq!(
         budget.reserved_bytes(),
         retired_generations,
-        "both restored funded Cells retain their exact current and undo generations until epoch retirement",
+        "every restored funded Cell retains its exact current and undo generations until epoch retirement",
     );
     drop(retirement_pin);
     collect_musubi_restore_ebr_until(&budget, 0);

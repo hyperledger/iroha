@@ -153,7 +153,7 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         1,
         UseOwner::Other(
             Use::Record,
-            "Returns original retail maintenance receipt identities and transfer deltas after rechecking their exact retained receipt journal. The internal ordered receipt digest checks local preparation custody; it is not a State root or independent authority",
+            "Moves the original receipt identifiers and transfer transcripts after rechecking their retained source and exact receipt bytes. The separate private ordered receipt-byte digest is inventoried as retail_native_receipt_binding; it checks local preparation custody, is never returned or certified and grants no independent authority",
         ),
     ),
     function(

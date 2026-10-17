@@ -188,8 +188,36 @@ fn real_publication_encoding_wait_does_not_repeat_paid_source_reborrows() {
 
 #[test]
 fn real_publication_retires_sources_but_retains_canonical_nodes_after_late_refusal() {
+    use crate::test_allocations::refuse_one_layout_during;
+    use iroha_allocation::ChargedBufferError;
+
     let (state, proposal) = fixture();
     let mut original = Box::new(staged_block(&state, proposal.header(), false, true));
+    assert_eq!(original.pipeline.state_capture, StateCapture::default());
+    // The executing block still owns every original Cell writer. First reach a
+    // real capture refusal, which freezes those fields and releases the writers;
+    // only then may this thread acquire the deliberate late writer blocker.
+    let layout = std::alloc::Layout::array::<OriginalMusubiAdmissionPair>(1).unwrap();
+    let (outcome, denied) = refuse_one_layout_during(layout, || original.try_publish());
+    assert!(
+        denied,
+        "the initial attempt must reach original capture admission"
+    );
+    let StatePublicationOutcome::Deferred(TransactionsBlockError::CaptureDeferred(reason)) =
+        outcome
+    else {
+        panic!("capture must defer before acquiring the late writer blocker: {outcome:?}");
+    };
+    assert!(
+        matches!(reason.buffer_refusal(), Some(ChargedBufferError::Allocator { requested_bytes }) if *requested_bytes == layout.size())
+    );
+    assert!(reason.release_wait().is_none());
+    assert!(reason.allocation_refusal().is_none());
+    assert!(original.publication.as_ref().unwrap().fields_frozen);
+    assert!(plan(&original).scheduled);
+    assert!(!plan(&original).retired);
+    assert!(plan(&original).admission.is_none());
+    assert_free(&state);
     let blocker = state.world.merge_global_state_root.block();
     let mut late = false;
     for _ in 0..256 {

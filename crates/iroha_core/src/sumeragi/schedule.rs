@@ -38,6 +38,8 @@ mod epoch_graph;
 mod execution;
 pub(crate) use execution::authenticate_successor_context;
 mod retained;
+#[cfg(any(test, feature = "iroha-core-tests"))]
+pub(crate) mod test_support;
 pub(crate) use epoch_graph::NativeExecutionInputs;
 pub use epoch_graph::{
     ConsensusSchedule, ScheduleOutcome, ScheduledConfig, ScheduledSlot, core_epoch,

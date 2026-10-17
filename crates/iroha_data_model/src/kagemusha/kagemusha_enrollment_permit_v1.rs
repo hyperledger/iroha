@@ -252,6 +252,9 @@ impl KagemushaEnrollmentExpiryProofBodyV1 {
     }
 
     /// Canonical signer message. Expiry proof uses SHA-256 and a distinct nonmonetary domain.
+    ///
+    /// # Errors
+    /// Returns an error if canonical encoding of the proof body fails.
     pub fn signing_message(&self) -> Result<[u8; 32]> {
         let bytes = norito::encode_canonical(self).map_err(|_| invalid("expiry-proof.body"))?;
         let mut hash = Sha256::new();
@@ -262,6 +265,10 @@ impl KagemushaEnrollmentExpiryProofBodyV1 {
     }
 
     /// Structural validation without signer authority.
+    ///
+    /// # Errors
+    /// Rejects an unsupported version or refusal code, a zero identity or deadline,
+    /// or an observation before the expiry deadline.
     pub fn validate(&self) -> Result<()> {
         if self.version != 1
             || self.refusal_code != 10
@@ -291,6 +298,9 @@ pub struct KagemushaEnrollmentExpiryProofV1 {
 
 impl KagemushaEnrollmentExpiryProofV1 {
     /// Freeze a canonical DER issuer signature over the expiry statement.
+    ///
+    /// # Errors
+    /// Rejects an invalid body or a malformed or noncanonical DER signature.
     pub fn from_issuer_der(
         body: KagemushaEnrollmentExpiryProofBodyV1,
         _certificate: &KagemushaWalletSignerCertificateV1,
@@ -302,6 +312,10 @@ impl KagemushaEnrollmentExpiryProofV1 {
     }
 
     /// Verify the proof under the installed Scheme and Enrollment certificate.
+    ///
+    /// # Errors
+    /// Returns an error if body validation or encoding, Enrollment-certificate
+    /// verification, or proof signature verification fails.
     pub fn verify(
         &self,
         scheme: &KagemushaWalletSchemeV1,
@@ -314,6 +328,9 @@ impl KagemushaEnrollmentExpiryProofV1 {
     }
 
     /// Encode the bounded canonical proof original.
+    ///
+    /// # Errors
+    /// Rejects an invalid body or signature, or a failure to encode the canonical frame.
     pub fn encode_canonical(&self) -> Result<Vec<u8>> {
         self.body.validate()?;
         self.signature.validate()?;
@@ -321,6 +338,10 @@ impl KagemushaEnrollmentExpiryProofV1 {
     }
 
     /// Decode a canonical proof original; signer verification remains explicit.
+    ///
+    /// # Errors
+    /// Rejects an empty or oversized input, malformed or noncanonical framing,
+    /// or an invalid body or signature.
     pub fn decode_canonical(bytes: &[u8]) -> Result<Self> {
         if bytes.is_empty() || bytes.len() > 4096 {
             return Err(invalid("expiry-proof.frame"));

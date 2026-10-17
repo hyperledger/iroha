@@ -193,9 +193,13 @@ fn new_state(kura: Arc<Kura>) -> State {
     let query = LiveQueryStore::start_test();
     // Keep the exact fallible constructor used by the former dependent-crate fixture;
     // Core's convenience constructor additionally installs synthetic active markers.
+    let constructor_world = World::default();
     State::try_new(
-        crate::state::AllocationBudget::new(defaults::pipeline::IVM_EXECUTION_MAX_BYTES),
-        World::default(),
+        constructor_world
+            .sccp_committee_generations
+            .allocation_budget()
+            .clone(),
+        constructor_world,
         kura,
         query,
         #[cfg(feature = "telemetry")]

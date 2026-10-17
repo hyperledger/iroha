@@ -1,18 +1,6 @@
 //! Per-cell error rates of the decoder under a simulated camera.
 //!
 //! `cargo run --release -p iroha_petal --example diagnose -- blur=1.4 noise=5 fill=0.8 w=1280 h=720 tilt=10 trials=20`
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    clippy::many_single_char_names,
-    clippy::similar_names,
-    clippy::manual_is_multiple_of,
-    clippy::option_if_let_else,
-    clippy::suboptimal_flops,
-    clippy::too_many_lines,
-    clippy::type_complexity
-)]
 use iroha_petal::decode::{DecodeOptions, decode, decode_at, observed_cells};
 use iroha_petal::layout::{SlotRole, TILE_COUNT, slot_roles};
 use iroha_petal::render::{RenderOptions, render};

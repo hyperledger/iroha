@@ -1,14 +1,4 @@
 //! Audit convenience commands for the CLI (debug endpoints).
-#![allow(
-    clippy::similar_names,
-    clippy::items_after_statements,
-    clippy::option_if_let_else,
-    clippy::inefficient_to_string,
-    clippy::range_plus_one,
-    clippy::doc_lazy_continuation,
-    clippy::map_unwrap_or,
-    clippy::cast_possible_truncation
-)]
 use crate::{
     Run, RunContext,
     json_utils::{json_array, json_object, json_value},

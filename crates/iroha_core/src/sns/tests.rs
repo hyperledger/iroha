@@ -1305,9 +1305,7 @@ fn state_initialization_rejects_non_current_account_alias_policy_without_mutatio
         .smart_contract_state_mut_for_testing()
         .insert(policy_key.clone(), encoded.clone());
     let error = State::try_new(
-        crate::state::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+        world.sccp_committee_generations.allocation_budget().clone(),
         world,
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),

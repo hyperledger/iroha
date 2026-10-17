@@ -1,22 +1,4 @@
 //! ZK convenience commands for the CLI (experimental/app API).
-#![allow(
-    clippy::struct_excessive_bools,
-    clippy::explicit_iter_loop,
-    clippy::option_if_let_else,
-    clippy::nonminimal_bool,
-    clippy::explicit_into_iter_loop,
-    clippy::needless_collect,
-    clippy::ignored_unit_patterns,
-    clippy::too_many_lines,
-    clippy::map_unwrap_or,
-    clippy::redundant_closure_for_method_calls,
-    clippy::redundant_closure,
-    clippy::cast_possible_truncation,
-    clippy::uninlined_format_args,
-    unused_imports
-)]
-// Current allowances cover the data-munging helpers used by the ZK CLI.
-// They stay until the module is decomposed and the conversion helpers are refactored.
 //!
 //! Provides thin wrappers over Torii app endpoints for ZK features. These are
 //! intended for operator/testing convenience and are not consensus-critical.

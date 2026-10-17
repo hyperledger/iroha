@@ -40,7 +40,7 @@ pub enum SccpVoidKindV1 {
     #[codec(index = 0)]
     #[norito(rename = "expired")]
     Expired,
-    /// `voidFrozen`: the destination's current and previous rosters expired.
+    /// `voidFrozen`: the destination's current committee generation expired or its violation latch is set.
     #[codec(index = 1)]
     #[norito(rename = "frozen")]
     Frozen,

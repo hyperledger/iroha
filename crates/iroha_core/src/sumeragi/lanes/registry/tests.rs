@@ -891,13 +891,12 @@ fn retired_ready_store_preserves_original_read_refusal_before_batch_population()
 }
 
 struct RetiredReadyPublicationFault {
+    step: crate::sumeragi::records::FsStep,
     armed: AtomicBool,
 }
 impl crate::sumeragi::records::Faults for RetiredReadyPublicationFault {
     fn before(&self, step: crate::sumeragi::records::FsStep, _: &Path) -> io::Result<()> {
-        if step == crate::sumeragi::records::FsStep::CreateTemp
-            && self.armed.swap(false, Ordering::SeqCst)
-        {
+        if step == self.step && self.armed.swap(false, Ordering::SeqCst) {
             return Err(io::Error::other("retained ready publication refusal"));
         }
         Ok(())
@@ -906,9 +905,17 @@ impl crate::sumeragi::records::Faults for RetiredReadyPublicationFault {
 
 #[test]
 fn retired_ready_store_preserves_original_unfinished_publication_until_exact_retry() {
-    for explicit_release in [false, true] {
+    use crate::sumeragi::records::FsStep;
+
+    for (step, explicit_release) in [
+        (FsStep::CreateTemp, false),
+        (FsStep::CreateTemp, true),
+        (FsStep::SyncDir, false),
+        (FsStep::SyncDir, true),
+    ] {
         let f = Fixture::new(true);
         let faults = Arc::new(RetiredReadyPublicationFault {
+            step,
             armed: AtomicBool::new(false),
         });
         // Use the existing faulted physical constructor with this fixture's independently
@@ -944,7 +951,14 @@ fn retired_ready_store_preserves_original_unfinished_publication_until_exact_ret
                 .contains("retained ready publication refusal")
         );
         assert_eq!(store.height(), 0);
-        assert!(!f.path().exists());
+        let visible_frame = if step == FsStep::SyncDir {
+            // The frame is visible before directory durability succeeds. It still
+            // belongs to the original unpublished write, not a replacement store.
+            Some(fs::read(f.path()).unwrap())
+        } else {
+            assert!(!f.path().exists());
+            None
+        };
         assert!(store.batch_read.lock().is_none());
         let retained = f.stores.budget.reserved_bytes();
         assert!(
@@ -966,7 +980,10 @@ fn retired_ready_store_preserves_original_unfinished_publication_until_exact_ret
             &f.stores.store(LANE, &INCARNATION).unwrap()
         ));
         assert_eq!(same.height(), 0);
-        assert!(!f.path().exists());
+        assert_eq!(f.path().exists(), visible_frame.is_some());
+        if let Some(frame) = &visible_frame {
+            assert_eq!(&fs::read(f.path()).unwrap(), frame);
+        }
         assert!(
             FileLaneBlockStore::begin_open(
                 f.dir.path(),
@@ -993,6 +1010,12 @@ fn retired_ready_store_preserves_original_unfinished_publication_until_exact_ret
         assert_eq!(f.stores.budget.reserved_bytes(), baseline);
         assert_eq!(f.stores.budget.limit_bytes(), ceiling);
         let frame = fs::read(f.path()).unwrap();
+        if let Some(original) = visible_frame {
+            assert_eq!(
+                frame, original,
+                "exact retry must retain the visible original frame"
+            );
+        }
         let replay = f.stores.block(LANE, &INCARNATION, 1).unwrap().unwrap();
         assert_eq!(replay.block_hash, f.qc.block_hash);
         assert_eq!(replay.result, f.qc.result);

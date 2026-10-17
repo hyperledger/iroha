@@ -1,6 +1,6 @@
-//! Strongly typed public SoraFS PoP runtime policy.
+//! Strongly typed public `SoraFS` `PoP` runtime policy.
 use std::{path::PathBuf, time::Duration};
-/// One governed PoP dual-control approver.
+/// One governed `PoP` dual-control approver.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SorafsPopApprovalSigner {
     /// Stable payload-free signer identifier.
@@ -10,7 +10,7 @@ pub struct SorafsPopApprovalSigner {
     /// Finalized epoch at which the signer is revoked.
     pub revoked_at_epoch: Option<u64>,
 }
-/// Non-secret production policy for the Torii PoP credential service.
+/// Non-secret production policy for the Torii `PoP` credential service.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SorafsPopCredentialService {
     /// Durable issuer checkpoint directory.
