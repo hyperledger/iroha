@@ -1,0 +1,122 @@
+"""Independent family-envelope and sparse fixed-size rejection controls."""
+from collections import Counter
+from pathlib import Path
+import random
+import sys
+import pytest
+STAGE=Path(__file__).resolve().parents[1]/'parliament-ideal-machine-stage'
+sys.path.insert(0,str(STAGE))
+import request_family as family
+from bit_ir import bits,unpack
+from test_content_request import fixture
+
+
+def apply_sparse(state,gates,limit):
+    counts=Counter();read=set();written=set()
+    for name,*w in gates:
+        assert name in ('x','cx','ccx') and len(w)=={'x':1,'cx':2,'ccx':3}[name]
+        assert len(set(w))==len(w) and all(type(x) is int and 0<=x<limit for x in w)
+        counts[name]+=1;read.update(w[:-1]);written.add(w[-1])
+        if all(state.get(x,0) for x in w[:-1]):
+            if state.get(w[-1],0):state.pop(w[-1])
+            else:state[w[-1]]=1
+    return counts,read,written
+
+
+def source_word(state,start,width):return sum(state.get(start+i,0)<<i for i in range(width))
+
+
+@pytest.mark.parametrize('n',[0,1,2,1001,65539,(1<<32)+3,(1<<63)+1000,(1<<64)-1])
+@pytest.mark.parametrize('vote',[0,2,3,255])
+def test_rejection_sparse_full_usize_and_arbitrary_targets(n,vote):
+    # Sparse wires allow testing the entire usize domain without pretending to
+    # allocate a Vec of length2^64-1, or skipping actual header gates.
+    circuit=family.RejectedVoteFamily(n,233012);p=circuit.layout();regions=circuit.input_regions()
+    rng=random.Random(n^vote);state={}
+    for i,bit in enumerate(bits(vote,8)):
+        if bit:state[p['vote']+i]=1
+    # Unread typed fields (including declared count) and caller targets survive.
+    for wire in (0,512,1536,1551,regions['policy_hash'][0],p['output']+21,p['output']+85,p['output']+253,p['size']-1):state[wire]=1
+    before=state.copy();count,read,written=apply_sparse(state,circuit.emit(),p['size'])
+    assert all(w>=p['input_bits'] or p['vote']<=w<p['vote']+8 for w in read)
+    assert all(w>=p['input_bits'] for w in written)
+    assert {w:v for w,v in state.items() if w<p['input_bits']}=={w:v for w,v in before.items() if w<p['input_bits']}
+    assert not any(p['input_bits']<=w<p['output'] for w in state)
+    delta={w:1 for w in set(before)^set(state)}
+    out=p['output'];assert source_word(delta,out,2)==2
+    assert source_word(delta,out+2,3)==(1 if vote>2 else 2)
+    assert source_word(delta,out+5,64)==0
+    assert source_word(delta,out+69,64)==(0 if vote>2 else n)
+    assert source_word(delta,out+133,16)==0
+    assert source_word(delta,out+149,8)==(vote if vote>2 else 0)
+    assert not any(w>=out+157 for w in delta)
+    assert count==dict(x=569+2*n.bit_count(),cx=872,ccx=888)
+    r=circuit.resources();assert r['gates']==dict(**count,elementary_gates=count['x']+count['cx']+5*count['ccx'],base_xor_oracle_calls=0)
+    assert r['clean_work_bits']==519 and r['source_list_content_bits_read']==0
+    assert r['borrowed_typed_input_bits']==3608+1024*n
+    assert r['local_logical_bits']==3608+1024*n+519+253+8*233012
+    apply_sparse(state,circuit.emit(inverse=True),p['size']);assert state==before
+
+
+def independent_output_index(old):
+    # Independent disjoint field inventories, not the production three-branch map.
+    pairs=((0,2,0),(2,3,2),(5,16,5),(21,16,69),(37,16,133),(53,8,149),
+           (61,32,157),(93,64,189),(157,40,253))
+    for begin,width,new in pairs:
+        if begin<=old<begin+width:return new+old-begin
+    raise AssertionError(old)
+
+
+@pytest.mark.parametrize('valid,exhausted,previous',[(1,0,0),(1,1,2),(0,0,0),(0,1,6)])
+def test_content_relocation_matches_original_joint_map_with_padding_retained(valid,exhausted,previous):
+    original=fixture();circuit=family.ContentFamily(original);p=original.layout();q=circuit.layout()
+    rng=random.Random(662+valid+exhausted+previous)
+    state={i:1 for i in range(p['original_input_bits']) if rng.getrandbits(1)}
+    # Synthetic fixture tests orchestration; concrete P0 semantics are separately reviewed.
+    pp=original.generator.plan.layout()['registers']['public_error'][0]
+    payload=[valid]+([0]*59 if valid else list(bits(1,3))+[0]*48+list(bits(255,8)))
+    for i,b in enumerate(payload):
+        state.pop(pp+i,None)
+        if b:state[pp+i]=1
+    fields={name:(off,width) for name,(_,off,width) in original.generator.fields if name not in ('public_validation','public_valid')}
+    for name,value,width in [('exhausted',exhausted,1),('primary_flags',1+(exhausted<<1),2)]:
+        start,_=fields[name]
+        for i,b in enumerate(bits(value,width)):
+            state.pop(start+i,None)
+            if b:state[start+i]=1
+    for i,b in enumerate(bits(previous,p['counter_bits'])):
+        if b:state[p['counter']+i]=1
+    stride=1+original.writes.append().record_bits
+    for slot in range(previous):
+        state[p['log']+slot*stride]=1
+        for i in range(1,stride):
+            if rng.getrandbits(1):state[p['log']+slot*stride+i]=1
+    for i in range(p['output_bits']):
+        if rng.getrandbits(1):state[p['output']+i]=1
+    expanded={}
+    def relocate(w):
+        if w<p['output']:return w
+        if w<p['retained']:return p['output']+independent_output_index(w-p['output'])
+        return w+96
+    for w,b in state.items():expanded[relocate(w)]=b
+    holes=list(range(p['output']+21,p['output']+69))+list(range(p['output']+85,p['output']+133))
+    for w in holes:expanded[w]=1
+    before=expanded.copy()
+    oldcount,_,_=apply_sparse(state,original.emit(),p['size'])
+    newcount,_,_=apply_sparse(expanded,circuit.emit(),q['size'])
+    expected={relocate(w):v for w,v in state.items()};expected.update({w:1 for w in holes})
+    assert expanded==expected and oldcount==newcount
+    assert circuit.resources()['total_logical_bits']==original.resources()['total_logical_bits']+96
+    apply_sparse(expanded,circuit.emit(inverse=True),q['size']);assert expanded==before
+
+
+def test_full_field_map_and_refusals():
+    for old in range(197):assert family.content_output_wire(old,5)==independent_output_index(old)
+    regions=family.common_output_regions(5)
+    assert regions==dict(tag=(0,2),error_code=(2,3),order_index=(5,64),actual_length=(69,64),
+                        declared_count=(133,16),vote_value=(149,8),last_counter=(157,32),proof_length=(189,64),proof=(253,40))
+    for n in (-1,True,3,999,1000,1<<64):
+        with pytest.raises(ValueError):family.RejectedVoteFamily(n,5)
+    for index in (-1,True,197):
+        with pytest.raises(ValueError):family.content_output_wire(index,5)
+    with pytest.raises(ValueError):tuple(family.RejectedVoteFamily(2,5).emit(inverse=1))

@@ -266,6 +266,7 @@ fn with_worker_chain_erased(
     let mut worker = Worker {
         payload_build: None,
         signature_decode: None,
+        proposal_decode: None,
         context: &context,
         state: &context.state,
         applied: context.applied,
@@ -549,7 +550,7 @@ fn original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry()
                 panic!("the exact original queued work retries after the original release");
             };
 
-            let proposal = payload::decode(bytes.as_slice()).unwrap();
+            let proposal = payload::decode(bytes.payload.as_slice()).unwrap();
             assert_eq!(
                 proposal.external_entrypoints_slice()[0].hash(),
                 original_hash
@@ -3787,7 +3788,7 @@ fn original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_r
             );
             let payload = worker.build(2, 0, 1 << 20, 100).unwrap();
             let payload = payload.expect("same queued original retries after caller scope removal");
-            let block = super::super::payload::decode(payload.as_slice()).unwrap();
+            let block = super::super::payload::decode(payload.payload.as_slice()).unwrap();
             assert!(
                 block
                     .external_entrypoints_slice()
@@ -4221,12 +4222,12 @@ fn global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve() {
             let Some(bytes) = worker.build(2, 0, MAX_BLOCK_BYTES, exec_budget_ms).unwrap() else {
                 panic!("the committed payload limit carries the includable bound");
             };
-            let wire = bytes.as_slice().len();
+            let wire = bytes.payload.as_slice().len();
             assert!(
                 wire > target && wire <= usize::try_from(MAX_BLOCK_BYTES).unwrap(),
                 "assembled payload: {wire} bytes"
             );
-            let proposal = payload::decode(bytes.as_slice()).unwrap();
+            let proposal = payload::decode(bytes.payload.as_slice()).unwrap();
             assert_eq!(proposal.external_entrypoints_slice().len(), 1);
             assert_eq!(proposal.external_entrypoints_slice()[0].hash(), hash);
             assert_eq!(

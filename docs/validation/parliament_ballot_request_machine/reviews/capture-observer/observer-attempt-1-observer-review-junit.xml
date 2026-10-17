@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="2" time="0.419" timestamp="2026-10-14T04:12:40.590749+09:00" hostname="takemiyamakotonoMac-Studio.local"><testcase classname="target.parliament-machine-final-capture.test_capture_observer" name="test_actual_parent_and_subtest_reports[two-pass]" time="0.227" /><testcase classname="target.parliament-machine-final-capture.test_capture_observer" name="test_actual_parent_and_subtest_reports[retained-failure]" time="0.158"><failure message="AssertionError: assert 'failed' == 'passed'&#10;  &#10;  - passed&#10;  + failed">tmp_path = PosixPath('/Users/mtakemiya/dev/iroha/target/parliament-machine-final-capture/observer-review-temp/test_actual_parent_and_subtest1')
+failed_subtest = True
+
+    @pytest.mark.parametrize('failed_subtest', (False, True), ids=('two-pass', 'retained-failure'))
+    def test_actual_parent_and_subtest_reports(tmp_path, failed_subtest):
+        """A failing subtest must survive even though its parent call passes."""
+        case = tmp_path/'test_observed_case.py'
+        case.write_text(
+            'def test_parent(subtests):\n'
+            '    for value in range(2):\n'
+            '        with subtests.test(value=value):\n'
+            f'            assert not ({failed_subtest!r} and value == 1)\n')
+        observation = tmp_path/'observation.json'
+        junit = tmp_path/'junit.xml'
+        command = [str(PYTEST), '-o', 'addopts=', '-p', 'no:cacheprovider',
+            '--noconftest', '-p', 'capture_observer', '-k', '', '-m', '',
+            '--maxfail=0', '--basetemp='+str(tmp_path/'pytest-temp'),
+            '--junitxml='+str(junit), '-q', str(case)]
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1',
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD='1', PYTEST_ADDOPTS='', PYTEST_PLUGINS='',
+            PYTHONPATH=str(OBSERVER.parent), PARLIAMENT_CAPTURE_OBSERVATION=str(observation))
+        before = hashlib.sha256(OBSERVER.read_bytes()).hexdigest()
+        result = subprocess.run(command,cwd=tmp_path,env=env,capture_output=True,check=False)
+        (tmp_path/'command.json').write_text(json.dumps(command,indent=2)+'\n')
+        (tmp_path/'stdout.txt').write_bytes(result.stdout)
+        (tmp_path/'stderr.txt').write_bytes(result.stderr)
+        assert hashlib.sha256(OBSERVER.read_bytes()).hexdigest()==before
+        assert result.returncode == int(failed_subtest)
+        report=json.loads(observation.read_text())
+        assert report['exitstatus'] == int(failed_subtest)
+        assert len(report['collected']) == 1
+        assert report['collected'][0].endswith('test_observed_case.py::test_parent')
+        assert len(report['calls']) == 3
+        assert all(type(call['is_subtest']) is bool for call in report['calls'])
+        parents=[call for call in report['calls'] if not call['is_subtest']]
+        children=[call for call in report['calls'] if call['is_subtest']]
+        assert [call['nodeid'] for call in parents] == report['collected']
+&gt;       assert parents[0]['outcome'] == 'passed'
+E       AssertionError: assert 'failed' == 'passed'
+E         
+E         - passed
+E         + failed
+
+target/parliament-machine-final-capture/test_capture_observer.py:50: AssertionError</failure></testcase></testsuite></testsuites>

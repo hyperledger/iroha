@@ -249,4 +249,3 @@ internal class EnrollmentDeviceDriver(
         closed = true
     }
 }
-

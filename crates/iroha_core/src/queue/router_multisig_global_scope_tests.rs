@@ -72,8 +72,8 @@ fn multisig_global_balance_route_does_not_inherit_account_scope() {
         assert_eq!(
             router
                 .try_route_plan_with_state(&tx, &state)
-                .expect("global balance route resolves"),
-            RoutingPlan::single(RoutingDecision::new(LaneId::SINGLE, DataSpaceId::UNIVERSAL,)),
+                .expect("the global balance write must route successfully"),
+            RoutingPlan::single(RoutingDecision::new(LaneId::SINGLE, DataSpaceId::UNIVERSAL)),
             "a global balance write must retain its single universal route through multisig",
         );
     }
@@ -116,7 +116,7 @@ fn multisig_unscoped_payload_retains_account_scope() {
             view.world(),
             None,
         )
-        .expect("unscoped proposal resolves its account data space"),
+        .expect("the unscoped multisig payload must resolve its participants"),
         vec![dataspace],
         "a payload without a concrete target still inherits the multisig account scope",
     );

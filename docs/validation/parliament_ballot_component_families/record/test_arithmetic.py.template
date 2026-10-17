@@ -1,0 +1,186 @@
+"""Independent scalar census checks against frozen actual builders; no gate run."""
+import sys
+from pathlib import Path
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT/'target/parliament-ideal-machine-stage'))
+from arithmetic import Census, p0, p1, reg_variable, r1_item_delta, R1_PER_ITEM, K
+from public_machine import PublicShape, prepare_public, vote_validation, table_bytes
+from public_hash import load_public_keccak
+
+
+@pytest.fixture(scope='module')
+def module(): return load_public_keccak(ROOT)
+
+
+@pytest.fixture(scope='module')
+def tables(): return {row: table_bytes(ROOT, row) for row in ('candidate', 'comparator')}
+
+
+@pytest.mark.parametrize('row,role,body,contexts,count', [
+    ('candidate','REG',0,(0,)*6,0),
+    ('candidate','REG',3,(3,)*6,0),
+    ('candidate','REG',4,(4,)*6,0),
+    ('candidate','REG',31,(0,)*6,0),
+    ('candidate','REG',32,(0,)*6,0),
+    ('candidate','REG',33,(0,)*6,0),
+    ('candidate','REG',0,(0,1,3,4,7,1),0),
+    ('candidate','REG',0,(0,1,3,4,7,2),0),
+    ('candidate','REG',0,(0,1,3,4,7,3),0),
+    ('candidate','REG',2345,(0,1,7,128,255,256),0),
+    ('candidate','REG',4095,(255,)*6,0),
+    ('candidate','REG',4096,(256,)*6,0),
+    ('comparator','REG',4096,(256,)*6,0),
+    ('candidate','VOTE',0,(0,)*6,3),
+    ('candidate','VOTE',0,(0,)*6,1000),
+    ('comparator','VOTE',0,(0,)*6,1000),
+])
+def test_p1_independent_call_tree_vs_actual_builder(module,tables,row,role,body,contexts,count):
+    shape = PublicShape(role,row,body,contexts,count)
+    actual = prepare_public(shape,module,ROOT).resources()
+    expected = p1(row,tables[row],role,body,contexts,count)
+    assert {k:actual[k] for k in expected} == expected
+
+
+@pytest.mark.parametrize('n',[3,4,7,8,31,32,255,256,999,1000])
+def test_p0_independent_node_tree_vs_actual_builder(module,n):
+    actual = vote_validation(PublicShape('VOTE',list_count=n),module,ROOT).resources()
+    expected = p0(n)
+    assert {k:actual[k] for k in expected} == expected
+
+
+def test_reg_interior_x_max_and_endpoint_other_maxima(tables):
+    # Independent bounds: both hash block counts and all seven popcounts reach
+    # their maxima at this same witness, hence this is an actual maximum.
+    assert max(n.bit_count() for n in range(4097)) == 4095 .bit_count() == 12
+    assert max(n.bit_count() for n in range(257)) == 255 .bit_count() == 8
+    assert (40+4095)//72 == (40+4096)//72
+    assert (343+4095+6*255)//72 == (343+4096+6*256)//72
+    for row in tables:
+        high_x = p1(row,tables[row],'REG',4095,(255,)*6)
+        endpoint = p1(row,tables[row],'REG',4096,(256,)*6)
+        assert high_x['gates']['x'] == endpoint['gates']['x']+234
+        assert high_x['gates']['elementary_gates'] < endpoint['gates']['elementary_gates']
+        assert high_x['total_clean_work_bits'] == endpoint['total_clean_work_bits']
+    # Worst carries are bounded over the entire allowed coordinates. Even with
+    # no block-count growth, CX growth dominates each possible X loss.
+    assert min(128+6*((b+1).bit_count()-b.bit_count()) for b in range(4096)) == 62
+    assert min(64+4*((c+1).bit_count()-c.bit_count()) for c in range(256)) == 36
+
+
+def test_nonmonotone_x_control_and_reg_shape_difference(tables):
+    for b,c in [(0,0),(3,3),(4,4),(31,255),(4095,255),(4096,256)]:
+        actual=p1('candidate',tables['candidate'],'REG',b,(c,)*6)['gates']
+        baseline=p1('candidate',tables['candidate'],'REG')['gates']
+        variable=reg_variable(b,(c,)*6); zero=reg_variable(0,(0,)*6)
+        assert {k:actual[k]-baseline[k] for k in variable} == {k:variable[k]-zero[k] for k in variable}
+    assert reg_variable(4,(0,)*6)['x'] == reg_variable(3,(0,)*6)['x']-6
+    assert reg_variable(0,(4,0,0,0,0,0))['x'] == reg_variable(0,(3,0,0,0,0,0))['x']-4
+
+
+@pytest.mark.parametrize('row',['candidate','comparator'])
+def test_all_998_vote_scalar_shapes_are_monotone(row,tables):
+    previous0=p0(3); previous1=p1(row,tables[row],'VOTE',count=3)
+    for n in range(4,1001):
+        current0=p0(n); current1=p1(row,tables[row],'VOTE',count=n)
+        for previous,current in ((previous0,current0),(previous1,current1)):
+            for key in ('x','cx','ccx','elementary_gates','base_xor_oracle_calls'):
+                assert previous['gates'][key] <= current['gates'][key]
+            assert previous['total_clean_work_bits'] <= current['total_clean_work_bits']
+        previous0,previous1=current0,current1
+
+
+def test_r1_actual_count_only_affine_item_increment():
+    from field_kernel import FieldKernel, load_field
+    from r1_machine import QuickSilverResponse
+    field=load_field(ROOT); mul=FieldKernel(field,'gf256_mul'); short=FieldKernel(field,'gf256_mul_u64')
+    left=QuickSilverResponse('vote',3,mul,short).resources()
+    right=QuickSilverResponse('vote',4,mul,short).resources()
+    for key,delta in R1_PER_ITEM.items():
+        assert (right['gates'][key]-left['gates'][key] if key in right['gates'] else
+                right[key]-left[key]) == delta
+    # 1 full multiply, 1025 field XORs, 1024 bit-controlled field copies.
+    assert right['operations']['source-gf256_mul']-left['operations']['source-gf256_mul'] == 1
+    assert right['operations']['xor']-left['operations']['xor'] == 1025
+    assert right['operations']['select']-left['operations']['select'] == 1024
+    assert left['shared_kernel_work_bits']==right['shared_kernel_work_bits']==1023
+
+
+def test_r1_polynomial_division_independent_derivation():
+    assert r1_item_delta() == dict(x=0, cx=1054244, ccx=786432,
+        base_xor_oracle_calls=0, elementary_gates=4986404,
+        history_bits=524800, total_clean_work_bits=524800)
+
+
+@pytest.mark.parametrize('n', [32, 1000])
+def test_r1_affine_count_across_selector_rows(n):
+    import json
+    from field_kernel import FieldKernel, load_field
+    from r1_machine import QuickSilverResponse
+    field = load_field(ROOT)
+    mul, short = FieldKernel(field,'gf256_mul'), FieldKernel(field,'gf256_mul_u64')
+    actual = QuickSilverResponse('vote',n,mul,short).resources()
+    observation = json.loads((ROOT/'target/parliament-content-resources-stage/capture/observation.json').read_text())
+    case = next(c for c in observation['cases'] if c['row']=='candidate' and c['list_count']==3)
+    previous = next(s for s in case['stages'] if s['name']=='R1')
+    for key in ('x','cx','ccx','base_xor_oracle_calls','elementary_gates'):
+        assert actual['gates'][key] == previous['gates'][key]+(n-3)*R1_PER_ITEM[key]
+    assert actual['total_clean_work_bits'] == previous['work']+(n-3)*524800
+    assert actual['input_bits'] == previous['inputs']+(n-3)*1024
+    assert actual['output_bits']==previous['outputs']==322
+
+
+def test_sha3_all_reg_and_vote_hash_lengths_vs_frozen_kernel(module):
+    from public_hash import Sha3_512_64, Shake256_64
+    lengths = set(range(40,4137)) | set(range(343,5976))
+    lengths |= {536+128*n for n in range(3,1001)} | {114+128*n for n in range(3,1001)}
+    for n in sorted(lengths):
+        c = Census(); c.hash(n)
+        k = Sha3_512_64(n,module.Keccak1600Kernel())
+        assert (c.x,c.cx,c.ccx,c.f)==(k.cost.x,k.cost.cx,k.cost.ccx,k.cost.base_calls)
+        assert c.work==k.work and c.history==k.outputs==512
+    for n in (1,135,136,137,83704,84304):
+        c = Census(); c.hash(n,shake=True)
+        k = Shake256_64(n,module.Keccak1600Kernel())
+        assert (c.x,c.cx,c.ccx,c.f)==(k.cost.x,k.cost.cx,k.cost.ccx,k.cost.base_calls)
+        assert c.work==k.work and c.history==k.outputs==512
+
+
+def test_p0_p1_and_r1_match_frozen_four_content_cases(tables):
+    import json
+    observed = json.loads((ROOT/'target/parliament-content-resources-stage/capture/observation.json').read_text())
+    first = next(c for c in observed['cases'] if c['row']=='candidate' and c['list_count']==3)
+    base = next(s for s in first['stages'] if s['name']=='R1')
+    for case in observed['cases']:
+        n,row = case['list_count'],case['row']
+        for name,expected in [('P0',p0(n)), ('P1',p1(row,tables[row],'VOTE',count=n))]:
+            actual = next(s for s in case['stages'] if s['name']==name)
+            assert actual['gates']==expected['gates']
+            assert actual['work']==expected['total_clean_work_bits']
+            assert actual['outputs']==expected['output_bits']
+        actual = next(s for s in case['stages'] if s['name']=='R1')
+        for key in actual['gates']:
+            assert actual['gates'][key]==base['gates'][key]+(n-3)*R1_PER_ITEM[key]
+        assert actual['work']==base['work']+(n-3)*R1_PER_ITEM['total_clean_work_bits']
+
+
+def test_census_records_all_admitted_shapes_and_retains_scope(tmp_path):
+    import csv
+    import hashlib
+    from census import run
+    report = run(ROOT,tmp_path)
+    raw = (tmp_path/'vote-census.csv').read_bytes()
+    rows = list(csv.DictReader(raw.decode().splitlines()))
+    assert len(rows)==report['census_rows']==1996
+    assert [(r['row'],int(r['list_count'])) for r in rows] == [
+        (row,n) for row in ('candidate','comparator') for n in range(3,1001)]
+    assert hashlib.sha256(raw).hexdigest()==report['census_sha256']
+    for name in ('full_request_family_bound','complete_resource_vector',
+                 'full_gate_stream_executed','native_workspace_qualified',
+                 'independent_cryptographic_review','profile_qualified','production_gate_changed'):
+        assert report[name] is False
+    for row in ('candidate','comparator'):
+        assert report['reg_p1'][row]['maximum_x_extra_over_endpoint']==234
+        assert report['vote_components'][row]['maximum_case']['list_count']==1000
+        assert report['vote_components'][row]['count']==998

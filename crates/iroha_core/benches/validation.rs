@@ -138,7 +138,6 @@ fn build_test_and_transient_state() -> State {
                 .transactions()
                 .first()
                 .expect("Block must contain transaction")
-                .as_ref()
                 .hash_as_entrypoint();
             let height = std::num::NonZeroUsize::new(
                 unverified_block
@@ -289,7 +288,6 @@ fn validate_transaction(criterion: &mut Criterion) {
             .transactions()
             .first()
             .expect("Block must contain transaction")
-            .as_ref()
             .hash_as_entrypoint();
         let height = std::num::NonZeroUsize::new(
             unverified_block

@@ -1,0 +1,147 @@
+# Retained opaque-field constructor bound: staged proposal
+
+This component analyzes the exact `OpaqueField::new` bodies in the retained
+portable and accelerated ARM64 standalone workers. It replaces one opaque
+constructor term with a derived local ordinary-path contribution and named lower
+costs. It is not a complete constructor, verifier, native-runtime or workspace
+certificate. This draft and its checks stay under ignored `target/`; no frozen
+artifact or production source is modified.
+
+## Source and image identity
+
+The successful current-candidate build-v2 receipt and stack capture are retained
+under `docs/validation/parliament_ballot_current_candidate/`. Their fixed
+manifest, every listed artifact, selected binary hashes and captured disassembly,
+function-owner and native-stub identities are checked before and after analysis.
+The prior compiled-correspondence bundle is also authenticated. Its algorithms
+are not executed again and its old identities are not refreshed.
+
+The source is the exact `framing.rs` retained by the frontend evidence, SHA256
+`784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0`.
+That same identity appears in the successful build source map. It bounds an
+opaque field at 256 bytes before `to_vec`. The helper resolves every recorded
+build identity. The old Cargo.lock is resolved through the manifest-bound
+`build-v2/generated-source/root-Cargo.lock.template.template`; its observed live
+replacement is reported separately. Every other build input must still match its
+recorded identity. This does not establish compiler correctness or an exhaustive
+native dependency closure. Checkout applicability remains false even if a later
+checkout happens to match these selected observations.
+
+The bodies occupy 156 bytes / 39 instructions at portable `0x100013b28` and
+accelerated `0x100013b2c`. The helper extracts their bytes from the file-backed
+Mach-O text section. It trusts the authenticated tool's disassembly-to-image
+correspondence; it does not implement a general ARM decoder. Numeric call targets
+must resolve to the captured allocator, shim, allocation-error function or the
+`_memcpy` import. The instruction graph and argument proof are newly derived
+from the instruction operands, not supplied by the body hash or earlier counts.
+
+## Semantic boundary
+
+The entry has a valid immutable input borrow, a valid separate result object,
+and available private stack. Input, result, stack and any new allocation are
+disjoint. The length word is analyzed for the entire unsigned 64-bit range;
+valid-slice provenance remains a premise. The registration caller's admitted
+425,984-byte bound is included in that partition.
+
+Ordinary callees obey their Rust/native contracts, preserve saved registers,
+stack and unrelated live memory, and do not reenter or asynchronously mutate the
+private state. The allocator either returns null or fresh suitably aligned owned
+storage for the requested layout. Native `memcpy` reads the supplied input and
+writes exactly the requested disjoint destination bytes. Its zero-length call
+permits aligned dangling destination 1 without accessing it. None of those
+contracts gives a work, allocation, stack/TLS or physical-time bound for a callee.
+
+The interpreter tracks the original input, result and allocated-owner tokens;
+the input length and its unsigned interval; saved-register stack stores/restores;
+result field writes; and volatile-register clobbering at each call. CMP/unsigned
+B.LS and CBZ split intervals or allocator return cases. Every local instruction
+must be reached by one of the derived classes, and the graph must be acyclic.
+Unrecognized operations, targets, output layouts, control escapes, stack changes
+or unproved arguments refuse. This is a deliberately narrow interpreter for
+these bodies, not a general machine-code verification framework.
+
+## Derived paths
+
+| Path | Length | Local instructions | Calls in order |
+| --- | --- | ---: | --- |
+| Oversize rejection | 257 through `2^64-1` | 20 | None |
+| Empty success | 0 | 23 | `memcpy(1, input, 0)` |
+| Allocated success | 1 through 256 | 29 | shim; `alloc(length, 1)`; `memcpy(allocated, input, length)` |
+| Null allocation prefix | 1 through 256 | 18 | shim; `alloc(length, 1)`; `handle_error(1, length)` |
+
+The oversize branch dominates both allocation and copying: the original length
+comparison occurs before any such call. The empty path makes no allocator or
+shim call, but still makes the native zero-byte copy call. It is not a claim
+that native copying allocates nothing internally.
+
+Success writes a result tag of zero and transfers `(capacity, pointer, length)`
+as `(length, allocated, length)` or `(0, 1, 0)`. Oversize rejection writes the
+error tag, bounded-field error variant, bound 256 and original actual length.
+All ordinary paths restore the saved registers, link register and stack. The
+constructor performs no deallocation; ownership of a successful vector passes
+to the caller. Its later destruction already belongs to caller cleanup terms.
+The source remains borrowed; preservation is conditional on the explicit
+memory/noninterference contracts, not an independent universal provenance proof.
+
+The last instruction is an allocation-error `BL` at relative offset `0x98`.
+Its hypothetical normal return lands at `+0x9c`, the next `frame_bytes` function
+entry. There is no RET or BRK there within the constructor. The checker stops
+the local prefix at the call and retains its callee work, hypothetical
+fallthrough and exceptional continuation as unknown. Neither the symbol name
+nor a Rust never-return declaration silently removes that obligation.
+
+## Composition
+
+Let `H`, `A[256]`, and `M[256]` be nonnegative upper costs for the shim, allocator
+and native copy, with the latter two covering every permitted argument up to
+256 bytes. Their values remain unknown; no monotonicity of native cost is
+assumed. On paths on which the constructor and its callees return ordinarily,
+
+```text
+O_return <= 29 + H + A[256] + M[256].
+```
+
+The null-allocation prefix contributes 18 local instructions plus shim and
+allocator work before its final error call. Completing that path additionally
+requires error cost `E` and continuation cost `J`; both remain unknown, including
+unwind/abort or hypothetical ordinary fallthrough. Thus this does not replace a
+universal `O` term by a finite number.
+
+For ordinary caller paths where all five constructor calls return, the earlier
+registration-decoder formula can substitute five copies of the expression:
+its local 621 becomes 766, while adding `5H + 5A[256] + 5M[256]` in place of
+`5O[425984]`. Earlier parser, body-copy, first inlined opaque-field construction,
+statement constructor, allocator, native copy and cleanup terms remain. The
+five new terms are substitutions, not an extra charge on top of `5O`. Error and
+exceptional paths retain their additional frontier obligations.
+
+The local frame is 48 bytes at each call; with the earlier conservative
+128-byte Apple red-zone allowance, the local envelope is 176 bytes. For ordinary
+paths, with callee additional peaks `S_H`, `S_A`, `S_M`,
+
+```text
+S_O_return <= max(176, 48 + max(S_H, S_A, S_M)).
+```
+
+At the error frontier, `48 + S_E` and the still-unknown post-return/exceptional
+continuation must also be retained. Five sequential calls do not mean five
+simultaneous frames. In the decoder's stack formula the constructor's children
+have live caller depth `1584+48=1632`; its own `1584+176=1760` is dominated by
+the existing 1824-byte decoder/parser envelope. Other direct callees and parser
+children keep their existing depths, as do the enclosing frontend and adapter.
+The component supplies no complete numerical stack or 64 MiB certificate.
+
+## Validation proposal
+
+The separate staged test module uses an independent four-path calculation,
+exact argument/result expectations and mutations of guards, branches, pointer
+and length registers, call arguments, result stores, frame restoration and the
+final error continuation. Source/archive/image/stub identity changes and output
+overwrite must refuse. Tests must retain actual outcomes before publication.
+
+The helper writes only a new report, emits UNKNOWN on a failed analysis, and
+refuses qualification with exit 2 even after a successful conditional analysis.
+All complete-constructor, complete-native/workspace, physical-cost and
+profile/production flags remain false. TODO: discharge lower native and
+allocator contracts and costs, error and exceptional continuations, complete
+allocation correspondence, independent review and named-hardware qualification.

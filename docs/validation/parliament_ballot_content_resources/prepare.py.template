@@ -1,0 +1,95 @@
+"""Prepare this one small content-observation package under ignored target only."""
+import hashlib
+import json
+from pathlib import Path
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+ORIGINAL=ROOT/'target/parliament-content-resources-stage'
+MAIN=ROOT/'docs/validation/parliament_ballot_request_machine'
+REVIEW=ROOT/'target/parliament-content-resource-root-review/receipt.json'
+OUT=HERE/'publication'
+OLD_MANIFEST='fd2862d191c99df21fe4327fcd52d11842974aeb76907e30929f0d468026717c'
+MAIN_MANIFEST='a1d8a09dbe677b4eee0eb230ab8f998f4e80f90b2546dde1c9faa6b46679923d'
+REVIEW_SHA='44e6e4366aedff5734f92e2d1b5e51479251494c363a23a8fb8f82e42bf1cfea'
+
+
+def digest(raw):return hashlib.sha256(raw).hexdigest()
+
+
+def read(path,expected):
+    if path.is_symlink():raise ValueError('symlink input: '+str(path))
+    raw=path.read_bytes()
+    if digest(raw)!=expected:raise ValueError('input drift: '+str(path))
+    return raw
+
+
+def manifest(raw):
+    result={}
+    for line in raw.decode().splitlines():
+        sha,name=line.split('  ',1);p=Path(name)
+        if name in result or p.is_absolute() or '..' in p.parts:raise ValueError('unsafe manifest')
+        result[name]=sha
+    return result
+
+
+def main():
+    if OUT.exists():raise ValueError('publication draft already exists')
+    oldraw=read(ORIGINAL/'SHA256SUMS',OLD_MANIFEST);old=manifest(oldraw)
+    if len(old)!=12:raise ValueError('original file count')
+    actual={str(p.relative_to(ORIGINAL)) for p in ORIGINAL.rglob('*') if p.is_file()}
+    if actual!=set(old)|{'SHA256SUMS'}:raise ValueError('original membership')
+    mainraw=read(MAIN/'SHA256SUMS',MAIN_MANIFEST);mainmap=manifest(mainraw)
+    capture_files={name:mainmap[name] for name in ('capture/receipt.json','capture/manifest.sha256')}
+    if capture_files!={'capture/receipt.json':'a2461d6bc5b1ee066dcaa6a48bf3fe5639d0b886da6512358e5dd0c6eb835e69',
+        'capture/manifest.sha256':'dbaf7f5306389646f492862cc3f6618ade622546011de6159b856f1fbec61d93'}:
+        raise ValueError('corrected capture dependency changed')
+    source=json.loads(read(MAIN/'capture/receipt.json',capture_files['capture/receipt.json']))['source_sha256_before']
+    if len(source)!=152:raise ValueError('selected dependency count')
+    for name,sha in source.items():
+        archived='capture/source/'+name+'.template'
+        if mainmap[archived]!=sha:raise ValueError('source archive map differs')
+        read(MAIN/archived,sha)
+    read(MAIN/'capture/manifest.sha256',capture_files['capture/manifest.sha256'])
+    payload={};inventory={};renames={}
+    def keep(name,raw,path):
+        if name in payload:raise ValueError('duplicate output')
+        payload[name]=raw;inventory[name]=dict(original_path=str(path.relative_to(ROOT)),sha256=digest(raw))
+    for name,sha in old.items():
+        retained='record/'+name+('.template' if name.endswith('.py') else '')
+        keep(retained,read(ORIGINAL/name,sha),ORIGINAL/name);renames[name]=retained
+    keep('record/SHA256SUMS',oldraw,ORIGINAL/'SHA256SUMS')
+    review=read(REVIEW,REVIEW_SHA)
+    reviewed=json.loads(review)
+    if reviewed['observation_sha256']!=old['capture/observation.json'] or reviewed['checker_sha256']!=old['check.py']:
+        raise ValueError('review scope mismatch')
+    keep('reviews/root-byte-buffer-review.json',review,REVIEW)
+    keep('README.md',(HERE/'README.md').read_bytes(),HERE/'README.md')
+    keep('prepare.py.template',Path(__file__).read_bytes(),Path(__file__))
+    dependency=dict(published_bundle='docs/validation/parliament_ballot_request_machine',
+        published_manifest_sha256=MAIN_MANIFEST,capture_files=capture_files,
+        selected_source_count=152,source_archive_rule='capture/source/{original_path}.template',
+        accepted_observation_path='capture/source/target/parliament-ideal-machine-stage/request-accepted-observation.json.template',
+        accepted_observation_sha256='81ffb1db693c94f73f41239da3cd8164893d9c84ddd805d873ec3ede974f4f4c',
+        complete_resource_vector=False,profile_qualified=False,production_gate_changed=False)
+    payload['dependency.json']=(json.dumps(dependency,indent=2,sort_keys=True)+'\n').encode()
+    inventory['dependency.json']=dict(generated_by='prepare.py.template',sha256=digest(payload['dependency.json']))
+    record=dict(files=inventory,original_manifest_sha256=OLD_MANIFEST,original_to_retained=renames,
+        original_record_unchanged=True,original_command_atomic_byte_use_attested=False,
+        separate_root_verified_buffer_review=True,source_files_duplicated=False,
+        complete_resource_vector=False,profile_qualified=False,production_gate_changed=False)
+    payload['inventory.json']=(json.dumps(record,indent=2,sort_keys=True)+'\n').encode()
+    OUT.mkdir()
+    for name,raw in payload.items():
+        dest=OUT/name;dest.parent.mkdir(parents=True,exist_ok=True)
+        with dest.open('xb') as stream:stream.write(raw)
+        if dest.read_bytes()!=raw:raise ValueError('destination copy differs')
+    read(ORIGINAL/'SHA256SUMS',OLD_MANIFEST);read(MAIN/'SHA256SUMS',MAIN_MANIFEST);read(REVIEW,REVIEW_SHA)
+    for name,sha in old.items():read(ORIGINAL/name,sha)
+    if {str(p.relative_to(OUT)) for p in OUT.rglob('*') if p.is_file()}!=set(payload):raise ValueError('destination membership')
+    raw=''.join(digest(payload[name])+'  '+name+'\n' for name in sorted(payload)).encode()
+    with (OUT/'SHA256SUMS').open('xb') as stream:stream.write(raw)
+    print(json.dumps(dict(entries=len(payload),manifest_sha256=digest(raw),tracked_writes=False)))
+
+
+if __name__=='__main__':main()

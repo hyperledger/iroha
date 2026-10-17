@@ -9178,7 +9178,7 @@ mod evidence_http_tests {
             instructions: Vec::new(),
             proposed_at_ms: 1,
             expires_at_ms: 2,
-            approvals: std::collections::BTreeSet::default(),
+            approvals: BTreeSet::default(),
         };
         let entry = norito::json!({
             "proposal_id": (id.to_string()),

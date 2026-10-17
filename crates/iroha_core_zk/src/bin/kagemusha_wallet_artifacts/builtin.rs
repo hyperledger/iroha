@@ -104,7 +104,10 @@ fn parse_request(bytes: &[u8]) -> io::Result<BuiltinRequest> {
 
 /// Both modes authenticate the independent native genesis. Export always takes
 /// the unconditional strict path and never looks up an existing registry entry.
-pub(super) fn run(path: &str, export: bool) -> io::Result<()> {
+///
+/// # Errors
+/// Returns request, genesis, source-qualification, custody, or output-publication errors.
+pub fn run(path: &str, export: bool) -> io::Result<()> {
     let total = std::time::Instant::now();
     let request_original = Original::open(path, REQUEST_MAX, None)?;
     let request = parse_request(&request_original.bytes)?;

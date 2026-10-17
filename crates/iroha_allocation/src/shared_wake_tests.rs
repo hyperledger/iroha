@@ -67,7 +67,8 @@ fn charged_waker_conversion_clones_callbacks_and_final_drop_allocate_nothing() {
         .store(std::ptr::from_ref(&*owner) as usize, SeqCst);
     let waker = without_allocations(|| owner.into_waker());
     let clone = without_allocations(|| waker.clone());
-    assert!(waker.will_wake(&clone));
+    // `will_wake` permits false negatives; check original ownership directly.
+    assert_eq!(waker.data(), clone.data());
     without_allocations(|| waker.wake_by_ref());
     without_allocations(|| clone.wake());
     assert_eq!(wake_count.load(SeqCst), 2);

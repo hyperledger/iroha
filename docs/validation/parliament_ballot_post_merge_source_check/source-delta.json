@@ -1,0 +1,21 @@
+{
+  "diff_sha256": "08221d40e5c943c32d8f7a518a635aa9bde7d63b40cd793774644f2d6827ecd9",
+  "expected_changed_inputs": {
+    "crates/iroha_core/src/state/deserialize_world.rs": {
+      "after": "32e29395814b249e0c009526b263aa63e5d8ceef23d4a3f6568c013d7392703a",
+      "authenticated_result_archive": "docs/validation/parliament_ballot_execution_result_guard/captured-sources/crates/iroha_core/src/state/deserialize_world.rs.template",
+      "before": "8f15d08f8380fe5b42688de2313ef139ca6cfe378a5b4e8abf4205463adfa843",
+      "retained_prior_archive": "docs/validation/parliament_ballot_post_merge_source_check/prior-sources/crates/iroha_core/src/state/deserialize_world.rs.template"
+    },
+    "crates/iroha_torii/src/routing.rs": {
+      "after": "dcd5af8532819562e99e3f0b6b9a67a13c6ec4dde431b9de8228ae0e2d126db1",
+      "authenticated_result_archive": "docs/validation/parliament_ballot_execution_result_guard/captured-sources/crates/iroha_torii/src/routing.rs.template",
+      "before": "aca67cde18a19d01eddcd1c21ca2154644ab912727b4b82dde9bc8503306bc8c",
+      "retained_prior_archive": "docs/validation/parliament_ballot_post_merge_source_check/prior-sources/crates/iroha_torii/src/routing.rs.template"
+    }
+  },
+  "prior_source_check_sha256": "e97cc9287f73b258438b473fb229bd74739134b5a51e8a9a929f37d1760c3664",
+  "result_bundle_manifest_sha256": "cca0a8ba74c0ffe4f5142943608280b527f32e1d74718c3a476ae9171afef235",
+  "schema": "parliament-post-merge-source-delta-v1",
+  "scope": "Only the two changed source inputs from the prior source-check read set. Three test/fixture constructors and one production projection constructor become named field literals. No claim that the full 43-call migration across 14 files is covered. Source correspondence only; the original 1755-test regression remains bound to its original captured sources and is not transferred to this candidate."
+}

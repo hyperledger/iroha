@@ -143,12 +143,10 @@ impl NativeFixture {
     }
 
     pub(in crate::managed) fn read_http(&self, config: &Config) -> NativeReadHttp {
-        match &self.http_listeners {
-            Some(owner) => {
-                NativeReadHttp::start_owned(config, Arc::clone(self.chain.state()), owner)
-            }
-            None => NativeReadHttp::start_config(config, Arc::clone(self.chain.state())),
-        }
+        self.http_listeners.as_ref().map_or_else(
+            || NativeReadHttp::start_config(config, Arc::clone(self.chain.state())),
+            |owner| NativeReadHttp::start_owned(config, Arc::clone(self.chain.state()), owner),
+        )
     }
 
     pub(in crate::managed) fn unavailable_peers(

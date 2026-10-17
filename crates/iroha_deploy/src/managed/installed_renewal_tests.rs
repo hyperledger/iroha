@@ -757,11 +757,11 @@ fn comparison_cycle() -> ([Enrollment; 3], [Enrollment; 3]) {
             .payload()
             .try_into()
             .unwrap();
-            let signed = SignerCustodyRecordV1 {
+            let record = SignerCustodyRecordV1 {
                 statement,
                 attestation,
             };
-            let digest = signed.canonical_digest().unwrap();
+            let digest = record.canonical_digest().unwrap();
             let control = SignerCustodyControlStateV1 {
                 policy: policy.clone(),
                 next_sequence: sequence + 1,
@@ -769,7 +769,7 @@ fn comparison_cycle() -> ([Enrollment; 3], [Enrollment; 3]) {
                 active_head: Some(SignerCustodyActiveHeadV1 {
                     sequence,
                     record_digest: digest,
-                    approved_anchor: signed.statement.anchor,
+                    approved_anchor: record.statement.anchor,
                     key_revision: policy.binding.key_revision,
                     policy_revision: policy.binding.policy_revision,
                     policy_digest: policy.binding.policy_digest,
@@ -788,10 +788,13 @@ fn comparison_cycle() -> ([Enrollment; 3], [Enrollment; 3]) {
                 recorded_at_unix_ms: issued + 1,
                 authority: manager.clone(),
                 control_state: norito::encode_canonical(&control).unwrap(),
-                active_enrollment: Some(norito::encode_canonical(&signed).unwrap()),
+                active_enrollment: Some(norito::encode_canonical(&record).unwrap()),
             };
             native.validate_active_enrollment(&control).unwrap();
-            Enrollment { signed, native }
+            Enrollment {
+                signed: record,
+                native,
+            }
         };
         let initial = enrollment(1, [0; 32], 1_000, [10; 32]);
         let renewed = enrollment(
@@ -828,8 +831,10 @@ fn renewal_comparison_accepts_exact_distinct_signed_and_native_predecessors() {
 
 #[test]
 fn renewal_comparison_refuses_each_predecessor_and_binding_substitution() {
+    type Mutation = fn(&mut Enrollment);
+
     let (initial, renewed) = comparison_cycle();
-    let mutations: [(fn(&mut Enrollment), &str); 7] = [
+    let mutations: [(Mutation, &str); 7] = [
         (
             |row| row.signed.statement.predecessor_digest[0] ^= 1,
             "enrollment predecessor",

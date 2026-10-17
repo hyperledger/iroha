@@ -1,0 +1,50 @@
+{
+  "framing_only_width": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "scripts/parliament_ballot_write_framing.py",
+    "--root",
+    "/Users/mtakemiya/dev/iroha",
+    "--request-cap",
+    "1",
+    "--length-bits",
+    "18"
+  ],
+  "illustrative": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "scripts/parliament_ballot_write_framing.py",
+    "--root",
+    "/Users/mtakemiya/dev/iroha",
+    "--request-cap",
+    "17592186044416",
+    "--length-bits",
+    "64"
+  ],
+  "qualification_refusal": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "scripts/parliament_ballot_write_framing.py",
+    "--root",
+    "/Users/mtakemiya/dev/iroha",
+    "--request-cap",
+    "17592186044416",
+    "--length-bits",
+    "64",
+    "--require-qualified"
+  ],
+  "tests": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "scripts/tests/parliament_ballot_write_framing_test.py"
+  ],
+  "zero_requests": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "scripts/parliament_ballot_write_framing.py",
+    "--root",
+    "/Users/mtakemiya/dev/iroha",
+    "--request-cap",
+    "0",
+    "--length-bits",
+    "64"
+  ]
+}

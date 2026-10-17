@@ -1,0 +1,1 @@
+error: crates/irohad/src/main.rs: startup must propagate original preparation into awaited activation

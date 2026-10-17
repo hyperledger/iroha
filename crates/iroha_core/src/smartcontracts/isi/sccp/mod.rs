@@ -64,6 +64,8 @@ pub mod witness;
 #[cfg(test)]
 mod eligibility_tests;
 #[cfg(test)]
+mod storage_measurement_tests;
+#[cfg(test)]
 pub(crate) mod test_support;
 
 use super::Execute;

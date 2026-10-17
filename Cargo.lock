@@ -6249,6 +6249,7 @@ dependencies = [
  "iroha_primitives",
  "iroha_sccp",
  "iroha_sccp_rpc",
+ "iroha_service_model",
  "iroha_storage_client",
  "iroha_telemetry",
  "iroha_test_samples",

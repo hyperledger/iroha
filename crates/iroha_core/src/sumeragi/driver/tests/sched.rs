@@ -505,6 +505,13 @@ fn every_execute_is_answered_exactly_once() {
 struct Panicking;
 
 impl Executor for Panicking {
+    fn recover_proposal_admission(
+        &mut self,
+        _: &AvailableBody,
+    ) -> Result<iroha_sumeragi::proposal_admission::ProposalAdmission, PublicationError> {
+        panic!("boom")
+    }
+
     fn build_control_witness(
         &mut self,
         _: &iroha_sumeragi::api::ControlWitnessContext,
@@ -550,7 +557,7 @@ impl Executor for Panicking {
         _: u64,
         _: u32,
         _: u32,
-    ) -> Result<Option<iroha_sumeragi::availability::PayloadBytes>, PublicationError> {
+    ) -> Result<Option<iroha_sumeragi::proposal_admission::BuiltPayload>, PublicationError> {
         panic!("boom")
     }
     fn reject(&mut self, _: u64, _: u64, _: &Hash32) {}
@@ -563,6 +570,17 @@ fn executor_panics_become_local_failures() {
     let blocks = FakeBlocks::default();
     let (b1, bh1, r1) = child(1, (G, RG), 1);
     let mut exec = Panicking;
+    assert!(matches!(
+        run_exec(
+            &mut exec,
+            &blocks,
+            ExecOp::RecoverProposalAdmission {
+                req: 9,
+                body: b1.clone()
+            }
+        ),
+        ExecDone::ProposalAdmissionRecovered(Err(PublicationError::RecoveryRequired(_)))
+    ));
     let done = run_exec(
         &mut exec,
         &blocks,
@@ -664,6 +682,14 @@ fn certified_execution_flag_reaches_the_application_without_inference() {
 }
 
 impl Executor for Overlay {
+    fn recover_proposal_admission(
+        &mut self,
+        body: &AvailableBody,
+    ) -> Result<iroha_sumeragi::proposal_admission::ProposalAdmission, PublicationError> {
+        self.other("recover proposal admission");
+        self.inner.recover_proposal_admission(body)
+    }
+
     fn build_control_witness(
         &mut self,
         _: &iroha_sumeragi::api::ControlWitnessContext,
@@ -731,7 +757,7 @@ impl Executor for Overlay {
         view: u64,
         max_bytes: u32,
         budget: u32,
-    ) -> Result<Option<iroha_sumeragi::availability::PayloadBytes>, PublicationError> {
+    ) -> Result<Option<iroha_sumeragi::proposal_admission::BuiltPayload>, PublicationError> {
         self.other("build");
         self.inner.build(height, view, max_bytes, budget)
     }

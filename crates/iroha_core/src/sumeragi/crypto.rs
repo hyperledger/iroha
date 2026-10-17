@@ -41,9 +41,7 @@ impl From<ExecutionDeferred> for QueryCommitteeError {
 
 fn query_committee_allocation_failure(bytes: usize) -> QueryCommitteeError {
     let _ = bytes;
-    QueryCommitteeError::Resource(ExecutionDeferred::from(
-        ivm::error::ExecutionDeferral::AllocationUnavailable,
-    ))
+    QueryCommitteeError::Resource(ivm::error::ExecutionDeferral::AllocationUnavailable.into())
 }
 
 // Complete allocator-visible backing of the closed one-shot constructor below. No temporary
@@ -597,6 +595,10 @@ mod tests {
         let Err(QueryCommitteeError::Resource(refused)) = result else {
             panic!("committee admission must retain its original local refusal");
         };
+        assert_eq!(
+            refused.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        );
         let original = refused
             .decode_refusal()
             .expect("original inherited decoder refusal");

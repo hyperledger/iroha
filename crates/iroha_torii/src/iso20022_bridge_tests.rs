@@ -3511,7 +3511,9 @@ fn native_payment_message(message_type: &str, fields: &[u8]) -> Result<ParsedMes
     ] {
         let key = format!("NexusSettlement/{name}=");
         if !fields.lines().any(|line| line.starts_with(&key)) {
-            fields.push_str(&format!("\n{key}{value}"));
+            fields.push('\n');
+            fields.push_str(&key);
+            fields.push_str(&value);
         }
     }
     parse_message(message_type, fields.as_bytes())
@@ -8932,8 +8934,7 @@ fn lifecycle_journal_recovers_second_record_after_partial_roll_forward() {
     record_lifecycle(&runtime, lifecycle_id, "pacs.002");
     let (_, original) = runtime
         .prepare_lifecycle_update(
-            lifecycle_id,
-            original_id,
+            (lifecycle_id, original_id),
             "pacs.002",
             Some("PDNG"),
             None,

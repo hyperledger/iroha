@@ -1,0 +1,31 @@
+{
+  "items": {
+    "crates/iroha_core/src/sumeragi/epoch_beacon/control.rs": {
+      "comparison_only_current_borrow_reversed": "pub(crate) fn encode(pulse: Option<Pulse>) -> Result<ControlWitness, ControlCodecError> {\n    let mut witness = ControlWitness::empty();\n    if let Some(pulse) = pulse {\n        norito::core::write_canonical_to_writer(&pulse, &mut witness)?;\n    }\n    Ok(witness)\n}",
+      "current_item": "pub(crate) fn encode(pulse: Option<&Pulse>) -> Result<ControlWitness, ControlCodecError> {\n    let mut witness = ControlWitness::empty();\n    if let Some(pulse) = pulse {\n        norito::core::write_canonical_to_writer(pulse, &mut witness)?;\n    }\n    Ok(witness)\n}",
+      "declaration": "pub(crate) fn encode(",
+      "exact_pre_commit_item_recovered": true,
+      "pre_commit_item": "pub(crate) fn encode(pulse: Option<Pulse>) -> Result<ControlWitness, ControlCodecError> {\n    let mut witness = ControlWitness::empty();\n    if let Some(pulse) = pulse {\n        norito::core::write_canonical_to_writer(&pulse, &mut witness)?;\n    }\n    Ok(witness)\n}"
+    },
+    "crates/iroha_core/src/sumeragi/epoch_beacon/producer.rs": {
+      "comparison_only_current_borrow_reversed": "pub(crate) fn build(\n        &self,\n        context: &ControlWitnessContext,\n    ) -> Result<ControlWitness, NativeBeaconError> {\n        let source = ApplicationControlContext {\n            instance: self.instance,\n            epoch: context.epoch,\n            height: context.height,\n            parent_hash: context.parent_hash,\n            parent_result: context.parent_result,\n        };\n        if self.prepared.as_ref() != Some(&source) {\n            return Err(NativeBeaconError::Context);\n        }\n        let pulse = match &self.active {\n            None => None,\n            Some(active) => Some(active.finalized.ok_or(NativeBeaconError::AwaitingShares {\n                height: context.height,\n            })?),\n        };\n        control::encode(pulse).map_err(NativeBeaconError::from)\n    }",
+      "current_item": "pub(crate) fn build(\n        &self,\n        context: &ControlWitnessContext,\n    ) -> Result<ControlWitness, NativeBeaconError> {\n        let source = ApplicationControlContext {\n            instance: self.instance,\n            epoch: context.epoch,\n            height: context.height,\n            parent_hash: context.parent_hash,\n            parent_result: context.parent_result,\n        };\n        if self.prepared.as_ref() != Some(&source) {\n            return Err(NativeBeaconError::Context);\n        }\n        let pulse = match &self.active {\n            None => None,\n            Some(active) => Some(active.finalized.ok_or(NativeBeaconError::AwaitingShares {\n                height: context.height,\n            })?),\n        };\n        control::encode(pulse.as_ref()).map_err(NativeBeaconError::from)\n    }",
+      "declaration": "pub(crate) fn build(",
+      "exact_pre_commit_item_recovered": true,
+      "pre_commit_item": "pub(crate) fn build(\n        &self,\n        context: &ControlWitnessContext,\n    ) -> Result<ControlWitness, NativeBeaconError> {\n        let source = ApplicationControlContext {\n            instance: self.instance,\n            epoch: context.epoch,\n            height: context.height,\n            parent_hash: context.parent_hash,\n            parent_result: context.parent_result,\n        };\n        if self.prepared.as_ref() != Some(&source) {\n            return Err(NativeBeaconError::Context);\n        }\n        let pulse = match &self.active {\n            None => None,\n            Some(active) => Some(active.finalized.ok_or(NativeBeaconError::AwaitingShares {\n                height: context.height,\n            })?),\n        };\n        control::encode(pulse).map_err(NativeBeaconError::from)\n    }"
+    }
+  },
+  "schema": "parliament-beacon-borrow-entry-history-v1",
+  "scope": "Only producer build call and codec encode signature/writer-argument changes are compared. Current Pulse derives Copy and ActiveRound retains Option<Pulse>; the build borrows its local Option<Pulse>. This records source correspondence only, not serializer byte equivalence, compilation, allocation or runtime qualification. All other producer/codec/history changes are outside this comparison.",
+  "source_after": {
+    "crates/iroha_core/src/sumeragi/epoch_beacon/control.rs": "853abeb435b1c2400b61b56bd02bbee81bfd4a0de834fb18d784107cfe29f168",
+    "crates/iroha_core/src/sumeragi/epoch_beacon/producer.rs": "1ff71c1c44142958e1f65272b38707c2dba7baf68d0e19733e2ab691b78823f8",
+    "crates/iroha_data_model/src/consensus.rs": "5aef194eeecfd9b4d02c1a1a04960fe17921312fd834ca38c6b86b83afafedf3"
+  },
+  "source_before": {
+    "crates/iroha_core/src/sumeragi/epoch_beacon/control.rs": "853abeb435b1c2400b61b56bd02bbee81bfd4a0de834fb18d784107cfe29f168",
+    "crates/iroha_core/src/sumeragi/epoch_beacon/producer.rs": "1ff71c1c44142958e1f65272b38707c2dba7baf68d0e19733e2ab691b78823f8",
+    "crates/iroha_data_model/src/consensus.rs": "5aef194eeecfd9b4d02c1a1a04960fe17921312fd834ca38c6b86b83afafedf3"
+  },
+  "source_commit": "1a6270412cbb10a7ab83b91080e0da595c303a35"
+}

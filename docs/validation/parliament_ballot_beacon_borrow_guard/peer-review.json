@@ -1,0 +1,25 @@
+{
+  "independent_controls_reported": {
+    "deselected": 1601,
+    "evidence_kind": "Reviewer-reported tool result via agent message; not run by capture recipe; raw tool log not separately retained",
+    "passed": 86,
+    "scope": "beacon_borrow controls",
+    "seconds": 1.07
+  },
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "remaining_findings_under_stated_premises": [],
+  "review_kind": "Independent local agent source review; not external cryptographic or unsafe implementation review",
+  "review_scope": "Actual complete build and control module retain original context guard, finalized/AwaitingShares flow, pulse.as_ref(), same returned witness, fallible canonical writer and NativeBeaconError mapping. Direct unconditional routes/import, original owners and full codec token pin cover the declared source scope. AST delta adds one helper/constant and replaces old suffix check; old tests retained.",
+  "reviewed_checker_sha256": "8f087407ab5d1b84c2c3998426a0480f79f6ed60ae4e7ebee9b4c1d47ec88c3e",
+  "reviewed_tests_sha256": "d8f44e837bb034cf5cb7145123d3e71ec1b78fdb7ffa17b7c2e199b46a8fc733",
+  "reviewer": "/root/security_obligations",
+  "runtime_qualification": false,
+  "schema": "parliament-beacon-borrow-peer-review-v1",
+  "upstream_premises": [
+    "Surrounding producer type and name resolution",
+    "Pulse and ControlWitness definitions",
+    "Norito serializer semantics",
+    "Compiler and runtime behavior"
+  ]
+}

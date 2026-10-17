@@ -820,9 +820,14 @@ mod tests {
             Done::Committed { op: 8, config } if *config == inst.applied_config(1)
         )));
         assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, Event::PayloadBuilt { req: 9, .. }))
+            events.iter().any(|e| matches!(
+                e,
+                Event::PayloadBuilt {
+                    req: 9,
+                    payload: None
+                }
+            )),
+            "an unbound scripted build completes EMPTY without publication custody"
         );
         let rep = &world.replicas[0];
         assert_eq!(rep.store.len(), 1);

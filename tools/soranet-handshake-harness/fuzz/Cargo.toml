@@ -16,6 +16,10 @@ soranet-handshake-harness = { path = ".." }
 [workspace]
 members = ["."]
 
+[patch.crates-io]
+# Preserve the root workspace's fallible native-digit allocation handoff.
+num-bigint = { path = "../../../vendor/num-bigint-0.4.6" }
+
 [[bin]]
 name = "handshake_state_machine"
 path = "fuzz_targets/handshake_state_machine.rs"

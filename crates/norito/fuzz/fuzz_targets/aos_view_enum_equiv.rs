@@ -34,13 +34,13 @@ fuzz_target!(|rows: Vec<Row>| {
     let body = norito::aos::encode_rows_u64_enum_bool(&borrowed);
     let view = norito::columnar::view_aos_u64_enum_bool(&body).expect("view");
     assert_eq!(view.len(), borrowed.len());
-    for i in 0..view.len() {
-        assert_eq!(view.id(i), borrowed[i].0);
-        match (borrowed[i].1, view.payload(i).expect("payload")) {
-            (EnumBorrow::Name(s), AosEnumRef::Name(ns)) => assert_eq!(s, ns),
-            (EnumBorrow::Code(v), AosEnumRef::Code(cv)) => assert_eq!(v, cv),
+    for (i, (id, payload, flag)) in borrowed.iter().enumerate() {
+        assert_eq!(view.id(i), *id);
+        match (payload, view.payload(i).expect("payload")) {
+            (EnumBorrow::Name(s), AosEnumRef::Name(ns)) => assert_eq!(*s, ns),
+            (EnumBorrow::Code(v), AosEnumRef::Code(cv)) => assert_eq!(*v, cv),
             _ => panic!("variant mismatch"),
         }
-        assert_eq!(view.flag(i), borrowed[i].2);
+        assert_eq!(view.flag(i), *flag);
     }
 });

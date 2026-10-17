@@ -1,0 +1,222 @@
+"""Independent byte/word arithmetic and packed-basis review of scratch AES.
+
+The tested circuit is a public concrete AES map. These finite controls do not
+establish a PRP reduction, a quantum oracle implementation or physical costs.
+"""
+from collections import Counter
+import hashlib
+import importlib.util
+import itertools
+from pathlib import Path
+import random
+import re
+import sys
+
+import pytest
+
+TARGET = Path(__file__).resolve().parents[1]
+STAGE = TARGET / "parliament-aes-machine-stage"
+IR = TARGET / "parliament-ideal-machine-stage/bit_ir.py"
+PINS = {
+    IR: "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64",
+    STAGE / "aes256.py": "d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2",
+    STAGE / "references/FIPS-197-upd1.txt": "9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f",
+}
+for path, expected in PINS.items():
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == expected
+sys.path.insert(0, str(IR.parent))
+SPEC = importlib.util.spec_from_file_location("independently_reviewed_aes", STAGE / "aes256.py")
+A = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(A)
+
+
+def polynomial_remainder(value):
+    while value.bit_length() > 8:
+        value ^= 0x11B << (value.bit_length() - 9)
+    return value
+
+
+def product(left, right):
+    """Integer polynomial long product/remainder, separate from circuit gates."""
+    raw = 0
+    for power in range(8):
+        if (right >> power) & 1:
+            raw ^= left << power
+    return polynomial_remainder(raw)
+
+
+def inverse(value):
+    """Extended polynomial Euclid, not the circuit's x^254 addition chain."""
+    if not value:
+        return 0
+    left, right, x, y = value, 0x11B, 1, 0
+    while left != 1:
+        shift = left.bit_length() - right.bit_length()
+        if shift < 0:
+            left, right, x, y = right, left, y, x
+            shift = -shift
+        left ^= right << shift
+        x ^= y << shift
+    return polynomial_remainder(x)
+
+
+def substitute(value):
+    value = inverse(value)
+    return value ^ 0x63 ^ ((value << 1 | value >> 7) & 255) ^ ((value << 2 | value >> 6) & 255) ^ ((value << 3 | value >> 5) & 255) ^ ((value << 4 | value >> 4) & 255)
+
+
+S = tuple(substitute(value) for value in range(256))
+
+
+def schedule(key):
+    """Big-endian integer words, rather than byte-wire arrays."""
+    words = [int.from_bytes(key[i:i + 4], "big") for i in range(0, 32, 4)]
+    for index in range(8, 60):
+        value = words[-1]
+        if index % 8 == 0:
+            value = ((value << 8) | (value >> 24)) & 0xFFFFFFFF
+        if index % 8 in (0, 4):
+            value = sum(S[(value >> (8 * i)) & 255] << (8 * i) for i in range(4))
+        if index % 8 == 0:
+            value ^= 1 << (24 + index // 8 - 1)
+        words.append(words[index - 8] ^ value)
+    return words
+
+
+def encrypt(key, plain):
+    """Independent row-major integer AES reference for the finite controls."""
+    words = schedule(key)
+    rows = [[plain[4 * col + row] for col in range(4)] for row in range(4)]
+    def add_round_key(index):
+        for row in range(4):
+            for col in range(4):
+                rows[row][col] ^= (words[4 * index + col] >> (24 - 8 * row)) & 255
+    add_round_key(0)
+    matrix = ((2, 3, 1, 1), (1, 2, 3, 1), (1, 1, 2, 3), (3, 1, 1, 2))
+    for index in range(1, 15):
+        rows = [[S[byte] for byte in row] for row in rows]
+        rows = [row[offset:] + row[:offset] for offset, row in enumerate(rows)]
+        if index < 14:
+            rows = [[product(matrix[row][0], rows[0][col]) ^ product(matrix[row][1], rows[1][col]) ^ product(matrix[row][2], rows[2][col]) ^ product(matrix[row][3], rows[3][col]) for col in range(4)] for row in range(4)]
+        add_round_key(index)
+    return bytes(rows[row][col] for col in range(4) for row in range(4))
+
+
+def encode(raw):
+    return tuple((byte >> bit) & 1 for byte in raw for bit in range(8))
+
+
+def decode(values):
+    return bytes(sum(values[start + bit] << bit for bit in range(8)) for start in range(0, len(values), 8))
+
+
+def test_sbox_euclid_and_exact_affine_transform_all_bytes():
+    assert S[0] == 0x63 and S[0x53] == 0xED and len(set(S)) == 256
+    builder = A.Builder(8)
+    block = builder.finish(A.substitute(builder, tuple(range(8))))
+    for value in range(256):
+        if value:
+            assert product(value, inverse(value)) == 1
+        assert decode(block.evaluate(encode(bytes([value])))) == bytes([S[value]])
+
+
+def test_all_sixty_key_words_match_pinned_nist_appendix_a3():
+    text = (STAGE / "references/FIPS-197-upd1.txt").read_text()
+    appendix = text[text.rindex("A.3       Expansion of a 256-bit Key"):]
+    appendix = appendix[:appendix.index("Appendix B")]
+    rows = {}
+    for line in appendix.splitlines():
+        fields = line.split()
+        if fields and fields[0].isdecimal() and len(fields) > 1 and all(re.fullmatch("[0-9a-f]{8}", word) for word in fields[1:]):
+            index = int(fields[0])
+            assert index not in rows
+            rows[index] = int(fields[-1], 16)
+    assert set(rows) == set(range(8, 60))
+    key = bytes.fromhex("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4")
+    expected = [int.from_bytes(key[i:i + 4], "big") for i in range(0, 32, 4)] + [rows[index] for index in range(8, 60)]
+    assert schedule(key) == expected
+    builder = A.Builder(256)
+    keys = tuple(tuple(range(8 * i, 8 * i + 8)) for i in range(32))
+    block = builder.finish(tuple(wire for byte in A.expand_key(builder, keys) for wire in byte))
+    assert decode(block.evaluate(encode(key))) == b"".join(word.to_bytes(4, "big") for word in expected)
+
+
+def test_structural_counts_from_public_round_composition():
+    # 7 squarings each use13 XORs; 4 products each use64 ANDs and77 XORs.
+    sboxes = 14 * 16 + (7 + 6) * 4
+    ands = sboxes * 4 * 64
+    xors = sboxes * (7 * 13 + 4 * 77 + 8 * 4)
+    xors += 52 * 32 + 15 * 128 + 13 * 4 * (4 * 3 + 4 * 4 * 8)
+    nots = sboxes * 4 + 7
+    block = A.aes256_block()
+    assert block.kernels == ()
+    assert Counter(node.kind for node in block.nodes) == {"and": ands, "xor": xors, "not": nots}
+    assert block.derived == ands + xors + nots == 201587
+    assert A.AES256Kernel().cost.as_dict() == {
+        "x": 2222, "cx": 521630, "ccx": 141312,
+        "elementary_gates": 1230412, "base_xor_oracle_calls": 0,
+    }
+
+
+def test_packed_basis_clean_map_against_row_major_reference_with_independent_interpreter():
+    rng = random.Random(0xA35256)
+    sources = [bytes(48), bytes([255]) * 48, bytes(range(48))]
+    sources += [bytes(rng.randrange(256) for _ in range(48)) for _ in range(13)]
+    targets = [bytes(rng.randrange(256) for _ in range(16)) for _ in sources]
+    assert encrypt(bytes(range(32)), bytes.fromhex("00112233445566778899aabbccddeeff")).hex() == "8ea2b7ca516745bfeafc49904b496089"
+    kernel = A.AES256Kernel()
+    width = kernel.inputs + kernel.outputs + kernel.work
+    labels = tuple(range(7, width + 7))
+    inputs, outputs, work = labels[:384], labels[384:512], labels[512:]
+    mask = (1 << len(sources)) - 1
+    state = [mask] * 7 + [0] * width + [mask] * 5
+    for lane, (source, target) in enumerate(zip(sources, targets)):
+        for wires, raw in ((inputs, source), (outputs, target)):
+            for wire, bit in zip(wires, encode(raw)):
+                state[wire] |= bit << lane
+    before = list(state)
+    counts = Counter()
+    for gate in kernel.emit(inputs, outputs, work):
+        name, *wires = gate
+        assert len(set(wires)) == len(wires) and all(7 <= wire < width + 7 for wire in wires)
+        if name == "x":
+            assert len(wires) == 1
+            state[wires[0]] ^= mask
+        elif name == "cx":
+            assert len(wires) == 2
+            state[wires[1]] ^= state[wires[0]]
+        else:
+            assert name == "ccx" and len(wires) == 3
+            state[wires[2]] ^= state[wires[0]] & state[wires[1]]
+        counts[name] += 1
+    assert counts == {"x": 2222, "cx": 521630, "ccx": 141312}
+    assert state[:7] == before[:7] and state[-5:] == before[-5:]
+    assert all(state[wire] == before[wire] for wire in inputs)
+    assert not any(state[wire] for wire in work)
+    for lane, (source, target) in enumerate(zip(sources, targets)):
+        expected = bytes(a ^ b for a, b in zip(target, encrypt(source[:32], source[32:])))
+        assert decode(tuple((state[wire] >> lane) & 1 for wire in outputs)) == expected
+
+
+def test_missing_uncompute_control_detects_dirty_ancilla_even_when_ciphertext_is_correct():
+    block = A.aes256_block()
+    source = bytes(range(32)) + bytes.fromhex("00112233445566778899aabbccddeeff")
+    state = list(encode(source)) + [0] * (block.derived + 128)
+    forward_count = 1111 + 1111 + 2 * 129820 + 70656
+    for gate in itertools.islice(block.emit_clean(), forward_count + 128):
+        if gate[0] == "x": state[gate[1]] ^= 1
+        elif gate[0] == "cx": state[gate[2]] ^= state[gate[1]]
+        else: state[gate[3]] ^= state[gate[1]] & state[gate[2]]
+    assert decode(state[-128:]) == encrypt(source[:32], source[32:])
+    assert any(state[384:-128])
+
+
+@pytest.mark.parametrize("values", [(), (0,) * 383, (0,) * 385, bytes(384), [False] * 384, [2] * 384, [0.0] * 384])
+def test_evaluate_rejects_noncanonical_input(values):
+    with pytest.raises(ValueError):
+        A.AES256Kernel().evaluate(values)
+
+
+def test_reviewed_sources_did_not_change_during_controls():
+    for path, expected in PINS.items():
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == expected

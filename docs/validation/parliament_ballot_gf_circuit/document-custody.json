@@ -1,0 +1,40 @@
+{
+  "documents": {
+    "docs/validation/parliament_ballot_b6.md": {
+      "after": {
+        "sha256": "80d5e54fcc4bd1fefa612231cea300065a52d3fdbf611f31706a6111cdd62ba0",
+        "snapshot": "central-documents/after/docs/validation/parliament_ballot_b6.md.template"
+      },
+      "before": {
+        "sha256": "8cb9345fe37cb4ec013355a1b614b4cb39375c05a8fd1b19746adf43f1e4d375",
+        "snapshot": "central-documents/before/docs/validation/parliament_ballot_b6.md.template"
+      },
+      "prior_opaque_snapshot": "central-documents/after/docs/validation/parliament_ballot_b6.md.template"
+    },
+    "specs/parliament_ballot_b6_requirement_audit.md": {
+      "after": {
+        "sha256": "2ca791c7ab763898c80f7e5ceed8e78247fc43b43253bda2669bf558267e9814",
+        "snapshot": "central-documents/after/specs/parliament_ballot_b6_requirement_audit.md.template"
+      },
+      "before": {
+        "sha256": "0b4554f7a90f62ffc8372a8d4336c960f2d0d0225ed22fb2c890dd85d05e14eb",
+        "snapshot": "central-documents/before/specs/parliament_ballot_b6_requirement_audit.md.template"
+      },
+      "prior_opaque_snapshot": "central-documents/after/specs/parliament_ballot_b6_requirement_audit.md.template"
+    },
+    "specs/parliament_ballot_implementation_goals.md": {
+      "after": {
+        "sha256": "d221330eeae7bd3590828e128abd64c4cdf8899db54bb08f252bcf25bf1c4278",
+        "snapshot": "central-documents/after/specs/parliament_ballot_implementation_goals.md.template"
+      },
+      "before": {
+        "sha256": "7f7c58dec2e345805fe8aecd0119b2b1dafba631ae586b1ff9de02b89f7cf9d2",
+        "snapshot": "central-documents/before/specs/parliament_ballot_implementation_goals.md.template"
+      },
+      "prior_opaque_snapshot": "central-documents/after/specs/parliament_ballot_implementation_goals.md.template"
+    }
+  },
+  "prior_manifest": "docs/validation/parliament_ballot_opaque_field_bound/SHA256SUMS",
+  "prior_manifest_sha256": "6ffaf845744a70fe4152ce6c2982e8a54b8c08e03f8de2fc431cf345b0b1c49f",
+  "proposal_sha256": "2a88db87b15aba225c4960202aa7115d65b7c07b034f79bcf7b59c353d1dcf96"
+}

@@ -1,0 +1,45 @@
+{
+  "actual_input_primitive_entry": false,
+  "checked_component_construction": true,
+  "clean_work_bits": 201587,
+  "complete_resource_vector": false,
+  "complete_simulator_coverage": false,
+  "full_generator_implemented": false,
+  "gates": {
+    "base_xor_oracle_calls": 0,
+    "ccx": 141312,
+    "cx": 521630,
+    "elementary_gates": 1230412,
+    "x": 2222
+  },
+  "independent_cryptographic_review": false,
+  "kernel_inputs": 384,
+  "kernel_outputs": 128,
+  "native_workspace_certificate": false,
+  "primitive_advantage_assumed": false,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "schema": "parliament-concrete-aes256-circuit-v1",
+  "source_after": {
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/README.md": "eb96dfea0a5fbfef6e29b3931986d902f378343d2786ef3ec0cd886063d4367c",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/aes256.py": "d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/AES_Core256.pdf": "8caf33781b8d4b9564c7e95a7690e491ca1d95efe9a31cdea2977deaf4c7b4ce",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.pdf": "62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.txt": "9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/report.py": "585f9b58c79f24a81ad86ff3547af687351addc2cb64a95b26ffa885b6895d8e",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/test_aes256.py": "4a10177043e404da49de034156c36b330ad6617477e9415e1ba9f11808c14052",
+    "/Users/mtakemiya/dev/iroha/target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64"
+  },
+  "source_before": {
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/README.md": "eb96dfea0a5fbfef6e29b3931986d902f378343d2786ef3ec0cd886063d4367c",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/aes256.py": "d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/AES_Core256.pdf": "8caf33781b8d4b9564c7e95a7690e491ca1d95efe9a31cdea2977deaf4c7b4ce",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.pdf": "62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.txt": "9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/report.py": "585f9b58c79f24a81ad86ff3547af687351addc2cb64a95b26ffa885b6895d8e",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/test_aes256.py": "4a10177043e404da49de034156c36b330ad6617477e9415e1ba9f11808c14052",
+    "/Users/mtakemiya/dev/iroha/target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64"
+  }
+}

@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Retain the current correspondence CLI once, with stable helper/note bytes.
+
+Python 3.11+, an explicit repository root and a fresh analysis directory.
+The already-completed focused tests are retained separately as a tool transcript;
+this recipe does not rerun them or change build, source or historical artifacts.
+"""
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--root', type=Path, required=True)
+args = parser.parse_args()
+root = args.root.resolve()
+directory = Path(__file__).resolve().parent
+receipt = directory/'capture-receipt.json'
+if receipt.exists() or (directory/'analysis').exists():
+    raise ValueError('capture destination must be fresh')
+paths = [root/'scripts/parliament_ballot_current_correspondence.py',
+         root/'scripts/tests/parliament_ballot_current_correspondence_test.py',
+         directory/'README.md', Path(__file__).resolve(), directory/'tests-tool-transcript.txt']
+digest = lambda path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
+before = {str(path): digest(path) for path in paths}
+command = [sys.executable, str(paths[0]), '--root', str(root), '--output', str(directory/'analysis')]
+started = datetime.now(timezone.utc).isoformat()
+done = subprocess.run(command, cwd=root, capture_output=True, text=True)
+stdout, stderr = directory/'stdout.txt', directory/'stderr.txt'
+stdout.write_text(done.stdout)
+stderr.write_text(done.stderr)
+after = {str(path): digest(path) if path.is_file() else None for path in paths}
+changes = {path: {'before': before[path], 'after': after[path]}
+           for path in before if before[path] != after[path]}
+record = {'schema': 'parliament-current-correspondence-capture-v1',
+          'command': command, 'cwd': str(root), 'exit': done.returncode,
+          'started_at_utc': started, 'finished_at_utc': datetime.now(timezone.utc).isoformat(),
+          'inputs_before': before, 'inputs_after': after, 'input_changes': changes,
+          'stdout': str(stdout), 'stdout_sha256': digest(stdout),
+          'stderr': str(stderr), 'stderr_sha256': digest(stderr),
+          'report': str(directory/'analysis/report.json'),
+          'report_sha256': digest(directory/'analysis/report.json'),
+          'tests_evidence_kind': 'retained actual tool transcript; not executed by this capture recipe',
+          'profile_qualified': False, 'complete_workspace_certificate': False,
+          'production_gate_changed': False}
+receipt.write_text(json.dumps(record, indent=2, sort_keys=True)+'\n')
+print(json.dumps({'exit': done.returncode, 'input_changes': changes,
+                  'report_sha256': record['report_sha256']}))
+raise SystemExit(int(done.returncode != 0 or bool(changes)))

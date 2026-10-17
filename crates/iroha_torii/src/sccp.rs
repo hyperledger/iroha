@@ -471,9 +471,9 @@ fn history_read_error(failure: read::SccpHistoryReadError) -> Response {
     }
 }
 
-/// Encode directly from a borrowed funded graph; every returned byte retains the actual
-/// admitted query owner, including a slice extracted after the HTTP body has been dropped.
-/// Compact errors and empty conditional responses retain no funded source or query lease.
+/// Encode directly from a borrowed funded graph; every encoded projection byte retains the
+/// actual admitted query owner, including a slice extracted after the HTTP body is dropped.
+/// Independent diagnostics and bodyless validators retain no projected source custody.
 fn respond_funded<T>(
     owner: &crate::history_producer::HistoryProducerOwner,
     accept: Option<&ExtractAccept>,

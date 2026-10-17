@@ -93,7 +93,7 @@ fn fixture_with_registered_policy() -> PenaltyFixture {
         "bounded genuine enactment predecessor"
     );
     while chain.height() < enactment_height {
-        let transaction = crate::validation_fee::tests::sign_paid_fixture(
+        let transaction = crate::validation_fee::tests::sign_payout_fixture_work(
             &chain,
             &ALICE_KEYPAIR,
             [Log::new(Level::INFO, "paid penalty-refusal predecessor".to_owned()).into()],

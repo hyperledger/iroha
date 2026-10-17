@@ -1,0 +1,24 @@
+{
+  "capture_receipt_sha256": "a2461d6bc5b1ee066dcaa6a48bf3fe5639d0b886da6512358e5dd0c6eb835e69",
+  "complete_resource_vector": false,
+  "documents": {
+    "docs/validation/parliament_ballot_b6.md": {
+      "after_sha256": "2848228c301d4d448b9e029c4bc37ac10fb4abcc06e2df8ea0bb92ea71f53721",
+      "before_sha256": "81448980dd2f3bef8b03d3949a39de3e8455803c16ca658e2ffbe3bf473ead4e"
+    },
+    "specs/parliament_ballot_b6_requirement_audit.md": {
+      "after_sha256": "8451459db0c92d08b9fe81d8b7691dd866825d43c8f07066a799d8fab1a2de13",
+      "before_sha256": "d3b6dc9f2adf06c894e664ea38a78cc766f429f85cf44a3a0655f3f3358e366a"
+    },
+    "specs/parliament_ballot_implementation_goals.md": {
+      "after_sha256": "87caab66a79cbf2d2314002d1029fa3335c1b66d31fa038aafc3ebc17a242540",
+      "before_sha256": "a782e17c78d8f4f14f433fde281fa75f55f3eaa036142edf30d08d1f2e643d1a"
+    }
+  },
+  "inventory_sha256": "bf7c43df6a81230e1b6a9ce38f6f716cd66763575da86c68dced3ca7ef76a420",
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "publication_path": "docs/validation/parliament_ballot_request_machine",
+  "schema": "parliament-request-machine-publication-custody-v1",
+  "source_bytes_preserved": true
+}

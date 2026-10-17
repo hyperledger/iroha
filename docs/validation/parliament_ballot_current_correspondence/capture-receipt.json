@@ -1,0 +1,40 @@
+{
+  "command": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "/Users/mtakemiya/dev/iroha/scripts/parliament_ballot_current_correspondence.py",
+    "--root",
+    "/Users/mtakemiya/dev/iroha",
+    "--output",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_correspondence/analysis"
+  ],
+  "complete_workspace_certificate": false,
+  "cwd": "/Users/mtakemiya/dev/iroha",
+  "exit": 0,
+  "finished_at_utc": "2026-10-13T13:31:01.953589+00:00",
+  "input_changes": {},
+  "inputs_after": {
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_correspondence/README.md": "6aae2b4085bc70db005d5f1819bf9bbaec0227184ff48319a37a37c6e372fdbe",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_correspondence/capture.py.template": "b6055e581efcdf04a3a27ba1fa72ab9bb3f029267473db92de57023eaae02ef5",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_correspondence/tests-tool-transcript.txt": "023e4760313a2fdef0c582921f366eb18c60eb3c6fa825052c1fe8c964835afb",
+    "/Users/mtakemiya/dev/iroha/scripts/parliament_ballot_current_correspondence.py": "3c90c6805dbba9da5b9b1d9beb8fcf612557c815f6f5bbdb8b58602bfc413953",
+    "/Users/mtakemiya/dev/iroha/scripts/tests/parliament_ballot_current_correspondence_test.py": "f7a6c6e6fec6ceaa5e4d408e6b6aebc24b2def5024bb823217076073613769fa"
+  },
+  "inputs_before": {
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_correspondence/README.md": "6aae2b4085bc70db005d5f1819bf9bbaec0227184ff48319a37a37c6e372fdbe",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_correspondence/capture.py.template": "b6055e581efcdf04a3a27ba1fa72ab9bb3f029267473db92de57023eaae02ef5",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_correspondence/tests-tool-transcript.txt": "023e4760313a2fdef0c582921f366eb18c60eb3c6fa825052c1fe8c964835afb",
+    "/Users/mtakemiya/dev/iroha/scripts/parliament_ballot_current_correspondence.py": "3c90c6805dbba9da5b9b1d9beb8fcf612557c815f6f5bbdb8b58602bfc413953",
+    "/Users/mtakemiya/dev/iroha/scripts/tests/parliament_ballot_current_correspondence_test.py": "f7a6c6e6fec6ceaa5e4d408e6b6aebc24b2def5024bb823217076073613769fa"
+  },
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "report": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_correspondence/analysis/report.json",
+  "report_sha256": "0e2d94bf99deb3314a1a0d3dee37070180b9ff1277b6aeb40cbfcd4814cb2207",
+  "schema": "parliament-current-correspondence-capture-v1",
+  "started_at_utc": "2026-10-13T13:30:56.930910+00:00",
+  "stderr": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_correspondence/stderr.txt",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_correspondence/stdout.txt",
+  "stdout_sha256": "5e39ec405a6f39ef5129d256e698fd7962a0b59c53c184115be10e2665e3c3fb",
+  "tests_evidence_kind": "retained actual tool transcript; not executed by this capture recipe"
+}

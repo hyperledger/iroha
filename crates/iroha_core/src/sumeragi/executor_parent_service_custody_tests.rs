@@ -176,6 +176,7 @@ fn parent_service_assembly_retains_original_parent_and_queue_before_capacity_ret
             let original_hash = transaction.hash_as_entrypoint();
             let (_, time) =
                 iroha_primitives::time::TimeSource::new_mock(Duration::from_millis(4_001));
+            chain.set_execution_time(time.now());
             let queue = Arc::new(Queue::test(
                 iroha_config::parameters::actual::Queue::default(),
                 &time,
@@ -273,7 +274,7 @@ fn parent_service_assembly_retains_original_parent_and_queue_before_capacity_ret
                 .build(4, 0, 1 << 20, 100)
                 .unwrap()
                 .expect("same queued input builds after original release");
-            let proposal = payload::decode(payload.as_slice()).unwrap();
+            let proposal = payload::decode(payload.payload.as_slice()).unwrap();
             assert!(
                 proposal
                     .external_entrypoints_slice()
@@ -598,6 +599,7 @@ fn parent_service_worker_replacement_retires_only_the_superseded_original_attemp
 fn queue_original_tick(chain: &CertifiedTestChain, worker: &mut Worker<'_>) {
     let transaction = chain.tick(4_000);
     let (_, time) = iroha_primitives::time::TimeSource::new_mock(Duration::from_millis(4_001));
+    chain.set_execution_time(time.now());
     let queue = Arc::new(Queue::test(
         iroha_config::parameters::actual::Queue::default(),
         &time,
@@ -677,7 +679,10 @@ fn parent_service_busy_view_keeps_completed_payload_and_original_preparation() {
             assert_eq!(budget.reserved_bytes(), baseline);
             assert!(events.try_recv().is_err());
             let repeated = worker.build(4, 0, 1 << 20, 100).unwrap().unwrap();
-            assert_eq!(repeated.as_slice().as_ptr(), payload.as_slice().as_ptr());
+            assert_eq!(
+                repeated.payload.as_slice().as_ptr(),
+                payload.payload.as_slice().as_ptr()
+            );
             assert_eq!(
                 worker
                     .assembly_parent_service
@@ -740,7 +745,10 @@ fn parent_service_completed_payload_rechecks_actual_predecessor_slot_before_lend
                 .write_block_index(1, predecessor.start, predecessor.length)
                 .unwrap();
             let repeated = worker.build(4, 0, 1 << 20, 100).unwrap().unwrap();
-            assert_eq!(repeated.as_slice().as_ptr(), payload.as_slice().as_ptr());
+            assert_eq!(
+                repeated.payload.as_slice().as_ptr(),
+                payload.payload.as_slice().as_ptr()
+            );
             assert_eq!(
                 worker
                     .assembly_parent_service

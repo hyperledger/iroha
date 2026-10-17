@@ -269,6 +269,7 @@ pub(crate) fn genesis_unexecuted_with_keypair_and_post_topology(
         None,
         None,
         Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+        None,
     )
     .0
 }
@@ -305,6 +306,7 @@ pub(crate) fn genesis_with_keypair_and_post_topology_with_policies(
         consensus_handshake_meta,
         consensus_mode_override,
         confidential_policy_hash,
+        None,
     )
     .0
 }
@@ -324,6 +326,7 @@ pub(crate) fn genesis_with_keypair_and_post_topology_with_policies_and_staged_ha
     consensus_handshake_meta: Option<Parameter>,
     consensus_mode_override: Option<SumeragiConsensusMode>,
     confidential_policy_hash: Option<[u8; 32]>,
+    preview_cadence_ms: Option<std::num::NonZeroU64>,
 ) -> (
     GenesisBlock,
     StagedGenesisPolicyHashes,
@@ -346,6 +349,7 @@ pub(crate) fn genesis_with_keypair_and_post_topology_with_policies_and_staged_ha
         consensus_handshake_meta,
         consensus_mode_override,
         confidential_policy_hash,
+        preview_cadence_ms,
     )
 }
 fn strip_handshake_metadata_transactions(transactions: &mut [Vec<InstructionBox>]) {
@@ -471,6 +475,7 @@ fn build_minimal_genesis_with_post_topology(
         consensus_handshake_meta,
         consensus_mode_override,
         confidential_policy_hash,
+        None,
     )
     .0
 }
@@ -490,6 +495,7 @@ fn build_minimal_genesis_with_post_topology_and_staged_hash(
     consensus_handshake_meta: Option<Parameter>,
     consensus_mode_override: Option<SumeragiConsensusMode>,
     confidential_policy_hash: Option<[u8; 32]>,
+    preview_cadence_ms: Option<std::num::NonZeroU64>,
 ) -> (
     GenesisBlock,
     StagedGenesisPolicyHashes,
@@ -522,6 +528,7 @@ fn build_minimal_genesis_with_post_topology_and_staged_hash(
             consensus_handshake_meta,
             consensus_mode_override,
             confidential_policy_hash,
+            preview_cadence_ms,
         );
     genesis_policy::execute_generated_genesis(
         block,
@@ -564,6 +571,7 @@ fn build_minimal_genesis_unexecuted(
         None,
         None,
         Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+        None,
     );
     (block, account, peers, key_pair)
 }
@@ -581,6 +589,7 @@ fn build_minimal_genesis_unexecuted_with_post_topology(
     consensus_handshake_meta: Option<Parameter>,
     consensus_mode_override: Option<SumeragiConsensusMode>,
     confidential_policy_hash: Option<[u8; 32]>,
+    preview_cadence_ms: Option<std::num::NonZeroU64>,
 ) -> (
     GenesisBlock,
     AccountId,
@@ -673,7 +682,12 @@ fn build_minimal_genesis_unexecuted_with_post_topology(
         |metadata| metadata.mode,
     );
     let (block_cadence_ms, sumeragi_context) = consensus_handshake_metadata.map_or_else(
-        || (None, SumeragiGenesisContextParameters::recommended()),
+        || {
+            (
+                preview_cadence_ms,
+                SumeragiGenesisContextParameters::recommended(),
+            )
+        },
         |metadata| (Some(metadata.block_cadence_ms), metadata.sumeragi_context),
     );
     builder = builder.with_sumeragi_context_parameters(sumeragi_context);
@@ -1807,6 +1821,7 @@ mod tests {
             None,
             None,
             Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+            None,
         );
         let grant_phases = raw
             .transactions()
@@ -1908,6 +1923,7 @@ mod tests {
             None,
             None,
             Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+            None,
         );
         assert_eq!(
             block.0.external_transactions().count(),
@@ -1973,6 +1989,7 @@ mod tests {
                 None,
                 None,
                 Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+                None,
             )
         }))
         .expect_err("the generator must refuse a twelfth caller-authored input");
@@ -2495,6 +2512,7 @@ mod tests {
                 None,
                 None,
                 Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+                None,
             );
         let (block, _) = super::genesis_fixture_policy::bind_proposal(
             block,
@@ -2632,6 +2650,7 @@ mod tests {
                 None,
                 Some(SumeragiConsensusMode::Npos),
                 Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+                None,
             );
         let expected_rejection_index = block
             .0
@@ -3170,6 +3189,7 @@ mod tests {
             None,
             None,
             Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+            None,
         );
         let declared_hash = block
             .0

@@ -246,11 +246,19 @@ impl QueryFanoutMemoryEnvelope {
     /// and retain no signed-query representations. Cold source and response caps
     /// stay unchanged; only genuinely absent request phases are released to the
     /// producer. This must never reinterpret an already admitted outer request.
+    #[expect(
+        clippy::result_large_err,
+        reason = "Capacity rejections retain the complete Axum response inline without adding a box allocation."
+    )]
     fn for_bodyless_finality(working_set_bytes: usize) -> Result<Self, Response> {
         let mut envelope = Self::for_body_admission(working_set_bytes)?;
         envelope.request_decode_allocated_bytes = 0;
         Ok(envelope)
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "Capacity rejections retain the complete Axum response inline without adding a box allocation."
+    )]
     fn body_admission_unit(working_set_bytes: usize) -> Result<usize, Response> {
         // Before decoding, the exact verified-request frame is unknown. Reserve
         // seven signed-query-sized transport representations, one verified
@@ -1250,6 +1258,10 @@ fn try_acquire_new_query_fanout_memory(
         QueryFanoutMemoryEnvelope::for_body_admission(app.query_fanout_working_set_bytes)?;
     try_acquire_query_memory_envelope(app, envelope)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "Capacity rejections retain the complete Axum response inline without adding a box allocation."
+)]
 fn try_acquire_bodyless_finality_memory(
     app: &SharedAppState,
 ) -> Result<QueryFanoutMemoryReservation, Response> {
@@ -1257,6 +1269,10 @@ fn try_acquire_bodyless_finality_memory(
         QueryFanoutMemoryEnvelope::for_bodyless_finality(app.query_fanout_working_set_bytes)?;
     try_acquire_query_memory_envelope(app, envelope)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "Capacity rejections retain the complete Axum response inline without adding a box allocation."
+)]
 fn try_acquire_query_memory_envelope(
     app: &SharedAppState,
     envelope: QueryFanoutMemoryEnvelope,

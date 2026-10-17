@@ -1,0 +1,23 @@
+{
+  "current_source_qualified": false,
+  "historical_report_sha256": "90b67fba04a4c7f1c73ed067eb4a8c8d5478707e05f4b4d51ddc27235da7a471",
+  "independent_crypto_review": false,
+  "observed_at_utc": "2026-10-13T11:38:11.433241+00:00",
+  "production_qualified": false,
+  "receipt_sha256": "75d9f36b2a490733c2d5341e475c2b625d86b5aa0a3d8c3f286b520817b6e04d",
+  "recipe_sha256": "3d56bb404e4c03104ecdb84fb921e2b4aa8756cf9a185618ff4fae2d340bbadc",
+  "recovered_files": {
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_adapter_source_recovery/validated/source/Cargo.lock.template": "8893895108a7150d59f4814a8bdce5c3dbfe57fdacefd82fcdf2ba793c5f14db",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_adapter_source_recovery/validated/source/crates/iroha_allocation/src/allocation/shared.rs.template": "d7cb0dc84f70ed2947053de49b0c3d2e3e67b09b9839468204126ea4df19957c",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_adapter_source_recovery/validated/source/crates/iroha_allocation/src/shared.rs.template": "8f70d96f97a6f0bd8fcea7bfd094025f6c80b74a5a812e42a8a9d02e7640c65c",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_adapter_source_recovery/validated/source/crates/iroha_allocation/src/shared_reservation_tests.rs.template": "599e1e63f5f54592837e6b529eecb238bba8595a1afecc98e034595fb001863e"
+  },
+  "recovered_input_count": 4,
+  "resolved_input_count": 2081,
+  "reviewers": [
+    "root agent: independently checked resolved file and Git output hashes",
+    "ownership agent: independently checked exact historical key set, resolved hashes, recipe identity and README scope"
+  ],
+  "schema": "parliament-adapter-source-recovery-local-review-v1",
+  "scope": "Local artifact integrity review of resolved historical bytes only; no build or tests rerun, no current-source transfer, no independent qualification review."
+}

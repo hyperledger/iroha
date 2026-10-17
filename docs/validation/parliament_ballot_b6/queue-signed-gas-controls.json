@@ -1,0 +1,38 @@
+{
+  "command": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "-k",
+    "queue_signed_proposal_gas"
+  ],
+  "exit": 0,
+  "expected_summary_present": true,
+  "expected_test_count": 36,
+  "full_source_contract_passed": false,
+  "log": "docs/validation/parliament_ballot_b6/queue-signed-gas-controls.txt",
+  "log_sha256": "1545474c7b41b2b880b07183c2aeabe1f0bbba9ac7d1c801cde38da5d9b8705c",
+  "observed_at_utc": "2026-10-13T12:11:18.936466+00:00",
+  "profile_qualified": false,
+  "schema": "parliament-queue-signed-gas-controls-v1",
+  "scope": "Focused conservative structural guard tests; no Rust semantic proof, runtime change, or qualification claim.",
+  "source_after": {
+    "crates/iroha_core/src/queue.rs": "3aaf1a4f6dd8d2354fed7c4b5a4d2bb099b7594d8d7a8cd1958b92af2572e5a2",
+    "crates/iroha_data_model/src/transaction/executable.rs": "cef6182ba0acd6186e6ccaf8514b94f8c58e14ed96f09762b3d2a8ba61943cea",
+    "docs/validation/parliament_ballot_b6/queue-signed-gas-controls.py.template": "cccb32dd6836917e5e49f3c6fa1b221b53a890b67c1fc3ffa0947f47eb3926ed",
+    "scripts/formal/check_sora_parliament_source_contract.py": "bd6f4743aba223b8e98715eda06e0183f9bf8d3afa50b437872454c7affbfa0c",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "7648bbbb858104b52ae449a6caf86bbbe3aa07b1f9ee15567896b12a98cb28a0"
+  },
+  "source_before": {
+    "crates/iroha_core/src/queue.rs": "3aaf1a4f6dd8d2354fed7c4b5a4d2bb099b7594d8d7a8cd1958b92af2572e5a2",
+    "crates/iroha_data_model/src/transaction/executable.rs": "cef6182ba0acd6186e6ccaf8514b94f8c58e14ed96f09762b3d2a8ba61943cea",
+    "docs/validation/parliament_ballot_b6/queue-signed-gas-controls.py.template": "cccb32dd6836917e5e49f3c6fa1b221b53a890b67c1fc3ffa0947f47eb3926ed",
+    "scripts/formal/check_sora_parliament_source_contract.py": "bd6f4743aba223b8e98715eda06e0183f9bf8d3afa50b437872454c7affbfa0c",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "7648bbbb858104b52ae449a6caf86bbbe3aa07b1f9ee15567896b12a98cb28a0"
+  },
+  "source_unchanged": true
+}

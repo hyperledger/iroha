@@ -154,6 +154,12 @@ cp scripts/contract_tooling/evm-runtime/package.json \
 echo "Running the EDR provider test (EIP-2537 precompiles under Prague and Osaka)."
 NODE_PATH="$RUNTIME_DIR/node_modules" "$NODE_BIN" --test scripts/tests/contract_edr_provider_test.cjs
 
+# These adapter checks use committed structural fixtures, not a live export or
+# an EDR fork run, so keep them outside the fork-suite and gas-report guards.
+echo "Running structural native-replay adapter tests on the locked runtime."
+SCCP_EVM_RUNTIME_DIR="$RUNTIME_DIR" \
+  "$NODE_BIN" --test contracts/evm/sccp/test/sccp_live_rotation.test.js
+
 # Every suite iterates the same two hardforks itself; a suite that dropped one
 # would otherwise still pass.
 SUITES=(

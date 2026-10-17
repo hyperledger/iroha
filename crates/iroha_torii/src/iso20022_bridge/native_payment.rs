@@ -19,7 +19,7 @@ pub(super) struct IsoNativePayment {
 
 /// Exact canonical outcome of this gateway's immutable attempted transaction hash.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct IsoNativeCarrierOutcome {
+pub struct IsoNativeCarrierOutcome {
     /// Native committed carrier height.
     pub(crate) height: u64,
     /// Whether this exact attempted carrier executed successfully.
@@ -30,7 +30,7 @@ pub(crate) struct IsoNativeCarrierOutcome {
 
 /// Projection of an authenticated original business effect; retained bytes are recovery data.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct IsoNativeBusinessSettlement {
+pub struct IsoNativeBusinessSettlement {
     /// Original successful signed carrier, distinct from a retry's attempted carrier.
     pub(crate) transaction_hash: String,
     receipt_frame: String,
@@ -208,11 +208,20 @@ pub(super) fn native_payment_value(payment: Option<&IsoNativePayment>) -> JsonVa
     JsonValue::Object(value)
 }
 
-pub(super) fn native_payment_from_value(value: &JsonValue) -> Option<Option<IsoNativePayment>> {
-    if matches!(value, JsonValue::Null) {
-        return Some(None);
+pub(super) fn native_payment_from_value(
+    value: &JsonValue,
+) -> Result<Option<IsoNativePayment>, InvalidPersistedNullableField> {
+    match value {
+        JsonValue::Null => Ok(None),
+        value => value
+            .as_object()
+            .and_then(native_payment_from_object)
+            .map(Some)
+            .ok_or(InvalidPersistedNullableField::InvalidValue),
     }
-    let object = value.as_object()?;
+}
+
+fn native_payment_from_object(object: &norito::json::Map) -> Option<IsoNativePayment> {
     if !json_object_has_exact_keys(
         object,
         &[
@@ -274,12 +283,12 @@ pub(super) fn native_payment_from_value(value: &JsonValue) -> Option<Option<IsoN
     {
         return None;
     }
-    Some(Some(payment))
+    Some(payment)
 }
 
 /// Exact journal request captured before canonical reads; rechecked before durable publication.
 #[derive(Clone, Debug)]
-pub(crate) struct IsoNativePaymentRequest {
+pub struct IsoNativePaymentRequest {
     incarnation: IsoRecordIncarnation,
     /// Existing lifecycle journal identity.
     pub(crate) message_id: String,

@@ -24,7 +24,7 @@ use iroha_data_model::{
 use iroha_model_base::{domain::DomainId, name::Name, topology::DataSpaceId};
 use iroha_primitives::numeric::NumericSpec;
 pub(crate) use signed_original_fixtures::{
-    sign_paid_fixture, sign_payout_fixture_work, signed_payout_lifecycle_registry_fixture,
+    sign_payout_fixture_work, signed_payout_lifecycle_registry_fixture,
     signed_payout_lifecycle_registry_fixture_with_config,
     with_original_validation_fee_payout_state_at_height,
 };

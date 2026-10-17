@@ -10,9 +10,12 @@ use iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::{
 
 use super::*;
 
+/// Explicit representation of the original source files to inspect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Encoding {
+pub enum Encoding {
+    /// Uncompressed original files.
     Raw,
+    /// Encoded originals bound to an explicit transport manifest.
     Zstd,
 }
 
@@ -33,7 +36,11 @@ impl Encoding {
     }
 }
 
-pub(super) fn require_transport(
+/// Require the transport's exact original list to match the signed inventory closure.
+///
+/// # Errors
+/// Returns an error for conflicting signed blob identities or a different transport closure.
+pub fn require_transport(
     inventory: &ProducerInventoryV1,
     transport: &EncodedTransportV1,
 ) -> io::Result<()> {
@@ -65,7 +72,11 @@ pub(super) fn require_transport(
     Ok(())
 }
 
-pub(super) fn open_sources(
+/// Open original sources and retain the encoded transport's file owner when present.
+///
+/// # Errors
+/// Returns source-opening, transport-validation, or retained-file custody errors.
+pub fn open_sources(
     root: &PrivateDirectory,
     inventory: &AuthenticatedProducerInventoryV1,
     encoding: Encoding,
@@ -108,12 +119,10 @@ fn phase(encoding: Encoding, name: &str, started: Instant) {
 
 /// Supplied scheme/manifest pins authenticate the carrier, never genesis or custody.
 /// This traverses every exact source but never returns a wallet-open capability.
-pub(super) fn sources(
-    path: &str,
-    scheme: &str,
-    manifest: &str,
-    encoding: Encoding,
-) -> io::Result<()> {
+///
+/// # Errors
+/// Returns carrier, signature, source-qualification, or retained-file custody errors.
+pub fn sources(path: &str, scheme: &str, manifest: &str, encoding: Encoding) -> io::Result<()> {
     let total = Instant::now();
     let root = PrivateDirectory::open_exact(path)?;
     let pack = Original::open(

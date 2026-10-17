@@ -1,0 +1,60 @@
+{
+  "after": {
+    "crates/iroha_zkp_vole/src/hash.rs": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/parliament_ballot_oracle_log_circuit.py": "d045f66581f7a50bcb4e696b0346a192724f5d0858a21c23343bb35478d5c558",
+    "scripts/parliament_ballot_write_framing.py": "ad5230fdcd01b52588b40d29a2e766625050ef530dfba4cb529350f993a21617",
+    "specs/parliament_ballot_b6_h5_fixed_opening.md": "5476eedeb50e1efaa11e5d6e892174fabed16a02e2b31ab906a375aa5ed6f15e",
+    "specs/parliament_ballot_b6_oracle_log_circuit.md": "de33b603bfc281238b348f082a2316a645f1d236894e7837ee95078ddbc1d673",
+    "target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64",
+    "target/parliament-ideal-machine-stage/hash_machine.py": "d97073f478decda2f7b0e82b502839a17f330f1563ede43604af9b27105c104b",
+    "target/parliament-ideal-machine-stage/l0.md": "0a7e9ce8c261ed756a18db609e2d7f89a98b56470b2940eefb727fe41a1c28b8",
+    "target/parliament-ideal-machine-stage/l0_machine.py": "e10d3d6b49e778c9abdde8655188513d0dddf910da73e095ff19da6ddd0fba23",
+    "target/parliament-l0-review/run_review.py": "84b96f120f5fe659b3fa08780e84d4f97cac0a5b03550efaa86febba48a014d1",
+    "target/parliament-l0-review/test_independent_l0.py": "6ff0174ca62ecb3ce2eb32ab9abb8d2fb6a4684b86bb7f4330d863e5876f4930"
+  },
+  "before": {
+    "crates/iroha_zkp_vole/src/hash.rs": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/parliament_ballot_oracle_log_circuit.py": "d045f66581f7a50bcb4e696b0346a192724f5d0858a21c23343bb35478d5c558",
+    "scripts/parliament_ballot_write_framing.py": "ad5230fdcd01b52588b40d29a2e766625050ef530dfba4cb529350f993a21617",
+    "specs/parliament_ballot_b6_h5_fixed_opening.md": "5476eedeb50e1efaa11e5d6e892174fabed16a02e2b31ab906a375aa5ed6f15e",
+    "specs/parliament_ballot_b6_oracle_log_circuit.md": "de33b603bfc281238b348f082a2316a645f1d236894e7837ee95078ddbc1d673",
+    "target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64",
+    "target/parliament-ideal-machine-stage/hash_machine.py": "d97073f478decda2f7b0e82b502839a17f330f1563ede43604af9b27105c104b",
+    "target/parliament-ideal-machine-stage/l0.md": "0a7e9ce8c261ed756a18db609e2d7f89a98b56470b2940eefb727fe41a1c28b8",
+    "target/parliament-ideal-machine-stage/l0_machine.py": "e10d3d6b49e778c9abdde8655188513d0dddf910da73e095ff19da6ddd0fba23",
+    "target/parliament-l0-review/run_review.py": "84b96f120f5fe659b3fa08780e84d4f97cac0a5b03550efaa86febba48a014d1",
+    "target/parliament-l0-review/test_independent_l0.py": "6ff0174ca62ecb3ce2eb32ab9abb8d2fb6a4684b86bb7f4330d863e5876f4930"
+  },
+  "command": [
+    "/opt/homebrew/bin/pytest",
+    "-c",
+    "/Users/mtakemiya/dev/iroha/pytest.ini",
+    "--confcutdir",
+    "/Users/mtakemiya/dev/iroha",
+    "--import-mode=importlib",
+    "-p",
+    "no:cacheprovider",
+    "-o",
+    "addopts=",
+    "--maxfail=0",
+    "-q",
+    "/Users/mtakemiya/dev/iroha/target/parliament-l0-review/test_independent_l0.py",
+    "--basetemp",
+    "/Users/mtakemiya/dev/iroha/target/parliament-l0-review/final-pytest-temp",
+    "--junitxml",
+    "/Users/mtakemiya/dev/iroha/target/parliament-l0-review/final-junit.xml"
+  ],
+  "complete_resource_vector": false,
+  "elapsed_seconds": 0.586167291039601,
+  "exit_code": 0,
+  "independent_cryptographic_review": false,
+  "production_qualified": false,
+  "retained_outputs": {
+    "final-junit.xml": "29c8403de8fe049ad52bb9362a34ca5effac16ce08355cf5880eb4ed15760cfe",
+    "final-stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "final-stdout.txt": "b3566aa6ad1221e6bbb908cd2a4c66821a17095053a77c2d75f1eb67df0a7321"
+  },
+  "stable": true
+}

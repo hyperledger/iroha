@@ -1,0 +1,42 @@
+"""Finite tests of the independent dead-code-inclusive graph review oracle."""
+import importlib.util
+from pathlib import Path
+
+import pytest
+
+SPEC = importlib.util.spec_from_file_location(
+    "all_body_reference", Path(__file__).with_name("all_body_reference.py"))
+REFERENCE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(REFERENCE)
+
+
+def test_dead_cleanup_and_cross_owner_interior_are_included(tmp_path):
+    """Body reachability intentionally includes calls behind an ordinary return."""
+    (tmp_path / "starts.txt").write_text(
+        "0000000000000100 root\n0000000000000110 callee\n")
+    (tmp_path / "stubs.txt").write_text("opaque native symbols\n")
+    (tmp_path / "disassembly.txt").write_text(
+        "Disassembly of section __TEXT,__text:\n"
+        "0000000000000100 <parliament_memory_entry::workspace::worker::test>:\n"
+        "100: ret\n104: bl 0x114\n108: blr x8\n10c: bl 0x1000\n"
+        "0000000000000110 <callee>:\n"
+        "110: nop\n114: b 0x100\n")
+    result = REFERENCE.analyze("synthetic", tmp_path)
+    assert result["all_body_reachable_functions"] == 2
+    assert result["all_body_instruction_count"] == 6
+    assert result["all_body_indirect_sites"] == 1
+    assert result["all_body_external_direct_sites"] == 1
+    assert result["members"][0]["direct_owners"] == ["0x110"]
+    assert result["members"][1]["direct_owners"] == ["0x100"]
+
+
+def test_missing_function_start_instruction_refuses(tmp_path):
+    """A function label without a decoded entry cannot form the review universe."""
+    (tmp_path / "starts.txt").write_text("0000000000000100 root\n")
+    (tmp_path / "stubs.txt").write_text("")
+    (tmp_path / "disassembly.txt").write_text(
+        "Disassembly of section __TEXT,__text:\n"
+        "0000000000000100 <parliament_memory_entry::workspace::worker::test>:\n"
+        "104: ret\n")
+    with pytest.raises(AssertionError):
+        REFERENCE.analyze("synthetic", tmp_path)

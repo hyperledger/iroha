@@ -1,0 +1,13 @@
+{
+  "scope": "Observed in a fresh read-only Python process after the first50 passing tests; source unchanged in that process",
+  "helper_sha256": "3bdc8284f122b20cf7cb77b54c922ab02e6ff46fc35f8f102ac8510756702d2b",
+  "reproduction": [
+    "For function in sha3_512_block, sha3_512_cost: clear cache",
+    "good = function(message_bytes=0)",
+    "function(message_bytes=False) is good -> True",
+    "function(message_bytes=0.0) is good -> True"
+  ],
+  "cause": "lru_cache typed=False keyword cache keys compare int/bool/float equally; cache hit bypasses integer validation",
+  "current_valid_integer_component_maps_affected": false,
+  "qualification_granted": false
+}

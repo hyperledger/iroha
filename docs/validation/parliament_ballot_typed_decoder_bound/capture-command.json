@@ -1,0 +1,17 @@
+{
+  "command": [
+    ".venv/bin/python",
+    "scripts/parliament_ballot_typed_decoder_bound.py",
+    "--root",
+    "/Users/mtakemiya/dev/iroha",
+    "--output",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_typed_decoder_bound/analysis"
+  ],
+  "exit": 0,
+  "stdout": {
+    "verdict": "PASS_UNDER_STATED_PREMISES",
+    "failure": null,
+    "input_changes": {}
+  },
+  "report_sha256": "a8ca5fa99835c7fc3461acb56645f0330e22b4c8ecfba676ce89af315347805c"
+}

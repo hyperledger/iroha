@@ -1,0 +1,155 @@
+"""Retain exact shared-dispatch sources and already completed owner validation.
+
+No Cargo command is run here. Refuse overwrite and any changed source or receipt.
+"""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+import re
+
+root = Path.cwd()
+stage = root / "target/parliament-qualification-dispatch-fix"
+out = root / "docs/validation/parliament_ballot_qualification_dispatch"
+if out.exists():
+    raise RuntimeError("refuse overwriting dispatch evidence")
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+expected_receipts = {
+    stage/"pre-edit.json": "93213df44110c54586ff76328eeedc40f1b6bc75fe3c4ad45d3677503da80744",
+    stage/"source-freeze.json": "095313f16e761263977e980fdda42e410e9332a078ed5467a49e361a1d678a9d",
+    Path("/tmp/iroha-clippy-isolated-parliament.json"): "04e024d486451952faabb3908e3501485bfe81d7a50c815d2256534deffa8d60",
+    Path("/tmp/iroha-clippy-isolated-parliament-2.json"): "edb8bd0fe2c41a1ec1c8963083d82b7962c8a578425890091bd245d20ecd8ef8",
+}
+for path, expected in expected_receipts.items():
+    assert sha(path) == expected, path
+pre = json.loads((stage/"pre-edit.json").read_text())
+source = json.loads((stage/"source-freeze.json").read_text())
+initial = json.loads(Path("/tmp/iroha-clippy-isolated-parliament.json").read_text())
+final = json.loads(Path("/tmp/iroha-clippy-isolated-parliament-2.json").read_text())
+assert len(source["changes"]) == 4 and len(source["unchanged_source_hashes"]) == 5
+assert len(pre["overlap"]["prior_3392"]["planned_overlap"]) == 3
+assert not pre["overlap"]["latest_cli_402"]["planned_overlap"]
+assert not pre["overlap"]["full_regression_411"]["planned_overlap"]
+for label, entry in pre["overlap"].items():
+    reference = root/entry["receipt"]
+    assert sha(reference) == entry["receipt_sha256"]
+    record = json.loads(reference.read_text())
+    pins = record["validated_recorded_input_sha256" if label == "prior_3392" else "source_before"]
+    assert len(pins) == entry["input_count"]
+    overlap = {name: pins.get(str(root/name), pins.get(name)) for name in source["changes"]
+               if str(root/name) in pins or name in pins}
+    assert overlap == entry["planned_overlap"]
+    assert all(value == source["changes"][name]["before"] for name, value in overlap.items())
+assert {row["name"]: row["exit_code"] for row in final} == {
+    "bridge-portable": 0, "bridge-accel": 0,
+    "bridge-portable-tests": 0, "bridge-accel-tests": 0,
+}
+watched = final[0]["before"]
+assert len(watched) == 69
+for name, expected in watched.items():
+    assert sha(Path(name)) == expected, name
+for row in final:
+    assert row["before"] == row["after"] == watched and not row["source_changes"]
+    command = row["command"]
+    assert command[0] == "cargo" and "--locked" in command and "--offline" in command
+    assert ("--features" in command) == ("accel" in row["name"])
+    if "--features" in command:
+        assert command[command.index("--features")+1] == "accel"
+    log = Path(row["log"]).read_text()
+    if row["name"].endswith("-tests"):
+        assert command[1] == "test" and command[command.index("--")+1:] == ["--test-threads=1"]
+        assert row["passed_tests"] == 17
+        assert "17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out" in log
+        assert len(re.findall(r"^test .+ \.\.\. ok$", log, re.M)) == 17
+        for name in ("malformed_dispatch_preserves_help_and_rejects_invalid_options_before_work",
+                     "malformed_dispatch_preserves_output_errors"):
+            assert f"test qualification::tests::{name} ... ok" in log
+    else:
+        assert command[1] == "clippy" and "--all-targets" in command
+        assert command[command.index("--")+1:] == ["-D", "warnings"]
+for name, row in source["changes"].items():
+    assert sha(root/row["original_snapshot"]) == row["before"]
+    assert sha(root/row["final_snapshot"]) == sha(root/name) == row["after"]
+    assert watched[str(root/name)] == row["after"]
+for name, value in source["unchanged_source_hashes"].items():
+    assert sha(root/name) == value == watched[str(root/name)]
+for row in initial["checks"]:
+    assert not row["source_changes"]
+    if row["name"].startswith("bridge-"):
+        assert row["exit_code"] == 101
+        assert "due to 10 previous errors" in Path(row["log"]).read_text()
+bridge = Path(initial["template_copy"])
+for suffix in ("Cargo.toml", "src/lib.rs"):
+    template = root/"docs/validation/parliament_ballot_b6/ios_host_template/bridge"/suffix
+    assert (bridge/suffix).read_text() == template.read_text().replace("@IROHA_REPO@", str(root))
+assert (bridge/"Cargo.lock").read_bytes() == (root/"docs/validation/parliament_ballot_b6/ios_host_template/bridge/Cargo.lock.template").read_bytes()
+
+out.mkdir()
+files = {}
+
+
+def retain(path, destination):
+    data = Path(path).read_bytes()
+    output = out/destination
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("xb") as stream:
+        stream.write(data)
+    files[destination] = hashlib.sha256(data).hexdigest()
+    return {"snapshot": destination, "sha256": files[destination]}
+
+
+retain(stage/"pre-edit.json", "pre-edit.json")
+retain(stage/"source-freeze.json", "source-freeze.json")
+retain(stage/"shared-dispatch.patch", "shared-dispatch.patch")
+retain(Path(__file__), "capture.py.template")
+retain(stage/"freeze.py.template", "freeze.py.template")
+retain(stage/"README.md.staged", "README.md")
+retain(Path("/tmp/iroha-clippy-isolated-parliament.json"), "initial/owner-receipt.json")
+retain(Path("/tmp/iroha-clippy-isolated-parliament-2.json"), "final/owner-receipt.json")
+for phase, rows in (("initial", initial["checks"]), ("final", final)):
+    for row in rows:
+        retain(Path(row["log"]), phase+"/"+row["name"]+".log")
+validated = {}
+for name, expected in watched.items():
+    path = Path(name)
+    if path.is_relative_to(root):
+        relative = path.relative_to(root).as_posix()
+    else:
+        relative = "external-bridge/"+path.relative_to(bridge).as_posix()
+    validated[name] = retain(path, "sources/validated/"+relative+".template")
+    assert validated[name]["sha256"] == expected
+changed = {}
+for name, row in source["changes"].items():
+    changed[name] = {
+        "before": retain(root/row["original_snapshot"], "sources/before/"+name+".template"),
+        "after": validated[str(root/name)],
+    }
+mapping = {"changed_sources": changed, "validated_inputs": validated}
+(out/"captured-sources.json").write_text(json.dumps(mapping, indent=2, sort_keys=True)+"\n")
+files["captured-sources.json"] = sha(out/"captured-sources.json")
+after = {name: sha(Path(name)) for name in watched}
+assert watched == after
+for path, expected in expected_receipts.items():
+    assert sha(path) == expected, path
+receipt = {
+    "schema": "parliament-qualification-dispatch-capture-v1",
+    "captured_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "source_before": watched, "source_after": after, "source_changes": {},
+    "watched_input_count": 69, "exact_snapshot_count": 73,
+    "source_overlap_with_prior_3392": pre["overlap"]["prior_3392"]["planned_overlap"],
+    "source_overlap_with_recorded_cli_402": {}, "source_overlap_with_full_regression_411": {},
+    "final_checks": [{key: row[key] for key in ("name", "command", "exit_code", "seconds", "passed_tests")} for row in final],
+    "initial_bridge_exit_codes": {row["name"]: row["exit_code"] for row in initial["checks"] if row["name"].startswith("bridge-")},
+    "retained_file_sha256": files,
+    "validation_source": "Retained completed Clippy-owner commands; this capture ran no Cargo command. Both modes run all17 host/shared tests, including both new dispatch cases. Watched before/after hashes are stable; this is not an exhaustive dependency/toolchain trace or atomic observation.",
+    "physical_device_qualification": False, "independent_cryptographic_review": False,
+    "full_resource_vector": False, "production_qualified": False,
+}
+(out/"receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True)+"\n")
+print(json.dumps({"receipt_sha256": sha(out/"receipt.json"), "exact_snapshot_count": 73,
+                  "retained_files": len(files), "watched_input_count": 69}))

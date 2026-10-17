@@ -1,0 +1,93 @@
+# Exception coverage reference review
+
+This is a local parser and coverage review for the two retained ARM64 candidate
+images. It does not execute unwinding, establish a native stack/cost bound, or
+transfer the old binaries' scope to the changed checkout. Exact reference bytes
+and origins are retained in [references.json](references.json). The installed
+Rust documentation identifies Rust 1.93.1; the tagged LLVM sources are format
+and algorithm references, not authentication of the installed macOS unwinder
+or the linker that produced these images.
+
+## Personality rules
+
+The installed [Rust personality source](rust-1.93.1-gcc.rs.html) agrees with the
+[tagged implementation](https://github.com/rust-lang/rust/blob/1.93.1/library/std/src/sys/personality/gcc.rs).
+For an ordinary return address, the personality searches using one byte less;
+when `ip_before_instr` is nonzero it uses the supplied IP unchanged. Thus an
+ARM64 `BL` at `P`, whose return address is `P+4`, selects byte `P+3`. Do not
+subtract again after normalizing. Search and cleanup phases differ: a cleanup
+is not a search-phase handler; a catch/filter can stop the search. On ARM64 the
+installed landing context supplies the exception in X0 and zero in X1. These
+facts do not determine every restored register or SP. The forced-unwind filter
+special case must not be generalized into an invented rule for every action.
+
+The installed [LSDA parser](rust-1.93.1-eh.rs.html) agrees with
+[Rust 1.93.1](https://github.com/rust-lang/rust/blob/1.93.1/library/std/src/sys/personality/dwarf/eh.rs).
+Call-site intervals use `func_start`, including when an explicit LPStart is
+present. Landing offsets use LPStart, defaulting to `func_start`. Ranges are
+half-open. Null LSDA and a matched zero landing offset mean no action; an IP
+missing from a present call-site table means termination. Nonzero action
+indices are one-based offsets from the action-table start. Rust classifies
+only the first SLEB type index: zero means cleanup, positive means catch,
+negative means filter. It does not follow the generic C++ action chain or
+resolve exception type matches. Structural chain data must remain separate
+from that classification. Unsupported pointer encodings, malformed offsets,
+overflow, truncated LEBs and ambiguous table spans must refuse or stay unknown.
+A PC-relative encoded pointer is relative to its own encoded location. Limiting
+the first implementation to omitted LPStart, observed call-site encoding and
+known type-table headers is a sound fail-closed scope restriction.
+
+## Compact table rules
+
+The [local SDK header](MacOSX26.5-compact_unwind_encoding.h) defines the regular
+and compressed records. Regular entry offsets are image-relative. Compressed
+low 24-bit offsets are relative to the first-level page's function offset;
+the high eight bits choose either the common encoding table or the local
+table after subtracting the common count. The next entry or next-page boundary
+closes the interval. The final first-level item is a sentinel, not another
+second-level page. Bounds, ordering, counts and every indirection need checks.
+ARM64 frame, frameless and DWARF modes have different meanings; a DWARF entry's
+low bits are an FDE hint, not a stack size. Frame encodings describe unwind
+recovery, not total stack allocation at every exceptional entry point.
+
+The [LLVM cursor reference](llvm-21.1.0-UnwindCursor.hpp) looks up an LSDA by an
+exact selected compact-start match when `HAS_LSDA` is set. Personality indices
+are one-based; the array describes signed image-relative pointer-slot locations,
+not direct routine addresses. DWARF fallback can replace region start, LSDA and
+personality using FDE/CIE data. Unsupported FDE/CFI remains an explicit frontier.
+[LLVM's linker](llvm-21.1.0-MachO-UnwindInfoSection.cpp) can fold adjacent ranges
+with equal encoding/personality and no LSDA. Therefore compact starts cannot
+replace the function-start inventory. It also omits the compact personality for
+DWARF entries: a zero compact index alone cannot prove absence of a handler.
+The general header's not-function-start marker must not silently turn an
+interior range into a source function; rejecting unimplemented cases is safe.
+
+## Coverage and stack boundary
+
+Our conservative analysis inference is to seed every listed landing pad of
+every reached owner, even when ordinary control flow never reaches a protected
+call site. This avoids treating the observed BL list as a proof that no other
+operation can unwind. It deliberately overapproximates reachability and must
+not be reported as an observed exception trace.
+
+Landing-pad entry is an exceptional transfer inside a live function. Starting
+it with the ordinary function-entry SP/register abstract state is unjustified;
+so is assuming the normal prologue ran exactly once or the normal epilogue has
+already run. Required evidence includes the actual unwinder/CFI register
+reconstruction and the landing path's own effects. Until then, record unknown
+entry stack/register state and retain outgoing cleanup, resume, abort, indirect
+and external edges. The unwinder and native callees have separate resource
+costs. Finite metadata coverage neither prices those costs nor establishes
+termination or a whole-program workspace bound.
+
+## Independent mutation partition
+
+The separate test file will cover exact Rust first-action classification,
+one-based action offsets, half-open rows, zero-pad versus missing-row behavior,
+truncated/unsupported encodings, out-of-owner ranges and landing addresses,
+regular/compressed bases and common/local encoding selection, malformed page
+counts/bounds, missing LSDA matches and DWARF markers. Synthetic graph fixtures
+should additionally retain unreachable-from-normal-flow landing pads and
+explicit exceptional-state frontiers. Root separately checks the whole-body
+call-graph universe; the implementer owns parser implementation and actual-image
+capture. No runtime build or worker execution is part of this review.

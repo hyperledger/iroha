@@ -1,0 +1,153 @@
+"""Capture one reviewed admissibility component run; preserve failed outcomes."""
+import ast
+import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+import xml.etree.ElementTree as ET
+
+ROOT = Path.cwd().resolve()
+OUT = ROOT / "docs/validation/parliament_ballot_admissibility_circuit"
+HELPER = "scripts/parliament_ballot_admissibility_circuit.py"
+TEST = "scripts/tests/parliament_ballot_admissibility_circuit_test.py"
+SPEC = "specs/parliament_ballot_b6_admissibility_circuit.md"
+EXPECTED = {
+    HELPER: "313c4de935a5afdd9795cfc8be1d754dfcc022b2c9624b117167ec9f577792ad",
+    TEST: "57fcfa66cc5b8cd169f55fc657e8d235e04b13026d1ffa5b6ef726f80cff1f29",
+    SPEC: "61052a85d7d647d9ea85adc29026038b511c71d8217b22c4ee6356cffe8b1fc4",
+}
+PYTEST = Path("/opt/homebrew/bin/pytest")
+ABSENT = ["conftest.py", "scripts/conftest.py"]
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def save(name, value):
+    with (OUT / name).open("x") as stream:
+        stream.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
+if any((OUT / name).exists() for name in ("receipt.json", "sources", "commands", "SHA256SUMS")):
+    raise RuntimeError("refuse existing capture outputs")
+for name, expected in EXPECTED.items():
+    if sha(ROOT / name) != expected:
+        raise RuntimeError("reviewed source changed: " + name)
+tree = ast.parse((ROOT / HELPER).read_text())
+pins = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "PINS" for t in n.targets))
+assert len(pins) == 5
+for name, expected in pins.items():
+    assert sha(ROOT / name) == expected, name
+prior_path = OUT / "pre-component-documents/sources.json"
+prior = json.loads(prior_path.read_text())
+old_manifest = ROOT / "docs/validation/parliament_ballot_b6/B6_ARTIFACTS_SHA256SUMS"
+assert sha(old_manifest) == prior["previous_manifest_sha256"]
+old_entries = dict((name, value) for value, name in
+                   (line.split("  ", 1) for line in old_manifest.read_text().splitlines()))
+for name, row in prior["documents"].items():
+    assert sha(ROOT / row["snapshot"]) == row["sha256"] == old_entries[name]
+selected = sorted(set(pins) | set(EXPECTED) | set(prior["documents"]) |
+                  {"pytest.ini", "scripts/tests/conftest.py", str(Path(__file__).resolve().relative_to(ROOT))})
+assert len(selected) == 14
+before = {name: sha(ROOT / name) for name in selected}
+for name in ABSENT:
+    assert not (ROOT / name).exists(), name
+runtime = {"capture_python": str(Path(sys.executable).resolve()),
+           "capture_python_version": sys.version, "pytest_launcher": str(PYTEST),
+           "pytest_launcher_sha256": sha(PYTEST),
+           "pytest_shebang": PYTEST.read_text().splitlines()[0]}
+for role, path in (("capture_python", Path(sys.executable).resolve()),
+                   ("pytest_python", Path(runtime["pytest_shebang"][2:]).resolve())):
+    runtime[role + "_sha256"] = sha(path)
+    runtime[role + "_path"] = str(path)
+snapshots = {}
+for name, expected in before.items():
+    destination = OUT / "sources" / (name + ".template")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    data = (ROOT / name).read_bytes()
+    assert hashlib.sha256(data).hexdigest() == expected
+    destination.write_bytes(data)
+    snapshots[name] = {"snapshot": str(destination.relative_to(OUT)), "sha256": expected}
+save("captured-sources.json", snapshots)
+(OUT / "commands").mkdir()
+env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
+           PYTEST_ADDOPTS="", PYTEST_PLUGINS="", PYTHONPATH="")
+records = []
+error = None
+try:
+    commands = [
+        ("tests", [str(PYTEST), "-c", str(ROOT / "pytest.ini"), "-o", "addopts=",
+                   "--confcutdir=" + str(ROOT), "--import-mode=importlib", "-p", "no:cacheprovider",
+                   "--maxfail=0", "--tb=short", "-q", str(ROOT / TEST),
+                   "--junitxml=" + str(OUT / "tests.xml")], 0),
+        ("lifetime", [sys.executable, "-B", str(ROOT / HELPER), "--root", str(ROOT),
+                      "--requests", str(1 << 44)], 0),
+        ("zero", [sys.executable, "-B", str(ROOT / HELPER), "--root", str(ROOT),
+                  "--requests", "0"], 0),
+        ("require-qualified", [sys.executable, "-B", str(ROOT / HELPER), "--root", str(ROOT),
+                               "--requests", str(1 << 44), "--require-qualified"], 2),
+    ]
+    for name, command, expected_exit in commands:
+        start = time.monotonic()
+        with (OUT / f"commands/{name}.stdout.txt").open("x") as stdout, \
+             (OUT / f"commands/{name}.stderr.txt").open("x") as stderr:
+            result = subprocess.run(command, cwd=ROOT, env=env, stdout=stdout, stderr=stderr)
+        after = {path: sha(ROOT / path) for path in selected}
+        row = {"name": name, "command": command, "exit_code": result.returncode,
+               "expected_exit_code": expected_exit, "seconds": time.monotonic() - start,
+               "source_after": after, "source_changes": {n: {"before": before[n], "after": after[n]}
+                                                         for n in selected if before[n] != after[n]}}
+        records.append(row)
+        save(f"commands/{name}.json", row)
+        assert not row["source_changes"], "source drift; completed command retained"
+        assert all(not (ROOT / n).exists() for n in ABSENT), "new conftest appeared"
+        assert result.returncode == expected_exit, "unexpected command exit; raw outputs retained"
+    junit = ET.parse(OUT / "tests.xml").getroot()
+    cases = list(junit.iter("testcase"))
+    expected_tests = {n.name for n in ast.walk(ast.parse((ROOT / TEST).read_text()))
+                      if isinstance(n, ast.FunctionDef) and n.name.startswith("test_")}
+    assert len(expected_tests) == 13
+    assert {c.attrib["name"] for c in cases} == expected_tests
+    assert len(cases) == 13
+    assert not any(c.find(tag) is not None for c in cases for tag in ("failure", "error", "skipped"))
+    lifetime = json.loads((OUT / "commands/lifetime.stdout.txt").read_text())
+    zero = json.loads((OUT / "commands/zero.stdout.txt").read_text())
+    assert (OUT / "commands/lifetime.stdout.txt").read_bytes() == (OUT / "commands/require-qualified.stdout.txt").read_bytes()
+    assert lifetime["requests"] == 1 << 44 and zero["requests"] == 0
+    for report in (lifetime, zero):
+        assert report["source_before"] == report["source_after"] == pins
+        for flag in ("full_resource_vector", "actual_input_collision_bridge", "independent_cryptographic_review",
+                     "physical_verification_workspace_certificate", "production_gate_changed", "profile_qualified"):
+            assert report[flag] is False
+        for row in report["rows"].values():
+            assert row["per_trial"]["base_oracle_calls"] == 0
+            assert row["lifetime_gate_upper_bound"] == report["requests"] * row["per_request_gate_upper_bound"]
+    assert sha(PYTEST) == runtime["pytest_launcher_sha256"]
+    for role in ("capture_python", "pytest_python"):
+        assert sha(Path(runtime[role + "_path"])) == runtime[role + "_sha256"]
+except Exception as exc:
+    error = f"{type(exc).__name__}: {exc}"
+finally:
+    after = {n: sha(ROOT / n) if (ROOT / n).is_file() else None for n in selected}
+    outputs = {str(p.relative_to(OUT)): sha(p) for p in sorted(OUT.rglob("*")) if p.is_file()}
+    receipt = {"schema": "parliament-admissibility-circuit-capture-v1",
+               "captured_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+               "status": "PASS" if error is None else "FAIL", "error": error,
+               "source_before": before, "source_after": after, "selected_input_count": len(before),
+               "absent_conftest_paths": {n: not (ROOT / n).exists() for n in ABSENT},
+               "runtime": runtime, "commands": records, "retained_file_sha256": outputs,
+               "environment_overrides": {n: env[n] for n in ("PYTHONDONTWRITEBYTECODE", "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
+                                                            "PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTHONPATH")},
+               "scope": "Five selected Rust/spec correspondence inputs, helper/test/spec, pytest configuration, three central documents and executing recipe. Source snapshots and non-atomic before/after observations are not full Python/compiler/dependency tracing. Interpreter, pytest dependencies, cache coherence and unobserved child reads remain trusted. This Python circuit is not a native verifier.",
+               "full_resource_vector": False, "physical_verification_workspace_certificate": False,
+               "independent_cryptographic_review": False, "production_qualified": False}
+    save("receipt.json", receipt)
+    print(json.dumps({"status": receipt["status"], "error": error, "receipt_sha256": sha(OUT / "receipt.json")}))
+if error is not None:
+    raise SystemExit(1)

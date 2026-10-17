@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="5" time="0.399" timestamp="2026-10-14T03:56:59.184679+09:00" hostname="takemiyamakotonoMac-Studio.local"><testcase classname="target.parliament-validated-review.test_independent_content" name="test_joint_rejection_or_proof_and_oracle_uncompute_with_true_log_inverse[0-0-0]" time="0.070" /><testcase classname="target.parliament-validated-review.test_independent_content" name="test_joint_rejection_or_proof_and_oracle_uncompute_with_true_log_inverse[0-1-6]" time="0.071" /><testcase classname="target.parliament-validated-review.test_independent_content" name="test_joint_rejection_or_proof_and_oracle_uncompute_with_true_log_inverse[1-0-0]" time="0.070" /><testcase classname="target.parliament-validated-review.test_independent_content" name="test_joint_rejection_or_proof_and_oracle_uncompute_with_true_log_inverse[1-1-2]" time="0.070" /><testcase classname="target.parliament-validated-review.test_independent_content" name="test_aliased_p0_source_and_missing_uncompute_mutations_are_detected" time="0.036"><failure message="assert False&#10; +  where False = any([0, 0, 0, 0, 0, 0, ...])">def test_aliased_p0_source_and_missing_uncompute_mutations_are_detected():
+        c,_=fixture()
+        fields=tuple((name,('derived',0,60)) if name=='public_validation' else
+                     (name,('derived',0,1)) if name=='public_valid' else (name,piece)
+                     for name,piece in c.generator.fields)
+        with pytest.raises(ValueError):ContentRequest(replace(c.base,generator=replace(c.generator,fields=fields)))
+        p=c.layout();state=[0]*p['size'];state[0]=0;state[1]=1
+        gates=list(c.emit());gates.pop()
+        run(state,gates)
+&gt;       assert any(state[p['retained']:])
+E       assert False
+E        +  where False = any([0, 0, 0, 0, 0, 0, ...])
+
+target/parliament-validated-review/test_independent_content.py:119: AssertionError</failure></testcase></testsuite></testsuites>

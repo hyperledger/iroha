@@ -1,0 +1,12 @@
+{
+  "target/parliament-ideal-machine-stage/chronological_log.py": "200dfc7bbd53782c4aeb609b4c3322737bab934e8985712e84f96fd45cfa95cf",
+  "target/parliament-ideal-machine-stage/content_request.py": "5290f62284e8bc7a1d6ce9795d9a738074d956fc518ed7bc216c0ef3f416c3e0",
+  "target/parliament-ideal-machine-stage/l0_machine.py": "e10d3d6b49e778c9abdde8655188513d0dddf910da73e095ff19da6ddd0fba23",
+  "target/parliament-ideal-machine-stage/request-accepted-observation.json": "81ffb1db693c94f73f41239da3cd8164893d9c84ddd805d873ec3ede974f4f4c",
+  "target/parliament-ideal-machine-stage/request_dispatch.py": "94729ac8325800e40dbbe2011ff7c1fbf39937dd128960ade269ccfac7e927bb",
+  "target/parliament-ideal-machine-stage/request_family.py": "26a91d48a98a538de02b5d38d7875ef224fac1bbffc78bfa7b41155897f34041",
+  "target/parliament-ideal-machine-stage/request_generator.py": "0f3173dfb0d806685d7b437297928ae4edf31805b21a1628684d0b15cfb201d9",
+  "target/parliament-ideal-machine-stage/request_transition.py": "02d43d565b893497a16ec606917a19e3261479f82f5db8aaafbf4d9355bfdcd1",
+  "target/parliament-ideal-machine-stage/write_machine.py": "4982fb0bada85cbb6a323f367935a9743e6d383ed275f19e61a97f297e2964aa",
+  "target/parliament-lifetime-composition-stage/design.md": "0090f696337623e2cd461b616483b82f114718dd2e91c521116020d3b747fcc6"
+}

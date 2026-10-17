@@ -803,8 +803,10 @@ impl History {
                 };
                 let (inventory, row) = tree.read_scope(&directory, |reader| {
                     let inventory = checked_attempt_inventory(measured_inventory!(AttemptScopedInventory, reader.entries(7))?)?;
+                    let ordinal = u8::try_from(index + 1)
+                        .map_err(|_| invalid("dispatch attempt ordinal exceeds its metadata bound"))?;
                     let Some(authorization): Option<Authorization> =
-                        image.read(Some((index + 1) as u8),0)?
+                        image.read(Some(ordinal),0)?
                     else {
                         if index + 1 != names.len()
                             || !inventory.is_empty()
@@ -842,12 +844,12 @@ impl History {
                         validate_successor(&prior.authorization, &authorization)?;
                     }
                     let observation: Option<Observation> =
-                        image.read(Some((index + 1) as u8),1)?;
+                        image.read(Some(ordinal),1)?;
                     if let Some(observation) = observation {
                         observation.validate(&authorization)?;
                     }
-                    let commit: Option<Commit> = image.read(Some((index + 1) as u8),2)?;
-                    let retirement: Option<Retirement> = image.read(Some((index + 1) as u8),3)?;
+                    let commit: Option<Commit> = image.read(Some(ordinal),2)?;
+                    let retirement: Option<Retirement> = image.read(Some(ordinal),3)?;
                     Ok::<_, crate::managed::Error>((
                         inventory,
                         Some((authorization, observation, commit, retirement)),

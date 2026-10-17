@@ -19,6 +19,8 @@
 //!   resetting its failure backoff;
 //! - `BuildPayload` for height `h` runs only after `h − 1` is applied (the builder filters the
 //!   applied transactions), and `PayloadReady{req}` follows at most once an `EMPTY` answer;
+//! - proposal admission recovery retains one exact paid body and its original release
+//!   refusal across request replacement, independently of the current control witness view;
 //! - the queues other than the `Execute`s are bounded: discards of one height merge (keeping
 //!   what both keep), and rejections are deduplicated and capped (the oldest go first: the
 //!   quarantine is best effort).
@@ -36,8 +38,9 @@ use iroha_allocation::{
 
 use iroha_sumeragi::{
     api::{ApplicationControlContext, ControlWitnessContext, Event, ExecOutcome, HaltReason},
-    availability::{AvailableBody, PayloadBytes},
+    availability::AvailableBody,
     message::{ApplicationControl, Qc},
+    proposal_admission::{BuiltPayload, ProposalAdmission},
     types::{
         AppliedConfig, ControlWitness, Hash32, MAX_COMMITTEE_SIZE, MAX_PUBLIC_KEY_LEN, Millis,
         PublicKey,
@@ -93,6 +96,13 @@ pub enum ExecOp {
     Append(Arc<Commit>),
     /// Make the prepared post-state the applied state.
     Commit(Arc<Commit>),
+    /// Recover publication admission from one exact original available body.
+    RecoverProposalAdmission {
+        /// Core request id for this original body.
+        req: u64,
+        /// Original paid body; retry retains this same owner.
+        body: AvailableBody,
+    },
     /// Build the independent control witness for one exact fresh proposal.
     BuildControlWitness {
         /// Fresh core request id.
@@ -153,6 +163,8 @@ pub enum ExecDone {
     },
     /// `Commit`: the original atomic epoch/configuration output, or a local failure.
     Committed(Result<Box<AppliedConfig>, PublicationError>),
+    /// Application owner recovered from the original available body.
+    ProposalAdmissionRecovered(Result<ProposalAdmission, PublicationError>),
     /// Independent exact control response; no empty fallback on local failure.
     ControlWitnessBuilt(Result<ControlWitness, PublicationError>),
     /// At most one source-bound own partial from the sole producer.
@@ -169,7 +181,7 @@ pub enum ExecDone {
         result: Result<(), PublicationError>,
     },
     /// Exact admitted payload, genuine absence, or a retained local failure.
-    Built(Result<Option<PayloadBytes>, PublicationError>),
+    Built(Result<Option<BuiltPayload>, PublicationError>),
     /// `Reject` done.
     Rejected,
 }
@@ -182,6 +194,7 @@ impl ExecDone {
             Self::Executed(Err(PublicationError::RecoveryRefusal(original)))
             | Self::Prepared(Err(PublicationError::RecoveryRefusal(original)))
             | Self::Committed(Err(PublicationError::RecoveryRefusal(original)))
+            | Self::ProposalAdmissionRecovered(Err(PublicationError::RecoveryRefusal(original)))
             | Self::ControlWitnessBuilt(Err(PublicationError::RecoveryRefusal(original)))
             | Self::ApplicationControlDriven(Err(PublicationError::RecoveryRefusal(original)))
             | Self::ApplicationControlReceived {
@@ -217,6 +230,7 @@ enum Running {
     Append,
     Commit,
     Build(BuildRequest),
+    RecoverProposal(ProposalRecovery),
     BuildControl(ControlBuild),
     DriveControl(ApplicationControlContext),
     ReceiveControl { index: usize },
@@ -247,12 +261,19 @@ struct ControlBuild {
     source: ApplicationControlContext,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ProposalRecovery {
+    req: u64,
+    body: AvailableBody,
+}
+
 /// Exact preadmitted waiter custody for every bounded execution queue.
 #[derive(Debug)]
 pub struct ExecutionRegistrations {
     speculative: ReleaseRegistration,
     committed: ReleaseRegistration,
     payload: ReleaseRegistration,
+    proposal: ReleaseRegistration,
     witness: ReleaseRegistration,
     drive: ReleaseRegistration,
     inbound: InboundSlots,
@@ -262,7 +283,7 @@ impl ExecutionRegistrations {
     /// Total physical control bytes required before any Core work is started.
     pub fn admission_bytes() -> usize {
         Self::inbound_layout().size()
-            + ReleaseRegistration::allocation_layout().size() * (5 + MAX_COMMITTEE_SIZE)
+            + ReleaseRegistration::allocation_layout().size() * (6 + MAX_COMMITTEE_SIZE)
     }
 
     fn inbound_layout() -> std::alloc::Layout {
@@ -293,6 +314,7 @@ impl ExecutionRegistrations {
             speculative: ReleaseRegistration::from_reservation(&mut reservation)?,
             committed: ReleaseRegistration::from_reservation(&mut reservation)?,
             payload: ReleaseRegistration::from_reservation(&mut reservation)?,
+            proposal: ReleaseRegistration::from_reservation(&mut reservation)?,
             witness: ReleaseRegistration::from_reservation(&mut reservation)?,
             drive: ReleaseRegistration::from_reservation(&mut reservation)?,
             inbound: InboundSlots { slots },
@@ -502,6 +524,9 @@ pub struct ExecSched {
     release_waker: Waker,
     build: Option<BuildRequest>,
     active_build: Option<BuildRequest>,
+    /// One current original body, retained even while its worker is in flight.
+    proposal_recovery: Option<ProposalRecovery>,
+    proposal_retry: RetryGate,
     control_build: Option<ControlBuild>,
     control_context: Option<(ApplicationControlContext, u64)>,
     payload_retry: RetryGate,
@@ -536,6 +561,7 @@ impl ExecSched {
             speculative,
             committed,
             payload,
+            proposal,
             witness,
             drive,
             inbound,
@@ -558,6 +584,8 @@ impl ExecSched {
             release_waker: Waker::noop().clone(),
             build: None,
             active_build: None,
+            proposal_recovery: None,
+            proposal_retry: RetryGate::new(proposal),
             control_build: None,
             control_context: None,
             payload_retry: RetryGate::new(payload),
@@ -655,6 +683,24 @@ impl ExecSched {
         {
             job.cancelled = true;
         }
+        // Withdrawal releases the original unsigned body's retry custody as well as execution.
+        // A native discard may refund its decode; that refund must not revive this request.
+        if !cfg!(all(test, sumeragi_core_mutation = "HC381")) {
+            let withdrawn = |original: &ProposalRecovery| {
+                original.body.header().height == height
+                    && !keep.contains(&original.body.source().block_hash())
+            };
+            if self.proposal_recovery.as_ref().is_some_and(withdrawn) {
+                self.proposal_recovery = None;
+                self.proposal_retry.reset();
+            }
+            if let Some(Running::RecoverProposal(original)) = &self.running
+                && withdrawn(original)
+            {
+                // `done` still extracts terminal failures before considering this cancellation.
+                self.running_cancelled = true;
+            }
+        }
         // Discards run before any execution, so two of one height in a row keep what both keep.
         match self.discards.iter_mut().find(|(h, _)| *h == height) {
             Some((_, kept)) => kept.retain(|bh| keep.contains(bh)),
@@ -693,6 +739,25 @@ impl ExecSched {
         self.build = Some(next);
         self.active_build = Some(next);
         self.arrived_during_build = false;
+    }
+
+    /// Retain one original body. A new request for it cannot bypass its release refusal.
+    /// Recovery is independent of fresh control view: restart retains the recorded witness.
+    pub fn recover_proposal_admission(&mut self, req: u64, body: AvailableBody) {
+        if self.halted.is_some() || body.header().height <= self.applied {
+            return;
+        }
+        if let Some(original) = self.proposal_recovery.as_mut()
+            && original.body == body
+        {
+            original.req = req;
+            return;
+        }
+        if matches!(self.running, Some(Running::RecoverProposal(_))) {
+            self.running_cancelled = true;
+        }
+        self.proposal_retry.reset();
+        self.proposal_recovery = Some(ProposalRecovery { req, body });
     }
 
     fn payload_build_is_current(&self, build: &BuildRequest) -> bool {
@@ -1004,8 +1069,9 @@ impl ExecSched {
 
     /// The next operation for the executor, if it is idle. A commit that is prepared or
     /// appended, or whose failed step backs off, runs alone (its next step once due, nothing
-    /// else meanwhile). Otherwise: discards, then the apply of the next committed block, then a
-    /// build whose parent is applied, then rejections, then the most recent `Execute`.
+    /// else meanwhile). Otherwise: discards, then the apply of the next committed block,
+    /// original proposal admission recovery, then a build whose parent is applied, then
+    /// rejections, then the most recent `Execute`.
     pub fn next(&mut self, now: Millis) -> Option<ExecOp> {
         if self.halted.is_some() || self.running.is_some() {
             return None;
@@ -1023,6 +1089,16 @@ impl ExecSched {
         }
         if self.halted.is_none() && !self.commits.is_empty() {
             return self.commit_step();
+        }
+        if let Some(original) = self.proposal_recovery.as_ref()
+            && original.body.header().height <= self.applied.saturating_add(1)
+            && self.proposal_retry.ready(now, &self.release_waker)
+        {
+            self.running = Some(Running::RecoverProposal(original.clone()));
+            return Some(ExecOp::RecoverProposalAdmission {
+                req: original.req,
+                body: original.body.clone(),
+            });
         }
         if self.prefer_control
             && let Some(op) = self.next_control(now)
@@ -1102,6 +1178,7 @@ impl ExecSched {
             self.commit_registration.bind_thread(thread.clone());
         }
         self.payload_retry.registration.bind_thread(thread.clone());
+        self.proposal_retry.registration.bind_thread(thread.clone());
         self.witness_retry.registration.bind_thread(thread.clone());
         self.drive_retry.registration.bind_thread(thread.clone());
         for slot in self.inbound.iter_mut() {
@@ -1229,6 +1306,7 @@ impl ExecSched {
     fn cancel_registrations(&mut self) {
         self.commit_registration.cancel();
         self.payload_retry.registration.cancel();
+        self.proposal_retry.registration.cancel();
         self.witness_retry.registration.cancel();
         self.drive_retry.registration.cancel();
         for slot in self.inbound.iter_mut() {
@@ -1261,6 +1339,7 @@ impl ExecSched {
         self.pending_ready = None;
         self.build = None;
         self.active_build = None;
+        self.proposal_recovery = None;
         self.control_build = None;
         self.control_context = None;
         self.control_drive = None;
@@ -1269,6 +1348,7 @@ impl ExecSched {
             slot.retry.reset();
         });
         self.payload_retry.reset();
+        self.proposal_retry.reset();
         self.witness_retry.reset();
         self.drive_retry.reset();
         self.rejects.clear();
@@ -1297,6 +1377,13 @@ impl ExecSched {
     #[allow(clippy::too_many_lines)] // one arm per operation
     pub fn done(&mut self, now: Millis, done: ExecDone) -> Option<u64> {
         let running = self.running.take();
+        // HC379: obsolete worker identity must never swallow an original terminal failure.
+        if cfg!(all(test, sumeragi_core_mutation = "HC379"))
+            && matches!(&done, ExecDone::ProposalAdmissionRecovered(Err(error)) if error.is_recovery_required())
+        {
+            self.running_cancelled = false;
+            return None;
+        }
         let done = match done.into_recovery_refusal() {
             Ok(original) => {
                 // Use the original accepted request's context, never a replacement completion's
@@ -1304,6 +1391,7 @@ impl ExecSched {
                 let height = match running.as_ref() {
                     Some(Running::Execute(job)) => job.height(),
                     Some(Running::Build(build)) => build.height,
+                    Some(Running::RecoverProposal(original)) => original.body.header().height,
                     Some(Running::BuildControl(build)) => build.context.height,
                     Some(Running::DriveControl(context)) => context.height,
                     Some(Running::ReceiveControl { index }) => self.inbound[*index]
@@ -1474,6 +1562,14 @@ impl ExecSched {
                     });
                     // Requests of applied heights are moot: answered, never left waiting.
                     let applied = self.applied;
+                    if self
+                        .proposal_recovery
+                        .as_ref()
+                        .is_some_and(|original| original.body.header().height <= applied)
+                    {
+                        self.proposal_retry.reset();
+                        self.proposal_recovery = None;
+                    }
                     for list in [&mut self.jobs, &mut self.parked] {
                         let (stale, rest): (Vec<Job>, Vec<Job>) =
                             list.drain(..).partition(|job| job.height() <= applied);
@@ -1626,6 +1722,39 @@ impl ExecSched {
                     }
                 }
             }
+            (Running::RecoverProposal(original), ExecDone::ProposalAdmissionRecovered(result)) => {
+                match result {
+                    Err(PublicationError::RecoveryRefusal(refusal)) => {
+                        self.require_recovery_refusal(original.body.header().height, refusal);
+                    }
+                    Err(PublicationError::RecoveryRequired(reason)) => {
+                        self.require_recovery(original.body.header().height, &reason);
+                    }
+                    Ok(admission)
+                        if cfg!(all(test, sumeragi_core_mutation = "HC378"))
+                            || (!cancelled
+                                && self.proposal_recovery.as_ref() == Some(&original)) =>
+                    {
+                        self.proposal_retry.reset();
+                        self.proposal_recovery = None;
+                        self.events.push(Event::ProposalAdmissionRecovered {
+                            req: original.req,
+                            admission: Some(admission),
+                        });
+                    }
+                    Err(error)
+                        if !cancelled
+                            && self
+                                .proposal_recovery
+                                .as_ref()
+                                .is_some_and(|current| current.body == original.body) =>
+                    {
+                        // A newer Core request for these bytes keeps the original refusal.
+                        self.proposal_retry.refuse(now, self.backoff, error);
+                    }
+                    _ => {}
+                }
+            }
             (Running::Build(build), ExecDone::Built(result)) => {
                 let result = match result {
                     Err(PublicationError::RecoveryRefusal(original)) => {
@@ -1719,7 +1848,17 @@ impl ExecSched {
             .deferred_execution
             .as_ref()
             .map_or(Millis::MAX, |_| self.execution_retry.deadline());
-        witness.min(drive).min(inbound).min(payload).min(execution)
+        let proposal = self
+            .proposal_recovery
+            .as_ref()
+            .filter(|original| original.body.header().height <= next)
+            .map_or(Millis::MAX, |_| self.proposal_retry.deadline());
+        witness
+            .min(drive)
+            .min(inbound)
+            .min(payload)
+            .min(execution)
+            .min(proposal)
     }
 
     /// The local events produced so far (answers for the core), in order.
@@ -1748,6 +1887,7 @@ impl ExecSched {
             + self.discards.len()
             + self.rejects.len()
             + usize::from(self.build.is_some())
+            + usize::from(self.proposal_recovery.is_some())
             + usize::from(self.control_build.is_some())
             + usize::from(self.control_drive.is_some())
             + self

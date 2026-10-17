@@ -17645,15 +17645,15 @@ fn proposal_value_from_state(
     proposal_state: iroha_executor_data_model::isi::multisig::MultisigProposalState,
 ) -> iroha_executor_data_model::isi::multisig::MultisigProposalValue {
     iroha_executor_data_model::isi::multisig::MultisigProposalValue {
-network_id: proposal_state.network_id,
-proposal_nonce: proposal_state.proposal_nonce,
-proposal_id: proposal_state.proposal_id,
-transaction_ttl_ms: proposal_state.transaction_ttl_ms,
-instructions: proposal_state.instructions,
-proposed_at_ms: proposal_state.proposed_at_ms,
-expires_at_ms: proposal_state.expires_at_ms,
-approvals: proposal_state.approvals,
-}
+        network_id: proposal_state.network_id,
+        proposal_nonce: proposal_state.proposal_nonce,
+        proposal_id: proposal_state.proposal_id,
+        transaction_ttl_ms: proposal_state.transaction_ttl_ms,
+        instructions: proposal_state.instructions,
+        proposed_at_ms: proposal_state.proposed_at_ms,
+        expires_at_ms: proposal_state.expires_at_ms,
+        approvals: proposal_state.approvals,
+    }
 }
 fn validate_multisig_active_proposal_binding(
     multisig_account_id: &iroha_data_model::account::AccountId,
@@ -20663,7 +20663,7 @@ dataspace_catalog,
     ) -> String {
         let instructions_hash = HashOf::new(&instructions);
         world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_contract_key(multisig_account_id, &occurrence_fixture_id(multisig_account_id, *&instructions_hash)),
+            multisig_proposal_state_contract_key(multisig_account_id, &occurrence_fixture_id(multisig_account_id, instructions_hash)),
             norito::to_bytes(
                 &occurrence_fixture_state(multisig_account_id.clone(), instructions_hash, instructions, proposed_at_ms, expires_at_ms, approvals),
             )
@@ -20755,14 +20755,14 @@ dataspace_catalog,
             &spec,
         );
         world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_contract_key(&multisig_account_id, &occurrence_fixture_id(&multisig_account_id, *&active_hash)),
+            multisig_proposal_state_contract_key(&multisig_account_id, &occurrence_fixture_id(&multisig_account_id, active_hash)),
             norito::to_bytes(
-                &occurrence_fixture_state(multisig_account_id.clone(), active_hash, active_instructions, 1_700_000_000_000, 4_000_000_000_000, BTreeSet::from([signer_one_id.clone().into()])),
+                &occurrence_fixture_state(multisig_account_id.clone(), active_hash, active_instructions, 1_700_000_000_000, 4_000_000_000_000, BTreeSet::from([signer_one_id.clone()])),
             )
             .expect("encode active proposal state"),
         );
         world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_contract_key(&multisig_account_id, &occurrence_fixture_id(&multisig_account_id, *&expired_hash)),
+            multisig_proposal_state_contract_key(&multisig_account_id, &occurrence_fixture_id(&multisig_account_id, expired_hash)),
             norito::to_bytes(
                 &occurrence_fixture_state(multisig_account_id.clone(), expired_hash, expired_instructions, 1_600_000_000_000, 1_600_000_000_001, BTreeSet::new()),
             )
@@ -20778,8 +20778,8 @@ dataspace_catalog,
         (
             world,
             multisig_account_id.clone(),
-            signer_one_id.into(),
-            signer_two_id.into(),
+            signer_one_id,
+            signer_two_id,
             alias_literal,
             occurrence_fixture_id(&multisig_account_id, active_hash).to_string(),
         )
@@ -21602,16 +21602,16 @@ None,
         let proposal = occurrence_fixture_value(instructions, 100, 200, BTreeSet::new());
         let finalized_after_expiry = occurrence_fixture_terminal(account.clone(), instructions_hash, proposal.clone(), MultisigProposalTerminalStatus::Finalized, 200);
         assert!(
-            validate_multisig_terminal_proposal_binding(&account, &occurrence_fixture_id(&account, *&instructions_hash), &finalized_after_expiry)
+            validate_multisig_terminal_proposal_binding(&account, &occurrence_fixture_id(&account, instructions_hash), &finalized_after_expiry)
             .is_err(),
         );
         let expired_before_expiry = occurrence_fixture_terminal(account.clone(), instructions_hash, proposal.clone(), MultisigProposalTerminalStatus::Expired, 199);
         assert!(
-            validate_multisig_terminal_proposal_binding(&account, &occurrence_fixture_id(&account, *&instructions_hash), &expired_before_expiry)
+            validate_multisig_terminal_proposal_binding(&account, &occurrence_fixture_id(&account, instructions_hash), &expired_before_expiry)
             .is_err(),
         );
         let canceled = occurrence_fixture_terminal(account.clone(), instructions_hash, proposal, MultisigProposalTerminalStatus::Canceled, 150);
-        validate_multisig_terminal_proposal_binding(&account, &occurrence_fixture_id(&account, *&instructions_hash), &canceled)
+        validate_multisig_terminal_proposal_binding(&account, &occurrence_fixture_id(&account, instructions_hash), &canceled)
             .expect("a cancellation between proposal creation and expiry is coherent");
     }
     routing_test! { async multisig_spec_returns_not_found_for_unknown_alias
@@ -22487,7 +22487,7 @@ None,
             "derive cross-account proposal tamper fixture key",
         );
         world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_contract_key(&multisig_account_id, &occurrence_fixture_id(&multisig_account_id, *&instructions_hash)),
+            multisig_proposal_state_contract_key(&multisig_account_id, &occurrence_fixture_id(&multisig_account_id, instructions_hash)),
             norito::to_bytes(
                 &occurrence_fixture_state(foreign_account, instructions_hash, instructions, 1_700_000_000_000, 4_000_000_000_000, BTreeSet::new()),
             )
@@ -22520,7 +22520,7 @@ None,
         assert_eq!(HashOf::new(&instructions), instructions_hash);
         let terminal = occurrence_fixture_terminal(multisig_account_id.clone(), instructions_hash, occurrence_fixture_value(instructions, 1_700_000_000_000, 4_000_000_000_000, BTreeSet::from([signer_one])), MultisigProposalTerminalStatus::Canceled, 1_700_000_000_010);
         world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_terminal_state_contract_key(&multisig_account_id, &occurrence_fixture_id(&multisig_account_id, *&instructions_hash)),
+            multisig_proposal_terminal_state_contract_key(&multisig_account_id, &occurrence_fixture_id(&multisig_account_id, instructions_hash)),
             norito::to_bytes(&terminal).expect("encode conflicting terminal state"),
         );
         let error = handle_post_multisig_proposals_resolve(
@@ -23130,7 +23130,7 @@ None,
         )];
         let cancel_hash = HashOf::new(&cancel_instructions);
         world.smart_contract_state_mut_for_testing().insert(
-            multisig_proposal_state_contract_key(&multisig_account_id, &occurrence_fixture_id(&multisig_account_id, *&cancel_hash)),
+            multisig_proposal_state_contract_key(&multisig_account_id, &occurrence_fixture_id(&multisig_account_id, cancel_hash)),
             norito::to_bytes(
                 &occurrence_fixture_state(multisig_account_id.clone(), cancel_hash, cancel_instructions, 1_700_000_000_100, 4_000_000_000_000, BTreeSet::from([signer_one_id])),
             )
@@ -42148,7 +42148,8 @@ mod cursor_mode_tests {
 }
 include!("routing/transaction_ingress_overload_tests.rs");
 #[cfg(test)]
-pub(crate) mod validation_fee_torii_ingress_tests {
+/// Native validation-fee admission fixtures and HTTP ingress regressions.
+pub mod validation_fee_torii_ingress_tests {
     use super::*;
     use iroha_config::parameters::actual::ParliamentTimedOvn;
     use iroha_core::{
@@ -42421,7 +42422,8 @@ pub(crate) mod validation_fee_torii_ingress_tests {
             ivm::verify_contract_artifact(&artifact).expect("valid pool contract artifact");
         (artifact, verified.manifest)
     }
-    pub(crate) fn payout_binding(
+    /// Bind the fixture payout contracts and accounts to the original network.
+    pub fn payout_binding(
         state: &State,
         user: &AccountId,
         fee_asset: &AssetDefinitionId,
@@ -42512,7 +42514,8 @@ pub(crate) mod validation_fee_torii_ingress_tests {
         initial.commit();
         world
     }
-    pub(crate) fn native_fee_fixture() -> (
+    /// Execute signed fixture genesis and deploy the native payout and pool contracts.
+    pub fn native_fee_fixture() -> (
         CertifiedTestChain,
         KeyPair,
         AccountId,

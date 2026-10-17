@@ -1,0 +1,16 @@
+{
+  "capture_receipt_sha256": "a2461d6bc5b1ee066dcaa6a48bf3fe5639d0b886da6512358e5dd0c6eb835e69",
+  "captured_sources_restored": 152,
+  "observed_exit_code": 0,
+  "observed_passed": 47,
+  "observed_seconds": 3.05,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "provenance": "Command and result observed by root tool execution; selected byte identities checked before and after. Not a replacement full-suite receipt.",
+  "schema": "parliament-publication-replay-smoke-v1",
+  "source_sha256_matches_before_and_after": true,
+  "tests": [
+    "test_content_request.py",
+    "test_request_family.py"
+  ]
+}

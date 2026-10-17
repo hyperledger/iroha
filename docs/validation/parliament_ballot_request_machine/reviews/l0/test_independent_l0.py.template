@@ -1,0 +1,164 @@
+"""Independent actual-width routing/padding/resource controls for the L0 draft."""
+from collections import Counter
+from pathlib import Path
+import hashlib
+import itertools
+import sys
+
+import pytest
+
+STAGE=Path(__file__).resolve().parents[1]/'parliament-ideal-machine-stage'
+sys.path.insert(0,str(STAGE))
+import l0_machine as candidate
+from hash_machine import prefix_query
+
+ROOT=STAGE.parents[1]
+
+
+def integer_at(state,start,width):return sum(state[start+i]<<i for i in range(width))
+def assign(state,start,width,value):
+    for i in range(width):state[start+i]=(value>>i)&1
+
+
+def provided(message):
+    """Single source-padded function; unrecognized domains have one fixed completion."""
+    widths={0:1024,1:512,3:384,4:128,5:10,8:512,9:2112,10:832,11:256}
+    raw=int.from_bytes(hashlib.shake_256(b'INDEPENDENT L0'+message).digest(264),'little')
+    return raw&((1<<widths.get(message[-1] if message else None,2112))-1)
+
+
+def run(state,gates,truncate=None):
+    counts=Counter();calls=[]
+    for opcode,*args in gates:
+        counts[opcode]+=1
+        if opcode=='F:variable':
+            length,width,head,capacity,out,bits=args
+            n=integer_at(state,length,width)
+            assert n<=capacity
+            # Reject a mutation which claims a smaller capacity for a long query.
+            raw=bytes(integer_at(state,head+8*i,8) for i in range(n if truncate is None else min(n,truncate)))
+            targets=range(out,out+bits)
+        elif opcode.startswith('F:'):
+            n=int(opcode[2:]);assert len(args)==8*n+2112
+            raw=bytes(sum(state[args[8*i+j]]<<j for j in range(8)) for i in range(n))
+            targets=args[8*n:]
+        else:
+            assert len(args)=={'x':1,'cx':2,'ccx':3}[opcode]
+            assert len(set(args))==len(args)
+            assert all(type(x) is int and 0<=x<len(state) for x in args)
+            toggle=1
+            for control in args[:-1]:toggle&=state[control]
+            state[args[-1]]^=toggle
+            continue
+        calls.append(raw);response=provided(raw)
+        for j,target in enumerate(targets):state[target]^=(response>>j)&1
+    return counts,calls
+
+
+def encode(machine,records,query,enabled,target):
+    p=machine.layout();state=[0]*p['size']
+    for i,(active,key,value) in enumerate(records):
+        start=i*machine.record_bits;state[start]=active
+        assign(state,start+1,machine.length_bits,len(key))
+        assign(state,start+1+machine.length_bits,8*machine.key_bytes,int.from_bytes(key,'little'))
+        assign(state,start+1+machine.key_bits,machine.value_bits,value)
+    assign(state,p['length'],machine.length_bits,len(query))
+    assign(state,p['message'],8*machine.message_bytes,int.from_bytes(query,'little'))
+    state[p['enable']]=enabled;assign(state,p['output'],machine.value_bits,target)
+    return state
+
+
+@pytest.mark.parametrize('query',[b'',b'\x00',b'\x00\x0b',b'\x00\x0b\x01',b'\x00\x0b\x02'])
+@pytest.mark.parametrize('enabled',[0,1])
+def test_actual2112_target_tail_input_log_and_clean_scratch(query,enabled):
+    m=candidate.OverlayLookup(5,4,2,5)
+    old=(1<<256)-1;new=12345
+    records=[(1,b'\x00\x0b',old),(1,b'',0),(0,b'\x00\x0b',(1<<2112)-1),
+             (1,b'\x00',1<<1023),(1,b'\x00\x0b',new)]
+    target=int.from_bytes(bytes(range(256))+bytes(8),'little')
+    state=encode(m,records,query,enabled,target);before=state[:]
+    # Inactive-record key bits may be arbitrary, including out-of-range length
+    # and noncanonical padding; no active-record source guarantee is relaxed.
+    inactive=2*m.record_bits
+    assign(state,inactive+1,m.key_bits,(1<<m.key_bits)-1);before=state[:]
+    counts,calls=run(state,m.emit_clean());p=m.layout()
+    answer=next((v for active,key,v in reversed(records) if active and key==query),provided(query))
+    want=before[:];assign(want,p['output'],2112,target^(answer if enabled else 0))
+    assert state==want and calls==[query,query]
+    expected=m.resources()['gates']
+    assert {name:counts[name] for name in ('x','cx','ccx')}=={name:expected[name] for name in ('x','cx','ccx')}
+    assert counts['F:variable']==2
+    run(state,m.emit_clean());assert state==before
+
+
+@pytest.mark.parametrize('domain,width',[(0,1024),(1,512),(3,384),(4,128),(5,10),(8,512),(9,2112),(10,832),(11,256)])
+def test_fixed_and_variable_complete264_response_use_identical_source_padding(domain,width):
+    assert dict(candidate.SOURCE_RESPONSE_BITS)[domain]==width
+    query=b'prefix'+bytes((domain,))
+    m=candidate.OverlayLookup(0,4,2,8)
+    state=encode(m,[],query,1,0);_,calls=run(state,m.emit_clean())
+    n=8*len(query);fixed=[0]*(n+2*2112)
+    assign(fixed,0,n,int.from_bytes(query,'little'))
+    _,other=run(fixed,prefix_query(range(n),range(n,n+2112),range(n+2112,n+4224)))
+    result=integer_at(state,m.layout()['output'],2112)
+    assert result==integer_at(fixed,n,2112)==provided(query)
+    assert result>>width==0 and not any(fixed[n+2112:])
+    assert calls==other==[query,query]
+
+
+def test_length_tag_and_full_message_are_both_necessary_mutation_controls():
+    m=candidate.OverlayLookup(1,4,2,5)
+    query=b'\x11\x0b\x99';state=encode(m,[(1,b'\x11\x0b',31)],query,1,0)
+    correct=state[:];run(correct,m.emit_clean())
+    truncated=state[:];run(truncated,m.emit_clean(),truncate=2)
+    assert correct!=truncated
+    assert integer_at(correct,m.layout()['output'],2112)==provided(query)
+    # Erasing the complete length before lookup wrongly aliases a shorter key.
+    alias=state[:];assign(alias,m.layout()['length'],4,2);run(alias,m.emit_clean())
+    assert integer_at(alias,m.layout()['output'],2112)==31
+    assert integer_at(alias,m.layout()['output'],2112)!=integer_at(correct,m.layout()['output'],2112)
+
+
+def test_zero_capacity_and_huge_capacity_are_integer_interval_metadata_only():
+    zero=candidate.actual_lookup(ROOT,0,6882996)
+    r=zero.resources();p=zero.layout()
+    assert r['clean_work_bits']==2112 and r['gates']['ccx']==2112
+    assert r['query_input_bits']==64+8*6882996
+    assert len(tuple(itertools.islice(zero.emit_clean(),3)))==3
+    n=(1<<64)*((1<<20)+2);m=candidate.actual_lookup(ROOT,1<<64,1<<80,128)
+    k=128+8*215150;v=2112;p=m.layout();r=m.resources()
+    assert m.capacity==n and m.message_bytes==1<<80
+    assert r['persistent_log_bits']==n*(1+k+v)
+    assert r['query_input_bits']==128+8*(1<<80)
+    assert r['clean_work_bits']==2*n+k+v+2
+    assert r['gates']==dict(x=4*k*n+4*n+2,cx=4*k*n,ccx=n*(4*k+6+v)+v+2,
+        elementary_gates=4*k*n+4*n+2+4*k*n+5*(n*(4*k+6+v)+v+2),base_xor_oracle_calls=2)
+    assert p['size']==r['persistent_log_bits']+r['query_input_bits']+1+v+r['clean_work_bits']
+    gates=tuple(itertools.islice(m.emit_clean(),3))
+    assert gates==(('cx',p['query'],1),('cx',p['query']+1,2),('cx',p['query']+2,3))
+
+
+def test_missing_ladder_uncompute_is_detectable_and_typed_pins_hold():
+    m=candidate.OverlayLookup(1,3,1,2);state=encode(m,[(1,b'\x01',2)],b'\x01',1,0)
+    gates=list(m.emit_clean());p=m.layout()
+    # Remove the initial enable/active ladder gate's matching uncompute.
+    exact=('ccx',p['enable'],0,p['ladder']);positions=[i for i,g in enumerate(gates) if g==exact]
+    assert len(positions)==4
+    mutated=state[:];run(mutated,gates[:positions[1]]+gates[positions[1]+1:])
+    correct=state[:];run(correct,gates)
+    assert mutated!=correct
+    for path,expected in candidate.PINS.items():
+        assert hashlib.sha256((ROOT/path).read_bytes()).hexdigest()==expected
+    for key in ('concrete_base_oracle_implemented','complete_resource_vector','complete_simulator_coverage',
+                'actual_input_entry_bridge','joint_whole_machine_projection_proved','profile_qualified','production_gate_changed'):
+        assert m.resources()[key] is False
+
+
+def test_reduced_width_contract_is_explicitly_synthetic_not_free_prefix():
+    actual=candidate.OverlayLookup(0,4,2,8).resources()
+    toy=candidate.OverlayLookup(0,4,2,8,13).resources()
+    assert actual['actual_base_response_width'] is True
+    assert actual['smaller_width_is_distinct_synthetic_oracle_contract'] is False
+    assert toy['actual_base_response_width'] is False
+    assert toy['smaller_width_is_distinct_synthetic_oracle_contract'] is True
+    assert actual['clean_work_bits']==2112 and toy['clean_work_bits']==13

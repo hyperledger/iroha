@@ -1,0 +1,86 @@
+{
+  "audited_repository_read_paths": [
+    "crates/iroha_core/src/beacon.rs",
+    "crates/iroha_core/src/beacon/session_owner/validated.rs",
+    "crates/iroha_core/src/beacon/validation.rs",
+    "crates/iroha_core/src/sumeragi/epoch_beacon.rs",
+    "crates/iroha_core/src/sumeragi/epoch_beacon/control.rs",
+    "crates/iroha_core/src/sumeragi/epoch_beacon/producer.rs",
+    "crates/iroha_core/src/sumeragi/epoch_beacon/producer/readiness.rs",
+    "pytest.ini",
+    "scripts/formal/check_sora_parliament_source_contract.py",
+    "scripts/formal/rust_text.py",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "scripts/tests/conftest.py"
+  ],
+  "command": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "docs/validation/parliament_ballot_beacon_borrow_guard/beacon-borrow-controls.py.template",
+    "indexed_beacon_requirement or beacon_requirement or beacon_borrow"
+  ],
+  "environment": {
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"
+  },
+  "exit": 0,
+  "log": "docs/validation/parliament_ballot_beacon_borrow_guard/beacon-borrow-controls.txt",
+  "log_sha256": "0c4c9bd5a7ca2beda3ab846c6786d17641feeb13e2ce97bdb4fad22b170b45a2",
+  "observed_at_utc": "2026-10-13T14:31:16.676670+00:00",
+  "observed_read_count": 13,
+  "passed": 182,
+  "profile_qualified": false,
+  "pytest_arguments": [
+    "--import-mode=importlib",
+    "--import-mode=importlib",
+    "-q",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "-k",
+    "indexed_beacon_requirement or beacon_requirement or beacon_borrow"
+  ],
+  "pytest_version": "9.1.1",
+  "read_scope": "Repository source/data/config reads; Python bytecode caches and generated evidence outputs excluded. Installed interpreter/pytest runtime trusted.",
+  "repository_imports": {
+    "__main__": "docs/validation/parliament_ballot_beacon_borrow_guard/beacon-borrow-controls.py.template",
+    "scripts.formal.check_sora_parliament_source_contract": "scripts/formal/check_sora_parliament_source_contract.py",
+    "scripts.tests.check_sora_parliament_source_contract_test": "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "scripts.tests.conftest": "scripts/tests/conftest.py"
+  },
+  "runtime": {
+    "installed_runtime_trusted": true,
+    "python_executable": "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "python_executable_sha256": "1b5cb11d163e5ba34e2a05fc533c0ed89574d4425f9749a9d89405f651980e0d",
+    "python_version": "3.14.8 (main, Sep 30 2026, 17:55:09) [Clang 21.0.0 (clang-2100.3.34.2)]"
+  },
+  "schema": "parliament-beacon-borrow-controls-v1",
+  "scope": "One hundred eighty-two focused Python beacon requirement and borrowed witness controls, including eighty-six new borrowed-witness controls. The exact original NativeBeaconProducer build, prepared context, missing-share refusal, borrowed encoder handoff, codec error propagation and small codec module tokens are bound. Surrounding producer type/name resolution, Pulse/ControlWitness definitions, Norito semantics and compiler/runtime behavior remain premises. No runtime or production qualification follows.",
+  "source_after": {
+    "crates/iroha_core/src/beacon.rs": "cb05bf775af311ac6af74c80b15ff363f1e2ca03864d4cd2a2680b24042d9ce9",
+    "crates/iroha_core/src/beacon/session_owner/validated.rs": "09780d50b55c3838327472d544bc9d44ba82e0662089d1d66b72e25174513d7c",
+    "crates/iroha_core/src/beacon/validation.rs": "dd0ed87f1d835b2cca2ae504b592af9e133cddd43da66e7c22aa5df02d6b4324",
+    "crates/iroha_core/src/sumeragi/epoch_beacon.rs": "639c1da5c1d12a3a0e250b934ca6d59ae9abf2fe0baa121885f00032166f6fe0",
+    "crates/iroha_core/src/sumeragi/epoch_beacon/control.rs": "853abeb435b1c2400b61b56bd02bbee81bfd4a0de834fb18d784107cfe29f168",
+    "crates/iroha_core/src/sumeragi/epoch_beacon/producer.rs": "1ff71c1c44142958e1f65272b38707c2dba7baf68d0e19733e2ab691b78823f8",
+    "crates/iroha_core/src/sumeragi/epoch_beacon/producer/readiness.rs": "3d5d6f02cb4d390ccc4fd53451b50ce8b98dd1a01b3fa0f34a4c15334b2657b6",
+    "docs/validation/parliament_ballot_beacon_borrow_guard/beacon-borrow-controls.py.template": "254c83ff9cb96e340923124830fa8abbb9f00933018b55e1df2ecd173800ab95",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/formal/check_sora_parliament_source_contract.py": "8f087407ab5d1b84c2c3998426a0480f79f6ed60ae4e7ebee9b4c1d47ec88c3e",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "d8f44e837bb034cf5cb7145123d3e71ec1b78fdb7ffa17b7c2e199b46a8fc733",
+    "scripts/tests/conftest.py": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f"
+  },
+  "source_before": {
+    "crates/iroha_core/src/beacon.rs": "cb05bf775af311ac6af74c80b15ff363f1e2ca03864d4cd2a2680b24042d9ce9",
+    "crates/iroha_core/src/beacon/session_owner/validated.rs": "09780d50b55c3838327472d544bc9d44ba82e0662089d1d66b72e25174513d7c",
+    "crates/iroha_core/src/beacon/validation.rs": "dd0ed87f1d835b2cca2ae504b592af9e133cddd43da66e7c22aa5df02d6b4324",
+    "crates/iroha_core/src/sumeragi/epoch_beacon.rs": "639c1da5c1d12a3a0e250b934ca6d59ae9abf2fe0baa121885f00032166f6fe0",
+    "crates/iroha_core/src/sumeragi/epoch_beacon/control.rs": "853abeb435b1c2400b61b56bd02bbee81bfd4a0de834fb18d784107cfe29f168",
+    "crates/iroha_core/src/sumeragi/epoch_beacon/producer.rs": "1ff71c1c44142958e1f65272b38707c2dba7baf68d0e19733e2ab691b78823f8",
+    "crates/iroha_core/src/sumeragi/epoch_beacon/producer/readiness.rs": "3d5d6f02cb4d390ccc4fd53451b50ce8b98dd1a01b3fa0f34a4c15334b2657b6",
+    "docs/validation/parliament_ballot_beacon_borrow_guard/beacon-borrow-controls.py.template": "254c83ff9cb96e340923124830fa8abbb9f00933018b55e1df2ecd173800ab95",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/formal/check_sora_parliament_source_contract.py": "8f087407ab5d1b84c2c3998426a0480f79f6ed60ae4e7ebee9b4c1d47ec88c3e",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "d8f44e837bb034cf5cb7145123d3e71ec1b78fdb7ffa17b7c2e199b46a8fc733",
+    "scripts/tests/conftest.py": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f"
+  },
+  "source_unchanged": true
+}

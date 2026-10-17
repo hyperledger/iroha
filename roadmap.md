@@ -34,6 +34,14 @@ The [first-release goals](specs/first_release_completion_goals.md),
 coordinate this work. Remove retired interfaces directly; production behavior
 remains deterministic and configuration-owned, with mandatory protocol semantics.
 
+Core/retail-fee owners must qualify the integrated idle-settlement source owner
+and exact receipt permits on the current candidate. Completion requires the
+genuine Parliament due-height regression, paid multiwallet/month progress,
+foreign-owner and capacity refusals, atomic balance/receipt/reward/cursor/witness
+rollback, and complete source-seal reconciliation. Preserve the frozen shared
+native budget, SNS remainder, distinct ordinary/governance pools and invariant
+poisoning.
+
 ### SORA Nexus payment acceptance
 
 The delivery contract is **payment intent → authorized effects → verified receipt

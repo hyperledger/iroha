@@ -17248,29 +17248,27 @@ mod tests {
                     &test_id(&account, &hash),
                     &hash,
                 )
-                .expect_err("repeated persisted read retains its actual decoder refusal");
+                .expect_err("a repeated unfunded proposal read also defers");
                 let RoutingResolveError::Deferred(repeated) = repeated else {
-                    panic!("a repeated local refusal must not become a completed rejection");
+                    panic!("the repeated read must retain its own decoder refusal");
                 };
                 assert_eq!(repeated.reason(), direct.reason());
-                let repeated_cause = repeated.decode_refusal().expect("repeated decoder cause");
-                let original_cause = direct.decode_refusal().expect("original decoder cause");
-                assert_eq!(repeated_cause.kind(), original_cause.kind());
-                assert_eq!(
-                    repeated_cause.resource_error(),
-                    original_cause.resource_error()
-                );
-                assert_ne!(
-                    repeated_cause, original_cause,
-                    "distinct actual reads retain distinct observations"
-                );
-                assert!(repeated.allocation_refusal().is_none());
-                assert!(repeated.verification_refusal().is_none());
-                assert!(repeated.phase().is_none());
                 assert_eq!(routed.reason(), direct.reason());
                 let direct_cause = direct
                     .decode_refusal()
                     .expect("actual direct decoder cause");
+                let repeated_cause = repeated
+                    .decode_refusal()
+                    .expect("actual repeated decoder cause");
+                assert_eq!(repeated_cause.kind(), direct_cause.kind());
+                assert_eq!(
+                    repeated_cause.resource_error(),
+                    direct_cause.resource_error()
+                );
+                assert_ne!(
+                    repeated_cause, direct_cause,
+                    "separate persisted reads retain distinct original decoder observers"
+                );
                 let custom_cause = custom
                     .decode_refusal()
                     .expect("actual custom JSON decoder cause");
@@ -17290,12 +17288,15 @@ mod tests {
                 // different allocation; numeric demand equality would be a false control.
                 let original_observation = routed_cause.clone();
                 assert!(direct.allocation_refusal().is_none());
+                assert!(repeated.allocation_refusal().is_none());
                 assert!(custom.allocation_refusal().is_none());
                 assert!(routed.allocation_refusal().is_none());
                 assert!(direct.verification_refusal().is_none());
+                assert!(repeated.verification_refusal().is_none());
                 assert!(custom.verification_refusal().is_none());
                 assert!(routed.verification_refusal().is_none());
                 assert!(direct.phase().is_none());
+                assert!(repeated.phase().is_none());
                 assert!(custom.phase().is_none());
                 assert!(routed.phase().is_none());
                 let moved = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(

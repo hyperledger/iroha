@@ -1,0 +1,23 @@
+{
+  "build_or_worker_rerun": false,
+  "command": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "scripts/tests/parliament_ballot_source_recovery_test.py"
+  ],
+  "exit": 0,
+  "input_changes": {},
+  "input_sha256": {
+    "docs/validation/parliament_ballot_adapter_source_recovery/SHA256SUMS": "00bbaf781ccb78064c84ad92f4ed47c7e2d6b87b3208d7831f75e79191271a4d",
+    "docs/validation/parliament_ballot_b6/recover-adapter-sources.py.template": "3d56bb404e4c03104ecdb84fb921e2b4aa8756cf9a185618ff4fae2d340bbadc",
+    "scripts/tests/parliament_ballot_source_recovery_test.py": "51a9a0a5ee3bf25cf94060a34f2b1ff92a9c8243be45d11c6361a4238382092a"
+  },
+  "log_sha256": "1e7a2b94a32f949d284e67d2078d58730be5434f1e92caa42f6fbbb78b1816a2",
+  "observed_at_utc": "2026-10-13T11:40:53.512849+00:00",
+  "profile_qualified": false,
+  "schema": "parliament-historical-source-recovery-fault-controls-v1",
+  "scope": "Synthetic fault controls only: exact digest; live-source preservation; existing output, bad historical identity, unstable report and mismatched Git bytes refuse; missing/mutated first and second-pass inputs and changed recipe identity cannot resolve. Synthetic fixture substitutes only the fixed historical report hash and git output; it is not a new historical capture.",
+  "test_count": 12
+}

@@ -1,0 +1,30 @@
+"""Small independent L0 review run, with observed selected before/after identities."""
+import hashlib,json,os,subprocess,time
+from pathlib import Path
+
+root=Path(__file__).resolve().parents[2];folder=Path(__file__).resolve().parent
+stage=root/'target/parliament-ideal-machine-stage'
+files=[stage/name for name in ('l0_machine.py','l0.md','hash_machine.py','bit_ir.py')]+[
+    folder/'test_independent_l0.py',Path(__file__),root/'pytest.ini',
+    root/'scripts/parliament_ballot_oracle_log_circuit.py',root/'specs/parliament_ballot_b6_oracle_log_circuit.md',
+    root/'scripts/parliament_ballot_write_framing.py',root/'crates/iroha_zkp_vole/src/hash.rs',
+    root/'specs/parliament_ballot_b6_h5_fixed_opening.md']
+def digest(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+before={str(p.relative_to(root)):digest(p) for p in files}
+command=['/opt/homebrew/bin/pytest','-c',str(root/'pytest.ini'),'--confcutdir',str(root),
+    '--import-mode=importlib','-p','no:cacheprovider','-o','addopts=','--maxfail=0','-q',
+    str(folder/'test_independent_l0.py'),'--basetemp',str(folder/'final-pytest-temp'),
+    '--junitxml',str(folder/'final-junit.xml')]
+env=os.environ.copy()
+for name in ('PYTEST_ADDOPTS','PYTEST_PLUGINS','PYTHONPATH'):env.pop(name,None)
+env.update(PYTHONDONTWRITEBYTECODE='1',PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',PYTHONPATH=str(stage))
+start=time.monotonic();result=subprocess.run(command,cwd=root,env=env,capture_output=True)
+(folder/'final-stdout.txt').write_bytes(result.stdout);(folder/'final-stderr.txt').write_bytes(result.stderr)
+after={str(p.relative_to(root)):digest(p) for p in files}
+receipt=dict(command=command,exit_code=result.returncode,elapsed_seconds=time.monotonic()-start,
+    before=before,after=after,stable=before==after,complete_resource_vector=False,
+    independent_cryptographic_review=False,production_qualified=False,
+    retained_outputs={name:digest(folder/name) for name in ('final-stdout.txt','final-stderr.txt','final-junit.xml')})
+(folder/'review-receipt.json').write_text(json.dumps(receipt,sort_keys=True,indent=2)+'\n')
+print(result.stdout.decode());print(json.dumps(dict(exit=result.returncode,stable=before==after,receipt_sha256=digest(folder/'review-receipt.json'))))
+raise SystemExit(int(result.returncode!=0 or before!=after))

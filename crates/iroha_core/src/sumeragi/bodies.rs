@@ -124,7 +124,7 @@ impl BodyReadCustody {
         original.revalidate()?;
         Ok(original)
     }
-    fn lock(&self) -> io::Result<File> {
+    pub(super) fn lock(&self) -> io::Result<File> {
         self.revalidate()?;
         // A new open is required: a duplicate of one locked description would not serialize
         // cooperative operations. Never create or replace this already selected lock file.

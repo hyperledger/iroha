@@ -592,9 +592,10 @@ impl State {
     /// from the same certified cut. All originals remain untrusted publication data.
     ///
     /// # Errors
-    /// Returns an error for a changed or uncertified cut, missing or mismatched
-    /// originals, duplicate wrapper/target keys, exceeded allocation or record
-    /// bounds, noncanonical terminal bytes, or rejection by `consume`.
+    /// Returns an error for identical wrapper keys, absent required records,
+    /// empty, oversized or uncertified originals, malformed or noncanonical terminal records, or a
+    /// cancellation target that aliases a wrapper key. Also propagates cut,
+    /// State acquisition, allocation, snapshot bounds and consumer errors.
     pub fn with_native_multisig_execution_snapshot_v1<T>(
         &self,
         tip: &CommittedBlock,

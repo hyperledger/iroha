@@ -40,7 +40,9 @@ struct SimPrepareAdmission {
     block_hash: Hash32,
     result: Hash32,
     block_time_ms: u64,
+    max_clock_drift_ms: u64,
     max_lag_ms: u64,
+    clock_guarded: bool,
     sensitive: bool,
     wall: Arc<AtomicI64>,
 }
@@ -57,11 +59,29 @@ impl PrepareAdmission for SimPrepareAdmission {
         {
             return Err(SigningError::InvalidInput);
         }
-        if request.certified() || !self.sensitive || cfg!(sumeragi_mutation = "MS65") {
+        if request.certified() || !self.clock_guarded {
             return Ok(());
         }
-        let observed_ms = u64::try_from(self.wall.load(Ordering::Relaxed).max(0)).unwrap();
-        if observed_ms.saturating_sub(self.block_time_ms) > self.max_lag_ms {
+        let wall = self.wall.load(Ordering::Relaxed);
+        let observed_ms = u64::try_from(wall.max(0)).unwrap();
+        let drift = if cfg!(sumeragi_mutation = "MS66") {
+            0
+        } else {
+            self.max_clock_drift_ms
+        };
+        if !cfg!(any(sumeragi_mutation = "MS52", sumeragi_mutation = "MS74"))
+            && i128::from(self.block_time_ms) > i128::from(wall) + i128::from(drift)
+        {
+            return Err(SigningError::ClockAhead {
+                block_time_ms: self.block_time_ms,
+                observed_ms,
+                max_clock_drift_ms: self.max_clock_drift_ms,
+            });
+        }
+        if self.sensitive
+            && !cfg!(sumeragi_mutation = "MS65")
+            && observed_ms.saturating_sub(self.block_time_ms) > self.max_lag_ms
+        {
             return Err(SigningError::StaleExecution {
                 block_time_ms: self.block_time_ms,
                 observed_ms,
@@ -145,7 +165,7 @@ pub struct GuardState {
     /// Builder leads of every machine (cycled per build).
     leads: Vec<Vec<i64>>,
     /// Shared only with admissions issued by this event owner.
-    signing_walls: Vec<Arc<AtomicI64>>,
+    pub(super) signing_walls: Vec<Arc<AtomicI64>>,
     /// Payloads built so far per machine.
     builds: Vec<usize>,
     /// Every guard decision of an honest executor, in order.
@@ -261,8 +281,10 @@ impl World {
                 block_hash: bh,
                 result,
                 block_time_ms: stamped.unwrap_or(0),
+                max_clock_drift_ms: guard.max_clock_drift_ms,
                 max_lag_ms: guard.due_work_max_lag_ms,
-                sensitive: sensitive && stamped.is_some() && !self.machines[machine].byz,
+                clock_guarded: stamped.is_some() && !self.machines[machine].byz,
+                sensitive,
                 wall: Arc::clone(&guard.signing_walls[machine]),
             },
             (),
@@ -380,12 +402,24 @@ impl World {
         req: u64,
         payload: Option<crate::availability::PayloadBytes>,
     ) {
+        let payload = match (payload, self.replicas[r].build_source) {
+            (Some(payload), Some(context)) => {
+                let admission = self.original_proposal_admission(r, context, payload.clone());
+                Some(crate::proposal_admission::BuiltPayload { payload, admission })
+            }
+            // A host request without original Core context still completes, but cannot
+            // issue publication custody or make an arbitrary payload signable.
+            (None, _) | (Some(_), None) => None,
+        };
         let rep = &mut self.replicas[r];
         rep.build_request = None;
+        rep.build_source = None;
         rep.completed_build = None;
         let hash = crate::preimage::payload_hash(
             &self.hasher,
-            payload.as_ref().map_or(&[], |payload| payload.as_slice()),
+            payload
+                .as_ref()
+                .map_or(&[], |built| built.payload.as_slice()),
         );
         self.oracle.built.insert((rep.inst, rep.machine, hash));
         rep.host.deliver(Event::PayloadBuilt { req, payload });

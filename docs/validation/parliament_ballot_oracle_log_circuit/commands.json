@@ -1,0 +1,46 @@
+{
+  "tests": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "scripts/tests/parliament_ballot_oracle_log_circuit_test.py"
+  ],
+  "illustrative": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "scripts/parliament_ballot_oracle_log_circuit.py",
+    "--root",
+    "/Users/mtakemiya/dev/iroha",
+    "--request-cap",
+    "17592186044416",
+    "--external-query-cap",
+    "18446744073709551616",
+    "--length-bits",
+    "64"
+  ],
+  "zero_requests": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "scripts/parliament_ballot_oracle_log_circuit.py",
+    "--root",
+    "/Users/mtakemiya/dev/iroha",
+    "--request-cap",
+    "0",
+    "--external-query-cap",
+    "7",
+    "--length-bits",
+    "64"
+  ],
+  "qualification_refusal": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "scripts/parliament_ballot_oracle_log_circuit.py",
+    "--root",
+    "/Users/mtakemiya/dev/iroha",
+    "--request-cap",
+    "17592186044416",
+    "--external-query-cap",
+    "18446744073709551616",
+    "--length-bits",
+    "64",
+    "--require-qualified"
+  ]
+}

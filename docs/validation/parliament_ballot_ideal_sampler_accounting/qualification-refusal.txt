@@ -1,0 +1,6 @@
+Command: /opt/homebrew/opt/python@3.11/bin/python3.11 scripts/parliament_ballot_ideal_sampler_accounting.py --root /Users/mtakemiya/dev/iroha --require-qualified
+Exit code: 2
+checked_logical_accounting: true
+profile_qualified: false
+stdout identical to report.json: true
+stdout SHA256: 32f13e842ac39f7f3c3d08ae2135a8ebdffd442acc776002e2229c36610ad043

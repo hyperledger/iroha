@@ -1,0 +1,79 @@
+# Concrete public Keccak / SHA3-512 circuit
+
+This ignored component supplies the concrete public hashing primitive needed
+by the incomplete B6 IdealFrontierSim machine. It does not implement the whole
+public-input framing stage, a proof relation, a native workspace certificate,
+or a cryptographic reduction. All full-machine and qualification flags remain
+false. No production file, gate, old artifact or Cargo job is changed.
+
+`keccak1600.py` implements the 24 rounds of Keccak-f[1600] as Boolean SSA in
+the separately reviewed `bit_ir.py`. Coordinates are `64*(x+5*y)+z`; byte bits
+and lane bits are little endian. Theta uses explicit XOR reductions, rho/pi
+uses a fixed bijective relabeling, chi uses NOT/AND/XOR, and iota uses fixed
+NOTs. Public round constants and rotation offsets are derived from the FIPS
+algorithms. No secret lookup, implicit arithmetic, oracle call, or native
+instruction is used by this circuit model.
+
+The complete permutation has 115,200 XOR, 38,400 AND and 38,486 NOT nodes,
+including 86 set round-constant bits. Compute, copy to an arbitrary disjoint
+target and uncompute therefore requires 76,972 X, 539,372 CNOT and 76,800
+Toffoli gates. With the existing five-elementary-gates-per-Toffoli convention,
+that is **1,000,344 elementary gates and 192,086 clean work bits**. Both
+1,600-bit input and output registers are additional. This is the emitted
+output-XOR map, not an optimized in-place permutation cost.
+
+`SHA3_512Kernel(n)` handles a fixed public byte length `0 <= n <= 2^20`,
+using the source's 72-byte rate, delimited suffix `0x06`, and final `0x80`
+padding. It always emits `k = floor(n/72)+1` absorption permutations,
+including a fresh padding block after an exact rate multiple. Each permutation
+is a clean kernel; its work is shared, while all absorption states are retained
+until the outer inverse traversal. The 512-bit output is copied and all work
+returns to zero. An empty message has one untouched dummy input bit because
+the generic IR requires a nonempty input; either bit value has the same digest.
+
+The resulting complete fixed-length sponge counts are:
+
+```
+X        = 2*k*76,972 + 6
+CNOT     = 2*k*539,372 + 32*n + 518
+Toffoli  = 2*k*76,800
+work     = 192,086 + 1,600 + 8*n + 3 + 1,600*k bits
+oracle calls = 0
+```
+
+The factor of two on each clean permutation accounts for the outer sponge's
+reverse traversal. Caller input and output registers are additional. Length
+is static circuit shape; choosing an adversarial length, checking public-input
+shape, encoding variable data, allocating maximum registers and coherently
+selecting among lengths are not provided by this component. No full P0/P1
+count can omit those obligations.
+
+The selected Rust correspondence is `iroha_zkp_vole::hash::Sha3_512` and its
+`xor_into`, `read_from`, update and finalization methods, plus the public
+framing/profile consumers. These hashes are observations, not a compiler
+semantic proof or a complete dependency closure. The backend H_mu/H0/H1/etc.
+remain restrictions of the named ideal base function in the proposed hybrid;
+this concrete SHA3 circuit never turns the backend SHAKE implementation into
+an ideal independent oracle or grants a new primitive security premise.
+
+The finite tests compare round constants/offsets against independent tables,
+rounds and full permutations against a separate word-coordinate model,
+SHA3-512 against Python's independent digest at rate boundaries, and emitted
+gates against packed independent basis states. The latter checks arbitrary
+XOR targets, noncontiguous relocation, all input and guard bits, complete
+workspace cleanup and actual emitted gate counts. Basis tests supplement the
+explicit reversible construction; they do not exhaust the 1,600-bit domain.
+
+Primary sources:
+
+- [FIPS 202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf),
+  sections 3–6 and byte padding in Appendix B. The retained PDF has SHA256
+  `1592607831ff0908cc590632ce371c6c95e94025bb1a0c8ae90a4d0ec1ed025e`.
+- [Team Keccak specification summary](https://keccak.team/keccak_specs_summary.html),
+  fixed coordinate conventions and independent constant/rotation tables.
+
+TODO: independently review and capture this component, integrate actual public
+frames with their length/type checks and all cleanup, and complete the other
+IdealFrontierSim stages before claiming a complete simulator resource vector.
+Independent cryptographic review, accepted advantages, required physical
+hardware and native workspace qualification remain separate open requirements.

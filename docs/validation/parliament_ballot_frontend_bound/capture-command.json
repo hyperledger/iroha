@@ -1,0 +1,17 @@
+{
+  "command": [
+    ".venv/bin/python",
+    "scripts/parliament_ballot_frontend_bound.py",
+    "--root",
+    "/Users/mtakemiya/dev/iroha",
+    "--output",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_frontend_bound/analysis"
+  ],
+  "exit": 0,
+  "stdout": {
+    "verdict": "PASS_UNDER_STATED_PREMISES",
+    "failure": null,
+    "input_changes": {}
+  },
+  "report_sha256": "d29b4846f90fc230323076ffb570513346ad2751ef4aa9b3b886b78e55b4e91d"
+}

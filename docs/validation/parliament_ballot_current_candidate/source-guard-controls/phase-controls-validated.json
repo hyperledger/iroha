@@ -1,0 +1,68 @@
+{
+  "audited_repository_read_paths": [
+    "crates/iroha_core/src/state.rs",
+    "pytest.ini",
+    "scripts/formal/check_sora_parliament_source_contract.py",
+    "scripts/formal/rust_text.py",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "scripts/tests/conftest.py"
+  ],
+  "command": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "docs/validation/parliament_ballot_current_candidate/source-guard-controls/phase-controls-validated.py.template",
+    "block_start_phase_call_order or block_start_phase_calls_reject_disconnected_or_late_owners or block_start_admission_and_stage_refusals_remain_typed"
+  ],
+  "environment": {
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"
+  },
+  "exit": 0,
+  "log": "docs/validation/parliament_ballot_current_candidate/source-guard-controls/phase-controls-validated.txt",
+  "log_sha256": "eb07fd9cceb85b15ecb775800bad0a2dd6962a5a9e16e6c17d4aa264326e23b5",
+  "observed_at_utc": "2026-10-13T13:09:08.469618+00:00",
+  "observed_read_count": 7,
+  "passed": 74,
+  "profile_qualified": false,
+  "pytest_arguments": [
+    "--import-mode=importlib",
+    "--import-mode=importlib",
+    "-q",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "-k",
+    "block_start_phase_call_order or block_start_phase_calls_reject_disconnected_or_late_owners or block_start_admission_and_stage_refusals_remain_typed"
+  ],
+  "pytest_version": "9.1.1",
+  "read_scope": "Repository source/data/config reads; Python bytecode caches and generated evidence outputs excluded. Installed interpreter/pytest runtime trusted.",
+  "repository_imports": {
+    "__main__": "docs/validation/parliament_ballot_current_candidate/source-guard-controls/phase-controls-validated.py.template",
+    "scripts.formal.check_sora_parliament_source_contract": "scripts/formal/check_sora_parliament_source_contract.py",
+    "scripts.tests.check_sora_parliament_source_contract_test": "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "scripts.tests.conftest": "scripts/tests/conftest.py"
+  },
+  "runtime": {
+    "installed_runtime_trusted": true,
+    "python_executable": "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "python_executable_sha256": "1b5cb11d163e5ba34e2a05fc533c0ed89574d4425f9749a9d89405f651980e0d",
+    "python_version": "3.14.8 (main, Sep 30 2026, 17:55:09) [Clang 21.0.0 (clang-2100.3.34.2)]"
+  },
+  "schema": "parliament-phase-controls-validated-v1",
+  "scope": "Seventy-four focused Python structural controls on the current State phase call boundary. A sentinel verifies that the separate construction guard remains mandatory; its actual current failure is retained separately. Prior queue/Kura checks and their shared helpers are unchanged. Observed guard.read inputs and executing code are pinned; no full Rust or concurrency qualification follows.",
+  "source_after": {
+    "crates/iroha_core/src/state.rs": "a0771a785a8cd3a2606e63626b0ba542e82e2ae183826434de592dfa417a3d2c",
+    "docs/validation/parliament_ballot_current_candidate/source-guard-controls/phase-controls-validated.py.template": "f6ae542f72b20936c5c9979c1266a8e3f555ac678d6a4d6263cd9bb5e3b3b8ea",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/formal/check_sora_parliament_source_contract.py": "8809287abb1a78e148414cedc2a3cdabc5e720fdb2f51e57be227052f5b55d53",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "55177fa041df26c14717736a1289cf588930bc0a7d3e951533b18d43224c373e",
+    "scripts/tests/conftest.py": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f"
+  },
+  "source_before": {
+    "crates/iroha_core/src/state.rs": "a0771a785a8cd3a2606e63626b0ba542e82e2ae183826434de592dfa417a3d2c",
+    "docs/validation/parliament_ballot_current_candidate/source-guard-controls/phase-controls-validated.py.template": "f6ae542f72b20936c5c9979c1266a8e3f555ac678d6a4d6263cd9bb5e3b3b8ea",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/formal/check_sora_parliament_source_contract.py": "8809287abb1a78e148414cedc2a3cdabc5e720fdb2f51e57be227052f5b55d53",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "55177fa041df26c14717736a1289cf588930bc0a7d3e951533b18d43224c373e",
+    "scripts/tests/conftest.py": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f"
+  },
+  "source_unchanged": true
+}

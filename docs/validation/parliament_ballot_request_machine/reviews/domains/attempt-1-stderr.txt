@@ -1,0 +1,15 @@
+Traceback (most recent call last):
+  File "/Users/mtakemiya/dev/iroha/target/parliament-domain-review/review_domains.py", line 250, in <module>
+    if __name__=='__main__':main()
+                            ~~~~^^
+  File "/Users/mtakemiya/dev/iroha/target/parliament-domain-review/review_domains.py", line 177, in main
+    fs=actual_frames(ROOT,row,role)
+  File "/Users/mtakemiya/dev/iroha/target/parliament-ideal-machine-stage/write_machine.py", line 60, in actual_frames
+    plans = tuple(module.shape(row, role, i) for i in (1, 2, 3))
+            ^^^^^
+  File "/Users/mtakemiya/dev/iroha/target/parliament-ideal-machine-stage/write_machine.py", line 60, in <genexpr>
+    plans = tuple(module.shape(row, role, i) for i in (1, 2, 3))
+                  ~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/Users/mtakemiya/dev/iroha/scripts/parliament_ballot_write_framing.py", line 90, in shape
+    raise ValueError("unsupported row or role")
+ValueError: unsupported row or role

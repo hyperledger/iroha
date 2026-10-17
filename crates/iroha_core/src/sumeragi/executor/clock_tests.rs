@@ -65,8 +65,32 @@ pub(crate) fn assert_clock_ahead_defers_original(
             clock.set(Duration::ZERO);
             assert_eq!(
                 worker.execute(&block, hash, false).unwrap(),
-                Some(ExecOutcome::Valid { result, admission })
+                Some(ExecOutcome::Valid {
+                    result,
+                    admission: admission.clone()
+                })
             );
+            let request = |certified| {
+                iroha_sumeragi::testing::prepare_signing_request(
+                    block.header().instance,
+                    block.header().epoch,
+                    block.header().height,
+                    block.header().origin_view,
+                    hash,
+                    result,
+                    certified,
+                )
+            };
+            assert!(
+                matches!(
+                    admission.check(&request(false)),
+                    Err(iroha_sumeragi::crypto::SigningError::ClockAhead { .. })
+                ),
+                "ordinary native first Prepare must recheck the clock after cached Valid"
+            );
+            assert_eq!(admission.check(&request(true)), Ok(()));
+            clock.set(boundary);
+            assert_eq!(admission.check(&request(false)), Ok(()));
         },
     );
 }

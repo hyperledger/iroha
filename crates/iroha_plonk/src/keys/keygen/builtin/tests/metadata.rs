@@ -67,7 +67,7 @@ fn parity<C: PastaCurve>(compress: bool) {
     );
     assert_eq!(probe.calls(), 0);
     drop(probe);
-    let make_proof = |key: &ProvingKey<C>| {
+    let create_verified_proof = |key: &ProvingKey<C>| {
         let witness = Witness::from_circuit(key, &f.source, &[]).unwrap();
         let bytes = create_proof_owned(
             &f.params,
@@ -88,7 +88,10 @@ fn parity<C: PastaCurve>(compress: bool) {
         .unwrap();
         bytes
     };
-    assert_eq!(make_proof(&rebuilt), make_proof(&f.generated));
+    assert_eq!(
+        create_verified_proof(&rebuilt),
+        create_verified_proof(&f.generated)
+    );
     let changed = Source {
         fixed: C::ScalarExt::from(8),
         value: Value::unknown(),

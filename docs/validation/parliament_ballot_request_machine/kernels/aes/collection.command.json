@@ -1,0 +1,39 @@
+{
+  "command": [
+    "/opt/homebrew/bin/pytest",
+    "-c",
+    "/Users/mtakemiya/dev/iroha/pytest.ini",
+    "-o",
+    "addopts=",
+    "--confcutdir=/Users/mtakemiya/dev/iroha",
+    "--import-mode=importlib",
+    "-p",
+    "no:cacheprovider",
+    "--maxfail=0",
+    "--tb=short",
+    "-q",
+    "--collect-only",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/test_aes256.py",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/test_independent_aes.py"
+  ],
+  "elapsed_seconds": 0.26675429102033377,
+  "exit_code": 0,
+  "expected_exit_code": 0,
+  "name": "collection",
+  "source_after": {
+    "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    "/Users/mtakemiya/dev/iroha/pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/README.md": "eb96dfea0a5fbfef6e29b3931986d902f378343d2786ef3ec0cd886063d4367c",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/aes256.py": "d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/capture.py": "3b73eca130910562c6ef905a38093762f412df1fcb9ba593b4f5866f7d22c306",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/AES_Core256.pdf": "8caf33781b8d4b9564c7e95a7690e491ca1d95efe9a31cdea2977deaf4c7b4ce",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.pdf": "62c86eb567f13edb8f71826e985da870b04ef6381634f303cdb16e84d47becd1",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/references/FIPS-197-upd1.txt": "9d75ba19894ad2b2ff3aa21a2663f9413d0d6fe3e6822cf52864b17e5663429f",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/report.py": "585f9b58c79f24a81ad86ff3547af687351addc2cb64a95b26ffa885b6895d8e",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/reviewed-source-hashes.json": "5efc075ef9122c354721baf83cdd91e40a326f7eeec77b6195817e322473ad33",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-machine-stage/test_aes256.py": "4a10177043e404da49de034156c36b330ad6617477e9415e1ba9f11808c14052",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/README.md": "cbce302514346ce2385acdf49a92f63f0dd6ed81c24fcf9a1b03df34b8298cd1",
+    "/Users/mtakemiya/dev/iroha/target/parliament-aes-review/test_independent_aes.py": "03c513562782d582df94f9fe21c8d283a070d1de35979ac1b8b5ea772f9d61bb",
+    "/Users/mtakemiya/dev/iroha/target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64"
+  }
+}

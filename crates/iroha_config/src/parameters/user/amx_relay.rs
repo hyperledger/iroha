@@ -110,16 +110,14 @@ impl AmxRelay {
                     );
                     continue;
                 }
-                let scope: SumeragiRootScope =
-                    if let Ok(scope) = norito::json::from_str(&route.scope_json) {
-                        scope
-                    } else {
-                        invalid(
-                            emitter,
-                            "amx_relay scope_json must be an exact native root scope",
-                        );
-                        continue;
-                    };
+                let Ok(scope) = norito::json::from_str::<SumeragiRootScope>(&route.scope_json)
+                else {
+                    invalid(
+                        emitter,
+                        "amx_relay scope_json must be an exact native root scope",
+                    );
+                    continue;
+                };
                 if let SumeragiRootScope::Dataspace {
                     parent_network_id,
                     dataspace_id,
@@ -165,16 +163,15 @@ impl AmxRelay {
                     );
                     continue;
                 }
-                let fee_payment: FeePaymentIntent =
-                    if let Ok(intent) = norito::json::from_str(&route.fee_payment_json) {
-                        intent
-                    } else {
-                        invalid(
-                            emitter,
-                            "amx_relay fee_payment_json must be an exact native fee authorization",
-                        );
-                        continue;
-                    };
+                let Ok(fee_payment) =
+                    norito::json::from_str::<FeePaymentIntent>(&route.fee_payment_json)
+                else {
+                    invalid(
+                        emitter,
+                        "amx_relay fee_payment_json must be an exact native fee authorization",
+                    );
+                    continue;
+                };
                 if fee_payment.validate().is_err() {
                     invalid(
                         emitter,

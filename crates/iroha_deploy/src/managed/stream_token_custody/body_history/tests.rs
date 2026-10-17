@@ -287,9 +287,9 @@ fn expired_request_retirement_recovers_after_actual_wallet_retirement_before_clo
         NativePreparationPhase::Retired
     );
     assert!(
-        !metadata::test_read_component(&reserved.bodies[0].directory, None, "closed.nrt")
+        metadata::test_read_component(&reserved.bodies[0].directory, None, "closed.nrt")
             .unwrap()
-            .is_some()
+            .is_none()
     );
     let resumed = reopen(&fixture)
         .finish_pending_with_reads(
@@ -481,9 +481,9 @@ fn unused_expired_reservation_retires_without_inventing_a_wallet_or_dispatch_his
     assert!(replacement.bodies[0].unused.is_some());
     assert!(replacement.bodies[0].original.is_none());
     assert!(
-        !metadata::test_read_component(&replacement.bodies[0].directory, None, "dispatch.nrt")
+        metadata::test_read_component(&replacement.bodies[0].directory, None, "dispatch.nrt")
             .unwrap()
-            .is_some()
+            .is_none()
     );
     assert!(
         !replacement.bodies[0]
@@ -845,9 +845,9 @@ fn same_body_retired_wallet_prefix_finishes_before_outer_terminal_closure() {
         .retire(&account, &first.directory().path().join("transaction"))
         .unwrap();
     assert!(
-        !metadata::test_read_attempt_component(first.attempt(), "retired.nrt")
+        metadata::test_read_attempt_component(first.attempt(), "retired.nrt")
             .unwrap()
-            .is_some()
+            .is_none()
     );
     assert!(!second.wallet_path().exists());
     wait_until(expiry(&history), Duration::from_secs(10));
@@ -885,9 +885,9 @@ fn same_body_retired_wallet_prefix_finishes_before_outer_terminal_closure() {
             .is_none()
     );
     assert!(
-        !metadata::test_read_attempt_component(first.attempt(), "retired.nrt")
+        metadata::test_read_attempt_component(first.attempt(), "retired.nrt")
             .unwrap()
-            .is_some()
+            .is_none()
     );
     let resumed = reserved
         .finish_pending_with_reads(
@@ -1291,9 +1291,9 @@ fn first_reservation_refuses_changed_original_before_activation_and_preserves_ex
     );
     assert!(completed.current_history().unwrap().last().is_none());
     assert!(
-        !metadata::test_read_component(&retained.directory, None, "dispatch.nrt")
+        metadata::test_read_component(&retained.directory, None, "dispatch.nrt")
             .unwrap()
-            .is_some()
+            .is_none()
     );
     assert!(!retained.directory.path().join("attempts").exists());
     assert_eq!(fixture.native.chain.height(), 4);

@@ -1,0 +1,154 @@
+"""Freeze one current post-merge source-only CLI/probe capture; preserve historical bundles."""
+from pathlib import Path
+import ast
+import hashlib
+import json
+import re
+
+ROOT = Path.cwd()
+FOLDER = ROOT / 'docs/validation/parliament_ballot_post_merge_source_check'
+PRIOR = ROOT / 'docs/validation/parliament_ballot_execution_result_guard'
+OLD_RECIPE = 'docs/validation/parliament_ballot_execution_result_guard/source-check.py.template'
+NEW_RECIPE = 'docs/validation/parliament_ballot_post_merge_source_check/source-check.py.template'
+EXPECTED_DELTA = {
+    'crates/iroha_core/src/state/deserialize_world.rs': {
+        'before': '8f15d08f8380fe5b42688de2313ef139ca6cfe378a5b4e8abf4205463adfa843',
+        'after': '32e29395814b249e0c009526b263aa63e5d8ceef23d4a3f6568c013d7392703a',
+    },
+    'crates/iroha_torii/src/routing.rs': {
+        'before': 'aca67cde18a19d01eddcd1c21ca2154644ab912727b4b82dde9bc8503306bc8c',
+        'after': 'dcd5af8532819562e99e3f0b6b9a67a13c6ec4dde431b9de8228ae0e2d126db1',
+    },
+}
+FIXED_GUARD = {
+    'scripts/formal/check_sora_parliament_source_contract.py': '4b160bff09631da0fef6ae61fe94b8e037e281fd2fa358a6b544588df7a5a2ec',
+    'scripts/tests/check_sora_parliament_source_contract_test.py': 'e35855cc059afa7be471dc5678338a06b78d0c6560a282085370d391bdb3a3af',
+    'scripts/formal/rust_text.py': 'b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82',
+}
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def read(name):
+    return json.loads((FOLDER / name).read_text())
+
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(str(message))
+
+
+require(not (FOLDER / 'SHA256SUMS').exists(), 'bundle already frozen')
+source, prior, delta, peer = (read(name) for name in (
+    'source-check.json', 'prior-source-check.json', 'source-delta.json', 'peer-review.json'))
+require(sha(FOLDER / 'prior-source-check.json') == sha(PRIOR / 'source-check.json')
+        == delta['prior_source_check_sha256']
+        == 'e97cc9287f73b258438b473fb229bd74739134b5a51e8a9a929f37d1760c3664', 'prior receipt changed')
+require(sha(FOLDER / 'prior-result-manifest.sha256') == sha(PRIOR / 'SHA256SUMS')
+        == delta['result_bundle_manifest_sha256']
+        == 'cca0a8ba74c0ffe4f5142943608280b527f32e1d74718c3a476ae9171afef235', 'prior manifest changed')
+old_manifest = {}
+for line in (FOLDER / 'prior-result-manifest.sha256').read_text().splitlines():
+    digest, path = line.split('  ', 1)
+    require(path not in old_manifest, ('duplicate prior manifest path', path))
+    old_manifest[path] = digest
+require(old_manifest[str((PRIOR / 'source-check.json').relative_to(ROOT))]
+        == delta['prior_source_check_sha256'], 'prior receipt is not manifest-bound')
+require(source['exit'] == source['probe_exit'] == 0 and source['probe_matches_cli_result']
+        and source['observed_main_error'] is None
+        and source['probe_stdout'] == 'SORA Parliament source/model contract: ok\n'
+        and source['probe_raw_stderr'] == source['probe_expected_cli_stderr'] == ''
+        and not source['cli_read_set_independently_traced'], 'current source result scope changed')
+require(source['source_before'] == source['source_after'] and not source['source_changes']
+        and not source['absence_changed'], 'current source capture drift')
+require(prior['source_before'] == prior['source_after'] and prior['exit'] == 0, 'prior result invalid')
+require(source['guarded_absent_paths'] == prior['guarded_absent_paths'], 'absence scope changed')
+require(source['binding_ballot_available'] is False
+        and source['qualified_attempt_latency_ms'] is None
+        and source['no_experimental_core_torii_dependencies'], 'production gate changed')
+require(sha(ROOT / source['log']) == source['log_sha256'], 'current CLI log changed')
+require((ROOT / source['log']).read_text() == source['probe_stdout'], 'current CLI output differs')
+require(OLD_RECIPE in prior['source_after'] and NEW_RECIPE in source['source_after'], 'recipe pin absent')
+old_inputs = {p: h for p, h in prior['source_after'].items() if p != OLD_RECIPE}
+new_inputs = {p: h for p, h in source['source_after'].items() if p != NEW_RECIPE}
+require(old_inputs.keys() == new_inputs.keys(), 'executed read-set membership changed')
+actual_delta = {p: {'before': h, 'after': new_inputs[p]}
+                for p, h in old_inputs.items() if h != new_inputs[p]}
+require(actual_delta == EXPECTED_DELTA, ('unexpected source delta', actual_delta))
+require(peer['reviewed_changed_sources'] == EXPECTED_DELTA
+        and not peer['remaining_findings_under_stated_premises']
+        and peer['native_tests_run'] is False
+        and peer['full_regression_rerun'] is False
+        and peer['regression_evidence_transferred'] is False, 'peer review scope changed')
+require(set(delta['expected_changed_inputs']) == set(EXPECTED_DELTA), 'delta identity set changed')
+for name, identity in EXPECTED_DELTA.items():
+    entry = delta['expected_changed_inputs'][name]
+    require({key: entry[key] for key in ('before', 'after')} == identity, ('delta identity changed', name))
+    require(old_manifest[entry['authenticated_result_archive']] == identity['before'], ('old snapshot not authenticated', name))
+    require(sha(ROOT / entry['authenticated_result_archive']) == identity['before']
+            == sha(ROOT / entry['retained_prior_archive']), ('retained old snapshot changed', name))
+require(sha(FOLDER / 'source-delta.diff') == delta['diff_sha256'], 'delta text changed')
+pins = dict(source['source_after'])
+for name, expected in FIXED_GUARD.items():
+    require(name not in pins or pins[name] == expected, ('guard capture identity changed', name))
+    require(sha(ROOT / name) == expected, ('checker/parser/test edited', name))
+    pins[name] = expected
+snapshots = {}
+for name, expected in sorted(pins.items()):
+    require(sha(ROOT / name) == expected, ('post-capture source drift', name))
+    archive = FOLDER / 'captured-sources' / (name + '.template')
+    if archive.exists():
+        require(sha(archive) == expected, ('original snapshot changed', name))
+    else:
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        archive.write_bytes((ROOT / name).read_bytes())
+    require(sha(archive) == expected, ('snapshot copy drift', name))
+    snapshots[name] = {'sha256': expected, 'archive': str(archive.relative_to(ROOT))}
+(FOLDER / 'captured-sources.json').write_text(json.dumps(snapshots, indent=2, sort_keys=True) + '\n')
+for name in ('source-check.py.template', 'freeze.py.template'):
+    ast.parse((FOLDER / name).read_text())
+links = []
+for link in re.findall(r'\]\(([^)]+)\)', (FOLDER / 'README.md').read_text()):
+    if '://' not in link and not link.startswith('#'):
+        require((FOLDER / link.split('#')[0]).resolve().exists(), ('missing local target', link))
+        links.append(link)
+for name, expected in pins.items():
+    require(sha(ROOT / name) == expected, ('late source drift', name))
+require(not any((ROOT / name).exists() for name in source['guarded_absent_paths']), 'late absence drift')
+value = {
+    'schema': 'parliament-post-merge-source-freeze-v1',
+    'source_check_receipt_sha256': sha(FOLDER / 'source-check.json'),
+    'prior_source_check_receipt_sha256': sha(FOLDER / 'prior-source-check.json'),
+    'prior_result_manifest_sha256': sha(FOLDER / 'prior-result-manifest.sha256'),
+    'source_delta_receipt_sha256': sha(FOLDER / 'source-delta.json'),
+    'peer_review_sha256': sha(FOLDER / 'peer-review.json'),
+    'source_check_input_count': len(source['source_after']),
+    'common_inputs_excluding_distinct_capture_recipes': len(old_inputs),
+    'unchanged_common_input_count': len(old_inputs) - len(actual_delta),
+    'changed_inputs': actual_delta,
+    'source_snapshot_count': len(snapshots), 'retained_prior_snapshot_count': len(EXPECTED_DELTA),
+    'source_snapshot_map_sha256': sha(FOLDER / 'captured-sources.json'),
+    'source_sha256_at_freeze': pins, 'post_capture_drift': {},
+    'source_check_exit': source['exit'], 'source_check_first_error': source['observed_main_error'],
+    'preserved_test_file_not_executed': 'scripts/tests/check_sora_parliament_source_contract_test.py',
+    'historical_full_regression_tests': 1755, 'full_regression_rerun': False,
+    'historical_regression_applies_to_current_snapshot': False,
+    'cli_read_set_independently_traced': False, 'local_links_checked': links,
+    'scope': 'Current source-only CLI/probe evidence. Exactly two inputs differ from the historical Result source check after accounting for distinct capture recipes. The checker/parser/test bytes are preserved; test bytes are archived without running tests. The prior full regression remains bound to its original snapshots. No Rust/native/mutation/formal-model/performance checks or production qualification are established. Installed Python and surrounding resolver/compiler/runtime/serializer semantics remain premises.',
+    'binding_ballot_available': False, 'qualified_attempt_latency_ms': None,
+    'profile_qualified': False, 'production_qualified': False,
+}
+(FOLDER / 'freeze-receipt.json').write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
+files = sorted(p for p in FOLDER.rglob('*') if p.is_file() and p.name != 'SHA256SUMS'
+               and '__pycache__' not in p.parts and p.name != '.DS_Store')
+manifest = FOLDER / 'SHA256SUMS'
+manifest.write_text(''.join(sha(p) + '  ' + str(p.relative_to(ROOT)) + '\n' for p in files))
+for line in manifest.read_text().splitlines():
+    expected, name = line.split('  ', 1)
+    require(sha(ROOT / name) == expected, ('manifest drift', name))
+print(json.dumps({'entries': len(files), 'manifest_sha256': sha(manifest),
+                  'freeze_receipt_sha256': sha(FOLDER / 'freeze-receipt.json'),
+                  'snapshots': len(snapshots), 'source_check_inputs': len(source['source_after']),
+                  'changed_inputs': len(actual_delta)}))

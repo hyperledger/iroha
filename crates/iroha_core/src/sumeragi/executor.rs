@@ -359,7 +359,15 @@ enum Request {
         u64,
         u32,
         u32,
-        mpsc::SyncSender<Result<Option<PayloadBytes>, PublicationError>>,
+        mpsc::SyncSender<
+            Result<Option<iroha_sumeragi::proposal_admission::BuiltPayload>, PublicationError>,
+        >,
+    ),
+    RecoverProposalAdmission(
+        AvailableBody,
+        mpsc::SyncSender<
+            Result<iroha_sumeragi::proposal_admission::ProposalAdmission, PublicationError>,
+        >,
     ),
     BuildControl(
         ControlWitnessContext,
@@ -674,11 +682,24 @@ impl Executor for StateExecutor {
         view: u64,
         max_bytes: u32,
         exec_budget_ms: u32,
-    ) -> Result<Option<PayloadBytes>, PublicationError> {
+    ) -> Result<Option<iroha_sumeragi::proposal_admission::BuiltPayload>, PublicationError> {
         self.call(|reply| Request::Build(height, view, max_bytes, exec_budget_ms, reply))
             .unwrap_or_else(|| {
                 Err(PublicationError::RecoveryRequired(
                     "payload builder stopped".into(),
+                ))
+            })
+    }
+
+    fn recover_proposal_admission(
+        &mut self,
+        body: &AvailableBody,
+    ) -> Result<iroha_sumeragi::proposal_admission::ProposalAdmission, PublicationError> {
+        require_body_admission(body, &self.execution_budget)?;
+        self.call(|reply| Request::RecoverProposalAdmission(body.clone(), reply))
+            .unwrap_or_else(|| {
+                Err(PublicationError::RecoveryRequired(
+                    "proposal admission worker stopped".into(),
                 ))
             })
     }
@@ -770,6 +791,7 @@ struct Finishing<'s> {
     valid: ValidBlock,
     signature_decode: SignatureDecodeAttempt,
     due_work_max_lag_ms: u64,
+    max_clock_drift_ms: u64,
     encoded_preimage: Option<iroha_allocation::ChargedBuffer<u8>>,
     admission: Option<iroha_allocation::ChargedShared<prepare_admission::NativePrepareAdmission>>,
     overlay: Box<StateBlock<'s>>,
@@ -864,6 +886,7 @@ mod prepare_admission;
 #[cfg(test)]
 #[path = "executor/prepare_admission_tests.rs"]
 mod prepare_admission_tests;
+mod proposal_publication;
 mod publication;
 mod replay;
 
@@ -910,6 +933,8 @@ struct GlobalPayloadBuild {
     job: super::driver::payload_build::PayloadBuild<GlobalPayloadSource>,
     /// Exact original pre-wire refusal; survives retry with this same source and job.
     preparation_refusal: Option<GlobalPayloadPreparationError>,
+    /// First captured publication owner is reused with this exact paid source.
+    proposal_admission: Option<iroha_sumeragi::proposal_admission::ProposalAdmission>,
 }
 
 /// Own the exact authenticated source, partial leaves and completed decoded proposal.
@@ -1076,6 +1101,7 @@ struct Worker<'s> {
         super::certified_chain::ParentServicePreparation,
     )>,
     signature_decode: Option<SignatureDecodeAttempt>,
+    proposal_decode: Option<proposal_publication::ProposalRecovery>,
     context: &'s ExecutorContext,
     state: &'s State,
     applied: (u64, Hash32),
@@ -1110,6 +1136,7 @@ fn run(context: &ExecutorContext, requests: &mpsc::Receiver<Request>) {
         payload_build: None,
         assembly_parent_service: None,
         signature_decode: None,
+        proposal_decode: None,
         context,
         state: &state,
         applied: context.applied,
@@ -1258,6 +1285,9 @@ impl<'s> Worker<'s> {
             }
             Request::Build(height, view, max_bytes, exec_budget_ms, reply) => {
                 let _ = reply.send(self.build(height, view, max_bytes, exec_budget_ms));
+            }
+            Request::RecoverProposalAdmission(body, reply) => {
+                let _ = reply.send(self.recover_proposal_admission(&body));
             }
             Request::BuildControl(context, reply) => {
                 let _ = reply.send(self.build_control_witness(&context));
@@ -1745,6 +1775,11 @@ impl<'s> Worker<'s> {
             .parameters()
             .sumeragi()
             .due_work_max_lag_ms();
+        let max_clock_drift_ms = original_view
+            .world()
+            .parameters()
+            .sumeragi()
+            .max_clock_drift_ms();
         drop(original_view);
         let iroha_block = self
             .signature_decode
@@ -1899,6 +1934,7 @@ impl<'s> Worker<'s> {
                 committee,
                 events,
                 due_work_max_lag_ms,
+                max_clock_drift_ms,
                 progress_clock,
             )?
             .is_none()
@@ -1920,6 +1956,7 @@ impl<'s> Worker<'s> {
         committee: Vec<PeerId>,
         events: Vec<EventBox>,
         due_work_max_lag_ms: u64,
+        max_clock_drift_ms: u64,
         progress_clock: Option<crate::smartcontracts::isi::sccp::keepalive::ProgressClock>,
     ) -> Result<Option<()>, PublicationError> {
         let height = block.header().height;
@@ -1969,6 +2006,7 @@ impl<'s> Worker<'s> {
             valid,
             signature_decode,
             due_work_max_lag_ms,
+            max_clock_drift_ms,
             encoded_preimage: None,
             admission: None,
             overlay,
@@ -2390,6 +2428,12 @@ impl<'s> Worker<'s> {
 
     fn discard(&mut self, height: u64, keep: &[Hash32]) {
         self.retire_completed_payload(height);
+        if self.proposal_decode.as_ref().is_some_and(|original| {
+            original.decode.source.header().height == height
+                && !keep.contains(&original.decode.block_hash)
+        }) {
+            self.proposal_decode = None;
+        }
         if self.recovery.is_some() || self.publication_pending() {
             return;
         }
@@ -3039,6 +3083,7 @@ impl<'s> Worker<'s> {
         let height = pending.header.height;
         self.completed_replay = None;
         self.applied = (height, pending.qc.block_hash);
+        self.proposal_decode = None;
         self.assembly_parent_service = None;
         self.context
             .applied_watch
@@ -3063,12 +3108,14 @@ impl<'s> Worker<'s> {
         view: u64,
         max_bytes: u32,
         exec_budget_ms: u32,
-    ) -> Result<Option<PayloadBytes>, PublicationError> {
+    ) -> Result<Option<iroha_sumeragi::proposal_admission::BuiltPayload>, PublicationError> {
         // The inner body acquires and retires its original State view and Queue
         // guards before same-pool refund callbacks can reenter either owner.
         let budget = self.state.ivm_execution_budget();
         budget.with_deferred_refund_notifications(|_| {
-            self.build_with_original_refund_scope(height, view, max_bytes, exec_budget_ms)
+            self.build_with_original_refund_scope(height, view, max_bytes, exec_budget_ms)?
+                .map(|payload| self.admit_built_payload(payload, height, view))
+                .transpose()
         })
     }
 
@@ -3380,6 +3427,7 @@ impl<'s> Worker<'s> {
                             max_bytes,
                         ),
                         preparation_refusal: None,
+                        proposal_admission: None,
                     });
                     return self.finish_payload_build();
                 }
@@ -3418,6 +3466,7 @@ impl<'s> Worker<'s> {
             scope,
             mut job,
             preparation_refusal,
+            proposal_admission,
         } = self.payload_build.take().ok_or_else(|| {
             PublicationError::RecoveryRequired("payload source disappeared".into())
         })?;
@@ -3455,6 +3504,7 @@ impl<'s> Worker<'s> {
                 scope,
                 job,
                 preparation_refusal: Some(error),
+                proposal_admission,
             });
             return Err(publication);
         }
@@ -3474,6 +3524,7 @@ impl<'s> Worker<'s> {
                     scope,
                     job,
                     preparation_refusal: None,
+                    proposal_admission,
                 });
             }
             #[cfg(all(test, sumeragi_core_mutation = "HC199"))]
@@ -3485,6 +3536,7 @@ impl<'s> Worker<'s> {
                         scope,
                         job,
                         preparation_refusal: None,
+                        proposal_admission,
                     });
                 }
             }
@@ -3538,6 +3590,7 @@ impl<'s> Worker<'s> {
                     scope,
                     job,
                     preparation_refusal: None,
+                    proposal_admission,
                 });
                 let reason = format!("canonical payload admission: {error:?}");
                 Err(if retry {

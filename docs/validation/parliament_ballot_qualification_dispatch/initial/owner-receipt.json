@@ -1,0 +1,190 @@
+{
+  "template_original": {
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_b6/ios_host_template/bridge/Cargo.lock.template": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_b6/ios_host_template/bridge/Cargo.toml": "6cfb0f21936366664872485c3f502be2b80e2caf7f7a5f5fbb5c0e4562940d57",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_b6/ios_host_template/bridge/src/lib.rs": "3be9c32fff1d4bb83c99bed1b1cd79a5dc1a1a17935d004db54893c7f4ac0afd"
+  },
+  "template_copy": "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge",
+  "prepared": {
+    "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.lock": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+    "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.lock.template": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+    "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.toml": "23233de072e024a906ae84623c1809fe71cb4900d6ab3fbd8c668284d33b26ba",
+    "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/src/lib.rs": "456f26bad77182d3117956acc583c3ce2607192edb7c4cdaed6dbb5d0cf700e7"
+  },
+  "root_lock_before": "d185eaad173f871c2ac9ecd48923119b0276546739e87963fd5a6532781b9442",
+  "checks": [
+    {
+      "name": "fuzz-portable",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--offline",
+        "--manifest-path",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/Cargo.toml",
+        "--all-targets",
+        "--jobs",
+        "4",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 6.47,
+      "log": "/tmp/iroha-clippy-isolated-parliament-fuzz-portable.log",
+      "lock_sha256": "29214e69a911bb5672faaf44f8204a905e64abdfb588893b31cdaa0b5b456023",
+      "source_before": {
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/Cargo.lock": "29214e69a911bb5672faaf44f8204a905e64abdfb588893b31cdaa0b5b456023",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/Cargo.lock.template": "29214e69a911bb5672faaf44f8204a905e64abdfb588893b31cdaa0b5b456023",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/Cargo.toml": "95cd4becc2c9e7c62ceb25b3984e9f341ce9c70405c6bc1d53b9a611561b87c5",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/README.md": "c86bfcdc78601dd78b3ee523cfb0872269711f52946c12a9adf08b6d97321a0a",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/accel.txt": "1874d595b49075d0fa10390a1fbed8647f5f56070a2979abce0e794932f88534",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/corpus.tar.xz": "7e054986f2e2f04f5a69dc7938e417303406a168e21e7da40c255d01ed26cdc7",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/manifest.json": "a597ceeecdf1d013522849417293f1779617dc540653e0b26555da36658f96a1",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/portable.txt": "ef3a1068ce23973ad719bacf77bfca45dee8484cfe5f63961be5d2f0b0eae3ae",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/replay_expected.txt": "64628ba3f0c69dcc0b8ba12aea73413efc488d79583a0c9eaf85a38d92d16568",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/fuzz_targets/parsers.rs": "74b5f0425ba6d146f56ba1d304c074e08e74f3705f73738de02cc0c39000094f",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/replay.rs": "4149cbe616732d302eb3323b11c5087f1b9b99adc4015f5a6cb05484a90a57a6",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/seed_corpus.py": "79556b871acf95a7414ada5fe2029212fb68a1d2b1096a9a0425fb4154d93cad"
+      },
+      "source_after": {
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/Cargo.lock": "29214e69a911bb5672faaf44f8204a905e64abdfb588893b31cdaa0b5b456023",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/Cargo.lock.template": "29214e69a911bb5672faaf44f8204a905e64abdfb588893b31cdaa0b5b456023",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/Cargo.toml": "95cd4becc2c9e7c62ceb25b3984e9f341ce9c70405c6bc1d53b9a611561b87c5",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/README.md": "c86bfcdc78601dd78b3ee523cfb0872269711f52946c12a9adf08b6d97321a0a",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/accel.txt": "1874d595b49075d0fa10390a1fbed8647f5f56070a2979abce0e794932f88534",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/corpus.tar.xz": "7e054986f2e2f04f5a69dc7938e417303406a168e21e7da40c255d01ed26cdc7",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/manifest.json": "a597ceeecdf1d013522849417293f1779617dc540653e0b26555da36658f96a1",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/portable.txt": "ef3a1068ce23973ad719bacf77bfca45dee8484cfe5f63961be5d2f0b0eae3ae",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/replay_expected.txt": "64628ba3f0c69dcc0b8ba12aea73413efc488d79583a0c9eaf85a38d92d16568",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/fuzz_targets/parsers.rs": "74b5f0425ba6d146f56ba1d304c074e08e74f3705f73738de02cc0c39000094f",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/replay.rs": "4149cbe616732d302eb3323b11c5087f1b9b99adc4015f5a6cb05484a90a57a6",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/seed_corpus.py": "79556b871acf95a7414ada5fe2029212fb68a1d2b1096a9a0425fb4154d93cad"
+      },
+      "source_changes": []
+    },
+    {
+      "name": "fuzz-accel",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--offline",
+        "--manifest-path",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/Cargo.toml",
+        "--all-targets",
+        "--jobs",
+        "4",
+        "--features",
+        "accel",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 1.63,
+      "log": "/tmp/iroha-clippy-isolated-parliament-fuzz-accel.log",
+      "lock_sha256": "29214e69a911bb5672faaf44f8204a905e64abdfb588893b31cdaa0b5b456023",
+      "source_before": {
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/Cargo.lock": "29214e69a911bb5672faaf44f8204a905e64abdfb588893b31cdaa0b5b456023",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/Cargo.lock.template": "29214e69a911bb5672faaf44f8204a905e64abdfb588893b31cdaa0b5b456023",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/Cargo.toml": "95cd4becc2c9e7c62ceb25b3984e9f341ce9c70405c6bc1d53b9a611561b87c5",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/README.md": "c86bfcdc78601dd78b3ee523cfb0872269711f52946c12a9adf08b6d97321a0a",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/accel.txt": "1874d595b49075d0fa10390a1fbed8647f5f56070a2979abce0e794932f88534",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/corpus.tar.xz": "7e054986f2e2f04f5a69dc7938e417303406a168e21e7da40c255d01ed26cdc7",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/manifest.json": "a597ceeecdf1d013522849417293f1779617dc540653e0b26555da36658f96a1",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/portable.txt": "ef3a1068ce23973ad719bacf77bfca45dee8484cfe5f63961be5d2f0b0eae3ae",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/replay_expected.txt": "64628ba3f0c69dcc0b8ba12aea73413efc488d79583a0c9eaf85a38d92d16568",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/fuzz_targets/parsers.rs": "74b5f0425ba6d146f56ba1d304c074e08e74f3705f73738de02cc0c39000094f",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/replay.rs": "4149cbe616732d302eb3323b11c5087f1b9b99adc4015f5a6cb05484a90a57a6",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/seed_corpus.py": "79556b871acf95a7414ada5fe2029212fb68a1d2b1096a9a0425fb4154d93cad"
+      },
+      "source_after": {
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/Cargo.lock": "29214e69a911bb5672faaf44f8204a905e64abdfb588893b31cdaa0b5b456023",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/Cargo.lock.template": "29214e69a911bb5672faaf44f8204a905e64abdfb588893b31cdaa0b5b456023",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/Cargo.toml": "95cd4becc2c9e7c62ceb25b3984e9f341ce9c70405c6bc1d53b9a611561b87c5",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/README.md": "c86bfcdc78601dd78b3ee523cfb0872269711f52946c12a9adf08b6d97321a0a",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/accel.txt": "1874d595b49075d0fa10390a1fbed8647f5f56070a2979abce0e794932f88534",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/corpus.tar.xz": "7e054986f2e2f04f5a69dc7938e417303406a168e21e7da40c255d01ed26cdc7",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/manifest.json": "a597ceeecdf1d013522849417293f1779617dc540653e0b26555da36658f96a1",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/portable.txt": "ef3a1068ce23973ad719bacf77bfca45dee8484cfe5f63961be5d2f0b0eae3ae",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/evidence/replay_expected.txt": "64628ba3f0c69dcc0b8ba12aea73413efc488d79583a0c9eaf85a38d92d16568",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/fuzz_targets/parsers.rs": "74b5f0425ba6d146f56ba1d304c074e08e74f3705f73738de02cc0c39000094f",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/replay.rs": "4149cbe616732d302eb3323b11c5087f1b9b99adc4015f5a6cb05484a90a57a6",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/fuzz/seed_corpus.py": "79556b871acf95a7414ada5fe2029212fb68a1d2b1096a9a0425fb4154d93cad"
+      },
+      "source_changes": []
+    },
+    {
+      "name": "bridge-portable",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--offline",
+        "--manifest-path",
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.toml",
+        "--all-targets",
+        "--jobs",
+        "4",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 101,
+      "seconds": 14.63,
+      "log": "/tmp/iroha-clippy-isolated-parliament-bridge-portable.log",
+      "lock_sha256": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+      "source_before": {
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.lock": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.lock.template": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.toml": "23233de072e024a906ae84623c1809fe71cb4900d6ab3fbd8c668284d33b26ba",
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/src/lib.rs": "456f26bad77182d3117956acc583c3ce2607192edb7c4cdaed6dbb5d0cf700e7"
+      },
+      "source_after": {
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.lock": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.lock.template": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.toml": "23233de072e024a906ae84623c1809fe71cb4900d6ab3fbd8c668284d33b26ba",
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/src/lib.rs": "456f26bad77182d3117956acc583c3ce2607192edb7c4cdaed6dbb5d0cf700e7"
+      },
+      "source_changes": []
+    },
+    {
+      "name": "bridge-accel",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--offline",
+        "--manifest-path",
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.toml",
+        "--all-targets",
+        "--jobs",
+        "4",
+        "--features",
+        "accel",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 101,
+      "seconds": 1.91,
+      "log": "/tmp/iroha-clippy-isolated-parliament-bridge-accel.log",
+      "lock_sha256": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+      "source_before": {
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.lock": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.lock.template": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.toml": "23233de072e024a906ae84623c1809fe71cb4900d6ab3fbd8c668284d33b26ba",
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/src/lib.rs": "456f26bad77182d3117956acc583c3ce2607192edb7c4cdaed6dbb5d0cf700e7"
+      },
+      "source_after": {
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.lock": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.lock.template": "7a727128add735c90cc6cf2e1d0652ea53298d481e8f02a38552420aea254cf9",
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/Cargo.toml": "23233de072e024a906ae84623c1809fe71cb4900d6ab3fbd8c668284d33b26ba",
+        "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/iroha-parliament-clippy-wgh1zidz/bridge/src/lib.rs": "456f26bad77182d3117956acc583c3ce2607192edb7c4cdaed6dbb5d0cf700e7"
+      },
+      "source_changes": []
+    }
+  ],
+  "root_lock_after": "d185eaad173f871c2ac9ecd48923119b0276546739e87963fd5a6532781b9442"
+}

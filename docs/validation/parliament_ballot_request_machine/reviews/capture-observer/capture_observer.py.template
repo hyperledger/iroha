@@ -1,0 +1,29 @@
+"""Explicit pytest plugin recording effective selection and executed identities."""
+import json
+import os
+from pathlib import Path
+
+from _pytest.subtests import SubtestReport
+
+CALLS = []
+COLLECTED = []
+
+
+def pytest_collection_finish(session):
+    COLLECTED.extend(item.nodeid for item in session.items)
+
+
+def pytest_runtest_logreport(report):
+    if report.when == 'call':
+        # Builtin subtests reuse the parent's node ID. Retain their outcomes,
+        # while identifying them explicitly for exact parent-membership checks.
+        CALLS.append(dict(nodeid=report.nodeid,outcome=report.outcome,
+                          is_subtest=isinstance(report,SubtestReport)))
+
+
+def pytest_sessionfinish(session, exitstatus):
+    config=session.config
+    value=dict(collected=COLLECTED,calls=CALLS,exitstatus=int(exitstatus),
+               effective_options={n:config.getoption(n) for n in
+                                  ('keyword','markexpr','maxfail','collectonly','ignore','ignore_glob','deselect')})
+    Path(os.environ['PARLIAMENT_CAPTURE_OBSERVATION']).write_text(json.dumps(value,indent=2,sort_keys=True)+'\n')

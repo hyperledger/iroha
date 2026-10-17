@@ -1,0 +1,204 @@
+"""Reconcile new conditional bounds/accounting and scoped source-guard repairs.
+
+Run once from the repository root after final capture. Prior frozen identities
+are checked, never repinned. This is evidence bookkeeping, not qualification.
+"""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+import re
+import subprocess
+
+ROOT = Path.cwd()
+B6 = ROOT / "docs/validation/parliament_ballot_b6"
+PRIOR = B6 / "pre-decoder-profile-resource-artifact-manifest.sha256"
+INDEX = B6 / "B6_ARTIFACTS_SHA256SUMS"
+RECEIPT = B6 / "decoder-profile-resource-coherence.json"
+
+
+def require(condition, detail):
+    if not condition:
+        raise RuntimeError(str(detail))
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def read(path):
+    return json.loads(Path(path).read_text())
+
+
+def inventory(path):
+    result = {}
+    for line in path.read_text().splitlines():
+        digest, name = line.split("  ", 1)
+        require(name not in result and re.fullmatch(r"[0-9a-f]{64}", digest), (path, name))
+        result[name] = digest
+    return result
+
+
+def verify_manifest(path):
+    entries = inventory(path)
+    for name, expected in entries.items():
+        base = ROOT if name.startswith(("docs/", "specs/", "scripts/", "crates/")) else path.parent
+        require(sha(base / name) == expected, (path, name))
+    return {"path": str(path.relative_to(ROOT)), "sha256": sha(path), "entries": len(entries)}
+
+
+def drift(pins):
+    result = {}
+    for name, expected in pins.items():
+        path = ROOT / name
+        actual = sha(path) if path.is_file() else None
+        if actual != expected:
+            result[name] = {"before": expected, "after": actual}
+    return result
+
+
+require(sha(PRIOR) == "f84dd3b8d78ac31cf442a31b2f7cf10207e81e6de5776959768443882010195f", "wrong prior index")
+require(INDEX.read_bytes() == PRIOR.read_bytes(), "index already changed")
+require(not RECEIPT.exists(), "refuse overwriting receipt")
+old = inventory(PRIOR)
+allowed = {
+    "docs/validation/parliament_ballot_b6.md",
+    "specs/parliament_ballot_arena_sufficiency.md",
+    "specs/parliament_ballot_b6_requirement_audit.md",
+    "specs/parliament_ballot_implementation_goals.md",
+}
+changes = drift(old)
+require(set(changes) == allowed, ("unexpected prior artifact changes", changes))
+folders = {
+    "parliament_ballot_profile_bound": "300ae6a89b19ef2c99ef27f6ba10e4ad8d981c62150ca12d1c95e1c586dd60cd",
+    "parliament_ballot_typed_decoder_bound": "3b6053c629e21af9331af6b3c86e82adce7513b65b2ab1630400aa5badd8be90",
+    "parliament_ballot_ideal_sampler_accounting": "82bfa0d481d8a116f753be5466f16a3f713199ea83d9c1582507355a3d90f9c1",
+}
+manifests = []
+for name, expected in folders.items():
+    path = ROOT / "docs/validation" / name / "SHA256SUMS"
+    require(sha(path) == expected, ("child manifest changed", name))
+    manifests.append(verify_manifest(path))
+
+compiled = {}
+for name, count in (("profile", 2089), ("typed_decoder", 2103)):
+    folder = ROOT / ("docs/validation/parliament_ballot_" + name + "_bound")
+    path = folder / "analysis/report.json"
+    report = read(path)
+    require(report["verdict"] == "PASS_UNDER_STATED_PREMISES" and not report["input_changes"], name)
+    require(not report["applies_to_current_checkout"] and not report["profile_qualified"], name)
+    require(len(report["input_sha256"]) == count and not drift(report["input_sha256"]), name + " resolved sources changed")
+    compiled[name] = {"report_sha256": sha(path), "resolved_guards_checked": count,
+                      "current_source_differences": report["current_source_differences"]}
+
+sampler_dir = ROOT / "docs/validation/parliament_ballot_ideal_sampler_accounting"
+sampler = read(sampler_dir / "receipt.json")
+sampler_report = read(sampler_dir / "report.json")
+require(not sampler["profile_qualified"] and not sampler["full_resource_vector"], "sampler scope changed")
+require(sampler["test_count"] == 30 and sampler["qualification_refusal_exit_code"] == 2, "sampler controls failed")
+require(not drift(sampler["source_sha256_at_freeze"]), "sampler source changed")
+require(not drift(sampler["executing_artifact_sha256_at_freeze"]), "sampler executable changed")
+require(len(sampler_report["cases"]) == 20 and not sampler_report["quantum_gate_bound"], "sampler report changed")
+for item in sampler["source_references"]:
+    lines = (ROOT / item["path"]).read_bytes().splitlines(keepends=True)
+    data = b"".join(lines[item["start_line"] - 1:item["end_line"]])
+    require(hashlib.sha256(data).hexdigest() == item["excerpt_sha256"], ("excerpt changed", item))
+
+prior_gate_path = B6 / "decoder-profile-resource-source-check.json"
+prior_gate = read(prior_gate_path)
+queue = read(B6 / "queue-signed-gas-controls.json")
+require(queue["exit"] == 0 and queue["source_unchanged"] and queue["expected_test_count"] == 36, "queue controls failed")
+require(sha(ROOT / queue["log"]) == queue["log_sha256"], "queue log changed")
+for name in ("scripts/formal/check_sora_parliament_source_contract.py", "scripts/tests/check_sora_parliament_source_contract_test.py"):
+    archived = B6 / ("queue-only-" + Path(name).name + ".template")
+    require(sha(archived) == queue["source_after"][name], "queue historical source changed")
+counterexample_path = B6 / "queue-signed-gas-counterexample.json"
+counterexample = read(counterexample_path)
+require(counterexample["historical_invalid_live_zero_quote_accepted"] and
+        not counterexample["production_files_modified"], "historical counterexample lost")
+require(not drift(counterexample["source_sha256_after"]), "counterexample inputs changed")
+
+gate_path = B6 / "kura-claim-guard-source-check.json"
+gate = read(gate_path)
+require(gate["observed_read_set_matches_cli"] and not gate["source_changes"], "final source check incoherent")
+require(not drift(gate["source_after"]), "final source inputs changed")
+require(sha(ROOT / gate["log"]) == gate["log_sha256"], "final source log changed")
+require(gate["binding_ballot_available"] is False and gate["qualified_attempt_latency_ms"] is None
+        and gate["no_experimental_core_torii_dependencies"], "production gate changed")
+controls_path = B6 / "kura-claim-guard-controls.json"
+controls = read(controls_path)
+require(controls["exit"] == 0 and controls["source_unchanged"] and controls["passed"] == 192, "final controls failed")
+require(not drift(controls["source_after"]), "final control sources changed")
+require(sha(ROOT / controls["log"]) == controls["log_sha256"], "final controls log changed")
+require(controls["source_after"]["scripts/formal/check_sora_parliament_source_contract.py"] ==
+        "3ad7a9957125848d98d7a93be4d87e971795e85752a91ee92c3daefe26d3a4c3", "reviewed final checker changed")
+require(controls["source_after"]["scripts/tests/check_sora_parliament_source_contract_test.py"] ==
+        "2cf94054ce8522c07fe64d5e09ff0af513a65fad17674d99c1df3ce855d50e0c", "reviewed final tests changed")
+
+documents = [ROOT / name for name in sorted(allowed)] + [
+    ROOT / "specs/parliament_ballot_b6_ideal_sampler_accounting.md",
+    *[ROOT / "docs/validation" / name / "README.md" for name in folders],
+]
+links = []
+for doc in documents:
+    for link in re.findall(r"\]\(([^)]+)\)", doc.read_text()):
+        if "://" in link or link.startswith("#"):
+            continue
+        require((doc.parent / link.split("#")[0]).resolve().exists(), ("broken link", doc, link))
+        links.append({"document": str(doc.relative_to(ROOT)), "link": link})
+new_sources = {
+    "scripts/parliament_ballot_profile_bound.py", "scripts/tests/parliament_ballot_profile_bound_test.py",
+    "scripts/parliament_ballot_typed_decoder_bound.py", "scripts/tests/parliament_ballot_typed_decoder_bound_test.py",
+    "scripts/parliament_ballot_ideal_sampler_accounting.py", "scripts/tests/parliament_ballot_ideal_sampler_accounting_test.py",
+    "specs/parliament_ballot_b6_ideal_sampler_accounting.md",
+    "scripts/formal/check_sora_parliament_source_contract.py", "scripts/tests/check_sora_parliament_source_contract_test.py",
+}
+checks = []
+for label, paths in (("scoped-diff", sorted(allowed | new_sources)), ("shared-status-diff", ["status.md"])):
+    command = ["git", "diff", "--check", "--", *paths]
+    run = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+    path = B6 / ("decoder-profile-resource-" + label + ".txt")
+    require(not path.exists(), "refuse overwriting check log")
+    path.write_text(run.stdout + run.stderr)
+    checks.append({"command": command, "exit": run.returncode, "log": str(path.relative_to(ROOT)), "log_sha256": sha(path)})
+require(checks[0]["exit"] == 0, "scoped diff failed")
+require(not drift(gate["source_after"]), "final source changed during reconciliation")
+adapter = read(ROOT / "docs/validation/parliament_ballot_adapter_bound/report.json")
+receipt = {
+    "schema": "parliament-decoder-profile-resource-coherence-v1",
+    "observed_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "prior_entries": len(old), "prior_manifest_sha256": sha(PRIOR),
+    "updated_live_entries": changes, "frozen_new_manifests": manifests,
+    "historical_compiled_bounds": compiled,
+    "current_adapter_input_changes": drift(adapter["input_sha256"]),
+    "sampler_source_guards_checked": len(sampler["source_sha256_at_freeze"]),
+    "sampler_source_excerpts_checked": len(sampler["source_references"]),
+    "sampler_executing_artifacts_checked": len(sampler["executing_artifact_sha256_at_freeze"]),
+    "queue_only_source_check_sha256": sha(prior_gate_path),
+    "queue_only_source_check_current_drift": drift(prior_gate["source_after"]),
+    "queue_only_test_current_drift": drift(queue["source_after"]),
+    "historical_queue_false_approval_receipt_sha256": sha(counterexample_path),
+    "historical_queue_controls_insufficient": True,
+    "final_focused_controls_sha256": sha(controls_path), "final_focused_controls_passed": controls["passed"],
+    "final_source_check_receipt": str(gate_path.relative_to(ROOT)), "final_source_check_sha256": sha(gate_path),
+    "final_source_check_exit": gate["exit"], "final_source_check_first_error": gate["observed_main_error"],
+    "final_source_guards_checked": len(gate["source_after"]),
+    "local_links_checked": len(links), "broken_links": [], "checks": checks,
+    "current_status_roadmap_sha256": {name: sha(ROOT / name) for name in ("status.md", "roadmap.md")},
+    "binding_ballot_available": False, "qualified_attempt_latency_ms": None,
+    "no_experimental_core_torii_dependencies": True, "profile_qualified": False,
+    "complete_workspace_certificate": False, "complete_quantum_resource_vector": False,
+    "scope": "Historical compiled outer profile/decoder bounds, partial logical sampler accounting and scoped structural guard repairs only. Earlier failed source checks retain their identities; no independent qualification review or full runtime proof is supplied.",
+}
+RECEIPT.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+names = set(old) | new_sources | {
+    str(path.relative_to(ROOT)) for name in folders
+    for path in (ROOT / "docs/validation" / name).rglob("*") if path.is_file()
+} | {str(PRIOR.relative_to(ROOT)), str(RECEIPT.relative_to(ROOT))}
+for pattern in ("decoder-profile-resource-*", "queue-signed-gas-*", "queue-only-*", "kura-claim-guard-*"):
+    names.update(str(path.relative_to(ROOT)) for path in B6.glob(pattern) if path.is_file())
+INDEX.write_text("".join(sha(ROOT / name) + "  " + name + "\n" for name in sorted(names)))
+verify_manifest(INDEX)
+print(json.dumps({"entries": len(names), "index_sha256": sha(INDEX), "coherence_sha256": sha(RECEIPT),
+                  "source_check_exit": gate["exit"], "links_checked": len(links),
+                  "check_exits": [entry["exit"] for entry in checks]}))

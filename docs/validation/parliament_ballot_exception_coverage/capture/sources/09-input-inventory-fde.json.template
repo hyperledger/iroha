@@ -1,0 +1,18 @@
+{
+  "inputs": {
+    "llvm_address_space": {
+      "bytes": 22720,
+      "sha256": "c12382512621f8c749d4ecfa05964c59905a340ba1ea75adecf944d69b383def",
+      "snapshot": "inputs/llvm_address_space",
+      "source_path": "/Users/mtakemiya/dev/iroha/target/parliament-exception-reference-review/llvm-21.1.0-AddressSpace.hpp"
+    },
+    "llvm_dwarf_parser": {
+      "bytes": 33928,
+      "sha256": "72fbc24384208310588d42014033f3ac39da907e63aa743e26eafbec8e83f3a7",
+      "snapshot": "inputs/llvm_dwarf_parser",
+      "source_path": "/Users/mtakemiya/dev/iroha/target/parliament-exception-reference-review/llvm-21.1.0-DwarfParser.hpp"
+    }
+  },
+  "schema": "parliament-exception-fde-references-v1",
+  "scope": "Supplemental LLVM21.1.0 format interpretation references; not installed-libunwind source correspondence. Original19inputmap remains unchanged."
+}

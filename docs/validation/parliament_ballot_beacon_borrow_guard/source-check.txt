@@ -1,0 +1,1 @@
+error: crates/iroha_core/src/sumeragi/epoch_beacon/producer/execution_tests.rs: fn invalid( must contain 'assert!(matches!(executor.execute(candidate,&hash,false),Some(ExecOutcome::Invalid)));' exactly once, found 0
