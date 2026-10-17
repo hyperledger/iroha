@@ -460,6 +460,45 @@ fn source<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1>(
     Ok(marker)
 }
 
+// Called only after issuer credential, account and asset authentication. A different
+// positive orphan key cannot own that credential; all selected-source checks remain below.
+// Kept crate-visible for provider-custody regression tests of this exact opening path.
+pub(crate) fn select_enrolled_source<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1>(
+    provider: &mut KagemushaWalletProviderV1<F, P>,
+    credential: &KagemushaWalletCredentialV1,
+    credential_original: &[u8],
+    pinned: Option<(KagemushaWalletSlotIdV1, [u8; 32])>,
+) -> Result<(KagemushaWalletSlotIdV1, [u8; 32]), Error> {
+    let mut selected = None;
+    for slot in provider.slots()? {
+        let status = match provider.status(&slot) {
+            Ok(status) => status,
+            Err(error @ KagemushaWalletProviderErrorV1::LostCustody(
+                crate::kagemusha_wallet_advance_v1::KagemushaWalletLostCustodyV1::KeyWithoutMarker,
+            )) if pinned.is_none_or(|(selected, _)| selected != slot) => {
+                if provider.key_only_orphan(&slot)?
+                    .is_some_and(|key| key != credential.body.payment_key)
+                {
+                    continue;
+                }
+                return Err(error.into());
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if status
+            .marker()
+            .is_some_and(|record| record.marker().wallet_id == credential.body.wallet_id)
+        {
+            let marker = source(provider, &slot, credential, credential_original)?;
+            if selected.is_some() {
+                return Err(Error::Ambiguous);
+            }
+            selected = Some((slot, *marker.marker_file_digest()));
+        }
+    }
+    selected.ok_or(Error::NotEnrolled)
+}
+
 impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> PendingWalletOpenV1<F, P> {
     /// Admit authenticated originals against a real durable slot and positive hardware key.
     /// The immutable installation capabilities come from Native's authenticated loader.
@@ -527,21 +566,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> PendingWalletOpenV1<F
             let credential = *authenticated.credential();
             let account = account(account_original, &credential.body.account_digest)?;
             let asset_scope = asset_scope(asset_scope_original, &credential.body.asset_digest)?;
-            let mut selected = None;
-            for slot in provider.slots()? {
-                let status = provider.status(&slot)?;
-                if status
-                    .marker()
-                    .is_some_and(|record| record.marker().wallet_id == credential.body.wallet_id)
-                {
-                    let marker = source(provider, &slot, &credential, credential_original)?;
-                    if selected.is_some() {
-                        return Err(Error::Ambiguous);
-                    }
-                    selected = Some((slot, *marker.marker_file_digest()));
-                }
-            }
-            let (slot, marker_file_digest) = selected.ok_or(Error::NotEnrolled)?;
+            let (slot, marker_file_digest) = select_enrolled_source(
+                provider,
+                &credential,
+                credential_original,
+                intake.selected_source,
+            )?;
             // Once actual source validation succeeds, even a later RNG/platform refusal
             // cannot silently reselect another marker/source on retry.
             pin_selected_source(&mut intake.selected_source, (slot, marker_file_digest))?;

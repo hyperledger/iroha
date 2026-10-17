@@ -336,6 +336,44 @@ where
         self.reconcile_slot(slot, Some(owner))
     }
 
+    /// Positively identify a platform-only orphan for an independently authorized lookup.
+    /// This is no custody/recovery authority: `status` still reports KeyWithoutMarker.
+    /// A directory, retained Phase/Slot, or any unknown answer cannot qualify.
+    pub(crate) fn key_only_orphan(
+        &mut self,
+        slot: &KagemushaWalletSlotIdV1,
+    ) -> Result<
+        Option<iroha_data_model::kagemusha::KagemushaDevicePublicKeyV1>,
+        KagemushaWalletProviderErrorV1,
+    > {
+        match self.status(slot) {
+            Err(KagemushaWalletProviderErrorV1::LostCustody(
+                super::KagemushaWalletLostCustodyV1::KeyWithoutMarker,
+            )) => {}
+            Ok(_) => return Ok(None),
+            Err(error) => return Err(error),
+        }
+        // status has checked the complete Phase/Slot graph and found no binding for this
+        // key. Even an empty surviving directory is owned/ambiguous custody, not an orphan.
+        self.require_storage()?;
+        let absent = kagemusha_wallet_list_dir_v1(
+            &self.store,
+            &super::layout::kagemusha_wallet_slot_dir_v1(slot),
+        )?
+        .is_none();
+        self.require_storage()?;
+        if !absent {
+            return Ok(None);
+        }
+        match self.probe_key(slot)? {
+            super::KagemushaWalletProbeV1::Present(key) => Ok(Some(key)),
+            super::KagemushaWalletProbeV1::Absent => Err(KagemushaWalletProviderErrorV1::KeyLost),
+            super::KagemushaWalletProbeV1::Unavailable(reason) => {
+                Err(KagemushaWalletProviderErrorV1::Unavailable(reason))
+            }
+        }
+    }
+
     /// Read the actual payment key inside protected-storage brackets, without generation.
     /// Positive lookup remains useful even when the platform cannot prove absence.
     /// # Errors

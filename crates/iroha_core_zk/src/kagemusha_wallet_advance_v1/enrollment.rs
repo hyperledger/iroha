@@ -449,6 +449,18 @@ where
         profile: KagemushaWalletKeyProfileV1,
         dates: KagemushaWalletEnrollmentDatesV1,
     ) -> Result<Option<KagemushaWalletSlotIdV1>, KagemushaWalletProviderErrorV1> {
+        self.enrollment_slot_for_new_incarnation(challenge, profile, dates, None)
+    }
+
+    // Only a checked generation owner supplies a selected new slot. Strict recovery callers
+    // cannot exclude an orphan from lookup, and the selected slot itself is never excluded.
+    fn enrollment_slot_for_new_incarnation(
+        &mut self,
+        challenge: &KagemushaWalletEnrollmentChallengeV1,
+        profile: KagemushaWalletKeyProfileV1,
+        dates: KagemushaWalletEnrollmentDatesV1,
+        selected: Option<&KagemushaWalletSlotIdV1>,
+    ) -> Result<Option<KagemushaWalletSlotIdV1>, KagemushaWalletProviderErrorV1> {
         if !dates.is_valid()
             || challenge.validate().is_err()
             || challenge.scheme_id != self.scheme_id
@@ -457,15 +469,31 @@ where
                 field: "enrollment.originals",
             });
         }
-        let mut selected = None;
+        let mut found = None;
         for slot in self.slots()? {
             let Some(intent) = self.read_intent(&slot)? else {
                 // A missing intent is not permission to replace a surviving key or wallet.
                 // Reconcile first, preserving unknown key/storage answers on older Android.
-                match self.status(&slot)? {
-                    KagemushaWalletSlotStatusV1::Empty
-                    | KagemushaWalletSlotStatusV1::SlotAbandoned => continue,
-                    _ => {
+                match self.status(&slot) {
+                    Ok(
+                        KagemushaWalletSlotStatusV1::Empty
+                        | KagemushaWalletSlotStatusV1::SlotAbandoned,
+                    ) => continue,
+                    Err(
+                        error @ KagemushaWalletProviderErrorV1::LostCustody(
+                            super::KagemushaWalletLostCustodyV1::KeyWithoutMarker,
+                        ),
+                    ) if selected.is_some_and(|selected| *selected != slot) => {
+                        // R10 remains lost custody. Only a platform-only alias with no
+                        // directory and no Phase/Slot binding (checked by status) is outside
+                        // this new incarnation's intent search. Never initialize its key.
+                        if self.key_only_orphan(&slot)?.is_some() {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                    Err(error) => return Err(error),
+                    Ok(_) => {
                         return Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
                             object: "enrollment intent",
                         });
@@ -478,14 +506,14 @@ where
             }
             if intent.profile != profile.tag()
                 || intent.dates != dates
-                || selected.replace(slot).is_some()
+                || found.replace(slot).is_some()
             {
                 return Err(KagemushaWalletProviderErrorV1::Invalid {
                     field: "enrollment.retained_intent",
                 });
             }
         }
-        Ok(selected)
+        Ok(found)
     }
 
     /// Begin an enrollment under `challenge` (E2-E4) in a fresh slot, generating the payment
@@ -509,7 +537,10 @@ where
             return Ok(KagemushaWalletEnrollmentStepV1::Pending { slot });
         }
         let dates = authorization.dates();
-        if self.enrollment_slot(&challenge, profile, dates)?.is_some() {
+        if self
+            .enrollment_slot_for_new_incarnation(&challenge, profile, dates, Some(&slot))?
+            .is_some()
+        {
             return Err(KagemushaWalletProviderErrorV1::Invalid {
                 field: "pre-key retained intent already exists",
             });

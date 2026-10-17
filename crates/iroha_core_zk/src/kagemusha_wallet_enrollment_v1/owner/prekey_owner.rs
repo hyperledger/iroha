@@ -714,6 +714,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
             return Err(Error::Phase);
         };
         authorize(&dispatch.account, &message, signature)?;
+        // An already selected attempt cannot become a fresh selection if its originals
+        // disappear during a same-owner retry, even when another orphan is present.
+        if let Some((scope, slot)) = self.selected.clone() {
+            self.require_selected_prekey(&scope, &slot)?;
+        }
         // The Client original must still be exactly the one `begin` authenticated before any
         // recovery, selection or key effect binds it.
         let client = self
@@ -799,6 +804,23 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
                 (slot, false)
             }
             None => {
+                // A resumed permit with neither Slot nor Phase is ambiguous in the
+                // presence of orphan custody. Keep the strict scan before selecting any
+                // new binding; a lost original E1 must not mint a replacement key.
+                if dispatch.previous_permit.is_some()
+                    && self
+                        .provider
+                        .enrollment_phase(&dispatch.request_id)?
+                        .is_none()
+                {
+                    self.provider.enrollment_slot(
+                        &first.body.challenge,
+                        super::super::credential::platform_key_profile(
+                            &self.config.policy.platform,
+                        ),
+                        dates,
+                    )?;
+                }
                 // The durable phase binding precedes the Slot selection; an interrupted
                 // selection reuses the slot its binding already names.
                 let binding = self.provider.select_enrollment_binding(
