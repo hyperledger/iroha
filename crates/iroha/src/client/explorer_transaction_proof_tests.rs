@@ -1,9 +1,8 @@
 use super::*;
-use crate::client::tests::{
-    SnapshotStore, assert_canonical_account_signed_request, base_url, client_with_base_url,
-    json_response, respond_with, with_mock_http,
+use crate::client::evidence_http_tests::{
+    SnapshotStore, base_url, client_with_base_url, json_response, respond_with, with_mock_http,
 };
-use base64::Engine as _;
+use crate::client::tests::assert_canonical_account_signed_request;
 use iroha_crypto::MerkleProof;
 use iroha_data_model::{
     block::execution_output::NetworkExecutionOutputV1, transaction::TransactionResult,
